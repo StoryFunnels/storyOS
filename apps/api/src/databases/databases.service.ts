@@ -9,6 +9,8 @@ import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { databases, fields, recordLinks, relations, selectOptions, spaces, views } from '../db/schema';
 import type { Membership } from '../workspaces/workspace-access.guard';
+import { cleanViewConfig } from '../views/views.service';
+import type { ViewConfig } from '@storyos/schemas';
 
 export function slugify(name: string): string {
   return (
@@ -134,7 +136,14 @@ export class DatabasesService {
       }
     }
 
-    return { ...database, fields: fieldsWithOptions, views: viewRows };
+    const liveIds = new Set(fieldRows.map((f) => f.id));
+    const liveNames = new Set(fieldRows.map((f) => f.apiName));
+    const cleanedViews = viewRows.map((v) => ({
+      ...v,
+      config: cleanViewConfig((v.config ?? {}) as ViewConfig, liveIds, liveNames),
+    }));
+
+    return { ...database, fields: fieldsWithOptions, views: cleanedViews };
   }
 
   /** Creates the database + title/system fields + default table view, atomically (B2). */

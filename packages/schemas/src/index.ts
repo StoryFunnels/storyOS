@@ -6,6 +6,7 @@ export * from './fields';
 export * from './record-values';
 export * from './query';
 export * from './relations';
+export * from './views';
 
 /**
  * Health check response — the first shared schema, proving the

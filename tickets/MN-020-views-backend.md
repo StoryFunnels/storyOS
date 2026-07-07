@@ -1,7 +1,7 @@
 ---
 id: MN-020
 title: Views backend
-status: todo
+status: done
 depends_on: [MN-012]
 size: M
 ---
