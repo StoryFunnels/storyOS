@@ -11,6 +11,11 @@ import { env } from './config/env';
  */
 export function configureApp(app: NestFastifyApplication) {
   app.setGlobalPrefix('api/v1', { exclude: ['/', 'healthz', 'api/docs'] });
+  app.enableCors({
+    origin: [env().WEB_URL],
+    credentials: true,
+    methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+  });
   mountAuthHandler(app);
 }
 

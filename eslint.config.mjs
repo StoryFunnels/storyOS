@@ -23,4 +23,20 @@ export default tseslint.config(
       '@typescript-eslint/consistent-type-imports': 'off',
     },
   },
+  {
+    // API-first is structural (CONTRIBUTING.md): the web app talks to the
+    // backend ONLY through @storyos/sdk. No API internals, no DB clients.
+    files: ['apps/web/src/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            { group: ['@storyos/api', '@storyos/api/*', '**/apps/api/**'], message: 'The web app must use @storyos/sdk, never API internals.' },
+            { group: ['drizzle-orm', 'drizzle-orm/*', 'pg'], message: 'No database access from the web app — use @storyos/sdk.' },
+          ],
+        },
+      ],
+    },
+  },
 );

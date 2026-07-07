@@ -1,0 +1,83 @@
+@import 'tailwindcss';
+
+/* StoryOS design tokens — docs/design/design-system.md
+   Attio's structure, Borderlands' warmth. */
+:root {
+  /* Surfaces */
+  --bg-app: #faf7f1;
+  --bg-sidebar: #f4efe5;
+  --bg-card: #ffffff;
+  --bg-hover: #f5f3ef;
+  --bg-active: #ece6d8;
+
+  /* Text */
+  --text-primary: #0f1729;
+  --text-secondary: #3d3a30;
+  --text-muted: #6b6658;
+  --text-faint: #b5b0a5;
+  --text-on-dark: #faf7f1;
+
+  /* Borders */
+  --border-default: #e8e5df;
+  --border-strong: #d9d4c8;
+
+  /* Brand & actions */
+  --primary: #0f1729;
+  --primary-hover: #1a2545;
+  --accent: #d4a017;
+  --accent-hover: #e8b830;
+  --accent-soft: #fbf3d8;
+
+  /* Status */
+  --success: #2d7a4f;
+  --error: #c0392b;
+  --warning: #b8860b;
+  --info: #3d5296;
+
+  --radius-control: 6px;
+  --radius-card: 8px;
+  --radius-modal: 12px;
+}
+
+@theme inline {
+  --color-app: var(--bg-app);
+  --color-sidebar: var(--bg-sidebar);
+  --color-card: var(--bg-card);
+  --color-hover: var(--bg-hover);
+  --color-active: var(--bg-active);
+  --color-ink: var(--text-primary);
+  --color-ink-secondary: var(--text-secondary);
+  --color-muted: var(--text-muted);
+  --color-faint: var(--text-faint);
+  --color-border-default: var(--border-default);
+  --color-border-strong: var(--border-strong);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-soft: var(--accent-soft);
+  --color-success: var(--success);
+  --color-error: var(--error);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --font-sans: var(--font-figtree), -apple-system, 'Segoe UI', sans-serif;
+  --radius-control: 6px;
+  --radius-card: 8px;
+  --radius-modal: 12px;
+}
+
+body {
+  background: var(--bg-app);
+  color: var(--text-primary);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--accent-soft);
+}
+
+*:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(212, 160, 23, 0.25);
+}

@@ -1,7 +1,7 @@
 ---
 id: MN-014
 title: Web skeleton — auth + app shell
-status: todo
+status: done
 depends_on: [MN-013]
 size: M
 ---

@@ -1,15 +1,34 @@
-import { healthSchema } from '@storyos/schemas';
+'use client';
 
+import { useRouter } from 'next/navigation';
+import { useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useSession } from '@/lib/auth-client';
+import { api } from '@/lib/api';
+
+/** Entry: route to the user's workspace, workspace creation, or login. */
 export default function Home() {
-  // Proves the shared schemas package is wired into the web app.
-  const health = healthSchema.parse({ status: 'ok', name: 'StoryOS', version: '0.0.0' });
+  const router = useRouter();
+  const { data: session, isPending } = useSession();
+
+  const workspaces = useQuery({
+    queryKey: ['workspaces'],
+    queryFn: async () => (await api.GET('/api/v1/workspaces')).data as Array<{ id: string }>,
+    enabled: Boolean(session),
+  });
+
+  useEffect(() => {
+    if (isPending) return;
+    if (!session) {
+      router.replace('/login');
+      return;
+    }
+    if (workspaces.data) {
+      router.replace(workspaces.data.length > 0 ? `/w/${workspaces.data[0]!.id}` : '/new-workspace');
+    }
+  }, [isPending, session, workspaces.data, router]);
 
   return (
-    <main style={{ fontFamily: 'sans-serif', padding: '4rem', background: '#FAF7F1', minHeight: '100vh' }}>
-      <h1 style={{ color: '#0F1729' }}>StoryOS</h1>
-      <p style={{ color: '#6B6658' }}>
-        {health.name} web · status: {health.status} · v{health.version}
-      </p>
-    </main>
+    <main className="flex min-h-screen items-center justify-center text-muted">Loading StoryOS…</main>
   );
 }
