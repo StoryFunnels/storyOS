@@ -1,7 +1,7 @@
 ---
 id: MN-003
 title: CI pipeline
-status: todo
+status: done
 depends_on: [MN-001]
 size: S
 ---

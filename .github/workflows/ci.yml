@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: storyos
+          POSTGRES_PASSWORD: storyos
+          POSTGRES_DB: storyos_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U storyos"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://storyos:storyos@localhost:5432/storyos_test
+      CI: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Turbo cache
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-${{ github.sha }}
+          restore-keys: turbo-${{ runner.os }}-
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Docs links
+        run: pnpm docs:check
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: OpenAPI drift check
+        run: |
+          if [ -f docs/api/openapi.json ]; then
+            pnpm --filter @storyos/api openapi:generate
+            git diff --exit-code docs/api/openapi.json || {
+              echo "::error::docs/api/openapi.json is out of date. Run pnpm --filter @storyos/api openapi:generate and commit."; exit 1; }
+          else
+            echo "openapi.json not generated yet (pre-MN-005) — skipping"
+          fi

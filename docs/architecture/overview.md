@@ -9,7 +9,7 @@
 ## Topology
 
 ```
-apps/web (Next.js 15)  ──HTTP──▶  apps/api (NestJS 10 / Fastify)  ──▶  PostgreSQL 16
+apps/web (Next.js 16)  ──HTTP──▶  apps/api (NestJS 11 / Fastify)  ──▶  PostgreSQL 16
         │                                 │
         └── packages/sdk (generated) ─────┘── packages/schemas (zod, shared validation)
                                           └── attachments: local disk or S3-compatible (MinIO)
