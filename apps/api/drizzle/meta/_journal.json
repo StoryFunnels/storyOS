@@ -50,6 +50,13 @@
       "when": 1783465831648,
       "tag": "0006_good_smiling_tiger",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1783466159721,
+      "tag": "0007_complex_raider",
+      "breakpoints": true
     }
   ]
 }

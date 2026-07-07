@@ -236,6 +236,40 @@ export const documents = pgTable('documents', {
   ...timestamps,
 });
 
+export const comments = pgTable(
+  'comments',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    recordId: uuid('record_id')
+      .notNull()
+      .references(() => records.id, { onDelete: 'cascade' }),
+    authorId: text('author_id').notNull(),
+    /** Segments: [{type:'text',text} | {type:'mention',user_id}] — validated server-side. */
+    body: jsonb('body').notNull(),
+    /** Extracted server-side from body, never trusted from the client (D4). */
+    mentions: text('mentions').array().notNull().default([]),
+    editedAt: timestamp('edited_at', { withTimezone: true }),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [index('comments_record_created_idx').on(t.recordId, t.createdAt)],
+);
+
+export const apiTokens = pgTable('api_tokens', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('user_id').notNull(),
+  workspaceId: uuid('workspace_id')
+    .notNull()
+    .references(() => workspaces.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  tokenHash: text('token_hash').notNull().unique(),
+  /** mn_pat_ + first 4 chars — the only recoverable fragment (E1). */
+  tokenPrefix: text('token_prefix').notNull(),
+  lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+  revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  ...timestamps,
+});
+
 export const activityEvents = pgTable(
   'activity_events',
   {

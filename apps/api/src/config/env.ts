@@ -16,6 +16,12 @@ const envSchema = z.object({
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
   MAIL_FROM: z.string().default('StoryOS <noreply@storyos.local>'),
+  /** Per token/session. Test default is effectively unlimited. */
+  RATE_LIMIT_PER_MINUTE: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(process.env.NODE_ENV === 'test' ? 1_000_000 : 300),
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
 });
