@@ -978,6 +978,321 @@
           "fields"
         ]
       }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/records": {
+      "get": {
+        "operationId": "RecordsController_list",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "integer"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List records (manual order, optional q= title search, cursor)",
+        "tags": [
+          "records"
+        ]
+      },
+      "post": {
+        "operationId": "RecordsController_create",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRecordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create a record ({values} keyed by field api_name)",
+        "tags": [
+          "records"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/records/batch": {
+      "post": {
+        "operationId": "RecordsController_createBatch",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRecordsBatchDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create up to 100 records atomically",
+        "tags": [
+          "records"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/records/trash": {
+      "get": {
+        "operationId": "RecordsController_trash",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Soft-deleted records (30-day retention)",
+        "tags": [
+          "records"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}": {
+      "get": {
+        "operationId": "RecordsController_get",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "rec",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Single record, values keyed by api_name",
+        "tags": [
+          "records"
+        ]
+      },
+      "patch": {
+        "operationId": "RecordsController_update",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "rec",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateRecordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Merge-update values (null clears a field)",
+        "tags": [
+          "records"
+        ]
+      },
+      "delete": {
+        "operationId": "RecordsController_remove",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "rec",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Soft delete (restorable for 30 days)",
+        "tags": [
+          "records"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/restore": {
+      "post": {
+        "operationId": "RecordsController_restore",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "rec",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Restore from trash",
+        "tags": [
+          "records"
+        ]
+      }
     }
   },
   "info": {
@@ -1353,6 +1668,51 @@
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           }
         }
+      },
+      "CreateRecordDto": {
+        "type": "object",
+        "properties": {
+          "values": {
+            "default": {},
+            "type": "object",
+            "additionalProperties": {}
+          }
+        }
+      },
+      "CreateRecordsBatchDto": {
+        "type": "object",
+        "properties": {
+          "records": {
+            "minItems": 1,
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "values": {
+                  "default": {},
+                  "type": "object",
+                  "additionalProperties": {}
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "records"
+        ]
+      },
+      "UpdateRecordDto": {
+        "type": "object",
+        "properties": {
+          "values": {
+            "type": "object",
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "values"
+        ]
       }
     }
   }

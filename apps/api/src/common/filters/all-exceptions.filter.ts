@@ -53,10 +53,13 @@ export class AllExceptionsFilter implements ExceptionFilter {
       status = exception.getStatus();
       code = CODE_BY_STATUS[status] ?? 'error';
       const body = exception.getResponse();
-      message =
-        typeof body === 'string'
-          ? body
-          : ((body as { message?: string | string[] }).message?.toString() ?? exception.message);
+      if (typeof body === 'string') {
+        message = body;
+      } else {
+        const bodyObj = body as { message?: string | string[]; details?: ErrorEnvelope['error']['details'] };
+        message = bodyObj.message?.toString() ?? exception.message;
+        if (Array.isArray(bodyObj.details)) details = bodyObj.details;
+      }
     } else {
       this.logger.error(
         { requestId, err: exception instanceof Error ? exception.stack : exception },

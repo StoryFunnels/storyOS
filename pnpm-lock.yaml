@@ -53,6 +53,9 @@ importers:
       fastify:
         specifier: ^5.8.5
         version: 5.8.5
+      fractional-indexing:
+        specifier: ^4.0.0
+        version: 4.0.0
       nestjs-pino:
         specifier: ^4.6.1
         version: 4.6.1(@nestjs/common@11.1.27(reflect-metadata@0.2.2)(rxjs@7.8.2))(pino-http@11.0.0)(pino@10.3.1)(rxjs@7.8.2)
@@ -2488,6 +2491,10 @@ packages:
     peerDependencies:
       typescript: '>3.6.0'
       webpack: ^5.11.0
+
+  fractional-indexing@4.0.0:
+    resolution: {integrity: sha512-Nr2P1Yyaj2sy1Qdt/wI3GcByxrUdbSKg5+cGvw8f18hT2SkQt6V72iOjBpk7IO3UkzBsdlGRs2a4z6dLrJprgw==}
+    engines: {node: ^14.13.1 || >=16.0.0}
 
   fs-constants@1.0.0:
     resolution: {integrity: sha512-y6OAwoSIf7FyjMIv94u+b5rdheZEjzR63GTyZJm5qh4Bi+2YgwLCcI/fPFZkL5PSixOt6ZNKm+w+Hfp/Bciwow==}
@@ -5781,6 +5788,8 @@ snapshots:
       tapable: 2.3.3
       typescript: 5.9.3
       webpack: 5.106.2(esbuild@0.28.1)
+
+  fractional-indexing@4.0.0: {}
 
   fs-constants@1.0.0: {}
 

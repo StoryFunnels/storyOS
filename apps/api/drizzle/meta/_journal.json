@@ -29,6 +29,13 @@
       "when": 1783461489600,
       "tag": "0003_jazzy_raider",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1783462496823,
+      "tag": "0004_wooden_electro",
+      "breakpoints": true
     }
   ]
 }

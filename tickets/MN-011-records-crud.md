@@ -1,7 +1,7 @@
 ---
 id: MN-011
 title: Records CRUD (JSONB) + value validator
-status: todo
+status: done
 depends_on: [MN-010]
 size: L
 ---

@@ -179,6 +179,23 @@ export const records = pgTable(
   ],
 );
 
+export const activityEvents = pgTable(
+  'activity_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    recordId: uuid('record_id').references(() => records.id, { onDelete: 'cascade' }),
+    actorId: text('actor_id'),
+    /** Contract-grade type names — this table is the future webhook outbox (ADR-0004). */
+    type: text('type').notNull(),
+    payload: jsonb('payload').notNull().default({}),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('activity_record_created_idx').on(t.recordId, t.createdAt)],
+);
+
 export const invites = pgTable('invites', {
   id: uuid('id').primaryKey().defaultRandom(),
   workspaceId: uuid('workspace_id')
