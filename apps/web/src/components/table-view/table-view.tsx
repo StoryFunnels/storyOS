@@ -39,14 +39,33 @@ interface Cursor {
   col: number;
 }
 
-export function TableView({ ws, db, readOnly }: { ws: string; db: string; readOnly: boolean }) {
+export function TableView({
+  ws,
+  db,
+  readOnly,
+  queryBody,
+  hiddenFieldIds,
+  columnWidths,
+  onColumnResize,
+}: {
+  ws: string;
+  db: string;
+  readOnly: boolean;
+  queryBody?: Record<string, unknown>;
+  hiddenFieldIds?: string[];
+  columnWidths?: Record<string, number>;
+  onColumnResize?: (fieldId: string, width: number) => void;
+}) {
   const database = useDatabase(ws, db);
-  const records = useRecordsInfinite(ws, db);
+  const records = useRecordsInfinite(ws, db, queryBody);
   const { updateRecord, createRecord, deleteRecord } = useRecordMutations(ws, db);
 
   const fields = useMemo(
-    () => (database.data?.fields ?? []).filter((f) => !HIDDEN_TYPES.has(f.type)),
-    [database.data],
+    () =>
+      (database.data?.fields ?? []).filter(
+        (f) => !HIDDEN_TYPES.has(f.type) && !(hiddenFieldIds ?? []).includes(f.id),
+      ),
+    [database.data, hiddenFieldIds],
   );
   const hasUserField = fields.some((f) => f.type === 'user');
   const members = useMembers(ws, hasUserField && !readOnly);
@@ -86,8 +105,11 @@ export function TableView({ ws, db, readOnly }: { ws: string; db: string; readOn
   }, [virtualItems, rows.length, records]);
 
   const widthOf = useCallback(
-    (field: Field) => widths[field.id] ?? (field.type === 'title' ? TITLE_WIDTH : DEFAULT_WIDTH),
-    [widths],
+    (field: Field) =>
+      widths[field.id] ??
+      columnWidths?.[field.id] ??
+      (field.type === 'title' ? TITLE_WIDTH : DEFAULT_WIDTH),
+    [widths, columnWidths],
   );
 
   const valueOf = (row: RecordRow, field: Field): unknown =>
@@ -138,11 +160,6 @@ export function TableView({ ws, db, readOnly }: { ws: string; db: string; readOn
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-11 items-center justify-between border-b border-border-default px-4">
-        <h1 className="text-sm font-semibold text-ink">{database.data?.name}</h1>
-        <span className="text-[12px] text-muted">{rows.length} records</span>
-      </div>
-
       <div
         ref={scrollRef}
         className="min-h-0 flex-1 overflow-auto"
@@ -161,7 +178,10 @@ export function TableView({ ws, db, readOnly }: { ws: string; db: string; readOn
                 field={field}
                 width={widthOf(field)}
                 readOnly={readOnly}
-                onResize={(w) => setWidths((prev) => ({ ...prev, [field.id]: w }))}
+                onResize={(w) => {
+                  setWidths((prev) => ({ ...prev, [field.id]: w }));
+                  onColumnResize?.(field.id, w);
+                }}
               />
             ))}
             {!readOnly && (

@@ -1,7 +1,7 @@
 ---
 id: MN-021
 title: Filters, sorts & saved views UI
-status: todo
+status: done
 depends_on: [MN-016, MN-020]
 size: L
 ---

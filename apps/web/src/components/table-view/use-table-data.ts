@@ -87,16 +87,17 @@ export function useMembers(ws: string, enabled: boolean) {
 
 const recordsKey = (ws: string, db: string) => ['records', ws, db];
 
-export function useRecordsInfinite(ws: string, db: string) {
+export function useRecordsInfinite(ws: string, db: string, queryBody?: Record<string, unknown>) {
+  const body = queryBody ?? { limit: 100 };
   return useInfiniteQuery({
-    queryKey: recordsKey(ws, db),
+    queryKey: [...recordsKey(ws, db), body],
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam }) => {
       const { data, error } = await api.POST(
         '/api/v1/workspaces/{ws}/databases/{db}/records/query',
         {
           params: { path: { ws, db } },
-          body: { limit: 100, ...(pageParam ? { cursor: pageParam } : {}) },
+          body: { ...body, ...(pageParam ? { cursor: pageParam } : {}) } as never,
         },
       );
       if (error) throw error;
@@ -109,6 +110,8 @@ export function useRecordsInfinite(ws: string, db: string) {
 export function useRecordMutations(ws: string, db: string) {
   const qc = useQueryClient();
   const key = recordsKey(ws, db);
+  const setAll = (updater: (old: { pages: RecordsPage[] } | undefined) => unknown) =>
+    qc.setQueriesData({ queryKey: key }, updater as never);
 
   const updateRecord = useMutation({
     mutationFn: async ({ rec, values }: { rec: string; values: Record<string, unknown> }) => {
@@ -121,8 +124,8 @@ export function useRecordMutations(ws: string, db: string) {
     },
     onMutate: async ({ rec, values }) => {
       await qc.cancelQueries({ queryKey: key });
-      const previous = qc.getQueryData(key);
-      qc.setQueryData(key, (old: { pages: RecordsPage[] } | undefined) => {
+      const previous = qc.getQueriesData({ queryKey: key });
+      setAll((old: { pages: RecordsPage[] } | undefined) => {
         if (!old) return old;
         return {
           ...old,
@@ -145,7 +148,9 @@ export function useRecordMutations(ws: string, db: string) {
       return { previous };
     },
     onError: (_err, _vars, context) => {
-      if (context?.previous) qc.setQueryData(key, context.previous);
+      for (const [k, v] of (context?.previous ?? []) as Array<[unknown, unknown]>) {
+        qc.setQueryData(k as never, v as never);
+      }
       toast.error('Could not save — value rejected');
     },
     onSettled: () => void qc.invalidateQueries({ queryKey: key }),
@@ -161,7 +166,7 @@ export function useRecordMutations(ws: string, db: string) {
       return data as unknown as RecordRow;
     },
     onSuccess: (created) => {
-      qc.setQueryData(key, (old: { pages: RecordsPage[] } | undefined) => {
+      setAll((old: { pages: RecordsPage[] } | undefined) => {
         if (!old || old.pages.length === 0) return old;
         const pages = [...old.pages];
         const last = pages[pages.length - 1]!;
@@ -180,7 +185,7 @@ export function useRecordMutations(ws: string, db: string) {
       if (error) throw error;
     },
     onSuccess: (_data, rec) => {
-      qc.setQueryData(key, (old: { pages: RecordsPage[] } | undefined) =>
+      setAll((old: { pages: RecordsPage[] } | undefined) =>
         old
           ? {
               ...old,

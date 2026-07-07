@@ -1,7 +1,7 @@
 ---
 id: MN-023
 title: Kanban view UI
-status: todo
+status: done
 depends_on: [MN-021, MN-022]
 size: L
 ---
