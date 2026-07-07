@@ -4,6 +4,8 @@ import { LoggerModule } from 'nestjs-pino';
 import { ZodValidationPipe } from 'nestjs-zod';
 import { randomUUID } from 'node:crypto';
 import { AppController } from './app.controller';
+import { AuthModule } from './auth/auth.module';
+import { MeController } from './auth/me.controller';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { env } from './config/env';
 import { DbModule } from './db/db.module';
@@ -23,8 +25,9 @@ import { HealthController } from './health/health.controller';
       },
     }),
     DbModule,
+    AuthModule,
   ],
-  controllers: [AppController, HealthController, DocsController],
+  controllers: [AppController, HealthController, DocsController, MeController],
   providers: [
     { provide: APP_PIPE, useClass: ZodValidationPipe },
     { provide: APP_FILTER, useClass: AllExceptionsFilter },

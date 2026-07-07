@@ -1,7 +1,7 @@
 ---
 id: MN-006
 title: Auth — better-auth email/password + sessions
-status: todo
+status: done
 depends_on: [MN-005]
 size: M
 ---

@@ -1,6 +1,7 @@
 {
   "extends": "@storyos/config/typescript/base.json",
   "compilerOptions": {
+    "lib": ["ES2022", "DOM"],
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
     "noEmit": false,

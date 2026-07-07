@@ -8,13 +8,14 @@ import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { AppModule } from './app.module';
+import { configureApp } from './app.setup';
 import { buildOpenApiDocument } from './openapi.setup';
 
 async function generate() {
   const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter(), {
     logger: false,
   });
-  app.setGlobalPrefix('api/v1', { exclude: ['/', 'healthz', 'api/docs'] });
+  configureApp(app);
 
   const document = buildOpenApiDocument(app);
   const outPath = join(__dirname, '..', '..', '..', 'docs', 'api', 'openapi.json');

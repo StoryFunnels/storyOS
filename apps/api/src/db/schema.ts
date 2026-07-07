@@ -17,6 +17,8 @@ import {
  * so every reference to a user is `text`, while our own resources use uuid.
  */
 
+export * from './auth-schema';
+
 export const membershipRole = pgEnum('membership_role', ['admin', 'member', 'guest']);
 export const membershipStatus = pgEnum('membership_status', ['pending', 'active']);
 

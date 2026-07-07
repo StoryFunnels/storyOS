@@ -3,6 +3,7 @@ import { FastifyAdapter } from '@nestjs/platform-fastify';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
+import { configureApp } from './app.setup';
 import { env } from './config/env';
 import { buildOpenApiDocument } from './openapi.setup';
 
@@ -11,7 +12,7 @@ async function bootstrap() {
     bufferLogs: true,
   });
   app.useLogger(app.get(Logger));
-  app.setGlobalPrefix('api/v1', { exclude: ['/', 'healthz', 'api/docs'] });
+  configureApp(app);
   app.enableShutdownHooks();
 
   const document = buildOpenApiDocument(app);

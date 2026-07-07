@@ -1,7 +1,7 @@
 ---
 id: MN-007
 title: Google OAuth (env-gated)
-status: todo
+status: done
 depends_on: [MN-006]
 size: S
 ---
