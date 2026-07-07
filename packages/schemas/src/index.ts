@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 export * from './workspaces';
+export * from './databases';
 
 /**
  * Health check response — the first shared schema, proving the

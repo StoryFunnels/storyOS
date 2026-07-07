@@ -5,6 +5,7 @@ import {
   text,
   integer,
   jsonb,
+  boolean,
   timestamp,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
@@ -21,6 +22,25 @@ export * from './auth-schema';
 
 export const membershipRole = pgEnum('membership_role', ['admin', 'member', 'guest']);
 export const membershipStatus = pgEnum('membership_status', ['pending', 'active']);
+
+export const fieldType = pgEnum('field_type', [
+  'title',
+  'text',
+  'number',
+  'checkbox',
+  'date',
+  'select',
+  'multi_select',
+  'url',
+  'email',
+  'user',
+  'relation',
+  'created_at',
+  'updated_at',
+  'created_by',
+]);
+
+export const viewType = pgEnum('view_type', ['table', 'board']);
 
 const timestamps = {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -66,6 +86,70 @@ export const memberships = pgTable(
   },
   (t) => [uniqueIndex('memberships_workspace_user_uq').on(t.workspaceId, t.userId)],
 );
+
+export const databases = pgTable(
+  'databases',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    /** Denormalized from space for cheap workspace scoping on every query. */
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    spaceId: uuid('space_id')
+      .notNull()
+      .references(() => spaces.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    icon: text('icon'),
+    apiSlug: text('api_slug').notNull(),
+    position: integer('position').notNull().default(0),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex('databases_workspace_slug_uq').on(t.workspaceId, t.apiSlug)],
+);
+
+export const fields = pgTable(
+  'fields',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    databaseId: uuid('database_id')
+      .notNull()
+      .references(() => databases.id, { onDelete: 'cascade' }),
+    displayName: text('display_name').notNull(),
+    /** Stable API identifier — survives display renames. */
+    apiName: text('api_name').notNull(),
+    type: fieldType('type').notNull(),
+    config: jsonb('config').notNull().default({}),
+    position: integer('position').notNull().default(0),
+    isSystem: boolean('is_system').notNull().default(false),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex('fields_database_api_name_uq').on(t.databaseId, t.apiName)],
+);
+
+export const selectOptions = pgTable('select_options', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  fieldId: uuid('field_id')
+    .notNull()
+    .references(() => fields.id, { onDelete: 'cascade' }),
+  label: text('label').notNull(),
+  color: text('color').notNull().default('gray'),
+  position: integer('position').notNull().default(0),
+  ...timestamps,
+});
+
+export const views = pgTable('views', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  databaseId: uuid('database_id')
+    .notNull()
+    .references(() => databases.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  type: viewType('type').notNull(),
+  config: jsonb('config').notNull().default({}),
+  position: integer('position').notNull().default(0),
+  createdBy: text('created_by'),
+  ...timestamps,
+});
 
 export const invites = pgTable('invites', {
   id: uuid('id').primaryKey().defaultRandom(),

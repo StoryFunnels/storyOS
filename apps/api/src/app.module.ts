@@ -7,6 +7,7 @@ import { AppController } from './app.controller';
 import { AuthModule } from './auth/auth.module';
 import { MeController } from './auth/me.controller';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { DatabasesModule } from './databases/databases.module';
 import { env } from './config/env';
 import { DbModule } from './db/db.module';
 import { DocsController } from './docs/docs.controller';
@@ -28,6 +29,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     DbModule,
     AuthModule,
     WorkspacesModule,
+    DatabasesModule,
   ],
   controllers: [AppController, HealthController, DocsController, MeController],
   providers: [

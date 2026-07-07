@@ -1,7 +1,7 @@
 ---
 id: MN-009
 title: Databases CRUD
-status: todo
+status: done
 depends_on: [MN-008]
 size: S
 ---
