@@ -1,7 +1,7 @@
 ---
 id: MN-005
 title: API skeleton — config, error envelope, OpenAPI plumbing
-status: todo
+status: done
 depends_on: [MN-004]
 size: M
 ---
