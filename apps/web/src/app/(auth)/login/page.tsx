@@ -1,8 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Suspense, useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { authClient, useSession } from '@/lib/auth-client';
 import { api } from '@/lib/api';
@@ -11,8 +11,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
+  const nextUrl = useSearchParams().get('next') ?? '/';
   const { data: session } = useSession();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -26,7 +27,7 @@ export default function LoginPage() {
   });
 
   useEffect(() => {
-    if (session) router.replace('/');
+    if (session) router.replace(nextUrl);
   }, [session, router]);
 
   async function onSubmit(e: React.FormEvent) {
@@ -36,7 +37,7 @@ export default function LoginPage() {
     const result = await authClient.signIn.email({ email, password });
     setBusy(false);
     if (result.error) setError(result.error.message ?? 'Sign-in failed');
-    else router.replace('/');
+    else router.replace(nextUrl);
   }
 
   return (
@@ -75,5 +76,14 @@ export default function LoginPage() {
         </Link>
       </p>
     </AuthCard>
+  );
+}
+
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
   );
 }

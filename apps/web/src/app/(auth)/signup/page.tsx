@@ -1,16 +1,17 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Suspense, useState } from 'react';
 import { authClient } from '@/lib/auth-client';
 import { AuthCard } from '../auth-card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
-export default function SignupPage() {
+function SignupForm() {
   const router = useRouter();
+  const nextUrl = useSearchParams().get('next') ?? '/';
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -24,7 +25,7 @@ export default function SignupPage() {
     const result = await authClient.signUp.email({ email, password, name });
     setBusy(false);
     if (result.error) setError(result.error.message ?? 'Sign-up failed');
-    else router.replace('/');
+    else router.replace(nextUrl);
   }
 
   return (
@@ -61,5 +62,14 @@ export default function SignupPage() {
         </Link>
       </p>
     </AuthCard>
+  );
+}
+
+
+export default function SignupPage() {
+  return (
+    <Suspense>
+      <SignupForm />
+    </Suspense>
   );
 }

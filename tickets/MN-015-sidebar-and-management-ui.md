@@ -1,7 +1,7 @@
 ---
 id: MN-015
 title: Sidebar, spaces & database management UI
-status: todo
+status: done
 depends_on: [MN-014]
 size: M
 ---
