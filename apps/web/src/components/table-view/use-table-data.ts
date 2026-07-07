@@ -23,6 +23,14 @@ export interface Field {
   config: Record<string, unknown>;
   isSystem: boolean;
   options?: SelectOption[];
+  relation?: {
+    id: string;
+    cardinality: 'one_to_many' | 'many_to_many';
+    side: 'a' | 'b';
+    target_database_id: string;
+    target_database_name: string | null;
+    inverse_field_id: string;
+  };
 }
 
 export interface DatabaseDetail {

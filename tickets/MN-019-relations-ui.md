@@ -1,7 +1,7 @@
 ---
 id: MN-019
 title: Relations UI
-status: todo
+status: done
 depends_on: [MN-016, MN-018]
 size: M
 ---

@@ -5,6 +5,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
+import { useDatabases } from '@/lib/queries';
 import { Button } from '@/components/ui/button';
 import { DialogClose, DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -22,6 +23,7 @@ const CREATABLE_TYPES = [
   { value: 'user', label: 'Person' },
   { value: 'url', label: 'URL' },
   { value: 'email', label: 'Email' },
+  { value: 'relation', label: 'Relation → another database' },
 ] as const;
 
 /** Conversions the API allows (docs/architecture/record-storage.md). */
@@ -68,9 +70,27 @@ export function AddFieldDialog({
   const [multiUser, setMultiUser] = useState(false);
   const [numberFormat, setNumberFormat] = useState('plain');
   const [options, setOptions] = useState<OptionDraft[]>([{ label: '', color: 'gray' }]);
+  const [targetDb, setTargetDb] = useState('');
+  const [singleTarget, setSingleTarget] = useState(true);
+  const [inverseName, setInverseName] = useState('');
+  const databases = useDatabases(ws);
 
   const create = useMutation({
     mutationFn: async () => {
+      if (type === 'relation') {
+        const { error } = await api.POST('/api/v1/workspaces/{ws}/relations', {
+          params: { path: { ws } },
+          body: {
+            database_a_id: db,
+            database_b_id: targetDb,
+            cardinality: singleTarget ? 'one_to_many' : 'many_to_many',
+            field_a_name: name,
+            ...(inverseName.trim() ? { field_b_name: inverseName.trim() } : {}),
+          },
+        });
+        if (error) throw error;
+        return;
+      }
       const config: Record<string, unknown> = {};
       if (type === 'text') config.multiline = multiline;
       if (type === 'date') config.include_time = includeTime;
@@ -162,6 +182,49 @@ export function AddFieldDialog({
             <OptionsEditor options={options} onChange={setOptions} />
           </div>
         )}
+        {type === 'relation' && (
+          <>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="target-db">Related database</Label>
+              <select
+                id="target-db"
+                required
+                className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-sm text-ink"
+                value={targetDb}
+                onChange={(e) => setTargetDb(e.target.value)}
+              >
+                <option value="" disabled>
+                  Pick a database…
+                </option>
+                {(databases.data ?? []).map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label>Each record here links to…</Label>
+              <label className="flex items-center gap-2 text-[13px] text-ink">
+                <input type="radio" checked={singleTarget} onChange={() => setSingleTarget(true)} />
+                one target record (one-to-many)
+              </label>
+              <label className="flex items-center gap-2 text-[13px] text-ink">
+                <input type="radio" checked={!singleTarget} onChange={() => setSingleTarget(false)} />
+                many target records (many-to-many)
+              </label>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="inverse-name">Field name on the other side (optional)</Label>
+              <Input
+                id="inverse-name"
+                placeholder="defaults to this database's name"
+                value={inverseName}
+                onChange={(e) => setInverseName(e.target.value)}
+              />
+            </div>
+          </>
+        )}
 
         <div className="flex justify-end gap-2">
           <DialogClose asChild>
@@ -169,7 +232,7 @@ export function AddFieldDialog({
               Cancel
             </Button>
           </DialogClose>
-          <Button type="submit" disabled={create.isPending}>
+          <Button type="submit" disabled={create.isPending || (type === 'relation' && !targetDb)}>
             Add field
           </Button>
         </div>

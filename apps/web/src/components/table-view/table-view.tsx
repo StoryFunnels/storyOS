@@ -17,6 +17,7 @@ import {
   EditFieldDialog,
   useDeleteField,
 } from './field-dialogs';
+import { RelationEditor } from './relation-cell';
 import {
   useDatabase,
   useMembers,
@@ -30,7 +31,7 @@ const ROW_HEIGHT = 32;
 const DEFAULT_WIDTH = 180;
 const TITLE_WIDTH = 260;
 
-const HIDDEN_TYPES = new Set(['created_at', 'updated_at', 'created_by', 'relation']);
+const HIDDEN_TYPES = new Set(['created_at', 'updated_at', 'created_by']);
 const NO_EDITOR = new Set(['checkbox']);
 
 interface Cursor {
@@ -220,7 +221,19 @@ export function TableView({ ws, db, readOnly }: { ws: string; db: string; readOn
                           }
                         }}
                       >
-                        {isEditing && !NO_EDITOR.has(field.type) ? (
+                        {isEditing && field.type === 'relation' ? (
+                          <RelationEditor
+                            ws={ws}
+                            db={db}
+                            recordId={row.id}
+                            field={field}
+                            current={(valueOf(row, field) as Array<{ id: string; title: string }>) ?? []}
+                            onDone={() => {
+                              setEditing(false);
+                              gridRef.current?.focus();
+                            }}
+                          />
+                        ) : isEditing && !NO_EDITOR.has(field.type) ? (
                           <CellEditor
                             field={field}
                             value={valueOf(row, field)}

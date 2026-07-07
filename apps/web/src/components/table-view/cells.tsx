@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { RelationChips } from './relation-cell';
+import type { LinkChip } from './relation-cell';
 import type { Field, SelectOption } from './use-table-data';
 
 /** Warm-tuned chip colors (docs/design/design-system.md). */
@@ -42,6 +44,8 @@ export function CellDisplay({ field, value, memberNames }: DisplayProps) {
     return <span className="text-faint"> </span>;
   }
   switch (field.type) {
+    case 'relation':
+      return <RelationChips chips={(value as LinkChip[]) ?? []} />;
     case 'checkbox':
       return <input type="checkbox" checked={Boolean(value)} readOnly className="pointer-events-none" />;
     case 'select': {
