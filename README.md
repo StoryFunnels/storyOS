@@ -1,4 +1,4 @@
-# my-notion (working codename)
+# StoryOS
 
 An open-source, self-hostable work platform built around one idea: **user-defined relational databases that can run an entire company** — client and task tracking, content pipelines, social calendars, lightweight CRM — all on the same engine. Think Fibery's model (databases + relations + views + entity pages), open source, API-first.
 
@@ -14,9 +14,9 @@ An open-source, self-hostable work platform built around one idea: **user-define
 6. **Boring, predictable, self-hostable.** One Postgres, one API, one `docker compose up`. Runs a 10-person agency on a $10 VPS.
 7. **Small surface, deep quality.** Two view types that work flawlessly beat six at 70%.
 
-## Name shortlist
+## Name
 
-The public name is undecided; codename **my-notion** holds until launch. Candidates: **StoryBase** · **Weft** · **Relata** · **StoryOS** · **Trellis** · **StoryTasks** (founder's suggestion — concern: product is explicitly *not* task management). Domain spot-check 2026-07-07: `storytasks.com` available; `storybase.dev`, `weft.dev`, `storyos.dev` likely available; `relata.dev/.io`, `strata.dev`, `storybase.io` taken.
+**StoryOS** — decided 2026-07-07. Domains: `storyos.dev` (project/docs) and `storyos.cloud` (future managed hosting). Package scope: `@storyos/*`. Ticket prefix stays `MN-###` (history is history). The local folder name `my-notion` is a leftover codename, harmless.
 
 ## Repo map
 
@@ -24,6 +24,7 @@ The public name is undecided; codename **my-notion** holds until launch. Candida
 |---|---|
 | [docs/product/](docs/product/) | Vision & personas, use cases, ~50 user stories, key flows, starter templates, v1 scope cut |
 | [docs/architecture/](docs/architecture/) | System overview, canonical meta-model, record storage design, API conventions, auth, stack |
+| [docs/design/](docs/design/design-system.md) | Design tokens & UI direction (Attio structure, warm Borderlands palette) |
 | [docs/decisions/](docs/decisions/) | ADRs — the decisions we don't relitigate |
 | [docs/api/](docs/api/) | API guides; `openapi.json` will be generated from code |
 | [tickets/](tickets/) | The v1 backlog: MN-001 … MN-032, sequenced. Start here to build |

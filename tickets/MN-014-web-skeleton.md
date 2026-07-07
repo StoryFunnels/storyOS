@@ -6,7 +6,7 @@ depends_on: [MN-013]
 size: M
 ---
 
-Next.js app bootstrapped: Tailwind + shadcn/ui init, login/signup/reset pages via the better-auth client (Google button env-gated), protected `/w/[workspace]` shell, TanStack Query wired to the SDK, workspace creation from empty state. Hard rule enforced by lint: the web app talks to the API **only** through `packages/sdk` — no server-side DB access, ever.
+Next.js app bootstrapped: Tailwind + shadcn/ui init themed per [docs/design/design-system.md](../docs/design/design-system.md) (Figtree, warm palette, CSS-variable tokens), login/signup/reset pages via the better-auth client (Google button env-gated), protected `/w/[workspace]` shell, TanStack Query wired to the SDK, workspace creation from empty state. Hard rule enforced by lint: the web app talks to the API **only** through `packages/sdk` — no server-side DB access, ever.
 
 ## Acceptance criteria
 
