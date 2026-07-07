@@ -7,8 +7,8 @@ Locked in [ADR-0001](../decisions/ADR-0001-stack.md). Optimized for: API-first a
 | Layer | Choice | Why (short) |
 |---|---|---|
 | Repo | pnpm workspaces + Turborepo | Standard TS monorepo; cached pipelines |
-| API | NestJS 10 + Fastify adapter | Most convention-heavy Node framework → predictable agent output; first-class OpenAPI (`@nestjs/swagger`) and testing; standalone service makes "UI eats its own dog food" structural |
-| Web | Next.js 15 App Router | Mostly a client-side SPA over the API; SDK-only data access enforced by lint rule |
+| API | NestJS 11 + Fastify adapter | Most convention-heavy Node framework → predictable agent output; first-class OpenAPI (`@nestjs/swagger`) and testing; standalone service makes "UI eats its own dog food" structural |
+| Web | Next.js 16 App Router | Mostly a client-side SPA over the API; SDK-only data access enforced by lint rule |
 | DB | PostgreSQL 16 (only datastore) | JSONB + GIN/trgm covers v1; one thing to operate |
 | ORM | **Drizzle** | The defining workload is dynamic queries over JSONB keyed by runtime field ids — Drizzle's `sql` fragments compose raw SQL safely inside typed queries; drizzle-kit = plain-SQL migrations (readable in OSS PRs, run at container boot); no codegen binary/rust engine in Docker |
 | Auth | better-auth (+ own PAT table) | Email/password + Google OAuth out of the box, Drizzle adapter, DB sessions; PATs are a 60-line guard we control — see [auth.md](auth.md) |

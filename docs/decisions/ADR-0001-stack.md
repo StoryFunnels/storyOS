@@ -9,7 +9,7 @@ API-first is a hard product requirement: the web UI must be client #1 of the sam
 
 ## Decision
 
-- **pnpm + Turborepo monorepo**: `apps/api` (NestJS 10, Fastify adapter), `apps/web` (Next.js 15), `packages/schemas` (zod), `packages/sdk` (generated client).
+- **pnpm + Turborepo monorepo**: `apps/api` (NestJS 11, Fastify adapter), `apps/web` (Next.js 15), `packages/schemas` (zod), `packages/sdk` (generated client).
 - **NestJS over full-stack Next.js**: a standalone API service makes API-first structural, not aspirational; Nest's rigid module/controller/service/guard/DTO conventions produce consistent agent output; first-class OpenAPI and testing.
 - **PostgreSQL 16 as the only datastore.**
 - **Drizzle ORM**: `sql` template fragments compose raw SQL safely inside typed queries (exactly the shape of the record query engine); drizzle-kit plain-SQL migrations are readable in OSS PRs and run at container boot; no codegen binary in Docker builds.

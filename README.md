@@ -37,7 +37,7 @@ An open-source, self-hostable work platform built around one idea: **user-define
 
 ## Stack (locked in [ADR-0001](docs/decisions/ADR-0001-stack.md))
 
-TypeScript monorepo (pnpm + Turborepo) · NestJS 10 API (Fastify) · Next.js 15 web · PostgreSQL (only datastore) · Drizzle ORM · better-auth · BlockNote editor · shadcn/ui + Tailwind · zod everywhere · OpenAPI 3.1 generated from code.
+TypeScript monorepo (pnpm + Turborepo) · NestJS 11 API (Fastify) · Next.js 15 web · PostgreSQL (only datastore) · Drizzle ORM · better-auth · BlockNote editor · shadcn/ui + Tailwind · zod everywhere · OpenAPI 3.1 generated from code.
 
 ## License
 

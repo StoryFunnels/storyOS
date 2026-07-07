@@ -1,7 +1,7 @@
 ---
 id: MN-002
 title: Docs skeleton in-repo + founding ADRs
-status: todo
+status: done
 depends_on: [MN-001]
 size: S
 ---
