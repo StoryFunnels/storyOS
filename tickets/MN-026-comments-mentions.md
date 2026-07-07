@@ -6,7 +6,7 @@ depends_on: [MN-025]
 size: M
 ---
 
-`comments` table + endpoints (list/create/edit-own/soft-delete; admins delete any; **guests can comment** — the client-feedback loop). Rich-lite body (bold/italic/links/code + mention nodes); mentions extracted server-side from the body, never trusted from the client. Mention → email with excerpt + deep link via the SMTP mailer (env-configured; skipped with an admin banner when absent — same mailer as invites). Comments panel on the entity page with `@` member picker (guests not mentionable). Emits `comment.created` activity events.
+`comments` table + endpoints (list/create/edit-own/soft-delete; admins delete any; **guests can comment** — the client-feedback loop). Rich-lite body (bold/italic/links/code + mention nodes); mentions extracted server-side from the body, never trusted from the client. Mention → email with excerpt + deep link via the SMTP mailer (env-configured; skipped with an admin banner when absent — same mailer as invites). Local dev uses Mailpit (fake SMTP catcher in `docker-compose.dev.yml` — add it here if MN-004 didn't); production for the founder's instances uses **Resend via its SMTP relay** (paid account available) — the app stays provider-agnostic generic SMTP. Comments panel on the entity page with `@` member picker (guests not mentionable). Emits `comment.created` activity events.
 
 ## Acceptance criteria
 

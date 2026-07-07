@@ -16,7 +16,7 @@ An open-source, self-hostable work platform built around one idea: **user-define
 
 ## Name shortlist
 
-The public name is undecided; codename **my-notion** holds until launch. Candidates: **Weft** · **Relata** · **Trellis** · **Tessel** · **Corebase**.
+The public name is undecided; codename **my-notion** holds until launch. Candidates: **StoryBase** · **Weft** · **Relata** · **StoryOS** · **Trellis** · **StoryTasks** (founder's suggestion — concern: product is explicitly *not* task management). Domain spot-check 2026-07-07: `storytasks.com` available; `storybase.dev`, `weft.dev`, `storyos.dev` likely available; `relata.dev/.io`, `strata.dev`, `storybase.io` taken.
 
 ## Repo map
 
