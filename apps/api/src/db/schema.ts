@@ -44,6 +44,9 @@ export const fieldType = pgEnum('field_type', [
 
 export const viewType = pgEnum('view_type', ['table', 'board']);
 
+/** Side "a" is the "many" side for one_to_many (meta-model §Relation). */
+export const relationCardinality = pgEnum('relation_cardinality', ['one_to_many', 'many_to_many']);
+
 const timestamps = {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true })
@@ -176,6 +179,45 @@ export const records = pgTable(
     index('records_db_position_idx').on(t.databaseId, t.position),
     index('records_db_created_idx').on(t.databaseId, t.createdAt, t.id),
     index('records_title_trgm').using('gin', sql`${t.title} gin_trgm_ops`),
+  ],
+);
+
+export const relations = pgTable('relations', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  workspaceId: uuid('workspace_id')
+    .notNull()
+    .references(() => workspaces.id, { onDelete: 'cascade' }),
+  databaseAId: uuid('database_a_id')
+    .notNull()
+    .references(() => databases.id, { onDelete: 'cascade' }),
+  databaseBId: uuid('database_b_id')
+    .notNull()
+    .references(() => databases.id, { onDelete: 'cascade' }),
+  fieldAId: uuid('field_a_id').notNull(),
+  fieldBId: uuid('field_b_id').notNull(),
+  cardinality: relationCardinality('cardinality').notNull(),
+  ...timestamps,
+});
+
+export const recordLinks = pgTable(
+  'record_links',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    relationId: uuid('relation_id')
+      .notNull()
+      .references(() => relations.id, { onDelete: 'cascade' }),
+    fromRecordId: uuid('from_record_id')
+      .notNull()
+      .references(() => records.id, { onDelete: 'cascade' }),
+    toRecordId: uuid('to_record_id')
+      .notNull()
+      .references(() => records.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('record_links_uq').on(t.relationId, t.fromRecordId, t.toRecordId),
+    index('record_links_from_idx').on(t.relationId, t.fromRecordId),
+    index('record_links_to_idx').on(t.relationId, t.toRecordId),
   ],
 );
 

@@ -1,7 +1,7 @@
 ---
 id: MN-018
 title: Relations backend
-status: todo
+status: done
 depends_on: [MN-011]
 size: L
 ---

@@ -70,6 +70,6 @@ export class DatabasesController {
     @Param('db') databaseId: string,
     @Body() body: DeleteDatabaseDto,
   ) {
-    return this.databases.remove(req.membership, databaseId, body.confirm);
+    return this.databases.remove(req.membership, databaseId, body.confirm, body.sever_relations);
   }
 }

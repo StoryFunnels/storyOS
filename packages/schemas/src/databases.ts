@@ -16,4 +16,6 @@ export const updateDatabaseSchema = z.object({
 export const deleteDatabaseSchema = z.object({
   /** Must equal the database name — the API-level "type the name to delete". */
   confirm: z.string(),
+  /** Required when other databases still point here via relations. */
+  sever_relations: z.boolean().default(false),
 });

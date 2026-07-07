@@ -4,10 +4,10 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, or } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { databases, fields, selectOptions, spaces, views } from '../db/schema';
+import { databases, fields, recordLinks, relations, selectOptions, spaces, views } from '../db/schema';
 import type { Membership } from '../workspaces/workspace-access.guard';
 
 export function slugify(name: string): string {
@@ -95,6 +95,44 @@ export class DatabasesService {
     const fieldsWithOptions = fieldRows.map((f) =>
       optionsByField.has(f.id) ? { ...f, options: optionsByField.get(f.id) } : f,
     );
+
+    // Relation fields carry enough metadata for generic clients to traverse
+    // the graph (E4): target database, cardinality, inverse field.
+    const relationIds = fieldRows
+      .filter((f) => f.type === 'relation')
+      .map((f) => (f.config as { relation_id?: string }).relation_id)
+      .filter((id): id is string => Boolean(id));
+    if (relationIds.length > 0) {
+      const relationRows = await this.db.query.relations.findMany({
+        where: inArray(relations.id, relationIds),
+      });
+      const targetIds = [
+        ...new Set(relationRows.flatMap((r) => [r.databaseAId, r.databaseBId])),
+      ];
+      const targetDbs = await this.db.query.databases.findMany({
+        where: inArray(databases.id, targetIds),
+        columns: { id: true, name: true },
+      });
+      const dbName = new Map(targetDbs.map((d) => [d.id, d.name]));
+      const byId = new Map(relationRows.map((r) => [r.id, r]));
+
+      for (const field of fieldsWithOptions) {
+        if (field.type !== 'relation') continue;
+        const config = field.config as { relation_id: string; side: 'a' | 'b' };
+        const relation = byId.get(config.relation_id);
+        if (!relation) continue;
+        const targetDatabaseId =
+          config.side === 'a' ? relation.databaseBId : relation.databaseAId;
+        (field as Record<string, unknown>).relation = {
+          id: relation.id,
+          cardinality: relation.cardinality,
+          side: config.side,
+          target_database_id: targetDatabaseId,
+          target_database_name: dbName.get(targetDatabaseId) ?? null,
+          inverse_field_id: config.side === 'a' ? relation.fieldBId : relation.fieldAId,
+        };
+      }
+    }
 
     return { ...database, fields: fieldsWithOptions, views: viewRows };
   }
@@ -203,13 +241,47 @@ export class DatabasesService {
   }
 
   /** Hard delete (v1 decision) — cascade wipes fields/records/views. */
-  async remove(membership: Membership, databaseId: string, confirm: string) {
+  async remove(
+    membership: Membership,
+    databaseId: string,
+    confirm: string,
+    severRelations = false,
+  ) {
     const database = await this.get(membership, databaseId);
     if (confirm !== database.name) {
       throw new ConflictException(`Confirmation mismatch: type the database name "${database.name}"`);
     }
-    // Inbound-relation severing check joins in MN-018 (no relations table yet).
-    await this.db.delete(databases).where(eq(databases.id, databaseId));
-    return { deleted: true };
+
+    const touching = await this.db.query.relations.findMany({
+      where: or(eq(relations.databaseAId, databaseId), eq(relations.databaseBId, databaseId)),
+    });
+    if (touching.length > 0 && !severRelations) {
+      throw new ConflictException(
+        `This database participates in ${touching.length} relation(s). Pass sever_relations: true to delete them along with it.`,
+      );
+    }
+
+    await this.db.transaction(async (tx) => {
+      if (touching.length > 0) {
+        // Remove the paired fields living on OTHER databases (this db's own
+        // fields cascade with the database row).
+        const fieldIds = touching.flatMap((r) => [r.fieldAId, r.fieldBId]);
+        await tx.delete(recordLinks).where(
+          inArray(
+            recordLinks.relationId,
+            touching.map((r) => r.id),
+          ),
+        );
+        await tx.delete(fields).where(inArray(fields.id, fieldIds));
+        await tx.delete(relations).where(
+          inArray(
+            relations.id,
+            touching.map((r) => r.id),
+          ),
+        );
+      }
+      await tx.delete(databases).where(eq(databases.id, databaseId));
+    });
+    return { deleted: true, severed_relations: touching.length };
   }
 }

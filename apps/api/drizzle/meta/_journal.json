@@ -36,6 +36,13 @@
       "when": 1783462496823,
       "tag": "0004_wooden_electro",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1783464817293,
+      "tag": "0005_opposite_boom_boom",
+      "breakpoints": true
     }
   ]
 }

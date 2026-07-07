@@ -1,7 +1,7 @@
 import { UnprocessableEntityException } from '@nestjs/common';
 import { SQL, sql } from 'drizzle-orm';
 import type { FieldDef, FilterNode, FilterOp, RelativeDateRange } from '@storyos/schemas';
-import { records } from '../db/schema';
+import { recordLinks, records } from '../db/schema';
 
 /**
  * The filter-AST → SQL compiler (ADR-0002). Everything is parameterized;
@@ -58,9 +58,7 @@ function presentExpr(def: FieldDef): SQL {
 function compileCondition(fieldName: string, op: FilterOp, value: unknown, ctx: CompilerContext): SQL {
   const def = ctx.defs.get(fieldName);
   if (!def) throw err(`unknown field "${fieldName}" in filter`);
-  if (def.type === 'relation') {
-    throw err('relation filters are not supported yet (MN-018)');
-  }
+  if (def.type === 'relation') return compileRelation(def, op, value);
 
   if (op === 'is_empty') return sql`NOT ${presentExpr(def)}`;
   if (op === 'not_empty') return presentExpr(def);
@@ -225,6 +223,30 @@ function compileIdSet(
     match = sql`(${records.values}->${def.id} ?| ARRAY[${list}]::text[])`;
   }
   return op === 'has' ? match : sql`(NOT COALESCE(${match}, FALSE))`;
+}
+
+/** Relation filters compile to EXISTS over record_links (ADR-0002). */
+function compileRelation(def: FieldDef, op: FilterOp, value: unknown): SQL {
+  const relationId = def.config['relation_id'] as string;
+  const side = def.config['side'] as 'a' | 'b';
+  const myCol = side === 'a' ? recordLinks.fromRecordId : recordLinks.toRecordId;
+  const otherCol = side === 'a' ? recordLinks.toRecordId : recordLinks.fromRecordId;
+
+  const anyLink = sql`EXISTS (SELECT 1 FROM ${recordLinks} WHERE ${recordLinks.relationId} = ${relationId} AND ${myCol} = ${records.id})`;
+
+  if (op === 'is_empty') return sql`(NOT ${anyLink})`;
+  if (op === 'not_empty') return sql`(${anyLink})`;
+
+  if (op !== 'has' && op !== 'has_none') throw err(`op "${op}" not valid for relation fields`);
+  if (!Array.isArray(value) || value.length === 0 || value.some((v) => typeof v !== 'string')) {
+    throw err(`op "${op}" on "${def.api_name}" expects a non-empty array of record ids`);
+  }
+  const list = sql.join(
+    (value as string[]).map((id) => sql`${id}`),
+    sql`, `,
+  );
+  const match = sql`EXISTS (SELECT 1 FROM ${recordLinks} WHERE ${recordLinks.relationId} = ${relationId} AND ${myCol} = ${records.id} AND ${otherCol} IN (${list}))`;
+  return op === 'has' ? sql`(${match})` : sql`(NOT ${match})`;
 }
 
 function resolveMe(def: FieldDef, value: unknown, ctx: CompilerContext): unknown {

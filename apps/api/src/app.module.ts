@@ -10,6 +10,7 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { DatabasesModule } from './databases/databases.module';
 import { FieldsModule } from './fields/fields.module';
 import { RecordsModule } from './records/records.module';
+import { RelationsModule } from './relations/relations.module';
 import { env } from './config/env';
 import { DbModule } from './db/db.module';
 import { DocsController } from './docs/docs.controller';
@@ -34,6 +35,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     DatabasesModule,
     FieldsModule,
     RecordsModule,
+    RelationsModule,
   ],
   controllers: [AppController, HealthController, DocsController, MeController],
   providers: [

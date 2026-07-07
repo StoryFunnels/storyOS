@@ -9,7 +9,7 @@ import { validateRecordValues } from '@storyos/schemas';
 import type { FieldDef } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { activityEvents, fields, records, selectOptions } from '../db/schema';
+import { activityEvents, fields, recordLinks, records, selectOptions } from '../db/schema';
 import type { QueryRecordsInput } from '@storyos/schemas';
 import { compileFilter, cursorCondition, sortExpr } from './query-compiler';
 import type { SortSpec } from './query-compiler';
@@ -95,6 +95,44 @@ export class RecordsService {
     };
   }
 
+  /** Fills relation-field values with {id, title} chips for a page of records (MN-018). */
+  async attachLinks(projected: ProjectedRecord[], defs: FieldDef[]): Promise<ProjectedRecord[]> {
+    const relationDefs = defs.filter((d) => d.type === 'relation');
+    if (relationDefs.length === 0 || projected.length === 0) return projected;
+    const ids = projected.map((p) => p.id);
+
+    for (const def of relationDefs) {
+      const relationId = def.config['relation_id'] as string;
+      const side = def.config['side'] as 'a' | 'b';
+      const myCol = side === 'a' ? recordLinks.fromRecordId : recordLinks.toRecordId;
+      const otherCol = side === 'a' ? recordLinks.toRecordId : recordLinks.fromRecordId;
+
+      const rows = await this.db
+        .select({ mine: myCol, id: records.id, title: records.title })
+        .from(recordLinks)
+        .innerJoin(records, eq(records.id, otherCol))
+        .where(
+          and(
+            eq(recordLinks.relationId, relationId),
+            inArray(myCol, ids),
+            isNull(records.deletedAt),
+          ),
+        );
+
+      const byRecord = new Map<string, Array<{ id: string; title: string }>>();
+      for (const row of rows) {
+        const list = byRecord.get(row.mine) ?? [];
+        list.push({ id: row.id, title: row.title });
+        byRecord.set(row.mine, list);
+      }
+      for (const record of projected) {
+        const chips = byRecord.get(record.id);
+        if (chips?.length) record.values[def.api_name] = chips;
+      }
+    }
+    return projected;
+  }
+
   private validateOrThrow(defs: FieldDef[], input: Record<string, unknown>) {
     const result = validateRecordValues(defs, input);
     if (result.issues.length > 0) {
@@ -178,7 +216,8 @@ export class RecordsService {
       this.getRow(databaseId, recordId),
       this.fieldDefs(databaseId),
     ]);
-    return this.project(row, defs);
+    const [projected] = await this.attachLinks([this.project(row, defs)], defs);
+    return projected!;
   }
 
   async update(
@@ -358,7 +397,7 @@ export class RecordsService {
     }
 
     return {
-      data: page.map((r) => this.project(r, defs)),
+      data: await this.attachLinks(page.map((r) => this.project(r, defs)), defs),
       next_cursor: nextCursor,
       has_more: hasMore,
     };
@@ -389,7 +428,7 @@ export class RecordsService {
     const hasMore = rows.length > opts.limit;
     const lastRow = page[page.length - 1];
     return {
-      data: page.map((r) => this.project(r, defs)),
+      data: await this.attachLinks(page.map((r) => this.project(r, defs)), defs),
       next_cursor: hasMore && lastRow ? encodeCursor(lastRow.position, lastRow.id) : null,
       has_more: hasMore,
     };
