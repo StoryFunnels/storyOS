@@ -1,0 +1,80 @@
+# StoryOS self-host: `docker compose up -d` → app at http://localhost:3000
+# Full env matrix: docs/self-hosting.md
+# S3-compatible attachment storage: `docker compose --profile minio up -d`
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: storyos
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-storyos}
+      POSTGRES_DB: storyos
+    volumes:
+      - storyos_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U storyos"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    image: storyos-api:latest
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://storyos:${POSTGRES_PASSWORD:-storyos}@postgres:5432/storyos
+      RUN_MIGRATIONS: "true"
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env (e.g. openssl rand -hex 32)}
+      API_URL: ${API_URL:-http://localhost:3001}
+      WEB_URL: ${WEB_URL:-http://localhost:3000}
+      ATTACHMENTS_DIR: /data/attachments
+      STORAGE_DRIVER: ${STORAGE_DRIVER:-local}
+      S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
+      S3_BUCKET: ${S3_BUCKET:-storyos-attachments}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-storyos}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-storyos-minio}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      MAIL_FROM: ${MAIL_FROM:-StoryOS <noreply@localhost>}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+    volumes:
+      - storyos_attachments:/data/attachments
+    ports:
+      - "${API_PORT:-3001}:3001"
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${API_URL:-http://localhost:3001}
+    image: storyos-web:latest
+    depends_on:
+      - api
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+
+  minio:
+    image: minio/minio:latest
+    profiles: [minio]
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-storyos}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-storyos-minio}
+    volumes:
+      - storyos_minio:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+
+volumes:
+  storyos_pg:
+  storyos_attachments:
+  storyos_minio:

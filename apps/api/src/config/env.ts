@@ -22,6 +22,8 @@ const envSchema = z.object({
     .int()
     .positive()
     .default(process.env.NODE_ENV === 'test' ? 1_000_000 : 300),
+  /** Containers run migrations on boot (MN-031); dev uses pnpm db:migrate. */
+  RUN_MIGRATIONS: z.coerce.boolean().default(false),
   /** Attachment storage (MN-029): local disk by default, s3 for MinIO/S3. */
   STORAGE_DRIVER: z.enum(['local', 's3']).default('local'),
   ATTACHMENTS_DIR: z.string().default('./data/attachments'),

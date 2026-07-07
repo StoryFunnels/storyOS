@@ -2375,6 +2375,75 @@
           "attachments"
         ]
       }
+    },
+    "/api/v1/templates": {
+      "get": {
+        "operationId": "TemplatesController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Available starter templates",
+        "tags": [
+          "templates"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/templates/{slug}/apply": {
+      "post": {
+        "operationId": "WorkspaceTemplatesController_apply",
+        "parameters": [
+          {
+            "name": "slug",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Install a template: space + databases + relations + views + sample data",
+        "tags": [
+          "templates"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/templates/sample-data": {
+      "delete": {
+        "operationId": "WorkspaceTemplatesController_removeSamples",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Remove exactly the sample records templates created",
+        "tags": [
+          "templates"
+        ]
+      }
     }
   },
   "info": {

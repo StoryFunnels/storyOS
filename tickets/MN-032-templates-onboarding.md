@@ -1,7 +1,7 @@
 ---
 id: MN-032
 title: Seed templates + onboarding
-status: todo
+status: done
 depends_on: [MN-018, MN-023, MN-026]
 size: M
 ---
