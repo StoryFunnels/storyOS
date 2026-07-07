@@ -37,6 +37,7 @@
     "@nestjs/cli": "^11.0.23",
     "@nestjs/testing": "^11.1.27",
     "@storyos/config": "workspace:*",
+    "@storyos/sdk": "workspace:*",
     "@testcontainers/postgresql": "^12.0.4",
     "@types/nodemailer": "^8.0.1",
     "@types/pg": "^8.20.0",

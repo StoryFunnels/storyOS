@@ -65,12 +65,11 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: OpenAPI drift check
+      - name: OpenAPI + SDK drift check
         run: |
-          if [ -f docs/api/openapi.json ]; then
-            pnpm --filter @storyos/api openapi:generate
-            git diff --exit-code docs/api/openapi.json || {
-              echo "::error::docs/api/openapi.json is out of date. Run pnpm --filter @storyos/api openapi:generate and commit."; exit 1; }
-          else
-            echo "openapi.json not generated yet (pre-MN-005) — skipping"
-          fi
+          pnpm --filter @storyos/api openapi:generate
+          git diff --exit-code docs/api/openapi.json || {
+            echo "::error::docs/api/openapi.json is out of date. Run pnpm sdk:generate and commit."; exit 1; }
+          pnpm --filter @storyos/sdk generate
+          git diff --exit-code packages/sdk/src/generated || {
+            echo "::error::the generated SDK is out of date. Run pnpm sdk:generate and commit."; exit 1; }

@@ -1,7 +1,7 @@
 ---
 id: MN-013
 title: Generated SDK package
-status: todo
+status: done
 depends_on: [MN-012]
 size: S
 ---

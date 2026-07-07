@@ -14,7 +14,8 @@
     "format": "prettier --write .",
     "docs:check": "node scripts/check-doc-links.mjs",
     "db:migrate": "pnpm --filter @storyos/api db:migrate",
-    "db:generate": "pnpm --filter @storyos/api db:generate"
+    "db:generate": "pnpm --filter @storyos/api db:generate",
+    "sdk:generate": "pnpm --filter @storyos/api openapi:generate && pnpm --filter @storyos/sdk generate && pnpm --filter @storyos/sdk build"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
