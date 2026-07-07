@@ -1,7 +1,7 @@
 ---
 id: MN-012
 title: Records query engine — filter AST → SQL, sorts, cursors
-status: todo
+status: done
 depends_on: [MN-011]
 size: L
 ---

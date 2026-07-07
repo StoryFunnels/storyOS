@@ -4,12 +4,15 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, or, sql, SQL } from 'drizzle-orm';
 import { validateRecordValues } from '@storyos/schemas';
 import type { FieldDef } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { activityEvents, fields, records, selectOptions } from '../db/schema';
+import type { QueryRecordsInput } from '@storyos/schemas';
+import { compileFilter, cursorCondition, sortExpr } from './query-compiler';
+import type { SortSpec } from './query-compiler';
 import { keysAfter } from './rank';
 
 type RecordRow = typeof records.$inferSelect;
@@ -276,6 +279,91 @@ export class RecordsService {
     return rows.map((r) => ({ id: r.id, title: r.title, deleted_at: r.deletedAt }));
   }
 
+  /**
+   * The workhorse: POST /records/query (MN-012). Filter AST → SQL via the
+   * compiler; multi-key sorts with NULLS LAST; keyset cursors with id
+   * tiebreaker; no sorts = manual (position) order.
+   */
+  async query(databaseId: string, input: QueryRecordsInput, currentUserId: string) {
+    const defs = await this.fieldDefs(databaseId);
+    const byApiName = new Map(defs.map((d) => [d.api_name, d]));
+
+    const SORTABLE = new Set([
+      'title', 'text', 'number', 'date', 'url', 'email', 'select',
+      'checkbox', 'created_at', 'updated_at', 'created_by', 'user',
+    ]);
+    const sorts: SortSpec[] = input.sorts.map((s) => {
+      const def = byApiName.get(s.field);
+      if (!def) throw new UnprocessableEntityException(`unknown sort field "${s.field}"`);
+      if (!SORTABLE.has(def.type) || (def.type === 'user' && def.config['multi'] === true)) {
+        throw new UnprocessableEntityException(`cannot sort by ${def.type} field "${s.field}"`);
+      }
+      return { def, direction: s.direction };
+    });
+
+    const conditions: unknown[] = [eq(records.databaseId, databaseId), isNull(records.deletedAt)];
+    if (input.q) conditions.push(sql`${records.title} ILIKE ${'%' + input.q + '%'}`);
+    if (input.filter) {
+      conditions.push(compileFilter(input.filter, { defs: byApiName, currentUserId }));
+    }
+
+    if (input.cursor) {
+      const decoded = decodeQueryCursor(input.cursor, sorts.length);
+      if (sorts.length > 0) {
+        conditions.push(
+          cursorCondition(
+            sorts,
+            (decoded.v ?? []).map((value, i) => reviveSortValue(value, sorts[i]!.def.type)),
+            decoded.id,
+          ),
+        );
+      } else {
+        const after = or(
+          gt(records.position, String(decoded.p)),
+          and(eq(records.position, String(decoded.p)), gt(records.id, decoded.id)),
+        );
+        conditions.push(after!);
+      }
+    }
+
+    const orderBy =
+      sorts.length > 0
+        ? [
+            ...sorts.map((s) =>
+              s.direction === 'asc'
+                ? sql`${sortExpr(s.def)} ASC NULLS LAST`
+                : sql`${sortExpr(s.def)} DESC NULLS LAST`,
+            ),
+            asc(records.id),
+          ]
+        : [asc(records.position), asc(records.id)];
+
+    const rows = await this.db
+      .select()
+      .from(records)
+      .where(and(...(conditions as Parameters<typeof and>)))
+      .orderBy(...(orderBy as SQL[]))
+      .limit(input.limit + 1);
+
+    const page = rows.slice(0, input.limit);
+    const hasMore = rows.length > input.limit;
+    const last = page[page.length - 1];
+
+    let nextCursor: string | null = null;
+    if (hasMore && last) {
+      nextCursor =
+        sorts.length > 0
+          ? encodeQueryCursor({ v: sorts.map((s) => extractSortValue(last, s.def)), id: last.id })
+          : encodeQueryCursor({ p: last.position, id: last.id });
+    }
+
+    return {
+      data: page.map((r) => this.project(r, defs)),
+      next_cursor: nextCursor,
+      has_more: hasMore,
+    };
+  }
+
   /** Simple list: manual (position) order, optional q title search, keyset cursor. */
   async list(databaseId: string, opts: { limit: number; cursor?: string; q?: string }) {
     const defs = await this.fieldDefs(databaseId);
@@ -310,6 +398,46 @@ export class RecordsService {
 
 function stripNulls(values: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(values).filter(([, v]) => v !== null));
+}
+
+function extractSortValue(row: RecordRow, def: { id: string; type: string }): unknown {
+  if (def.type === 'title') return row.title;
+  if (def.type === 'created_at') return row.createdAt.toISOString();
+  if (def.type === 'updated_at') return row.updatedAt.toISOString();
+  if (def.type === 'created_by') return row.createdBy;
+  const raw = (row.values as Record<string, unknown>)[def.id];
+  return raw === undefined ? null : raw;
+}
+
+function reviveSortValue(value: unknown, type: string): unknown {
+  if (value === null) return null;
+  if (type === 'created_at' || type === 'updated_at') return new Date(String(value));
+  return value;
+}
+
+interface QueryCursor {
+  v?: unknown[];
+  p?: string;
+  id: string;
+}
+
+function encodeQueryCursor(cursor: QueryCursor): string {
+  return Buffer.from(JSON.stringify(cursor)).toString('base64url');
+}
+
+function decodeQueryCursor(cursor: string, expectedSortCount: number): Required<Pick<QueryCursor, 'id'>> & QueryCursor {
+  try {
+    const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString()) as QueryCursor;
+    if (typeof parsed.id !== 'string') throw new Error();
+    if (expectedSortCount > 0) {
+      if (!Array.isArray(parsed.v) || parsed.v.length !== expectedSortCount) throw new Error();
+    } else if (typeof parsed.p !== 'string') {
+      throw new Error();
+    }
+    return parsed as Required<Pick<QueryCursor, 'id'>> & QueryCursor;
+  } catch {
+    throw new UnprocessableEntityException('Invalid cursor');
+  }
 }
 
 function encodeCursor(position: string, id: string): string {

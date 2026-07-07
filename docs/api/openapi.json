@@ -1072,6 +1072,45 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/databases/{db}/records/query": {
+      "post": {
+        "operationId": "RecordsController_query",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QueryRecordsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Query records: filter AST + sorts + q + keyset cursor (the workhorse)",
+        "tags": [
+          "records"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/databases/{db}/records/batch": {
       "post": {
         "operationId": "RecordsController_createBatch",
@@ -1676,6 +1715,119 @@
             "default": {},
             "type": "object",
             "additionalProperties": {}
+          }
+        }
+      },
+      "QueryRecordsDto__schema0": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "field": {
+                "type": "string",
+                "minLength": 1
+              },
+              "op": {
+                "type": "string",
+                "enum": [
+                  "eq",
+                  "neq",
+                  "contains",
+                  "gt",
+                  "gte",
+                  "lt",
+                  "lte",
+                  "before",
+                  "after",
+                  "within",
+                  "has",
+                  "has_none",
+                  "is_empty",
+                  "not_empty"
+                ]
+              },
+              "value": {}
+            },
+            "required": [
+              "field",
+              "op"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "and": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/QueryRecordsDto__schema0"
+                }
+              }
+            },
+            "required": [
+              "and"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "or": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/QueryRecordsDto__schema0"
+                }
+              }
+            },
+            "required": [
+              "or"
+            ]
+          }
+        ]
+      },
+      "QueryRecordsDto": {
+        "type": "object",
+        "properties": {
+          "filter": {
+            "$ref": "#/components/schemas/QueryRecordsDto__schema0"
+          },
+          "sorts": {
+            "default": [],
+            "maxItems": 3,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "field": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "direction": {
+                  "default": "asc",
+                  "type": "string",
+                  "enum": [
+                    "asc",
+                    "desc"
+                  ]
+                }
+              },
+              "required": [
+                "field"
+              ]
+            }
+          },
+          "q": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "limit": {
+            "default": 50,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "cursor": {
+            "type": "string"
           }
         }
       },

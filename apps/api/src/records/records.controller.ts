@@ -16,6 +16,7 @@ import { z } from 'zod';
 import {
   createRecordSchema,
   createRecordsBatchSchema,
+  queryRecordsSchema,
   updateRecordSchema,
 } from '@storyos/schemas';
 import { AuthGuard } from '../auth/auth.guard';
@@ -27,6 +28,7 @@ import { RecordsService } from './records.service';
 class CreateRecordDto extends createZodDto(createRecordSchema) {}
 class CreateRecordsBatchDto extends createZodDto(createRecordsBatchSchema) {}
 class UpdateRecordDto extends createZodDto(updateRecordSchema) {}
+class QueryRecordsDto extends createZodDto(queryRecordsSchema) {}
 
 const listQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(50),
@@ -76,6 +78,17 @@ export class RecordsController {
       body.values,
       req.user.id,
     );
+  }
+
+  @Post('query')
+  @ApiOperation({ summary: 'Query records: filter AST + sorts + q + keyset cursor (the workhorse)' })
+  async query(
+    @Req() req: WorkspaceRequest,
+    @Param('db') databaseId: string,
+    @Body() body: QueryRecordsDto,
+  ) {
+    await this.assertDb(req, databaseId);
+    return this.recordsService.query(databaseId, body, req.user.id);
   }
 
   @Post('batch')
