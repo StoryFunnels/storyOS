@@ -12,7 +12,9 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "format": "prettier --write .",
-    "docs:check": "node scripts/check-doc-links.mjs"
+    "docs:check": "node scripts/check-doc-links.mjs",
+    "db:migrate": "pnpm --filter @storyos/api db:migrate",
+    "db:generate": "pnpm --filter @storyos/api db:generate"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

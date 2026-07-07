@@ -1,0 +1,29 @@
+# Local development infrastructure only (the app itself runs via `pnpm dev`).
+# Self-host compose (app included) arrives with MN-031 as docker-compose.yml.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: storyos
+      POSTGRES_PASSWORD: storyos
+      POSTGRES_DB: storyos
+    ports:
+      - "5432:5432"
+    volumes:
+      - storyos_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U storyos"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Fake SMTP: catches all outgoing email (invites, mentions, resets).
+  # Web inbox at http://localhost:8025, SMTP at localhost:1025.
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+volumes:
+  storyos_pg_data:

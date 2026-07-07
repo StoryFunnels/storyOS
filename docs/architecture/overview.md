@@ -44,7 +44,7 @@ None in v1. UI uses TanStack Query with optimistic updates + refetch. The append
 ## Testing & CI
 
 - **Unit:** Vitest. The query compiler and record-value validator get the densest suites in the repo.
-- **API integration:** supertest against a real Nest app + real Postgres (Testcontainers locally, `services: postgres` in GitHub Actions). Every endpoint: ≥1 happy path + ≥1 authz test.
+- **API integration:** supertest against a real Nest app + real Postgres (Testcontainers locally, `services: postgres` in GitHub Actions — the harness only needs `DATABASE_URL`, provided to workers via vitest `globalSetup` → `provide/inject`). Migrations run once per test run; test files run serially (`fileParallelism: false`) and truncate the tables they touch (`truncateAll` helper — workspace cascade wipes all tenant data). Every endpoint: ≥1 happy path + ≥1 authz test.
 - **E2E:** Playwright, ~6 smoke flows (signup → create db → add field → add record → kanban drag → comment).
 - **CI:** PR = lint → typecheck → unit → integration → build → OpenAPI-drift check. Main additionally runs Playwright and publishes Docker images.
 

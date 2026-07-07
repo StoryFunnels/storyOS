@@ -1,7 +1,7 @@
 ---
 id: MN-004
 title: Postgres + Drizzle foundation + integration-test harness
-status: todo
+status: done
 depends_on: [MN-001]
 size: M
 ---
