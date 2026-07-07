@@ -2,8 +2,21 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Plus, Trash2 } from 'lucide-react';
+import { MoreHorizontal, Plus, Trash2 } from 'lucide-react';
+import { Dialog, DialogTrigger } from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { CellDisplay, CellEditor } from './cells';
+import {
+  AddFieldDialog,
+  ChangeTypeDialog,
+  EditFieldDialog,
+  useDeleteField,
+} from './field-dialogs';
 import {
   useDatabase,
   useMembers,
@@ -50,6 +63,7 @@ export function TableView({ ws, db, readOnly }: { ws: string; db: string; readOn
   const [widths, setWidths] = useState<Record<string, number>>({});
   const [cursor, setCursor] = useState<Cursor | null>(null);
   const [editing, setEditing] = useState(false);
+  const [addingField, setAddingField] = useState(false);
   const gridRef = useRef<HTMLDivElement>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -139,8 +153,29 @@ export function TableView({ ws, db, readOnly }: { ws: string; db: string; readOn
           <div className="sticky top-0 z-20 flex border-b border-border-default bg-app">
             <div className="w-10 shrink-0" />
             {fields.map((field) => (
-              <HeaderCell key={field.id} field={field} width={widthOf(field)} onResize={(w) => setWidths((prev) => ({ ...prev, [field.id]: w }))} />
+              <HeaderCell
+                key={field.id}
+                ws={ws}
+                db={db}
+                field={field}
+                width={widthOf(field)}
+                readOnly={readOnly}
+                onResize={(w) => setWidths((prev) => ({ ...prev, [field.id]: w }))}
+              />
             ))}
+            {!readOnly && (
+              <Dialog open={addingField} onOpenChange={setAddingField}>
+                <DialogTrigger asChild>
+                  <button
+                    title="Add field"
+                    className="flex h-8 w-9 items-center justify-center text-muted hover:bg-hover hover:text-ink"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                  </button>
+                </DialogTrigger>
+                {addingField && <AddFieldDialog ws={ws} db={db} onDone={() => setAddingField(false)} />}
+              </Dialog>
+            )}
           </div>
 
           {/* Virtualized rows */}
@@ -234,21 +269,55 @@ export function TableView({ ws, db, readOnly }: { ws: string; db: string; readOn
 }
 
 function HeaderCell({
+  ws,
+  db,
   field,
   width,
+  readOnly,
   onResize,
 }: {
+  ws: string;
+  db: string;
   field: Field;
   width: number;
+  readOnly: boolean;
   onResize: (width: number) => void;
 }) {
   const startRef = useRef<{ x: number; width: number } | null>(null);
+  const [dialog, setDialog] = useState<'edit' | 'change-type' | null>(null);
+  const deleteField = useDeleteField({ ws, db, field, onDone: () => setDialog(null) });
+  const canManage = !readOnly && field.type !== 'title' && !field.isSystem;
+
   return (
     <div
       style={{ width }}
-      className="relative flex h-8 shrink-0 items-center border-r border-border-default px-2 text-[12px] font-medium text-muted"
+      className="group/header relative flex h-8 shrink-0 items-center justify-between border-r border-border-default px-2 text-[12px] font-medium text-muted"
     >
       <span className="truncate">{field.displayName}</span>
+      {canManage && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="rounded p-0.5 opacity-0 hover:bg-active group-hover/header:opacity-100">
+              <MoreHorizontal className="h-3.5 w-3.5" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent>
+            <DropdownMenuItem onSelect={() => setDialog('edit')}>Edit field</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setDialog('change-type')}>Change type</DropdownMenuItem>
+            <DropdownMenuItem className="text-error" onSelect={() => deleteField.mutate()}>
+              Delete field
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+      <Dialog open={dialog !== null} onOpenChange={(open) => !open && setDialog(null)}>
+        {dialog === 'edit' && (
+          <EditFieldDialog ws={ws} db={db} field={field} onDone={() => setDialog(null)} />
+        )}
+        {dialog === 'change-type' && (
+          <ChangeTypeDialog ws={ws} db={db} field={field} onDone={() => setDialog(null)} />
+        )}
+      </Dialog>
       <div
         className="absolute -right-0.5 top-0 z-10 h-full w-1.5 cursor-col-resize hover:bg-accent"
         onPointerDown={(e) => {
