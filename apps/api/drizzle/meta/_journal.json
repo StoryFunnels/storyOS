@@ -22,6 +22,13 @@
       "when": 1783461225181,
       "tag": "0002_moaning_skullbuster",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1783461489600,
+      "tag": "0003_jazzy_raider",
+      "breakpoints": true
     }
   ]
 }

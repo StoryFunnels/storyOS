@@ -1,7 +1,7 @@
 ---
 id: MN-010
 title: Fields CRUD + select options + type-change matrix
-status: todo
+status: done
 depends_on: [MN-009]
 size: M
 ---

@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 export * from './workspaces';
 export * from './databases';
+export * from './fields';
 
 /**
  * Health check response — the first shared schema, proving the

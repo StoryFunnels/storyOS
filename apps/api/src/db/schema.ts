@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import {
   pgTable,
   pgEnum,
@@ -7,6 +8,7 @@ import {
   jsonb,
   boolean,
   timestamp,
+  index,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
@@ -150,6 +152,32 @@ export const views = pgTable('views', {
   createdBy: text('created_by'),
   ...timestamps,
 });
+
+export const records = pgTable(
+  'records',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    databaseId: uuid('database_id')
+      .notNull()
+      .references(() => databases.id, { onDelete: 'cascade' }),
+    /** Title promoted to a real column (search, pickers, activity rendering). */
+    title: text('title').notNull().default(''),
+    /** User-defined values keyed by field UUID — ADR-0002. Relations live in record_links. */
+    values: jsonb('values').notNull().default({}),
+    /** Fractional-index rank, one per database (ADR-0005). */
+    position: text('position').notNull().default('a0'),
+    createdBy: text('created_by'),
+    updatedBy: text('updated_by'),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    index('records_values_gin').using('gin', sql`${t.values} jsonb_path_ops`),
+    index('records_db_position_idx').on(t.databaseId, t.position),
+    index('records_db_created_idx').on(t.databaseId, t.createdAt, t.id),
+    index('records_title_trgm').using('gin', sql`${t.title} gin_trgm_ops`),
+  ],
+);
 
 export const invites = pgTable('invites', {
   id: uuid('id').primaryKey().defaultRandom(),
