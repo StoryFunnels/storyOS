@@ -11,6 +11,7 @@ import { env } from './config/env';
 import { DbModule } from './db/db.module';
 import { DocsController } from './docs/docs.controller';
 import { HealthController } from './health/health.controller';
+import { WorkspacesModule } from './workspaces/workspaces.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { HealthController } from './health/health.controller';
     }),
     DbModule,
     AuthModule,
+    WorkspacesModule,
   ],
   controllers: [AppController, HealthController, DocsController, MeController],
   providers: [

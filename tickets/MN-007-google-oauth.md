@@ -8,7 +8,7 @@ size: S
 
 Google provider via better-auth. Account linking by verified email. Env-gated: self-hosted instances without Google credentials expose no trace of the provider (API reports enabled providers so the web login page renders accordingly).
 
-> Not a blocker: nothing depends on this ticket. The founder will create the Google Cloud OAuth client (redirect URI `http://localhost:3001/api/auth/callback/google` for dev) and supply `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`; until then the provider stays cleanly disabled.
+> Not a blocker: nothing depends on this ticket. The founder will create the Google Cloud OAuth client (redirect URI `http://localhost:3001/api/v1/auth/callback/google` for dev) and supply `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`; until then the provider stays cleanly disabled.
 
 ## Acceptance criteria
 

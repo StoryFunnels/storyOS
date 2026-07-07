@@ -1,7 +1,7 @@
 ---
 id: MN-008
 title: Workspaces, spaces, memberships, roles, invites
-status: todo
+status: done
 depends_on: [MN-006]
 size: M
 ---

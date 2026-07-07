@@ -14,4 +14,13 @@ export default tseslint.config(
       '@typescript-eslint/consistent-type-imports': 'error',
     },
   },
+  {
+    // NestJS DI relies on emitDecoratorMetadata: classes referenced only as
+    // constructor-param types MUST stay value imports, or tsc elides them and
+    // injection resolves to Object at runtime. Keep type-imports manual in the API.
+    files: ['apps/api/src/**/*.ts'],
+    rules: {
+      '@typescript-eslint/consistent-type-imports': 'off',
+    },
+  },
 );

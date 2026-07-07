@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+export * from './workspaces';
+
 /**
  * Health check response — the first shared schema, proving the
  * schemas package is consumed by both the API and the web app.
