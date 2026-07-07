@@ -1,0 +1,10 @@
+{
+  "extends": "@storyos/config/typescript/base.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": ["src"]
+}

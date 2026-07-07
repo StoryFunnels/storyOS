@@ -1,0 +1,14 @@
+{
+  "extends": "@storyos/config/typescript/base.json",
+  "compilerOptions": {
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "noEmit": false,
+    "declaration": false,
+    "outDir": "dist",
+    "rootDir": "src",
+    "sourceMap": true,
+    "incremental": true
+  },
+  "include": ["src"]
+}

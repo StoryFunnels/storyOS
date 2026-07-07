@@ -1,7 +1,7 @@
 ---
 id: MN-001
 title: Monorepo scaffold
-status: todo
+status: done
 depends_on: []
 size: S
 ---
