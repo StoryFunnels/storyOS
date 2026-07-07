@@ -8,7 +8,7 @@ import { env } from './config/env';
 import { buildOpenApiDocument } from './openapi.setup';
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter(), {
+  const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter({ bodyLimit: 3 * 1024 * 1024 }), {
     bufferLogs: true,
   });
   app.useLogger(app.get(Logger));

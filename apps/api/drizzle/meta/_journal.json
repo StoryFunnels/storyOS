@@ -43,6 +43,13 @@
       "when": 1783464817293,
       "tag": "0005_opposite_boom_boom",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1783465831648,
+      "tag": "0006_good_smiling_tiger",
+      "breakpoints": true
     }
   ]
 }

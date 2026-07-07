@@ -1,7 +1,7 @@
 ---
 id: MN-024
 title: Documents backend (entity descriptions)
-status: todo
+status: done
 depends_on: [MN-011]
 size: M
 ---

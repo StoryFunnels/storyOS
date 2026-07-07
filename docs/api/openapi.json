@@ -1773,6 +1773,88 @@
           "views"
         ]
       }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/document": {
+      "get": {
+        "operationId": "DocumentsController_get",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "rec",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Record description (BlockNote JSON; version 0 = never written)",
+        "tags": [
+          "documents"
+        ]
+      },
+      "put": {
+        "operationId": "DocumentsController_put",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "rec",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutDocumentDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Write the description — 409 with current version on conflict",
+        "tags": [
+          "documents"
+        ]
+      }
     }
   },
   "info": {
@@ -2721,6 +2803,21 @@
             "maximum": 9007199254740991
           }
         }
+      },
+      "PutDocumentDto": {
+        "type": "object",
+        "properties": {
+          "content": {},
+          "expected_version": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "content",
+          "expected_version"
+        ]
       }
     }
   }

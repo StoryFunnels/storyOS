@@ -11,7 +11,7 @@ import { configureApp } from '../../src/app.setup';
  */
 export async function createTestApp(): Promise<NestFastifyApplication> {
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
-  const app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter(), {
+  const app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter({ bodyLimit: 3 * 1024 * 1024 }), {
     logger: false,
   });
   configureApp(app);

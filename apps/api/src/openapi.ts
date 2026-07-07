@@ -12,7 +12,7 @@ import { configureApp } from './app.setup';
 import { buildOpenApiDocument } from './openapi.setup';
 
 async function generate() {
-  const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter(), {
+  const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter({ bodyLimit: 3 * 1024 * 1024 }), {
     logger: false,
   });
   configureApp(app);

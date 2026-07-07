@@ -221,6 +221,21 @@ export const recordLinks = pgTable(
   ],
 );
 
+export const documents = pgTable('documents', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  recordId: uuid('record_id')
+    .notNull()
+    .unique()
+    .references(() => records.id, { onDelete: 'cascade' }),
+  /** BlockNote block array — schema-light by design (MN-024). */
+  content: jsonb('content'),
+  /** Extracted plain text (future workspace search). */
+  contentText: text('content_text').notNull().default(''),
+  /** Optimistic concurrency: PUT carries expected_version → 409 on mismatch. */
+  version: integer('version').notNull().default(1),
+  ...timestamps,
+});
+
 export const activityEvents = pgTable(
   'activity_events',
   {
