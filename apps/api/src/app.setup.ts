@@ -1,3 +1,4 @@
+import multipart from '@fastify/multipart';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import type { FastifyReply } from 'fastify';
 import { AUTH } from './auth/auth.tokens';
@@ -11,6 +12,10 @@ import { env } from './config/env';
  */
 export function configureApp(app: NestFastifyApplication) {
   app.setGlobalPrefix('api/v1', { exclude: ['/', 'healthz', 'api/docs'] });
+  void app
+    .getHttpAdapter()
+    .getInstance()
+    .register(multipart, { limits: { fileSize: env().ATTACHMENT_MAX_BYTES, files: 1 } });
   app.enableCors({
     origin: [env().WEB_URL],
     credentials: true,

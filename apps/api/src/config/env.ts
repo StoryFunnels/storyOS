@@ -22,6 +22,16 @@ const envSchema = z.object({
     .int()
     .positive()
     .default(process.env.NODE_ENV === 'test' ? 1_000_000 : 300),
+  /** Attachment storage (MN-029): local disk by default, s3 for MinIO/S3. */
+  STORAGE_DRIVER: z.enum(['local', 's3']).default('local'),
+  ATTACHMENTS_DIR: z.string().default('./data/attachments'),
+  ATTACHMENT_MAX_BYTES: z.coerce.number().int().positive().default(20 * 1024 * 1024),
+  S3_ENDPOINT: z.string().optional(),
+  S3_REGION: z.string().default('us-east-1'),
+  S3_BUCKET: z.string().default('storyos-attachments'),
+  S3_ACCESS_KEY: z.string().optional(),
+  S3_SECRET_KEY: z.string().optional(),
+  S3_FORCE_PATH_STYLE: z.coerce.boolean().default(true),
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
 });

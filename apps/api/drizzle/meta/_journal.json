@@ -57,6 +57,13 @@
       "when": 1783466159721,
       "tag": "0007_complex_raider",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1783466404882,
+      "tag": "0008_chief_king_bedlam",
+      "breakpoints": true
     }
   ]
 }

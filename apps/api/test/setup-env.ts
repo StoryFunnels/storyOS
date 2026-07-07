@@ -8,3 +8,6 @@ import { inject } from 'vitest';
  */
 process.env.DATABASE_URL = inject('databaseUrl');
 process.env.NODE_ENV = 'test';
+
+process.env.ATTACHMENT_MAX_BYTES = String(1024 * 1024); // 1MB cap in tests
+process.env.ATTACHMENTS_DIR = `/tmp/storyos-attachments-test-${process.pid}`;

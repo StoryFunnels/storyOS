@@ -2168,6 +2168,213 @@
           "activity"
         ]
       }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/attachments": {
+      "get": {
+        "operationId": "AttachmentsController_list",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "rec",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Attachments on a record",
+        "tags": [
+          "attachments"
+        ]
+      },
+      "post": {
+        "operationId": "AttachmentsController_upload",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "rec",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Upload a file (multipart field \"file\"; size-capped)",
+        "tags": [
+          "attachments"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/attachments/{att}/download": {
+      "get": {
+        "operationId": "AttachmentsController_download",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "rec",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "att",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Download the file (authz-checked, streamed)",
+        "tags": [
+          "attachments"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/attachments/{att}/thumbnail": {
+      "get": {
+        "operationId": "AttachmentsController_thumbnail",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "rec",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "att",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Image thumbnail (404 for non-images)",
+        "tags": [
+          "attachments"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/attachments/{att}": {
+      "delete": {
+        "operationId": "AttachmentsController_remove",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "rec",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "att",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Delete an attachment (object removed best-effort)",
+        "tags": [
+          "attachments"
+        ]
+      }
     }
   },
   "info": {

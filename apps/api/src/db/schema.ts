@@ -270,6 +270,25 @@ export const apiTokens = pgTable('api_tokens', {
   ...timestamps,
 });
 
+export const attachments = pgTable(
+  'attachments',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    recordId: uuid('record_id')
+      .notNull()
+      .references(() => records.id, { onDelete: 'cascade' }),
+    filename: text('filename').notNull(),
+    size: integer('size').notNull(),
+    mime: text('mime').notNull(),
+    storageKey: text('storage_key').notNull(),
+    /** Image-only thumbnail (MN-029 — no other previews by design). */
+    thumbKey: text('thumb_key'),
+    uploadedBy: text('uploaded_by'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('attachments_record_idx').on(t.recordId, t.createdAt)],
+);
+
 export const activityEvents = pgTable(
   'activity_events',
   {
