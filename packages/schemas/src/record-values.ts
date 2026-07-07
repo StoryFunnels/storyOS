@@ -158,3 +158,15 @@ export const createRecordsBatchSchema = z.object({
 export const updateRecordSchema = z.object({
   values: z.record(z.string(), z.unknown()),
 });
+
+export const moveRecordSchema = z
+  .object({
+    before_record_id: z.uuid().optional(),
+    after_record_id: z.uuid().optional(),
+    /** Optional value patch applied atomically with the move (kanban drops). */
+    values: z.record(z.string(), z.unknown()).optional(),
+  })
+  .refine((v) => Boolean(v.before_record_id) !== Boolean(v.after_record_id) || (!v.before_record_id && !v.after_record_id && Boolean(v.values)), {
+    message: 'provide exactly one of before_record_id / after_record_id (or only values)',
+    path: ['before_record_id'],
+  });

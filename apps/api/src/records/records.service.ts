@@ -13,7 +13,7 @@ import { activityEvents, fields, recordLinks, records, selectOptions } from '../
 import type { QueryRecordsInput } from '@storyos/schemas';
 import { compileFilter, cursorCondition, sortExpr } from './query-compiler';
 import type { SortSpec } from './query-compiler';
-import { keysAfter } from './rank';
+import { keyBetween, keysAfter } from './rank';
 
 type RecordRow = typeof records.$inferSelect;
 
@@ -264,6 +264,86 @@ export class RecordsService {
       return next!;
     });
     return this.project(updated, defs);
+  }
+
+  /**
+   * Atomic move (ADR-0005 / MN-022): new fractional position between the given
+   * neighbor and its adjacent record, plus an optional value patch (kanban
+   * drops change group field + position in ONE call). Position changes emit
+   * no activity noise; value changes reuse the normal update path.
+   */
+  async move(
+    workspaceId: string,
+    databaseId: string,
+    recordId: string,
+    input: { before_record_id?: string; after_record_id?: string; values?: Record<string, unknown> },
+    actorId: string,
+  ): Promise<ProjectedRecord> {
+    await this.getRow(databaseId, recordId);
+
+    let newPosition: string | undefined;
+    if (input.before_record_id || input.after_record_id) {
+      const anchorId = (input.before_record_id ?? input.after_record_id)!;
+      const anchor = await this.getRow(databaseId, anchorId);
+
+      if (input.after_record_id) {
+        // Place directly after the anchor: between anchor and its successor.
+        const [next] = await this.db
+          .select({ position: records.position })
+          .from(records)
+          .where(
+            and(
+              eq(records.databaseId, databaseId),
+              isNull(records.deletedAt),
+              sql`(${records.position}, ${records.id}) > (${anchor.position}, ${anchor.id})`,
+            ),
+          )
+          .orderBy(asc(records.position), asc(records.id))
+          .limit(1);
+        newPosition = await keyBetween(anchor.position, next?.position ?? null);
+      } else {
+        // Place directly before the anchor: between its predecessor and anchor.
+        const [prev] = await this.db
+          .select({ position: records.position })
+          .from(records)
+          .where(
+            and(
+              eq(records.databaseId, databaseId),
+              isNull(records.deletedAt),
+              sql`(${records.position}, ${records.id}) < (${anchor.position}, ${anchor.id})`,
+            ),
+          )
+          .orderBy(desc(records.position), desc(records.id))
+          .limit(1);
+        newPosition = await keyBetween(prev?.position ?? null, anchor.position);
+      }
+    }
+
+    if (newPosition !== undefined) {
+      await this.db.update(records).set({ position: newPosition }).where(eq(records.id, recordId));
+      // Rebalance fallback: fractional keys grow on repeated same-gap inserts.
+      if (newPosition.length > 40) await this.rebalance(databaseId);
+    }
+
+    if (input.values && Object.keys(input.values).length > 0) {
+      return this.update(workspaceId, databaseId, recordId, input.values, actorId);
+    }
+    return this.get(databaseId, recordId);
+  }
+
+  /** Rewrites all positions with fresh evenly-spaced keys (key-length exhaustion). */
+  private async rebalance(databaseId: string) {
+    const rows = await this.db.query.records.findMany({
+      where: eq(records.databaseId, databaseId),
+      orderBy: [asc(records.position), asc(records.id)],
+      columns: { id: true },
+    });
+    const keys = await keysAfter(null, rows.length);
+    await this.db.transaction(async (tx) => {
+      for (let i = 0; i < rows.length; i++) {
+        await tx.update(records).set({ position: keys[i]! }).where(eq(records.id, rows[i]!.id));
+      }
+    });
   }
 
   async softDelete(workspaceId: string, databaseId: string, recordId: string, actorId: string) {

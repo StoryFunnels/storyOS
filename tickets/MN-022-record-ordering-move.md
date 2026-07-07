@@ -1,7 +1,7 @@
 ---
 id: MN-022
 title: Record ordering + move endpoint
-status: todo
+status: done
 depends_on: [MN-011]
 size: S
 ---

@@ -16,6 +16,7 @@ import { z } from 'zod';
 import {
   createRecordSchema,
   createRecordsBatchSchema,
+  moveRecordSchema,
   queryRecordsSchema,
   updateRecordSchema,
 } from '@storyos/schemas';
@@ -29,6 +30,7 @@ class CreateRecordDto extends createZodDto(createRecordSchema) {}
 class CreateRecordsBatchDto extends createZodDto(createRecordsBatchSchema) {}
 class UpdateRecordDto extends createZodDto(updateRecordSchema) {}
 class QueryRecordsDto extends createZodDto(queryRecordsSchema) {}
+class MoveRecordDto extends createZodDto(moveRecordSchema) {}
 
 const listQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(50),
@@ -160,6 +162,25 @@ export class RecordsController {
       req.membership.workspaceId,
       databaseId,
       recordId,
+      req.user.id,
+    );
+  }
+
+  @Post(':rec/move')
+  @MinRole('member')
+  @ApiOperation({ summary: 'Atomic move: fractional reposition + optional value patch (kanban drop)' })
+  async move(
+    @Req() req: WorkspaceRequest,
+    @Param('db') databaseId: string,
+    @Param('rec') recordId: string,
+    @Body() body: MoveRecordDto,
+  ) {
+    await this.assertDb(req, databaseId);
+    return this.recordsService.move(
+      req.membership.workspaceId,
+      databaseId,
+      recordId,
+      body,
       req.user.id,
     );
   }
