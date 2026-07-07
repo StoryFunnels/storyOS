@@ -7,7 +7,7 @@ import {
 import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { databases, fields, spaces, views } from '../db/schema';
+import { databases, fields, selectOptions, spaces, views } from '../db/schema';
 import type { Membership } from '../workspaces/workspace-access.guard';
 
 export function slugify(name: string): string {
@@ -74,7 +74,29 @@ export class DatabasesService {
         orderBy: [asc(views.position)],
       }),
     ]);
-    return { ...database, fields: fieldRows, views: viewRows };
+
+    // Select options ride along so clients (table cells, MCP servers) can
+    // render/validate without N+1 field fetches (E4 introspection).
+    const selectFieldIds = fieldRows
+      .filter((f) => f.type === 'select' || f.type === 'multi_select')
+      .map((f) => f.id);
+    const options = selectFieldIds.length
+      ? await this.db.query.selectOptions.findMany({
+          where: inArray(selectOptions.fieldId, selectFieldIds),
+          orderBy: [asc(selectOptions.position)],
+        })
+      : [];
+    const optionsByField = new Map<string, typeof options>();
+    for (const option of options) {
+      const list = optionsByField.get(option.fieldId) ?? [];
+      list.push(option);
+      optionsByField.set(option.fieldId, list);
+    }
+    const fieldsWithOptions = fieldRows.map((f) =>
+      optionsByField.has(f.id) ? { ...f, options: optionsByField.get(f.id) } : f,
+    );
+
+    return { ...database, fields: fieldsWithOptions, views: viewRows };
   }
 
   /** Creates the database + title/system fields + default table view, atomically (B2). */

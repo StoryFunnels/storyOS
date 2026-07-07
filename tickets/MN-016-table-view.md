@@ -1,7 +1,7 @@
 ---
 id: MN-016
 title: Table view — virtualized, inline edit
-status: todo
+status: done
 depends_on: [MN-015]
 size: L
 ---

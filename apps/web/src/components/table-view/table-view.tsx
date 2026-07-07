@@ -1,0 +1,268 @@
+'use client';
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
+import { Plus, Trash2 } from 'lucide-react';
+import { CellDisplay, CellEditor } from './cells';
+import {
+  useDatabase,
+  useMembers,
+  useRecordMutations,
+  useRecordsInfinite,
+} from './use-table-data';
+import type { Field, RecordRow } from './use-table-data';
+import { cn } from '@/lib/utils';
+
+const ROW_HEIGHT = 32;
+const DEFAULT_WIDTH = 180;
+const TITLE_WIDTH = 260;
+
+const HIDDEN_TYPES = new Set(['created_at', 'updated_at', 'created_by', 'relation']);
+const NO_EDITOR = new Set(['checkbox']);
+
+interface Cursor {
+  row: number;
+  col: number;
+}
+
+export function TableView({ ws, db, readOnly }: { ws: string; db: string; readOnly: boolean }) {
+  const database = useDatabase(ws, db);
+  const records = useRecordsInfinite(ws, db);
+  const { updateRecord, createRecord, deleteRecord } = useRecordMutations(ws, db);
+
+  const fields = useMemo(
+    () => (database.data?.fields ?? []).filter((f) => !HIDDEN_TYPES.has(f.type)),
+    [database.data],
+  );
+  const hasUserField = fields.some((f) => f.type === 'user');
+  const members = useMembers(ws, hasUserField && !readOnly);
+  const memberList = useMemo(
+    () => (members.data ?? []).map((m) => ({ id: m.user.id, name: m.user.name })),
+    [members.data],
+  );
+  const memberNames = useMemo(() => new Map(memberList.map((m) => [m.id, m.name])), [memberList]);
+
+  const rows = useMemo(
+    () => (records.data?.pages ?? []).flatMap((page) => page.data),
+    [records.data],
+  );
+
+  const [widths, setWidths] = useState<Record<string, number>>({});
+  const [cursor, setCursor] = useState<Cursor | null>(null);
+  const [editing, setEditing] = useState(false);
+  const gridRef = useRef<HTMLDivElement>(null);
+
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 20,
+  });
+
+  // Infinite scroll: fetch the next page as the tail approaches.
+  const virtualItems = virtualizer.getVirtualItems();
+  useEffect(() => {
+    const last = virtualItems[virtualItems.length - 1];
+    if (!last) return;
+    if (last.index >= rows.length - 30 && records.hasNextPage && !records.isFetchingNextPage) {
+      void records.fetchNextPage();
+    }
+  }, [virtualItems, rows.length, records]);
+
+  const widthOf = useCallback(
+    (field: Field) => widths[field.id] ?? (field.type === 'title' ? TITLE_WIDTH : DEFAULT_WIDTH),
+    [widths],
+  );
+
+  const valueOf = (row: RecordRow, field: Field): unknown =>
+    field.type === 'title' ? row.title : row.values[field.apiName];
+
+  function commitEdit(row: RecordRow, field: Field, value: unknown) {
+    setEditing(false);
+    const current = valueOf(row, field) ?? null;
+    if (JSON.stringify(current) === JSON.stringify(value)) return;
+    updateRecord.mutate({ rec: row.id, values: { [field.apiName]: value } });
+    gridRef.current?.focus();
+  }
+
+  function onKeyDown(e: React.KeyboardEvent) {
+    if (editing || rows.length === 0) return;
+    const max: Cursor = { row: rows.length - 1, col: fields.length - 1 };
+    const move = (dr: number, dc: number) => {
+      e.preventDefault();
+      setCursor((prev) => {
+        const base = prev ?? { row: 0, col: 0 };
+        const next = {
+          row: Math.min(max.row, Math.max(0, base.row + dr)),
+          col: Math.min(max.col, Math.max(0, base.col + dc)),
+        };
+        virtualizer.scrollToIndex(next.row);
+        return next;
+      });
+    };
+    if (e.key === 'ArrowDown') move(1, 0);
+    else if (e.key === 'ArrowUp') move(-1, 0);
+    else if (e.key === 'ArrowRight' || e.key === 'Tab') move(0, 1);
+    else if (e.key === 'ArrowLeft') move(0, -1);
+    else if (e.key === 'Enter' && cursor && !readOnly) {
+      e.preventDefault();
+      const field = fields[cursor.col]!;
+      if (field.type === 'checkbox') {
+        const row = rows[cursor.row]!;
+        commitEdit(row, field, !(valueOf(row, field) === true));
+      } else if (!NO_EDITOR.has(field.type)) {
+        setEditing(true);
+      }
+    }
+  }
+
+  if (database.isLoading) return <p className="p-6 text-sm text-muted">Loading…</p>;
+
+  const totalWidth = fields.reduce((sum, f) => sum + widthOf(f), 0) + 40;
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex h-11 items-center justify-between border-b border-border-default px-4">
+        <h1 className="text-sm font-semibold text-ink">{database.data?.name}</h1>
+        <span className="text-[12px] text-muted">{rows.length} records</span>
+      </div>
+
+      <div
+        ref={scrollRef}
+        className="min-h-0 flex-1 overflow-auto"
+        tabIndex={0}
+        onKeyDown={onKeyDown}
+      >
+        <div ref={gridRef} style={{ width: totalWidth }} className="outline-none">
+          {/* Header */}
+          <div className="sticky top-0 z-20 flex border-b border-border-default bg-app">
+            <div className="w-10 shrink-0" />
+            {fields.map((field) => (
+              <HeaderCell key={field.id} field={field} width={widthOf(field)} onResize={(w) => setWidths((prev) => ({ ...prev, [field.id]: w }))} />
+            ))}
+          </div>
+
+          {/* Virtualized rows */}
+          <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
+            {virtualItems.map((item) => {
+              const row = rows[item.index]!;
+              return (
+                <div
+                  key={row.id}
+                  className="group absolute left-0 flex w-full border-b border-border-default bg-card hover:bg-hover"
+                  style={{ top: item.start, height: ROW_HEIGHT }}
+                >
+                  <div className="flex w-10 shrink-0 items-center justify-center">
+                    {!readOnly && (
+                      <button
+                        title="Delete record"
+                        className="rounded p-0.5 text-faint opacity-0 hover:text-error group-hover:opacity-100"
+                        onClick={() => deleteRecord.mutate(row.id)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                  {fields.map((field, colIndex) => {
+                    const isCursor = cursor?.row === item.index && cursor?.col === colIndex;
+                    const isEditing = isCursor && editing;
+                    return (
+                      <div
+                        key={field.id}
+                        style={{ width: widthOf(field) }}
+                        className={cn(
+                          'relative flex shrink-0 items-center overflow-visible border-r border-border-default px-2',
+                          isCursor && 'ring-2 ring-inset ring-[var(--accent)]',
+                        )}
+                        onClick={() => {
+                          setCursor({ row: item.index, col: colIndex });
+                          if (readOnly) return;
+                          if (field.type === 'checkbox') {
+                            commitEdit(row, field, !(valueOf(row, field) === true));
+                          } else {
+                            setEditing(true);
+                          }
+                        }}
+                      >
+                        {isEditing && !NO_EDITOR.has(field.type) ? (
+                          <CellEditor
+                            field={field}
+                            value={valueOf(row, field)}
+                            members={memberList}
+                            onCommit={(value) => commitEdit(row, field, value)}
+                            onCancel={() => {
+                              setEditing(false);
+                              gridRef.current?.focus();
+                            }}
+                          />
+                        ) : (
+                          <CellDisplay field={field} value={valueOf(row, field)} memberNames={memberNames} />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* + New row */}
+          {!readOnly && (
+            <button
+              className="flex h-8 w-full items-center gap-2 px-3 text-[13px] text-muted hover:bg-hover"
+              onClick={() => {
+                createRecord.mutate(
+                  {},
+                  {
+                    onSuccess: () => {
+                      setCursor({ row: rows.length, col: 0 });
+                      setEditing(true);
+                      requestAnimationFrame(() => virtualizer.scrollToIndex(rows.length));
+                    },
+                  },
+                );
+              }}
+            >
+              <Plus className="h-3.5 w-3.5" /> New
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HeaderCell({
+  field,
+  width,
+  onResize,
+}: {
+  field: Field;
+  width: number;
+  onResize: (width: number) => void;
+}) {
+  const startRef = useRef<{ x: number; width: number } | null>(null);
+  return (
+    <div
+      style={{ width }}
+      className="relative flex h-8 shrink-0 items-center border-r border-border-default px-2 text-[12px] font-medium text-muted"
+    >
+      <span className="truncate">{field.displayName}</span>
+      <div
+        className="absolute -right-0.5 top-0 z-10 h-full w-1.5 cursor-col-resize hover:bg-accent"
+        onPointerDown={(e) => {
+          startRef.current = { x: e.clientX, width };
+          (e.target as HTMLElement).setPointerCapture(e.pointerId);
+        }}
+        onPointerMove={(e) => {
+          if (!startRef.current) return;
+          onResize(Math.max(80, startRef.current.width + (e.clientX - startRef.current.x)));
+        }}
+        onPointerUp={() => {
+          startRef.current = null;
+        }}
+      />
+    </div>
+  );
+}
