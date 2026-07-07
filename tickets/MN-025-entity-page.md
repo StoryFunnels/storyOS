@@ -1,7 +1,7 @@
 ---
 id: MN-025
 title: Entity page UI
-status: todo
+status: done
 depends_on: [MN-019, MN-024]
 size: L
 ---

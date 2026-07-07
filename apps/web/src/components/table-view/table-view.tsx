@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { MoreHorizontal, Plus, Trash2 } from 'lucide-react';
+import Link from 'next/link';
+import { Maximize2, MoreHorizontal, Plus, Trash2 } from 'lucide-react';
 import { Dialog, DialogTrigger } from '@/components/ui/dialog';
 import {
   DropdownMenu,
@@ -209,7 +210,14 @@ export function TableView({
                   className="group absolute left-0 flex w-full border-b border-border-default bg-card hover:bg-hover"
                   style={{ top: item.start, height: ROW_HEIGHT }}
                 >
-                  <div className="flex w-10 shrink-0 items-center justify-center">
+                  <div className="flex w-10 shrink-0 items-center justify-center gap-0.5">
+                    <Link
+                      href={`/w/${ws}/d/${db}/r/${row.id}`}
+                      title="Open record"
+                      className="rounded p-0.5 text-faint opacity-0 hover:text-ink group-hover:opacity-100"
+                    >
+                      <Maximize2 className="h-3.5 w-3.5" />
+                    </Link>
                     {!readOnly && (
                       <button
                         title="Delete record"

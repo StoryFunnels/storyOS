@@ -153,7 +153,11 @@ export function useRecordMutations(ws: string, db: string) {
       }
       toast.error('Could not save — value rejected');
     },
-    onSettled: () => void qc.invalidateQueries({ queryKey: key }),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: key });
+      void qc.invalidateQueries({ queryKey: ['record', ws, db] });
+      void qc.invalidateQueries({ queryKey: ['activity', ws, db] });
+    },
   });
 
   const createRecord = useMutation({

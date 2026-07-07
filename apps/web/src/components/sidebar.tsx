@@ -7,7 +7,7 @@ import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from 
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Database, MoreHorizontal, Plus, Settings } from 'lucide-react';
+import { Database, KeyRound, MoreHorizontal, Plus, Settings } from 'lucide-react';
 import { toast } from 'sonner';
 import { authClient } from '@/lib/auth-client';
 import { useDatabases, useSidebarMutations, useSpaces, useWorkspace } from '@/lib/queries';
@@ -83,6 +83,14 @@ export function Sidebar() {
             className="flex items-center gap-2 rounded px-2 py-1.5 text-[13px] text-ink-secondary hover:bg-hover"
           >
             <Settings className="h-3.5 w-3.5" /> Settings & members
+          </Link>
+        )}
+        {canEdit && (
+          <Link
+            href={`/w/${ws}/settings/api`}
+            className="flex items-center gap-2 rounded px-2 py-1.5 text-[13px] text-ink-secondary hover:bg-hover"
+          >
+            <KeyRound className="h-3.5 w-3.5" /> API tokens
           </Link>
         )}
         <Button

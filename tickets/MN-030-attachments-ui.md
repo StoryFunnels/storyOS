@@ -1,7 +1,7 @@
 ---
 id: MN-030
 title: Attachments UI
-status: todo
+status: done
 depends_on: [MN-025, MN-029]
 size: S
 ---

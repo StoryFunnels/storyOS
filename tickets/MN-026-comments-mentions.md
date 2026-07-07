@@ -1,7 +1,7 @@
 ---
 id: MN-026
 title: Comments + @mentions (+ optional SMTP email)
-status: todo
+status: done
 depends_on: [MN-025]
 size: M
 ---

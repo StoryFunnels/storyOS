@@ -1,7 +1,7 @@
 ---
 id: MN-028
 title: API tokens (PATs) + rate limiting
-status: todo
+status: done
 depends_on: [MN-008]
 size: M
 ---

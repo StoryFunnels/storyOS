@@ -1,7 +1,7 @@
 ---
 id: MN-027
 title: Activity log
-status: todo
+status: done
 depends_on: [MN-025]
 size: M
 ---
