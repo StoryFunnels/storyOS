@@ -84,7 +84,6 @@ async function sendAuthError(
   log: { error: (obj: unknown, msg: string) => void },
 ) {
   log.error({ err: error }, 'better-auth handler threw');
-  // eslint-disable-next-line no-console
   if (process.env.NODE_ENV === 'test') console.error('AUTH HANDLER ERROR:', error);
   await reply.status(500).send({
     error: {
