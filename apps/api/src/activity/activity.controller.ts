@@ -35,7 +35,7 @@ export class ActivityController {
     @Param('rec') recordId: string,
     @Query() query: ActivityQueryDto,
   ) {
-    await this.databases.get(req.membership, databaseId);
+    await this.databases.assertAccess(req.membership, databaseId, 'viewer');
     await this.records.getRow(databaseId, recordId);
     return this.activityService.listForRecord(databaseId, recordId, query.limit, query.cursor);
   }

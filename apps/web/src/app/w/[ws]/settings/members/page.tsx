@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { useSpaces, useWorkspace } from '@/lib/queries';
+import { GRANT_ROLES } from '@/lib/access';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -160,13 +161,20 @@ function InviteDialog({ ws, spaces }: { ws: string; spaces: Array<{ id: string; 
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<'admin' | 'member' | 'guest'>('member');
   const [spaceIds, setSpaceIds] = useState<string[]>([]);
+  const [grantRole, setGrantRole] = useState('editor');
   const [acceptUrl, setAcceptUrl] = useState<string | null>(null);
 
   const invite = useMutation({
     mutationFn: async () => {
       const { data, error } = await api.POST('/api/v1/workspaces/{ws}/invites', {
         params: { path: { ws } },
-        body: { email, role, ...(role === 'guest' ? { space_ids: spaceIds } : {}) },
+        body: {
+          email,
+          role,
+          ...(role === 'guest'
+            ? { grants: spaceIds.map((id) => ({ space_id: id, role: grantRole })) }
+            : {}),
+        } as never,
       });
       if (error) throw error;
       return data as unknown as { accept_url: string };
@@ -254,7 +262,19 @@ function InviteDialog({ ws, spaces }: { ws: string; spaces: Array<{ id: string; 
             </div>
             {role === 'guest' && (
               <div className="flex flex-col gap-1.5">
-                <Label>Spaces the guest can see</Label>
+                <Label>Access level</Label>
+                <select
+                  className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-sm text-ink"
+                  value={grantRole}
+                  onChange={(e) => setGrantRole(e.target.value)}
+                >
+                  {GRANT_ROLES.map((r) => (
+                    <option key={r.value} value={r.value}>
+                      {r.label}
+                    </option>
+                  ))}
+                </select>
+                <Label>Spaces they can access</Label>
                 <div className="flex flex-col gap-1 rounded-[var(--radius-control)] border border-border-default bg-card p-2">
                   {spaces.map((space) => (
                     <label key={space.id} className="flex items-center gap-2 text-[13px] text-ink">

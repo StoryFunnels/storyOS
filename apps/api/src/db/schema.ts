@@ -25,6 +25,9 @@ export * from './auth-schema';
 export const membershipRole = pgEnum('membership_role', ['admin', 'member', 'guest']);
 export const membershipStatus = pgEnum('membership_status', ['pending', 'active']);
 
+/** Graded scope access for guests (ADR-0007, Fibery model). */
+export const accessRole = pgEnum('access_role', ['viewer', 'commenter', 'editor', 'creator']);
+
 export const fieldType = pgEnum('field_type', [
   'title',
   'text',
@@ -83,13 +86,29 @@ export const memberships = pgTable(
       .references(() => workspaces.id, { onDelete: 'cascade' }),
     userId: text('user_id').notNull(),
     role: membershipRole('role').notNull(),
-    /** Guest scoping (ADR-0006). Null for admins/members. */
-    spaceIds: uuid('space_ids').array(),
     status: membershipStatus('status').notNull().default('active'),
     invitedBy: text('invited_by'),
     ...timestamps,
   },
   (t) => [uniqueIndex('memberships_workspace_user_uq').on(t.workspaceId, t.userId)],
+);
+
+export const accessGrants = pgTable(
+  'access_grants',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    userId: text('user_id').notNull(),
+    /** Exactly one of spaceId/databaseId (service-enforced). Highest grant wins. */
+    spaceId: uuid('space_id').references(() => spaces.id, { onDelete: 'cascade' }),
+    databaseId: uuid('database_id'),
+    role: accessRole('role').notNull(),
+    createdBy: text('created_by'),
+    ...timestamps,
+  },
+  (t) => [index('access_grants_user_idx').on(t.workspaceId, t.userId)],
 );
 
 export const databases = pgTable(
@@ -313,7 +332,8 @@ export const invites = pgTable('invites', {
     .references(() => workspaces.id, { onDelete: 'cascade' }),
   email: text('email').notNull(),
   role: membershipRole('role').notNull(),
-  spaceIds: uuid('space_ids').array(),
+  /** For guests: [{space_id|database_id, role}] — becomes access_grants on accept. */
+  grants: jsonb('grants'),
   tokenHash: text('token_hash').notNull().unique(),
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
   acceptedAt: timestamp('accepted_at', { withTimezone: true }),

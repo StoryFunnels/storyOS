@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import { authClient } from '@/lib/auth-client';
 import { useDatabases, useSidebarMutations, useSpaces, useWorkspace } from '@/lib/queries';
 import type { DatabaseSummary, Space } from '@/lib/queries';
+import { ShareDialog } from '@/components/share-dialog';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import {
@@ -68,6 +69,7 @@ export function Sidebar() {
                 space={space}
                 databases={(databases.data ?? []).filter((d) => d.spaceId === space.id)}
                 canEdit={canEdit}
+                isAdmin={isAdmin}
               />
             ))}
           </SortableContext>
@@ -114,17 +116,20 @@ function SpaceSection({
   space,
   databases,
   canEdit,
+  isAdmin,
 }: {
   ws: string;
   space: Space;
   databases: DatabaseSummary[];
   canEdit: boolean;
+  isAdmin: boolean;
 }) {
   const pathname = usePathname();
   const mutations = useSidebarMutations(ws);
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: space.id });
   const [renaming, setRenaming] = useState(false);
   const [newDbOpen, setNewDbOpen] = useState(false);
+  const [sharing, setSharing] = useState(false);
 
   return (
     <div
@@ -176,6 +181,9 @@ function SpaceSection({
               </DropdownMenuTrigger>
               <DropdownMenuContent>
                 <DropdownMenuItem onSelect={() => setRenaming(true)}>Rename</DropdownMenuItem>
+                {isAdmin && (
+                  <DropdownMenuItem onSelect={() => setSharing(true)}>Manage access</DropdownMenuItem>
+                )}
                 <DropdownMenuItem
                   className="text-error"
                   onSelect={() => {
@@ -193,6 +201,9 @@ function SpaceSection({
           </span>
         )}
       </div>
+      <Dialog open={sharing} onOpenChange={setSharing}>
+        {sharing && <ShareDialog ws={ws} scope={{ space_id: space.id }} scopeName={space.name} />}
+      </Dialog>
 
       {databases.map((db) => (
         <DatabaseRow
@@ -201,6 +212,7 @@ function SpaceSection({
           db={db}
           active={pathname.startsWith(`/w/${ws}/d/${db.id}`)}
           canEdit={canEdit}
+          isAdmin={isAdmin}
         />
       ))}
     </div>
@@ -212,15 +224,18 @@ function DatabaseRow({
   db,
   active,
   canEdit,
+  isAdmin,
 }: {
   ws: string;
   db: DatabaseSummary;
   active: boolean;
   canEdit: boolean;
+  isAdmin: boolean;
 }) {
   const mutations = useSidebarMutations(ws);
   const [renaming, setRenaming] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [sharing, setSharing] = useState(false);
 
   return (
     <div
@@ -254,6 +269,9 @@ function DatabaseRow({
           </DropdownMenuTrigger>
           <DropdownMenuContent>
             <DropdownMenuItem onSelect={() => setRenaming(true)}>Rename</DropdownMenuItem>
+            {isAdmin && (
+              <DropdownMenuItem onSelect={() => setSharing(true)}>Manage access</DropdownMenuItem>
+            )}
             <DropdownMenuItem asChild>
               <Link href={`/w/${ws}/d/${db.id}/trash`}>Trash</Link>
             </DropdownMenuItem>
@@ -263,6 +281,9 @@ function DatabaseRow({
           </DropdownMenuContent>
         </DropdownMenu>
       )}
+      <Dialog open={sharing} onOpenChange={setSharing}>
+        {sharing && <ShareDialog ws={ws} scope={{ database_id: db.id }} scopeName={db.name} />}
+      </Dialog>
       <Dialog open={confirmingDelete} onOpenChange={setConfirmingDelete}>
         <DeleteDatabaseDialog
           name={db.name}

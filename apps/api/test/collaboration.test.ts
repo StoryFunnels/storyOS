@@ -52,7 +52,7 @@ beforeAll(async () => {
     const invite = await inject('POST', `/workspaces/${wsId}/invites`, admin.token, {
       email: person.u.email,
       role: person.role,
-      ...(person.role === 'guest' ? { space_ids: person.space_ids } : {}),
+      ...(person.role === 'guest' ? { grants: person.space_ids.map((id: string) => ({ space_id: id, role: 'commenter' as const })) } : {}),
     });
     const token = new URL(invite.json().accept_url).searchParams.get('token')!;
     await inject('POST', '/invites/accept', person.u.token, { token });

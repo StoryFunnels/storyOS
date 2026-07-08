@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   Patch,
@@ -52,13 +53,18 @@ export class DatabasesController {
   }
 
   @Patch(':db')
-  @MinRole('member')
-  @ApiOperation({ summary: 'Rename / re-icon / move between spaces' })
-  update(
+  @ApiOperation({ summary: 'Rename / re-icon (creator); moving between spaces stays member+' })
+  async update(
     @Req() req: WorkspaceRequest,
     @Param('db') databaseId: string,
     @Body() body: UpdateDatabaseDto,
   ) {
+    if (body.space_id !== undefined || body.position !== undefined) {
+      if (req.membership.role === 'guest') {
+        throw new ForbiddenException('Moving databases requires membership');
+      }
+    }
+    await this.databases.assertAccess(req.membership, databaseId, 'creator');
     return this.databases.update(req.membership, databaseId, body);
   }
 

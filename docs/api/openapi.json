@@ -576,7 +576,7 @@
             "bearer": []
           }
         ],
-        "summary": "Rename / re-icon / move between spaces",
+        "summary": "Rename / re-icon (creator); moving between spaces stays member+",
         "tags": [
           "databases"
         ]
@@ -1404,7 +1404,7 @@
             "bearer": []
           }
         ],
-        "summary": "Create a relation — provisions paired fields on both databases",
+        "summary": "Create a relation — needs creator on BOTH databases",
         "tags": [
           "relations"
         ]
@@ -2444,6 +2444,92 @@
           "templates"
         ]
       }
+    },
+    "/api/v1/workspaces/{ws}/grants": {
+      "get": {
+        "operationId": "GrantsController_list",
+        "parameters": [
+          {
+            "name": "user_id",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List access grants (optionally for one user)",
+        "tags": [
+          "access"
+        ]
+      },
+      "post": {
+        "operationId": "GrantsController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateGrantDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Grant a role on a space or database (upserts per scope)",
+        "tags": [
+          "access"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/grants/{grant}": {
+      "delete": {
+        "operationId": "GrantsController_remove",
+        "parameters": [
+          {
+            "name": "grant",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Revoke a grant",
+        "tags": [
+          "access"
+        ]
+      }
     }
   },
   "info": {
@@ -2537,15 +2623,6 @@
               "member",
               "guest"
             ]
-          },
-          "space_ids": {
-            "minItems": 1,
-            "type": "array",
-            "items": {
-              "type": "string",
-              "format": "uuid",
-              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-            }
           }
         }
       },
@@ -2565,13 +2642,36 @@
               "guest"
             ]
           },
-          "space_ids": {
+          "grants": {
             "minItems": 1,
+            "maxItems": 50,
             "type": "array",
             "items": {
-              "type": "string",
-              "format": "uuid",
-              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              "type": "object",
+              "properties": {
+                "space_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "database_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "viewer",
+                    "commenter",
+                    "editor",
+                    "creator"
+                  ]
+                }
+              },
+              "required": [
+                "role"
+              ]
             }
           }
         },
@@ -3479,6 +3579,38 @@
         },
         "required": [
           "body"
+        ]
+      },
+      "CreateGrantDto": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "space_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "database_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "viewer",
+              "commenter",
+              "editor",
+              "creator"
+            ]
+          }
+        },
+        "required": [
+          "user_id",
+          "role"
         ]
       }
     }

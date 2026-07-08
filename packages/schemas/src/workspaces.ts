@@ -26,16 +26,18 @@ export const updateSpaceSchema = z.object({
   position: z.number().int().optional(),
 });
 
+import { grantScopeSchema } from './access';
+
 export const createInviteSchema = z
   .object({
     email: z.email(),
     role: membershipRoleSchema,
-    /** Required for guests (ADR-0006), ignored for admins/members. */
-    space_ids: z.array(z.uuid()).min(1).optional(),
+    /** Required for guests (ADR-0007): what they can access, at which role. */
+    grants: z.array(grantScopeSchema).min(1).max(50).optional(),
   })
-  .refine((v) => v.role !== 'guest' || (v.space_ids && v.space_ids.length > 0), {
-    message: 'guest invites require at least one space id',
-    path: ['space_ids'],
+  .refine((v) => v.role !== 'guest' || (v.grants && v.grants.length > 0), {
+    message: 'guest invites require at least one grant',
+    path: ['grants'],
   });
 
 export const acceptInviteSchema = z.object({
@@ -44,5 +46,4 @@ export const acceptInviteSchema = z.object({
 
 export const updateMemberSchema = z.object({
   role: membershipRoleSchema.optional(),
-  space_ids: z.array(z.uuid()).min(1).optional(),
 });

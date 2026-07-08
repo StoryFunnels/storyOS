@@ -8,6 +8,7 @@ import { ArrowLeft } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/auth-client';
 import { useWorkspace } from '@/lib/queries';
+import { atLeast } from '@/lib/access';
 import { CellDisplay, CellEditor } from '@/components/table-view/cells';
 import { RelationEditor } from '@/components/table-view/relation-cell';
 import type { LinkChip } from '@/components/table-view/relation-cell';
@@ -28,7 +29,8 @@ export default function EntityPage() {
   const workspace = useWorkspace(ws);
   const database = useDatabase(ws, db);
   const { data: session } = useSession();
-  const readOnly = workspace.data?.role === 'guest';
+  const readOnly = !atLeast(database.data?.my_access, 'editor');
+  const canComment = atLeast(database.data?.my_access, 'commenter');
   const { updateRecord } = useRecordMutations(ws, db);
 
   const record = useQuery({
@@ -131,6 +133,9 @@ export default function EntityPage() {
           ))}
         </div>
         {tab === 'comments' ? (
+          !canComment ? (
+            <p className="text-[13px] text-muted">You can view this record but not comment on it.</p>
+          ) : (
           <CommentsPanel
             ws={ws}
             db={db}
@@ -139,6 +144,7 @@ export default function EntityPage() {
             currentUserId={session?.user.id ?? ''}
             isAdmin={workspace.data?.role === 'admin'}
           />
+          )
         ) : (
           <ActivityPanel ws={ws} db={db} rec={rec} />
         )}

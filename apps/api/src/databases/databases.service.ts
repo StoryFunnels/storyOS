@@ -9,6 +9,8 @@ import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { databases, fields, recordLinks, relations, selectOptions, spaces, views } from '../db/schema';
 import type { Membership } from '../workspaces/workspace-access.guard';
+import { AccessService } from '../access/access.service';
+import type { EffectiveRole } from '../access/access.service';
 import { cleanViewConfig } from '../views/views.service';
 import type { ViewConfig } from '@storyos/schemas';
 
@@ -24,12 +26,27 @@ export function slugify(name: string): string {
 
 @Injectable()
 export class DatabasesService {
-  constructor(@Inject(DB) private readonly db: Db) {}
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    private readonly access: AccessService,
+  ) {}
 
-  private guestScope(membership: Membership) {
-    return membership.role === 'guest' && membership.spaceIds
-      ? inArray(databases.spaceId, membership.spaceIds)
-      : undefined;
+  /**
+   * Access-checked database load (ADR-0007): 404 without any grant, 403 below
+   * `min`. The cheap primitive every content/schema controller calls.
+   */
+  async assertAccess(
+    membership: Membership,
+    databaseId: string,
+    min: EffectiveRole,
+  ): Promise<{ database: typeof databases.$inferSelect; my_access: EffectiveRole }> {
+    const database = await this.db.query.databases.findFirst({
+      where: and(eq(databases.id, databaseId), eq(databases.workspaceId, membership.workspaceId)),
+    });
+    if (!database) throw new NotFoundException('Database not found');
+    const effective = await this.access.effectiveForDatabase(membership, database);
+    this.access.assertRank(effective, min, 'Database');
+    return { database, my_access: effective! };
   }
 
   private async uniqueSlug(workspaceId: string, name: string): Promise<string> {
@@ -49,22 +66,20 @@ export class DatabasesService {
   }
 
   async list(membership: Membership) {
-    return this.db.query.databases.findMany({
-      where: and(eq(databases.workspaceId, membership.workspaceId), this.guestScope(membership)),
+    const visibility = await this.access.guestVisibility(membership);
+    const rows = await this.db.query.databases.findMany({
+      where: eq(databases.workspaceId, membership.workspaceId),
       orderBy: [asc(databases.position)],
     });
+    if (!visibility) return rows;
+    return rows.filter(
+      (d) => visibility.databaseIds.has(d.id) || visibility.spaceIds.has(d.spaceId),
+    );
   }
 
-  /** Full introspection payload: database + live fields + views (E4). */
+  /** Full introspection payload: database + live fields + views + my_access (E4, ADR-0007). */
   async get(membership: Membership, databaseId: string) {
-    const database = await this.db.query.databases.findFirst({
-      where: and(
-        eq(databases.id, databaseId),
-        eq(databases.workspaceId, membership.workspaceId),
-        this.guestScope(membership),
-      ),
-    });
-    if (!database) throw new NotFoundException('Database not found');
+    const { database, my_access } = await this.assertAccess(membership, databaseId, 'viewer');
 
     const [fieldRows, viewRows] = await Promise.all([
       this.db.query.fields.findMany({
@@ -143,7 +158,7 @@ export class DatabasesService {
       config: cleanViewConfig((v.config ?? {}) as ViewConfig, liveIds, liveNames),
     }));
 
-    return { ...database, fields: fieldsWithOptions, views: cleanedViews };
+    return { ...database, my_access, fields: fieldsWithOptions, views: cleanedViews };
   }
 
   /** Creates the database + title/system fields + default table view, atomically (B2). */

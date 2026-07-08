@@ -18,7 +18,7 @@ import {
   replaceLinksSchema,
 } from '@storyos/schemas';
 import { AuthGuard } from '../auth/auth.guard';
-import { MinRole, WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
+import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { DatabasesService } from '../databases/databases.service';
 import { RelationsService } from './relations.service';
@@ -32,23 +32,30 @@ class ReplaceLinksDto extends createZodDto(replaceLinksSchema) {}
 @ApiBearerAuth()
 @Controller('workspaces/:ws/relations')
 @UseGuards(AuthGuard, WorkspaceAccessGuard)
-@MinRole('member')
 export class RelationsController {
-  constructor(private readonly relationsService: RelationsService) {}
+  constructor(
+    private readonly relationsService: RelationsService,
+    private readonly databases: DatabasesService,
+  ) {}
 
   @Post()
-  @ApiOperation({ summary: 'Create a relation — provisions paired fields on both databases' })
-  create(@Req() req: WorkspaceRequest, @Body() body: CreateRelationDto) {
+  @ApiOperation({ summary: 'Create a relation — needs creator on BOTH databases' })
+  async create(@Req() req: WorkspaceRequest, @Body() body: CreateRelationDto) {
+    await this.databases.assertAccess(req.membership, body.database_a_id, 'creator');
+    await this.databases.assertAccess(req.membership, body.database_b_id, 'creator');
     return this.relationsService.create(req.membership, body);
   }
 
   @Delete(':rel')
   @ApiOperation({ summary: 'Delete a relation, both its fields, and all links (confirm: true)' })
-  remove(
+  async remove(
     @Req() req: WorkspaceRequest,
     @Param('rel') relationId: string,
     @Body() _body: DeleteRelationDto,
   ) {
+    const relation = await this.relationsService.getRelation(req.membership.workspaceId, relationId);
+    await this.databases.assertAccess(req.membership, relation.databaseAId, 'creator');
+    await this.databases.assertAccess(req.membership, relation.databaseBId, 'creator');
     return this.relationsService.remove(req.membership.workspaceId, relationId);
   }
 }
@@ -63,8 +70,12 @@ export class LinksController {
     private readonly databases: DatabasesService,
   ) {}
 
-  private async assertDb(req: WorkspaceRequest, databaseId: string) {
-    await this.databases.get(req.membership, databaseId);
+  private async assertDb(
+    req: WorkspaceRequest,
+    databaseId: string,
+    min: 'viewer' | 'editor' = 'viewer',
+  ) {
+    await this.databases.assertAccess(req.membership, databaseId, min);
   }
 
   @Get()
@@ -80,7 +91,6 @@ export class LinksController {
   }
 
   @Post()
-  @MinRole('member')
   @ApiOperation({ summary: 'Add links (409 when one-to-many already linked)' })
   async add(
     @Req() req: WorkspaceRequest,
@@ -89,7 +99,7 @@ export class LinksController {
     @Param('field') field: string,
     @Body() body: LinkRecordsDto,
   ) {
-    await this.assertDb(req, db);
+    await this.assertDb(req, db, 'editor');
     return this.relationsService.addLinks(
       req.membership.workspaceId,
       db,
@@ -101,7 +111,6 @@ export class LinksController {
   }
 
   @Put()
-  @MinRole('member')
   @ApiOperation({ summary: 'Replace all links for this record on this field' })
   async replace(
     @Req() req: WorkspaceRequest,
@@ -110,7 +119,7 @@ export class LinksController {
     @Param('field') field: string,
     @Body() body: ReplaceLinksDto,
   ) {
-    await this.assertDb(req, db);
+    await this.assertDb(req, db, 'editor');
     return this.relationsService.replaceLinks(
       req.membership.workspaceId,
       db,
@@ -122,7 +131,6 @@ export class LinksController {
   }
 
   @Delete()
-  @MinRole('member')
   @ApiOperation({ summary: 'Remove specific links' })
   async remove(
     @Req() req: WorkspaceRequest,
@@ -131,7 +139,7 @@ export class LinksController {
     @Param('field') field: string,
     @Body() body: LinkRecordsDto,
   ) {
-    await this.assertDb(req, db);
+    await this.assertDb(req, db, 'editor');
     return this.relationsService.removeLinks(
       req.membership.workspaceId,
       db,

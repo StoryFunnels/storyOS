@@ -21,7 +21,7 @@ import {
   updateRecordSchema,
 } from '@storyos/schemas';
 import { AuthGuard } from '../auth/auth.guard';
-import { MinRole, WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
+import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { DatabasesService } from '../databases/databases.service';
 import { RecordsService } from './records.service';
@@ -49,9 +49,13 @@ export class RecordsController {
     private readonly databases: DatabasesService,
   ) {}
 
-  /** Ensures :db belongs to :ws and the caller's guest scope. */
-  private async assertDb(req: WorkspaceRequest, databaseId: string) {
-    await this.databases.get(req.membership, databaseId);
+  /** Access-checked (ADR-0007): 404 without a grant, 403 below min. */
+  private async assertDb(
+    req: WorkspaceRequest,
+    databaseId: string,
+    min: 'viewer' | 'commenter' | 'editor' | 'creator' = 'viewer',
+  ) {
+    await this.databases.assertAccess(req.membership, databaseId, min);
   }
 
   @Get()
@@ -66,14 +70,13 @@ export class RecordsController {
   }
 
   @Post()
-  @MinRole('member')
   @ApiOperation({ summary: 'Create a record ({values} keyed by field api_name)' })
   async create(
     @Req() req: WorkspaceRequest,
     @Param('db') databaseId: string,
     @Body() body: CreateRecordDto,
   ) {
-    await this.assertDb(req, databaseId);
+    await this.assertDb(req, databaseId, 'editor');
     return this.recordsService.create(
       req.membership.workspaceId,
       databaseId,
@@ -94,14 +97,13 @@ export class RecordsController {
   }
 
   @Post('batch')
-  @MinRole('member')
   @ApiOperation({ summary: 'Create up to 100 records atomically' })
   async createBatch(
     @Req() req: WorkspaceRequest,
     @Param('db') databaseId: string,
     @Body() body: CreateRecordsBatchDto,
   ) {
-    await this.assertDb(req, databaseId);
+    await this.assertDb(req, databaseId, 'editor');
     const created = await this.recordsService.createBatch(
       req.membership.workspaceId,
       databaseId,
@@ -112,10 +114,9 @@ export class RecordsController {
   }
 
   @Get('trash')
-  @MinRole('member')
   @ApiOperation({ summary: 'Soft-deleted records (30-day retention)' })
   async trash(@Req() req: WorkspaceRequest, @Param('db') databaseId: string) {
-    await this.assertDb(req, databaseId);
+    await this.assertDb(req, databaseId, 'editor');
     return { data: await this.recordsService.listTrash(databaseId) };
   }
 
@@ -131,7 +132,6 @@ export class RecordsController {
   }
 
   @Patch(':rec')
-  @MinRole('member')
   @ApiOperation({ summary: 'Merge-update values (null clears a field)' })
   async update(
     @Req() req: WorkspaceRequest,
@@ -139,7 +139,7 @@ export class RecordsController {
     @Param('rec') recordId: string,
     @Body() body: UpdateRecordDto,
   ) {
-    await this.assertDb(req, databaseId);
+    await this.assertDb(req, databaseId, 'editor');
     return this.recordsService.update(
       req.membership.workspaceId,
       databaseId,
@@ -150,14 +150,13 @@ export class RecordsController {
   }
 
   @Delete(':rec')
-  @MinRole('member')
   @ApiOperation({ summary: 'Soft delete (restorable for 30 days)' })
   async remove(
     @Req() req: WorkspaceRequest,
     @Param('db') databaseId: string,
     @Param('rec') recordId: string,
   ) {
-    await this.assertDb(req, databaseId);
+    await this.assertDb(req, databaseId, 'editor');
     return this.recordsService.softDelete(
       req.membership.workspaceId,
       databaseId,
@@ -167,7 +166,6 @@ export class RecordsController {
   }
 
   @Post(':rec/move')
-  @MinRole('member')
   @ApiOperation({ summary: 'Atomic move: fractional reposition + optional value patch (kanban drop)' })
   async move(
     @Req() req: WorkspaceRequest,
@@ -175,7 +173,7 @@ export class RecordsController {
     @Param('rec') recordId: string,
     @Body() body: MoveRecordDto,
   ) {
-    await this.assertDb(req, databaseId);
+    await this.assertDb(req, databaseId, 'editor');
     return this.recordsService.move(
       req.membership.workspaceId,
       databaseId,
@@ -186,14 +184,13 @@ export class RecordsController {
   }
 
   @Post(':rec/restore')
-  @MinRole('member')
   @ApiOperation({ summary: 'Restore from trash' })
   async restore(
     @Req() req: WorkspaceRequest,
     @Param('db') databaseId: string,
     @Param('rec') recordId: string,
   ) {
-    await this.assertDb(req, databaseId);
+    await this.assertDb(req, databaseId, 'editor');
     return this.recordsService.restore(
       req.membership.workspaceId,
       databaseId,

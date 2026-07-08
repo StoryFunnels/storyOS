@@ -18,6 +18,7 @@ import { TokensModule } from './tokens/tokens.module';
 import { CollaborationModule } from './comments/collaboration.module';
 import { AttachmentsModule } from './attachments/attachments.module';
 import { TemplatesModule } from './templates/templates.module';
+import { AccessModule } from './access/access.module';
 import { env } from './config/env';
 import { ApiThrottlerGuard } from './common/throttler.guard';
 import { DbModule } from './db/db.module';
@@ -50,6 +51,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     CollaborationModule,
     AttachmentsModule,
     TemplatesModule,
+    AccessModule,
     ThrottlerModule.forRoot({
       throttlers: [{ ttl: 60_000, limit: env().RATE_LIMIT_PER_MINUTE }],
     }),

@@ -44,6 +44,7 @@ export function TableView({
   ws,
   db,
   readOnly,
+  schemaEditable = !readOnly,
   queryBody,
   hiddenFieldIds,
   columnWidths,
@@ -52,6 +53,7 @@ export function TableView({
   ws: string;
   db: string;
   readOnly: boolean;
+  schemaEditable?: boolean;
   queryBody?: Record<string, unknown>;
   hiddenFieldIds?: string[];
   columnWidths?: Record<string, number>;
@@ -178,14 +180,14 @@ export function TableView({
                 db={db}
                 field={field}
                 width={widthOf(field)}
-                readOnly={readOnly}
+                readOnly={!schemaEditable}
                 onResize={(w) => {
                   setWidths((prev) => ({ ...prev, [field.id]: w }));
                   onColumnResize?.(field.id, w);
                 }}
               />
             ))}
-            {!readOnly && (
+            {schemaEditable && (
               <Dialog open={addingField} onOpenChange={setAddingField}>
                 <DialogTrigger asChild>
                   <button

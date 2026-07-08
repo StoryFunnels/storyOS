@@ -43,8 +43,13 @@ export class CommentsController {
     private readonly records: RecordsService,
   ) {}
 
-  private async assertRecord(req: WorkspaceRequest, databaseId: string, recordId: string) {
-    await this.databases.get(req.membership, databaseId);
+  private async assertRecord(
+    req: WorkspaceRequest,
+    databaseId: string,
+    recordId: string,
+    min: 'viewer' | 'commenter' = 'viewer',
+  ) {
+    await this.databases.assertAccess(req.membership, databaseId, min);
     await this.records.getRow(databaseId, recordId);
   }
 
@@ -67,7 +72,7 @@ export class CommentsController {
     @Param('rec') recordId: string,
     @Body() body: CommentBodyDto,
   ) {
-    await this.assertRecord(req, databaseId, recordId);
+    await this.assertRecord(req, databaseId, recordId, 'commenter');
     return this.commentsService.create(
       req.membership.workspaceId,
       recordId,
@@ -85,7 +90,7 @@ export class CommentsController {
     @Param('comment') commentId: string,
     @Body() body: CommentBodyDto,
   ) {
-    await this.assertRecord(req, databaseId, recordId);
+    await this.assertRecord(req, databaseId, recordId, 'commenter');
     return this.commentsService.update(
       recordId,
       commentId,
@@ -103,7 +108,7 @@ export class CommentsController {
     @Param('rec') recordId: string,
     @Param('comment') commentId: string,
   ) {
-    await this.assertRecord(req, databaseId, recordId);
+    await this.assertRecord(req, databaseId, recordId, 'commenter');
     return this.commentsService.remove(
       recordId,
       commentId,

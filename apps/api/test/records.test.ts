@@ -223,7 +223,7 @@ describe('records CRUD (MN-011)', () => {
       method: 'POST',
       url: `/api/v1/workspaces/${wsId}/invites`,
       headers: authed(admin.token),
-      payload: { email: guest.email, role: 'guest', space_ids: [spaces.json()[0].id] },
+      payload: { email: guest.email, role: 'guest', grants: [{ space_id: spaces.json()[0].id, role: 'commenter' }] },
     });
     const token = new URL(invite.json().accept_url).searchParams.get('token')!;
     await app.inject({

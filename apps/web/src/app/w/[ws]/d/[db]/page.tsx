@@ -13,7 +13,7 @@ import {
   useViewState,
 } from '@/components/views/use-view-state';
 import { useDatabase, useMembers } from '@/components/table-view/use-table-data';
-import { useWorkspace } from '@/lib/queries';
+import { atLeast } from '@/lib/access';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -24,9 +24,9 @@ function DatabasePageInner() {
   const { ws, db } = useParams<{ ws: string; db: string }>();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const workspace = useWorkspace(ws);
   const database = useDatabase(ws, db);
-  const readOnly = workspace.data?.role === 'guest';
+  const readOnly = !atLeast(database.data?.my_access, 'editor');
+  const schemaEditable = atLeast(database.data?.my_access, 'creator');
 
   const viewId = searchParams.get('view');
   const { views, activeView, config, dirty, patch, reset, save } = useViewState(
@@ -112,6 +112,7 @@ function DatabasePageInner() {
             ws={ws}
             db={db}
             readOnly={readOnly}
+            schemaEditable={schemaEditable}
             queryBody={queryBody}
             hiddenFieldIds={config.hidden_field_ids}
             columnWidths={config.column_widths}

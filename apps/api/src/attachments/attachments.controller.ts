@@ -13,7 +13,7 @@ import {
 import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { AuthGuard } from '../auth/auth.guard';
-import { MinRole, WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
+import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { DatabasesService } from '../databases/databases.service';
 import { RecordsService } from '../records/records.service';
@@ -30,8 +30,13 @@ export class AttachmentsController {
     private readonly records: RecordsService,
   ) {}
 
-  private async assertRecord(req: WorkspaceRequest, databaseId: string, recordId: string) {
-    await this.databases.get(req.membership, databaseId);
+  private async assertRecord(
+    req: WorkspaceRequest,
+    databaseId: string,
+    recordId: string,
+    min: 'viewer' | 'editor' = 'viewer',
+  ) {
+    await this.databases.assertAccess(req.membership, databaseId, min);
     await this.records.getRow(databaseId, recordId);
   }
 
@@ -47,7 +52,6 @@ export class AttachmentsController {
   }
 
   @Post()
-  @MinRole('member')
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Upload a file (multipart field "file"; size-capped)' })
   async upload(
@@ -55,7 +59,7 @@ export class AttachmentsController {
     @Param('db') databaseId: string,
     @Param('rec') recordId: string,
   ) {
-    await this.assertRecord(req, databaseId, recordId);
+    await this.assertRecord(req, databaseId, recordId, 'editor');
     const raw = req as unknown as FastifyRequest & {
       file?: () => Promise<
         { filename: string; mimetype: string; toBuffer: () => Promise<Buffer> } | undefined
@@ -112,7 +116,6 @@ export class AttachmentsController {
   }
 
   @Delete(':att')
-  @MinRole('member')
   @ApiOperation({ summary: 'Delete an attachment (object removed best-effort)' })
   async remove(
     @Req() req: WorkspaceRequest,
@@ -120,7 +123,7 @@ export class AttachmentsController {
     @Param('rec') recordId: string,
     @Param('att') attachmentId: string,
   ) {
-    await this.assertRecord(req, databaseId, recordId);
+    await this.assertRecord(req, databaseId, recordId, 'editor');
     return this.attachmentsService.remove(recordId, attachmentId);
   }
 }

@@ -87,7 +87,7 @@ describe('databases CRUD (MN-009)', () => {
       method: 'POST',
       url: `/api/v1/workspaces/${wsId}/invites`,
       headers: authed(admin.token),
-      payload: { email: dana.email, role: 'guest', space_ids: [clientSpaceId] },
+      payload: { email: dana.email, role: 'guest', grants: [{ space_id: clientSpaceId, role: 'commenter' }] },
     });
     const token = new URL(invite.json().accept_url).searchParams.get('token')!;
     await app.inject({

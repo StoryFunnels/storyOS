@@ -3,18 +3,25 @@ import { and, asc, eq, inArray } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { spaces } from '../db/schema';
+import { AccessService } from '../access/access.service';
 import type { Membership } from './workspace-access.guard';
 
 @Injectable()
 export class SpacesService {
-  constructor(@Inject(DB) private readonly db: Db) {}
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    private readonly access: AccessService,
+  ) {}
 
-  /** Guests see only their scoped spaces (ADR-0006). */
+  /** Guests see spaces they hold grants on — directly or via a database inside (ADR-0007). */
   async list(membership: Membership) {
+    const visible = await this.access.visibleSpaceIds(membership);
     const scope =
-      membership.role === 'guest' && membership.spaceIds
-        ? and(eq(spaces.workspaceId, membership.workspaceId), inArray(spaces.id, membership.spaceIds))
-        : eq(spaces.workspaceId, membership.workspaceId);
+      visible === null
+        ? eq(spaces.workspaceId, membership.workspaceId)
+        : visible.size > 0
+          ? and(eq(spaces.workspaceId, membership.workspaceId), inArray(spaces.id, [...visible]))
+          : and(eq(spaces.workspaceId, membership.workspaceId), inArray(spaces.id, ['00000000-0000-0000-0000-000000000000']));
     return this.db.query.spaces.findMany({ where: scope, orderBy: [asc(spaces.position)] });
   }
 

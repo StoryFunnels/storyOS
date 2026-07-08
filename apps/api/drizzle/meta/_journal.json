@@ -64,6 +64,20 @@
       "when": 1783466404882,
       "tag": "0008_chief_king_bedlam",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1783502843522,
+      "tag": "0009_far_shiver_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1783502859160,
+      "tag": "0010_dusty_greymalkin",
+      "breakpoints": true
     }
   ]
 }

@@ -29,7 +29,7 @@ export class MembersService {
     return rows.map((m) => ({
       id: m.id,
       role: m.role,
-      space_ids: m.spaceIds,
+      user_id: m.userId,
       user: {
         id: m.userId,
         name: byId.get(m.userId)?.name ?? '(deactivated)',
@@ -55,7 +55,7 @@ export class MembersService {
   async update(
     workspaceId: string,
     membershipId: string,
-    patch: { role?: MembershipRole; space_ids?: string[] },
+    patch: { role?: MembershipRole },
   ) {
     const target = await this.db.query.memberships.findFirst({
       where: and(eq(memberships.id, membershipId), eq(memberships.workspaceId, workspaceId)),
@@ -66,12 +66,9 @@ export class MembersService {
       await this.assertNotLastAdmin(workspaceId, membershipId);
     }
 
-    const spaceIds =
-      (patch.role ?? target.role) === 'guest' ? (patch.space_ids ?? target.spaceIds) : null;
-
     const [updated] = await this.db
       .update(memberships)
-      .set({ role: patch.role ?? target.role, spaceIds })
+      .set({ role: patch.role ?? target.role })
       .where(eq(memberships.id, membershipId))
       .returning();
     return updated!;

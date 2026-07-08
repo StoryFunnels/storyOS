@@ -20,7 +20,7 @@ import {
   updateOptionSchema,
 } from '@storyos/schemas';
 import { AuthGuard } from '../auth/auth.guard';
-import { MinRole, WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
+import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { DatabasesService } from '../databases/databases.service';
 import { FieldsService } from './fields.service';
@@ -36,16 +36,15 @@ class DeleteOptionDto extends createZodDto(deleteOptionSchema) {}
 @ApiBearerAuth()
 @Controller('workspaces/:ws/databases/:db/fields')
 @UseGuards(AuthGuard, WorkspaceAccessGuard)
-@MinRole('member')
 export class FieldsController {
   constructor(
     private readonly fieldsService: FieldsService,
     private readonly databases: DatabasesService,
   ) {}
 
-  /** Ensures :db belongs to :ws (and guest scope) before any field op. */
+  /** Schema ops require `creator` on this database (ADR-0007). */
   private async db(req: WorkspaceRequest, databaseId: string) {
-    await this.databases.get(req.membership, databaseId);
+    await this.databases.assertAccess(req.membership, databaseId, 'creator');
     return databaseId;
   }
 

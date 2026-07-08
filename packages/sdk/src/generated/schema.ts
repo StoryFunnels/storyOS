@@ -263,7 +263,7 @@ export interface paths {
         delete: operations["DatabasesController_remove"];
         options?: never;
         head?: never;
-        /** Rename / re-icon / move between spaces */
+        /** Rename / re-icon (creator); moving between spaces stays member+ */
         patch: operations["DatabasesController_update"];
         trace?: never;
     };
@@ -502,7 +502,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Create a relation — provisions paired fields on both databases */
+        /** Create a relation — needs creator on BOTH databases */
         post: operations["RelationsController_create"];
         delete?: never;
         options?: never;
@@ -808,6 +808,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/grants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List access grants (optionally for one user) */
+        get: operations["GrantsController_list"];
+        put?: never;
+        /** Grant a role on a space or database (upserts per scope) */
+        post: operations["GrantsController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/grants/{grant}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke a grant */
+        delete: operations["GrantsController_remove"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -831,14 +866,20 @@ export interface components {
         UpdateMemberDto: {
             /** @enum {string} */
             role?: "admin" | "member" | "guest";
-            space_ids?: string[];
         };
         CreateInviteDto: {
             /** Format: email */
             email: string;
             /** @enum {string} */
             role: "admin" | "member" | "guest";
-            space_ids?: string[];
+            grants?: {
+                /** Format: uuid */
+                space_id?: string;
+                /** Format: uuid */
+                database_id?: string;
+                /** @enum {string} */
+                role: "viewer" | "commenter" | "editor" | "creator";
+            }[];
         };
         AcceptInviteDto: {
             token: string;
@@ -1080,6 +1121,15 @@ export interface components {
                 type: "mention";
                 user_id: string;
             })[];
+        };
+        CreateGrantDto: {
+            user_id: string;
+            /** Format: uuid */
+            space_id?: string;
+            /** Format: uuid */
+            database_id?: string;
+            /** @enum {string} */
+            role: "viewer" | "commenter" | "editor" | "creator";
         };
     };
     responses: never;
@@ -2523,6 +2573,65 @@ export interface operations {
             query?: never;
             header?: never;
             path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    GrantsController_list: {
+        parameters: {
+            query: {
+                user_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    GrantsController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateGrantDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    GrantsController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                grant: string;
+            };
             cookie?: never;
         };
         requestBody?: never;

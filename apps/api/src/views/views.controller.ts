@@ -3,7 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { createViewSchema, updateViewSchema } from '@storyos/schemas';
 import { AuthGuard } from '../auth/auth.guard';
-import { MinRole, WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
+import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { DatabasesService } from '../databases/databases.service';
 import { ViewsService } from './views.service';
@@ -15,15 +15,15 @@ class UpdateViewDto extends createZodDto(updateViewSchema) {}
 @ApiBearerAuth()
 @Controller('workspaces/:ws/databases/:db/views')
 @UseGuards(AuthGuard, WorkspaceAccessGuard)
-@MinRole('member')
 export class ViewsController {
   constructor(
     private readonly viewsService: ViewsService,
     private readonly databases: DatabasesService,
   ) {}
 
+  /** Views are content, not schema: editors manage them (ADR-0007). */
   private async assertDb(req: WorkspaceRequest, databaseId: string) {
-    await this.databases.get(req.membership, databaseId);
+    await this.databases.assertAccess(req.membership, databaseId, 'editor');
   }
 
   @Post()

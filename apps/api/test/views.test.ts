@@ -128,7 +128,7 @@ describe('views backend (MN-020)', () => {
     const invite = await inject('POST', `/workspaces/${wsId}/invites`, {
       email: guest.email,
       role: 'guest',
-      space_ids: [spaceId],
+      grants: [{ space_id: spaceId, role: 'commenter' }],
     });
     const token = new URL(invite.json().accept_url).searchParams.get('token')!;
     await app.inject({

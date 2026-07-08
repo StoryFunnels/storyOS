@@ -37,6 +37,7 @@ export interface DatabaseDetail {
   id: string;
   name: string;
   icon: string | null;
+  my_access: 'viewer' | 'commenter' | 'editor' | 'creator' | 'admin';
   fields: Field[];
   views: Array<{ id: string; name: string; type: string; config: Record<string, unknown> }>;
 }

@@ -3,7 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 import { AuthGuard } from '../auth/auth.guard';
-import { MinRole, WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
+import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { DatabasesService } from '../databases/databases.service';
 import { RecordsService } from '../records/records.service';
@@ -27,8 +27,13 @@ export class DocumentsController {
     private readonly records: RecordsService,
   ) {}
 
-  private async assertRecord(req: WorkspaceRequest, databaseId: string, recordId: string) {
-    await this.databases.get(req.membership, databaseId);
+  private async assertRecord(
+    req: WorkspaceRequest,
+    databaseId: string,
+    recordId: string,
+    min: 'viewer' | 'editor' = 'viewer',
+  ) {
+    await this.databases.assertAccess(req.membership, databaseId, min);
     await this.records.getRow(databaseId, recordId);
   }
 
@@ -44,7 +49,6 @@ export class DocumentsController {
   }
 
   @Put()
-  @MinRole('member')
   @ApiOperation({ summary: 'Write the description — 409 with current version on conflict' })
   async put(
     @Req() req: WorkspaceRequest,
@@ -52,7 +56,7 @@ export class DocumentsController {
     @Param('rec') recordId: string,
     @Body() body: PutDocumentDto,
   ) {
-    await this.assertRecord(req, databaseId, recordId);
+    await this.assertRecord(req, databaseId, recordId, 'editor');
     return this.documentsService.put(
       req.membership.workspaceId,
       recordId,

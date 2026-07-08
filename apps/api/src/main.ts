@@ -15,7 +15,7 @@ async function runMigrations() {
   const pool = new Pool({ connectionString: env().DATABASE_URL });
   await migrate(drizzle(pool), { migrationsFolder: join(__dirname, '..', 'drizzle') });
   await pool.end();
-  // eslint-disable-next-line no-console
+   
   console.log('migrations applied');
 }
 

@@ -149,7 +149,7 @@ describe('workspaces & tenancy (MN-008)', () => {
         payload: { email: dana.email, role: 'guest' },
       });
       expect(res.statusCode).toBe(422);
-      expect(res.json().error.details[0].path).toContain('space_ids');
+      expect(res.json().error.details[0].path).toContain('grants');
     });
 
     it('scoped guest sees only their spaces and cannot write', async () => {
@@ -164,7 +164,7 @@ describe('workspaces & tenancy (MN-008)', () => {
         method: 'POST',
         url: `/api/v1/workspaces/${wsId}/invites`,
         headers: authed(admin.token),
-        payload: { email: dana.email, role: 'guest', space_ids: [clientSpaceId] },
+        payload: { email: dana.email, role: 'guest', grants: [{ space_id: clientSpaceId, role: 'commenter' }] },
       });
       const token = new URL(invite.json().accept_url).searchParams.get('token')!;
       await app.inject({
