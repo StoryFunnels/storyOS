@@ -1,91 +1,149 @@
-# Template library plan
+# Template library plan — v2
 
-Templates are the onboarding (MN-033: nobody starts from blank). This is the catalog plan: what packs exist, what's in each, and who they're for. Rules that keep templates good:
+Templates ARE the onboarding (MN-033). v2 revisions from founder feedback (2026-07-08):
 
-- **3–4 databases per pack, max.** A template that models everything teaches nothing.
-- **Every pack ships a board** — the aha-moment is dragging a card, not reading a table.
-- **Every pack ships ≥1 relation** — relations are the product; a pack without one is a spreadsheet.
-- **Sample data tells a story** (recognizable names, realistic states), and is removable in one click.
-- Packs decompose: each database in a pack is also installable alone into any space (MN-033).
+- **Generous fields.** Deleting a field is one click; discovering you need one is friction. Every database ships fuller than minimal. (Supersedes v1's lean-fields stance.)
+- **Task DNA everywhere.** Every task-like database shares one Linear-informed recipe (below) so the same muscle memory works across packs — and it's already dev-team-grade.
+- **Intent-based onboarding.** The gallery doesn't ask "pick a template," it asks **"what are you working on?"** Some intents are one-time setups (workspace packs); some are *recurring jobs* installed as spaces — above all **"onboarding a new client,"** which creates a client-shareable space (spaces are the guest-scoping unit, ADR-0006).
 
-Categories: `agency` (step 1 — our own use cases), `creators` (step 2 — authors, experts, consultants, coaches), `dev` (step 3 — planned after founder feedback).
+Rules that survive from v1: every pack ships a board + ≥1 relation; sample data tells a removable story; pack databases install standalone too.
 
 ---
 
-## Category: Agency (step 1)
+## Task DNA (the shared task recipe, Linear-informed)
 
-The JCM suite — also the dogfood set. Four packs that compose into a full agency OS.
+Source model: Linear issues — status categories with Triage as an inbox, priority incl. Urgent, flexible labels, estimates, sub-issues, blocking relations, cycles for rhythm.
 
-### 1. Client Work *(upgrade of the existing `client-work`)*
+**Fields (every task database):**
 
-The default suggestion for agency signups. **Databases:**
-
-| Database | Fields | Views |
+| Field | Type | Notes |
 |---|---|---|
-| **Clients** | Status (Lead/Active/Paused/Churned), Owner (user), Website, Notes-in-description | All Clients (table), Active (filtered) |
-| **Contacts** *(new)* | Client (→Clients, M:1), Role (text), Email, Phone (text) | All Contacts |
-| **Projects** | Client (→Clients, M:1), Status (Planning/Active/On Hold/Done), Lead (user), Start/Due Date | Projects Board (by Status), All Projects |
-| **Tasks** | Project (→Projects, M:1), State (Backlog/To Do/In Progress/Review/Done), Assignee, Priority, Due Date, Estimate h | **Task Board** (by State), My Tasks (Assignee = me), Due This Week |
+| State | select | **Triage** (gray) → Backlog (gray) → To Do (blue) → In Progress (gold) → In Review (purple) → Done (green) → **Canceled** (brown). Triage = the inbox: anything captured fast lands here and gets sorted later |
+| Priority | select | Urgent (red) / High (orange) / Medium (blue) / Low (gray) — empty = no priority, and that's fine |
+| **Labels** | multi_select | Starter tags per pack (see packs); users grow their own taxonomy |
+| Assignee | user | |
+| Due Date | date | |
+| Estimate | number | points or hours — the label says "Estimate (pts)" |
+| Effort spent | number | optional actuals; delete if unused |
+| **Parent task** | self-relation (one_to_many) | sub-tasks — inverse "Sub-tasks" |
+| **Blocked by** | self-relation (many_to_many) | inverse "Blocks" |
+| + pack-specific relation(s) | relation | Project / Client / Article / Funnel / Sprint… |
 
-Relations: Clients→Contacts, Clients→Projects, Projects→Tasks. Sample story: two clients, three projects, ~10 tasks across all states. *(Change vs today: adds Contacts, adds "My Tasks" view using the `me` filter.)*
+**Views (every task database):** **Board** (by State), **Triage** (State = Triage — the grooming view), **My Tasks** (Assignee = me, not Done/Canceled), **Due This Week**, **All tasks** (table).
 
-### 2. Agency CRM
-
-Pipeline before the client exists. **Databases:** **Leads** (Stage board: New/Contacted/Call Booked/Proposal/Won/Lost; Deal Value, Source select, Owner, Next Step Date, Email) + **Proposals** (Lead →M:1, Status, Value, Sent Date, Link). One-way door: a Won lead's record links onward when they become a Client (cross-pack relation created by the user — the sample data demonstrates it if Client Work is also installed).
-
-### 3. Content Pipeline *(exists — joins this category)*
-
-Articles (Stage board) ↔ Campaigns. Unchanged; gains the `agency` + `creators` category tags.
-
-### 4. Social Media Calendar
-
-**Posts** (Channel multi-select: LinkedIn/X/Instagram/YouTube; Status board: Idea/Drafted/Scheduled/Published; Publish Date, Copy in description, Link) with an optional relation to Articles when Content Pipeline is present. Views: Post Board, This Week (date filter).
+Cycles/sprints are a *database*, not a field — the Dev pack ships a Sprints database with a Task→Sprint relation; other packs skip it (agencies live by due dates, not cycles).
 
 ---
 
-## Category: Creators — authors, experts, consultants, coaches (step 2)
+## Onboarding intents — "What are you working on?"
 
-Solo or tiny-team practices. The common spine is *people I serve + things I deliver + sessions/appearances*, flavored per persona. Three packs, deliberately not one mega-pack:
+The first question in the gallery (and at workspace creation). Each answer maps to an install:
 
-### 5. Coaching Practice
-
-| Database | Fields | Views |
+| Intent | Installs | Scope |
 |---|---|---|
-| **Clients** | Status (Discovery/Active/Paused/Alumni), Program (→Programs, M:1), Email, Start Date, Goal (text) | Client Board (by Status), Active |
-| **Programs** | Type (1:1 / Group / Course), Price (number, currency), Length (text), Active (checkbox) | All Programs |
-| **Sessions** | Client (→Clients, M:1), Date (datetime), Status board (Scheduled/Done/No-show/Rescheduled), Notes in description | Session Board, Upcoming (Date within next_7_days) |
-| **Action Items** | Client (→Clients, M:1), Session (→Sessions, M:1), Done (checkbox), Due Date | Open Items (Done = false) |
+| **Running an agency** | Agency suite (Client Work + CRM; offers Content + Social next) | workspace |
+| **Onboarding a new client** ⭐ | **Client Space** — a per-client space, ends with "invite {client} as guest" | space, *recurring* |
+| **Starting a dev project** | Dev Project pack | space |
+| **Launching a blog / content engine** | Content Pipeline + Social Calendar | space |
+| **Writing a book** | Author Studio | space |
+| **Running a coaching practice** | Coaching Practice | workspace |
+| **Consulting / client engagements** | Consulting Engagements | workspace |
+| **Something else** | full gallery + Blank | — |
 
-The pitch: your whole practice — who, what program, every session's notes, and what they promised to do — linked together. (Calendar view is v2; "Upcoming" filtered tables carry sessions until then.)
-
-### 6. Consulting Engagements
-
-| Database | Fields | Views |
-|---|---|---|
-| **Clients** | Status, Industry (select), Contact Email, Owner | All Clients |
-| **Proposals** | Client (→Clients, M:1), Stage board (Draft/Sent/Negotiating/Won/Lost), Value (currency), Sent/Close Date | Pipeline Board (the money view) |
-| **Engagements** | Client (→Clients, M:1), Proposal (→Proposals, M:1), Status (Active/Wrapping/Done), Start/End Date, Monthly Value | Engagement Board |
-| **Deliverables** | Engagement (→Engagements, M:1), State board (Scoped/In Progress/Review/Delivered), Due Date, Owner | Delivery Board, Due This Week |
-
-### 7. Author Studio
-
-| Database | Fields | Views |
-|---|---|---|
-| **Books** | Status (Idea/Writing/Editing/Published), Genre (text), Target Word Count, Deadline, Publisher (text) | All Books |
-| **Chapters** | Book (→Books, M:1), Status board (Outline/Draft/Revised/Final), Word Count, Order (number) | **Manuscript Board**, By Book (sorted) |
-| **Research Notes** | Chapters (→Chapters, M:N), Source (url), Type (Interview/Article/Book/Idea), content in description | All Notes |
-| **Launch Tasks** | Book (→Books, M:1), State board, Due Date, Channel (select: Podcast/Newsletter/Social/PR) | Launch Board |
-
-Experts building an audience (courses, speaking, podcast circuits) are covered by **Content Pipeline + Social Calendar** plus one addition worth considering: an **Appearances** database (Pitched/Booked/Recorded/Aired board for podcasts & stages) — could join Author Studio or stand alone as a single-database template.
+⭐ **Client Space is the key insight:** it's not onboarding, it's a monthly ritual. "New client" → a space named after them with client-facing boards → invite their contact as a guest (read + comment, sees only this space). The template's last step IS the guest invite dialog.
 
 ---
 
-## Category: Dev teams (step 3 — TBD)
+## Category: Agency
 
-Deliberately not planned yet — awaiting founder feedback on steps 1–2 first. Sketch-level candidates: solo-dev product tracker (Features/Bugs board + Releases), lightweight sprint pack (Issues/Sprints/Releases with relation-driven scoping). To be shaped against what Linear/GitHub Projects *don't* cover: mixing dev work with the same workspace that runs content and clients.
+### 1. Client Work *(workspace pack — the agency backbone)*
+
+**Clients:** Status (Lead/Onboarding/Active/Paused/Churned) · Owner (user) · Industry (select: SaaS, E-commerce, Publishing, Coaching, Local, Other) · Company Size (select: Solo, 2–10, 11–50, 50+) · Website · Contact Email · Phone (text) · LinkedIn (url) · Monthly Value (number, currency) · Client Since (date) · **Health** (select: Great/OK/At risk/🔥) · Referral Source (text). Views: All Clients, Active (filtered), **Health Board** (by Health).
+
+**Contacts:** Client (→Clients M:1) · Role (text) · Email · Phone (text) · LinkedIn (url) · Timezone (text) · Is Decision Maker (checkbox) · Birthday (date). Views: All Contacts, By Client (sorted).
+
+**Projects:** Client (→Clients M:1) · Status (Scoping/Planning/Active/On Hold/Delivered/Closed) · Type (select: Retainer, One-off, Sprint, Maintenance) · Lead (user) · Team (user multi) · Priority · Start/Due Date · Budget (currency) · Billed (currency) · Brief-in-description. Views: **Projects Board** (by Status), Active by Due Date, By Client.
+
+**Tasks:** full **Task DNA** + Project (→Projects M:1). Starter labels: `design` `copy` `dev` `ads` `email` `strategy` `admin` `client-waiting` `internal`.
+
+### 2. Client Space ⭐ *(space template — recurring, client-shareable)*
+
+Installed per client, named "{Client name}". Everything here is guest-visible by design.
+
+**Tasks** (client-facing): Task DNA minus internal noise — State board (Triage hidden from the shared view), labels `for-client` `waiting-on-client` `in-house`, plus **Client Approval** (select: Not needed / Waiting / Approved / Changes requested). Views: **Shared Board** (the one the client watches), Waiting on Client (filter), Internal (label ≠ for-client).
+**Deliverables:** Status (Draft/In Review/Approved/Delivered) · Type (select: Design, Document, Video, Campaign, Website, Report) · Due Date · Link (url) · Version (number) · Task (→Tasks M:N) · files as attachments. Views: Delivery Board, Approved.
+**Meetings:** Date (datetime) · Type (select: Kickoff, Weekly, Review, Ad-hoc) · Attendees (user multi) · Recording (url) · agenda/notes in description · Action items → Tasks (M:N). Views: Upcoming, All notes.
+**Requests** *(the client's inbox)*: guests can't create records (v1 role model), so this is where the team logs client asks from comments/email: Status (New/Accepted/Declined/Done) · Requested By (text) · Task (→Tasks M:1 once accepted). View: Request Board.
+
+Install flow ends with: *"Invite {client contact} as a guest to this space →"*.
+
+### 3. Agency CRM *(workspace pack)*
+
+**Leads:** Stage board (New/Contacted/Call Booked/Proposal Sent/Negotiating/**Won**/**Lost**) · Deal Value (currency) · Probability (select: 10/25/50/75/90%) · Source (select: Referral, Inbound, Outbound, Event, Partner) · Owner · Company (text) · Contact Email · Phone · Website · Next Step (text) · Next Step Date · Lost Reason (select: Budget, Timing, Competitor, Ghosted, Bad fit). Views: **Pipeline Board**, This Month's Follow-ups, Won (for conversion ritual).
+**Proposals:** Lead (→Leads M:1) · Status (Draft/Internal Review/Sent/Won/Lost) · Value (currency) · Sent/Valid-Until Date · Link (url) · scope in description. Views: Proposal Board, Open Proposals.
+
+### 4. Content Pipeline *(space pack; also `creators`)*
+
+**Articles:** Stage board (Idea/Brief/Writing/Editing/**Design**/Ready/Published) · Content Type (Blog post, Newsletter, Case study, Landing page, Video script, Podcast notes) · Author · Editor (user) · Target Publish Date · Published Date · Primary Keyword · Secondary Keywords (text) · Published URL · Word Count · **Labels** (`pillar` `seo` `launch` `evergreen` `client-work`) · CTA (text). Views: Editorial Board, Publish Schedule, By Author.
+**Campaigns:** Status (Planned/Running/Done) · Goal (text) · Owner · Start/End Date · Budget (currency) · Channel (multi: Email, Social, Paid, Partner) · Articles (M:N). Views: Campaign Board, Calendar-order table.
+
+### 5. Social Media Calendar *(space pack; also `creators`)*
+
+**Posts:** Status board (Idea/Drafted/Approved/Scheduled/Published) · Channel (multi: LinkedIn, X, Instagram, YouTube, TikTok, Facebook) · Format (select: Text, Carousel, Image, Video, Story) · Publish Date (datetime) · Owner · Article (→Articles M:1 when Content pack present) · Hook (text) · Link (url) · copy in description. Views: Post Board, This Week, By Channel.
+
+### 6. Funnels *(single-database template — JCM domain expertise; nobody else's gallery has this)*
+
+**Funnels:** Status board (Idea/Building/Testing/**Live**/Paused/Archived) · Funnel Type (Webinar, VSL, Lead Magnet, Book Launch, Evergreen, Challenge) · Client (→Clients M:1 when Client Work present) · Owner · Launch Date · Funnel URL · Traffic Source (multi: Ads, Organic, Email, Partner) · Visitors /mo (number) · Opt-in % · Conversion % · Revenue /mo (currency) · offer notes in description. Views: Funnel Board, Live funnels (with the numbers), By Client.
+
+---
+
+## Category: Creators (authors, experts, consultants, coaches)
+
+### 7. Coaching Practice *(workspace pack)*
+
+**Clients:** Status board (Discovery/Proposal/**Active**/Paused/Alumni) · Program (→Programs M:1) · Email · Phone · Timezone (text) · Start Date · Renewal Date · Price Paid (currency) · Goal (text) · **Progress** (select: Just started/On track/Stuck/Breakthrough) · intake notes in description. Views: Client Board, Active, Renewals Coming (date filter).
+**Programs:** Type (1:1, Group, Cohort, Course, Retreat) · Status (Active/Enrolling/Archived) · Price (currency) · Length (text) · Capacity (number) · Enrolled (number) · Curriculum-in-description. Views: All Programs.
+**Sessions:** Client (→Clients M:1) · Program (→Programs M:1) · Date (datetime) · Status board (Scheduled/Done/No-show/Rescheduled/Canceled) · Type (select: Kickoff, Regular, Review, Emergency) · Recording (url) · notes in description. Views: **Session Board**, Upcoming (next_7_days), By Client.
+**Action Items:** Task DNA (trimmed: no estimates) + Client (M:1) + Session (M:1) + Who (select: Client / Me). Views: Open Items, By Client, Waiting on Client.
+
+### 8. Consulting Engagements *(workspace pack)*
+
+**Clients:** as Client Work's Clients (same generous set) minus agency-isms.
+**Proposals:** Stage board (Draft/Sent/Negotiating/**Won**/Lost) · Value (currency) · Type (select: Audit, Retainer, Project, Workshop) · Sent/Close Date · Win Probability (select) · Link · scope in description. Views: **Pipeline Board** (the money view), Open.
+**Engagements:** Client (M:1) · Proposal (M:1) · Status board (Kickoff/Active/Wrapping/Done/Renewed) · Start/End Date · Monthly Value (currency) · Hours Budget / Hours Used (numbers) · Success Criteria (text). Views: Engagement Board, Ending Soon.
+**Deliverables & Tasks:** full Task DNA + Engagement (M:1). Labels: `research` `workshop` `report` `analysis` `follow-up`.
+
+### 9. Author Studio *(workspace pack)*
+
+**Books:** Status board (Idea/Proposal/**Writing**/Editing/Production/Published) · Genre (text) · Target/Current Word Count (numbers) · Deadline · Publisher (text) · Agent (text) · ISBN (text) · Cover (attachment on record) · synopsis in description. Views: All Books.
+**Chapters:** Book (M:1) · Status board (Outline/**Draft**/Revised/Final) · Order (number) · Word Count · POV/Theme (text) · Draft-in-description. Views: **Manuscript Board**, By Book in order.
+**Research Notes:** Chapters (M:N) · Type (Interview, Article, Book, Idea, Quote) · Source (url) · Status (To read/Processed) · content in description. Views: All Notes, Unprocessed.
+**Launch & Marketing:** full Task DNA + Book (M:1) + Channel (select: Podcast, Newsletter, Social, PR, Events, Ads). Views: Launch Board, By Channel.
+**Appearances** *(also standalone template)*: Status board (Wishlist/**Pitched**/Booked/Recorded/Aired) · Type (Podcast, Stage, Webinar, Article/Guest post) · Show/Event (text) · Host Contact (text/email) · Date · Audience Size (number) · Link · Pitch-in-description. Views: Pitch Board, Upcoming, Aired (the brag sheet).
+
+---
+
+## Category: Dev teams (step 3 — Linear-informed, solo-dev first)
+
+Positioning honesty: we won't out-Linear Linear for a 30-person eng org. The wedge is **the team whose dev work lives NEXT TO their content, clients, and funnels** — solo devs, indie hackers, agencies that also ship software (…JCM shipping StoryFunnels).
+
+### 10. Dev Project *(space pack)*
+
+**Issues:** full Task DNA with dev flavor — labels `bug` `feature` `chore` `docs` `design` `tech-debt` `good-first-issue`; Type (select: Bug/Feature/Improvement/Chore) · Sprint (→Sprints M:1) · Release (→Releases M:1) · Reproduction-in-description. Views: **Issue Board**, **Triage** (the inbox, front and center — Linear's best idea), Current Sprint, My Issues, Bugs only.
+**Sprints:** Status (Planned/**Active**/Done) · Start/End Date · Goal (text) · Velocity note (number). Views: All Sprints. *(Lightweight cycles: one Active at a time by convention.)*
+**Releases:** Version (title) · Status board (Planned/In Progress/Released) · Date · Changelog-in-description · Link. Views: Release Board, Shipped.
+**Product Docs:** Type (Spec, Decision/ADR, Runbook, Idea) · Status (Draft/Agreed/Superseded) · Owner · Issues (M:N) · content in description. Views: All Docs, Open Specs.
+
+### 11. Solo Dev *(space template — Dev Project minus ceremony)*
+
+**Issues** (same DNA, no Sprint field) + **Releases**. Two databases, one Triage inbox, one board. For the indie hacker shipping on vibes and a changelog.
+
+---
 
 ## Implementation notes
 
-- All packs are additions to `apps/api/src/templates/definitions.ts` — the installer (MN-032) already handles fields/options/relations/views/samples; only `category`/`scope` metadata and the preview payload are new (MN-033).
-- "My Tasks"-style views need the `me` token in saved view filters — supported by the query engine already; the view validator must allow it.
-- Currency formatting on Value/Price fields uses the existing number `format: currency` config.
+- Task DNA = a shared definition helper in `definitions.ts` so packs compose it rather than copy it (labels + extra relations parameterized).
+- Self-relations (Parent/Blocked-by) and the `me` filter in saved views are already supported by the engine; the template installer needs self-relation support verified (MN-018 tested it) and the view validator must accept `"me"`.
+- Cross-pack relations (Posts→Articles, Funnels→Clients): installer creates them **only when the target database exists** in the workspace; otherwise skips with a note in the install summary.
+- Intent question = first screen of the MN-033 gallery; intents map to (template, scope) pairs; "New client" additionally pre-fills the space name and ends on the guest-invite dialog.
+- Client Space's "Requests" database exists because guests can't create records in v1 — revisit if guest-created records ever land.

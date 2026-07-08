@@ -18,6 +18,15 @@ size: L
 - `POST /workspaces/:ws/templates/:slug/apply` accepts `{ space_id? }` for database-scoped templates; sample data optional via `{ include_samples: boolean }` (default true).
 - Template definitions move to a `category` + `scope`-tagged registry (see docs/product/template-library.md for the catalog).
 
+**The intent question** (founder direction, 2026-07-08): the gallery leads with
+**"What are you working on?"** — running an agency / onboarding a new client /
+starting a dev project / launching a blog / writing a book / coaching /
+consulting / something else. Each intent maps to a (template, scope) install;
+"Onboarding a new client" is a RECURRING job: it installs a **Client Space**
+(space-scoped, client-shareable) with the space pre-named after the client and
+finishes on the guest-invite dialog (spaces are the guest-scoping unit,
+ADR-0006). Intent mapping lives in docs/product/template-library.md.
+
 **Entry points** (web):
 1. **New database dialog** → two tabs: "From template" (gallery filtered to scope=database + the databases of packs, installable individually) / "Blank". Template cards show field chips + view badges.
 2. **New space** → after naming, offer "Start this space from a template pack" (or empty).
@@ -33,6 +42,8 @@ size: L
 - [ ] Template cards preview the full schema (fields with types, views, relations) before install
 - [ ] A pack's individual databases are installable standalone into any space (relations to non-installed databases are skipped with a note)
 - [ ] `include_samples: false` installs structure only; sample records remain tracked/removable as today
+- [ ] The gallery opens with the intent question; every intent installs the mapped template at the right scope; "New client" pre-fills the space name and ends on the guest-invite dialog
 - [ ] Categories filter the gallery (agency / creators / dev)
+- [ ] Task-DNA databases install with self-relations (Parent/Blocked-by) and 'me'-filtered saved views working
 - [ ] Empty-state surfaces: workspace home and blank-database grid both route into the gallery
 - [ ] Integration tests: database-scoped install into an existing space; pack install with samples off; preview payload matches what install creates
