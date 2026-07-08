@@ -1,6 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useMemo, useRef, useState } from 'react';
 import {
   DndContext,
   DragOverlay,
@@ -88,8 +89,16 @@ export function BoardView({
     ];
   }, [groupField, rows]);
 
+  const router = useRouter();
   const [dragging, setDragging] = useState<RecordRow | null>(null);
+  // A click that lands right after a drag is the drag's pointer-up, not intent to open.
+  const lastDragEnd = useRef(0);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+
+  function openRecord(row: RecordRow) {
+    if (Date.now() - lastDragEnd.current < 200) return;
+    router.push(`/w/${ws}/d/${db}/r/${row.id}`);
+  }
 
   const move = useMutation({
     mutationFn: async (input: {
@@ -115,6 +124,7 @@ export function BoardView({
 
   function onDragEnd(event: DragEndEvent) {
     setDragging(null);
+    lastDragEnd.current = Date.now();
     if (!groupField || !event.over) return;
     const overId = String(event.over.id);
     const recId = String(event.active.id);
@@ -168,6 +178,7 @@ export function BoardView({
             cardFields={cardFields}
             memberNames={memberNames}
             readOnly={readOnly}
+            onOpen={openRecord}
             onAdd={() =>
               createRecord.mutate({
                 name: 'Untitled',
@@ -191,12 +202,14 @@ function BoardColumn({
   cardFields,
   memberNames,
   readOnly,
+  onOpen,
   onAdd,
 }: {
   column: { id: string; label: string; color: string; rows: RecordRow[] };
   cardFields: Field[];
   memberNames: Map<string, string>;
   readOnly: boolean;
+  onOpen: (row: RecordRow) => void;
   onAdd: () => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: `col:${column.id}` });
@@ -228,6 +241,7 @@ function BoardColumn({
             cardFields={cardFields}
             memberNames={memberNames}
             disabled={readOnly}
+            onOpen={() => onOpen(row)}
           />
         ))}
       </div>
@@ -240,18 +254,26 @@ function DraggableCard({
   cardFields,
   memberNames,
   disabled,
+  onOpen,
 }: {
   row: RecordRow;
   cardFields: Field[];
   memberNames: Map<string, string>;
   disabled: boolean;
+  onOpen: () => void;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: row.id,
     disabled,
   });
   return (
-    <div ref={setNodeRef} {...attributes} {...listeners} className={cn(isDragging && 'opacity-40')}>
+    <div
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      className={cn(isDragging && 'opacity-40')}
+      onClick={onOpen}
+    >
       <Card row={row} cardFields={cardFields} memberNames={memberNames} />
     </div>
   );
@@ -271,7 +293,7 @@ function Card({
   return (
     <div
       className={cn(
-        'cursor-grab rounded-[var(--radius-card)] border border-border-default bg-card p-2.5',
+        'cursor-pointer rounded-[var(--radius-card)] border border-border-default bg-card p-2.5 hover:border-border-strong',
         overlay && 'shadow-[0_4px_12px_rgba(15,23,41,0.15)]',
       )}
     >

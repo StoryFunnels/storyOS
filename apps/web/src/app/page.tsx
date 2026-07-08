@@ -13,7 +13,11 @@ export default function Home() {
 
   const workspaces = useQuery({
     queryKey: ['workspaces'],
-    queryFn: async () => (await api.GET('/api/v1/workspaces')).data as Array<{ id: string }>,
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/workspaces');
+      if (error) throw error;
+      return data as Array<{ id: string }>;
+    },
     enabled: Boolean(session),
   });
 

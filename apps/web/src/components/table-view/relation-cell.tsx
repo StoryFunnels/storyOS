@@ -82,6 +82,7 @@ export function RelationEditor({
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['records', ws, db] });
       void qc.invalidateQueries({ queryKey: ['records', ws, targetDb] });
+      void qc.invalidateQueries({ queryKey: ['record', ws, db, recordId] });
       onDone();
     },
     onError: () => toast.error('Could not update links'),
@@ -150,7 +151,7 @@ export function RelationEditor({
       )}
       <input
         autoFocus
-        placeholder={`Search ${relation.target_database_name ?? 'records'}…`}
+        placeholder={`Search or create ${relation.target_database_name ?? 'records'}…`}
         className="w-full border-b border-border-default bg-card px-3 py-2 text-[13px] text-ink outline-none placeholder:text-faint"
         value={search}
         onChange={(e) => setSearch(e.target.value)}
@@ -169,13 +170,19 @@ export function RelationEditor({
             {!single && selectedIds.has(row.id) && <span className="text-[11px] text-muted">linked</span>}
           </button>
         ))}
-        {search.trim() && !exactMatch && (
+        {search.trim() && !exactMatch ? (
           <button
             className="flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left text-[13px] text-info hover:bg-hover"
             onClick={() => createTarget.mutate(search.trim())}
           >
             <Plus className="h-3.5 w-3.5" /> Create “{search.trim()}”
           </button>
+        ) : (
+          !search.trim() && (
+            <p className="flex items-center gap-1.5 px-2 py-1.5 text-[12px] text-faint">
+              <Plus className="h-3.5 w-3.5" /> Type a name to create a new one
+            </p>
+          )
         )}
       </div>
       <div className="flex justify-between border-t border-border-default px-2 py-1.5">

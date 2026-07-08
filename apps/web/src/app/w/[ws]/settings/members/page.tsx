@@ -330,7 +330,7 @@ function InviteDialog({
             <div className="flex justify-end gap-2">
               <DialogClose asChild>
                 <Button type="button" variant="secondary">
-                  Cancel
+                  {initialOpen ? 'Skip for now' : 'Cancel'}
                 </Button>
               </DialogClose>
               <Button type="submit" disabled={invite.isPending || (role === 'guest' && spaceIds.length === 0)}>
