@@ -83,7 +83,7 @@ Every [M] story in [docs/product/user-stories.md](../docs/product/user-stories.m
 | E2–E6 (API coverage, query, introspection, OpenAPI) | MN-005, MN-009–012, MN-018 |
 | F1, F2 (templates, onboarding) | MN-032 |
 
-## Post-v1 tickets
+## Post-v1 tickets (all done)
 
 | # | Ticket | Size | Depends on |
 |---|---|---|---|

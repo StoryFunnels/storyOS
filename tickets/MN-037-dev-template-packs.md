@@ -1,7 +1,7 @@
 ---
 id: MN-037
 title: Dev template packs (Dev Project, Solo Dev)
-status: todo
+status: done
 depends_on: [MN-035]
 size: M
 ---

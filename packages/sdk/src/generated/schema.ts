@@ -783,7 +783,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Install a template: space + databases + relations + views + sample data */
+        /** Install a template (packs create a space; database templates take space_id) */
         post: operations["WorkspaceTemplatesController_apply"];
         delete?: never;
         options?: never;
@@ -1121,6 +1121,13 @@ export interface components {
                 type: "mention";
                 user_id: string;
             })[];
+        };
+        ApplyTemplateDto: {
+            /** Format: uuid */
+            space_id?: string;
+            space_name?: string;
+            /** @default true */
+            include_samples: boolean;
         };
         CreateGrantDto: {
             user_id: string;
@@ -2558,7 +2565,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplyTemplateDto"];
+            };
+        };
         responses: {
             201: {
                 headers: {

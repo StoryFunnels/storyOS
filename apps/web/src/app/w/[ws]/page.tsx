@@ -2,11 +2,13 @@
 
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, Circle } from 'lucide-react';
+import { Blocks, CheckCircle2, Circle } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { useDatabases, useSpaces, useWorkspace } from '@/lib/queries';
+import { TEMPLATE_ICONS, TemplateGalleryDialog, useTemplateRegistry } from '@/components/template-gallery';
 import { Button } from '@/components/ui/button';
 
 export default function WorkspaceHome() {
@@ -44,6 +46,11 @@ export default function WorkspaceHome() {
     },
     retry: false,
   });
+
+  const registry = useTemplateRegistry();
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [gallerySlug, setGallerySlug] = useState<string | undefined>(undefined);
+  const canInstall = workspace.data?.role !== 'guest';
 
   const firstDb = databases.data?.[0];
   const steps = [
@@ -101,6 +108,58 @@ export default function WorkspaceHome() {
           ))}
         </div>
       </div>
+
+      {canInstall && (
+        <div className="mt-8">
+          <div className="mb-3 flex items-center justify-between">
+            <p className="text-[12px] font-medium uppercase tracking-wider text-faint">
+              Start something new
+            </p>
+            <button
+              type="button"
+              className="text-[12px] text-muted underline-offset-2 hover:underline"
+              onClick={() => {
+                setGallerySlug(undefined);
+                setGalleryOpen(true);
+              }}
+            >
+              Browse all templates
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {(registry.data?.intents ?? []).map((intent) => {
+              const Icon = TEMPLATE_ICONS[intent.template] ?? Blocks;
+              return (
+                <button
+                  key={intent.id}
+                  type="button"
+                  className="flex items-start gap-3 rounded-[var(--radius-card)] border border-border-default bg-card p-3 text-left hover:bg-hover"
+                  onClick={() => {
+                    setGallerySlug(intent.template);
+                    setGalleryOpen(true);
+                  }}
+                >
+                  <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted" />
+                  <span>
+                    <span className="block text-[13px] font-medium text-ink">{intent.label}</span>
+                    <span className="block text-[12px] text-muted">{intent.description}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          {galleryOpen && (
+            <TemplateGalleryDialog
+              key={gallerySlug ?? 'all'}
+              ws={ws}
+              spaces={spaces.data ?? []}
+              open={galleryOpen}
+              onOpenChange={setGalleryOpen}
+              initialSlug={gallerySlug}
+            />
+          )}
+        </div>
+      )}
 
       {(spaces.data?.length ?? 0) > 0 && (databases.data?.length ?? 0) === 0 && (
         <p className="mt-6 text-[13px] text-muted">

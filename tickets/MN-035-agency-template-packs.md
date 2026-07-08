@@ -1,7 +1,7 @@
 ---
 id: MN-035
 title: Agency template packs + Task DNA installer
-status: todo
+status: done
 depends_on: [MN-033, MN-034]
 size: L
 ---

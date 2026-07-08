@@ -1,7 +1,7 @@
 'use client';
 
-import { useParams } from 'next/navigation';
-import { useState } from 'react';
+import { useParams, useSearchParams } from 'next/navigation';
+import { Suspense, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -26,7 +26,16 @@ interface Invite {
 }
 
 export default function MembersPage() {
+  return (
+    <Suspense>
+      <MembersPageContent />
+    </Suspense>
+  );
+}
+
+function MembersPageContent() {
   const { ws } = useParams<{ ws: string }>();
+  const searchParams = useSearchParams();
   const qc = useQueryClient();
   const workspace = useWorkspace(ws);
   const spaces = useSpaces(ws);
@@ -93,7 +102,16 @@ export default function MembersPage() {
     <div className="mx-auto max-w-3xl p-8">
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-lg font-semibold text-ink">Members</h1>
-        {isAdmin && <InviteDialog ws={ws} spaces={spaces.data ?? []} />}
+        {isAdmin && (
+          <InviteDialog
+            ws={ws}
+            spaces={spaces.data ?? []}
+            initialOpen={searchParams.get('invite') === 'guest'}
+            initialRole={searchParams.get('invite') === 'guest' ? 'guest' : undefined}
+            initialSpaceIds={searchParams.get('space') ? [searchParams.get('space')!] : undefined}
+            initialGrantRole={searchParams.get('grant') ?? undefined}
+          />
+        )}
       </div>
 
       <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card">
@@ -155,13 +173,27 @@ export default function MembersPage() {
   );
 }
 
-function InviteDialog({ ws, spaces }: { ws: string; spaces: Array<{ id: string; name: string }> }) {
+function InviteDialog({
+  ws,
+  spaces,
+  initialOpen,
+  initialRole,
+  initialSpaceIds,
+  initialGrantRole,
+}: {
+  ws: string;
+  spaces: Array<{ id: string; name: string }>;
+  initialOpen?: boolean;
+  initialRole?: 'admin' | 'member' | 'guest';
+  initialSpaceIds?: string[];
+  initialGrantRole?: string;
+}) {
   const qc = useQueryClient();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initialOpen ?? false);
   const [email, setEmail] = useState('');
-  const [role, setRole] = useState<'admin' | 'member' | 'guest'>('member');
-  const [spaceIds, setSpaceIds] = useState<string[]>([]);
-  const [grantRole, setGrantRole] = useState('editor');
+  const [role, setRole] = useState<'admin' | 'member' | 'guest'>(initialRole ?? 'member');
+  const [spaceIds, setSpaceIds] = useState<string[]>(initialSpaceIds ?? []);
+  const [grantRole, setGrantRole] = useState(initialGrantRole ?? 'editor');
   const [acceptUrl, setAcceptUrl] = useState<string | null>(null);
 
   const invite = useMutation({

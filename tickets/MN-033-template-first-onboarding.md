@@ -1,7 +1,7 @@
 ---
 id: MN-033
 title: Template-first onboarding — nobody starts from blank
-status: todo
+status: done
 depends_on: [MN-032]
 size: L
 ---

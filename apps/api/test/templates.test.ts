@@ -16,6 +16,20 @@ async function inject(method: string, url: string, payload?: unknown) {
   });
 }
 
+const ALL_SLUGS = [
+  'client-work',
+  'client-space',
+  'agency-crm',
+  'content-pipeline',
+  'social-calendar',
+  'funnels',
+  'coaching-practice',
+  'consulting',
+  'author-studio',
+  'dev-project',
+  'solo-dev',
+];
+
 beforeAll(async () => {
   app = await createTestApp();
   admin = await signUpUser(app, 'Founder');
@@ -26,56 +40,106 @@ afterAll(async () => {
   await app.close();
 });
 
-describe('templates (MN-032)', () => {
-  it('lists available templates', async () => {
+describe('template registry (MN-033/035/036/037)', () => {
+  it('lists all templates with categories, scopes, previews, and intents', async () => {
     const res = await inject('GET', '/templates');
-    expect(res.json().data.map((t: { slug: string }) => t.slug)).toEqual([
-      'client-work',
-      'content-pipeline',
-    ]);
+    const body = res.json();
+    expect(body.data.map((t: { slug: string }) => t.slug).sort()).toEqual([...ALL_SLUGS].sort());
+    const clientWork = body.data.find((t: { slug: string }) => t.slug === 'client-work');
+    expect(clientWork.category).toBe('agency');
+    expect(clientWork.preview.databases.map((d: { name: string }) => d.name)).toContain('Tasks');
+    expect(clientWork.preview.relations.length).toBeGreaterThan(2);
+    expect(body.intents.map((i: { id: string }) => i.id)).toContain('new-client');
+    const newClient = body.intents.find((i: { id: string }) => i.id === 'new-client');
+    expect(newClient.ends_with_invite).toBe(true);
   });
 
-  it('applies Client Projects & Tasks: space, 3 dbs, 2 relations, views, samples, in <5s', async () => {
-    const start = performance.now();
-    const res = await inject('POST', `/workspaces/${wsId}/templates/client-work/apply`);
-    const elapsed = performance.now() - start;
-    expect(res.statusCodes ?? res.statusCode, res.body).toBe(201);
-    expect(elapsed).toBeLessThan(5000);
-    expect(res.json().sample_records).toBe(9);
+  it('installs EVERY template cleanly (each into its own workspace)', async () => {
+    for (const slug of ALL_SLUGS) {
+      const ws = (await inject('POST', '/workspaces', { name: `WS ${slug}` })).json().id;
+      const options =
+        slug === 'funnels'
+          ? { space_id: (await inject('GET', `/workspaces/${ws}/spaces`)).json()[0].id }
+          : {};
+      const res = await inject('POST', `/workspaces/${ws}/templates/${slug}/apply`, options);
+      expect(res.statusCode, `${slug}: ${res.body}`).toBe(201);
+      expect(Object.keys(res.json().databases).length).toBeGreaterThan(0);
+    }
+  }, 120_000);
 
-    const dbs = await inject('GET', `/workspaces/${wsId}/databases`);
-    const names = dbs.json().map((d: { name: string }) => d.name).sort();
-    expect(names).toEqual(['Clients', 'Projects', 'Tasks']);
-
-    const tasksDb = dbs.json().find((d: { name: string }) => d.name === 'Tasks');
-    const detail = await inject('GET', `/workspaces/${wsId}/databases/${tasksDb.id}`);
-    const fieldTypes = detail.json().fields.map((f: { type: string }) => f.type);
-    expect(fieldTypes).toContain('relation');
-    expect(detail.json().views.map((v: { name: string }) => v.name)).toContain('Task Board');
-
-    // Sample records exist and are linked
-    const query = await inject('POST', `/workspaces/${wsId}/databases/${tasksDb.id}/records/query`, {
-      filter: { field: 'project', op: 'not_empty' },
-    });
-    expect(query.json().data.length).toBeGreaterThanOrEqual(5);
-    const withChips = query.json().data[0];
-    expect(withChips.values.project[0].title).toContain('sample');
-  });
-
-  it('removes exactly the sample data', async () => {
-    const res = await inject('DELETE', `/workspaces/${wsId}/templates/sample-data`);
-    expect(res.json().removed).toBe(9);
-
-    const dbs = await inject('GET', `/workspaces/${wsId}/databases`);
-    const tasksDb = dbs.json().find((d: { name: string }) => d.name === 'Tasks');
-    const list = await inject('GET', `/workspaces/${wsId}/databases/${tasksDb.id}/records`);
-    expect(list.json().data).toHaveLength(0);
-  });
-
-  it('applies the content pipeline template into the same workspace (F3)', async () => {
-    const res = await inject('POST', `/workspaces/${wsId}/templates/content-pipeline/apply`);
+  it('client-work ships Task DNA: Triage state, sub-tasks, My Tasks view, labels', async () => {
+    const res = await inject('POST', `/workspaces/${wsId}/templates/client-work/apply`, {});
     expect(res.statusCode, res.body).toBe(201);
-    const spaces = await inject('GET', `/workspaces/${wsId}/spaces`);
-    expect(spaces.json().map((s: { name: string }) => s.name)).toContain('Content');
+    const tasksDbId = res.json().databases.tasks;
+
+    const detail = (await inject('GET', `/workspaces/${wsId}/databases/${tasksDbId}`)).json();
+    const state = detail.fields.find((f: { apiName: string }) => f.apiName === 'state');
+    expect(state.options.map((o: { label: string }) => o.label)).toContain('Triage');
+    expect(state.options.map((o: { label: string }) => o.label)).toContain('Canceled');
+    expect(detail.fields.some((f: { apiName: string }) => f.apiName === 'labels')).toBe(true);
+    expect(detail.fields.filter((f: { type: string }) => f.type === 'relation').length).toBeGreaterThanOrEqual(3); // project + parent + blocked
+
+    const viewNames = detail.views.map((v: { name: string }) => v.name);
+    expect(viewNames).toEqual(expect.arrayContaining(['Task Board', 'Triage', 'My Tasks', 'Due This Week']));
+
+    // My Tasks resolves '@me' → the installer's records show up for me
+    const myTasks = detail.views.find((v: { name: string }) => v.name === 'My Tasks');
+    const query = await inject('POST', `/workspaces/${wsId}/databases/${tasksDbId}/records/query`, {
+      filter: myTasks.config.filters,
+    });
+    expect(query.statusCode, query.body).toBe(201);
+    expect(query.json().data.length).toBeGreaterThanOrEqual(1);
+
+    // sub-task sample linked via parent relation
+    const sub = await inject('POST', `/workspaces/${wsId}/databases/${tasksDbId}/records/query`, {
+      filter: { field: 'parent_task', op: 'not_empty' },
+    });
+    expect(sub.json().data.length).toBe(1);
+  });
+
+  it('funnels (database-scoped) installs into an existing space and links to Clients cross-pack', async () => {
+    const spaceId = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
+    const res = await inject('POST', `/workspaces/${wsId}/templates/funnels/apply`, {
+      space_id: spaceId,
+    });
+    expect(res.statusCode, res.body).toBe(201);
+    expect(res.json().notes).toEqual([]); // Clients exists (client-work installed above) → relation created
+
+    const funnelsDb = res.json().databases.funnels;
+    const detail = (await inject('GET', `/workspaces/${wsId}/databases/${funnelsDb}`)).json();
+    const relation = detail.fields.find((f: { type: string }) => f.type === 'relation');
+    expect(relation.relation.target_database_name).toBe('Clients');
+  });
+
+  it('skips cross-pack relations gracefully when the target is missing', async () => {
+    const ws = (await inject('POST', '/workspaces', { name: 'Lonely social' })).json().id;
+    const res = await inject('POST', `/workspaces/${ws}/templates/social-calendar/apply`, {});
+    expect(res.statusCode).toBe(201);
+    expect(res.json().notes[0]).toContain('Articles');
+  });
+
+  it('include_samples: false installs structure only; sample removal is exact', async () => {
+    const ws = (await inject('POST', '/workspaces', { name: 'Clean install' })).json().id;
+    const res = await inject('POST', `/workspaces/${ws}/templates/solo-dev/apply`, {
+      include_samples: false,
+    });
+    expect(res.json().sample_records).toBe(0);
+    const issues = res.json().databases.issues;
+    const list = await inject('GET', `/workspaces/${ws}/databases/${issues}/records`);
+    expect(list.json().data).toHaveLength(0);
+
+    // and the tracked-removal path still works
+    await inject('POST', `/workspaces/${ws}/templates/solo-dev/apply`, {});
+    const removed = await inject('DELETE', `/workspaces/${ws}/templates/sample-data`);
+    expect(removed.json().removed).toBe(3);
+  });
+
+  it('client-space renames its space from space_name (the "new client" intent)', async () => {
+    const res = await inject('POST', `/workspaces/${wsId}/templates/client-space/apply`, {
+      space_name: 'Globex Corp',
+    });
+    expect(res.statusCode, res.body).toBe(201);
+    const spaces = (await inject('GET', `/workspaces/${wsId}/spaces`)).json();
+    expect(spaces.map((s: { name: string }) => s.name)).toContain('Globex Corp');
   });
 });

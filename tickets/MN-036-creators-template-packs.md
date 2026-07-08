@@ -1,7 +1,7 @@
 ---
 id: MN-036
 title: Creators template packs (coaching, consulting, author)
-status: todo
+status: done
 depends_on: [MN-035]
 size: M
 ---

@@ -1,9 +1,18 @@
-import { Controller, Delete, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { createZodDto } from 'nestjs-zod';
+import { z } from 'zod';
 import { AuthGuard } from '../auth/auth.guard';
 import { MinRole, WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { TemplatesService } from './templates.service';
+
+const applyTemplateSchema = z.object({
+  space_id: z.uuid().optional(),
+  space_name: z.string().trim().min(1).max(100).optional(),
+  include_samples: z.boolean().default(true),
+});
+class ApplyTemplateDto extends createZodDto(applyTemplateSchema) {}
 
 @ApiTags('templates')
 @ApiBearerAuth()
@@ -28,9 +37,13 @@ export class WorkspaceTemplatesController {
   constructor(private readonly templates: TemplatesService) {}
 
   @Post(':slug/apply')
-  @ApiOperation({ summary: 'Install a template: space + databases + relations + views + sample data' })
-  apply(@Req() req: WorkspaceRequest, @Param('slug') slug: string) {
-    return this.templates.apply(req.membership, slug, req.user.id);
+  @ApiOperation({ summary: 'Install a template (packs create a space; database templates take space_id)' })
+  apply(
+    @Req() req: WorkspaceRequest,
+    @Param('slug') slug: string,
+    @Body() body: ApplyTemplateDto,
+  ) {
+    return this.templates.apply(req.membership, slug, req.user.id, body);
   }
 
   @Delete('sample-data')

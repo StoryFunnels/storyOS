@@ -7,12 +7,13 @@ import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from 
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Database, KeyRound, MoreHorizontal, Plus, Settings } from 'lucide-react';
+import { Database, KeyRound, LayoutTemplate, MoreHorizontal, Plus, Settings } from 'lucide-react';
 import { toast } from 'sonner';
 import { authClient } from '@/lib/auth-client';
 import { useDatabases, useSidebarMutations, useSpaces, useWorkspace } from '@/lib/queries';
 import type { DatabaseSummary, Space } from '@/lib/queries';
 import { ShareDialog } from '@/components/share-dialog';
+import { TemplateGalleryDialog } from '@/components/template-gallery';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import {
@@ -35,6 +36,7 @@ export function Sidebar() {
 
   const canEdit = workspace.data?.role !== 'guest';
   const isAdmin = workspace.data?.role === 'admin';
+  const [galleryOpen, setGalleryOpen] = useState(false);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
@@ -76,6 +78,24 @@ export function Sidebar() {
         </DndContext>
 
         {canEdit && <NewSpaceButton onCreate={(name) => mutations.createSpace.mutate({ name })} />}
+        {canEdit && (
+          <>
+            <button
+              className="flex w-full items-center gap-2 rounded px-2 py-1 text-[13px] text-muted hover:bg-hover"
+              onClick={() => setGalleryOpen(true)}
+            >
+              <LayoutTemplate className="h-3.5 w-3.5" /> From template
+            </button>
+            {galleryOpen && (
+              <TemplateGalleryDialog
+                ws={ws}
+                spaces={spaces.data ?? []}
+                open={galleryOpen}
+                onOpenChange={setGalleryOpen}
+              />
+            )}
+          </>
+        )}
       </nav>
 
       <div className="flex flex-col gap-0.5 border-t border-border-default p-2">

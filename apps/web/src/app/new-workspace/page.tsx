@@ -2,36 +2,41 @@
 
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Kanban, Newspaper, Square } from 'lucide-react';
+import { Blocks, Square } from 'lucide-react';
 import { api } from '@/lib/api';
 import { isErrorEnvelope } from '@storyos/sdk';
 import { AuthCard } from '../(auth)/auth-card';
+import {
+  TEMPLATE_ICONS,
+  TemplateCard,
+  installTemplate,
+  postInstallPath,
+  useTemplateRegistry,
+} from '@/components/template-gallery';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 
-const TEMPLATE_ICONS: Record<string, typeof Kanban> = {
-  'client-work': Kanban,
-  'content-pipeline': Newspaper,
-};
-
+/**
+ * Intent-first onboarding (MN-033): "What are you working on?" maps to a
+ * template pack; browsing everything and Blank stay one click away.
+ */
 export default function NewWorkspacePage() {
   const router = useRouter();
+  const registry = useTemplateRegistry();
   const [name, setName] = useState('');
-  const [template, setTemplate] = useState<string | null>('client-work');
+  const [choice, setChoice] = useState<string>('intent:agency'); // intent:<id> | template:<slug> | blank
+  const [clientName, setClientName] = useState('');
+  const [browsing, setBrowsing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const templates = useQuery({
-    queryKey: ['templates'],
-    queryFn: async () => {
-      const { data, error: apiError } = await api.GET('/api/v1/templates');
-      if (apiError) throw apiError;
-      return (data as unknown as { data: Array<{ slug: string; name: string; description: string }> }).data;
-    },
-  });
+  const intents = registry.data?.intents ?? [];
+  const templates = registry.data?.data ?? [];
+  const activeIntent = choice.startsWith('intent:')
+    ? intents.find((i) => i.id === choice.slice(7))
+    : undefined;
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -44,12 +49,20 @@ export default function NewWorkspacePage() {
       return;
     }
     const wsId = (data as { id: string }).id;
-    if (template) {
-      await api.POST('/api/v1/workspaces/{ws}/templates/{slug}/apply', {
-        params: { path: { ws: wsId, slug: template } },
-      });
+
+    const slug = activeIntent?.template ?? (choice.startsWith('template:') ? choice.slice(9) : null);
+    if (!slug) {
+      router.replace(`/w/${wsId}`);
+      return;
     }
-    router.replace(`/w/${wsId}`);
+    try {
+      const result = await installTemplate(wsId, slug, {
+        ...(activeIntent?.asks_name && clientName.trim() ? { space_name: clientName.trim() } : {}),
+      });
+      router.replace(postInstallPath(wsId, result, activeIntent?.ends_with_invite));
+    } catch {
+      router.replace(`/w/${wsId}`); // workspace exists; template can be added later
+    }
   }
 
   return (
@@ -68,46 +81,77 @@ export default function NewWorkspacePage() {
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <Label>Start from</Label>
-          {(templates.data ?? []).map((t) => {
-            const Icon = TEMPLATE_ICONS[t.slug] ?? Square;
-            return (
-              <button
-                key={t.slug}
-                type="button"
-                className={cn(
-                  'flex items-start gap-3 rounded-[var(--radius-card)] border p-3 text-left',
-                  template === t.slug
-                    ? 'border-[var(--accent)] bg-accent-soft'
-                    : 'border-border-default hover:bg-hover',
-                )}
-                onClick={() => setTemplate(t.slug)}
-              >
-                <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted" />
-                <span>
-                  <span className="block text-[13px] font-medium text-ink">{t.name}</span>
-                  <span className="block text-[12px] text-muted">{t.description}</span>
-                </span>
-              </button>
-            );
-          })}
+          <Label>What are you working on?</Label>
+          <div className="flex max-h-[45vh] flex-col gap-1.5 overflow-y-auto pr-1">
+            {!browsing
+              ? intents.map((intent) => {
+                  const Icon = TEMPLATE_ICONS[intent.template] ?? Blocks;
+                  return (
+                    <button
+                      key={intent.id}
+                      type="button"
+                      className={cn(
+                        'flex items-start gap-3 rounded-[var(--radius-card)] border p-3 text-left',
+                        choice === `intent:${intent.id}`
+                          ? 'border-[var(--accent)] bg-accent-soft'
+                          : 'border-border-default hover:bg-hover',
+                      )}
+                      onClick={() => setChoice(`intent:${intent.id}`)}
+                    >
+                      <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted" />
+                      <span>
+                        <span className="block text-[13px] font-medium text-ink">{intent.label}</span>
+                        <span className="block text-[12px] text-muted">{intent.description}</span>
+                      </span>
+                    </button>
+                  );
+                })
+              : templates.map((t) => (
+                  <TemplateCard
+                    key={t.slug}
+                    template={t}
+                    selected={choice === `template:${t.slug}`}
+                    onClick={() => setChoice(`template:${t.slug}`)}
+                  />
+                ))}
+
+            <button
+              type="button"
+              className={cn(
+                'flex items-start gap-3 rounded-[var(--radius-card)] border p-3 text-left',
+                choice === 'blank'
+                  ? 'border-[var(--accent)] bg-accent-soft'
+                  : 'border-border-default hover:bg-hover',
+              )}
+              onClick={() => setChoice('blank')}
+            >
+              <Square className="mt-0.5 h-4 w-4 shrink-0 text-muted" />
+              <span>
+                <span className="block text-[13px] font-medium text-ink">Blank</span>
+                <span className="block text-[12px] text-muted">Start from scratch.</span>
+              </span>
+            </button>
+          </div>
           <button
             type="button"
-            className={cn(
-              'flex items-start gap-3 rounded-[var(--radius-card)] border p-3 text-left',
-              template === null
-                ? 'border-[var(--accent)] bg-accent-soft'
-                : 'border-border-default hover:bg-hover',
-            )}
-            onClick={() => setTemplate(null)}
+            className="self-start text-[12px] text-muted underline-offset-2 hover:underline"
+            onClick={() => setBrowsing((b) => !b)}
           >
-            <Square className="mt-0.5 h-4 w-4 shrink-0 text-muted" />
-            <span>
-              <span className="block text-[13px] font-medium text-ink">Blank</span>
-              <span className="block text-[12px] text-muted">Start from scratch.</span>
-            </span>
+            {browsing ? '← Back to quick picks' : 'Something else — browse all templates'}
           </button>
         </div>
+
+        {activeIntent?.asks_name && (
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="client-name">{activeIntent.asks_name}</Label>
+            <Input
+              id="client-name"
+              placeholder="e.g. Globex Corp"
+              value={clientName}
+              onChange={(e) => setClientName(e.target.value)}
+            />
+          </div>
+        )}
 
         {error && <p className="text-[13px] text-error">{error}</p>}
         <Button type="submit" disabled={busy}>
