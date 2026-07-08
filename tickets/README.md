@@ -88,6 +88,10 @@ Every [M] story in [docs/product/user-stories.md](../docs/product/user-stories.m
 | # | Ticket | Size | Depends on |
 |---|---|---|---|
 | MN-033 | [Template-first onboarding — nobody starts from blank](MN-033-template-first-onboarding.md) | L | 032 |
+| MN-034 | [Access grants — Fibery-style roles at space + database level](MN-034-access-grants.md) | L | 032 |
+| MN-035 | [Agency template packs + Task DNA installer](MN-035-agency-template-packs.md) | L | 033, 034 |
+| MN-036 | [Creators template packs](MN-036-creators-template-packs.md) | M | 035 |
+| MN-037 | [Dev template packs](MN-037-dev-template-packs.md) | M | 035 |
 
 Template catalog plan (agency + creators packs): [docs/product/template-library.md](../docs/product/template-library.md).
 
