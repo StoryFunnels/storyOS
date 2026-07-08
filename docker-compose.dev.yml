@@ -1,5 +1,7 @@
 # Local development infrastructure only (the app itself runs via `pnpm dev`).
 # Self-host compose (app included) arrives with MN-031 as docker-compose.yml.
+name: storyos-dev
+
 services:
   postgres:
     image: postgres:16-alpine

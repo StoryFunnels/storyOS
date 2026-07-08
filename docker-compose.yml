@@ -1,6 +1,8 @@
 # StoryOS self-host: `docker compose up -d` → app at http://localhost:3000
 # Full env matrix: docs/self-hosting.md
 # S3-compatible attachment storage: `docker compose --profile minio up -d`
+name: storyos
+
 services:
   postgres:
     image: postgres:16-alpine
