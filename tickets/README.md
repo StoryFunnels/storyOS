@@ -83,6 +83,14 @@ Every [M] story in [docs/product/user-stories.md](../docs/product/user-stories.m
 | E2–E6 (API coverage, query, introspection, OpenAPI) | MN-005, MN-009–012, MN-018 |
 | F1, F2 (templates, onboarding) | MN-032 |
 
+## Post-v1 tickets
+
+| # | Ticket | Size | Depends on |
+|---|---|---|---|
+| MN-033 | [Template-first onboarding — nobody starts from blank](MN-033-template-first-onboarding.md) | L | 032 |
+
+Template catalog plan (agency + creators packs): [docs/product/template-library.md](../docs/product/template-library.md).
+
 ## Post-v1 parking lot (ADR-noted, not ticketed)
 
 Webhooks (outbox exists — [ADR-0004](../docs/decisions/ADR-0004-no-webhooks-v1.md)) · formulas/rollups · automations · realtime (polling → SSE) · per-view ordering · RLS · full-text search on documents · MCP server package · CSV import UI.
