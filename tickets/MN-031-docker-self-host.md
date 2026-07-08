@@ -1,7 +1,7 @@
 ---
 id: MN-031
 title: Self-host — Docker images + compose
-status: todo
+status: done
 depends_on: [MN-014, MN-029]
 size: M
 ---
