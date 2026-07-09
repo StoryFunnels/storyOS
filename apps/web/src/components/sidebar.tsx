@@ -352,7 +352,11 @@ function DatabaseRow({
             mutations.deleteDatabase.mutate(
               { id: db.id, confirm: typed },
               {
-                onError: () => toast.error('Name does not match'),
+                onError: (error) =>
+                  toast.error(
+                    (error as { error?: { message?: string } })?.error?.message ??
+                      'Could not delete the database',
+                  ),
                 onSuccess: () => toast.success(`Deleted "${db.name}"`),
               },
             );
@@ -470,7 +474,8 @@ function DeleteDatabaseDialog({
         }}
       >
         <p className="text-[13px] text-muted">
-          This permanently deletes the database, its fields, records, and views. Type{' '}
+          This permanently deletes the database, its fields, records, views, and any relations
+          linking it to other databases. Type{' '}
           <span className="font-semibold text-ink">{name}</span> to confirm.
         </p>
         <Input autoFocus value={typed} onChange={(e) => setTyped(e.target.value)} />

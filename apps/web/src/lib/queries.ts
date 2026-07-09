@@ -118,7 +118,9 @@ export function useSidebarMutations(ws: string) {
         unwrap<unknown>(
           await api.DELETE('/api/v1/workspaces/{ws}/databases/{db}', {
             params: { path: { ws, db: id } },
-            body: { confirm },
+            // The typed-name confirm already covers the destructive intent;
+            // relations into a deleted database cannot outlive it.
+            body: { confirm, sever_relations: true },
           }),
         ),
       onSuccess: invalidate,
