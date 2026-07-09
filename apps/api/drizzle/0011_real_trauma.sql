@@ -1,0 +1,1 @@
+ALTER TYPE "public"."field_type" ADD VALUE 'rich_text' BEFORE 'number';

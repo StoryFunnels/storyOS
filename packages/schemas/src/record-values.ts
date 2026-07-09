@@ -88,6 +88,17 @@ function coerce(field: FieldDef, raw: unknown): { value?: unknown; error?: strin
       if (typeof raw !== 'string') return { error: 'expected a string' };
       return { value: raw };
     }
+    case 'rich_text': {
+      // BlockNote document: an array of block objects, size-capped.
+      if (
+        !Array.isArray(raw) ||
+        raw.some((b) => typeof b !== 'object' || b === null || typeof (b as { type?: unknown }).type !== 'string')
+      ) {
+        return { error: 'expected an array of rich-text blocks' };
+      }
+      if (JSON.stringify(raw).length > 64_000) return { error: 'rich text too large (64KB max)' };
+      return { value: raw };
+    }
     case 'number': {
       const n = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : NaN;
       if (!Number.isFinite(n)) return { error: 'expected a number' };

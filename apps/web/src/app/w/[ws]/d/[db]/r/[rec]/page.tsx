@@ -2,8 +2,10 @@
 
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useCreateBlockNote } from '@blocknote/react';
+import { BlockNoteView } from '@blocknote/mantine';
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
@@ -74,10 +76,13 @@ export default function EntityPage() {
     () => (database.data?.fields ?? []).filter((f) => !HIDDEN.has(f.type)),
     [database.data],
   );
-  const fields = useMemo(
+  const visibleFields = useMemo(
     () => allFields.filter((f) => f.config?.['entity_hidden'] !== true),
     [allFields],
   );
+  // Rich text gets full-width sections (like Description), not 40px rows.
+  const fields = useMemo(() => visibleFields.filter((f) => f.type !== 'rich_text'), [visibleFields]);
+  const richFields = useMemo(() => visibleFields.filter((f) => f.type === 'rich_text'), [visibleFields]);
   const hiddenFields = useMemo(
     () => allFields.filter((f) => f.config?.['entity_hidden'] === true),
     [allFields],
@@ -184,6 +189,19 @@ export default function EntityPage() {
         )}
         {schemaEditable && <AddFieldRow ws={ws} db={db} />}
       </div>
+
+      {richFields.map((field) => (
+        <RichTextFieldSection
+          key={field.id}
+          ws={ws}
+          db={db}
+          field={field}
+          value={record.data.values[field.apiName]}
+          readOnly={readOnly}
+          schemaEditable={schemaEditable}
+          onCommit={(value) => updateRecord.mutate({ rec, values: { [field.apiName]: value } })}
+        />
+      ))}
 
       <div className="mb-6">
         <AttachmentsStrip ws={ws} db={db} rec={rec} readOnly={readOnly} />
@@ -420,6 +438,57 @@ function FieldMenu({ ws, db, field }: { ws: string; db: string; field: Field }) 
         )}
       </Dialog>
     </>
+  );
+}
+
+/** Full-width BlockNote section for a rich_text field (MN-041). */
+function RichTextFieldSection({
+  ws,
+  db,
+  field,
+  value,
+  readOnly,
+  schemaEditable,
+  onCommit,
+}: {
+  ws: string;
+  db: string;
+  field: Field;
+  value: unknown;
+  readOnly: boolean;
+  schemaEditable: boolean;
+  onCommit: (value: unknown) => void;
+}) {
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const editor = useCreateBlockNote({
+    initialContent: Array.isArray(value) && value.length > 0 ? (value as never) : undefined,
+  });
+  useEffect(() => () => (timer.current !== null ? clearTimeout(timer.current) : undefined), []);
+
+  return (
+    <div className="group mb-5">
+      <div className="mb-1.5 flex items-center gap-1">
+        <h2 className="text-[12px] font-medium uppercase tracking-wider text-faint">
+          {field.displayName}
+        </h2>
+        {schemaEditable && <FieldMenu ws={ws} db={db} field={field} />}
+      </div>
+      <div className="rounded-[var(--radius-card)] border border-border-default bg-card py-3 [&_.bn-editor]:bg-transparent">
+        <BlockNoteView
+          editor={editor}
+          editable={!readOnly}
+          theme="light"
+          onChange={() => {
+            if (readOnly) return;
+            if (timer.current !== null) clearTimeout(timer.current);
+            timer.current = setTimeout(() => {
+              const doc = editor.document;
+              onCommit(doc.length > 0 ? doc : null);
+            }, 800);
+          }}
+        />
+      </div>
+    </div>
   );
 }
 

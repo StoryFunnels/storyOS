@@ -238,3 +238,82 @@ describe('select options (MN-010)', () => {
     expect(res.json().label).toBe('Twitter/X');
   });
 });
+
+describe('rich_text fields (MN-041)', () => {
+  const BLOCKS = [
+    { type: 'paragraph', content: [{ type: 'text', text: 'Hello rich world', styles: {} }] },
+  ];
+  let fieldId: string;
+  let apiName: string;
+
+  it('creates a rich_text field and writes/reads BlockNote JSON', async () => {
+    const created = await createField({ display_name: 'Brief', type: 'rich_text', config: {} });
+    expect(created.statusCode, created.body).toBe(201);
+    fieldId = created.json().id;
+    apiName = created.json().apiName;
+
+    const rec = await app.inject({
+      method: 'POST',
+      url: `/api/v1/workspaces/${wsId}/databases/${dbId}/records`,
+      headers: authed(admin.token),
+      payload: { values: { name: 'Rich rec', [apiName]: BLOCKS } },
+    });
+    expect(rec.statusCode, rec.body).toBe(201);
+    expect(rec.json().values[apiName]).toEqual(BLOCKS);
+  });
+
+  it('rejects non-block JSON and oversized documents', async () => {
+    const bad = await app.inject({
+      method: 'POST',
+      url: `/api/v1/workspaces/${wsId}/databases/${dbId}/records`,
+      headers: authed(admin.token),
+      payload: { values: { name: 'Bad', [apiName]: 'just a string' } },
+    });
+    expect(bad.statusCode).toBe(422);
+
+    const huge = [{ type: 'paragraph', content: [{ type: 'text', text: 'x'.repeat(70_000), styles: {} }] }];
+    const tooBig = await app.inject({
+      method: 'POST',
+      url: `/api/v1/workspaces/${wsId}/databases/${dbId}/records`,
+      headers: authed(admin.token),
+      payload: { values: { name: 'Huge', [apiName]: huge } },
+    });
+    expect(tooBig.statusCode).toBe(422);
+  });
+
+  it('converts rich_text → text (plain extraction) and text → rich_text (wrapped)', async () => {
+    const down = await app.inject({
+      method: 'POST',
+      url: `/api/v1/workspaces/${wsId}/databases/${dbId}/fields/${fieldId}/change-type`,
+      headers: authed(admin.token),
+      payload: { type: 'text' },
+    });
+    expect(down.statusCode, down.body).toBe(201);
+
+    const list1 = await app.inject({
+      method: 'GET',
+      url: `/api/v1/workspaces/${wsId}/databases/${dbId}/records?limit=50`,
+      headers: authed(admin.token),
+    });
+    const rec1 = list1.json().data.find((r: { title: string }) => r.title === 'Rich rec');
+    expect(rec1.values[apiName]).toBe('Hello rich world');
+
+    const up = await app.inject({
+      method: 'POST',
+      url: `/api/v1/workspaces/${wsId}/databases/${dbId}/fields/${fieldId}/change-type`,
+      headers: authed(admin.token),
+      payload: { type: 'rich_text' },
+    });
+    expect(up.statusCode, up.body).toBe(201);
+
+    const list2 = await app.inject({
+      method: 'GET',
+      url: `/api/v1/workspaces/${wsId}/databases/${dbId}/records?limit=50`,
+      headers: authed(admin.token),
+    });
+    const rec2 = list2.json().data.find((r: { title: string }) => r.title === 'Rich rec');
+    expect(rec2.values[apiName]).toEqual([
+      { type: 'paragraph', content: [{ type: 'text', text: 'Hello rich world', styles: {} }] },
+    ]);
+  });
+});

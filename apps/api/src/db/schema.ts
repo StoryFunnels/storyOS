@@ -31,6 +31,7 @@ export const accessRole = pgEnum('access_role', ['viewer', 'commenter', 'editor'
 export const fieldType = pgEnum('field_type', [
   'title',
   'text',
+  'rich_text',
   'number',
   'checkbox',
   'date',

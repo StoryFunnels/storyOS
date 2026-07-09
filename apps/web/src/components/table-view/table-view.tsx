@@ -33,7 +33,8 @@ const DEFAULT_WIDTH = 180;
 const TITLE_WIDTH = 260;
 
 const HIDDEN_TYPES = new Set(['created_at', 'updated_at', 'created_by']);
-const NO_EDITOR = new Set(['checkbox']);
+// checkbox toggles on click; rich_text edits on the record page only.
+const NO_EDITOR = new Set(['checkbox', 'rich_text']);
 
 interface Cursor {
   row: number;

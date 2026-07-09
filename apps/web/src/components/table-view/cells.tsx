@@ -40,11 +40,36 @@ interface DisplayProps {
   memberNames: Map<string, string>;
 }
 
+/** Plain text of a BlockNote document, for grid previews. */
+export function richTextPreview(blocks: unknown, max = 200): string {
+  const out: string[] = [];
+  const walk = (nodes: unknown[]) => {
+    for (const node of nodes) {
+      if (out.join(' ').length > max) return;
+      if (typeof node !== 'object' || node === null) continue;
+      const block = node as { content?: unknown; children?: unknown[]; text?: unknown };
+      if (typeof block.text === 'string') out.push(block.text);
+      if (Array.isArray(block.content)) walk(block.content);
+      if (Array.isArray(block.children)) walk(block.children);
+    }
+  };
+  if (Array.isArray(blocks)) walk(blocks);
+  return out.join(' ').trim().slice(0, max);
+}
+
 export function CellDisplay({ field, value, memberNames }: DisplayProps) {
   if (value === undefined || value === null || value === '') {
     return <span className="text-faint"> </span>;
   }
   switch (field.type) {
+    case 'rich_text': {
+      const preview = richTextPreview(value);
+      return preview ? (
+        <span className="truncate text-[13px] text-ink-secondary">{preview}</span>
+      ) : (
+        <span className="text-faint"> </span>
+      );
+    }
     case 'relation':
       return <RelationChips chips={(value as LinkChip[]) ?? []} />;
     case 'checkbox':

@@ -1,7 +1,7 @@
 ---
 id: MN-041
 title: Rich Text field type — clearly separated from plain Text
-status: todo
+status: done
 depends_on: [MN-025]
 size: M
 ---

@@ -17,7 +17,8 @@ type Field = typeof fields.$inferSelect;
 
 /** Allowed type conversions — docs/architecture/record-storage.md (field lifecycle). */
 const CONVERTIBLE: Record<string, CreatableFieldType[]> = {
-  text: ['number', 'date'],
+  text: ['number', 'date', 'rich_text'],
+  rich_text: ['text'],
   number: ['text'],
   checkbox: ['text'],
   date: ['text'],
@@ -27,6 +28,22 @@ const CONVERTIBLE: Record<string, CreatableFieldType[]> = {
   email: ['text', 'url'],
   user: [],
 };
+
+/** Plain text of a BlockNote document (lossy rich_text → text). */
+function richTextToPlain(blocks: unknown): string {
+  const out: string[] = [];
+  const walk = (nodes: unknown[]) => {
+    for (const node of nodes) {
+      if (typeof node !== 'object' || node === null) continue;
+      const block = node as { content?: unknown; children?: unknown[]; text?: unknown };
+      if (typeof block.text === 'string') out.push(block.text);
+      if (Array.isArray(block.content)) walk(block.content);
+      if (Array.isArray(block.children)) walk(block.children);
+    }
+  };
+  if (Array.isArray(blocks)) walk(blocks);
+  return out.join(' ').trim();
+}
 
 @Injectable()
 export class FieldsService {
@@ -340,7 +357,18 @@ function convertValue(
 ): { value: unknown; lost: boolean } {
   if (value === null || value === undefined) return { value: null, lost: false };
 
+  if (to === 'rich_text' && from === 'text') {
+    const text = String(value);
+    return {
+      value: [{ type: 'paragraph', content: [{ type: 'text', text, styles: {} }] }],
+      lost: false,
+    };
+  }
   if (to === 'text') {
+    if (from === 'rich_text') {
+      const text = richTextToPlain(value);
+      return { value: text || null, lost: text.length === 0 };
+    }
     if (from === 'select') return { value: optionLabels.get(String(value)) ?? null, lost: !optionLabels.has(String(value)) };
     if (from === 'multi_select') {
       const labels = (value as string[]).map((id) => optionLabels.get(id)).filter(Boolean);

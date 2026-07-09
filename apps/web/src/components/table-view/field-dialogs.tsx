@@ -25,6 +25,7 @@ import {
   Hash,
   Link2,
   List,
+  Pilcrow,
   Plus,
   Tags,
   Trash2,
@@ -55,7 +56,8 @@ const FIELD_TYPES: Array<{
   description: string;
   icon: LucideIcon;
 }> = [
-  { value: 'text', label: 'Text', description: 'Plain or multi-line text', icon: Type },
+  { value: 'text', label: 'Text', description: 'A simple plain string', icon: Type },
+  { value: 'rich_text', label: 'Rich text', description: 'Headings, lists, bold, links', icon: Pilcrow },
   { value: 'number', label: 'Number', description: 'Plain, percent or currency', icon: Hash },
   { value: 'select', label: 'Select', description: 'One option from a list', icon: List },
   { value: 'multi_select', label: 'Multi-select', description: 'Any number of options', icon: Tags },
@@ -69,7 +71,8 @@ const FIELD_TYPES: Array<{
 
 /** Conversions the API allows (docs/architecture/record-storage.md). */
 const CONVERTIBLE: Record<string, string[]> = {
-  text: ['number', 'date'],
+  text: ['number', 'date', 'rich_text'],
+  rich_text: ['text'],
   number: ['text'],
   checkbox: ['text'],
   date: ['text'],

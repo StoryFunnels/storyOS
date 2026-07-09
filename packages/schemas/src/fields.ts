@@ -3,6 +3,7 @@ import { z } from 'zod';
 /** Field types a user can create. title/system/relation types are managed elsewhere. */
 export const creatableFieldTypeSchema = z.enum([
   'text',
+  'rich_text',
   'number',
   'checkbox',
   'date',
@@ -26,6 +27,7 @@ export const emptyConfigSchema = z.object({});
 
 export const fieldConfigSchemas: Record<CreatableFieldType, z.ZodType> = {
   text: textConfigSchema,
+  rich_text: emptyConfigSchema,
   number: numberConfigSchema,
   checkbox: emptyConfigSchema,
   date: dateConfigSchema,

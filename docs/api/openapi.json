@@ -2777,6 +2777,7 @@
             "type": "string",
             "enum": [
               "text",
+              "rich_text",
               "number",
               "checkbox",
               "date",
@@ -2842,6 +2843,7 @@
             "type": "string",
             "enum": [
               "text",
+              "rich_text",
               "number",
               "checkbox",
               "date",
