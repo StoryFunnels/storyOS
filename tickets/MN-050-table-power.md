@@ -1,7 +1,7 @@
 ---
 id: MN-050
 title: Table power pack — multi-select, batch edit, quick-add, shortcuts
-status: todo
+status: done
 depends_on: []
 size: L
 ---

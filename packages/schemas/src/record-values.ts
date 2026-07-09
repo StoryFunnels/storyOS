@@ -172,6 +172,16 @@ export const updateRecordSchema = z.object({
   values: z.record(z.string(), z.unknown()),
 });
 
+/** MN-050: bulk operations from the table selection bar. */
+export const batchUpdateRecordsSchema = z.object({
+  record_ids: z.array(z.uuid()).min(1).max(200),
+  values: z.record(z.string(), z.unknown()),
+});
+
+export const batchRecordIdsSchema = z.object({
+  record_ids: z.array(z.uuid()).min(1).max(200),
+});
+
 export const moveRecordSchema = z
   .object({
     before_record_id: z.uuid().optional(),

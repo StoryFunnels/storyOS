@@ -1148,6 +1148,121 @@
         "tags": [
           "records"
         ]
+      },
+      "patch": {
+        "operationId": "RecordsController_batchUpdate",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchUpdateRecordsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Apply one values patch to up to 200 records (partial failures reported)",
+        "tags": [
+          "records"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/records/batch-delete": {
+      "post": {
+        "operationId": "RecordsController_batchDelete",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchRecordIdsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Soft-delete up to 200 records",
+        "tags": [
+          "records"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/records/batch-restore": {
+      "post": {
+        "operationId": "RecordsController_batchRestore",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchRecordIdsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Restore up to 200 records from trash",
+        "tags": [
+          "records"
+        ]
       }
     },
     "/api/v1/workspaces/{ws}/databases/{db}/records/trash": {
@@ -3222,6 +3337,47 @@
         },
         "required": [
           "records"
+        ]
+      },
+      "BatchUpdateRecordsDto": {
+        "type": "object",
+        "properties": {
+          "record_ids": {
+            "minItems": 1,
+            "maxItems": 200,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          "values": {
+            "type": "object",
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "record_ids",
+          "values"
+        ]
+      },
+      "BatchRecordIdsDto": {
+        "type": "object",
+        "properties": {
+          "record_ids": {
+            "minItems": 1,
+            "maxItems": 200,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        },
+        "required": [
+          "record_ids"
         ]
       },
       "UpdateRecordDto": {

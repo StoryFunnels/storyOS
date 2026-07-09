@@ -245,3 +245,43 @@ describe('records CRUD (MN-011)', () => {
     expect(write.statusCode).toBe(403);
   });
 });
+
+describe('batch operations (MN-050)', () => {
+  it('applies one patch to many records with partial-failure reporting', async () => {
+    const make = async (name: string) =>
+      (await app.inject({
+        method: 'POST',
+        url: `/api/v1/workspaces/${wsId}/databases/${dbId}/records`,
+        headers: authed(admin.token),
+        payload: { values: { name } },
+      })).json().id;
+    const a = await make('Batch A');
+    const b = await make('Batch B');
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/workspaces/${wsId}/databases/${dbId}/records/batch`,
+      headers: authed(admin.token),
+      payload: { record_ids: [a, b, '00000000-0000-4000-8000-000000000000'], values: { name: 'Batched' } },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().updated).toBe(2);
+    expect(res.json().failed).toHaveLength(1);
+
+    const del = await app.inject({
+      method: 'POST',
+      url: `/api/v1/workspaces/${wsId}/databases/${dbId}/records/batch-delete`,
+      headers: authed(admin.token),
+      payload: { record_ids: [a, b] },
+    });
+    expect(del.json().deleted).toBe(2);
+
+    const restore = await app.inject({
+      method: 'POST',
+      url: `/api/v1/workspaces/${wsId}/databases/${dbId}/records/batch-restore`,
+      headers: authed(admin.token),
+      payload: { record_ids: del.json().record_ids },
+    });
+    expect(restore.json().restored).toBe(2);
+  });
+});

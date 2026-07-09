@@ -420,6 +420,41 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
+        /** Apply one values patch to up to 200 records (partial failures reported) */
+        patch: operations["RecordsController_batchUpdate"];
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/records/batch-delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Soft-delete up to 200 records */
+        post: operations["RecordsController_batchDelete"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/records/batch-restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore up to 200 records from trash */
+        post: operations["RecordsController_batchRestore"];
+        delete?: never;
+        options?: never;
+        head?: never;
         patch?: never;
         trace?: never;
     };
@@ -1061,6 +1096,15 @@ export interface components {
                     [key: string]: unknown;
                 };
             }[];
+        };
+        BatchUpdateRecordsDto: {
+            record_ids: string[];
+            values: {
+                [key: string]: unknown;
+            };
+        };
+        BatchRecordIdsDto: {
+            record_ids: string[];
         };
         UpdateRecordDto: {
             values: {
@@ -1952,6 +1996,75 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["CreateRecordsBatchDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RecordsController_batchUpdate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatchUpdateRecordsDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RecordsController_batchDelete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatchRecordIdsDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RecordsController_batchRestore: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatchRecordIdsDto"];
             };
         };
         responses: {

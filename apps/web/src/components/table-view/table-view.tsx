@@ -4,6 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import Link from 'next/link';
 import { Maximize2, MoreHorizontal, Plus, Trash2 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { toast } from 'sonner';
+import { api } from '@/lib/api';
+import { useShortcut } from '@/lib/shortcuts';
 import { Dialog, DialogTrigger } from '@/components/ui/dialog';
 import {
   DropdownMenu,
@@ -17,6 +21,7 @@ import {
   ChangeTypeDialog,
   EditFieldDialog,
   useDeleteField,
+  useFieldMutations,
 } from './field-dialogs';
 import { RelationEditor } from './relation-cell';
 import {
@@ -90,6 +95,34 @@ export function TableView({
   const [editing, setEditing] = useState(false);
   const [addingField, setAddingField] = useState(false);
   const gridRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
+
+  // MN-050: multi-select + batch edit
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const anchorRef = useRef<number | null>(null);
+  const toggleSelect = useCallback(
+    (rowIndex: number, shift: boolean) => {
+      setSelected((prev) => {
+        const next = new Set(prev);
+        const allRows = (records.data?.pages ?? []).flatMap((p) => p.data);
+        if (shift && anchorRef.current !== null) {
+          const [lo, hi] = [Math.min(anchorRef.current, rowIndex), Math.max(anchorRef.current, rowIndex)];
+          for (let i = lo; i <= hi; i++) {
+            const id = allRows[i]?.id;
+            if (id) next.add(id);
+          }
+        } else {
+          const id = allRows[rowIndex]?.id;
+          if (!id) return next;
+          if (next.has(id)) next.delete(id);
+          else next.add(id);
+          anchorRef.current = rowIndex;
+        }
+        return next;
+      });
+    },
+    [records.data],
+  );
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
@@ -147,7 +180,18 @@ export function TableView({
     else if (e.key === 'ArrowUp') move(-1, 0);
     else if (e.key === 'ArrowRight' || e.key === 'Tab') move(0, 1);
     else if (e.key === 'ArrowLeft') move(0, -1);
-    else if (e.key === 'Enter' && cursor && !readOnly) {
+    else if (e.key === 'Escape' && selected.size > 0) {
+      setSelected(new Set());
+    } else if (e.key.toLowerCase() === 'x' && cursor && !readOnly) {
+      e.preventDefault();
+      toggleSelect(cursor.row, e.shiftKey);
+    } else if (e.key.toLowerCase() === 'e' && cursor) {
+      const row = rows[cursor.row];
+      if (row) router.push(`/w/${ws}/d/${db}/r/${row.id}`);
+    } else if (e.key.toLowerCase() === 'a' && (e.metaKey || e.ctrlKey) && !readOnly) {
+      e.preventDefault();
+      setSelected(new Set(rows.map((r) => r.id)));
+    } else if (e.key === 'Enter' && cursor && !readOnly) {
       e.preventDefault();
       const field = fields[cursor.col]!;
       if (field.type === 'checkbox') {
@@ -159,13 +203,27 @@ export function TableView({
     }
   }
 
+  useShortcut('n', () => {
+    if (readOnly) return;
+    createRecord.mutate(
+      {},
+      {
+        onSuccess: () => {
+          setCursor({ row: rows.length, col: 0 });
+          setEditing(true);
+          requestAnimationFrame(() => virtualizer.scrollToIndex(rows.length));
+        },
+      },
+    );
+  });
+
   if (database.isLoading) return <p className="p-6 text-sm text-muted">Loading…</p>;
 
   const totalWidth =
-    fields.reduce((sum, f) => sum + widthOf(f), 0) + 40 + (schemaEditable ? 110 : 0);
+    fields.reduce((sum, f) => sum + widthOf(f), 0) + 56 + (schemaEditable ? 110 : 0);
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="relative flex h-full flex-col">
       <div
         ref={scrollRef}
         className="min-h-0 flex-1 overflow-auto"
@@ -175,7 +233,7 @@ export function TableView({
         <div ref={gridRef} style={{ width: totalWidth }} className="outline-none">
           {/* Header */}
           <div className="sticky top-0 z-20 flex border-b border-border-default bg-app">
-            <div className="w-10 shrink-0" />
+            <div className="w-14 shrink-0" />
             {fields.map((field) => (
               <HeaderCell
                 key={field.id}
@@ -209,10 +267,25 @@ export function TableView({
               return (
                 <div
                   key={row.id}
-                  className="group absolute left-0 flex w-full border-b border-border-default bg-card hover:bg-hover"
+                  className={cn('group absolute left-0 flex w-full border-b border-border-default hover:bg-hover', selected.has(row.id) ? 'bg-accent-soft' : 'bg-card')}
                   style={{ top: item.start, height: ROW_HEIGHT }}
                 >
-                  <div className="flex w-10 shrink-0 items-center justify-center gap-0.5">
+                  <div className="flex w-14 shrink-0 items-center justify-center gap-0.5">
+                    {!readOnly && (
+                      <input
+                        type="checkbox"
+                        className={cn(
+                          'h-3 w-3 cursor-pointer',
+                          selected.size > 0 || selected.has(row.id) ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+                        )}
+                        checked={selected.has(row.id)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleSelect(item.index, (e.nativeEvent as MouseEvent).shiftKey);
+                        }}
+                        readOnly
+                      />
+                    )}
                     <Link
                       href={`/w/${ws}/d/${db}/r/${row.id}`}
                       title="Open record"
@@ -325,6 +398,133 @@ export function TableView({
             </button>
           )}
         </div>
+      </div>
+
+      {!readOnly && selected.size > 0 && (
+        <BatchBar
+          ws={ws}
+          db={db}
+          fields={fields.filter((f) => !NO_EDITOR.has(f.type) && f.type !== 'relation' && !f.isSystem)}
+          members={memberList}
+          selected={[...selected]}
+          onClear={() => setSelected(new Set())}
+        />
+      )}
+    </div>
+  );
+}
+
+/** MN-050: floating selection bar — set any field once, apply to all selected. */
+function BatchBar({
+  ws,
+  db,
+  fields,
+  members,
+  selected,
+  onClear,
+}: {
+  ws: string;
+  db: string;
+  fields: Field[];
+  members: Array<{ id: string; name: string; image?: string | null }>;
+  selected: string[];
+  onClear: () => void;
+}) {
+  const { invalidate } = useFieldMutations(ws, db);
+  const [settingField, setSettingField] = useState<Field | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function applyValues(values: Record<string, unknown>) {
+    setBusy(true);
+    const { data, error } = await api.PATCH('/api/v1/workspaces/{ws}/databases/{db}/records/batch', {
+      params: { path: { ws, db } },
+      body: { record_ids: selected, values } as never,
+    });
+    setBusy(false);
+    setSettingField(null);
+    if (error) {
+      toast.error('Batch update failed');
+      return;
+    }
+    const result = data as unknown as { updated: number; failed: Array<{ message: string }> };
+    invalidate();
+    if (result.failed.length > 0) {
+      toast.warning(`Updated ${result.updated}, ${result.failed.length} failed (${result.failed[0]!.message})`);
+    } else {
+      toast.success(`Updated ${result.updated} record${result.updated === 1 ? '' : 's'}`);
+    }
+  }
+
+  async function trashAll() {
+    setBusy(true);
+    const { data, error } = await api.POST('/api/v1/workspaces/{ws}/databases/{db}/records/batch-delete', {
+      params: { path: { ws, db } },
+      body: { record_ids: selected } as never,
+    });
+    setBusy(false);
+    if (error) {
+      toast.error('Could not move to trash');
+      return;
+    }
+    const result = data as unknown as { deleted: number; record_ids: string[] };
+    invalidate();
+    onClear();
+    toast.success(`${result.deleted} moved to trash`, {
+      action: {
+        label: 'Undo',
+        onClick: async () => {
+          await api.POST('/api/v1/workspaces/{ws}/databases/{db}/records/batch-restore', {
+            params: { path: { ws, db } },
+            body: { record_ids: result.record_ids } as never,
+          });
+          invalidate();
+        },
+      },
+    });
+  }
+
+  return (
+    <div className="pointer-events-none absolute bottom-4 left-1/2 z-30 -translate-x-1/2">
+      <div className="pointer-events-auto relative flex items-center gap-2 rounded-full border border-border-default bg-card px-4 py-2 shadow-[0_8px_24px_rgba(15,23,41,0.18)]">
+        <span className="text-[13px] font-medium text-ink">{selected.length} selected</span>
+        <span className="h-4 w-px bg-border-default" />
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="rounded px-1.5 py-0.5 text-[13px] text-ink-secondary hover:bg-hover" disabled={busy}>
+              Set field ▾
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className="max-h-64 overflow-y-auto">
+            {fields.map((field) => (
+              <DropdownMenuItem key={field.id} onSelect={() => setSettingField(field)}>
+                {field.displayName}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <button className="rounded px-1.5 py-0.5 text-[13px] text-error hover:bg-hover" onClick={trashAll} disabled={busy}>
+          Move to trash
+        </button>
+        <button className="rounded px-1.5 py-0.5 text-[13px] text-muted hover:bg-hover" onClick={onClear}>
+          Clear
+        </button>
+
+        {settingField && (
+          <div className="absolute bottom-full left-1/2 mb-2 w-64 -translate-x-1/2 rounded-[var(--radius-card)] border border-border-default bg-card p-2 shadow-[0_8px_24px_rgba(15,23,41,0.15)]">
+            <p className="mb-1.5 text-[12px] font-medium text-muted">
+              Set “{settingField.displayName}” on {selected.length} records
+            </p>
+            <div className="relative min-h-8">
+              <CellEditor
+                field={settingField}
+                value={null}
+                members={members}
+                onCommit={(value) => void applyValues({ [settingField.apiName]: value })}
+                onCancel={() => setSettingField(null)}
+              />
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

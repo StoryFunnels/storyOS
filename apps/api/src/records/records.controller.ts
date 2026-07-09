@@ -14,6 +14,8 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 import {
+  batchRecordIdsSchema,
+  batchUpdateRecordsSchema,
   createRecordSchema,
   createRecordsBatchSchema,
   moveRecordSchema,
@@ -29,6 +31,8 @@ import { RecordsService } from './records.service';
 class CreateRecordDto extends createZodDto(createRecordSchema) {}
 class CreateRecordsBatchDto extends createZodDto(createRecordsBatchSchema) {}
 class UpdateRecordDto extends createZodDto(updateRecordSchema) {}
+class BatchUpdateRecordsDto extends createZodDto(batchUpdateRecordsSchema) {}
+class BatchRecordIdsDto extends createZodDto(batchRecordIdsSchema) {}
 class QueryRecordsDto extends createZodDto(queryRecordsSchema) {}
 class MoveRecordDto extends createZodDto(moveRecordSchema) {}
 
@@ -111,6 +115,45 @@ export class RecordsController {
       req.user.id,
     );
     return { data: created };
+  }
+
+  @Patch('batch')
+  @ApiOperation({ summary: 'Apply one values patch to up to 200 records (partial failures reported)' })
+  async batchUpdate(
+    @Req() req: WorkspaceRequest,
+    @Param('db') databaseId: string,
+    @Body() body: BatchUpdateRecordsDto,
+  ) {
+    await this.assertDb(req, databaseId, 'editor');
+    return this.recordsService.batchUpdate(
+      req.membership.workspaceId,
+      databaseId,
+      body.record_ids,
+      body.values,
+      req.user.id,
+    );
+  }
+
+  @Post('batch-delete')
+  @ApiOperation({ summary: 'Soft-delete up to 200 records' })
+  async batchDelete(
+    @Req() req: WorkspaceRequest,
+    @Param('db') databaseId: string,
+    @Body() body: BatchRecordIdsDto,
+  ) {
+    await this.assertDb(req, databaseId, 'editor');
+    return this.recordsService.batchDelete(req.membership.workspaceId, databaseId, body.record_ids, req.user.id);
+  }
+
+  @Post('batch-restore')
+  @ApiOperation({ summary: 'Restore up to 200 records from trash' })
+  async batchRestore(
+    @Req() req: WorkspaceRequest,
+    @Param('db') databaseId: string,
+    @Body() body: BatchRecordIdsDto,
+  ) {
+    await this.assertDb(req, databaseId, 'editor');
+    return this.recordsService.batchRestore(req.membership.workspaceId, databaseId, body.record_ids, req.user.id);
   }
 
   @Get('trash')

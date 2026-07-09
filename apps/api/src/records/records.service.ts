@@ -426,6 +426,64 @@ export class RecordsService {
     return { deleted: true };
   }
 
+  /** MN-050: one values patch applied to many records; per-record validation, partial failures reported. */
+  async batchUpdate(
+    workspaceId: string,
+    databaseId: string,
+    recordIds: string[],
+    input: Record<string, unknown>,
+    actorId: string,
+  ) {
+    const failed: Array<{ record_id: string; message: string }> = [];
+    let updated = 0;
+    for (const recordId of recordIds) {
+      try {
+        await this.update(workspaceId, databaseId, recordId, input, actorId);
+        updated++;
+      } catch (error) {
+        failed.push({
+          record_id: recordId,
+          message: error instanceof Error ? (error as { message: string }).message : 'failed',
+        });
+      }
+    }
+    return { updated, failed };
+  }
+
+  async batchDelete(workspaceId: string, databaseId: string, recordIds: string[], actorId: string) {
+    const rows = await this.db.query.records.findMany({
+      where: and(eq(records.databaseId, databaseId), inArray(records.id, recordIds), isNull(records.deletedAt)),
+      columns: { id: true },
+    });
+    const ids = rows.map((r) => r.id);
+    if (ids.length > 0) {
+      await this.db.transaction(async (tx) => {
+        await tx.update(records).set({ deletedAt: new Date() }).where(inArray(records.id, ids));
+        await tx.insert(activityEvents).values(
+          ids.map((id) => ({ workspaceId, recordId: id, actorId, type: 'record.deleted', payload: {} })),
+        );
+      });
+    }
+    return { deleted: ids.length, record_ids: ids };
+  }
+
+  async batchRestore(workspaceId: string, databaseId: string, recordIds: string[], actorId: string) {
+    const rows = await this.db.query.records.findMany({
+      where: and(eq(records.databaseId, databaseId), inArray(records.id, recordIds), isNotNull(records.deletedAt)),
+      columns: { id: true },
+    });
+    const ids = rows.map((r) => r.id);
+    if (ids.length > 0) {
+      await this.db.transaction(async (tx) => {
+        await tx.update(records).set({ deletedAt: null }).where(inArray(records.id, ids));
+        await tx.insert(activityEvents).values(
+          ids.map((id) => ({ workspaceId, recordId: id, actorId, type: 'record.restored', payload: {} })),
+        );
+      });
+    }
+    return { restored: ids.length };
+  }
+
   async restore(workspaceId: string, databaseId: string, recordId: string, actorId: string) {
     const row = await this.db.query.records.findFirst({
       where: and(
