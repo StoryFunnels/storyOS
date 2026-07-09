@@ -262,7 +262,7 @@ export class ImportService {
 
     for (let offset = 0; offset < payloads.length; offset += 500) {
       const chunk = payloads.slice(offset, offset + 500);
-      const created = await this.recordsService.createBatch(membership.workspaceId, databaseId, chunk, actorId);
+      const created = await this.recordsService.createBatch(membership.workspaceId, databaseId, chunk, actorId, 0, { suppressAutomations: true });
       created.forEach((r) => createdIds.push(r.id));
     }
     for (const link of pendingLinks) {

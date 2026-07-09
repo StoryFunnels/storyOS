@@ -138,3 +138,32 @@ export const deleteOptionSchema = z.object({
   confirm: z.boolean().default(false),
   reassign_to: z.uuid().optional(),
 });
+
+/** MN-047: automation rules — trigger + optional condition + shared actions. */
+export const automationTriggerSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('record_created') }),
+  z.object({ type: z.literal('record_updated'), field_id: z.uuid().optional() }),
+  z.object({ type: z.literal('record_linked'), relation_field_id: z.uuid() }),
+  z.object({
+    type: z.literal('schedule'),
+    every: z.enum(['hour', 'day', 'week']),
+    at: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+    weekday: z.number().int().min(0).max(6).optional(),
+  }),
+]);
+
+export const createAutomationSchema = z.object({
+  name: z.string().trim().min(1).max(100),
+  trigger: automationTriggerSchema,
+  condition: z.unknown().optional(),
+  actions: z.array(actionSchema).min(1).max(10),
+  enabled: z.boolean().default(true),
+});
+
+export const updateAutomationSchema = z.object({
+  name: z.string().trim().min(1).max(100).optional(),
+  trigger: automationTriggerSchema.optional(),
+  condition: z.unknown().nullable().optional(),
+  actions: z.array(actionSchema).min(1).max(10).optional(),
+  enabled: z.boolean().optional(),
+});

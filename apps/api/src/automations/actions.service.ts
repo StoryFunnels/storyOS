@@ -14,6 +14,8 @@ export interface ActionContext {
   databaseId: string;
   record: ProjectedRecord;
   actorId: string;
+  /** Loop-guard depth for automation-caused writes (MN-047). */
+  depth?: number;
 }
 
 export interface ActionEffect {
@@ -111,14 +113,14 @@ export class AutomationActionsService {
     for (const action of actions) {
       if (action.type === 'set_values') {
         const values = this.resolveTokens(action.values, ctx);
-        await this.recordsService.update(ctx.workspaceId, ctx.databaseId, ctx.record.id, values, ctx.actorId);
+        await this.recordsService.update(ctx.workspaceId, ctx.databaseId, ctx.record.id, values, ctx.actorId, ctx.depth ?? 0);
         effects.push({ type: 'set_values', record_id: ctx.record.id, summary: `Set ${Object.keys(values).join(', ')}` });
       } else if (action.type === 'create_record') {
         const values = this.resolveTokens(action.values, ctx);
         if (typeof values.name === 'string') {
           values.name = this.interpolate(values.name, ctx, displayToApi);
         }
-        const created = await this.recordsService.create(ctx.workspaceId, action.database_id, values, ctx.actorId);
+        const created = await this.recordsService.create(ctx.workspaceId, action.database_id, values, ctx.actorId, ctx.depth ?? 0);
         if (action.link_via_relation_field_id) {
           await this.relationsService.addLinks(
             ctx.workspaceId,

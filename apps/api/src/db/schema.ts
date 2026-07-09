@@ -313,6 +313,45 @@ export const attachments = pgTable(
   (t) => [index('attachments_record_idx').on(t.recordId, t.createdAt)],
 );
 
+/** MN-047: automation rules + run log. */
+export const automations = pgTable(
+  'automations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    databaseId: uuid('database_id')
+      .notNull()
+      .references(() => databases.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    enabled: boolean('enabled').notNull().default(true),
+    trigger: jsonb('trigger').notNull(),
+    condition: jsonb('condition'),
+    actions: jsonb('actions').notNull(),
+    failureStreak: integer('failure_streak').notNull().default(0),
+    nextDueAt: timestamp('next_due_at', { withTimezone: true }),
+    createdBy: text('created_by'),
+    ...timestamps,
+  },
+  (t) => [index('automations_database_idx').on(t.databaseId, t.enabled)],
+);
+
+export const automationRuns = pgTable(
+  'automation_runs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    automationId: uuid('automation_id')
+      .notNull()
+      .references(() => automations.id, { onDelete: 'cascade' }),
+    triggerRecordId: uuid('trigger_record_id'),
+    status: text('status').notNull(), // ok | error | skipped
+    error: text('error'),
+    effects: jsonb('effects'),
+    depth: integer('depth').notNull().default(0),
+    durationMs: integer('duration_ms'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('automation_runs_rule_idx').on(t.automationId, t.createdAt)],
+);
+
 /** MN-049: per-user notification stream (assigned / mentioned / commented). */
 export const notifications = pgTable(
   'notifications',

@@ -1,7 +1,7 @@
 ---
 id: MN-047
 title: Automations — rules that run on record events or schedules
-status: todo
+status: done
 depends_on: [MN-046]
 size: XL
 ---

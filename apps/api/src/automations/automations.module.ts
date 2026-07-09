@@ -5,11 +5,13 @@ import { RecordsModule } from '../records/records.module';
 import { RelationsModule } from '../relations/relations.module';
 import { AutomationActionsService } from './actions.service';
 import { ButtonsController } from './buttons.controller';
+import { AutomationsController } from './automations.controller';
+import { AutomationsService } from './automations.service';
 
 @Module({
   imports: [DatabasesModule, RecordsModule, RelationsModule, CollaborationModule],
-  controllers: [ButtonsController],
-  providers: [AutomationActionsService],
-  exports: [AutomationActionsService],
+  controllers: [ButtonsController, AutomationsController],
+  providers: [AutomationActionsService, AutomationsService],
+  exports: [AutomationActionsService, AutomationsService],
 })
 export class AutomationsModule {}

@@ -12,6 +12,7 @@ import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { authClient } from '@/lib/auth-client';
+import { AutomationsPanel } from '@/components/automations-panel';
 import { ImportWizard } from '@/components/import-wizard';
 import { InboxPanel, useUnreadCount } from '@/components/inbox-panel';
 import { openPalette } from '@/lib/shortcuts';
@@ -353,6 +354,7 @@ function DatabaseRow({
   const [sharing, setSharing] = useState(false);
   const [iconing, setIconing] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [automating, setAutomating] = useState(false);
 
   return (
     <div
@@ -392,6 +394,7 @@ function DatabaseRow({
             <DropdownMenuItem onSelect={() => setRenaming(true)}>Rename</DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setIconing(true)}>Icon & color</DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setImporting(true)}>Import CSV…</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setAutomating(true)}>Buttons & automations</DropdownMenuItem>
             {isAdmin && (
               <DropdownMenuItem onSelect={() => setSharing(true)}>Manage access</DropdownMenuItem>
             )}
@@ -420,6 +423,9 @@ function DatabaseRow({
       </Dialog>
       <Dialog open={importing} onOpenChange={setImporting}>
         {importing && <ImportWizard ws={ws} db={db.id} onDone={() => setImporting(false)} />}
+      </Dialog>
+      <Dialog open={automating} onOpenChange={setAutomating}>
+        {automating && <AutomationsPanel ws={ws} db={db.id} onClose={() => setAutomating(false)} />}
       </Dialog>
       <Dialog open={confirmingDelete} onOpenChange={setConfirmingDelete}>
         <DeleteDatabaseDialog

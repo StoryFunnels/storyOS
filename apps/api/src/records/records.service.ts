@@ -15,6 +15,7 @@ import { compileFilter, cursorCondition, sortExpr } from './query-compiler';
 import type { SortSpec } from './query-compiler';
 import { keyBetween, keysAfter } from './rank';
 import { NotificationsService } from '../notifications/notifications.service';
+import { DomainEventsService } from '../events/domain-events.service';
 
 type RecordRow = typeof records.$inferSelect;
 
@@ -40,6 +41,7 @@ export class RecordsService {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly notificationsService: NotificationsService,
+    private readonly domainEvents: DomainEventsService,
   ) {}
 
   /** Live field definitions + valid option ids, in validator shape. */
@@ -228,8 +230,9 @@ export class RecordsService {
     databaseId: string,
     input: Record<string, unknown>,
     actorId: string,
+    depth = 0,
   ): Promise<ProjectedRecord> {
-    const [created] = await this.createBatch(workspaceId, databaseId, [input], actorId);
+    const [created] = await this.createBatch(workspaceId, databaseId, [input], actorId, depth);
     return created!;
   }
 
@@ -239,6 +242,8 @@ export class RecordsService {
     databaseId: string,
     inputs: Array<Record<string, unknown>>,
     actorId: string,
+    depth = 0,
+    options: { suppressAutomations?: boolean } = {},
   ): Promise<ProjectedRecord[]> {
     const defs = await this.fieldDefs(databaseId);
     const validated = inputs.map((input) => this.validateOrThrow(defs, input));
@@ -269,6 +274,18 @@ export class RecordsService {
       );
       return inserted;
     });
+    if (!options.suppressAutomations) {
+      for (const row of rows) {
+        this.domainEvents.emit({
+          type: 'record_created',
+          workspaceId,
+          databaseId,
+          recordId: row.id,
+          actorId,
+          depth,
+        });
+      }
+    }
     return rows.map((row) => this.project(row, defs));
   }
 
@@ -295,6 +312,7 @@ export class RecordsService {
     recordId: string,
     input: Record<string, unknown>,
     actorId: string,
+    depth = 0,
   ): Promise<ProjectedRecord> {
     const defs = await this.fieldDefs(databaseId);
     const row = await this.getRow(databaseId, recordId);
@@ -331,6 +349,16 @@ export class RecordsService {
         payload: { diff },
       });
       return next!;
+    });
+
+    this.domainEvents.emit({
+      type: 'record_updated',
+      workspaceId,
+      databaseId,
+      recordId,
+      changedFieldIds: Object.keys(diff).filter((k) => k !== 'title'),
+      actorId,
+      depth,
     });
 
     // MN-049: newly-added people on user fields get an "assigned" notification.

@@ -980,6 +980,76 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/databases/{db}/automations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List rules */
+        get: operations["AutomationsController_list"];
+        put?: never;
+        /** Create a rule (trigger + condition + actions) */
+        post: operations["AutomationsController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/automations/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a rule */
+        delete: operations["AutomationsController_remove"];
+        options?: never;
+        head?: never;
+        /** Update / enable / disable a rule */
+        patch: operations["AutomationsController_update"];
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Run history (30-day retention) */
+        get: operations["AutomationsController_runs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Dry-run a rule against one record */
+        post: operations["AutomationsController_test"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/templates": {
         parameters: {
             query?: never;
@@ -1363,6 +1433,107 @@ export interface components {
                 type: "mention";
                 user_id: string;
             })[];
+        };
+        CreateAutomationDto: {
+            name: string;
+            trigger: {
+                /** @enum {string} */
+                type: "record_created";
+            } | {
+                /** @enum {string} */
+                type: "record_updated";
+                /** Format: uuid */
+                field_id?: string;
+            } | {
+                /** @enum {string} */
+                type: "record_linked";
+                /** Format: uuid */
+                relation_field_id: string;
+            } | {
+                /** @enum {string} */
+                type: "schedule";
+                /** @enum {string} */
+                every: "hour" | "day" | "week";
+                at?: string;
+                weekday?: number;
+            };
+            condition?: unknown;
+            actions: ({
+                /** @enum {string} */
+                type: "set_values";
+                values: {
+                    [key: string]: unknown;
+                };
+            } | {
+                /** @enum {string} */
+                type: "create_record";
+                /** Format: uuid */
+                database_id: string;
+                /** @default {} */
+                values: {
+                    [key: string]: unknown;
+                };
+                /** Format: uuid */
+                link_via_relation_field_id?: string;
+            } | {
+                /** @enum {string} */
+                type: "add_comment";
+                body_template: string;
+            })[];
+            /** @default true */
+            enabled: boolean;
+        };
+        UpdateAutomationDto: {
+            name?: string;
+            trigger?: {
+                /** @enum {string} */
+                type: "record_created";
+            } | {
+                /** @enum {string} */
+                type: "record_updated";
+                /** Format: uuid */
+                field_id?: string;
+            } | {
+                /** @enum {string} */
+                type: "record_linked";
+                /** Format: uuid */
+                relation_field_id: string;
+            } | {
+                /** @enum {string} */
+                type: "schedule";
+                /** @enum {string} */
+                every: "hour" | "day" | "week";
+                at?: string;
+                weekday?: number;
+            };
+            condition?: unknown;
+            actions?: ({
+                /** @enum {string} */
+                type: "set_values";
+                values: {
+                    [key: string]: unknown;
+                };
+            } | {
+                /** @enum {string} */
+                type: "create_record";
+                /** Format: uuid */
+                database_id: string;
+                /** @default {} */
+                values: {
+                    [key: string]: unknown;
+                };
+                /** Format: uuid */
+                link_via_relation_field_id?: string;
+            } | {
+                /** @enum {string} */
+                type: "add_comment";
+                body_template: string;
+            })[];
+            enabled?: boolean;
+        };
+        TestAutomationDto: {
+            /** Format: uuid */
+            record_id: string;
         };
         ApplyTemplateDto: {
             /** Format: uuid */
@@ -3060,6 +3231,136 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AutomationsController_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AutomationsController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAutomationDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AutomationsController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AutomationsController_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateAutomationDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AutomationsController_runs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AutomationsController_test: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TestAutomationDto"];
+            };
+        };
         responses: {
             201: {
                 headers: {
