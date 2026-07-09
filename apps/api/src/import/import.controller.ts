@@ -47,7 +47,8 @@ export class ImportController {
     const fieldValue = (name: string): string | undefined => {
       const f = file.fields[name];
       const one = Array.isArray(f) ? f[0] : f;
-      return one?.value;
+      // Multipart is MultipartFile | MultipartValue — only values carry .value
+      return one && 'value' in one ? String(one.value) : undefined;
     };
     let mapping: ColumnMapping[];
     try {
