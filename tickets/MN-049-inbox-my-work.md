@@ -44,14 +44,14 @@ Producers write in the same transaction as their parent op (no lost notification
 
 ### Inbox UI
 
-- Bell icon in the workspace header (left of the user name) with unread badge (99+ cap); 60s polling via react-query `refetchInterval`, refetch on window focus.
+- **Sidebar top-nav (revised per founder's Fibery screenshot):** a section above spaces with `Home` (workspace home), `Search` (MN-048 palette), `Inbox` with unread badge (99+ cap), `My Work`. Inbox badge polls every 60s via react-query `refetchInterval`, refetch on window focus. No header bell — the sidebar row IS the surface, like Fibery/Linear.
 - Click → right-side panel (not a route — keeps context): rows = actor Avatar (MN-045), sentence ("**Max** assigned you · *Fix flaky test*", "**Dana** mentioned you · *Sprint 12*"), database chip, snippet for comments, relative time; unread = bold + dot. Click row → marks read + navigates to the record. Header: "Mark all read".
 - Empty state: "You're all caught up 🎉".
 
 ### My Work (`/w/:ws/me`)
 
 - Endpoint `GET /workspaces/:ws/my-work`: for each database visible to me (grant-scoped — same helper as MN-048) that has ≥1 user-type field, query records where any user field's JSONB value contains my id (`values->fieldId ? :me` / array contains for multi) and not deleted; return grouped `{database: {...}, records: [...]}`, records carry due-date-ish field if the database has a date field named/typed for it (v1 heuristic: first date field), sorted due-first-then-updated.
-- Page: sidebar link "My Work" with avatar, above spaces. Sections per database (icon + name + count), rows = title, state chip if a select named State/Status exists, due date, click → record. Collapsible sections.
+- Page: `My Work` lives in the same sidebar top-nav section. Sections per database (icon + name + count), rows = title, state chip if a select named State/Status exists, due date, click → record. Collapsible sections.
 - This is intentionally a *server-defined* view, not a saved view — zero configuration, works day one for every member.
 
 ## Implementation plan

@@ -59,7 +59,7 @@ automation_runs:  id, automation_id, trigger_record_id|null, status enum(ok|erro
 - `GET /databases/:db/automations/:id/runs?cursor` — run history.
 - `POST /databases/:db/automations/:id/test` — dry-run against a chosen record: evaluates condition + validates actions, returns would-do effects without writing. This is what makes rules debuggable.
 
-### UI (database ⋯ menu → "Automations")
+### UI (database ⋯ menu → "Buttons & automations", Rules tab — shared panel with MN-046, mirroring Fibery's per-database Automation Rules / Buttons sections)
 
 - **List**: rows = enabled toggle, name, human trigger sentence ("When State changes and Priority is Urgent → set Due, comment"), last-run status dot, run count. Disabled-by-failures rows show a warning banner.
 - **Editor** (dialog or side panel): name → trigger picker (4 cards; schedule card reveals every/at/weekday selects) → condition = the existing FilterChip builder verbatim → actions = the MN-046 builder verbatim → footer: "Test with a record…" (record picker → dry-run result panel), Save.

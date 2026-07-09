@@ -14,7 +14,7 @@ size: M
 - **Linear**: teams and projects pick from a curated icon set + a color; the color tints the icon chip consistently across sidebar, boards, and mentions — color IS the recognition system.
 - **Fibery**: databases pick icon + accent color; spaces are colored folders.
 
-**Synthesis:** emoji as the icon vocabulary (zero asset pipeline, renders natively everywhere, infinitely expressive) + an accent color from our existing 10-color palette. The pair (emoji, color chip) is the visual identity of a database.
+**Synthesis (revised after founder's Fibery sidebar screenshot, 2026-07-09):** Fibery's actual system — **databases keep the stacked-disk glyph but color-tinted** (red/blue/teal disks are how OWOX tells 25 databases apart at a glance), while **spaces carry an emoji/pictogram**. So: databases = color first (tints the existing Database glyph), emoji as optional override; spaces = emoji + optional color. Both from our 10-color palette.
 
 ## Design
 
