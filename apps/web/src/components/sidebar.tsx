@@ -7,11 +7,12 @@ import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from 
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Check, ChevronsUpDown, Database, Home, KeyRound, LayoutTemplate, MoreHorizontal, Plus, Search, Settings } from 'lucide-react';
+import { Check, ChevronsUpDown, Database, Home, Inbox, KeyRound, LayoutTemplate, MoreHorizontal, Plus, Search, Settings, UserRound } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { authClient } from '@/lib/auth-client';
+import { InboxPanel, useUnreadCount } from '@/components/inbox-panel';
 import { openPalette } from '@/lib/shortcuts';
 import { useDatabases, useSidebarMutations, useSpaces, useWorkspace } from '@/lib/queries';
 import type { DatabaseSummary, Space } from '@/lib/queries';
@@ -41,6 +42,8 @@ export function Sidebar() {
   const canEdit = workspace.data?.role !== 'guest';
   const isAdmin = workspace.data?.role === 'admin';
   const [galleryOpen, setGalleryOpen] = useState(false);
+  const [inboxOpen, setInboxOpen] = useState(false);
+  const unread = useUnreadCount(ws);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
@@ -73,7 +76,25 @@ export function Sidebar() {
             <Search className="h-3.5 w-3.5" /> Search
             <span className="ml-auto text-[10px] text-faint">⌘K</span>
           </button>
+          <button
+            className="flex w-full items-center gap-2 rounded px-2 py-1 text-[13px] text-ink-secondary hover:bg-hover"
+            onClick={() => setInboxOpen(true)}
+          >
+            <Inbox className="h-3.5 w-3.5" /> Inbox
+            {(unread.data ?? 0) > 0 && (
+              <span className="ml-auto rounded-full bg-[var(--accent)] px-1.5 text-[10px] font-semibold text-[var(--text-on-dark)]">
+                {(unread.data ?? 0) > 99 ? '99+' : unread.data}
+              </span>
+            )}
+          </button>
+          <Link
+            href={`/w/${ws}/me`}
+            className="flex items-center gap-2 rounded px-2 py-1 text-[13px] text-ink-secondary hover:bg-hover"
+          >
+            <UserRound className="h-3.5 w-3.5" /> My Work
+          </Link>
         </div>
+        {inboxOpen && <InboxPanel ws={ws} onClose={() => setInboxOpen(false)} />}
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onSpaceDragEnd}>
           <SortableContext
             items={(spaces.data ?? []).map((s) => s.id)}

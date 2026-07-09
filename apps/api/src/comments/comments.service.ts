@@ -11,12 +11,16 @@ import type { Db } from '../db/client';
 import { activityEvents, comments, memberships, records, user } from '../db/schema';
 import { env } from '../config/env';
 import { sendMail } from '../mail/mailer';
+import { NotificationsService } from '../notifications/notifications.service';
 
 export type CommentSegment = { type: 'text'; text: string } | { type: 'mention'; user_id: string };
 
 @Injectable()
 export class CommentsService {
-  constructor(@Inject(DB) private readonly db: Db) {}
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    private readonly notificationsService: NotificationsService,
+  ) {}
 
   /** Extracts mentions server-side and validates they are active members (D4). */
   private async validateBody(
@@ -92,6 +96,36 @@ export class CommentsService {
     });
 
     if (mentions.length > 0) await this.notifyMentions(recordId, authorId, mentions, body);
+
+    // MN-049: in-app notifications — mentions first, then the rest of the thread.
+    const snippet = body
+      .map((s) => (s.type === 'text' ? s.text : '@…'))
+      .join('')
+      .slice(0, 120);
+    const record = await this.db.query.records.findFirst({ where: eq(records.id, recordId) });
+    if (mentions.length > 0) {
+      await this.notificationsService.notify({
+        workspaceId,
+        databaseId: record?.databaseId,
+        recordId,
+        actorId: authorId,
+        type: 'mentioned',
+        recipients: mentions,
+        snippet,
+      });
+    }
+    const participants = (await this.notificationsService.threadParticipants(recordId)).filter(
+      (id) => !mentions.includes(id),
+    );
+    await this.notificationsService.notify({
+      workspaceId,
+      databaseId: record?.databaseId,
+      recordId,
+      actorId: authorId,
+      type: 'commented',
+      recipients: participants,
+      snippet,
+    });
     return { id: created.id, body: created.body, created_at: created.createdAt };
   }
 

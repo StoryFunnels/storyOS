@@ -1,7 +1,7 @@
 ---
 id: MN-049
 title: Notifications inbox + My Work — the reasons to open the app every morning
-status: todo
+status: done
 depends_on: [MN-045]
 size: L
 ---

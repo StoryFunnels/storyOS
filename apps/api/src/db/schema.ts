@@ -312,6 +312,27 @@ export const attachments = pgTable(
   (t) => [index('attachments_record_idx').on(t.recordId, t.createdAt)],
 );
 
+/** MN-049: per-user notification stream (assigned / mentioned / commented). */
+export const notifications = pgTable(
+  'notifications',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: text('user_id').notNull(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    databaseId: uuid('database_id').references(() => databases.id, { onDelete: 'cascade' }),
+    recordId: uuid('record_id').references(() => records.id, { onDelete: 'cascade' }),
+    actorId: text('actor_id'),
+    type: text('type').notNull(),
+    snippet: text('snippet'),
+    count: integer('count').notNull().default(1),
+    readAt: timestamp('read_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('notifications_user_idx').on(t.userId, t.workspaceId, t.readAt, t.createdAt)],
+);
+
 export const activityEvents = pgTable(
   'activity_events',
   {

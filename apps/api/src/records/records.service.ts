@@ -14,6 +14,7 @@ import type { QueryRecordsInput } from '@storyos/schemas';
 import { compileFilter, cursorCondition, sortExpr } from './query-compiler';
 import type { SortSpec } from './query-compiler';
 import { keyBetween, keysAfter } from './rank';
+import { NotificationsService } from '../notifications/notifications.service';
 
 type RecordRow = typeof records.$inferSelect;
 
@@ -36,7 +37,10 @@ const TRASH_RETENTION_DAYS = 30;
  */
 @Injectable()
 export class RecordsService {
-  constructor(@Inject(DB) private readonly db: Db) {}
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    private readonly notificationsService: NotificationsService,
+  ) {}
 
   /** Live field definitions + valid option ids, in validator shape. */
   async fieldDefs(databaseId: string): Promise<FieldDef[]> {
@@ -328,6 +332,27 @@ export class RecordsService {
       });
       return next!;
     });
+
+    // MN-049: newly-added people on user fields get an "assigned" notification.
+    const addedUsers = new Set<string>();
+    for (const def of defs) {
+      if (def.type !== 'user' || !(def.id in diff)) continue;
+      const prev = new Set<string>([].concat((before[def.id] as never) ?? []));
+      const next = [].concat((merged[def.id] as never) ?? []) as string[];
+      next.forEach((id) => {
+        if (!prev.has(id)) addedUsers.add(id);
+      });
+    }
+    if (addedUsers.size > 0) {
+      await this.notificationsService.notify({
+        workspaceId,
+        databaseId,
+        recordId,
+        actorId,
+        type: 'assigned',
+        recipients: [...addedUsers],
+      });
+    }
     return this.project(updated, defs);
   }
 

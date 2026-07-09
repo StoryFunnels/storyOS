@@ -3,7 +3,7 @@ import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { activityEvents, databases, records, spaces } from '../db/schema';
+import { activityEvents, databases, fields, records, spaces } from '../db/schema';
 import { AuthGuard } from '../auth/auth.guard';
 import { AccessService } from '../access/access.service';
 import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
@@ -104,6 +104,44 @@ export class SearchController {
         ...spaceRows.map((s) => ({ kind: 'space' as const, ...s })),
       ],
     };
+  }
+
+  @Get('my-work')
+  @ApiOperation({ summary: 'Records across databases where any person field contains me (MN-049)' })
+  async myWork(@Req() req: WorkspaceRequest) {
+    const visible = await this.visibleDatabaseIds(req);
+    if (visible !== null && visible.length === 0) return { groups: [] };
+
+    const dbRows = await this.db.query.databases.findMany({
+      where: and(
+        eq(databases.workspaceId, req.membership.workspaceId),
+        ...(visible !== null ? [inArray(databases.id, visible)] : []),
+      ),
+      columns: { id: true, name: true, icon: true, color: true },
+    });
+
+    const groups: Array<{
+      database: { id: string; name: string; icon: string | null; color: string | null };
+      records: Array<{ id: string; title: string; updated_at: Date }>;
+    }> = [];
+    for (const database of dbRows) {
+      const userFields = await this.db.query.fields.findMany({
+        where: and(eq(fields.databaseId, database.id), eq(fields.type, 'user'), isNull(fields.deletedAt)),
+        columns: { id: true },
+      });
+      if (userFields.length === 0) continue;
+      const anyMine = or(
+        ...userFields.map((f) => sql`${records.values}->${f.id} ? ${req.user.id}`),
+      );
+      const mine = await this.db
+        .select({ id: records.id, title: records.title, updated_at: records.updatedAt })
+        .from(records)
+        .where(and(eq(records.databaseId, database.id), isNull(records.deletedAt), anyMine))
+        .orderBy(desc(records.updatedAt))
+        .limit(50);
+      if (mine.length > 0) groups.push({ database, records: mine });
+    }
+    return { groups };
   }
 
   @Get('recent')
