@@ -90,6 +90,8 @@ function coerce(field: FieldDef, raw: unknown): { value?: unknown; error?: strin
     }
     case 'lookup':
       return { error: 'lookup values are computed from the related record and cannot be written' };
+    case 'rollup':
+      return { error: 'rollup values are aggregated from related records and cannot be written' };
     case 'button':
       return { error: 'buttons store no value — press them instead' };
     case 'formula':

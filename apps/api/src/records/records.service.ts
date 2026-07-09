@@ -140,7 +140,80 @@ export class RecordsService {
       }
     }
     const withLookups = await this.attachLookups(projected, defs);
-    return this.attachFormulas(withLookups, defs);
+    const withRollups = await this.attachRollups(withLookups, defs);
+    return this.attachFormulas(withRollups, defs);
+  }
+
+  /**
+   * MN-064: aggregates related records through the already-attached relation
+   * chips. One target-defs load + one records batch per rollup field. Empty
+   * relation: 0 for count, null for the rest.
+   */
+  private async attachRollups(projected: ProjectedRecord[], defs: FieldDef[]): Promise<ProjectedRecord[]> {
+    const rollupDefs = defs.filter((d) => d.type === 'rollup');
+    if (rollupDefs.length === 0 || projected.length === 0) return projected;
+
+    for (const def of rollupDefs) {
+      const op = def.config['op'] as 'count' | 'sum' | 'avg' | 'min' | 'max';
+      const targetApiName = def.config['target_field_api_name'] as string | undefined | null;
+      const relationDef = defs.find((d) => d.id === def.config['relation_field_id']);
+      if (!relationDef || relationDef.type !== 'relation') continue; // dangling — resolve to nothing
+
+      let targetFieldId: string | null = null;
+      if (targetApiName) {
+        const side = relationDef.config['side'] as 'a' | 'b';
+        const relation = await this.db.query.relations.findFirst({
+          where: eq(relations.id, relationDef.config['relation_id'] as string),
+        });
+        if (!relation) continue;
+        const targetDbId = side === 'a' ? relation.databaseBId : relation.databaseAId;
+        const targetDefs = await this.fieldDefs(targetDbId);
+        targetFieldId = targetDefs.find((d) => d.api_name === targetApiName)?.id ?? null;
+      }
+
+      const numberById = new Map<string, number>();
+      if (targetFieldId) {
+        const linkedIds = new Set<string>();
+        for (const record of projected) {
+          const chips = record.values[relationDef.api_name] as Array<{ id: string }> | undefined;
+          chips?.forEach((chip) => linkedIds.add(chip.id));
+        }
+        if (linkedIds.size > 0) {
+          const targetRows = await this.db.query.records.findMany({
+            where: and(inArray(records.id, [...linkedIds]), isNull(records.deletedAt)),
+          });
+          for (const row of targetRows) {
+            const raw = (row.values as Record<string, unknown>)[targetFieldId];
+            if (typeof raw === 'number') numberById.set(row.id, raw);
+          }
+        }
+      }
+
+      for (const record of projected) {
+        const chips = (record.values[relationDef.api_name] as Array<{ id: string }> | undefined) ?? [];
+        if (!targetApiName) {
+          record.values[def.api_name] = op === 'count' ? chips.length : null;
+          continue;
+        }
+        const nums = chips
+          .map((chip) => numberById.get(chip.id))
+          .filter((v): v is number => typeof v === 'number');
+        if (op === 'count') {
+          record.values[def.api_name] = nums.length;
+        } else if (nums.length === 0) {
+          record.values[def.api_name] = null;
+        } else if (op === 'sum') {
+          record.values[def.api_name] = nums.reduce((a, b) => a + b, 0);
+        } else if (op === 'avg') {
+          record.values[def.api_name] = nums.reduce((a, b) => a + b, 0) / nums.length;
+        } else if (op === 'min') {
+          record.values[def.api_name] = Math.min(...nums);
+        } else {
+          record.values[def.api_name] = Math.max(...nums);
+        }
+      }
+    }
+    return projected;
   }
 
 

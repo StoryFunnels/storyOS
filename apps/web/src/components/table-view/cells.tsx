@@ -80,6 +80,12 @@ export function CellDisplay({ field, value, memberNames, memberImages }: Display
       if (rt === 'number') return <span className="w-full truncate text-right text-[13px] tabular-nums">{String(value)}</span>;
       return <span className="truncate text-[13px] text-ink-secondary">{String(value)}</span>;
     }
+    case 'rollup': {
+      if (value === null || value === undefined) return <span className="text-faint"> </span>;
+      const n = value as number;
+      const shown = Number.isInteger(n) ? String(n) : n.toFixed(2);
+      return <span className="w-full truncate text-right text-[13px] tabular-nums">{shown}</span>;
+    }
     case 'lookup': {
       // Server resolves values (select ids → labels); scalar or array by cardinality.
       const items = Array.isArray(value) ? value : [value];

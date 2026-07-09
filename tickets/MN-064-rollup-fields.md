@@ -1,7 +1,7 @@
 ---
 id: MN-064
 title: Rollup fields — aggregate a related database's values (sum/count/min/max/avg)
-status: todo
+status: done
 depends_on: [MN-040, MN-043]
 size: L
 ---
@@ -15,6 +15,6 @@ size: L
 - Writes 422; cascade with relation deletion like lookups; UI = lookup config + op select.
 
 ## Acceptance criteria
-- [ ] rollup type: config validation, batch read-time aggregation, writes rejected, cascade on relation delete
-- [ ] Formulas can reference rollups; vacations balance recipe added to formulas docs
-- [ ] Cells/property rows render by op result (number); integration tests incl. count-with-no-target and empty-relation → 0 for count / null for others
+- [x] rollup type: config validation, batch read-time aggregation, writes rejected, cascade on relation delete
+- [x] Formulas can reference rollups; vacations balance recipe added to formulas docs
+- [x] Cells/property rows render by op result (number); integration tests incl. count-with-no-target and empty-relation → 0 for count / null for others

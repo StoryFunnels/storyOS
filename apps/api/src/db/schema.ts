@@ -42,6 +42,7 @@ export const fieldType = pgEnum('field_type', [
   'user',
   'relation',
   'lookup',
+  'rollup',
   'button',
   'formula',
   'created_at',

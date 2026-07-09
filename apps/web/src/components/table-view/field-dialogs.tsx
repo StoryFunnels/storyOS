@@ -19,6 +19,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import {
   AtSign,
+  Calculator,
   Calendar,
   CheckSquare,
   GripVertical,
@@ -73,6 +74,7 @@ const FIELD_TYPES: Array<{
   { value: 'email', label: 'Email', description: 'An email address', icon: AtSign },
   { value: 'relation', label: 'Relation', description: 'Link records in another database', icon: Workflow },
   { value: 'lookup', label: 'Lookup', description: "Show a related record's field here", icon: Search },
+  { value: 'rollup', label: 'Rollup', description: 'Sum / count / average related records', icon: Calculator },
   { value: 'button', label: 'Button', description: 'One click runs actions on the record', icon: MousePointerClick },
   { value: 'formula', label: 'Formula', description: 'Computed from other fields', icon: Sigma },
 ];
@@ -299,6 +301,7 @@ export function AddFieldDialog({
   const [inverseName, setInverseName] = useState('');
   const [lookupRelationId, setLookupRelationId] = useState('');
   const [lookupTargetApi, setLookupTargetApi] = useState('');
+  const [rollupOp, setRollupOp] = useState('count');
   const [buttonActions, setButtonActions] = useState<ButtonAction[]>([
     { type: 'add_comment', body_template: 'Done ✅ ({Title})' },
   ]);
@@ -310,7 +313,9 @@ export function AddFieldDialog({
   const lookupRelation = relationFields.find((f) => f.id === lookupRelationId);
   const lookupTargetDb = useDatabase(ws, lookupRelation?.relation?.target_database_id ?? '');
   const LOOKUPABLE = new Set(['title', 'text', 'number', 'checkbox', 'date', 'select', 'multi_select', 'url', 'email']);
-  const lookupTargetFields = (lookupTargetDb.data?.fields ?? []).filter((f) => LOOKUPABLE.has(f.type));
+  const lookupTargetFields = (lookupTargetDb.data?.fields ?? []).filter((f) =>
+    type === 'rollup' ? f.type === 'number' : LOOKUPABLE.has(f.type),
+  );
 
   const create = useMutation({
     mutationFn: async () => {
@@ -331,6 +336,8 @@ export function AddFieldDialog({
       const effectiveConfig =
         type === 'lookup'
           ? { relation_field_id: lookupRelationId, target_field_api_name: lookupTargetApi }
+          : type === 'rollup'
+            ? { relation_field_id: lookupRelationId, op: rollupOp, ...(lookupTargetApi ? { target_field_api_name: lookupTargetApi } : {}) }
           : type === 'button'
             ? { color: buttonColor, actions: buttonActions }
             : type === 'formula'
@@ -387,14 +394,31 @@ export function AddFieldDialog({
             <DraftOptionsEditor options={options} onChange={setOptions} />
           </div>
         )}
-        {type === 'lookup' &&
+        {(type === 'lookup' || type === 'rollup') &&
           (relationFields.length === 0 ? (
             <p className="rounded-[var(--radius-card)] border border-border-default bg-canvas p-3 text-[13px] text-muted">
-              Lookups surface a related record's field — this database needs a relation first. Add a
-              Relation field, then come back.
+              {type === 'rollup' ? 'Rollups aggregate related records' : "Lookups surface a related record's field"} — this
+              database needs a relation first. Add a Relation field, then come back.
             </p>
           ) : (
             <>
+              {type === 'rollup' && (
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="rollup-op">Aggregation</Label>
+                  <select
+                    id="rollup-op"
+                    className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-sm text-ink"
+                    value={rollupOp}
+                    onChange={(e) => setRollupOp(e.target.value)}
+                  >
+                    <option value="count">Count linked records</option>
+                    <option value="sum">Sum</option>
+                    <option value="avg">Average</option>
+                    <option value="min">Min</option>
+                    <option value="max">Max</option>
+                  </select>
+                </div>
+              )}
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="lookup-relation">Through relation</Label>
                 <select
@@ -417,9 +441,9 @@ export function AddFieldDialog({
                   ))}
                 </select>
               </div>
-              {lookupRelation && (
+              {lookupRelation && (type !== 'rollup' || rollupOp !== 'count') && (
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="lookup-target">Field to show</Label>
+                  <Label htmlFor="lookup-target">{type === 'rollup' ? 'Number field to aggregate' : 'Field to show'}</Label>
                   <select
                     id="lookup-target"
                     required
@@ -525,7 +549,8 @@ export function AddFieldDialog({
               (type === 'relation' && !targetDb) ||
               (type === 'button' && buttonActions.length === 0) ||
               (type === 'formula' && !expression.trim()) ||
-              (type === 'lookup' && (!lookupRelationId || !lookupTargetApi))
+              (type === 'lookup' && (!lookupRelationId || !lookupTargetApi)) ||
+              (type === 'rollup' && (!lookupRelationId || (rollupOp !== 'count' && !lookupTargetApi)))
             }
           >
             Add field
@@ -1073,7 +1098,7 @@ export function ButtonActionsEditor({
 }) {
   const databases = useDatabases(ws);
   const settable = dbFields.filter(
-    (f) => !f.isSystem && !['title', 'relation', 'lookup', 'button', 'rich_text', 'created_at', 'updated_at', 'created_by'].includes(f.type),
+    (f) => !f.isSystem && !['title', 'relation', 'lookup', 'rollup', 'button', 'rich_text', 'created_at', 'updated_at', 'created_by'].includes(f.type),
   );
 
   function patch(i: number, next: ButtonAction) {
@@ -1233,6 +1258,7 @@ function LinkBackPicker({
 const FORMULA_TYPE_OF: Record<string, 'text' | 'number' | 'checkbox' | 'date' | null> = {
   number: 'number', checkbox: 'checkbox', date: 'date', created_at: 'date', updated_at: 'date',
   text: 'text', title: 'text', select: 'text', url: 'text', email: 'text', lookup: 'text',
+  rollup: 'number',
 };
 
 export function FormulaEditor({

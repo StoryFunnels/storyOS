@@ -80,7 +80,7 @@ export const timeOff: TemplateDef = {
 
 ## Tips
 
-- Enter Days manually for now (excluding weekends/holidays yourself); automatic balances (allocation − used) land with rollup fields, and this pack is already shaped for them.
+- Automatic balance: add a Rollup field **Days Used** (sum of Days through the Time Off relation) on Team Members, then a Formula **Balance** = \`{Annual Allocation (days)} - {Days Used}\`.
 - Log overtime as its own Kind — compensate it consciously instead of losing it.`,
   databases: [
     {

@@ -139,9 +139,9 @@ export class RelationsService {
   async remove(workspaceId: string, relationId: string) {
     const relation = await this.getRelation(workspaceId, relationId);
     await this.db.transaction(async (tx) => {
-      // Lookups through this relation lose their source (MN-040) — soft-delete them first.
+      // Lookups (MN-040) and rollups (MN-064) through this relation lose their source — soft-delete them first.
       const lookups = await tx.query.fields.findMany({
-        where: and(eq(fields.type, 'lookup'), isNull(fields.deletedAt)),
+        where: and(inArray(fields.type, ['lookup', 'rollup']), isNull(fields.deletedAt)),
       });
       const doomed = lookups
         .filter((l) => {

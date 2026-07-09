@@ -26,6 +26,18 @@ result type, and previews the value against a real record as you type.
 | Weighted score | `{Impact} * 2 + {Confidence} - {Effort}` |
 | Kickoff deadline | `add_days({Start}, 14)` |
 
+### With rollups (MN-064)
+
+Rollup fields aggregate related records (count / sum / avg / min / max) and formulas can
+reference them like any number field. The vacations story end-to-end:
+
+1. On **Team Members**, add a rollup **Days Used** = *sum* of `Days` through the Time Off relation.
+2. Add a formula **Balance** = `{Allocation} - {Days Used}`.
+
+Other favorites: event budget vs actual (`{Budget} - {Spent}` where Spent is a sum-rollup over
+Expenses), pipeline value per client (sum-rollup over Opportunity `Amount`), and simple counts
+("Open requests" = count-rollup, no target field needed).
+
 ## Language
 
 - **Field refs**: `{Estimate}`, `{State}` — text, number, checkbox, date, select (compares its
@@ -60,6 +72,6 @@ result type, and previews the value against a real record as you type.
 ## Limits (v1)
 
 One database at a time (no `{Client.Owner}` traversal — use a Lookup field first, then reference
-the lookup), no aggregation over relations (rollups come later), no filtering or sorting views by
-formula values yet, 5-level formula chains, deleted referenced fields degrade the result to empty
-with a warning in the field editor.
+the lookup; for aggregation use a Rollup field, then reference the rollup), no filtering or
+sorting views by formula values yet, 5-level formula chains, deleted referenced fields degrade
+the result to empty with a warning in the field editor.

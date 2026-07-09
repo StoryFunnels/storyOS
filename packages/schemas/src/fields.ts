@@ -13,6 +13,7 @@ export const creatableFieldTypeSchema = z.enum([
   'email',
   'user',
   'lookup',
+  'rollup',
   'button',
   'formula',
 ]);
@@ -77,6 +78,13 @@ export const formulaConfigSchema = z.object({
   result_type: z.enum(['text', 'number', 'checkbox', 'date']).optional(),
 });
 
+/** Rollup (MN-064): aggregate related records; count works with no target field. */
+export const rollupConfigSchema = z.object({
+  relation_field_id: z.uuid(),
+  op: z.enum(['count', 'sum', 'avg', 'min', 'max']),
+  target_field_api_name: z.string().trim().min(1).nullish(),
+});
+
 export const emptyConfigSchema = z.object({});
 
 export const fieldConfigSchemas: Record<CreatableFieldType, z.ZodType> = {
@@ -91,6 +99,7 @@ export const fieldConfigSchemas: Record<CreatableFieldType, z.ZodType> = {
   email: emptyConfigSchema,
   user: userConfigSchema,
   lookup: lookupConfigSchema,
+  rollup: rollupConfigSchema,
   button: buttonConfigSchema,
   formula: formulaConfigSchema,
 };

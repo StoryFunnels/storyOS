@@ -99,6 +99,7 @@ export class FieldsService {
     },
   ) {
     if (input.type === 'lookup') await this.assertLookupConfig(databaseId, input.config ?? {});
+    if (input.type === 'rollup') await this.assertRollupConfig(databaseId, input.config ?? {});
     if (input.type === 'formula') {
       input.config = await this.compileFormulaConfig(databaseId, input.config ?? {});
     }
@@ -142,7 +143,7 @@ export class FieldsService {
 
   /** Field types a formula may reference, mapped to formula types. */
   static formulaTypeOf(type: string): 'text' | 'number' | 'checkbox' | 'date' | null {
-    if (type === 'number') return 'number';
+    if (type === 'number' || type === 'rollup') return 'number';
     if (type === 'checkbox') return 'checkbox';
     if (type === 'date' || type === 'created_at' || type === 'updated_at') return 'date';
     if (['text', 'title', 'select', 'url', 'email', 'lookup'].includes(type)) return 'text';
@@ -198,10 +199,8 @@ export class FieldsService {
     'title', 'text', 'number', 'checkbox', 'date', 'select', 'multi_select', 'url', 'email',
   ]);
 
-  /** MN-040: the relation must live on this database; the target field on the related one. */
-  private async assertLookupConfig(databaseId: string, config: Record<string, unknown>) {
-    const relationFieldId = config['relation_field_id'] as string | undefined;
-    const targetApiName = config['target_field_api_name'] as string | undefined;
+  /** Resolves the related database behind a relation field of THIS database, or 422s. */
+  private async resolveRelationTargetDb(databaseId: string, relationFieldId: string | undefined): Promise<string> {
     const relationField = relationFieldId
       ? await this.db.query.fields.findFirst({
           where: and(eq(fields.id, relationFieldId), eq(fields.databaseId, databaseId), isNull(fields.deletedAt)),
@@ -213,7 +212,13 @@ export class FieldsService {
     const relConfig = relationField.config as { relation_id: string; side: 'a' | 'b' };
     const relation = await this.db.query.relations.findFirst({ where: eq(relations.id, relConfig.relation_id) });
     if (!relation) throw new UnprocessableEntityException('The underlying relation no longer exists');
-    const targetDbId = relConfig.side === 'a' ? relation.databaseBId : relation.databaseAId;
+    return relConfig.side === 'a' ? relation.databaseBId : relation.databaseAId;
+  }
+
+  /** MN-040: the relation must live on this database; the target field on the related one. */
+  private async assertLookupConfig(databaseId: string, config: Record<string, unknown>) {
+    const targetApiName = config['target_field_api_name'] as string | undefined;
+    const targetDbId = await this.resolveRelationTargetDb(databaseId, config['relation_field_id'] as string | undefined);
     const targetField = await this.db.query.fields.findFirst({
       where: and(eq(fields.databaseId, targetDbId), eq(fields.apiName, targetApiName ?? ''), isNull(fields.deletedAt)),
     });
@@ -225,10 +230,35 @@ export class FieldsService {
     }
   }
 
-  /** Soft-delete lookups that point at a deleted target field or severed relation field. */
+  static readonly ROLLUP_OPS = new Set(['count', 'sum', 'avg', 'min', 'max']);
+
+  /** MN-064: count needs no target; sum/avg/min/max aggregate a NUMBER field on the related database. */
+  private async assertRollupConfig(databaseId: string, config: Record<string, unknown>) {
+    const op = config['op'] as string | undefined;
+    if (!op || !FieldsService.ROLLUP_OPS.has(op)) {
+      throw new UnprocessableEntityException('rollup op must be one of count, sum, avg, min, max');
+    }
+    const targetApiName = config['target_field_api_name'] as string | undefined | null;
+    const targetDbId = await this.resolveRelationTargetDb(databaseId, config['relation_field_id'] as string | undefined);
+    if (op === 'count' && !targetApiName) return; // count of linked records
+    if (!targetApiName) {
+      throw new UnprocessableEntityException(`rollup op "${op}" needs a target_field_api_name`);
+    }
+    const targetField = await this.db.query.fields.findFirst({
+      where: and(eq(fields.databaseId, targetDbId), eq(fields.apiName, targetApiName), isNull(fields.deletedAt)),
+    });
+    if (!targetField) {
+      throw new UnprocessableEntityException('target_field_api_name does not exist on the related database');
+    }
+    if (op !== 'count' && targetField.type !== 'number') {
+      throw new UnprocessableEntityException(`rollup "${op}" aggregates number fields, not ${targetField.type}`);
+    }
+  }
+
+  /** Soft-delete lookups AND rollups that point at a deleted target field or severed relation field. */
   async removeDependentLookups(db: Db, opts: { relationFieldIds?: string[]; targetField?: Field }) {
     const lookups = await db.query.fields.findMany({
-      where: and(eq(fields.type, 'lookup'), isNull(fields.deletedAt)),
+      where: and(inArray(fields.type, ['lookup', 'rollup']), isNull(fields.deletedAt)),
     });
     const doomed: string[] = [];
     for (const lookup of lookups) {
