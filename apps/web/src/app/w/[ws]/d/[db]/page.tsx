@@ -69,6 +69,7 @@ function DatabasePageInner() {
                 className="h-3 w-3 text-faint opacity-0 hover:text-error group-hover/tab:opacity-100"
                 onClick={(e) => {
                   e.stopPropagation();
+                  if (!window.confirm(`Delete the view "${view.name}"? Records are not affected.`)) return;
                   viewMutations.deleteView.mutate(view.id);
                   router.replace(`/w/${ws}/d/${db}`);
                 }}

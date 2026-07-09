@@ -198,7 +198,19 @@ export function useRecordMutations(ws: string, db: string) {
             }
           : old,
       );
-      toast.success('Moved to trash');
+      toast.success('Moved to trash', {
+        action: {
+          label: 'Undo',
+          onClick: async () => {
+            const { error } = await api.POST(
+              '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/restore',
+              { params: { path: { ws, db, rec } } },
+            );
+            if (error) toast.error('Could not restore');
+            else void qc.invalidateQueries({ queryKey: key });
+          },
+        },
+      });
     },
   });
 

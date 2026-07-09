@@ -7,8 +7,10 @@ import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from 
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Database, KeyRound, LayoutTemplate, MoreHorizontal, Plus, Settings } from 'lucide-react';
+import { Check, ChevronsUpDown, Database, KeyRound, LayoutTemplate, MoreHorizontal, Plus, Settings } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { api } from '@/lib/api';
 import { authClient } from '@/lib/auth-client';
 import { useDatabases, useSidebarMutations, useSpaces, useWorkspace } from '@/lib/queries';
 import type { DatabaseSummary, Space } from '@/lib/queries';
@@ -51,12 +53,7 @@ export function Sidebar() {
 
   return (
     <aside className="flex w-60 flex-col border-r border-border-default bg-sidebar">
-      <div className="flex h-12 items-center gap-2 border-b border-border-default px-4">
-        <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-primary text-[11px] font-bold text-[var(--text-on-dark)]">
-          {workspace.data?.name?.[0]?.toUpperCase() ?? 'S'}
-        </div>
-        <span className="truncate text-sm font-semibold text-ink">{workspace.data?.name ?? '…'}</span>
-      </div>
+      <WorkspaceSwitcher ws={ws} currentName={workspace.data?.name} />
 
       <nav className="flex-1 overflow-y-auto p-2">
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onSpaceDragEnd}>
@@ -131,6 +128,46 @@ export function Sidebar() {
   );
 }
 
+/** Workspace name is the switcher — lists every workspace plus creation (the old "Switch workspace" link only ever led back to the first one). */
+function WorkspaceSwitcher({ ws, currentName }: { ws: string; currentName?: string }) {
+  const router = useRouter();
+  const workspaces = useQuery({
+    queryKey: ['workspaces'],
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/workspaces');
+      if (error) throw error;
+      return data as unknown as Array<{ id: string; name: string }>;
+    },
+  });
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button className="flex h-12 w-full items-center gap-2 border-b border-border-default px-4 text-left hover:bg-hover">
+          <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-primary text-[11px] font-bold text-[var(--text-on-dark)]">
+            {currentName?.[0]?.toUpperCase() ?? 'S'}
+          </div>
+          <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">
+            {currentName ?? '…'}
+          </span>
+          <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-faint" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-52">
+        {(workspaces.data ?? []).map((w) => (
+          <DropdownMenuItem key={w.id} onSelect={() => router.push(`/w/${w.id}`)}>
+            <span className="min-w-0 flex-1 truncate">{w.name}</span>
+            {w.id === ws && <Check className="h-3.5 w-3.5 shrink-0 text-muted" />}
+          </DropdownMenuItem>
+        ))}
+        <DropdownMenuItem onSelect={() => router.push('/new-workspace')}>
+          <Plus className="h-3.5 w-3.5" /> New workspace
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 function SpaceSection({
   ws,
   space,
@@ -145,6 +182,7 @@ function SpaceSection({
   isAdmin: boolean;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
   const mutations = useSidebarMutations(ws);
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: space.id });
   const [renaming, setRenaming] = useState(false);
@@ -187,7 +225,10 @@ function SpaceSection({
                 onCreate={(name) => {
                   mutations.createDatabase.mutate(
                     { space_id: space.id, name },
-                    { onError: () => toast.error('Could not create database') },
+                    {
+                      onError: () => toast.error('Could not create database'),
+                      onSuccess: (created) => router.push(`/w/${ws}/d/${created.id}`),
+                    },
                   );
                   setNewDbOpen(false);
                 }}

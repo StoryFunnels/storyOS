@@ -246,7 +246,15 @@ export function TableView({
                           if (readOnly) return;
                           if (field.type === 'checkbox') {
                             commitEdit(row, field, !(valueOf(row, field) === true));
-                          } else {
+                          } else if (field.type !== 'title') {
+                            setEditing(true);
+                          }
+                        }}
+                        onDoubleClick={() => {
+                          // Title edits on double-click; single click selects so the
+                          // hover "Open" affordance stays reachable.
+                          if (!readOnly && field.type === 'title') {
+                            setCursor({ row: item.index, col: colIndex });
                             setEditing(true);
                           }
                         }}
@@ -275,7 +283,18 @@ export function TableView({
                             }}
                           />
                         ) : (
-                          <CellDisplay field={field} value={valueOf(row, field)} memberNames={memberNames} />
+                          <>
+                            <CellDisplay field={field} value={valueOf(row, field)} memberNames={memberNames} />
+                            {field.type === 'title' && (
+                              <Link
+                                href={`/w/${ws}/d/${db}/r/${row.id}`}
+                                onClick={(e) => e.stopPropagation()}
+                                className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-1 rounded border border-border-default bg-card px-1.5 py-0.5 text-[11px] font-medium text-muted opacity-0 shadow-sm hover:text-ink group-hover:opacity-100"
+                              >
+                                <Maximize2 className="h-3 w-3" /> Open
+                              </Link>
+                            )}
+                          </>
                         )}
                       </div>
                     );

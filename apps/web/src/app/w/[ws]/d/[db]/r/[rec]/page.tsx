@@ -239,6 +239,8 @@ function PropertyRow({
             }}
             onCancel={() => setEditing(false)}
           />
+        ) : value === undefined || value === null || value === '' ? (
+          <span className="text-[13px] text-faint">Empty</span>
         ) : (
           <CellDisplay field={field} value={value} memberNames={memberNames} />
         )}

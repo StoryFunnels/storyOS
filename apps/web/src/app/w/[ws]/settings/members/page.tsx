@@ -289,7 +289,7 @@ function InviteDialog({
               >
                 <option value="member">Member — full access</option>
                 <option value="admin">Admin — settings & members</option>
-                <option value="guest">Guest — read + comment, chosen spaces</option>
+                <option value="guest">Guest — access to chosen spaces only</option>
               </select>
             </div>
             {role === 'guest' && (

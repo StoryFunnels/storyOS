@@ -180,10 +180,16 @@ export function BoardView({
             readOnly={readOnly}
             onOpen={openRecord}
             onAdd={() =>
-              createRecord.mutate({
-                name: 'Untitled',
-                ...(column.id !== NO_VALUE ? { [groupField.apiName]: column.id } : {}),
-              })
+              createRecord.mutate(
+                {
+                  name: 'Untitled',
+                  ...(column.id !== NO_VALUE ? { [groupField.apiName]: column.id } : {}),
+                },
+                {
+                  // Land on the new record so it can be named right away.
+                  onSuccess: (created) => router.push(`/w/${ws}/d/${db}/r/${created.id}`),
+                },
+              )
             }
           />
         ))}
