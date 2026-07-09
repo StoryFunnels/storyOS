@@ -15,7 +15,7 @@ import { api } from '@/lib/api';
 import { useSession } from '@/lib/auth-client';
 import { useWorkspace } from '@/lib/queries';
 import { atLeast } from '@/lib/access';
-import { CellDisplay, CellEditor } from '@/components/table-view/cells';
+import { CellDisplay, CellEditor, PressButton } from '@/components/table-view/cells';
 import {
   AddFieldDialog,
   ChangeTypeDialog,
@@ -353,7 +353,7 @@ function PropertyRow({
         sortable.isDragging && 'z-10 bg-card opacity-80',
       )}
       onClick={() => {
-        if (field.type === 'lookup') return; // computed, read-only
+        if (field.type === 'lookup' || field.type === 'button') return; // not inline-editable
         if (!readOnly && !editing && field.type !== 'checkbox') setEditing(true);
         if (!readOnly && field.type === 'checkbox') onCommit(!(value === true));
       }}
@@ -372,6 +372,8 @@ function PropertyRow({
             }}
             onCancel={() => setEditing(false)}
           />
+        ) : field.type === 'button' ? (
+          <PressButton ws={ws} db={db} recordId={rec} field={field} disabled={readOnly} />
         ) : value === undefined || value === null || value === '' ? (
           <span className="text-[13px] text-faint">Empty</span>
         ) : (

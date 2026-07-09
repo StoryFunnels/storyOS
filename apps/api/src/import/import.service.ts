@@ -41,7 +41,7 @@ export class ImportService {
   ) {}
 
   parseCsv(buffer: Buffer): { headers: string[]; rows: string[][] } {
-    const text = buffer.toString('utf8').replace(/^﻿/, '');
+    const text = buffer.toString('utf8').replace(/^\uFEFF/, '');
     const firstLine = text.slice(0, text.indexOf('\n') + 1 || undefined);
     const delimiter = [',', ';', '\t'].reduce((best, d) =>
       (firstLine.split(d).length > firstLine.split(best).length ? d : best),

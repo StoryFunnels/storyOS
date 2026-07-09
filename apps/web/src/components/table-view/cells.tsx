@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
+import { api } from '@/lib/api';
 import { DatePicker } from '@/components/ui/date-picker';
 import { Avatar } from '@/components/ui/avatar';
 import { RelationChips } from './relation-cell';
@@ -333,5 +335,62 @@ function OptionList({
         )}
       </div>
     </div>
+  );
+}
+
+
+/** Button field renderer (MN-046): presses run server-side as the caller. */
+export function PressButton({
+  ws,
+  db,
+  recordId,
+  field,
+  disabled,
+  onPressed,
+}: {
+  ws: string;
+  db: string;
+  recordId: string;
+  field: Field;
+  disabled?: boolean;
+  onPressed?: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const color = OPTION_COLORS[(field.config['color'] as string) ?? 'gold'] ?? OPTION_COLORS.gold!;
+  const confirmText = field.config['confirm'] as string | undefined;
+
+  async function press(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (disabled || busy) return;
+    if (confirmText && !window.confirm(confirmText)) return;
+    setBusy(true);
+    const { data, error } = await api.POST(
+      '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/buttons/{field}/press' as never,
+      { params: { path: { ws, db, rec: recordId, field: field.id } } } as never,
+    );
+    setBusy(false);
+    if (error) {
+      toast.error((error as { error?: { message?: string } })?.error?.message ?? 'Button failed');
+      return;
+    }
+    const effects = (data as unknown as { effects: Array<{ summary: string }> }).effects;
+    toast.success(`${field.displayName}: ${effects.map((f) => f.summary).join(' · ')}`);
+    onPressed?.();
+  }
+
+  return (
+    <button
+      type="button"
+      title={disabled ? 'Requires editor access' : undefined}
+      className={cn(
+        'rounded-full px-2.5 py-0.5 text-[12px] font-medium',
+        disabled ? 'cursor-not-allowed opacity-50' : 'hover:brightness-95',
+      )}
+      style={{ backgroundColor: `${color}26`, color }}
+      onClick={press}
+      disabled={disabled || busy}
+    >
+      {busy ? '…' : field.displayName}
+    </button>
   );
 }

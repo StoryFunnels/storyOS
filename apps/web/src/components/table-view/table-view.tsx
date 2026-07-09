@@ -15,7 +15,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { CellDisplay, CellEditor } from './cells';
+import { CellDisplay, CellEditor, PressButton } from './cells';
 import {
   AddFieldDialog,
   ChangeTypeDialog,
@@ -39,7 +39,7 @@ const TITLE_WIDTH = 260;
 
 const HIDDEN_TYPES = new Set(['created_at', 'updated_at', 'created_by']);
 // checkbox toggles on click; rich_text edits on the record page; lookup is computed.
-const NO_EDITOR = new Set(['checkbox', 'rich_text', 'lookup']);
+const NO_EDITOR = new Set(['checkbox', 'rich_text', 'lookup', 'button']);
 
 interface Cursor {
   row: number;
@@ -354,6 +354,15 @@ export function TableView({
                               setEditing(false);
                               gridRef.current?.focus();
                             }}
+                          />
+                        ) : field.type === 'button' ? (
+                          <PressButton
+                            ws={ws}
+                            db={db}
+                            recordId={row.id}
+                            field={field}
+                            disabled={readOnly}
+                            onPressed={() => updateRecord.reset()}
                           />
                         ) : (
                           <>

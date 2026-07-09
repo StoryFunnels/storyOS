@@ -946,6 +946,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/databases/{db}/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import CSV: fields "file", "mapping" (JSON), "dry_run" ("true"/"false") */
+        post: operations["ImportController_run"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/buttons/{field}/press": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Press a button field (editor+); actions run as the presser */
+        post: operations["ButtonsController_press"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/templates": {
         parameters: {
             query?: never;
@@ -1100,7 +1134,7 @@ export interface components {
         CreateFieldDto: {
             display_name: string;
             /** @enum {string} */
-            type: "text" | "rich_text" | "number" | "checkbox" | "date" | "select" | "multi_select" | "url" | "email" | "user" | "lookup";
+            type: "text" | "rich_text" | "number" | "checkbox" | "date" | "select" | "multi_select" | "url" | "email" | "user" | "lookup" | "button";
             config?: {
                 [key: string]: unknown;
             };
@@ -1118,7 +1152,7 @@ export interface components {
         };
         ChangeFieldTypeDto: {
             /** @enum {string} */
-            type: "text" | "rich_text" | "number" | "checkbox" | "date" | "select" | "multi_select" | "url" | "email" | "user" | "lookup";
+            type: "text" | "rich_text" | "number" | "checkbox" | "date" | "select" | "multi_select" | "url" | "email" | "user" | "lookup" | "button";
             /** @default false */
             dry_run: boolean;
         };
@@ -2983,6 +3017,46 @@ export interface operations {
             query?: never;
             header?: never;
             path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ImportController_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ButtonsController_press: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                rec: string;
+                field: string;
+            };
             cookie?: never;
         };
         requestBody?: never;

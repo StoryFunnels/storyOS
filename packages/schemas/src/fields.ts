@@ -13,8 +13,23 @@ export const creatableFieldTypeSchema = z.enum([
   'email',
   'user',
   'lookup',
+  'button',
 ]);
 export type CreatableFieldType = z.infer<typeof creatableFieldTypeSchema>;
+
+export const OPTION_COLORS = [
+  'gray',
+  'brown',
+  'gold',
+  'orange',
+  'red',
+  'pink',
+  'purple',
+  'blue',
+  'teal',
+  'green',
+] as const;
+
 
 export const textConfigSchema = z.object({ multiline: z.boolean().default(false) });
 export const numberConfigSchema = z.object({
@@ -24,6 +39,31 @@ export const numberConfigSchema = z.object({
 });
 export const dateConfigSchema = z.object({ include_time: z.boolean().default(false) });
 export const userConfigSchema = z.object({ multi: z.boolean().default(false) });
+/** Button actions (MN-046, shared with MN-047 automations). */
+export const actionSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('set_values'),
+    values: z.record(z.string(), z.unknown()),
+  }),
+  z.object({
+    type: z.literal('create_record'),
+    database_id: z.uuid(),
+    values: z.record(z.string(), z.unknown()).default({}),
+    link_via_relation_field_id: z.uuid().optional(),
+  }),
+  z.object({
+    type: z.literal('add_comment'),
+    body_template: z.string().min(1).max(2000),
+  }),
+]);
+export type AutomationAction = z.infer<typeof actionSchema>;
+
+export const buttonConfigSchema = z.object({
+  color: z.enum(OPTION_COLORS).optional(),
+  confirm: z.string().max(200).optional(),
+  actions: z.array(actionSchema).min(1).max(10),
+});
+
 /** Lookup (MN-040): surface a related record's field through one of this database's relations. */
 export const lookupConfigSchema = z.object({
   relation_field_id: z.uuid(),
@@ -43,6 +83,7 @@ export const fieldConfigSchemas: Record<CreatableFieldType, z.ZodType> = {
   email: emptyConfigSchema,
   user: userConfigSchema,
   lookup: lookupConfigSchema,
+  button: buttonConfigSchema,
 };
 
 export function validateFieldConfig(type: CreatableFieldType, config: unknown) {
@@ -80,18 +121,6 @@ export const changeFieldTypeSchema = z.object({
   dry_run: z.boolean().default(false),
 });
 
-export const OPTION_COLORS = [
-  'gray',
-  'brown',
-  'gold',
-  'orange',
-  'red',
-  'pink',
-  'purple',
-  'blue',
-  'teal',
-  'green',
-] as const;
 
 export const createOptionSchema = z.object({
   label: z.string().trim().min(1).max(100),

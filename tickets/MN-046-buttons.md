@@ -1,7 +1,7 @@
 ---
 id: MN-046
 title: Button fields — one-click manual actions on a record
-status: todo
+status: done
 depends_on: []
 size: L
 ---

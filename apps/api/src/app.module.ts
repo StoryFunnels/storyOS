@@ -21,6 +21,7 @@ import { UsersModule } from './users/users.module';
 import { SearchModule } from './search/search.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { ImportModule } from './import/import.module';
+import { AutomationsModule } from './automations/automations.module';
 import { TemplatesModule } from './templates/templates.module';
 import { AccessModule } from './access/access.module';
 import { env } from './config/env';
@@ -58,6 +59,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     SearchModule,
     NotificationsModule,
     ImportModule,
+    AutomationsModule,
     TemplatesModule,
     AccessModule,
     ThrottlerModule.forRoot({

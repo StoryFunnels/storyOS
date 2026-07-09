@@ -2683,6 +2683,70 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/databases/{db}/import": {
+      "post": {
+        "operationId": "ImportController_run",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Import CSV: fields \"file\", \"mapping\" (JSON), \"dry_run\" (\"true\"/\"false\")",
+        "tags": [
+          "import"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/buttons/{field}/press": {
+      "post": {
+        "operationId": "ButtonsController_press",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "rec",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "field",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Press a button field (editor+); actions run as the presser",
+        "tags": [
+          "buttons"
+        ]
+      }
+    },
     "/api/v1/templates": {
       "get": {
         "operationId": "TemplatesController_list",
@@ -3142,7 +3206,8 @@
               "url",
               "email",
               "user",
-              "lookup"
+              "lookup",
+              "button"
             ]
           },
           "config": {
@@ -3209,7 +3274,8 @@
               "url",
               "email",
               "user",
-              "lookup"
+              "lookup",
+              "button"
             ]
           },
           "dry_run": {
