@@ -93,6 +93,16 @@ Every [M] story in [docs/product/user-stories.md](../docs/product/user-stories.m
 | MN-036 | [Creators template packs](MN-036-creators-template-packs.md) | M | 035 |
 | MN-037 | [Dev template packs](MN-037-dev-template-packs.md) | M | 035 |
 
+## Field & editing UX wave (founder feedback 2026-07-09)
+
+| # | Ticket | Size | Depends on |
+|---|---|---|---|
+| MN-038 | [Date picker v2 — one-click popover with type-to-parse](MN-038-date-picker.md) | M | — |
+| MN-039 | [Add-field affordance in the table header](MN-039-add-field-affordance.md) | S | — |
+| MN-040 | [Lookup fields — related record's field through a relation](MN-040-lookup-fields.md) | L | 018 |
+| MN-041 | [Rich Text field type — separated from plain Text](MN-041-rich-text-fields.md) | M | 025 |
+| MN-042 | [Hide and reorder fields — entity pages and views](MN-042-hide-reorder-fields.md) | M | — |
+
 Template catalog plan (agency + creators packs): [docs/product/template-library.md](../docs/product/template-library.md).
 
 ## Post-v1 parking lot (ADR-noted, not ticketed)
