@@ -1,7 +1,7 @@
 ---
 id: MN-052
 title: CSV import — move the team's data in (with a Fibery migration guide)
-status: todo
+status: done
 depends_on: []
 size: L
 ---

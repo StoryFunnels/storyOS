@@ -160,6 +160,13 @@ export class RelationsService {
     return { deleted: true };
   }
 
+  /** Raw relation row by id (importer + lookups). */
+  async getById(relationId: string) {
+    const relation = await this.db.query.relations.findFirst({ where: eq(relations.id, relationId) });
+    if (!relation) throw new NotFoundException('Relation not found');
+    return relation;
+  }
+
   /** All relations touching a database (for introspection + delete guard). */
   async forDatabase(databaseId: string): Promise<Relation[]> {
     return this.db.query.relations.findMany({

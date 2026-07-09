@@ -20,6 +20,7 @@ import { AttachmentsModule } from './attachments/attachments.module';
 import { UsersModule } from './users/users.module';
 import { SearchModule } from './search/search.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { ImportModule } from './import/import.module';
 import { TemplatesModule } from './templates/templates.module';
 import { AccessModule } from './access/access.module';
 import { env } from './config/env';
@@ -56,6 +57,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     UsersModule,
     SearchModule,
     NotificationsModule,
+    ImportModule,
     TemplatesModule,
     AccessModule,
     ThrottlerModule.forRoot({

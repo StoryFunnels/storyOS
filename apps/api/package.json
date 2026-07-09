@@ -24,6 +24,7 @@
     "@nestjs/throttler": "^6.5.0",
     "@storyos/schemas": "workspace:*",
     "better-auth": "^1.6.23",
+    "csv-parse": "^7.0.1",
     "drizzle-orm": "^0.45.2",
     "fastify": "^5.8.5",
     "fractional-indexing": "^4.0.0",
