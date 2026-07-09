@@ -120,6 +120,26 @@ Goal: everything JCM needs to move its daily work in. Sources: founder asks (for
 | MN-051 | [Calendar view](MN-051-calendar-view.md) | L | 038 |
 | MN-052 | [CSV import + Fibery migration guide](MN-052-csv-import.md) | L | — |
 
+## Template-library wave (Fibery review, 2026-07-10 — docs/product/fibery-template-review.md)
+
+| # | Ticket | Size | Depends on |
+|---|---|---|---|
+| MN-053 | [Template guide docs](MN-053-template-guides.md) | M | — |
+| MN-054 | [Meetings & Action Items pack](MN-054-meetings-pack.md) | S | 053 |
+| MN-055 | [Content marketing upgrade](MN-055-content-marketing-upgrade.md) | S | 053 |
+| MN-056 | [Customer Journey Map pack](MN-056-customer-journey-pack.md) | S | 053 |
+| MN-057 | [Event Planning pack](MN-057-event-planning-pack.md) | S | 053 |
+| MN-058 | [Video Production pack](MN-058-video-production-pack.md) | S | 053 |
+| MN-059 | [Content Calendar upgrade](MN-059-content-calendar-upgrade.md) | S | 053 |
+| MN-060 | [Campaigns HQ pack](MN-060-campaigns-hq-pack.md) | M | 053 |
+| MN-061 | [Sales CRM pack](MN-061-sales-crm-upgrade.md) | M | 053 |
+| MN-062 | [Org Chart pack](MN-062-org-chart-pack.md) | S | 053 |
+| MN-063 | [Time Off pack](MN-063-time-off-pack.md) | S | 053 |
+| MN-064 | [Rollup fields](MN-064-rollup-fields.md) | L | 040, 043 |
+| MN-065 | [GitHub integration v1](MN-065-github-integration.md) | L | — |
+| MN-066 | [Linear importer](MN-066-linear-import.md) | M | — |
+| MN-067 | [Branding: logo, favicon, OG, SEO](MN-067-branding.md) | S | — |
+
 Suggested order: 044 → 045 → 048 → 050 → 049 → 051 → 052 → 046 → 047 → 043 (visual quick wins → daily-driver surfaces → adoption gates → automation stack → formulas last, hardest and depends on the lookup machinery being battle-tested).
 
 Template catalog plan (agency + creators packs): [docs/product/template-library.md](../docs/product/template-library.md).
