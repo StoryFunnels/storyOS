@@ -6,11 +6,11 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { and, asc, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { CreatableFieldType } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { fields, records, selectOptions } from '../db/schema';
+import { fields, records, relations, selectOptions } from '../db/schema';
 import { slugify } from '../databases/databases.service';
 
 type Field = typeof fields.$inferSelect;
@@ -97,6 +97,7 @@ export class FieldsService {
       options?: Array<{ label: string; color?: string }>;
     },
   ) {
+    if (input.type === 'lookup') await this.assertLookupConfig(databaseId, input.config ?? {});
     const apiName = await this.uniqueApiName(databaseId, input.display_name);
     const siblings = await this.db.query.fields.findMany({
       where: and(eq(fields.databaseId, databaseId), eq(fields.isSystem, false)),
@@ -133,6 +134,66 @@ export class FieldsService {
       }
       return this.withOptions(tx as unknown as Db, field!);
     });
+  }
+
+  /** Types a lookup can surface — no chains (lookup-of-lookup) or nested relations in v1. */
+  private static readonly LOOKUPABLE = new Set([
+    'title', 'text', 'number', 'checkbox', 'date', 'select', 'multi_select', 'url', 'email',
+  ]);
+
+  /** MN-040: the relation must live on this database; the target field on the related one. */
+  private async assertLookupConfig(databaseId: string, config: Record<string, unknown>) {
+    const relationFieldId = config['relation_field_id'] as string | undefined;
+    const targetApiName = config['target_field_api_name'] as string | undefined;
+    const relationField = relationFieldId
+      ? await this.db.query.fields.findFirst({
+          where: and(eq(fields.id, relationFieldId), eq(fields.databaseId, databaseId), isNull(fields.deletedAt)),
+        })
+      : undefined;
+    if (!relationField || relationField.type !== 'relation') {
+      throw new UnprocessableEntityException('relation_field_id must be a relation field of this database');
+    }
+    const relConfig = relationField.config as { relation_id: string; side: 'a' | 'b' };
+    const relation = await this.db.query.relations.findFirst({ where: eq(relations.id, relConfig.relation_id) });
+    if (!relation) throw new UnprocessableEntityException('The underlying relation no longer exists');
+    const targetDbId = relConfig.side === 'a' ? relation.databaseBId : relation.databaseAId;
+    const targetField = await this.db.query.fields.findFirst({
+      where: and(eq(fields.databaseId, targetDbId), eq(fields.apiName, targetApiName ?? ''), isNull(fields.deletedAt)),
+    });
+    if (!targetField) {
+      throw new UnprocessableEntityException('target_field_api_name does not exist on the related database');
+    }
+    if (!FieldsService.LOOKUPABLE.has(targetField.type)) {
+      throw new UnprocessableEntityException(`Cannot look up ${targetField.type} fields`);
+    }
+  }
+
+  /** Soft-delete lookups that point at a deleted target field or severed relation field. */
+  async removeDependentLookups(db: Db, opts: { relationFieldIds?: string[]; targetField?: Field }) {
+    const lookups = await db.query.fields.findMany({
+      where: and(eq(fields.type, 'lookup'), isNull(fields.deletedAt)),
+    });
+    const doomed: string[] = [];
+    for (const lookup of lookups) {
+      const config = lookup.config as { relation_field_id?: string; target_field_api_name?: string };
+      if (opts.relationFieldIds?.includes(config.relation_field_id ?? '')) doomed.push(lookup.id);
+      if (opts.targetField && config.target_field_api_name === opts.targetField.apiName) {
+        // Same api_name may exist elsewhere; confirm the relation actually points at the target's db.
+        const relationField = await db.query.fields.findFirst({
+          where: eq(fields.id, config.relation_field_id ?? ''),
+        });
+        const relConfig = relationField?.config as { relation_id?: string; side?: 'a' | 'b' } | undefined;
+        if (!relConfig?.relation_id) continue;
+        const relation = await db.query.relations.findFirst({ where: eq(relations.id, relConfig.relation_id) });
+        if (!relation) continue;
+        const targetDbId = relConfig.side === 'a' ? relation.databaseBId : relation.databaseAId;
+        if (targetDbId === opts.targetField.databaseId) doomed.push(lookup.id);
+      }
+    }
+    if (doomed.length) {
+      await db.update(fields).set({ deletedAt: new Date() }).where(inArray(fields.id, doomed));
+    }
+    return doomed.length;
   }
 
   private async withOptions(db: Db, field: Field) {
@@ -174,7 +235,8 @@ export class FieldsService {
     }
     const recordsWithValue = await this.usageCount(databaseId, fieldId);
     await this.db.update(fields).set({ deletedAt: new Date() }).where(eq(fields.id, fieldId));
-    return { deleted: true, records_with_value: recordsWithValue };
+    const lookupsRemoved = await this.removeDependentLookups(this.db, { targetField: field });
+    return { deleted: true, records_with_value: recordsWithValue, lookups_removed: lookupsRemoved };
   }
 
   /**

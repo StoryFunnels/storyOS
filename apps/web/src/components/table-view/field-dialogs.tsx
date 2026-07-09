@@ -27,6 +27,7 @@ import {
   List,
   Pilcrow,
   Plus,
+  Search,
   Tags,
   Trash2,
   Type,
@@ -48,6 +49,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { OPTION_COLORS } from './cells';
+import { useDatabase } from './use-table-data';
 import type { Field } from './use-table-data';
 
 const FIELD_TYPES: Array<{
@@ -67,6 +69,7 @@ const FIELD_TYPES: Array<{
   { value: 'url', label: 'URL', description: 'A link', icon: Link2 },
   { value: 'email', label: 'Email', description: 'An email address', icon: AtSign },
   { value: 'relation', label: 'Relation', description: 'Link records in another database', icon: Workflow },
+  { value: 'lookup', label: 'Lookup', description: "Show a related record's field here", icon: Search },
 ];
 
 /** Conversions the API allows (docs/architecture/record-storage.md). */
@@ -289,7 +292,15 @@ export function AddFieldDialog({
   const [targetDb, setTargetDb] = useState('');
   const [singleTarget, setSingleTarget] = useState(true);
   const [inverseName, setInverseName] = useState('');
+  const [lookupRelationId, setLookupRelationId] = useState('');
+  const [lookupTargetApi, setLookupTargetApi] = useState('');
   const databases = useDatabases(ws);
+  const currentDb = useDatabase(ws, db);
+  const relationFields = (currentDb.data?.fields ?? []).filter((f) => f.type === 'relation');
+  const lookupRelation = relationFields.find((f) => f.id === lookupRelationId);
+  const lookupTargetDb = useDatabase(ws, lookupRelation?.relation?.target_database_id ?? '');
+  const LOOKUPABLE = new Set(['title', 'text', 'number', 'checkbox', 'date', 'select', 'multi_select', 'url', 'email']);
+  const lookupTargetFields = (lookupTargetDb.data?.fields ?? []).filter((f) => LOOKUPABLE.has(f.type));
 
   const create = useMutation({
     mutationFn: async () => {
@@ -307,7 +318,11 @@ export function AddFieldDialog({
         if (error) throw error;
         return;
       }
-      const body: Record<string, unknown> = { display_name: name, type, config };
+      const effectiveConfig =
+        type === 'lookup'
+          ? { relation_field_id: lookupRelationId, target_field_api_name: lookupTargetApi }
+          : config;
+      const body: Record<string, unknown> = { display_name: name, type, config: effectiveConfig };
       if (type === 'select' || type === 'multi_select') {
         body.options = options.filter((o) => o.label.trim()).map(({ label, color }) => ({ label, color }));
       }
@@ -358,6 +373,59 @@ export function AddFieldDialog({
             <DraftOptionsEditor options={options} onChange={setOptions} />
           </div>
         )}
+        {type === 'lookup' &&
+          (relationFields.length === 0 ? (
+            <p className="rounded-[var(--radius-card)] border border-border-default bg-canvas p-3 text-[13px] text-muted">
+              Lookups surface a related record's field — this database needs a relation first. Add a
+              Relation field, then come back.
+            </p>
+          ) : (
+            <>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="lookup-relation">Through relation</Label>
+                <select
+                  id="lookup-relation"
+                  required
+                  className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-sm text-ink"
+                  value={lookupRelationId}
+                  onChange={(e) => {
+                    setLookupRelationId(e.target.value);
+                    setLookupTargetApi('');
+                  }}
+                >
+                  <option value="" disabled>
+                    Pick a relation…
+                  </option>
+                  {relationFields.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.displayName} → {f.relation?.target_database_name ?? 'database'}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {lookupRelation && (
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="lookup-target">Field to show</Label>
+                  <select
+                    id="lookup-target"
+                    required
+                    className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-sm text-ink"
+                    value={lookupTargetApi}
+                    onChange={(e) => setLookupTargetApi(e.target.value)}
+                  >
+                    <option value="" disabled>
+                      Pick a field…
+                    </option>
+                    {lookupTargetFields.map((f) => (
+                      <option key={f.id} value={f.apiName}>
+                        {f.displayName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </>
+          ))}
         {type === 'relation' && (
           <>
             <div className="flex flex-col gap-1.5">
@@ -408,7 +476,14 @@ export function AddFieldDialog({
               Cancel
             </Button>
           </DialogClose>
-          <Button type="submit" disabled={create.isPending || (type === 'relation' && !targetDb)}>
+          <Button
+            type="submit"
+            disabled={
+              create.isPending ||
+              (type === 'relation' && !targetDb) ||
+              (type === 'lookup' && (!lookupRelationId || !lookupTargetApi))
+            }
+          >
             Add field
           </Button>
         </div>

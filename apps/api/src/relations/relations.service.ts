@@ -139,6 +139,21 @@ export class RelationsService {
   async remove(workspaceId: string, relationId: string) {
     const relation = await this.getRelation(workspaceId, relationId);
     await this.db.transaction(async (tx) => {
+      // Lookups through this relation lose their source (MN-040) — soft-delete them first.
+      const lookups = await tx.query.fields.findMany({
+        where: and(eq(fields.type, 'lookup'), isNull(fields.deletedAt)),
+      });
+      const doomed = lookups
+        .filter((l) => {
+          const config = l.config as { relation_field_id?: string };
+          return (
+            config.relation_field_id === relation.fieldAId || config.relation_field_id === relation.fieldBId
+          );
+        })
+        .map((l) => l.id);
+      if (doomed.length) {
+        await tx.update(fields).set({ deletedAt: new Date() }).where(inArray(fields.id, doomed));
+      }
       await tx.delete(fields).where(inArray(fields.id, [relation.fieldAId, relation.fieldBId]));
       await tx.delete(relations).where(eq(relations.id, relationId)); // links cascade
     });

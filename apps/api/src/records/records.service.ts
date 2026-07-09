@@ -9,7 +9,7 @@ import { validateRecordValues } from '@storyos/schemas';
 import type { FieldDef } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { activityEvents, fields, recordLinks, records, selectOptions } from '../db/schema';
+import { activityEvents, fields, recordLinks, records, relations, selectOptions } from '../db/schema';
 import type { QueryRecordsInput } from '@storyos/schemas';
 import { compileFilter, cursorCondition, sortExpr } from './query-compiler';
 import type { SortSpec } from './query-compiler';
@@ -128,6 +128,71 @@ export class RecordsService {
       for (const record of projected) {
         const chips = byRecord.get(record.id);
         if (chips?.length) record.values[def.api_name] = chips;
+      }
+    }
+    return this.attachLookups(projected, defs);
+  }
+
+  /**
+   * Resolves lookup values through the already-attached relation chips
+   * (MN-040): one target-defs load + one records batch per lookup field —
+   * never per record. select ids are projected as labels so clients can
+   * render without the target schema.
+   */
+  private async attachLookups(projected: ProjectedRecord[], defs: FieldDef[]): Promise<ProjectedRecord[]> {
+    const lookupDefs = defs.filter((d) => d.type === 'lookup');
+    if (lookupDefs.length === 0 || projected.length === 0) return projected;
+
+    for (const def of lookupDefs) {
+      const relationDef = defs.find((d) => d.id === def.config['relation_field_id']);
+      if (!relationDef || relationDef.type !== 'relation') continue; // dangling — resolve to nothing
+      const side = relationDef.config['side'] as 'a' | 'b';
+      const relation = await this.db.query.relations.findFirst({
+        where: eq(relations.id, relationDef.config['relation_id'] as string),
+      });
+      if (!relation) continue;
+      const targetDbId = side === 'a' ? relation.databaseBId : relation.databaseAId;
+      const single = relation.cardinality === 'one_to_many' && side === 'a';
+
+      const targetDefs = await this.fieldDefs(targetDbId);
+      const targetDef = targetDefs.find((d) => d.api_name === def.config['target_field_api_name']);
+      if (!targetDef) continue;
+
+      const optionLabels = new Map<string, string>();
+      if (targetDef.type === 'select' || targetDef.type === 'multi_select') {
+        const options = await this.db.query.selectOptions.findMany({
+          where: eq(selectOptions.fieldId, targetDef.id),
+        });
+        for (const option of options) optionLabels.set(option.id, option.label);
+      }
+
+      const linkedIds = new Set<string>();
+      for (const record of projected) {
+        const chips = record.values[relationDef.api_name] as Array<{ id: string }> | undefined;
+        chips?.forEach((chip) => linkedIds.add(chip.id));
+      }
+      if (linkedIds.size === 0) continue;
+
+      const targetRows = await this.db.query.records.findMany({
+        where: and(inArray(records.id, [...linkedIds]), isNull(records.deletedAt)),
+      });
+      const valueOf = (row: (typeof targetRows)[number]): unknown => {
+        if (targetDef.type === 'title') return row.title;
+        const raw = (row.values as Record<string, unknown>)[targetDef.id];
+        if (raw === undefined || raw === null) return null;
+        if (targetDef.type === 'select') return optionLabels.get(raw as string) ?? null;
+        if (targetDef.type === 'multi_select') {
+          return (raw as string[]).map((id) => optionLabels.get(id)).filter(Boolean);
+        }
+        return raw;
+      };
+      const byId = new Map(targetRows.map((row) => [row.id, valueOf(row)]));
+
+      for (const record of projected) {
+        const chips = record.values[relationDef.api_name] as Array<{ id: string }> | undefined;
+        if (!chips?.length) continue;
+        const resolved = chips.map((chip) => byId.get(chip.id)).filter((v) => v !== undefined && v !== null);
+        record.values[def.api_name] = single ? (resolved[0] ?? null) : resolved;
       }
     }
     return projected;

@@ -88,6 +88,8 @@ function coerce(field: FieldDef, raw: unknown): { value?: unknown; error?: strin
       if (typeof raw !== 'string') return { error: 'expected a string' };
       return { value: raw };
     }
+    case 'lookup':
+      return { error: 'lookup values are computed from the related record and cannot be written' };
     case 'rich_text': {
       // BlockNote document: an array of block objects, size-capped.
       if (

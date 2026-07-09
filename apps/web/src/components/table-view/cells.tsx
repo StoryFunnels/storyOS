@@ -70,6 +70,14 @@ export function CellDisplay({ field, value, memberNames }: DisplayProps) {
         <span className="text-faint"> </span>
       );
     }
+    case 'lookup': {
+      // Server resolves values (select ids → labels); scalar or array by cardinality.
+      const items = Array.isArray(value) ? value : [value];
+      const text = items
+        .map((v) => (v === true ? '✓' : v === false ? '—' : String(v)))
+        .join(', ');
+      return <span className="truncate text-[13px] text-ink-secondary">{text}</span>;
+    }
     case 'relation':
       return <RelationChips chips={(value as LinkChip[]) ?? []} />;
     case 'checkbox':

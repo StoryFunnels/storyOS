@@ -12,6 +12,7 @@ export const creatableFieldTypeSchema = z.enum([
   'url',
   'email',
   'user',
+  'lookup',
 ]);
 export type CreatableFieldType = z.infer<typeof creatableFieldTypeSchema>;
 
@@ -23,6 +24,11 @@ export const numberConfigSchema = z.object({
 });
 export const dateConfigSchema = z.object({ include_time: z.boolean().default(false) });
 export const userConfigSchema = z.object({ multi: z.boolean().default(false) });
+/** Lookup (MN-040): surface a related record's field through one of this database's relations. */
+export const lookupConfigSchema = z.object({
+  relation_field_id: z.uuid(),
+  target_field_api_name: z.string().trim().min(1),
+});
 export const emptyConfigSchema = z.object({});
 
 export const fieldConfigSchemas: Record<CreatableFieldType, z.ZodType> = {
@@ -36,6 +42,7 @@ export const fieldConfigSchemas: Record<CreatableFieldType, z.ZodType> = {
   url: emptyConfigSchema,
   email: emptyConfigSchema,
   user: userConfigSchema,
+  lookup: lookupConfigSchema,
 };
 
 export function validateFieldConfig(type: CreatableFieldType, config: unknown) {

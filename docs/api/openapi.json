@@ -2785,7 +2785,8 @@
               "multi_select",
               "url",
               "email",
-              "user"
+              "user",
+              "lookup"
             ]
           },
           "config": {
@@ -2851,7 +2852,8 @@
               "multi_select",
               "url",
               "email",
-              "user"
+              "user",
+              "lookup"
             ]
           },
           "dry_run": {

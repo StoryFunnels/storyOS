@@ -1,7 +1,7 @@
 ---
 id: MN-040
 title: Lookup fields — show a related record's field through a relation
-status: todo
+status: done
 depends_on: [MN-018]
 size: L
 ---

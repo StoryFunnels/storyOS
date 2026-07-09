@@ -68,6 +68,7 @@ export function useDatabase(ws: string, db: string) {
       if (error) throw error;
       return data as unknown as DatabaseDetail;
     },
+    enabled: Boolean(ws && db),
   });
 }
 
