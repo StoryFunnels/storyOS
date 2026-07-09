@@ -1,7 +1,7 @@
 ---
 id: MN-048
 title: Global search + command palette (Cmd+K)
-status: todo
+status: done
 depends_on: []
 size: L
 ---

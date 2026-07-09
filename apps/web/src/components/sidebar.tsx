@@ -7,11 +7,12 @@ import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from 
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Check, ChevronsUpDown, Database, KeyRound, LayoutTemplate, MoreHorizontal, Plus, Settings } from 'lucide-react';
+import { Check, ChevronsUpDown, Database, Home, KeyRound, LayoutTemplate, MoreHorizontal, Plus, Search, Settings } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { authClient } from '@/lib/auth-client';
+import { openPalette } from '@/lib/shortcuts';
 import { useDatabases, useSidebarMutations, useSpaces, useWorkspace } from '@/lib/queries';
 import type { DatabaseSummary, Space } from '@/lib/queries';
 import { ShareDialog } from '@/components/share-dialog';
@@ -57,6 +58,22 @@ export function Sidebar() {
       <WorkspaceSwitcher ws={ws} currentName={workspace.data?.name} />
 
       <nav className="flex-1 overflow-y-auto p-2">
+        {/* Top nav (Fibery-style): Home / Search above spaces */}
+        <div className="mb-2 flex flex-col gap-0.5">
+          <Link
+            href={`/w/${ws}`}
+            className="flex items-center gap-2 rounded px-2 py-1 text-[13px] text-ink-secondary hover:bg-hover"
+          >
+            <Home className="h-3.5 w-3.5" /> Home
+          </Link>
+          <button
+            className="flex w-full items-center gap-2 rounded px-2 py-1 text-[13px] text-ink-secondary hover:bg-hover"
+            onClick={openPalette}
+          >
+            <Search className="h-3.5 w-3.5" /> Search
+            <span className="ml-auto text-[10px] text-faint">⌘K</span>
+          </button>
+        </div>
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onSpaceDragEnd}>
           <SortableContext
             items={(spaces.data ?? []).map((s) => s.id)}

@@ -6,6 +6,7 @@ import type { ReactNode } from 'react';
 import { Toaster } from 'sonner';
 import { useSession } from '@/lib/auth-client';
 import { AccountMenu } from '@/components/account-menu';
+import { CommandPalette } from '@/components/command-palette';
 import { Sidebar } from '@/components/sidebar';
 
 /** The protected workspace shell. */
@@ -30,6 +31,7 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
         </header>
         <main className="min-w-0 flex-1 overflow-auto">{children}</main>
       </div>
+      <CommandPalette />
       <Toaster position="bottom-right" />
     </div>
   );

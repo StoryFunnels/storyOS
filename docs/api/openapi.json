@@ -2376,6 +2376,97 @@
         ]
       }
     },
+    "/api/v1/users/me/avatar": {
+      "post": {
+        "operationId": "UsersController_upload",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Set my avatar (multipart field \"file\", png/jpeg/webp ≤1MB)",
+        "tags": [
+          "users"
+        ]
+      },
+      "delete": {
+        "operationId": "UsersController_remove",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Remove my avatar (falls back to initials)",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/users/{id}/avatar": {
+      "get": {
+        "operationId": "UsersController_serve",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Serve a user avatar (session required)",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/search": {
+      "get": {
+        "operationId": "SearchController_search",
+        "parameters": [
+          {
+            "name": "q",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Search records by title + databases/spaces by name (grant-scoped)",
+        "tags": [
+          "search"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/recent": {
+      "get": {
+        "operationId": "SearchController_recent",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Records the caller touched most recently (from activity)",
+        "tags": [
+          "search"
+        ]
+      }
+    },
     "/api/v1/templates": {
       "get": {
         "operationId": "TemplatesController_list",

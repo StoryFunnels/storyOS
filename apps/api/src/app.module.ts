@@ -18,6 +18,7 @@ import { TokensModule } from './tokens/tokens.module';
 import { CollaborationModule } from './comments/collaboration.module';
 import { AttachmentsModule } from './attachments/attachments.module';
 import { UsersModule } from './users/users.module';
+import { SearchModule } from './search/search.module';
 import { TemplatesModule } from './templates/templates.module';
 import { AccessModule } from './access/access.module';
 import { env } from './config/env';
@@ -52,6 +53,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     CollaborationModule,
     AttachmentsModule,
     UsersModule,
+    SearchModule,
     TemplatesModule,
     AccessModule,
     ThrottlerModule.forRoot({
