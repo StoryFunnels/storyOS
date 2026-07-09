@@ -374,7 +374,13 @@ function HeaderCell({
       )}
       <Dialog open={dialog !== null} onOpenChange={(open) => !open && setDialog(null)}>
         {dialog === 'edit' && (
-          <EditFieldDialog ws={ws} db={db} field={field} onDone={() => setDialog(null)} />
+          <EditFieldDialog
+            ws={ws}
+            db={db}
+            field={field}
+            onDone={() => setDialog(null)}
+            onChangeType={() => setDialog('change-type')}
+          />
         )}
         {dialog === 'change-type' && (
           <ChangeTypeDialog ws={ws} db={db} field={field} onDone={() => setDialog(null)} />

@@ -4,13 +4,26 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, MoreHorizontal, Plus } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/auth-client';
 import { useWorkspace } from '@/lib/queries';
 import { atLeast } from '@/lib/access';
 import { CellDisplay, CellEditor } from '@/components/table-view/cells';
+import {
+  AddFieldDialog,
+  ChangeTypeDialog,
+  EditFieldDialog,
+  useDeleteField,
+} from '@/components/table-view/field-dialogs';
 import { RelationEditor } from '@/components/table-view/relation-cell';
+import { Dialog, DialogTrigger } from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import type { LinkChip } from '@/components/table-view/relation-cell';
 import {
   useDatabase,
@@ -31,6 +44,7 @@ export default function EntityPage() {
   const { data: session } = useSession();
   const readOnly = !atLeast(database.data?.my_access, 'editor');
   const canComment = atLeast(database.data?.my_access, 'commenter');
+  const schemaEditable = atLeast(database.data?.my_access, 'creator');
   const { updateRecord } = useRecordMutations(ws, db);
 
   const record = useQuery({
@@ -102,9 +116,11 @@ export default function EntityPage() {
             memberNames={memberNames}
             members={memberList}
             readOnly={readOnly}
+            schemaEditable={schemaEditable}
             onCommit={(value) => updateRecord.mutate({ rec, values: { [field.apiName]: value } })}
           />
         ))}
+        {schemaEditable && <AddFieldRow ws={ws} db={db} />}
       </div>
 
       <div className="mb-6">
@@ -162,6 +178,7 @@ function PropertyRow({
   memberNames,
   members,
   readOnly,
+  schemaEditable,
   onCommit,
 }: {
   ws: string;
@@ -172,6 +189,7 @@ function PropertyRow({
   memberNames: Map<string, string>;
   members: Array<{ id: string; name: string }>;
   readOnly: boolean;
+  schemaEditable: boolean;
   onCommit: (value: unknown) => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -180,7 +198,7 @@ function PropertyRow({
   if (field.type === 'relation') {
     const chips = (value as LinkChip[]) ?? [];
     return (
-      <div className="flex min-h-9 items-center border-b border-border-default py-1.5 last:border-b-0">
+      <div className="group flex min-h-9 items-center border-b border-border-default py-1.5 last:border-b-0">
         <span className="w-40 shrink-0 text-[13px] text-muted">{field.displayName}</span>
         <div className="relative flex min-w-0 flex-1 flex-wrap items-center gap-1">
           {chips.length > 0 ? (
@@ -214,13 +232,14 @@ function PropertyRow({
             />
           )}
         </div>
+        {schemaEditable && <FieldMenu ws={ws} db={db} field={field} />}
       </div>
     );
   }
 
   return (
     <div
-      className="flex min-h-9 items-center border-b border-border-default py-1.5 last:border-b-0"
+      className="group flex min-h-9 items-center border-b border-border-default py-1.5 last:border-b-0"
       onClick={() => {
         if (!readOnly && !editing && field.type !== 'checkbox') setEditing(true);
         if (!readOnly && field.type === 'checkbox') onCommit(!(value === true));
@@ -245,6 +264,66 @@ function PropertyRow({
           <CellDisplay field={field} value={value} memberNames={memberNames} />
         )}
       </div>
+      {schemaEditable && <FieldMenu ws={ws} db={db} field={field} />}
     </div>
+  );
+}
+
+/** Schema editing without leaving the record (Notion-style): ⋯ on each property row. */
+function FieldMenu({ ws, db, field }: { ws: string; db: string; field: Field }) {
+  const [dialog, setDialog] = useState<'edit' | 'change-type' | null>(null);
+  const deleteField = useDeleteField({ ws, db, field, onDone: () => setDialog(null) });
+  const canDelete = field.type !== 'relation' && !field.isSystem;
+
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            className="rounded p-0.5 text-faint opacity-0 hover:bg-hover hover:text-ink group-hover:opacity-100"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <MoreHorizontal className="h-3.5 w-3.5" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onSelect={() => setDialog('edit')}>Edit field</DropdownMenuItem>
+          {canDelete && (
+            <DropdownMenuItem className="text-error" onSelect={() => deleteField.mutate()}>
+              Delete field
+            </DropdownMenuItem>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <Dialog open={dialog !== null} onOpenChange={(open) => !open && setDialog(null)}>
+        {dialog === 'edit' && (
+          <EditFieldDialog
+            ws={ws}
+            db={db}
+            field={field}
+            onDone={() => setDialog(null)}
+            onChangeType={() => setDialog('change-type')}
+          />
+        )}
+        {dialog === 'change-type' && (
+          <ChangeTypeDialog ws={ws} db={db} field={field} onDone={() => setDialog(null)} />
+        )}
+      </Dialog>
+    </>
+  );
+}
+
+/** "+ Add a field" under the properties — schema growth from the entity page. */
+function AddFieldRow({ ws, db }: { ws: string; db: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <button className="flex items-center gap-1.5 self-start py-2 text-[13px] text-faint hover:text-ink">
+          <Plus className="h-3.5 w-3.5" /> Add a field
+        </button>
+      </DialogTrigger>
+      {open && <AddFieldDialog ws={ws} db={db} onDone={() => setOpen(false)} />}
+    </Dialog>
   );
 }
