@@ -25,14 +25,14 @@ export class SpacesService {
     return this.db.query.spaces.findMany({ where: scope, orderBy: [asc(spaces.position)] });
   }
 
-  async create(workspaceId: string, input: { name: string; icon?: string }) {
+  async create(workspaceId: string, input: { name: string; icon?: string; color?: string }) {
     const existing = await this.db.query.spaces.findMany({
       where: eq(spaces.workspaceId, workspaceId),
     });
     const position = Math.max(-1, ...existing.map((s) => s.position)) + 1;
     const [space] = await this.db
       .insert(spaces)
-      .values({ workspaceId, name: input.name, icon: input.icon, position })
+      .values({ workspaceId, name: input.name, icon: input.icon, color: input.color, position })
       .returning();
     return space!;
   }
@@ -40,7 +40,7 @@ export class SpacesService {
   async update(
     workspaceId: string,
     spaceId: string,
-    patch: { name?: string; icon?: string | null; position?: number },
+    patch: { name?: string; icon?: string | null; color?: string | null; position?: number },
   ) {
     const [space] = await this.db
       .update(spaces)

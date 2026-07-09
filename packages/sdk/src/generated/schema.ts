@@ -857,10 +857,14 @@ export interface components {
         CreateSpaceDto: {
             name: string;
             icon?: string;
+            /** @enum {string} */
+            color?: "gray" | "brown" | "gold" | "orange" | "red" | "pink" | "purple" | "blue" | "teal" | "green";
         };
         UpdateSpaceDto: {
             name?: string;
             icon?: string | null;
+            /** @enum {string|null} */
+            color?: "gray" | "brown" | "gold" | "orange" | "red" | "pink" | "purple" | "blue" | "teal" | "green" | null;
             position?: number;
         };
         UpdateMemberDto: {
@@ -893,6 +897,8 @@ export interface components {
         UpdateDatabaseDto: {
             name?: string;
             icon?: string | null;
+            /** @enum {string|null} */
+            color?: "gray" | "brown" | "gold" | "orange" | "red" | "pink" | "purple" | "blue" | "teal" | "green" | null;
             /** Format: uuid */
             space_id?: string;
             position?: number;

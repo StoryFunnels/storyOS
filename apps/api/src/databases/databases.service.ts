@@ -240,7 +240,7 @@ export class DatabasesService {
   async update(
     membership: Membership,
     databaseId: string,
-    patch: { name?: string; icon?: string | null; space_id?: string; position?: number },
+    patch: { name?: string; icon?: string | null; color?: string | null; space_id?: string; position?: number },
   ) {
     await this.get(membership, databaseId);
 
@@ -256,6 +256,7 @@ export class DatabasesService {
       .set({
         name: patch.name,
         icon: patch.icon,
+        color: patch.color === null ? null : patch.color,
         spaceId: patch.space_id,
         position: patch.position,
       })

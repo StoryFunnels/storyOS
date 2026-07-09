@@ -15,14 +15,20 @@ export const updateWorkspaceSchema = z.object({
   name: z.string().trim().min(1).max(100).optional(),
 });
 
+export const spaceColorSchema = z.enum([
+  'gray', 'brown', 'gold', 'orange', 'red', 'pink', 'purple', 'blue', 'teal', 'green',
+]);
+
 export const createSpaceSchema = z.object({
   name: z.string().trim().min(1).max(100),
   icon: z.string().max(16).optional(),
+  color: spaceColorSchema.optional(),
 });
 
 export const updateSpaceSchema = z.object({
   name: z.string().trim().min(1).max(100).optional(),
   icon: z.string().max(16).nullable().optional(),
+  color: spaceColorSchema.nullable().optional(),
   position: z.number().int().optional(),
 });
 

@@ -75,6 +75,7 @@ export const spaces = pgTable('spaces', {
     .references(() => workspaces.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
   icon: text('icon'),
+  color: text('color'),
   position: integer('position').notNull().default(0),
   ...timestamps,
 });
@@ -126,6 +127,7 @@ export const databases = pgTable(
       .references(() => spaces.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
     icon: text('icon'),
+    color: text('color'),
     apiSlug: text('api_slug').notNull(),
     position: integer('position').notNull().default(0),
     ...timestamps,

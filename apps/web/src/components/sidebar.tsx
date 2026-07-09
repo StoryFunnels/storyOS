@@ -15,6 +15,7 @@ import { authClient } from '@/lib/auth-client';
 import { useDatabases, useSidebarMutations, useSpaces, useWorkspace } from '@/lib/queries';
 import type { DatabaseSummary, Space } from '@/lib/queries';
 import { ShareDialog } from '@/components/share-dialog';
+import { EntityIcon, IconColorPicker } from '@/components/ui/icon-picker';
 import { TemplateGalleryDialog } from '@/components/template-gallery';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/components/ui/dialog';
@@ -188,6 +189,7 @@ function SpaceSection({
   const [renaming, setRenaming] = useState(false);
   const [newDbOpen, setNewDbOpen] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const [iconing, setIconing] = useState(false);
 
   return (
     <div
@@ -209,7 +211,8 @@ function SpaceSection({
             }}
           />
         ) : (
-          <span className="text-[11px] font-medium uppercase tracking-wider text-faint">
+          <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-faint">
+            {space.icon && <span className="text-[13px] leading-none">{space.icon}</span>}
             {space.name}
           </span>
         )}
@@ -242,6 +245,7 @@ function SpaceSection({
               </DropdownMenuTrigger>
               <DropdownMenuContent>
                 <DropdownMenuItem onSelect={() => setRenaming(true)}>Rename</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setIconing(true)}>Icon & color</DropdownMenuItem>
                 {isAdmin && (
                   <DropdownMenuItem onSelect={() => setSharing(true)}>Manage access</DropdownMenuItem>
                 )}
@@ -264,6 +268,17 @@ function SpaceSection({
       </div>
       <Dialog open={sharing} onOpenChange={setSharing}>
         {sharing && <ShareDialog ws={ws} scope={{ space_id: space.id }} scopeName={space.name} />}
+      </Dialog>
+      <Dialog open={iconing} onOpenChange={setIconing}>
+        {iconing && (
+          <DialogContent title={`Icon for "${space.name}"`} className="max-w-fit">
+            <IconColorPicker
+              icon={space.icon}
+              color={space.color}
+              onChange={(patch) => mutations.updateSpace.mutate({ id: space.id, ...patch })}
+            />
+          </DialogContent>
+        )}
       </Dialog>
 
       {databases.map((db) => (
@@ -297,6 +312,7 @@ function DatabaseRow({
   const [renaming, setRenaming] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const [iconing, setIconing] = useState(false);
 
   return (
     <div
@@ -317,7 +333,11 @@ function DatabaseRow({
         />
       ) : (
         <Link href={`/w/${ws}/d/${db.id}`} className="flex min-w-0 flex-1 items-center gap-2">
-          <Database className="h-3.5 w-3.5 shrink-0 text-muted" />
+          <EntityIcon
+            icon={db.icon}
+            color={db.color}
+            fallback={<Database className="h-3.5 w-3.5 text-muted" />}
+          />
           <span className="truncate">{db.name}</span>
         </Link>
       )}
@@ -330,6 +350,7 @@ function DatabaseRow({
           </DropdownMenuTrigger>
           <DropdownMenuContent>
             <DropdownMenuItem onSelect={() => setRenaming(true)}>Rename</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setIconing(true)}>Icon & color</DropdownMenuItem>
             {isAdmin && (
               <DropdownMenuItem onSelect={() => setSharing(true)}>Manage access</DropdownMenuItem>
             )}
@@ -344,6 +365,17 @@ function DatabaseRow({
       )}
       <Dialog open={sharing} onOpenChange={setSharing}>
         {sharing && <ShareDialog ws={ws} scope={{ database_id: db.id }} scopeName={db.name} />}
+      </Dialog>
+      <Dialog open={iconing} onOpenChange={setIconing}>
+        {iconing && (
+          <DialogContent title={`Icon for "${db.name}"`} className="max-w-fit">
+            <IconColorPicker
+              icon={db.icon}
+              color={db.color}
+              onChange={(patch) => mutations.updateDatabase.mutate({ id: db.id, ...patch })}
+            />
+          </DialogContent>
+        )}
       </Dialog>
       <Dialog open={confirmingDelete} onOpenChange={setConfirmingDelete}>
         <DeleteDatabaseDialog

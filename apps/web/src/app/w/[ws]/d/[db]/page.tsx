@@ -50,7 +50,10 @@ function DatabasePageInner() {
     <div className="flex h-full flex-col">
       {/* View tabs */}
       <div className="flex h-11 items-center gap-1 border-b border-border-default px-3">
-        <h1 className="mr-3 text-sm font-semibold text-ink">{database.data?.name}</h1>
+        <h1 className="mr-3 flex items-center gap-1.5 text-sm font-semibold text-ink">
+          {database.data?.icon && <span className="text-[15px] leading-none">{database.data.icon}</span>}
+          {database.data?.name}
+        </h1>
         {views.map((view) => (
           <button
             key={view.id}

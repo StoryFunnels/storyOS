@@ -1,7 +1,7 @@
 ---
 id: MN-044
 title: Icons and colors for databases and spaces
-status: todo
+status: done
 depends_on: []
 size: M
 ---

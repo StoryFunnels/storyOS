@@ -2597,6 +2597,21 @@
           "icon": {
             "type": "string",
             "maxLength": 16
+          },
+          "color": {
+            "type": "string",
+            "enum": [
+              "gray",
+              "brown",
+              "gold",
+              "orange",
+              "red",
+              "pink",
+              "purple",
+              "blue",
+              "teal",
+              "green"
+            ]
           }
         },
         "required": [
@@ -2614,6 +2629,23 @@
           "icon": {
             "type": "string",
             "maxLength": 16,
+            "nullable": true
+          },
+          "color": {
+            "type": "string",
+            "enum": [
+              "gray",
+              "brown",
+              "gold",
+              "orange",
+              "red",
+              "pink",
+              "purple",
+              "blue",
+              "teal",
+              "green",
+              null
+            ],
             "nullable": true
           },
           "position": {
@@ -2736,6 +2768,23 @@
           "icon": {
             "type": "string",
             "maxLength": 16,
+            "nullable": true
+          },
+          "color": {
+            "type": "string",
+            "enum": [
+              "gray",
+              "brown",
+              "gold",
+              "orange",
+              "red",
+              "pink",
+              "purple",
+              "blue",
+              "teal",
+              "green",
+              null
+            ],
             "nullable": true
           },
           "space_id": {

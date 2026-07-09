@@ -57,7 +57,7 @@ export function taskDnaDatabase(opts: TaskDnaOptions): TemplateDatabaseDef {
       : []),
     ...(opts.extraFields ?? []),
   ];
-  return { key: opts.key, name: opts.name, fields };
+  return { key: opts.key, name: opts.name, icon: opts.name === 'Issues' ? '🐛' : '✅', fields };
 }
 
 /** Sub-tasks + blocked-by self-relations for a DNA database. */

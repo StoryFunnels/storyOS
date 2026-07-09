@@ -13,7 +13,7 @@ export const coachingPractice: TemplateDef = {
   databases: [
     {
       key: 'clients',
-      name: 'Clients',
+      name: 'Clients', icon: '🤝',
       fields: [
         { key: 'status', display_name: 'Status', type: 'select', options: [
           { label: 'Discovery', color: 'gray' }, { label: 'Proposal', color: 'blue' },
@@ -35,7 +35,7 @@ export const coachingPractice: TemplateDef = {
     },
     {
       key: 'programs',
-      name: 'Programs',
+      name: 'Programs', icon: '🎓',
       fields: [
         { key: 'type', display_name: 'Type', type: 'select', options: [
           { label: '1:1' }, { label: 'Group' }, { label: 'Cohort' }, { label: 'Course' }, { label: 'Retreat' },
@@ -51,7 +51,7 @@ export const coachingPractice: TemplateDef = {
     },
     {
       key: 'sessions',
-      name: 'Sessions',
+      name: 'Sessions', icon: '🗣️',
       fields: [
         { key: 'date', display_name: 'Date', type: 'date', config: { include_time: true } },
         { key: 'status', display_name: 'Status', type: 'select', options: [
@@ -109,7 +109,7 @@ export const consulting: TemplateDef = {
   databases: [
     {
       key: 'clients',
-      name: 'Clients',
+      name: 'Clients', icon: '🤝',
       fields: [
         { key: 'status', display_name: 'Status', type: 'select', options: [
           { label: 'Prospect', color: 'gray' }, { label: 'Active', color: 'green' },
@@ -125,7 +125,7 @@ export const consulting: TemplateDef = {
     },
     {
       key: 'proposals',
-      name: 'Proposals',
+      name: 'Proposals', icon: '🧾',
       fields: [
         { key: 'stage', display_name: 'Stage', type: 'select', options: [
           { label: 'Draft', color: 'gray' }, { label: 'Sent', color: 'gold' },
@@ -146,7 +146,7 @@ export const consulting: TemplateDef = {
     },
     {
       key: 'engagements',
-      name: 'Engagements',
+      name: 'Engagements', icon: '💼',
       fields: [
         { key: 'status', display_name: 'Status', type: 'select', options: [
           { label: 'Kickoff', color: 'blue' }, { label: 'Active', color: 'green' },
@@ -218,7 +218,7 @@ export const authorStudio: TemplateDef = {
     },
     {
       key: 'chapters',
-      name: 'Chapters',
+      name: 'Chapters', icon: '📖',
       fields: [
         { key: 'status', display_name: 'Status', type: 'select', options: [
           { label: 'Outline', color: 'gray' }, { label: 'Draft', color: 'gold' },
@@ -231,7 +231,7 @@ export const authorStudio: TemplateDef = {
     },
     {
       key: 'research',
-      name: 'Research Notes',
+      name: 'Research Notes', icon: '🧠',
       fields: [
         { key: 'type', display_name: 'Type', type: 'select', options: [
           { label: 'Interview' }, { label: 'Article' }, { label: 'Book' }, { label: 'Idea' }, { label: 'Quote' },
@@ -249,7 +249,7 @@ export const authorStudio: TemplateDef = {
     }),
     {
       key: 'appearances',
-      name: 'Appearances',
+      name: 'Appearances', icon: '🎙️',
       fields: [
         { key: 'status', display_name: 'Status', type: 'select', options: [
           { label: 'Wishlist', color: 'gray' }, { label: 'Pitched', color: 'blue' },

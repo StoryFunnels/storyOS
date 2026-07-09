@@ -7,6 +7,7 @@ export interface Space {
   id: string;
   name: string;
   icon: string | null;
+  color: string | null;
   position: number;
 }
 export interface DatabaseSummary {
@@ -14,6 +15,7 @@ export interface DatabaseSummary {
   spaceId: string;
   name: string;
   icon: string | null;
+  color: string | null;
   apiSlug: string;
   position: number;
 }
@@ -70,7 +72,7 @@ export function useSidebarMutations(ws: string) {
       onSuccess: invalidate,
     }),
     updateSpace: useMutation({
-      mutationFn: async ({ id, ...body }: { id: string; name?: string; position?: number }) =>
+      mutationFn: async ({ id, ...body }: { id: string; name?: string; icon?: string | null; color?: string | null; position?: number }) =>
         unwrap<Space>(
           await api.PATCH('/api/v1/workspaces/{ws}/spaces/{space}', {
             params: { path: { ws, space: id } },
@@ -102,6 +104,8 @@ export function useSidebarMutations(ws: string) {
       }: {
         id: string;
         name?: string;
+        icon?: string | null;
+        color?: string | null;
         space_id?: string;
         position?: number;
       }) =>

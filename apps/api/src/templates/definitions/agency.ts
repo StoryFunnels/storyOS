@@ -13,7 +13,7 @@ export const clientWork: TemplateDef = {
   databases: [
     {
       key: 'clients',
-      name: 'Clients',
+      name: 'Clients', icon: '🤝',
       fields: [
         { key: 'status', display_name: 'Status', type: 'select', options: [
           { label: 'Lead', color: 'gray' }, { label: 'Onboarding', color: 'blue' },
@@ -43,7 +43,7 @@ export const clientWork: TemplateDef = {
     },
     {
       key: 'contacts',
-      name: 'Contacts',
+      name: 'Contacts', icon: '👥',
       fields: [
         { key: 'role', display_name: 'Role', type: 'text' },
         { key: 'email', display_name: 'Email', type: 'email' },
@@ -56,7 +56,7 @@ export const clientWork: TemplateDef = {
     },
     {
       key: 'projects',
-      name: 'Projects',
+      name: 'Projects', icon: '🗺️',
       fields: [
         { key: 'status', display_name: 'Status', type: 'select', options: [
           { label: 'Scoping', color: 'gray' }, { label: 'Planning', color: 'blue' },
@@ -133,7 +133,7 @@ export const clientSpace: TemplateDef = {
     }),
     {
       key: 'deliverables',
-      name: 'Deliverables',
+      name: 'Deliverables', icon: '📦',
       fields: [
         { key: 'status', display_name: 'Status', type: 'select', options: [
           { label: 'Draft', color: 'gray' }, { label: 'In Review', color: 'gold' },
@@ -150,7 +150,7 @@ export const clientSpace: TemplateDef = {
     },
     {
       key: 'meetings',
-      name: 'Meetings',
+      name: 'Meetings', icon: '☕',
       fields: [
         { key: 'date', display_name: 'Date', type: 'date', config: { include_time: true } },
         { key: 'type', display_name: 'Type', type: 'select', options: [
@@ -162,7 +162,7 @@ export const clientSpace: TemplateDef = {
     },
     {
       key: 'requests',
-      name: 'Requests',
+      name: 'Requests', icon: '💬',
       fields: [
         { key: 'status', display_name: 'Status', type: 'select', options: [
           { label: 'New', color: 'blue' }, { label: 'Accepted', color: 'green' },
@@ -206,7 +206,7 @@ export const agencyCrm: TemplateDef = {
   databases: [
     {
       key: 'leads',
-      name: 'Leads',
+      name: 'Leads', icon: '🧲',
       fields: [
         { key: 'stage', display_name: 'Stage', type: 'select', options: [
           { label: 'New', color: 'gray' }, { label: 'Contacted', color: 'blue' },
@@ -235,7 +235,7 @@ export const agencyCrm: TemplateDef = {
     },
     {
       key: 'proposals',
-      name: 'Proposals',
+      name: 'Proposals', icon: '🧾',
       fields: [
         { key: 'status', display_name: 'Status', type: 'select', options: [
           { label: 'Draft', color: 'gray' }, { label: 'Internal Review', color: 'purple' },
@@ -275,7 +275,7 @@ export const socialCalendar: TemplateDef = {
   databases: [
     {
       key: 'posts',
-      name: 'Posts',
+      name: 'Posts', icon: '📅',
       fields: [
         { key: 'status', display_name: 'Status', type: 'select', options: [
           { label: 'Idea', color: 'gray' }, { label: 'Drafted', color: 'blue' },
@@ -320,7 +320,7 @@ export const funnels: TemplateDef = {
   databases: [
     {
       key: 'funnels',
-      name: 'Funnels',
+      name: 'Funnels', icon: '🌊',
       fields: [
         { key: 'status', display_name: 'Status', type: 'select', options: [
           { label: 'Idea', color: 'gray' }, { label: 'Building', color: 'gold' },
@@ -368,7 +368,7 @@ export const contentPipeline: TemplateDef = {
   databases: [
     {
       key: 'articles',
-      name: 'Articles',
+      name: 'Articles', icon: '📰',
       fields: [
         { key: 'stage', display_name: 'Stage', type: 'select', options: [
           { label: 'Idea', color: 'gray' }, { label: 'Brief', color: 'blue' },
@@ -396,7 +396,7 @@ export const contentPipeline: TemplateDef = {
     },
     {
       key: 'campaigns',
-      name: 'Campaigns',
+      name: 'Campaigns', icon: '📣',
       fields: [
         { key: 'status', display_name: 'Status', type: 'select', options: [
           { label: 'Planned', color: 'blue' }, { label: 'Running', color: 'gold' }, { label: 'Done', color: 'green' },

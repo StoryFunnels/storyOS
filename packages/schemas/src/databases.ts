@@ -6,9 +6,14 @@ export const createDatabaseSchema = z.object({
   icon: z.string().max(16).optional(),
 });
 
+export const databaseColorSchema = z.enum([
+  'gray', 'brown', 'gold', 'orange', 'red', 'pink', 'purple', 'blue', 'teal', 'green',
+]);
+
 export const updateDatabaseSchema = z.object({
   name: z.string().trim().min(1).max(100).optional(),
   icon: z.string().max(16).nullable().optional(),
+  color: databaseColorSchema.nullable().optional(),
   space_id: z.uuid().optional(),
   position: z.number().int().optional(),
 });

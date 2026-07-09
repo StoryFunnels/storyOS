@@ -34,7 +34,7 @@ export const devProject: TemplateDef = {
     issueDna(),
     {
       key: 'sprints',
-      name: 'Sprints',
+      name: 'Sprints', icon: '🏃',
       fields: [
         { key: 'status', display_name: 'Status', type: 'select', options: [
           { label: 'Planned', color: 'gray' }, { label: 'Active', color: 'green' }, { label: 'Done', color: 'brown' },
@@ -47,7 +47,7 @@ export const devProject: TemplateDef = {
     },
     {
       key: 'releases',
-      name: 'Releases',
+      name: 'Releases', icon: '🚀',
       fields: [
         { key: 'status', display_name: 'Status', type: 'select', options: [
           { label: 'Planned', color: 'gray' }, { label: 'In Progress', color: 'gold' }, { label: 'Released', color: 'green' },
@@ -58,7 +58,7 @@ export const devProject: TemplateDef = {
     },
     {
       key: 'docs',
-      name: 'Product Docs',
+      name: 'Product Docs', icon: '📚',
       fields: [
         { key: 'type', display_name: 'Type', type: 'select', options: [
           { label: 'Spec' }, { label: 'Decision (ADR)' }, { label: 'Runbook' }, { label: 'Idea' },
@@ -108,7 +108,7 @@ export const soloDev: TemplateDef = {
     }),
     {
       key: 'releases',
-      name: 'Releases',
+      name: 'Releases', icon: '🚀',
       fields: [
         { key: 'status', display_name: 'Status', type: 'select', options: [
           { label: 'Planned', color: 'gray' }, { label: 'In Progress', color: 'gold' }, { label: 'Released', color: 'green' },
