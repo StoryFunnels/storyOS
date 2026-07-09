@@ -67,10 +67,11 @@ export default function EntityPage() {
 
   const members = useMembers(ws, !readOnly);
   const memberList = useMemo(
-    () => (members.data ?? []).map((m) => ({ id: m.user.id, name: m.user.name })),
+    () => (members.data ?? []).map((m) => ({ id: m.user.id, name: m.user.name, image: m.user.image })),
     [members.data],
   );
   const memberNames = useMemo(() => new Map(memberList.map((m) => [m.id, m.name])), [memberList]);
+  const memberImages = useMemo(() => new Map(memberList.map((m) => [m.id, m.image])), [memberList]);
 
   const allFields = useMemo(
     () => (database.data?.fields ?? []).filter((f) => !HIDDEN.has(f.type)),
@@ -163,6 +164,7 @@ export default function EntityPage() {
                 field={field}
                 record={record.data!}
                 memberNames={memberNames}
+                memberImages={memberImages}
                 members={memberList}
                 readOnly={readOnly}
                 schemaEditable={schemaEditable}
@@ -256,6 +258,7 @@ function PropertyRow({
   field,
   record,
   memberNames,
+  memberImages,
   members,
   readOnly,
   schemaEditable,
@@ -267,7 +270,8 @@ function PropertyRow({
   field: Field;
   record: RecordRow;
   memberNames: Map<string, string>;
-  members: Array<{ id: string; name: string }>;
+  memberImages?: Map<string, string | null>;
+  members: Array<{ id: string; name: string; image?: string | null }>;
   readOnly: boolean;
   schemaEditable: boolean;
   onCommit: (value: unknown) => void;
@@ -371,7 +375,7 @@ function PropertyRow({
         ) : value === undefined || value === null || value === '' ? (
           <span className="text-[13px] text-faint">Empty</span>
         ) : (
-          <CellDisplay field={field} value={value} memberNames={memberNames} />
+          <CellDisplay field={field} value={value} memberNames={memberNames} memberImages={memberImages} />
         )}
       </div>
       {schemaEditable && <FieldMenu ws={ws} db={db} field={field} />}

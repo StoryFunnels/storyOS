@@ -81,7 +81,7 @@ export function useMembers(ws: string, enabled: boolean) {
         params: { path: { ws } },
       });
       if (error) throw error;
-      return data as unknown as Array<{ user: { id: string; name: string } }>;
+      return data as unknown as Array<{ user: { id: string; name: string; image: string | null } }>;
     },
     enabled,
     retry: false,

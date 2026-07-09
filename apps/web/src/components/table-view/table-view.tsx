@@ -74,10 +74,11 @@ export function TableView({
   const hasUserField = fields.some((f) => f.type === 'user');
   const members = useMembers(ws, hasUserField && !readOnly);
   const memberList = useMemo(
-    () => (members.data ?? []).map((m) => ({ id: m.user.id, name: m.user.name })),
+    () => (members.data ?? []).map((m) => ({ id: m.user.id, name: m.user.name, image: m.user.image })),
     [members.data],
   );
   const memberNames = useMemo(() => new Map(memberList.map((m) => [m.id, m.name])), [memberList]);
+  const memberImages = useMemo(() => new Map(memberList.map((m) => [m.id, m.image])), [memberList]);
 
   const rows = useMemo(
     () => (records.data?.pages ?? []).flatMap((page) => page.data),
@@ -283,7 +284,7 @@ export function TableView({
                           />
                         ) : (
                           <>
-                            <CellDisplay field={field} value={valueOf(row, field)} memberNames={memberNames} />
+                            <CellDisplay field={field} value={valueOf(row, field)} memberNames={memberNames} memberImages={memberImages} />
                             {field.type === 'title' && (
                               <Link
                                 href={`/w/${ws}/d/${db}/r/${row.id}`}

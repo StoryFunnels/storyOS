@@ -5,6 +5,7 @@ import { Suspense, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
+import { Avatar } from '@/components/ui/avatar';
 import { useSpaces, useWorkspace } from '@/lib/queries';
 import { GRANT_ROLES } from '@/lib/access';
 import { Button } from '@/components/ui/button';
@@ -120,9 +121,12 @@ function MembersPageContent() {
             key={member.id}
             className="flex items-center justify-between border-b border-border-default px-4 py-3 last:border-b-0"
           >
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium text-ink">{member.user.name}</p>
-              <p className="truncate text-[13px] text-muted">{member.user.email}</p>
+            <div className="flex min-w-0 items-center gap-3">
+              <Avatar userId={member.user.id} name={member.user.name} image={member.user.image} size={32} />
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-ink">{member.user.name}</p>
+                <p className="truncate text-[13px] text-muted">{member.user.email}</p>
+              </div>
             </div>
             <div className="flex items-center gap-2">
               {isAdmin ? (

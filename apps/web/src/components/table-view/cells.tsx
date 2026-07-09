@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { DatePicker } from '@/components/ui/date-picker';
+import { Avatar } from '@/components/ui/avatar';
 import { RelationChips } from './relation-cell';
 import type { LinkChip } from './relation-cell';
 import type { Field, SelectOption } from './use-table-data';
@@ -38,6 +39,7 @@ interface DisplayProps {
   field: Field;
   value: unknown;
   memberNames: Map<string, string>;
+  memberImages?: Map<string, string | null>;
 }
 
 /** Plain text of a BlockNote document, for grid previews. */
@@ -57,7 +59,7 @@ export function richTextPreview(blocks: unknown, max = 200): string {
   return out.join(' ').trim().slice(0, max);
 }
 
-export function CellDisplay({ field, value, memberNames }: DisplayProps) {
+export function CellDisplay({ field, value, memberNames, memberImages }: DisplayProps) {
   if (value === undefined || value === null || value === '') {
     return <span className="text-faint"> </span>;
   }
@@ -102,8 +104,13 @@ export function CellDisplay({ field, value, memberNames }: DisplayProps) {
     case 'user': {
       const ids = Array.isArray(value) ? (value as string[]) : [String(value)];
       return (
-        <span className="truncate text-[13px]">
-          {ids.map((id) => memberNames.get(id) ?? '(unknown)').join(', ')}
+        <span className="flex min-w-0 items-center gap-1.5 overflow-hidden">
+          {ids.map((id) => (
+            <span key={id} className="flex min-w-0 items-center gap-1 text-[13px]">
+              <Avatar userId={id} name={memberNames.get(id) ?? '?'} image={memberImages?.get(id)} size={16} />
+              <span className="truncate">{memberNames.get(id) ?? '(unknown)'}</span>
+            </span>
+          ))}
         </span>
       );
     }
@@ -131,7 +138,7 @@ export function CellDisplay({ field, value, memberNames }: DisplayProps) {
 interface EditorProps {
   field: Field;
   value: unknown;
-  members: Array<{ id: string; name: string }>;
+  members: Array<{ id: string; name: string; image?: string | null }>;
   onCommit: (value: unknown) => void;
   onCancel: () => void;
 }
@@ -191,7 +198,7 @@ export function CellEditor({ field, value, members, onCommit, onCancel }: Editor
       return (
         <OptionList
           multi={multi}
-          options={members.map((m) => ({ id: m.id, label: m.name, color: 'gray' }))}
+          options={members.map((m) => ({ id: m.id, label: m.name, color: 'gray', image: m.image }))}
           selected={selected}
           onPick={(id) => onCommit(id)}
           onToggle={(ids) => onCommit(ids.length ? ids : null)}
@@ -253,7 +260,7 @@ function OptionList({
   onClear,
   onClose,
 }: {
-  options: SelectOption[];
+  options: Array<SelectOption & { image?: string | null }>;
   selected: string[];
   multi?: boolean;
   onPick?: (id: string) => void;
@@ -304,7 +311,14 @@ function OptionList({
             }}
           >
             {multi && <input type="checkbox" readOnly checked={isSelected} />}
-            <OptionChip option={option} />
+            {option.image !== undefined ? (
+              <span className="flex items-center gap-1.5 text-[13px] text-ink">
+                <Avatar userId={option.id} name={option.label} image={option.image} size={16} />
+                {option.label}
+              </span>
+            ) : (
+              <OptionChip option={option} />
+            )}
           </button>
         );
       })}

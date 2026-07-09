@@ -38,7 +38,7 @@ function DatabasePageInner() {
   const viewMutations = useViewMutations(ws, db);
   const members = useMembers(ws, !readOnly);
   const memberList = useMemo(
-    () => (members.data ?? []).map((m) => ({ id: m.user.id, name: m.user.name })),
+    () => (members.data ?? []).map((m) => ({ id: m.user.id, name: m.user.name, image: m.user.image })),
     [members.data],
   );
 

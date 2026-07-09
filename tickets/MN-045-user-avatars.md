@@ -1,7 +1,7 @@
 ---
 id: MN-045
 title: User avatars — pictures for people everywhere a person appears
-status: todo
+status: done
 depends_on: [MN-029]
 size: M
 ---

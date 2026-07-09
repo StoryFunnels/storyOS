@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Paperclip, Send, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, API_URL } from '@/lib/api';
+import { Avatar } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {
@@ -98,7 +99,10 @@ export function CommentsPanel({
       {(comments.data ?? []).map((comment) => (
         <div key={comment.id} className="group rounded-[var(--radius-card)] border border-border-default bg-card p-3">
           <div className="mb-1 flex items-center justify-between">
-            <span className="text-[12px] font-medium text-ink">{comment.author.name}</span>
+            <span className="flex items-center gap-1.5 text-[12px] font-medium text-ink">
+              <Avatar userId={comment.author.id} name={comment.author.name} image={comment.author.image} size={20} />
+              {comment.author.name}
+            </span>
             <span className="flex items-center gap-2 text-[11px] text-faint">
               {new Date(comment.created_at).toLocaleString()}
               {(comment.author.id === currentUserId || isAdmin) && (

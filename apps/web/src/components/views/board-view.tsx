@@ -55,6 +55,10 @@ export function BoardView({
     () => new Map((memberQuery.data ?? []).map((m) => [m.user.id, m.user.name])),
     [memberQuery.data],
   );
+  const memberImages = useMemo(
+    () => new Map((memberQuery.data ?? []).map((m) => [m.user.id, m.user.image])),
+    [memberQuery.data],
+  );
 
   const rows = useMemo(
     () => (records.data?.pages ?? []).flatMap((p) => p.data),
@@ -176,7 +180,7 @@ export function BoardView({
             key={column.id}
             column={column}
             cardFields={cardFields}
-            memberNames={memberNames}
+            memberNames={memberNames} memberImages={memberImages}
             readOnly={readOnly}
             onOpen={openRecord}
             onAdd={() =>
@@ -196,7 +200,7 @@ export function BoardView({
       </div>
       <DragOverlay>
         {dragging && (
-          <Card row={dragging} cardFields={cardFields} memberNames={memberNames} overlay />
+          <Card row={dragging} cardFields={cardFields} memberNames={memberNames} memberImages={memberImages} overlay />
         )}
       </DragOverlay>
     </DndContext>
@@ -207,6 +211,7 @@ function BoardColumn({
   column,
   cardFields,
   memberNames,
+  memberImages,
   readOnly,
   onOpen,
   onAdd,
@@ -214,6 +219,7 @@ function BoardColumn({
   column: { id: string; label: string; color: string; rows: RecordRow[] };
   cardFields: Field[];
   memberNames: Map<string, string>;
+  memberImages?: Map<string, string | null>;
   readOnly: boolean;
   onOpen: (row: RecordRow) => void;
   onAdd: () => void;
@@ -245,7 +251,7 @@ function BoardColumn({
             key={row.id}
             row={row}
             cardFields={cardFields}
-            memberNames={memberNames}
+            memberNames={memberNames} memberImages={memberImages}
             disabled={readOnly}
             onOpen={() => onOpen(row)}
           />
@@ -259,12 +265,14 @@ function DraggableCard({
   row,
   cardFields,
   memberNames,
+  memberImages,
   disabled,
   onOpen,
 }: {
   row: RecordRow;
   cardFields: Field[];
   memberNames: Map<string, string>;
+  memberImages?: Map<string, string | null>;
   disabled: boolean;
   onOpen: () => void;
 }) {
@@ -280,7 +288,7 @@ function DraggableCard({
       className={cn(isDragging && 'opacity-40')}
       onClick={onOpen}
     >
-      <Card row={row} cardFields={cardFields} memberNames={memberNames} />
+      <Card row={row} cardFields={cardFields} memberNames={memberNames} memberImages={memberImages} />
     </div>
   );
 }
@@ -289,11 +297,13 @@ function Card({
   row,
   cardFields,
   memberNames,
+  memberImages,
   overlay = false,
 }: {
   row: RecordRow;
   cardFields: Field[];
   memberNames: Map<string, string>;
+  memberImages?: Map<string, string | null>;
   overlay?: boolean;
 }) {
   return (
@@ -311,7 +321,7 @@ function Card({
             if (value === undefined || value === null || value === '') return null;
             return (
               <div key={field.id} className="flex items-center text-[12px] text-muted">
-                <CellDisplay field={field} value={value} memberNames={memberNames} />
+                <CellDisplay field={field} value={value} memberNames={memberNames} memberImages={memberImages} />
               </div>
             );
           })}
