@@ -3,8 +3,12 @@
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, MoreHorizontal, Plus } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
+import type { DragEndEvent } from '@dnd-kit/core';
+import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { ArrowLeft, ChevronDown, ChevronRight, GripVertical, MoreHorizontal, Plus } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/auth-client';
 import { useWorkspace } from '@/lib/queries';
@@ -66,10 +70,48 @@ export default function EntityPage() {
   );
   const memberNames = useMemo(() => new Map(memberList.map((m) => [m.id, m.name])), [memberList]);
 
-  const fields = useMemo(
+  const allFields = useMemo(
     () => (database.data?.fields ?? []).filter((f) => !HIDDEN.has(f.type)),
     [database.data],
   );
+  const fields = useMemo(
+    () => allFields.filter((f) => f.config?.['entity_hidden'] !== true),
+    [allFields],
+  );
+  const hiddenFields = useMemo(
+    () => allFields.filter((f) => f.config?.['entity_hidden'] === true),
+    [allFields],
+  );
+  const [showHidden, setShowHidden] = useState(false);
+
+  const qc = useQueryClient();
+  const reorder = useMutation({
+    mutationFn: async (moves: Array<{ fieldId: string; position: number }>) => {
+      for (const move of moves) {
+        const { error } = await api.PATCH('/api/v1/workspaces/{ws}/databases/{db}/fields/{field}', {
+          params: { path: { ws, db, field: move.fieldId } },
+          body: { position: move.position },
+        });
+        if (error) throw error;
+      }
+    },
+    onSettled: () => void qc.invalidateQueries({ queryKey: ['database', ws, db] }),
+  });
+
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+
+  function onFieldDragEnd(event: DragEndEvent) {
+    const full = database.data?.fields ?? [];
+    const fromField = fields.find((f) => f.id === event.active.id);
+    const toField = fields.find((f) => f.id === event.over?.id);
+    if (!fromField || !toField || fromField.id === toField.id) return;
+    const next = arrayMove(full, full.indexOf(fromField), full.indexOf(toField));
+    const moves = next
+      .map((f, i) => ({ f, i }))
+      .filter(({ f, i }) => full[i]?.id !== f.id && !f.isSystem)
+      .map(({ f, i }) => ({ fieldId: f.id, position: i }));
+    if (moves.length) reorder.mutate(moves);
+  }
 
   const [tab, setTab] = useState<'comments' | 'activity'>('comments');
   const [titleDraft, setTitleDraft] = useState<string | null>(null);
@@ -105,21 +147,41 @@ export default function EntityPage() {
 
       {/* Properties panel */}
       <div className="mb-6 flex flex-col">
-        {fields.map((field) => (
-          <PropertyRow
-            key={field.id}
-            ws={ws}
-            db={db}
-            rec={rec}
-            field={field}
-            record={record.data!}
-            memberNames={memberNames}
-            members={memberList}
-            readOnly={readOnly}
-            schemaEditable={schemaEditable}
-            onCommit={(value) => updateRecord.mutate({ rec, values: { [field.apiName]: value } })}
-          />
-        ))}
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onFieldDragEnd}>
+          <SortableContext items={fields.map((f) => f.id)} strategy={verticalListSortingStrategy}>
+            {fields.map((field) => (
+              <PropertyRow
+                key={field.id}
+                ws={ws}
+                db={db}
+                rec={rec}
+                field={field}
+                record={record.data!}
+                memberNames={memberNames}
+                members={memberList}
+                readOnly={readOnly}
+                schemaEditable={schemaEditable}
+                onCommit={(value) => updateRecord.mutate({ rec, values: { [field.apiName]: value } })}
+              />
+            ))}
+          </SortableContext>
+        </DndContext>
+
+        {schemaEditable && hiddenFields.length > 0 && (
+          <div className="border-b border-border-default py-1.5">
+            <button
+              className="flex items-center gap-1 text-[13px] text-faint hover:text-ink"
+              onClick={() => setShowHidden((s) => !s)}
+            >
+              {showHidden ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+              {hiddenFields.length} hidden field{hiddenFields.length > 1 ? 's' : ''}
+            </button>
+            {showHidden &&
+              hiddenFields.map((field) => (
+                <HiddenFieldRow key={field.id} ws={ws} db={db} field={field} />
+              ))}
+          </div>
+        )}
         {schemaEditable && <AddFieldRow ws={ws} db={db} />}
       </div>
 
@@ -194,11 +256,34 @@ function PropertyRow({
 }) {
   const [editing, setEditing] = useState(false);
   const value = record.values[field.apiName];
+  const sortable = useSortable({ id: field.id, disabled: !schemaEditable });
+  const sortableStyle = {
+    transform: CSS.Transform.toString(sortable.transform),
+    transition: sortable.transition,
+  };
+  const grip = schemaEditable ? (
+    <button
+      className="-ml-5 w-5 cursor-grab touch-none self-center text-faint opacity-0 hover:text-muted group-hover:opacity-100"
+      {...sortable.attributes}
+      {...sortable.listeners}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <GripVertical className="h-3.5 w-3.5" />
+    </button>
+  ) : null;
 
   if (field.type === 'relation') {
     const chips = (value as LinkChip[]) ?? [];
     return (
-      <div className="group flex min-h-9 items-center border-b border-border-default py-1.5 last:border-b-0">
+      <div
+        ref={sortable.setNodeRef}
+        style={sortableStyle}
+        className={cn(
+          'group flex min-h-9 items-center border-b border-border-default py-1.5 last:border-b-0',
+          sortable.isDragging && 'z-10 bg-card opacity-80',
+        )}
+      >
+        {grip}
         <span className="w-40 shrink-0 text-[13px] text-muted">{field.displayName}</span>
         <div className="relative flex min-w-0 flex-1 flex-wrap items-center gap-1">
           {chips.length > 0 ? (
@@ -239,12 +324,18 @@ function PropertyRow({
 
   return (
     <div
-      className="group flex min-h-9 items-center border-b border-border-default py-1.5 last:border-b-0"
+      ref={sortable.setNodeRef}
+      style={sortableStyle}
+      className={cn(
+        'group flex min-h-9 items-center border-b border-border-default py-1.5 last:border-b-0',
+        sortable.isDragging && 'z-10 bg-card opacity-80',
+      )}
       onClick={() => {
         if (!readOnly && !editing && field.type !== 'checkbox') setEditing(true);
         if (!readOnly && field.type === 'checkbox') onCommit(!(value === true));
       }}
     >
+      {grip}
       <span className="w-40 shrink-0 text-[13px] text-muted">{field.displayName}</span>
       <div className="relative min-h-6 min-w-0 flex-1 cursor-pointer">
         {editing ? (
@@ -269,10 +360,26 @@ function PropertyRow({
   );
 }
 
+/** Persist the per-database entity-page visibility flag (MN-042). */
+function useSetEntityHidden(ws: string, db: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ fieldId, hidden }: { fieldId: string; hidden: boolean }) => {
+      const { error } = await api.PATCH('/api/v1/workspaces/{ws}/databases/{db}/fields/{field}', {
+        params: { path: { ws, db, field: fieldId } },
+        body: { config: { entity_hidden: hidden } },
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['database', ws, db] }),
+  });
+}
+
 /** Schema editing without leaving the record (Notion-style): ⋯ on each property row. */
 function FieldMenu({ ws, db, field }: { ws: string; db: string; field: Field }) {
   const [dialog, setDialog] = useState<'edit' | 'change-type' | null>(null);
   const deleteField = useDeleteField({ ws, db, field, onDone: () => setDialog(null) });
+  const setHidden = useSetEntityHidden(ws, db);
   const canDelete = field.type !== 'relation' && !field.isSystem;
 
   return (
@@ -288,6 +395,9 @@ function FieldMenu({ ws, db, field }: { ws: string; db: string; field: Field }) 
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuItem onSelect={() => setDialog('edit')}>Edit field</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setHidden.mutate({ fieldId: field.id, hidden: true })}>
+            Hide on record page
+          </DropdownMenuItem>
           {canDelete && (
             <DropdownMenuItem className="text-error" onSelect={() => deleteField.mutate()}>
               Delete field
@@ -310,6 +420,21 @@ function FieldMenu({ ws, db, field }: { ws: string; db: string; field: Field }) 
         )}
       </Dialog>
     </>
+  );
+}
+
+function HiddenFieldRow({ ws, db, field }: { ws: string; db: string; field: Field }) {
+  const setHidden = useSetEntityHidden(ws, db);
+  return (
+    <div className="flex min-h-8 items-center py-1">
+      <span className="w-40 shrink-0 text-[13px] text-faint">{field.displayName}</span>
+      <button
+        className="text-[12px] text-info underline-offset-2 hover:underline"
+        onClick={() => setHidden.mutate({ fieldId: field.id, hidden: false })}
+      >
+        Show
+      </button>
+    </div>
   );
 }
 

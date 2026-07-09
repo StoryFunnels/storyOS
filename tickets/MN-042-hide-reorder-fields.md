@@ -1,7 +1,7 @@
 ---
 id: MN-042
 title: Hide and reorder fields — on entity pages and every view
-status: todo
+status: done
 depends_on: []
 size: M
 ---

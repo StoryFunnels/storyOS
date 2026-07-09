@@ -100,6 +100,7 @@ function DatabasePageInner() {
         dirty={dirty}
         readOnly={readOnly}
         members={memberList}
+        viewType={activeView?.type}
         onPatch={patch}
         onSave={save}
         onReset={reset}

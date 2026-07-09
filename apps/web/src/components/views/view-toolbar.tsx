@@ -88,6 +88,7 @@ export function ViewToolbar({
   dirty,
   readOnly,
   members,
+  viewType = 'table',
   onPatch,
   onSave,
   onReset,
@@ -97,6 +98,7 @@ export function ViewToolbar({
   dirty: boolean;
   readOnly: boolean;
   members: Array<{ id: string; name: string }>;
+  viewType?: string;
   onPatch: (updates: Partial<ViewConfig>) => void;
   onSave: () => void;
   onReset: () => void;
@@ -135,12 +137,20 @@ export function ViewToolbar({
       {/* Sorts */}
       <SortButton fields={fields.filter((f) => SORTABLE.has(f.type))} sorts={config.sorts} onChange={(sorts) => onPatch({ sorts })} />
 
-      {/* Hidden fields */}
-      <HiddenFieldsButton
-        fields={fields.filter((f) => f.type !== 'title')}
-        hidden={config.hidden_field_ids}
-        onChange={(hidden_field_ids) => onPatch({ hidden_field_ids })}
-      />
+      {/* Field visibility: tables hide columns, boards pick card fields */}
+      {viewType === 'board' ? (
+        <CardFieldsButton
+          fields={fields.filter((f) => !NON_TOGGLABLE.has(f.type))}
+          shown={config.card_field_ids}
+          onChange={(card_field_ids) => onPatch({ card_field_ids })}
+        />
+      ) : (
+        <HiddenFieldsButton
+          fields={fields.filter((f) => !NON_TOGGLABLE.has(f.type))}
+          hidden={config.hidden_field_ids}
+          onChange={(hidden_field_ids) => onPatch({ hidden_field_ids })}
+        />
+      )}
 
       {dirty && !readOnly && (
         <span className="ml-auto flex items-center gap-1.5">
@@ -395,6 +405,53 @@ function SortButton({
             <Plus className="h-3 w-3" /> Add sort
           </button>
         )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** Title always shows; system timestamps never render in grids or on cards. */
+const NON_TOGGLABLE = new Set(['title', 'created_at', 'updated_at', 'created_by']);
+
+/** Board card composition (MN-042): checked fields render on cards via card_field_ids. */
+function CardFieldsButton({
+  fields,
+  shown,
+  onChange,
+}: {
+  fields: Field[];
+  shown: string[];
+  onChange: (ids: string[]) => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          className={cn(
+            'flex items-center gap-1 rounded px-1.5 py-1 text-[12px] hover:bg-hover',
+            shown.length ? 'text-ink' : 'text-muted',
+          )}
+        >
+          <EyeOff className="h-3.5 w-3.5" />
+          Card fields
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent className="max-h-64 overflow-y-auto">
+        {fields.map((field) => (
+          <label
+            key={field.id}
+            className="flex items-center gap-2 rounded px-2 py-1.5 text-[13px] text-ink hover:bg-hover"
+          >
+            <input
+              type="checkbox"
+              checked={shown.includes(field.id)}
+              onChange={(e) =>
+                onChange(e.target.checked ? [...shown, field.id] : shown.filter((id) => id !== field.id))
+              }
+            />
+            {field.displayName}
+          </label>
+        ))}
       </DropdownMenuContent>
     </DropdownMenu>
   );
