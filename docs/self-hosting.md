@@ -11,7 +11,7 @@ The whole product, on your machine, free forever. One Postgres, two containers, 
 ## Quickstart
 
 ```bash
-git clone <repo-url> storyos && cd storyos
+git clone https://github.com/StoryFunnels/storyOS.git storyos && cd storyos
 echo "BETTER_AUTH_SECRET=$(openssl rand -hex 32)" > .env
 docker compose up -d
 ```
