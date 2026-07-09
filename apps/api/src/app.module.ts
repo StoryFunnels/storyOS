@@ -23,6 +23,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { ImportModule } from './import/import.module';
 import { AutomationsModule } from './automations/automations.module';
 import { EventsModule } from './events/events.module';
+import { IntegrationsModule } from './integrations/integrations.module';
 import { TemplatesModule } from './templates/templates.module';
 import { AccessModule } from './access/access.module';
 import { env } from './config/env';
@@ -62,6 +63,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     ImportModule,
     AutomationsModule,
     EventsModule,
+    IntegrationsModule,
     TemplatesModule,
     AccessModule,
     ThrottlerModule.forRoot({

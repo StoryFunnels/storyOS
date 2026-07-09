@@ -7,7 +7,7 @@ import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from 
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Check, ChevronsUpDown, Database, Home, Inbox, KeyRound, LayoutTemplate, MoreHorizontal, Plus, Search, Settings, UserRound } from 'lucide-react';
+import { Check, ChevronsUpDown, Database, Home, Inbox, KeyRound, LayoutTemplate, MoreHorizontal, Plug, Plus, Search, Settings, UserRound } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -138,12 +138,20 @@ export function Sidebar() {
 
       <div className="flex flex-col gap-0.5 border-t border-border-default p-2">
         {isAdmin && (
-          <Link
-            href={`/w/${ws}/settings/members`}
-            className="flex items-center gap-2 rounded px-2 py-1.5 text-[13px] text-ink-secondary hover:bg-hover"
-          >
-            <Settings className="h-3.5 w-3.5" /> Settings & members
-          </Link>
+          <>
+            <Link
+              href={`/w/${ws}/settings/members`}
+              className="flex items-center gap-2 rounded px-2 py-1.5 text-[13px] text-ink-secondary hover:bg-hover"
+            >
+              <Settings className="h-3.5 w-3.5" /> Settings & members
+            </Link>
+            <Link
+              href={`/w/${ws}/settings/integrations`}
+              className="flex items-center gap-2 rounded px-2 py-1.5 text-[13px] text-ink-secondary hover:bg-hover"
+            >
+              <Plug className="h-3.5 w-3.5" /> Integrations
+            </Link>
+          </>
         )}
         {canEdit && (
           <Link

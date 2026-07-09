@@ -1,7 +1,7 @@
 ---
 id: MN-065
 title: GitHub integration v1 — token import + refresh, auto-link by branch/reference
-status: todo
+status: done
 depends_on: []
 size: L
 ---

@@ -2949,6 +2949,59 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/integrations/github": {
+      "get": {
+        "operationId": "IntegrationsController_getConfig",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "GitHub config (token presence + repos)",
+        "tags": [
+          "integrations"
+        ]
+      },
+      "post": {
+        "operationId": "IntegrationsController_saveConfig",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GithubConfigDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Save GitHub token and/or repo list",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/integrations/github/sync": {
+      "post": {
+        "operationId": "IntegrationsController_sync",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Import/refresh Issues + PRs; auto-links PRs to issues by #N / branch refs",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
     "/api/v1/templates": {
       "get": {
         "operationId": "TemplatesController_list",
@@ -4655,6 +4708,24 @@
         "required": [
           "record_id"
         ]
+      },
+      "GithubConfigDto": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "repos": {
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[\\w.-]+\\/[\\w.-]+$"
+            }
+          }
+        }
       },
       "ApplyTemplateDto": {
         "type": "object",
