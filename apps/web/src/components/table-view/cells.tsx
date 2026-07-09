@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { DatePicker } from '@/components/ui/date-picker';
 import { RelationChips } from './relation-cell';
 import type { LinkChip } from './relation-cell';
 import type { Field, SelectOption } from './use-table-data';
@@ -122,16 +123,11 @@ export function CellEditor({ field, value, members, onCommit, onCancel }: Editor
     case 'date': {
       const includeTime = field.config['include_time'] === true;
       return (
-        <input
-          autoFocus
-          type={includeTime ? 'datetime-local' : 'date'}
-          defaultValue={value == null ? '' : String(value).slice(0, includeTime ? 16 : 10)}
-          className="h-full w-full bg-card px-2 text-[13px] text-ink outline-none"
-          onBlur={(e) => onCommit(e.target.value === '' ? null : e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') onCommit((e.target as HTMLInputElement).value || null);
-            if (e.key === 'Escape') onCancel();
-          }}
+        <DatePicker
+          value={value == null ? null : String(value)}
+          includeTime={includeTime}
+          onCommit={onCommit}
+          onCancel={onCancel}
         />
       );
     }
@@ -250,6 +246,7 @@ function OptionList({
     <div
       ref={ref}
       className="absolute left-0 top-full z-30 mt-0.5 max-h-64 w-56 overflow-y-auto rounded-[var(--radius-card)] border border-border-default bg-card p-1 shadow-[0_4px_12px_rgba(15,23,41,0.08)]"
+      onClick={(e) => e.stopPropagation()}
       onKeyDown={(e) => {
         if (e.key === 'Escape') onClose();
       }}

@@ -132,6 +132,7 @@ export function RelationEditor({
     <div
       ref={ref}
       className="absolute left-0 top-full z-30 mt-0.5 w-72 rounded-[var(--radius-card)] border border-border-default bg-card shadow-[0_4px_12px_rgba(15,23,41,0.08)]"
+      onClick={(e) => e.stopPropagation()}
       onKeyDown={(e) => e.key === 'Escape' && onDone()}
     >
       {!single && selected.length > 0 && (

@@ -1,7 +1,7 @@
 ---
 id: MN-038
 title: Date picker v2 — one-click popover calendar with type-to-parse
-status: todo
+status: done
 depends_on: []
 size: M
 ---
