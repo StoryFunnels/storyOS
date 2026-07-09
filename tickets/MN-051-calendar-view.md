@@ -1,7 +1,7 @@
 ---
 id: MN-051
 title: Calendar view — records on a month grid by date field
-status: todo
+status: done
 depends_on: [MN-038]
 size: L
 ---

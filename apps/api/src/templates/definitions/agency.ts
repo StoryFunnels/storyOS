@@ -185,6 +185,7 @@ export const clientSpace: TemplateDef = {
     { database: 'tasks', name: 'Needs Approval', type: 'table', filters: [{ field: 'approval', op: 'has', values: ['Waiting'] }] },
     { database: 'deliverables', name: 'Delivery Board', type: 'board', group_by_field: 'status' },
     { database: 'meetings', name: 'Upcoming', type: 'table', filters: [{ field: 'date', op: 'within', value: 'next_7_days' }], sorts: [{ field: 'date', direction: 'asc' }] },
+    { database: 'meetings', name: 'Meeting Calendar', type: 'calendar', date_field: 'date' },
     { database: 'requests', name: 'Request Board', type: 'board', group_by_field: 'status' },
   ],
   records: [
@@ -302,6 +303,7 @@ export const socialCalendar: TemplateDef = {
   ],
   views: [
     { database: 'posts', name: 'Post Board', type: 'board', group_by_field: 'status' },
+    { database: 'posts', name: 'Content Calendar', type: 'calendar', date_field: 'publish' },
     { database: 'posts', name: 'This Week', type: 'table', filters: [{ field: 'publish', op: 'within', value: 'next_7_days' }], sorts: [{ field: 'publish', direction: 'asc' }] },
   ],
   records: [

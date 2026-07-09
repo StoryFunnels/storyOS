@@ -24,13 +24,14 @@ export interface ViewConfig {
   hidden_field_ids: string[];
   group_by_field_id?: string;
   card_field_ids: string[];
+  date_field_id?: string;
   column_widths: Record<string, number>;
 }
 
 export interface ViewSummary {
   id: string;
   name: string;
-  type: 'table' | 'board';
+  type: 'table' | 'board' | 'calendar';
   config: ViewConfig;
 }
 
@@ -111,7 +112,7 @@ export function useViewMutations(ws: string, db: string) {
 
   return {
     createView: useMutation({
-      mutationFn: async (body: { name: string; type: 'table' | 'board'; config: ViewConfig }) => {
+      mutationFn: async (body: { name: string; type: 'table' | 'board' | 'calendar'; config: ViewConfig }) => {
         const { data, error } = await api.POST('/api/v1/workspaces/{ws}/databases/{db}/views', {
           params: { path: { ws, db } },
           body: body as never,

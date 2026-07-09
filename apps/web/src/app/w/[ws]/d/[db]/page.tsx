@@ -2,8 +2,9 @@
 
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useMemo, useState } from 'react';
-import { Kanban, Plus, Table2, X } from 'lucide-react';
+import { CalendarDays, Kanban, Plus, Table2, X } from 'lucide-react';
 import { BoardView } from '@/components/views/board-view';
+import { CalendarView } from '@/components/views/calendar-view';
 import { TableView } from '@/components/table-view/table-view';
 import { ViewToolbar } from '@/components/views/view-toolbar';
 import {
@@ -65,7 +66,7 @@ function DatabasePageInner() {
             )}
             onClick={() => router.replace(`/w/${ws}/d/${db}?view=${view.id}`)}
           >
-            {view.type === 'board' ? <Kanban className="h-3.5 w-3.5" /> : <Table2 className="h-3.5 w-3.5" />}
+            {view.type === 'board' ? <Kanban className="h-3.5 w-3.5" /> : view.type === 'calendar' ? <CalendarDays className="h-3.5 w-3.5" /> : <Table2 className="h-3.5 w-3.5" />}
             {view.name}
             {!readOnly && views.length > 1 && view.id === activeView?.id && (
               <X
@@ -83,12 +84,16 @@ function DatabasePageInner() {
         {!readOnly && database.data && (
           <NewViewDialog
             fields={database.data.fields}
-            onCreate={(name, type, groupBy) =>
+            onCreate={(name, type, groupBy, dateField) =>
               viewMutations.createView.mutate(
                 {
                   name,
                   type,
-                  config: { ...EMPTY_CONFIG, ...(groupBy ? { group_by_field_id: groupBy } : {}) },
+                  config: {
+                    ...EMPTY_CONFIG,
+                    ...(groupBy ? { group_by_field_id: groupBy } : {}),
+                    ...(dateField ? { date_field_id: dateField } : {}),
+                  },
                 },
                 { onSuccess: (v) => router.replace(`/w/${ws}/d/${db}?view=${v.id}`) },
               )
@@ -112,6 +117,8 @@ function DatabasePageInner() {
       <div className="min-h-0 flex-1">
         {activeView?.type === 'board' ? (
           <BoardView ws={ws} db={db} config={config} readOnly={readOnly} />
+        ) : activeView?.type === 'calendar' ? (
+          <CalendarView ws={ws} db={db} config={config} readOnly={readOnly} />
         ) : (
           <TableView
             ws={ws}
@@ -136,11 +143,13 @@ function NewViewDialog({
   onCreate,
 }: {
   fields: Array<{ id: string; displayName: string; type: string }>;
-  onCreate: (name: string, type: 'table' | 'board', groupBy?: string) => void;
+  onCreate: (name: string, type: 'table' | 'board' | 'calendar', groupBy?: string, dateField?: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
-  const [type, setType] = useState<'table' | 'board'>('table');
+  const [type, setType] = useState<'table' | 'board' | 'calendar'>('table');
+  const dateFields = fields.filter((f) => f.type === 'date');
+  const [dateField, setDateField] = useState('');
   const selectFields = fields.filter((f) => f.type === 'select');
   const [groupBy, setGroupBy] = useState('');
 
@@ -157,7 +166,12 @@ function NewViewDialog({
           onSubmit={(e) => {
             e.preventDefault();
             if (!name.trim()) return;
-            onCreate(name.trim(), type, type === 'board' ? groupBy || selectFields[0]?.id : undefined);
+            onCreate(
+              name.trim(),
+              type,
+              type === 'board' ? groupBy || selectFields[0]?.id : undefined,
+              type === 'calendar' ? dateField || dateFields[0]?.id : undefined,
+            );
             setOpen(false);
             setName('');
           }}
@@ -191,8 +205,37 @@ function NewViewDialog({
               >
                 <Kanban className="h-4 w-4" /> Board
               </button>
+              <button
+                type="button"
+                className={cn(
+                  'flex flex-1 items-center justify-center gap-2 rounded-[var(--radius-control)] border px-3 py-2 text-[13px]',
+                  type === 'calendar' ? 'border-[var(--accent)] bg-accent-soft text-ink' : 'border-border-default text-muted',
+                )}
+                onClick={() => setType('calendar')}
+                disabled={dateFields.length === 0}
+                title={dateFields.length === 0 ? 'Calendars need a date field' : undefined}
+              >
+                <CalendarDays className="h-4 w-4" /> Calendar
+              </button>
             </div>
           </div>
+          {type === 'calendar' && (
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="date-field">Date field</Label>
+              <select
+                id="date-field"
+                className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-sm text-ink"
+                value={dateField || dateFields[0]?.id || ''}
+                onChange={(e) => setDateField(e.target.value)}
+              >
+                {dateFields.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.displayName}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           {type === 'board' && (
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="group-by">Group by</Label>

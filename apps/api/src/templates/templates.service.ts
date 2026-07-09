@@ -184,6 +184,9 @@ export class TemplatesService {
             ...(viewDef.group_by_field
               ? { group_by_field_id: fieldIds.get(`${viewDef.database}.${viewDef.group_by_field}`)! }
               : {}),
+            ...(viewDef.date_field
+              ? { date_field_id: fieldIds.get(`${viewDef.database}.${viewDef.date_field}`)! }
+              : {}),
             ...(filters ? { filters: filters as never } : {}),
           } as never,
         },

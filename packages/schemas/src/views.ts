@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { filterSchema, sortSchema } from './query';
 
-export const viewTypeSchema = z.enum(['table', 'board']);
+export const viewTypeSchema = z.enum(['table', 'board', 'calendar']);
 export type ViewType = z.infer<typeof viewTypeSchema>;
 
 /**
@@ -16,8 +16,10 @@ export const viewConfigSchema = z.object({
   hidden_field_ids: z.array(z.uuid()).default([]),
   /** Board only — must reference a single-select field (v1). */
   group_by_field_id: z.uuid().optional(),
-  /** Board card body fields. */
+  /** Board card body fields (also calendar chip fields). */
   card_field_ids: z.array(z.uuid()).default([]),
+  /** Calendar only — the date field that places records on the grid (MN-051). */
+  date_field_id: z.uuid().optional(),
   column_widths: z.record(z.uuid(), z.number().int().min(40).max(1200)).default({}),
 });
 export type ViewConfig = z.infer<typeof viewConfigSchema>;

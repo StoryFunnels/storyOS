@@ -52,8 +52,9 @@ export interface TemplateFilterDef {
 export interface TemplateViewDef {
   database: string;
   name: string;
-  type: 'table' | 'board';
+  type: 'table' | 'board' | 'calendar';
   group_by_field?: string; // field key
+  date_field?: string; // field key (calendar)
   filters?: TemplateFilterDef[];
   sorts?: Array<{ field: string; direction: 'asc' | 'desc' }>; // field keys
 }

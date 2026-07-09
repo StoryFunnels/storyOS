@@ -41,6 +41,10 @@ export function cleanViewConfig(
         ? config.group_by_field_id
         : undefined,
     card_field_ids: (config.card_field_ids ?? []).filter((id) => liveFieldIds.has(id)),
+    date_field_id:
+      config.date_field_id && liveFieldIds.has(config.date_field_id)
+        ? config.date_field_id
+        : undefined,
     column_widths: Object.fromEntries(
       Object.entries(config.column_widths ?? {}).filter(([id]) => liveFieldIds.has(id)),
     ),
@@ -68,6 +72,7 @@ export class ViewsService {
       ...(config.card_field_ids ?? []),
       ...Object.keys(config.column_widths ?? {}),
       ...(config.group_by_field_id ? [config.group_by_field_id] : []),
+      ...(config.date_field_id ? [config.date_field_id] : []),
     ];
     for (const id of referencedIds) {
       if (!byId.has(id)) throw new UnprocessableEntityException(`unknown field id "${id}" in view config`);

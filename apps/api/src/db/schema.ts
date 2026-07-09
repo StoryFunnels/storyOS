@@ -47,7 +47,7 @@ export const fieldType = pgEnum('field_type', [
   'created_by',
 ]);
 
-export const viewType = pgEnum('view_type', ['table', 'board']);
+export const viewType = pgEnum('view_type', ['table', 'board', 'calendar']);
 
 /** Side "a" is the "many" side for one_to_many (meta-model §Relation). */
 export const relationCardinality = pgEnum('relation_cardinality', ['one_to_many', 'many_to_many']);

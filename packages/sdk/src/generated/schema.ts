@@ -1238,7 +1238,7 @@ export interface components {
         CreateViewDto: {
             name: string;
             /** @enum {string} */
-            type: "table" | "board";
+            type: "table" | "board" | "calendar";
             /**
              * @default {
              *       "sorts": [],
@@ -1264,6 +1264,8 @@ export interface components {
                 group_by_field_id?: string;
                 /** @default [] */
                 card_field_ids: string[];
+                /** Format: uuid */
+                date_field_id?: string;
                 /** @default {} */
                 column_widths: {
                     [key: string]: number;
@@ -1299,6 +1301,8 @@ export interface components {
                 group_by_field_id?: string;
                 /** @default [] */
                 card_field_ids: string[];
+                /** Format: uuid */
+                date_field_id?: string;
                 /** @default {} */
                 column_widths: {
                     [key: string]: number;

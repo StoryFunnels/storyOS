@@ -138,7 +138,7 @@ export function ViewToolbar({
       <SortButton fields={fields.filter((f) => SORTABLE.has(f.type))} sorts={config.sorts} onChange={(sorts) => onPatch({ sorts })} />
 
       {/* Field visibility: tables hide columns, boards pick card fields */}
-      {viewType === 'board' ? (
+      {viewType === 'board' || viewType === 'calendar' ? (
         <CardFieldsButton
           fields={fields.filter((f) => !NON_TOGGLABLE.has(f.type))}
           shown={config.card_field_ids}
@@ -150,6 +150,21 @@ export function ViewToolbar({
           hidden={config.hidden_field_ids}
           onChange={(hidden_field_ids) => onPatch({ hidden_field_ids })}
         />
+      )}
+
+      {viewType === 'calendar' && (
+        <select
+          className="h-6 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+          value={config.date_field_id ?? ''}
+          onChange={(e) => onPatch({ date_field_id: e.target.value })}
+          title="Date field"
+        >
+          {fields.filter((f) => f.type === 'date').map((f) => (
+            <option key={f.id} value={f.id}>
+              {f.displayName}
+            </option>
+          ))}
+        </select>
       )}
 
       {dirty && !readOnly && (
