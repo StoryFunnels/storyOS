@@ -5,7 +5,8 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, or, sql, SQL } from 'drizzle-orm';
-import { validateRecordValues } from '@storyos/schemas';
+import { evaluateFormula, validateRecordValues } from '@storyos/schemas';
+import type { FormulaNode } from '@storyos/schemas';
 import type { FieldDef } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
@@ -104,7 +105,9 @@ export class RecordsService {
   /** Fills relation-field values with {id, title} chips for a page of records (MN-018). */
   async attachLinks(projected: ProjectedRecord[], defs: FieldDef[]): Promise<ProjectedRecord[]> {
     const relationDefs = defs.filter((d) => d.type === 'relation');
-    if (relationDefs.length === 0 || projected.length === 0) return projected;
+    if (relationDefs.length === 0 || projected.length === 0) {
+      return this.attachFormulas(projected, defs); // lookups need relations; formulas don't
+    }
     const ids = projected.map((p) => p.id);
 
     for (const def of relationDefs) {
@@ -136,8 +139,10 @@ export class RecordsService {
         if (chips?.length) record.values[def.api_name] = chips;
       }
     }
-    return this.attachLookups(projected, defs);
+    const withLookups = await this.attachLookups(projected, defs);
+    return this.attachFormulas(withLookups, defs);
   }
+
 
   /**
    * Resolves lookup values through the already-attached relation chips
@@ -145,6 +150,66 @@ export class RecordsService {
    * never per record. select ids are projected as labels so clients can
    * render without the target schema.
    */
+  /** MN-043: evaluates formula fields after lookups resolve; select ids become labels in the value bag. */
+  private async attachFormulas(projected: ProjectedRecord[], defs: FieldDef[]): Promise<ProjectedRecord[]> {
+    const formulaDefs = defs.filter((d) => d.type === 'formula' && (d.config['ast'] as unknown));
+    if (formulaDefs.length === 0 || projected.length === 0) return projected;
+
+    // Formulas compare select LABELS, not option ids.
+    const selectDefs = defs.filter((d) => d.type === 'select');
+    const labelByOption = new Map<string, string>();
+    if (selectDefs.length > 0) {
+      const options = await this.db.query.selectOptions.findMany({
+        where: inArray(selectOptions.fieldId, selectDefs.map((d) => d.id)),
+      });
+      for (const option of options) labelByOption.set(option.id, option.label);
+    }
+
+    // Topological order so formula-over-formula chains resolve (save-time cap = 5).
+    const ordered: FieldDef[] = [];
+    const remaining = new Set(formulaDefs);
+    for (let pass = 0; pass < 6 && remaining.size > 0; pass++) {
+      for (const def of [...remaining]) {
+        const refs = new Set<string>();
+        const walk = (n: { kind: string; api_name?: string; operand?: unknown; left?: unknown; right?: unknown; args?: unknown[] }) => {
+          if (n.kind === 'ref' && n.api_name) refs.add(n.api_name);
+          if (n.operand) walk(n.operand as never);
+          if (n.left) walk(n.left as never);
+          if (n.right) walk(n.right as never);
+          (n.args as never[] | undefined)?.forEach((a) => walk(a));
+        };
+        walk(def.config['ast'] as never);
+        const blocked = [...remaining].some((other) => other !== def && refs.has(other.api_name));
+        if (!blocked) {
+          ordered.push(def);
+          remaining.delete(def);
+        }
+      }
+    }
+    ordered.push(...remaining); // defensive: cycles saved before the guard still evaluate (to null)
+
+    for (const record of projected) {
+      const bag: Record<string, unknown> = { name: record.title };
+      for (const def of defs) {
+        let value = record.values[def.api_name];
+        if (def.type === 'select' && typeof value === 'string') {
+          value = labelByOption.get(value) ?? value;
+        }
+        bag[def.api_name] = value ?? null;
+      }
+      for (const def of ordered) {
+        try {
+          const result = evaluateFormula(def.config['ast'] as FormulaNode, bag);
+          record.values[def.api_name] = result ?? null;
+          bag[def.api_name] = result ?? null;
+        } catch {
+          record.values[def.api_name] = null;
+        }
+      }
+    }
+    return projected;
+  }
+
   private async attachLookups(projected: ProjectedRecord[], defs: FieldDef[]): Promise<ProjectedRecord[]> {
     const lookupDefs = defs.filter((d) => d.type === 'lookup');
     if (lookupDefs.length === 0 || projected.length === 0) return projected;

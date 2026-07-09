@@ -14,6 +14,7 @@ export const creatableFieldTypeSchema = z.enum([
   'user',
   'lookup',
   'button',
+  'formula',
 ]);
 export type CreatableFieldType = z.infer<typeof creatableFieldTypeSchema>;
 
@@ -69,6 +70,13 @@ export const lookupConfigSchema = z.object({
   relation_field_id: z.uuid(),
   target_field_api_name: z.string().trim().min(1),
 });
+/** Formula (MN-043): source is user input; ast + result_type are compiled at save. */
+export const formulaConfigSchema = z.object({
+  expression: z.string().trim().min(1).max(2000),
+  ast: z.unknown().optional(),
+  result_type: z.enum(['text', 'number', 'checkbox', 'date']).optional(),
+});
+
 export const emptyConfigSchema = z.object({});
 
 export const fieldConfigSchemas: Record<CreatableFieldType, z.ZodType> = {
@@ -84,6 +92,7 @@ export const fieldConfigSchemas: Record<CreatableFieldType, z.ZodType> = {
   user: userConfigSchema,
   lookup: lookupConfigSchema,
   button: buttonConfigSchema,
+  formula: formulaConfigSchema,
 };
 
 export function validateFieldConfig(type: CreatableFieldType, config: unknown) {

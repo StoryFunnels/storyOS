@@ -74,6 +74,12 @@ export function CellDisplay({ field, value, memberNames, memberImages }: Display
         <span className="text-faint"> </span>
       );
     }
+    case 'formula': {
+      const rt = field.config['result_type'] as string | undefined;
+      if (rt === 'checkbox') return <input type="checkbox" checked={value === true} readOnly className="pointer-events-none" />;
+      if (rt === 'number') return <span className="w-full truncate text-right text-[13px] tabular-nums">{String(value)}</span>;
+      return <span className="truncate text-[13px] text-ink-secondary">{String(value)}</span>;
+    }
     case 'lookup': {
       // Server resolves values (select ids → labels); scalar or array by cardinality.
       const items = Array.isArray(value) ? value : [value];

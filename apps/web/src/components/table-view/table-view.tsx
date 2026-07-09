@@ -39,7 +39,7 @@ const TITLE_WIDTH = 260;
 
 const HIDDEN_TYPES = new Set(['created_at', 'updated_at', 'created_by']);
 // checkbox toggles on click; rich_text edits on the record page; lookup is computed.
-const NO_EDITOR = new Set(['checkbox', 'rich_text', 'lookup', 'button']);
+const NO_EDITOR = new Set(['checkbox', 'rich_text', 'lookup', 'button', 'formula']);
 
 interface Cursor {
   row: number;

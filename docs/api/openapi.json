@@ -3409,7 +3409,8 @@
               "email",
               "user",
               "lookup",
-              "button"
+              "button",
+              "formula"
             ]
           },
           "config": {
@@ -3477,7 +3478,8 @@
               "email",
               "user",
               "lookup",
-              "button"
+              "button",
+              "formula"
             ]
           },
           "dry_run": {

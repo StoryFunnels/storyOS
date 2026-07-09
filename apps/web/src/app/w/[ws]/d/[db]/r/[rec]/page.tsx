@@ -353,7 +353,7 @@ function PropertyRow({
         sortable.isDragging && 'z-10 bg-card opacity-80',
       )}
       onClick={() => {
-        if (field.type === 'lookup' || field.type === 'button') return; // not inline-editable
+        if (['lookup', 'button', 'formula'].includes(field.type)) return; // not inline-editable
         if (!readOnly && !editing && field.type !== 'checkbox') setEditing(true);
         if (!readOnly && field.type === 'checkbox') onCommit(!(value === true));
       }}

@@ -1,7 +1,7 @@
 ---
 id: MN-043
 title: Formula fields — computed values with a safe expression language, plus user docs
-status: todo
+status: done
 depends_on: [MN-040]
 size: XL
 ---

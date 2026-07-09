@@ -7,7 +7,8 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
-import type { CreatableFieldType } from '@storyos/schemas';
+import type { CreatableFieldType, FormulaFieldInfo } from '@storyos/schemas';
+import { FormulaError, formulaRefs, parseFormula, typecheck } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { fields, records, relations, selectOptions } from '../db/schema';
@@ -98,6 +99,9 @@ export class FieldsService {
     },
   ) {
     if (input.type === 'lookup') await this.assertLookupConfig(databaseId, input.config ?? {});
+    if (input.type === 'formula') {
+      input.config = await this.compileFormulaConfig(databaseId, input.config ?? {});
+    }
     const apiName = await this.uniqueApiName(databaseId, input.display_name);
     const siblings = await this.db.query.fields.findMany({
       where: and(eq(fields.databaseId, databaseId), eq(fields.isSystem, false)),
@@ -134,6 +138,59 @@ export class FieldsService {
       }
       return this.withOptions(tx as unknown as Db, field!);
     });
+  }
+
+  /** Field types a formula may reference, mapped to formula types. */
+  static formulaTypeOf(type: string): 'text' | 'number' | 'checkbox' | 'date' | null {
+    if (type === 'number') return 'number';
+    if (type === 'checkbox') return 'checkbox';
+    if (type === 'date' || type === 'created_at' || type === 'updated_at') return 'date';
+    if (['text', 'title', 'select', 'url', 'email', 'lookup'].includes(type)) return 'text';
+    if (type === 'formula') return null; // resolved per-field from its result_type
+    return null;
+  }
+
+  /** MN-043: parse + typecheck + cycle-check; stores {expression, ast, result_type}. */
+  private async compileFormulaConfig(databaseId: string, config: Record<string, unknown>) {
+    const expression = String(config['expression'] ?? '');
+    const live = await this.db.query.fields.findMany({
+      where: and(eq(fields.databaseId, databaseId), isNull(fields.deletedAt)),
+    });
+    const infos: FormulaFieldInfo[] = [];
+    for (const f of live) {
+      if (f.type === 'formula') {
+        const rt = (f.config as { result_type?: string }).result_type;
+        if (rt) infos.push({ api_name: f.apiName, display_name: f.displayName, formula_type: rt as never });
+        continue;
+      }
+      const ft = FieldsService.formulaTypeOf(f.type);
+      if (ft) infos.push({ api_name: f.apiName, display_name: f.displayName, formula_type: ft });
+    }
+    let ast;
+    let resultType;
+    try {
+      ast = parseFormula(expression, infos);
+      resultType = typecheck(ast, infos);
+    } catch (error) {
+      if (error instanceof FormulaError) throw new UnprocessableEntityException(`Formula error: ${error.message}`);
+      throw error;
+    }
+    if (resultType === 'null') resultType = 'text';
+
+    // Cycle check: walking refs into other formulas must terminate within depth 5.
+    const formulaByApi = new Map(live.filter((f) => f.type === 'formula').map((f) => [f.apiName, f]));
+    const visit = (refs: string[], depth: number): void => {
+      if (depth > 5) throw new UnprocessableEntityException('Formula chains are limited to 5 levels');
+      for (const ref of refs) {
+        const target = formulaByApi.get(ref);
+        if (!target) continue;
+        const targetAst = (target.config as { ast?: unknown }).ast;
+        if (targetAst) visit(formulaRefs(targetAst as never), depth + 1);
+      }
+    };
+    visit(formulaRefs(ast), 1);
+
+    return { expression, ast, result_type: resultType };
   }
 
   /** Types a lookup can surface — no chains (lookup-of-lookup) or nested relations in v1. */

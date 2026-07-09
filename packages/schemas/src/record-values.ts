@@ -92,6 +92,8 @@ function coerce(field: FieldDef, raw: unknown): { value?: unknown; error?: strin
       return { error: 'lookup values are computed from the related record and cannot be written' };
     case 'button':
       return { error: 'buttons store no value — press them instead' };
+    case 'formula':
+      return { error: 'formula values are computed and cannot be written' };
     case 'rich_text': {
       // BlockNote document: an array of block objects, size-capped.
       if (
