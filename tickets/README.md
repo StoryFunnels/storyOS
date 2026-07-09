@@ -103,6 +103,25 @@ Every [M] story in [docs/product/user-stories.md](../docs/product/user-stories.m
 | MN-041 | [Rich Text field type — separated from plain Text](MN-041-rich-text-fields.md) | M | 025 |
 | MN-042 | [Hide and reorder fields — entity pages and views](MN-042-hide-reorder-fields.md) | M | — |
 
+## Team-adoption wave (planned 2026-07-09 — computed fields, identity, automation, daily-driver surfaces)
+
+Goal: everything JCM needs to move its daily work in. Sources: founder asks (formulas, icons, avatars, buttons, workflows) + a Linear feature review (command palette, inbox/My Issues, batch editing, keyboard fluency) + the two adoption gates (calendar for content, CSV import from Fibery).
+
+| # | Ticket | Size | Depends on |
+|---|---|---|---|
+| MN-043 | [Formula fields + user docs](MN-043-formula-fields.md) | XL | 040 |
+| MN-044 | [Icons and colors for databases and spaces](MN-044-icons-and-colors.md) | M | — |
+| MN-045 | [User avatars everywhere people appear](MN-045-user-avatars.md) | M | 029 |
+| MN-046 | [Button fields — one-click manual actions](MN-046-buttons.md) | L | — |
+| MN-047 | [Automations — event + scheduled rules](MN-047-automations.md) | XL | 046 |
+| MN-048 | [Global search + command palette (Cmd+K)](MN-048-command-palette-search.md) | L | — |
+| MN-049 | [Notifications inbox + My Work](MN-049-inbox-my-work.md) | L | 045 |
+| MN-050 | [Table power pack — multi-select, batch edit, shortcuts](MN-050-table-power.md) | L | — |
+| MN-051 | [Calendar view](MN-051-calendar-view.md) | L | 038 |
+| MN-052 | [CSV import + Fibery migration guide](MN-052-csv-import.md) | L | — |
+
+Suggested order: 044 → 045 → 048 → 050 → 049 → 051 → 052 → 046 → 047 → 043 (visual quick wins → daily-driver surfaces → adoption gates → automation stack → formulas last, hardest and depends on the lookup machinery being battle-tested).
+
 Template catalog plan (agency + creators packs): [docs/product/template-library.md](../docs/product/template-library.md).
 
 ## Post-v1 parking lot (ADR-noted, not ticketed)
