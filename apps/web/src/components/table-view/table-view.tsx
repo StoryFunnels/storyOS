@@ -159,7 +159,8 @@ export function TableView({
 
   if (database.isLoading) return <p className="p-6 text-sm text-muted">Loading…</p>;
 
-  const totalWidth = fields.reduce((sum, f) => sum + widthOf(f), 0) + 40;
+  const totalWidth =
+    fields.reduce((sum, f) => sum + widthOf(f), 0) + 40 + (schemaEditable ? 110 : 0);
 
   return (
     <div className="flex h-full flex-col">
@@ -190,11 +191,8 @@ export function TableView({
             {schemaEditable && (
               <Dialog open={addingField} onOpenChange={setAddingField}>
                 <DialogTrigger asChild>
-                  <button
-                    title="Add field"
-                    className="flex h-8 w-9 items-center justify-center text-muted hover:bg-hover hover:text-ink"
-                  >
-                    <Plus className="h-3.5 w-3.5" />
+                  <button className="flex h-8 w-[110px] shrink-0 items-center gap-1.5 border-r border-border-default px-2 text-[12px] font-medium text-muted hover:bg-hover hover:text-ink">
+                    <Plus className="h-3.5 w-3.5" /> New field
                   </button>
                 </DialogTrigger>
                 {addingField && <AddFieldDialog ws={ws} db={db} onDone={() => setAddingField(false)} />}

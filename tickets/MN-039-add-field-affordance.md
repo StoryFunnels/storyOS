@@ -1,7 +1,7 @@
 ---
 id: MN-039
 title: Add-field affordance in the table header — visible, labeled, obvious
-status: todo
+status: done
 depends_on: []
 size: S
 ---
