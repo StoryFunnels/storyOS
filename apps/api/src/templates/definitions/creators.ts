@@ -10,6 +10,13 @@ export const coachingPractice: TemplateDef = {
   category: 'creators',
   scope: 'pack',
   space: 'Coaching',
+    guide: `## How this works
+
+**Clients** enroll in **Programs**; **Sessions** are the calendar spine; **Action Items** keep clients accountable between sessions.
+
+## The loop
+
+After each session: log notes, set the client's action items, schedule the next session. The week starts from the Sessions calendar.`,
   databases: [
     {
       key: 'clients',
@@ -106,6 +113,9 @@ export const consulting: TemplateDef = {
   category: 'creators',
   scope: 'pack',
   space: 'Consulting',
+    guide: `## How this works
+
+**Leads** become **Engagements** (with scope, rate and status); **Delivery Tasks** carry the work. The pipeline board on Engagements is the business at a glance.`,
   databases: [
     {
       key: 'clients',
@@ -197,6 +207,13 @@ export const authorStudio: TemplateDef = {
   category: 'creators',
   scope: 'pack',
   space: 'Writing',
+    guide: `## How this works
+
+**Chapters** with a manuscript board (Outline → Draft → Revised → Done), **Research Notes** linked to chapters, **Appearances** (podcasts, talks) and **Launch Tasks** for the campaign.
+
+## The loop
+
+Write in the chapter's rich text; move it across the board; park every source in Research Notes linked where it's used.`,
   databases: [
     {
       key: 'books',

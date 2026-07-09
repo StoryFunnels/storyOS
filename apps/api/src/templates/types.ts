@@ -1,6 +1,6 @@
 /** Template registry types (MN-033). Definitions are pure data; the installer resolves. */
 
-export type TemplateCategory = 'agency' | 'creators' | 'dev';
+export type TemplateCategory = 'agency' | 'creators' | 'dev' | 'marketing' | 'people';
 export type TemplateScope = 'pack' | 'database';
 
 export interface TemplateFieldDef {
@@ -8,6 +8,7 @@ export interface TemplateFieldDef {
   display_name: string;
   type:
     | 'text'
+    | 'rich_text'
     | 'number'
     | 'checkbox'
     | 'date'
@@ -68,6 +69,8 @@ export interface TemplateRecordDef {
 }
 
 export interface TemplateDef {
+  /** Markdown guide shipped with the pack (MN-053) — shown in the gallery. */
+  guide?: string;
   slug: string;
   name: string;
   description: string;

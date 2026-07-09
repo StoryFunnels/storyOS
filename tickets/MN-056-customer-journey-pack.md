@@ -1,7 +1,7 @@
 ---
 id: MN-056
 title: Customer Journey Map pack (simplified from Fibery's 9 databases to 3)
-status: todo
+status: done
 depends_on: [MN-053]
 size: S
 ---

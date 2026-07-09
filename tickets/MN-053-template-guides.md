@@ -1,7 +1,7 @@
 ---
 id: MN-053
 title: Template guide docs — every pack ships a README that teaches the workflow
-status: todo
+status: done
 depends_on: []
 size: M
 ---

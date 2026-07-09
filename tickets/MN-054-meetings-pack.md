@@ -1,7 +1,7 @@
 ---
 id: MN-054
 title: Meetings & Action Items pack
-status: todo
+status: done
 depends_on: [MN-053]
 size: S
 ---

@@ -1,7 +1,7 @@
 ---
 id: MN-061
 title: Sales CRM pack — Accounts/Contacts/Opportunities/Sales Tasks (agency-crm v2)
-status: todo
+status: done
 depends_on: [MN-053]
 size: M
 ---

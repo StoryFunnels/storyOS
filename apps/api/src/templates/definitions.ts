@@ -5,6 +5,8 @@
 import { agencyCrm, clientSpace, clientWork, contentPipeline, funnels, socialCalendar } from './definitions/agency';
 import { authorStudio, coachingPractice, consulting } from './definitions/creators';
 import { devProject, soloDev } from './definitions/dev';
+import { campaignsHq, customerJourney, eventPlanning, meetings, salesCrm, videoProduction } from './definitions/marketing';
+import { orgChart, timeOff } from './definitions/people';
 import type { IntentDef, TemplateDef } from './types';
 
 export const TEMPLATES: TemplateDef[] = [
@@ -14,6 +16,14 @@ export const TEMPLATES: TemplateDef[] = [
   contentPipeline,
   socialCalendar,
   funnels,
+  meetings,
+  customerJourney,
+  eventPlanning,
+  videoProduction,
+  campaignsHq,
+  salesCrm,
+  orgChart,
+  timeOff,
   coachingPractice,
   consulting,
   authorStudio,

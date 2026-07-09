@@ -10,6 +10,15 @@ export const clientWork: TemplateDef = {
   category: 'agency',
   scope: 'pack',
   space: 'Client Work',
+    guide: `## How this works
+
+**Clients** anchor everything; **Projects** belong to a client; **Tasks** carry the daily work with the full Linear-style DNA (states, priorities, labels, sub-tasks, blockers). **Contacts** keep the humans attached to their companies.
+
+## The loop
+
+- New engagement: Client → Project → break into Tasks on the Task Board.
+- Daily: everyone lives in **My Tasks**; the **Triage** view catches unsorted intake.
+- Client health: update the Health field on Clients weekly — the Health board is the account review.`,
   databases: [
     {
       key: 'clients',
@@ -118,6 +127,15 @@ export const clientSpace: TemplateDef = {
   category: 'agency',
   scope: 'pack',
   space: 'New Client', // renamed at install from the intent's name prompt
+    guide: `## How this works
+
+This is the space you SHARE with a client (invite them as a guest with **editor** access — they work, they just can't touch structure). **Tasks** with a Client Approval state, **Deliverables**, **Meetings** and **Requests** for their asks.
+
+## The loop
+
+- Client requests come into **Requests**; you convert accepted ones into Tasks.
+- Deliverables move to Client Approval; the client flips them from their side.
+- Meeting notes live in Meetings — shared memory beats email threads.`,
   databases: [
     taskDnaDatabase({
       key: 'tasks',
@@ -204,6 +222,9 @@ export const agencyCrm: TemplateDef = {
   category: 'agency',
   scope: 'pack',
   space: 'Sales',
+    guide: `## How this works
+
+A light pipeline: **Leads** move through stages; **Proposals** track what you sent and for how much. For the fuller Accounts/Contacts/Opportunities model, install **Sales CRM** instead.`,
   databases: [
     {
       key: 'leads',
@@ -269,10 +290,24 @@ export const agencyCrm: TemplateDef = {
 export const socialCalendar: TemplateDef = {
   slug: 'social-calendar',
   name: 'Social Media Calendar',
-  description: 'Plan posts across channels with an approval flow and a weekly view.',
+  description: 'Plan posts around calendar moments, across platforms, with an approval flow.',
   category: 'agency',
   scope: 'pack',
   space: 'Social',
+  guide: `## How this works
+
+**Posts** carry the content and the approval flow; **Moments** are the dates that matter (launches, holidays, awareness days) that posts hang on; **Platforms** hold each channel's specs and links (image sizes, character limits) so nobody googles them twice.
+
+## The loop
+
+- Quarterly: fill Moments first — they are the skeleton of the calendar.
+- Weekly: create Posts against the next two weeks of Moments; move them Idea → Drafted → Approved → Scheduled → Published on the board.
+- The **Content Calendar** view (by publish date) is the source of truth for what goes out when.
+
+## Tips
+
+- The Channel multi-select is for quick filtering; the Platforms relation is for specs — use both.
+- Posts link to Articles when the Content Pipeline pack is installed (auto-wired cross-pack).`,
   databases: [
     {
       key: 'posts',
@@ -297,19 +332,44 @@ export const socialCalendar: TemplateDef = {
         { key: 'link', display_name: 'Link', type: 'url' },
       ],
     },
+    {
+      key: 'moments',
+      name: 'Moments', icon: '📌',
+      fields: [
+        { key: 'date', display_name: 'Date', type: 'date' },
+        { key: 'kind', display_name: 'Kind', type: 'select', options: [
+          { label: 'Launch', color: 'gold' }, { label: 'Holiday', color: 'green' },
+          { label: 'Awareness Day', color: 'blue' }, { label: 'Season', color: 'teal' },
+        ]},
+        { key: 'notes', display_name: 'Notes', type: 'text', config: { multiline: true } },
+      ],
+    },
+    {
+      key: 'platforms',
+      name: 'Platforms', icon: '📣',
+      fields: [
+        { key: 'handle', display_name: 'Profile URL', type: 'url' },
+        { key: 'specs', display_name: 'Specs & Limits', type: 'rich_text' },
+      ],
+    },
   ],
   relations: [
     { key: 'post_article', database_a: 'posts', external_target_name: 'Articles', cardinality: 'one_to_many', field_a_name: 'Article', field_b_name: 'Posts' },
+    { key: 'post_moment', database_a: 'posts', database_b: 'moments', cardinality: 'one_to_many', field_a_name: 'Moment', field_b_name: 'Posts' },
+    { key: 'post_platforms', database_a: 'posts', database_b: 'platforms', cardinality: 'many_to_many', field_a_name: 'Platforms', field_b_name: 'Posts' },
   ],
   views: [
     { database: 'posts', name: 'Post Board', type: 'board', group_by_field: 'status' },
     { database: 'posts', name: 'Content Calendar', type: 'calendar', date_field: 'publish' },
     { database: 'posts', name: 'This Week', type: 'table', filters: [{ field: 'publish', op: 'within', value: 'next_7_days' }], sorts: [{ field: 'publish', direction: 'asc' }] },
+    { database: 'moments', name: 'Moments calendar', type: 'calendar', date_field: 'date' },
   ],
   records: [
     { database: 'posts', values: { name: 'Why stories beat pitches (sample)', status: 'Drafted', channel: ['LinkedIn'], format: 'Text', hook: 'Your pitch is forgettable. Your story is not.' } },
     { database: 'posts', values: { name: 'Behind the scenes carousel (sample)', status: 'Idea', channel: ['Instagram', 'LinkedIn'], format: 'Carousel' } },
     { database: 'posts', values: { name: 'Client win announcement (sample)', status: 'Published', channel: ['LinkedIn', 'X'], format: 'Image' } },
+    { database: 'moments', values: { name: 'Product launch (sample)', kind: 'Launch' } },
+    { database: 'platforms', values: { name: 'LinkedIn (sample)' } },
   ],
 };
 
@@ -319,6 +379,13 @@ export const funnels: TemplateDef = {
   description: 'Track marketing funnels with real numbers — opt-ins, conversions, revenue.',
   category: 'agency',
   scope: 'database',
+    guide: `## How this works
+
+One database, rich fields: each **Funnel** carries its type, live URL, traffic sources and the numbers that matter (visitors, opt-in %, conversion %, revenue). Installs into an existing space; links to Clients automatically when the Client Work pack is present.
+
+## The loop
+
+Update the numbers monthly; the **Live Funnels** view sorted by revenue is the portfolio review.`,
   databases: [
     {
       key: 'funnels',
@@ -363,10 +430,25 @@ export const funnels: TemplateDef = {
 export const contentPipeline: TemplateDef = {
   slug: 'content-pipeline',
   name: 'Content Pipeline',
-  description: 'Articles through an editorial board, tied to campaigns.',
+  description: 'Ideas rated, articles through an editorial board, organized by topic clusters.',
   category: 'agency',
   scope: 'pack',
   space: 'Content',
+  guide: `## How this works
+
+**Articles** flow Idea → Brief → Writing → Editing → Design → Ready → Published on the Editorial Board. **Topics** are your SEO clusters — articles link to them many-to-many. **Campaigns** group content pushes.
+
+## The loop
+
+- Capture every idea as an Article at Idea stage; score it with **Idea Rating** (1-5) — review the *Ideas to rate* view weekly and promote the winners to Brief.
+- Draft in the rich-text **Draft** section right on the article; editors comment there.
+- Watch the *By writer* board for overload before assigning.
+- On publish: fill URL + Published Date; the article stays as the permanent content record.
+
+## Tips
+
+- Topics with Now priority and no linked articles = your gap list.
+- Word count + primary keyword make the SEO retro possible later.`,
   databases: [
     {
       key: 'articles',
@@ -394,6 +476,19 @@ export const contentPipeline: TemplateDef = {
           { label: 'pillar' }, { label: 'seo' }, { label: 'launch' }, { label: 'evergreen' }, { label: 'client-work' },
         ]},
         { key: 'cta', display_name: 'CTA', type: 'text' },
+        { key: 'rating', display_name: 'Idea Rating (1-5)', type: 'number' },
+        { key: 'draft', display_name: 'Draft', type: 'rich_text' },
+      ],
+    },
+    {
+      key: 'topics',
+      name: 'Topics', icon: '🧠',
+      fields: [
+        { key: 'priority', display_name: 'Priority', type: 'select', options: [
+          { label: 'Now', color: 'red' }, { label: 'Next', color: 'gold' }, { label: 'Later', color: 'gray' },
+        ]},
+        { key: 'volume', display_name: 'Search Volume /mo', type: 'number' },
+        { key: 'description', display_name: 'Description', type: 'text', config: { multiline: true } },
       ],
     },
     {
@@ -416,10 +511,14 @@ export const contentPipeline: TemplateDef = {
   ],
   relations: [
     { key: 'article_campaigns', database_a: 'articles', database_b: 'campaigns', cardinality: 'many_to_many', field_a_name: 'Campaigns', field_b_name: 'Articles' },
+    { key: 'article_topics', database_a: 'articles', database_b: 'topics', cardinality: 'many_to_many', field_a_name: 'Topics', field_b_name: 'Articles' },
   ],
   views: [
     { database: 'articles', name: 'Editorial Board', type: 'board', group_by_field: 'stage' },
+    { database: 'articles', name: 'Ideas to rate', type: 'table', filters: [{ field: 'stage', op: 'has', values: ['Idea'] }], sorts: [{ field: 'rating', direction: 'desc' }] },
+    { database: 'articles', name: 'By writer', type: 'board', group_by_field: 'stage', sorts: [{ field: 'target_date', direction: 'asc' }] },
     { database: 'articles', name: 'Publish Schedule', type: 'table', sorts: [{ field: 'target_date', direction: 'asc' }] },
+    { database: 'topics', name: 'Topic map', type: 'board', group_by_field: 'priority' },
     { database: 'campaigns', name: 'Campaign Board', type: 'board', group_by_field: 'status' },
   ],
   records: [

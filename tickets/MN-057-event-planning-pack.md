@@ -1,7 +1,7 @@
 ---
 id: MN-057
 title: Event Planning pack
-status: todo
+status: done
 depends_on: [MN-053]
 size: S
 ---

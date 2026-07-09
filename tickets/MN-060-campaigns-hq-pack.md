@@ -1,7 +1,7 @@
 ---
 id: MN-060
 title: Campaigns HQ pack (Fibery campaign-brief + product-marketing, merged)
-status: todo
+status: done
 depends_on: [MN-053]
 size: M
 ---

@@ -46,6 +46,7 @@ export class TemplatesService {
         description: t.description,
         category: t.category,
         scope: t.scope,
+        guide: t.guide ?? null,
         preview: {
           databases: t.databases.map((d) => ({
             name: d.name,

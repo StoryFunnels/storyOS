@@ -1,7 +1,7 @@
 ---
 id: MN-062
 title: Org Chart pack (+ hierarchy view noted as future view type)
-status: todo
+status: done
 depends_on: [MN-053]
 size: S
 ---

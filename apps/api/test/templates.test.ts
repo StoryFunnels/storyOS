@@ -23,6 +23,14 @@ const ALL_SLUGS = [
   'content-pipeline',
   'social-calendar',
   'funnels',
+  'meetings',
+  'customer-journey',
+  'event-planning',
+  'video-production',
+  'campaigns-hq',
+  'sales-crm',
+  'org-chart',
+  'time-off',
   'coaching-practice',
   'consulting',
   'author-studio',
@@ -50,6 +58,10 @@ describe('template registry (MN-033/035/036/037)', () => {
     expect(clientWork.preview.databases.map((d: { name: string }) => d.name)).toContain('Tasks');
     expect(clientWork.preview.relations.length).toBeGreaterThan(2);
     expect(body.intents.map((i: { id: string }) => i.id)).toContain('new-client');
+    // MN-053: every pack ships a guide
+    for (const t of body.data) {
+      expect(t.guide, `${t.slug} must carry a guide`).toBeTruthy();
+    }
     const newClient = body.intents.find((i: { id: string }) => i.id === 'new-client');
     expect(newClient.ends_with_invite).toBe(true);
   });

@@ -30,6 +30,15 @@ export const devProject: TemplateDef = {
   category: 'dev',
   scope: 'pack',
   space: 'Product',
+    guide: `## How this works
+
+The Linear model, self-hosted: **Issues** with full task DNA (Triage → Backlog → To Do → In Progress → In Review → Done/Canceled, priorities, labels, sub-issues, blockers), **Sprints**, **Releases** with changelogs, and **Product Docs** for specs and ADRs.
+
+## The loop
+
+- Everything lands in **Triage**; sweep it daily.
+- Sprint planning: drag from Backlog into the sprint; the Issue Board is standup.
+- Ship: link issues to a Release; the release page is the changelog.`,
   databases: [
     issueDna(),
     {
@@ -100,6 +109,9 @@ export const soloDev: TemplateDef = {
   category: 'dev',
   scope: 'pack',
   space: 'Product',
+    guide: `## How this works
+
+Issues + Releases, zero ceremony. Triage catches ideas, the board runs the day, the **Changelog** view (Releases by date) is your public history.`,
   databases: [
     taskDnaDatabase({
       key: 'issues',

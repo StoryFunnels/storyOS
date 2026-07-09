@@ -21,8 +21,9 @@ export interface TemplateSummary {
   slug: string;
   name: string;
   description: string;
-  category: 'agency' | 'creators' | 'dev';
+  category: 'agency' | 'creators' | 'dev' | 'marketing' | 'people';
   scope: 'pack' | 'database';
+  guide?: string | null;
   preview: TemplatePreview;
 }
 export interface TemplateIntent {
@@ -58,8 +59,10 @@ export const TEMPLATE_ICONS: Record<string, typeof Kanban> = {
 const CATEGORIES = [
   { value: 'all', label: 'All' },
   { value: 'agency', label: 'Agency' },
+  { value: 'marketing', label: 'Marketing' },
   { value: 'creators', label: 'Creators' },
   { value: 'dev', label: 'Dev' },
+  { value: 'people', label: 'People & Ops' },
 ] as const;
 
 export function useTemplateRegistry() {
@@ -121,6 +124,49 @@ export function TemplateCard({
         <span className="block text-[12px] text-muted">{template.description}</span>
       </span>
     </button>
+  );
+}
+
+/** Markdown-lite for template guides (MN-053): ## headings, - bullets, **bold**, paragraphs. */
+function GuideText({ markdown }: { markdown: string }) {
+  const blocks = markdown.trim().split(/\n\n+/);
+  const inline = (text: string) =>
+    text.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
+      part.startsWith('**') && part.endsWith('**') ? (
+        <strong key={i} className="font-semibold text-ink">
+          {part.slice(2, -2)}
+        </strong>
+      ) : (
+        part
+      ),
+    );
+  return (
+    <div className="flex flex-col gap-2">
+      {blocks.map((block, i) => {
+        if (block.startsWith('## ')) {
+          return (
+            <p key={i} className="text-[12px] font-semibold uppercase tracking-wider text-faint">
+              {block.slice(3)}
+            </p>
+          );
+        }
+        const lines = block.split('\n');
+        if (lines.every((l) => l.startsWith('- '))) {
+          return (
+            <ul key={i} className="flex list-disc flex-col gap-1 pl-4 text-[13px] text-ink-secondary">
+              {lines.map((l, j) => (
+                <li key={j}>{inline(l.slice(2))}</li>
+              ))}
+            </ul>
+          );
+        }
+        return (
+          <p key={i} className="text-[13px] leading-relaxed text-ink-secondary">
+            {inline(block)}
+          </p>
+        );
+      })}
+    </div>
   );
 }
 
@@ -253,7 +299,12 @@ export function TemplateGalleryDialog({
               <ArrowLeft className="h-3 w-3" /> All templates
             </button>
             <p className="-mt-2 text-[13px] text-ink-secondary">{selected.description}</p>
-            <div className="max-h-[40vh] overflow-y-auto">
+            <div className="flex max-h-[45vh] flex-col gap-3 overflow-y-auto">
+              {selected.guide && (
+                <div className="rounded-[var(--radius-card)] border border-border-default bg-card p-3">
+                  <GuideText markdown={selected.guide} />
+                </div>
+              )}
               <PreviewPanel preview={selected.preview} />
             </div>
 

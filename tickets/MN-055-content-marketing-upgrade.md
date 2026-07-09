@@ -1,7 +1,7 @@
 ---
 id: MN-055
 title: Content marketing upgrade — Topics, idea rating, writer workload
-status: todo
+status: done
 depends_on: [MN-053]
 size: S
 ---

@@ -1,7 +1,7 @@
 ---
 id: MN-059
 title: Content Calendar upgrade — Calendar Moments + Platforms database
-status: todo
+status: done
 depends_on: [MN-053]
 size: S
 ---

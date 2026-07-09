@@ -1,7 +1,7 @@
 ---
 id: MN-063
 title: Time Off pack (Vacations Pro, simplified; balances blocked on rollups)
-status: todo
+status: done
 depends_on: [MN-053]
 size: S
 ---
