@@ -5,12 +5,13 @@ import { RecordsModule } from '../records/records.module';
 import { RelationsModule } from '../relations/relations.module';
 import { WorkspacesModule } from '../workspaces/workspaces.module';
 import { GithubService } from './github.service';
-import { IntegrationsController } from './integrations.controller';
+import { IntegrationsController, LinearIntegrationsController } from './integrations.controller';
+import { LinearService } from './linear.service';
 
 @Module({
   imports: [DatabasesModule, FieldsModule, RecordsModule, RelationsModule, WorkspacesModule],
-  controllers: [IntegrationsController],
-  providers: [GithubService],
-  exports: [GithubService],
+  controllers: [IntegrationsController, LinearIntegrationsController],
+  providers: [GithubService, LinearService],
+  exports: [GithubService, LinearService],
 })
 export class IntegrationsModule {}

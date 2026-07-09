@@ -1,7 +1,7 @@
 ---
 id: MN-066
 title: Linear importer — leave Linear, keep your data
-status: todo
+status: done
 depends_on: []
 size: M
 ---
@@ -15,6 +15,6 @@ Fibery's `linear` template mirrors Linear (8 synced databases). Our dev-project 
 - Idempotency: `Linear ID` field, re-import updates.
 
 ## Acceptance criteria
-- [ ] API-key import: teams → spaces, issues/cycles/projects mapped to dev-project shapes; dry-run first
-- [ ] Idempotent re-import; names preserved when users absent
-- [ ] Guide with mapping table (Linear field → StoryOS field)
+- [x] API-key import: teams → spaces, issues/cycles/projects mapped to dev-project shapes; dry-run first
+- [x] Idempotent re-import; names preserved when users absent
+- [x] Guide with mapping table (Linear field → StoryOS field)

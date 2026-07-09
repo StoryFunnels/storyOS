@@ -3002,6 +3002,74 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/integrations/linear": {
+      "get": {
+        "operationId": "LinearIntegrationsController_getConfig",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Linear config (key presence + team keys)",
+        "tags": [
+          "integrations"
+        ]
+      },
+      "post": {
+        "operationId": "LinearIntegrationsController_saveConfig",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LinearConfigDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Save Linear API key and/or team-key filter",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/integrations/linear/dry-run": {
+      "post": {
+        "operationId": "LinearIntegrationsController_dryRun",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Preview import counts per team — writes nothing",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/integrations/linear/sync": {
+      "post": {
+        "operationId": "LinearIntegrationsController_sync",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Import teams → spaces (Issues/Sprints/Projects), idempotent by Linear ID",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
     "/api/v1/templates": {
       "get": {
         "operationId": "TemplatesController_list",
@@ -4723,6 +4791,25 @@
             "items": {
               "type": "string",
               "pattern": "^[\\w.-]+\\/[\\w.-]+$"
+            }
+          }
+        }
+      },
+      "LinearConfigDto": {
+        "type": "object",
+        "properties": {
+          "api_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "team_keys": {
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 20
             }
           }
         }
