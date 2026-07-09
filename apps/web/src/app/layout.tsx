@@ -11,9 +11,32 @@ const figtree = Figtree({
 });
 
 export const metadata: Metadata = {
-  title: 'StoryOS',
-  description: 'Open-source relational databases that run your company.',
+  title: { default: 'StoryOS — the open-source work OS', template: '%s · StoryOS' },
+  description:
+    'Open-source, self-hostable work OS: user-defined relational databases, boards, calendars, automations and formulas. Free forever.',
+  icons: {
+    icon: [
+      { url: '/favicon.svg', type: 'image/svg+xml' },
+      { url: '/favicon-32.png', sizes: '32x32', type: 'image/png' },
+    ],
+    apple: '/apple-touch-icon.png',
+  },
+  openGraph: {
+    title: 'StoryOS — the open-source work OS',
+    description: 'Databases · relations · boards · automations — self-hosted, free forever.',
+    images: [{ url: '/og.png', width: 1200, height: 630 }],
+    siteName: 'StoryOS',
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'StoryOS — the open-source work OS',
+    description: 'Databases · relations · boards · automations — self-hosted, free forever.',
+    images: ['/og.png'],
+  },
 };
+
+export const viewport = { themeColor: '#FAF7F1' };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (

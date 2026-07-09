@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="14" fill="#0F1729"/>
+  <!-- three stacked "pages" tracing an S -->
+  <rect x="14" y="15" width="28" height="9" rx="4.5" fill="#D4A017"/>
+  <rect x="22" y="27.5" width="28" height="9" rx="4.5" fill="#F5E4B8"/>
+  <rect x="14" y="40" width="28" height="9" rx="4.5" fill="#D4A017"/>
+</svg>

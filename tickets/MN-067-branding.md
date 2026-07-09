@@ -1,7 +1,7 @@
 ---
 id: MN-067
 title: StoryOS branding — logo, favicon, OG image, SEO meta
-status: todo
+status: done
 depends_on: []
 size: S
 ---
