@@ -213,10 +213,14 @@ export default function EntityPage() {
   if (record.isLoading || database.isLoading) return <p className="p-6 text-sm text-muted">Loading…</p>;
   if (!record.data) return <p className="p-6 text-sm text-error">Record not found.</p>;
 
+  // The route param can be a pretty `slug-{number}` (MN-087); every child + mutation
+  // must use the resolved UUID, never the raw param.
+  const recordId = record.data.id;
+
   const vp = {
     ws,
     db,
-    rec,
+    rec: recordId,
     record: record.data,
     members: memberList,
     memberNames,
@@ -224,7 +228,7 @@ export default function EntityPage() {
     readOnly,
     schemaEditable,
     onToggleZone: toggleZone,
-    onCommit: (field: Field, value: unknown) => updateRecord.mutate({ rec, values: { [field.apiName]: value } }),
+    onCommit: (field: Field, value: unknown) => updateRecord.mutate({ rec: recordId, values: { [field.apiName]: value } }),
   };
 
   return (
@@ -244,9 +248,9 @@ export default function EntityPage() {
           )}
         </div>
         <div className="flex items-center gap-1">
-          <StarButton ws={ws} rec={rec} />
+          <StarButton ws={ws} rec={recordId} />
           {schemaEditable && <FieldsPopover ws={ws} db={db} fields={allFields} />}
-          <RecordActions ws={ws} db={db} rec={rec} readOnly={readOnly} canCreate={schemaEditable} />
+          <RecordActions ws={ws} db={db} rec={recordId} readOnly={readOnly} canCreate={schemaEditable} />
         </div>
       </div>
 
@@ -261,7 +265,7 @@ export default function EntityPage() {
             onChange={(e) => setTitleDraft(e.target.value)}
             onBlur={() => {
               if (titleDraft !== null && titleDraft !== record.data!.title) {
-                updateRecord.mutate({ rec, values: { name: titleDraft } });
+                updateRecord.mutate({ rec: recordId, values: { name: titleDraft } });
               }
               setTitleDraft(null);
             }}
@@ -296,7 +300,7 @@ export default function EntityPage() {
                 readOnly={readOnly}
                 schemaEditable={schemaEditable}
                 onToggleZone={toggleZone}
-                onCommit={(value) => updateRecord.mutate({ rec, values: { [field.apiName]: value } })}
+                onCommit={(value) => updateRecord.mutate({ rec: recordId, values: { [field.apiName]: value } })}
               />
             ) : field.type === 'relation' ? (
               <CollectionSection key={field.id} field={field} {...vp} />
@@ -306,10 +310,10 @@ export default function EntityPage() {
           )}
 
           <h2 className="mb-2 text-[12px] font-medium uppercase tracking-wider text-faint">Description</h2>
-          <DescriptionEditor ws={ws} db={db} rec={rec} readOnly={readOnly} />
+          <DescriptionEditor ws={ws} db={db} rec={recordId} readOnly={readOnly} />
 
           <div className="mb-6 mt-5">
-            <AttachmentsStrip ws={ws} db={db} rec={rec} readOnly={readOnly} />
+            <AttachmentsStrip ws={ws} db={db} rec={recordId} readOnly={readOnly} />
           </div>
 
           <div className="mt-8 border-t border-border-default pt-4">
@@ -334,14 +338,14 @@ export default function EntityPage() {
                 <CommentsPanel
                   ws={ws}
                   db={db}
-                  rec={rec}
+                  rec={recordId}
                   members={memberList}
                   currentUserId={session?.user.id ?? ''}
                   isAdmin={workspace.data?.role === 'admin'}
                 />
               )
             ) : (
-              <ActivityPanel ws={ws} db={db} rec={rec} />
+              <ActivityPanel ws={ws} db={db} rec={recordId} />
             )}
           </div>
         </div>
