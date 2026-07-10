@@ -134,7 +134,7 @@ export function CellDisplay({ field, value, memberNames, memberImages }: Display
           href={String(value)}
           target="_blank"
           rel="noreferrer"
-          className="truncate text-[13px] text-info underline"
+          className="block max-w-full truncate text-[13px] text-info underline"
           onClick={(e) => e.stopPropagation()}
         >
           {String(value).replace(/^https?:\/\//, '')}

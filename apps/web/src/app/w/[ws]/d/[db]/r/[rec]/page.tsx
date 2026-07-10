@@ -8,9 +8,23 @@ import { useCreateBlockNote } from '@blocknote/react';
 import { BlockNoteView } from '@blocknote/mantine';
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
-import { SortableContext, arrayMove, rectSortingStrategy, useSortable } from '@dnd-kit/sortable';
+import {
+  SortableContext,
+  arrayMove,
+  horizontalListSortingStrategy,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { ArrowLeft, ChevronDown, ChevronRight, GripVertical, MoreHorizontal, Pin, PinOff, Plus } from 'lucide-react';
+import {
+  ArrowLeft,
+  ChevronDown,
+  ChevronRight,
+  GripVertical,
+  MoreHorizontal,
+  Pin,
+  Plus,
+} from 'lucide-react';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/auth-client';
 import { useWorkspace } from '@/lib/queries';
@@ -28,14 +42,11 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import type { LinkChip } from '@/components/table-view/relation-cell';
-import {
-  useDatabase,
-  useMembers,
-  useRecordMutations,
-} from '@/components/table-view/use-table-data';
+import { useDatabase, useMembers, useRecordMutations } from '@/components/table-view/use-table-data';
 import type { Field, RecordRow } from '@/components/table-view/use-table-data';
 import { DescriptionEditor } from '@/components/entity/description-editor';
 import { ActivityPanel, AttachmentsStrip, CommentsPanel } from '@/components/entity/panels';
@@ -44,9 +55,25 @@ import { cn } from '@/lib/utils';
 const HIDDEN = new Set(['title', 'created_at', 'updated_at', 'created_by']);
 const NOT_INLINE = new Set(['lookup', 'rollup', 'button', 'formula']);
 
-/** Entity-page order is independent of table columns: config.entity_order, else API (position) order. */
-function orderKey(field: Field, apiIndex: number): number {
-  const explicit = field.config?.['entity_order'];
+type Zone = 'top' | 'sidebar' | 'body';
+const ZONE_LABEL: Record<Zone, string> = { top: 'top strip', sidebar: 'sidebar', body: 'main body' };
+
+/** A to-many relation is a collection — it belongs in the body as a list, never the top/sidebar. */
+function isCollection(f: Field): boolean {
+  return f.type === 'relation' && (f.relation?.cardinality === 'many_to_many' || f.relation?.side === 'b');
+}
+function defaultZone(f: Field): Zone {
+  if (f.type === 'rich_text' || isCollection(f)) return 'body';
+  return 'sidebar'; // scalars + single references
+}
+/** Collections & rich text are pinned to the body; everything else honors config.entity_zone. */
+function zoneOf(f: Field): Zone {
+  if (f.type === 'rich_text' || isCollection(f)) return 'body';
+  const z = f.config?.['entity_zone'];
+  return z === 'top' || z === 'sidebar' || z === 'body' ? z : defaultZone(f);
+}
+function orderKey(f: Field, apiIndex: number): number {
+  const explicit = f.config?.['entity_order'];
   return typeof explicit === 'number' ? explicit : apiIndex;
 }
 
@@ -63,10 +90,9 @@ export default function EntityPage() {
   const record = useQuery({
     queryKey: ['record', ws, db, rec],
     queryFn: async () => {
-      const { data, error } = await api.GET(
-        '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}',
-        { params: { path: { ws, db, rec } } },
-      );
+      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}', {
+        params: { path: { ws, db, rec } },
+      });
       if (error) throw error;
       return data as unknown as RecordRow;
     },
@@ -80,7 +106,6 @@ export default function EntityPage() {
   const memberNames = useMemo(() => new Map(memberList.map((m) => [m.id, m.name])), [memberList]);
   const memberImages = useMemo(() => new Map(memberList.map((m) => [m.id, m.image])), [memberList]);
 
-  // API index captures the position/table order — the fallback for entity ordering.
   const apiIndex = useMemo(() => {
     const map = new Map<string, number>();
     (database.data?.fields ?? []).forEach((f, i) => map.set(f.id, i));
@@ -95,53 +120,41 @@ export default function EntityPage() {
     () => allFields.filter((f) => f.config?.['entity_hidden'] !== true),
     [allFields],
   );
-  const sortByEntity = useMemo(
+  const byOrder = useMemo(
     () => (list: Field[]) =>
       [...list].sort((a, b) => orderKey(a, apiIndex.get(a.id) ?? 0) - orderKey(b, apiIndex.get(b.id) ?? 0)),
     [apiIndex],
   );
-  // Pinned lead in an emphasized group; the rest fill a two-column grid; rich text gets full-width sections.
-  const pinnedFields = useMemo(
-    () => sortByEntity(visibleFields.filter((f) => f.type !== 'rich_text' && f.config?.['entity_pinned'] === true)),
-    [visibleFields, sortByEntity],
-  );
-  const gridFields = useMemo(
-    () => sortByEntity(visibleFields.filter((f) => f.type !== 'rich_text' && f.config?.['entity_pinned'] !== true)),
-    [visibleFields, sortByEntity],
-  );
-  const richFields = useMemo(() => visibleFields.filter((f) => f.type === 'rich_text'), [visibleFields]);
-  const hiddenFields = useMemo(
-    () => allFields.filter((f) => f.config?.['entity_hidden'] === true),
-    [allFields],
-  );
+  const topFields = useMemo(() => byOrder(visibleFields.filter((f) => zoneOf(f) === 'top')), [visibleFields, byOrder]);
+  const sidebarFields = useMemo(() => byOrder(visibleFields.filter((f) => zoneOf(f) === 'sidebar')), [visibleFields, byOrder]);
+  const bodyFields = useMemo(() => byOrder(visibleFields.filter((f) => zoneOf(f) === 'body')), [visibleFields, byOrder]);
+  const hiddenFields = useMemo(() => allFields.filter((f) => f.config?.['entity_hidden'] === true), [allFields]);
   const [showHidden, setShowHidden] = useState(false);
 
   const setFieldConfig = useSetFieldConfig(ws, db);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
-  function onGridDragEnd(event: DragEndEvent) {
+  function reorderWithin(list: Field[], event: DragEndEvent) {
     if (!event.over || event.active.id === event.over.id) return;
-    const from = gridFields.findIndex((f) => f.id === event.active.id);
-    const to = gridFields.findIndex((f) => f.id === event.over!.id);
+    const from = list.findIndex((f) => f.id === event.active.id);
+    const to = list.findIndex((f) => f.id === event.over!.id);
     if (from < 0 || to < 0) return;
-    const next = arrayMove(gridFields, from, to);
-    // Write entity_order for the reordered grid only — table columns (position) stay put.
-    next.forEach((f, i) => {
+    arrayMove(list, from, to).forEach((f, i) => {
       if (orderKey(f, apiIndex.get(f.id) ?? 0) !== i) {
         setFieldConfig.mutate({ fieldId: f.id, config: { entity_order: i } });
       }
     });
   }
+  const moveToZone = (field: Field, zone: Zone) =>
+    setFieldConfig.mutate({ fieldId: field.id, config: { entity_zone: zone, entity_order: null } });
 
   const [tab, setTab] = useState<'comments' | 'activity'>('comments');
   const [titleDraft, setTitleDraft] = useState<string | null>(null);
 
-  if (record.isLoading || database.isLoading) {
-    return <p className="p-6 text-sm text-muted">Loading…</p>;
-  }
+  if (record.isLoading || database.isLoading) return <p className="p-6 text-sm text-muted">Loading…</p>;
   if (!record.data) return <p className="p-6 text-sm text-error">Record not found.</p>;
 
-  const valueProps = {
+  const vp = {
     ws,
     db,
     rec,
@@ -150,11 +163,13 @@ export default function EntityPage() {
     memberNames,
     memberImages,
     readOnly,
+    schemaEditable,
+    onMove: moveToZone,
     onCommit: (field: Field, value: unknown) => updateRecord.mutate({ rec, values: { [field.apiName]: value } }),
   };
 
   return (
-    <div className="mx-auto max-w-3xl px-6 py-6">
+    <div className="mx-auto max-w-5xl px-6 py-6">
       <Link
         href={`/w/${ws}/d/${db}`}
         className="mb-4 inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-ink"
@@ -162,120 +177,151 @@ export default function EntityPage() {
         <ArrowLeft className="h-3.5 w-3.5" /> {database.data?.name}
       </Link>
 
-      <input
-        className="mb-5 w-full bg-transparent text-2xl font-semibold text-ink outline-none placeholder:text-faint"
-        placeholder="Untitled"
-        value={titleDraft ?? record.data.title}
-        readOnly={readOnly}
-        onChange={(e) => setTitleDraft(e.target.value)}
-        onBlur={() => {
-          if (titleDraft !== null && titleDraft !== record.data!.title) {
-            updateRecord.mutate({ rec, values: { name: titleDraft } });
-          }
-          setTitleDraft(null);
-        }}
-        onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
-      />
+      <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+        {/* MAIN BODY: title, pinned strip, collections + rich sections, description, discussion */}
+        <div className="min-w-0 flex-1">
+          <input
+            className="mb-4 w-full bg-transparent text-2xl font-semibold text-ink outline-none placeholder:text-faint"
+            placeholder="Untitled"
+            value={titleDraft ?? record.data.title}
+            readOnly={readOnly}
+            onChange={(e) => setTitleDraft(e.target.value)}
+            onBlur={() => {
+              if (titleDraft !== null && titleDraft !== record.data!.title) {
+                updateRecord.mutate({ rec, values: { name: titleDraft } });
+              }
+              setTitleDraft(null);
+            }}
+            onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+          />
 
-      {/* Pinned fields — the key facts, emphasized */}
-      {pinnedFields.length > 0 && (
-        <div className="mb-4 overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card">
-          {pinnedFields.map((field) => (
-            <PinnedRow key={field.id} field={field} schemaEditable={schemaEditable} {...valueProps} />
-          ))}
-        </div>
-      )}
+          {/* Top strip — a few pinned essentials */}
+          {topFields.length > 0 && (
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={(e) => reorderWithin(topFields, e)}>
+              <SortableContext items={topFields.map((f) => f.id)} strategy={horizontalListSortingStrategy}>
+                <div className="mb-5 flex flex-wrap gap-2">
+                  {topFields.map((field) => (
+                    <TopChip key={field.id} field={field} {...vp} />
+                  ))}
+                </div>
+              </SortableContext>
+            </DndContext>
+          )}
 
-      {/* Two-column property grid */}
-      <div className="mb-6">
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onGridDragEnd}>
-          <SortableContext items={gridFields.map((f) => f.id)} strategy={rectSortingStrategy}>
-            <div className="grid grid-cols-1 gap-x-6 gap-y-0.5 sm:grid-cols-2">
-              {gridFields.map((field) => (
-                <GridCell key={field.id} field={field} schemaEditable={schemaEditable} {...valueProps} />
+          {/* Body fields: collections (lists), scalars-in-body, rich text — in order */}
+          {bodyFields.map((field) =>
+            field.type === 'rich_text' ? (
+              <RichTextFieldSection
+                key={field.id}
+                ws={ws}
+                db={db}
+                field={field}
+                value={record.data.values[field.apiName]}
+                readOnly={readOnly}
+                schemaEditable={schemaEditable}
+                onMove={moveToZone}
+                onCommit={(value) => updateRecord.mutate({ rec, values: { [field.apiName]: value } })}
+              />
+            ) : field.type === 'relation' ? (
+              <CollectionSection key={field.id} field={field} {...vp} />
+            ) : (
+              <BodyScalar key={field.id} field={field} {...vp} />
+            ),
+          )}
+
+          <div className="mb-6">
+            <AttachmentsStrip ws={ws} db={db} rec={rec} readOnly={readOnly} />
+          </div>
+
+          <h2 className="mb-2 text-[12px] font-medium uppercase tracking-wider text-faint">Description</h2>
+          <DescriptionEditor ws={ws} db={db} rec={rec} readOnly={readOnly} />
+
+          <div className="mt-8 border-t border-border-default pt-4">
+            <div className="mb-4 flex gap-1">
+              {(['comments', 'activity'] as const).map((t) => (
+                <button
+                  key={t}
+                  className={cn(
+                    'rounded px-2.5 py-1 text-[13px] capitalize',
+                    tab === t ? 'bg-active font-medium text-ink' : 'text-muted hover:bg-hover',
+                  )}
+                  onClick={() => setTab(t)}
+                >
+                  {t}
+                </button>
               ))}
             </div>
-          </SortableContext>
-        </DndContext>
-
-        {schemaEditable && hiddenFields.length > 0 && (
-          <div className="mt-2 border-t border-border-default pt-1.5">
-            <button
-              className="flex items-center gap-1 text-[13px] text-faint hover:text-ink"
-              onClick={() => setShowHidden((s) => !s)}
-            >
-              {showHidden ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-              {hiddenFields.length} hidden field{hiddenFields.length > 1 ? 's' : ''}
-            </button>
-            {showHidden &&
-              hiddenFields.map((field) => (
-                <HiddenFieldRow key={field.id} ws={ws} db={db} field={field} />
-              ))}
+            {tab === 'comments' ? (
+              !canComment ? (
+                <p className="text-[13px] text-muted">You can view this record but not comment on it.</p>
+              ) : (
+                <CommentsPanel
+                  ws={ws}
+                  db={db}
+                  rec={rec}
+                  members={memberList}
+                  currentUserId={session?.user.id ?? ''}
+                  isAdmin={workspace.data?.role === 'admin'}
+                />
+              )
+            ) : (
+              <ActivityPanel ws={ws} db={db} rec={rec} />
+            )}
           </div>
-        )}
-        {schemaEditable && <AddFieldRow ws={ws} db={db} />}
-      </div>
-
-      {richFields.map((field) => (
-        <RichTextFieldSection
-          key={field.id}
-          ws={ws}
-          db={db}
-          field={field}
-          value={record.data.values[field.apiName]}
-          readOnly={readOnly}
-          schemaEditable={schemaEditable}
-          onCommit={(value) => updateRecord.mutate({ rec, values: { [field.apiName]: value } })}
-        />
-      ))}
-
-      <div className="mb-6">
-        <AttachmentsStrip ws={ws} db={db} rec={rec} readOnly={readOnly} />
-      </div>
-
-      <h2 className="mb-2 text-[12px] font-medium uppercase tracking-wider text-faint">
-        Description
-      </h2>
-      <DescriptionEditor ws={ws} db={db} rec={rec} readOnly={readOnly} />
-
-      {/* Tabs */}
-      <div className="mt-8 border-t border-border-default pt-4">
-        <div className="mb-4 flex gap-1">
-          {(['comments', 'activity'] as const).map((t) => (
-            <button
-              key={t}
-              className={cn(
-                'rounded px-2.5 py-1 text-[13px] capitalize',
-                tab === t ? 'bg-active font-medium text-ink' : 'text-muted hover:bg-hover',
-              )}
-              onClick={() => setTab(t)}
-            >
-              {t}
-            </button>
-          ))}
         </div>
-        {tab === 'comments' ? (
-          !canComment ? (
-            <p className="text-[13px] text-muted">You can view this record but not comment on it.</p>
-          ) : (
-            <CommentsPanel
-              ws={ws}
-              db={db}
-              rec={rec}
-              members={memberList}
-              currentUserId={session?.user.id ?? ''}
-              isAdmin={workspace.data?.role === 'admin'}
-            />
-          )
-        ) : (
-          <ActivityPanel ws={ws} db={db} rec={rec} />
-        )}
+
+        {/* RIGHT SIDEBAR: scalar properties */}
+        <aside className="w-full shrink-0 lg:sticky lg:top-6 lg:w-72">
+          <div className="rounded-[var(--radius-card)] border border-border-default bg-card">
+            <div className="flex items-center justify-between border-b border-border-default px-3 py-2">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-faint">Properties</span>
+              {schemaEditable && (
+                <FieldPicker
+                  label="Add a property"
+                  candidates={visibleFields.filter((f) => zoneOf(f) !== 'sidebar' && !isCollection(f) && f.type !== 'rich_text')}
+                  onPick={(f) => moveToZone(f, 'sidebar')}
+                />
+              )}
+            </div>
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={(e) => reorderWithin(sidebarFields, e)}>
+              <SortableContext items={sidebarFields.map((f) => f.id)} strategy={verticalListSortingStrategy}>
+                <div className="flex flex-col p-1.5">
+                  {sidebarFields.length === 0 && (
+                    <p className="px-1.5 py-2 text-[12px] text-faint">No sidebar properties.</p>
+                  )}
+                  {sidebarFields.map((field) => (
+                    <SidebarField key={field.id} field={field} {...vp} />
+                  ))}
+                </div>
+              </SortableContext>
+            </DndContext>
+
+            {schemaEditable && hiddenFields.length > 0 && (
+              <div className="border-t border-border-default px-3 py-1.5">
+                <button
+                  className="flex items-center gap-1 text-[12px] text-faint hover:text-ink"
+                  onClick={() => setShowHidden((s) => !s)}
+                >
+                  {showHidden ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                  {hiddenFields.length} hidden
+                </button>
+                {showHidden &&
+                  hiddenFields.map((field) => <HiddenFieldRow key={field.id} ws={ws} db={db} field={field} />)}
+              </div>
+            )}
+            {schemaEditable && (
+              <div className="border-t border-border-default px-3 py-1.5">
+                <AddFieldRow ws={ws} db={db} />
+              </div>
+            )}
+          </div>
+        </aside>
       </div>
     </div>
   );
 }
 
-interface ValueProps {
+interface VP {
   ws: string;
   db: string;
   rec: string;
@@ -284,26 +330,18 @@ interface ValueProps {
   memberNames: Map<string, string>;
   memberImages?: Map<string, string | null>;
   readOnly: boolean;
+  schemaEditable: boolean;
+  onMove: (field: Field, zone: Zone) => void;
   onCommit: (field: Field, value: unknown) => void;
 }
 
-/** The value renderer shared by pinned rows and grid cells: inline edit for every type. */
-function FieldValue({
-  field,
-  record,
-  ws,
-  db,
-  rec,
-  members,
-  memberNames,
-  memberImages,
-  readOnly,
-  onCommit,
-}: ValueProps & { field: Field }) {
+/** Inline value renderer for scalar fields (sidebar, top strip, body). */
+function ScalarValue({ field, record, ws, db, rec, members, memberNames, memberImages, readOnly, onCommit }: VP & { field: Field }) {
   const [editing, setEditing] = useState(false);
   const value = record.values[field.apiName];
 
   if (field.type === 'relation') {
+    // Single reference (collections render as their own body section).
     const chips = (value as LinkChip[]) ?? [];
     return (
       <div className="relative flex flex-wrap items-center gap-1">
@@ -311,7 +349,7 @@ function FieldValue({
           <Link
             key={chip.id}
             href={`/w/${ws}/d/${field.relation!.target_database_id}/r/${chip.id}`}
-            className="inline-flex max-w-48 items-center truncate rounded border border-border-default bg-hover px-1.5 py-0.5 text-[12px] text-ink hover:border-border-strong"
+            className="inline-flex max-w-full items-center truncate rounded border border-border-default bg-hover px-1.5 py-0.5 text-[12px] text-ink hover:border-border-strong"
           >
             {chip.title || 'Untitled'}
           </Link>
@@ -325,23 +363,12 @@ function FieldValue({
           </button>
         )}
         {editing && (
-          <RelationEditor
-            ws={ws}
-            db={db}
-            recordId={rec}
-            field={field}
-            current={chips}
-            onDone={() => setEditing(false)}
-          />
+          <RelationEditor ws={ws} db={db} recordId={rec} field={field} current={chips} onDone={() => setEditing(false)} />
         )}
       </div>
     );
   }
-
-  if (field.type === 'button') {
-    return <PressButton ws={ws} db={db} recordId={rec} field={field} disabled={readOnly} />;
-  }
-
+  if (field.type === 'button') return <PressButton ws={ws} db={db} recordId={rec} field={field} disabled={readOnly} />;
   if (editing) {
     return (
       <CellEditor
@@ -356,7 +383,6 @@ function FieldValue({
       />
     );
   }
-
   const empty = value === undefined || value === null || value === '';
   return (
     <div
@@ -376,31 +402,8 @@ function FieldValue({
   );
 }
 
-/** Full-width emphasized row for a pinned field (label left, value right). */
-function PinnedRow({
-  field,
-  schemaEditable,
-  ...value
-}: ValueProps & { field: Field; schemaEditable: boolean }) {
-  return (
-    <div className="group flex min-h-10 flex-wrap items-center gap-x-3 gap-y-1 border-b border-border-default px-3 py-2 last:border-b-0">
-      <span className="flex w-32 shrink-0 items-center gap-1.5 truncate text-[13px] font-medium text-muted sm:w-40">
-        <Pin className="h-3 w-3 shrink-0 text-accent" /> <span className="truncate">{field.displayName}</span>
-      </span>
-      <div className="min-w-0 flex-1 basis-40">
-        <FieldValue field={field} {...value} />
-      </div>
-      {schemaEditable && <FieldMenu ws={value.ws} db={value.db} field={field} pinned />}
-    </div>
-  );
-}
-
-/** Compact, draggable, label-above cell for the two-column grid. */
-function GridCell({
-  field,
-  schemaEditable,
-  ...value
-}: ValueProps & { field: Field; schemaEditable: boolean }) {
+/** Compact draggable property in the right sidebar (label above value). */
+function SidebarField({ field, schemaEditable, onMove, ...vp }: VP & { field: Field }) {
   const sortable = useSortable({ id: field.id, disabled: !schemaEditable });
   const style = { transform: CSS.Transform.toString(sortable.transform), transition: sortable.transition };
   return (
@@ -408,8 +411,8 @@ function GridCell({
       ref={sortable.setNodeRef}
       style={style}
       className={cn(
-        'group rounded-md border border-transparent px-2 py-1.5 hover:border-border-default hover:bg-hover/40',
-        sortable.isDragging && 'z-10 border-border-default bg-card opacity-80 shadow-sm',
+        'group rounded-md px-1.5 py-1.5 hover:bg-hover/50',
+        sortable.isDragging && 'z-10 bg-card opacity-80 shadow-sm',
       )}
     >
       <div className="mb-0.5 flex items-center gap-1">
@@ -426,14 +429,99 @@ function GridCell({
         <span className="flex-1 truncate text-[11px] font-medium uppercase tracking-wide text-faint">
           {field.displayName}
         </span>
-        {schemaEditable && <FieldMenu ws={value.ws} db={value.db} field={field} />}
+        {schemaEditable && <FieldMenu field={field} zone="sidebar" onMove={onMove} ws={vp.ws} db={vp.db} />}
       </div>
-      <FieldValue field={field} {...value} />
+      <ScalarValue field={field} schemaEditable={schemaEditable} onMove={onMove} {...vp} />
     </div>
   );
 }
 
-/** Persist a merged patch onto a field's config (entity-page visibility / pin / order). */
+/** Pinned essential in the top strip (label + value inline). */
+function TopChip({ field, schemaEditable, onMove, ...vp }: VP & { field: Field }) {
+  const sortable = useSortable({ id: field.id, disabled: !schemaEditable });
+  const style = { transform: CSS.Transform.toString(sortable.transform), transition: sortable.transition };
+  return (
+    <div
+      ref={sortable.setNodeRef}
+      style={style}
+      className={cn(
+        'group flex items-center gap-2 rounded-md border border-border-default bg-card px-2.5 py-1.5',
+        sortable.isDragging && 'z-10 opacity-80 shadow-sm',
+      )}
+      {...(schemaEditable ? sortable.attributes : {})}
+      {...(schemaEditable ? sortable.listeners : {})}
+    >
+      <span className="flex items-center gap-1 text-[11px] font-medium uppercase tracking-wide text-faint">
+        <Pin className="h-3 w-3 text-accent" /> {field.displayName}
+      </span>
+      <div onPointerDown={(e) => e.stopPropagation()}>
+        <ScalarValue field={field} schemaEditable={schemaEditable} onMove={onMove} {...vp} />
+      </div>
+      {schemaEditable && (
+        <span onPointerDown={(e) => e.stopPropagation()}>
+          <FieldMenu field={field} zone="top" onMove={onMove} ws={vp.ws} db={vp.db} />
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** A scalar field the user moved into the main body (full-width, label left). */
+function BodyScalar({ field, schemaEditable, onMove, ...vp }: VP & { field: Field }) {
+  return (
+    <div className="group mb-4 flex items-start gap-3 border-b border-border-default pb-3">
+      <span className="flex w-40 shrink-0 items-center gap-1 pt-0.5 text-[12px] font-medium uppercase tracking-wide text-faint">
+        {field.displayName}
+        {schemaEditable && <FieldMenu field={field} zone="body" onMove={onMove} ws={vp.ws} db={vp.db} />}
+      </span>
+      <div className="min-w-0 flex-1">
+        <ScalarValue field={field} schemaEditable={schemaEditable} onMove={onMove} {...vp} />
+      </div>
+    </div>
+  );
+}
+
+/** A to-many relation rendered as a working list in the body (Fibery-style collection). */
+function CollectionSection({ field, schemaEditable, onMove, readOnly, ws, db, rec, record }: VP & { field: Field }) {
+  const [adding, setAdding] = useState(false);
+  const chips = (record.values[field.apiName] as LinkChip[]) ?? [];
+  return (
+    <div className="group mb-5">
+      <div className="mb-1.5 flex items-center gap-1.5">
+        <h2 className="text-[12px] font-medium uppercase tracking-wider text-faint">{field.displayName}</h2>
+        <span className="text-[11px] text-faint">{chips.length}</span>
+        {schemaEditable && <FieldMenu field={field} zone="body" onMove={onMove} ws={ws} db={db} collection />}
+      </div>
+      <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card">
+        {chips.length === 0 && <p className="px-3 py-2.5 text-[13px] text-faint">Nothing linked yet.</p>}
+        {chips.map((chip) => (
+          <Link
+            key={chip.id}
+            href={`/w/${ws}/d/${field.relation!.target_database_id}/r/${chip.id}`}
+            className="flex items-center border-b border-border-default px-3 py-2 text-[13px] text-ink last:border-b-0 hover:bg-hover"
+          >
+            {chip.title || 'Untitled'}
+          </Link>
+        ))}
+        {!readOnly && (
+          <div className="relative px-3 py-2">
+            <button
+              className="inline-flex items-center gap-1 text-[13px] text-muted hover:text-ink"
+              onClick={() => setAdding(true)}
+            >
+              <Plus className="h-3.5 w-3.5" /> Add
+            </button>
+            {adding && (
+              <RelationEditor ws={ws} db={db} recordId={rec} field={field} current={chips} onDone={() => setAdding(false)} />
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Persist a merged patch onto a field's config (zone / order / hidden). */
 function useSetFieldConfig(ws: string, db: string) {
   const qc = useQueryClient();
   return useMutation({
@@ -448,12 +536,57 @@ function useSetFieldConfig(ws: string, db: string) {
   });
 }
 
-/** Schema editing without leaving the record (Notion-style): ⋯ on each property. */
-function FieldMenu({ ws, db, field, pinned = false }: { ws: string; db: string; field: Field; pinned?: boolean }) {
+/** Dropdown that pulls an existing field into a zone. */
+function FieldPicker({
+  label,
+  candidates,
+  onPick,
+}: {
+  label: string;
+  candidates: Field[];
+  onPick: (f: Field) => void;
+}) {
+  if (candidates.length === 0) return null;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button className="rounded p-0.5 text-faint hover:bg-hover hover:text-ink" title={label}>
+          <Plus className="h-3.5 w-3.5" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="max-h-72 overflow-y-auto">
+        {candidates.map((f) => (
+          <DropdownMenuItem key={f.id} onSelect={() => onPick(f)}>
+            {f.displayName}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** Per-field ⋯ menu: move between zones, edit, hide, delete. */
+function FieldMenu({
+  ws,
+  db,
+  field,
+  zone,
+  onMove,
+  collection = false,
+}: {
+  ws: string;
+  db: string;
+  field: Field;
+  zone: Zone;
+  onMove: (field: Field, zone: Zone) => void;
+  collection?: boolean;
+}) {
   const [dialog, setDialog] = useState<'edit' | 'change-type' | null>(null);
   const deleteField = useDeleteField({ ws, db, field, onDone: () => setDialog(null) });
   const setConfig = useSetFieldConfig(ws, db);
   const canDelete = field.type !== 'relation' && !field.isSystem;
+  // Collections & rich text can't leave the body; single-refs & scalars move freely.
+  const movable: Zone[] = collection ? [] : (['top', 'sidebar', 'body'] as Zone[]).filter((z) => z !== zone);
 
   return (
     <>
@@ -468,17 +601,12 @@ function FieldMenu({ ws, db, field, pinned = false }: { ws: string; db: string; 
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuItem onSelect={() => setDialog('edit')}>Edit field</DropdownMenuItem>
-          <DropdownMenuItem
-            onSelect={() =>
-              setConfig.mutate({ fieldId: field.id, config: { entity_pinned: !pinned, entity_order: null } })
-            }
-          >
-            {pinned ? (
-              <><PinOff className="mr-2 h-3.5 w-3.5" /> Unpin</>
-            ) : (
-              <><Pin className="mr-2 h-3.5 w-3.5" /> Pin to top</>
-            )}
-          </DropdownMenuItem>
+          {movable.map((z) => (
+            <DropdownMenuItem key={z} onSelect={() => onMove(field, z)}>
+              Move to {ZONE_LABEL[z]}
+            </DropdownMenuItem>
+          ))}
+          <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={() => setConfig.mutate({ fieldId: field.id, config: { entity_hidden: true } })}>
             Hide on record page
           </DropdownMenuItem>
@@ -491,17 +619,9 @@ function FieldMenu({ ws, db, field, pinned = false }: { ws: string; db: string; 
       </DropdownMenu>
       <Dialog open={dialog !== null} onOpenChange={(open) => !open && setDialog(null)}>
         {dialog === 'edit' && (
-          <EditFieldDialog
-            ws={ws}
-            db={db}
-            field={field}
-            onDone={() => setDialog(null)}
-            onChangeType={() => setDialog('change-type')}
-          />
+          <EditFieldDialog ws={ws} db={db} field={field} onDone={() => setDialog(null)} onChangeType={() => setDialog('change-type')} />
         )}
-        {dialog === 'change-type' && (
-          <ChangeTypeDialog ws={ws} db={db} field={field} onDone={() => setDialog(null)} />
-        )}
+        {dialog === 'change-type' && <ChangeTypeDialog ws={ws} db={db} field={field} onDone={() => setDialog(null)} />}
       </Dialog>
     </>
   );
@@ -515,6 +635,7 @@ function RichTextFieldSection({
   value,
   readOnly,
   schemaEditable,
+  onMove,
   onCommit,
 }: {
   ws: string;
@@ -523,6 +644,7 @@ function RichTextFieldSection({
   value: unknown;
   readOnly: boolean;
   schemaEditable: boolean;
+  onMove: (field: Field, zone: Zone) => void;
   onCommit: (value: unknown) => void;
 }) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -534,10 +656,8 @@ function RichTextFieldSection({
   return (
     <div className="group mb-5">
       <div className="mb-1.5 flex items-center gap-1">
-        <h2 className="text-[12px] font-medium uppercase tracking-wider text-faint">
-          {field.displayName}
-        </h2>
-        {schemaEditable && <FieldMenu ws={ws} db={db} field={field} />}
+        <h2 className="text-[12px] font-medium uppercase tracking-wider text-faint">{field.displayName}</h2>
+        {schemaEditable && <FieldMenu ws={ws} db={db} field={field} zone="body" onMove={onMove} collection />}
       </div>
       <div className="rounded-[var(--radius-card)] border border-border-default bg-card py-3 [&_.bn-editor]:bg-transparent">
         <BlockNoteView
@@ -561,8 +681,8 @@ function RichTextFieldSection({
 function HiddenFieldRow({ ws, db, field }: { ws: string; db: string; field: Field }) {
   const setConfig = useSetFieldConfig(ws, db);
   return (
-    <div className="flex min-h-8 items-center py-1">
-      <span className="w-40 shrink-0 text-[13px] text-faint">{field.displayName}</span>
+    <div className="flex min-h-7 items-center justify-between py-0.5">
+      <span className="truncate text-[12px] text-faint">{field.displayName}</span>
       <button
         className="text-[12px] text-info underline-offset-2 hover:underline"
         onClick={() => setConfig.mutate({ fieldId: field.id, config: { entity_hidden: false } })}
@@ -573,14 +693,14 @@ function HiddenFieldRow({ ws, db, field }: { ws: string; db: string; field: Fiel
   );
 }
 
-/** "+ Add a field" under the properties — schema growth from the entity page. */
+/** "+ Add a field" — schema growth from the record page (creates a NEW field). */
 function AddFieldRow({ ws, db }: { ws: string; db: string }) {
   const [open, setOpen] = useState(false);
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <button className="mt-1 flex items-center gap-1.5 self-start py-2 text-[13px] text-faint hover:text-ink">
-          <Plus className="h-3.5 w-3.5" /> Add a field
+        <button className="flex items-center gap-1.5 py-1 text-[12px] text-faint hover:text-ink">
+          <Plus className="h-3.5 w-3.5" /> New field
         </button>
       </DialogTrigger>
       {open && <AddFieldDialog ws={ws} db={db} onDone={() => setOpen(false)} />}
