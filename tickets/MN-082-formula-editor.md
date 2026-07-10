@@ -1,7 +1,7 @@
 ---
 id: MN-082
 title: Formula field — autocomplete + functions helper + working docs link in Add Field
-status: todo
+status: done
 depends_on: [MN-043]
 size: M
 ---
@@ -14,6 +14,6 @@ Bug: the Add Field dialog's Formula input is a plain textarea — no `{field}` a
 - Point "Learn formulas →" at the real docs (docs/product/formulas.md or the hosted docs route).
 
 ## Acceptance criteria
-- [ ] Add Field → Formula shows autocomplete for `{fields}` and a functions helper
-- [ ] The docs link resolves to the formulas guide
-- [ ] Verified in browser
+- [x] Add Field → Formula shows autocomplete for `{fields}` and a functions helper
+- [x] The docs link resolves to the formulas guide
+- [x] Verified in browser

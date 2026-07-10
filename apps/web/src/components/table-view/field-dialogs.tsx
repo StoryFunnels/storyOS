@@ -40,7 +40,7 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
-import { evaluateFormula, parseFormula, typecheck } from '@storyos/schemas';
+import { FORMULA_FUNCTIONS, evaluateFormula, parseFormula, typecheck } from '@storyos/schemas';
 import { useDatabases } from '@/lib/queries';
 import { Button } from '@/components/ui/button';
 import { DialogClose, DialogContent } from '@/components/ui/dialog';
@@ -1320,11 +1320,32 @@ export function FormulaEditor({
     }
   }
 
-  const [showComplete, setShowComplete] = useState(false);
+  const [panel, setPanel] = useState<'none' | 'fields' | 'functions'>('none');
+  // Typing "{" opens the field picker inline; explicit buttons open either panel.
+  const openFieldsIf = (v: string) => setPanel(v.endsWith('{') ? 'fields' : (p) => (p === 'fields' ? 'none' : p));
+  const insert = (snippet: string) => onChange(expression + snippet);
 
   return (
     <div className="flex flex-col gap-1.5">
-      <Label htmlFor="formula-src">Formula</Label>
+      <div className="flex items-center justify-between">
+        <Label htmlFor="formula-src">Formula</Label>
+        <div className="flex gap-1">
+          <button
+            type="button"
+            className={cn('rounded px-1.5 py-0.5 text-[11px]', panel === 'fields' ? 'bg-active text-ink' : 'text-muted hover:bg-hover hover:text-ink')}
+            onClick={() => setPanel((p) => (p === 'fields' ? 'none' : 'fields'))}
+          >
+            {'{ } Field'}
+          </button>
+          <button
+            type="button"
+            className={cn('rounded px-1.5 py-0.5 text-[11px]', panel === 'functions' ? 'bg-active text-ink' : 'text-muted hover:bg-hover hover:text-ink')}
+            onClick={() => setPanel((p) => (p === 'functions' ? 'none' : 'functions'))}
+          >
+            ƒ Functions
+          </button>
+        </div>
+      </div>
       <textarea
         id="formula-src"
         rows={3}
@@ -1333,19 +1354,21 @@ export function FormulaEditor({
         value={expression}
         onChange={(e) => {
           onChange(e.target.value);
-          setShowComplete(e.target.value.endsWith('{'));
+          openFieldsIf(e.target.value);
         }}
       />
-      {showComplete && (
+      {panel === 'fields' && (
         <div className="flex max-h-28 flex-wrap gap-1 overflow-y-auto rounded-[var(--radius-card)] border border-border-default bg-card p-1.5">
+          {infos.length === 0 && <span className="px-1 text-[12px] text-faint">No referenceable fields yet.</span>}
           {infos.map((f) => (
             <button
               key={f.api_name}
               type="button"
               className="rounded bg-hover px-1.5 py-0.5 text-[12px] text-ink hover:bg-active"
               onClick={() => {
-                onChange(`${expression}${f.display_name}}`);
-                setShowComplete(false);
+                // If the user just typed "{", complete it; otherwise insert a full {Field}.
+                onChange(expression.endsWith('{') ? `${expression}${f.display_name}}` : `${expression}{${f.display_name}}`);
+                setPanel('none');
               }}
             >
               {f.display_name}
@@ -1353,10 +1376,35 @@ export function FormulaEditor({
           ))}
         </div>
       )}
+      {panel === 'functions' && (
+        <div className="max-h-40 overflow-y-auto rounded-[var(--radius-card)] border border-border-default bg-card p-1">
+          {Object.entries(FORMULA_FUNCTIONS).map(([name, spec]) => (
+            <button
+              key={name}
+              type="button"
+              title={spec.example}
+              className="flex w-full flex-col rounded px-2 py-1 text-left hover:bg-hover"
+              onClick={() => {
+                const noArgs = name === 'now' || name === 'today';
+                insert(noArgs ? `${name}()` : `${name}(`);
+                setPanel('none');
+              }}
+            >
+              <span className="font-mono text-[12px] text-ink">{spec.example}</span>
+              <span className="text-[11px] text-muted">{spec.doc}</span>
+            </button>
+          ))}
+        </div>
+      )}
       <p className={cn('text-[12px]', feedback.kind === 'error' ? 'text-error' : 'text-muted')}>
-        {feedback.text || 'Reference fields as {Field Name}. Functions: if, concat, round, days_between…'}
+        {feedback.text || 'Reference fields as {Field Name}. Use the buttons above to insert fields and functions.'}
       </p>
-      <a href="https://github.com/storyos/storyos/blob/main/docs/product/formulas.md" target="_blank" rel="noreferrer" className="self-start text-[12px] text-info underline-offset-2 hover:underline">
+      <a
+        href="https://github.com/StoryFunnels/storyOS/blob/main/docs/product/formulas.md"
+        target="_blank"
+        rel="noreferrer"
+        className="self-start text-[12px] text-info underline-offset-2 hover:underline"
+      >
         Learn formulas →
       </a>
     </div>
