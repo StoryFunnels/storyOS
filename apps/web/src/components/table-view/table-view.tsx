@@ -3,9 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import Link from 'next/link';
-import { Maximize2, MoreHorizontal, Plus, Trash2 } from 'lucide-react';
+import { GripVertical, Maximize2, MoreHorizontal, Pin, PinOff, Plus, Trash2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
+import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
+import type { DragEndEvent } from '@dnd-kit/core';
+import { SortableContext, arrayMove, horizontalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useShortcut } from '@/lib/shortcuts';
 import { Dialog, DialogTrigger } from '@/components/ui/dialog';
@@ -94,6 +99,50 @@ export function TableView({
   const [cursor, setCursor] = useState<Cursor | null>(null);
   const [editing, setEditing] = useState(false);
   const [addingField, setAddingField] = useState(false);
+
+  // First column frozen by default; per-user, per-database preference (MN-083).
+  const pinKey = `storyos:pin-first:${db}`;
+  const [pinned, setPinned] = useState(true);
+  useEffect(() => {
+    if (typeof window !== 'undefined') setPinned(window.localStorage.getItem(pinKey) !== '0');
+  }, [pinKey]);
+  const togglePinned = () => {
+    setPinned((p) => {
+      const next = !p;
+      if (typeof window !== 'undefined') window.localStorage.setItem(pinKey, next ? '1' : '0');
+      return next;
+    });
+  };
+
+  // Drag-to-reorder columns → writes field.position (MN-083).
+  const qc = useQueryClient();
+  const columnSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  const reorderColumns = useMutation({
+    mutationFn: async (moves: Array<{ fieldId: string; position: number }>) => {
+      for (const m of moves) {
+        const { error } = await api.PATCH('/api/v1/workspaces/{ws}/databases/{db}/fields/{field}', {
+          params: { path: { ws, db, field: m.fieldId } },
+          body: { position: m.position },
+        });
+        if (error) throw error;
+      }
+    },
+    onSettled: () => void qc.invalidateQueries({ queryKey: ['database', ws, db] }),
+  });
+  function onColumnDragEnd(event: DragEndEvent) {
+    if (!event.over || event.active.id === event.over.id) return;
+    // The first (title) column stays put; reorder happens among the rest.
+    const rest = fields.slice(1);
+    const from = rest.findIndex((f) => f.id === event.active.id);
+    const to = rest.findIndex((f) => f.id === event.over!.id);
+    if (from < 0 || to < 0) return;
+    const next = [fields[0]!, ...arrayMove(rest, from, to)];
+    const moves = next
+      .map((f, i) => ({ f, i }))
+      .filter(({ f }) => !f.isSystem)
+      .map(({ f, i }) => ({ fieldId: f.id, position: i }));
+    if (moves.length) reorderColumns.mutate(moves);
+  }
   const gridRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
@@ -233,21 +282,45 @@ export function TableView({
         <div ref={gridRef} style={{ width: totalWidth }} className="outline-none">
           {/* Header */}
           <div className="sticky top-0 z-20 flex border-b border-border-default bg-app">
-            <div className="w-14 shrink-0" />
-            {fields.map((field) => (
+            <div className={cn('w-14 shrink-0 bg-app', pinned && 'sticky left-0 z-30')} />
+            {fields[0] && (
               <HeaderCell
-                key={field.id}
+                key={fields[0].id}
                 ws={ws}
                 db={db}
-                field={field}
-                width={widthOf(field)}
+                field={fields[0]}
+                width={widthOf(fields[0])}
                 readOnly={!schemaEditable}
+                sticky={pinned}
+                stickyLeft={56}
+                isFirst
+                pinned={pinned}
+                onTogglePin={togglePinned}
                 onResize={(w) => {
-                  setWidths((prev) => ({ ...prev, [field.id]: w }));
-                  onColumnResize?.(field.id, w);
+                  setWidths((prev) => ({ ...prev, [fields[0]!.id]: w }));
+                  onColumnResize?.(fields[0]!.id, w);
                 }}
               />
-            ))}
+            )}
+            <DndContext sensors={columnSensors} collisionDetection={closestCenter} onDragEnd={onColumnDragEnd}>
+              <SortableContext items={fields.slice(1).map((f) => f.id)} strategy={horizontalListSortingStrategy}>
+                {fields.slice(1).map((field) => (
+                  <HeaderCell
+                    key={field.id}
+                    ws={ws}
+                    db={db}
+                    field={field}
+                    width={widthOf(field)}
+                    readOnly={!schemaEditable}
+                    reorderable={schemaEditable}
+                    onResize={(w) => {
+                      setWidths((prev) => ({ ...prev, [field.id]: w }));
+                      onColumnResize?.(field.id, w);
+                    }}
+                  />
+                ))}
+              </SortableContext>
+            </DndContext>
             {schemaEditable && (
               <Dialog open={addingField} onOpenChange={setAddingField}>
                 <DialogTrigger asChild>
@@ -270,7 +343,13 @@ export function TableView({
                   className={cn('group absolute left-0 flex w-full border-b border-border-default hover:bg-hover', selected.has(row.id) ? 'bg-accent-soft' : 'bg-card')}
                   style={{ top: item.start, height: ROW_HEIGHT }}
                 >
-                  <div className="flex w-14 shrink-0 items-center justify-center gap-0.5">
+                  <div
+                    className={cn(
+                      'flex w-14 shrink-0 items-center justify-center gap-0.5',
+                      pinned && 'sticky left-0 z-10',
+                      selected.has(row.id) ? 'bg-accent-soft' : 'bg-card group-hover:bg-hover',
+                    )}
+                  >
                     {!readOnly && (
                       <input
                         type="checkbox"
@@ -309,10 +388,16 @@ export function TableView({
                     return (
                       <div
                         key={field.id}
-                        style={{ width: widthOf(field) }}
+                        style={{ width: widthOf(field), ...(pinned && colIndex === 0 ? { left: 56 } : {}) }}
                         className={cn(
                           'relative flex shrink-0 items-center overflow-visible border-r border-border-default px-2',
-                          isCursor && 'ring-2 ring-inset ring-[var(--accent)]',
+                          isCursor && 'z-20 ring-2 ring-inset ring-[var(--accent)]',
+                          pinned &&
+                            colIndex === 0 &&
+                            cn(
+                              'sticky z-10 shadow-[2px_0_4px_-2px_rgba(15,23,41,0.12)]',
+                              selected.has(row.id) ? 'bg-accent-soft' : 'bg-card group-hover:bg-hover',
+                            ),
                         )}
                         onClick={() => {
                           setCursor({ row: item.index, col: colIndex });
@@ -546,6 +631,12 @@ function HeaderCell({
   width,
   readOnly,
   onResize,
+  reorderable = false,
+  sticky = false,
+  stickyLeft,
+  isFirst = false,
+  pinned = false,
+  onTogglePin,
 }: {
   ws: string;
   db: string;
@@ -553,18 +644,58 @@ function HeaderCell({
   width: number;
   readOnly: boolean;
   onResize: (width: number) => void;
+  reorderable?: boolean;
+  sticky?: boolean;
+  stickyLeft?: number;
+  isFirst?: boolean;
+  pinned?: boolean;
+  onTogglePin?: () => void;
 }) {
   const startRef = useRef<{ x: number; width: number } | null>(null);
   const [dialog, setDialog] = useState<'edit' | 'change-type' | null>(null);
   const deleteField = useDeleteField({ ws, db, field, onDone: () => setDialog(null) });
   const canManage = !readOnly && field.type !== 'title' && !field.isSystem;
+  const sortable = useSortable({ id: field.id, disabled: !reorderable });
+
+  const style: React.CSSProperties = {
+    width,
+    transform: reorderable ? CSS.Transform.toString(sortable.transform) : undefined,
+    transition: reorderable ? sortable.transition : undefined,
+    ...(sticky ? { position: 'sticky', left: stickyLeft, zIndex: 30 } : {}),
+  };
 
   return (
     <div
-      style={{ width }}
-      className="group/header relative flex h-8 shrink-0 items-center justify-between border-r border-border-default px-2 text-[12px] font-medium text-muted"
+      ref={reorderable ? sortable.setNodeRef : undefined}
+      style={style}
+      className={cn(
+        'group/header relative flex h-8 shrink-0 items-center justify-between border-r border-border-default px-2 text-[12px] font-medium text-muted',
+        sticky && 'bg-app shadow-[2px_0_4px_-2px_rgba(15,23,41,0.12)]',
+        sortable.isDragging && 'z-40 opacity-70',
+      )}
     >
-      <span className="truncate">{field.displayName}</span>
+      <span className="flex min-w-0 items-center gap-1">
+        {reorderable && (
+          <button
+            className="-ml-1 cursor-grab touch-none text-faint opacity-0 hover:text-muted group-hover/header:opacity-100"
+            {...sortable.attributes}
+            {...sortable.listeners}
+            title="Drag to reorder"
+          >
+            <GripVertical className="h-3 w-3" />
+          </button>
+        )}
+        <span className="truncate">{field.displayName}</span>
+      </span>
+      {isFirst && onTogglePin && (
+        <button
+          className="rounded p-0.5 text-faint opacity-0 hover:bg-active hover:text-ink group-hover/header:opacity-100"
+          title={pinned ? 'Unfreeze column' : 'Freeze column'}
+          onClick={onTogglePin}
+        >
+          {pinned ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}
+        </button>
+      )}
       {canManage && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
