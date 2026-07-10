@@ -103,4 +103,48 @@ describe('button fields (MN-046)', () => {
     const res = await inject('POST', `/workspaces/${wsId}/databases/${tasksId}/records/${recId}/buttons/${staleBtn.id}/press`);
     expect(res.statusCode).toBe(422);
   });
+
+  it('update_linked action updates the records linked through a relation (MN-080)', async () => {
+    // Note field on Logs; the Tasks-side relation field to Logs.
+    const note = (await inject('POST', `/workspaces/${wsId}/databases/${logsId}/fields`, {
+      display_name: 'Note', type: 'text', config: {},
+    })).json();
+    const tasksDetail = (await inject('GET', `/workspaces/${wsId}/databases/${tasksId}`)).json();
+    const tasksToLogs = tasksDetail.fields.find((f: { type: string }) => f.type === 'relation');
+
+    // a fresh task linked to a fresh log
+    const task2 = (await inject('POST', `/workspaces/${wsId}/databases/${tasksId}/records`, { values: { name: 'Parent' } })).json().id;
+    const log2 = (await inject('POST', `/workspaces/${wsId}/databases/${logsId}/records`, { values: { name: 'Child log' } })).json().id;
+    await inject('PUT', `/workspaces/${wsId}/databases/${tasksId}/records/${task2}/links/${tasksToLogs.id}`, { record_ids: [log2] });
+
+    const btn = (await inject('POST', `/workspaces/${wsId}/databases/${tasksId}/fields`, {
+      display_name: 'Touch logs', type: 'button',
+      config: { actions: [{ type: 'update_linked', relation_field_id: tasksToLogs.id, values: { [note.apiName]: 'touched by rule' } }] },
+    })).json();
+    const press = await inject('POST', `/workspaces/${wsId}/databases/${tasksId}/records/${task2}/buttons/${btn.id}/press`);
+    expect(press.statusCode, press.body).toBe(201);
+    expect(press.json().effects[0].summary).toContain('1 linked');
+
+    const linkedLog = (await inject('GET', `/workspaces/${wsId}/databases/${logsId}/records/${log2}`)).json();
+    expect(linkedLog.values[note.apiName]).toBe('touched by rule');
+  });
+
+  it('notify_user: @me runs, a non-person target is rejected at press (MN-080)', async () => {
+    // @me notify (to self) — filtered to no recipients, still succeeds.
+    const selfBtn = (await inject('POST', `/workspaces/${wsId}/databases/${tasksId}/fields`, {
+      display_name: 'Self notify', type: 'button',
+      config: { actions: [{ type: 'notify_user', user: '@me', message: 'note to self ({Title})' }] },
+    })).json();
+    const okPress = await inject('POST', `/workspaces/${wsId}/databases/${tasksId}/records/${recId}/buttons/${selfBtn.id}/press`);
+    expect(okPress.statusCode, okPress.body).toBe(201);
+    expect(okPress.json().effects[0].type).toBe('notify_user');
+
+    // notify targeting a non-person field is rejected at press (reference validation).
+    const badBtn = (await inject('POST', `/workspaces/${wsId}/databases/${tasksId}/fields`, {
+      display_name: 'Bad notify', type: 'button',
+      config: { actions: [{ type: 'notify_user', user: stateApi, message: 'hi' }] },
+    })).json();
+    const badPress = await inject('POST', `/workspaces/${wsId}/databases/${tasksId}/records/${recId}/buttons/${badBtn.id}/press`);
+    expect(badPress.statusCode).toBe(422);
+  });
 });

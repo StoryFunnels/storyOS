@@ -3,8 +3,9 @@ import { and, eq, isNull } from 'drizzle-orm';
 import type { AutomationAction } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { databases, fields } from '../db/schema';
+import { databases, fields, relations } from '../db/schema';
 import { CommentsService } from '../comments/comments.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { RecordsService } from '../records/records.service';
 import type { ProjectedRecord } from '../records/records.service';
 import { RelationsService } from '../relations/relations.service';
@@ -36,7 +37,26 @@ export class AutomationActionsService {
     private readonly recordsService: RecordsService,
     private readonly relationsService: RelationsService,
     private readonly commentsService: CommentsService,
+    private readonly notificationsService: NotificationsService,
   ) {}
+
+  /** The related database + this record's linked ids through a relation field. */
+  private async resolveLinked(
+    databaseId: string,
+    relationFieldId: string,
+    record: ProjectedRecord,
+  ): Promise<{ targetDbId: string; linkedIds: string[] } | null> {
+    const field = await this.db.query.fields.findFirst({
+      where: and(eq(fields.id, relationFieldId), eq(fields.databaseId, databaseId), isNull(fields.deletedAt)),
+    });
+    if (!field || field.type !== 'relation') return null;
+    const cfg = field.config as { relation_id: string; side: 'a' | 'b' };
+    const relation = await this.db.query.relations.findFirst({ where: eq(relations.id, cfg.relation_id) });
+    if (!relation) return null;
+    const targetDbId = cfg.side === 'a' ? relation.databaseBId : relation.databaseAId;
+    const chips = (record.values[field.apiName] as Array<{ id: string }> | undefined) ?? [];
+    return { targetDbId, linkedIds: chips.map((c) => c.id) };
+  }
 
   /** Save-time validation: every reference must exist right now. */
   async validate(databaseId: string, workspaceId: string, actions: AutomationAction[]): Promise<void> {
@@ -68,6 +88,20 @@ export class AutomationActionsService {
           if (!relField || relField.type !== 'relation') {
             throw new UnprocessableEntityException('link_via_relation_field_id must be a relation field on the target database');
           }
+        }
+      }
+      if (action.type === 'notify_user') {
+        if (action.user !== '@me') {
+          const uf = live.find((f) => f.apiName === action.user);
+          if (!uf || uf.type !== 'user') {
+            throw new UnprocessableEntityException('notify_user "user" must be @me or a person field');
+          }
+        }
+      }
+      if (action.type === 'update_linked') {
+        const relField = live.find((f) => f.id === action.relation_field_id);
+        if (!relField || relField.type !== 'relation') {
+          throw new UnprocessableEntityException('update_linked relation_field_id must be a relation field on this database');
         }
       }
     }
@@ -136,6 +170,38 @@ export class AutomationActionsService {
         const text = this.interpolate(action.body_template, ctx, displayToApi);
         await this.commentsService.create(ctx.workspaceId, ctx.record.id, [{ type: 'text', text }], ctx.actorId);
         effects.push({ type: 'add_comment', record_id: ctx.record.id, summary: 'Commented' });
+      } else if (action.type === 'notify_user') {
+        const message = this.interpolate(action.message, ctx, displayToApi);
+        let recipients: string[];
+        if (action.user === '@me') recipients = [ctx.actorId];
+        else {
+          const raw = ctx.record.values[action.user];
+          recipients = Array.isArray(raw) ? (raw as string[]) : raw ? [String(raw)] : [];
+        }
+        await this.notificationsService.notify({
+          workspaceId: ctx.workspaceId,
+          databaseId: ctx.databaseId,
+          recordId: ctx.record.id,
+          actorId: ctx.actorId,
+          type: 'mentioned',
+          recipients,
+          snippet: message,
+        });
+        effects.push({ type: 'notify_user', record_id: ctx.record.id, summary: `Notified ${recipients.length} user(s)` });
+      } else if (action.type === 'update_linked') {
+        const resolved = await this.resolveLinked(ctx.databaseId, action.relation_field_id, ctx.record);
+        if (resolved && resolved.linkedIds.length > 0) {
+          const values = this.resolveTokens(action.values, ctx);
+          for (const linkedId of resolved.linkedIds) {
+            await this.recordsService.update(ctx.workspaceId, resolved.targetDbId, linkedId, values, ctx.actorId, ctx.depth ?? 0);
+          }
+          effects.push({
+            type: 'update_linked',
+            summary: `Updated ${resolved.linkedIds.length} linked record(s)`,
+          });
+        } else {
+          effects.push({ type: 'update_linked', summary: 'No linked records to update' });
+        }
       }
     }
     return effects;

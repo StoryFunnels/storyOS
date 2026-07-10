@@ -1,7 +1,7 @@
 ---
 id: MN-080
 title: Automation actions — add more (Fibery-parity)
-status: todo
+status: done
 depends_on: [MN-050]
 size: M
 ---
@@ -19,6 +19,6 @@ Founder: more actions available; check what Fibery does. Today: set_values, crea
 - Builder UI gains the new action types with their param forms.
 
 ## Acceptance criteria
-- [ ] At least two new action types (update-related, notify-user) execute in a rule and via a button
-- [ ] Action schema validated; executor covered by a test
-- [ ] Builder UI supports the new actions; verified in browser
+- [x] At least two new action types (update-related, notify-user) execute in a rule and via a button
+- [x] Action schema validated; executor covered by a test
+- [x] Builder UI supports the new actions; verified in browser

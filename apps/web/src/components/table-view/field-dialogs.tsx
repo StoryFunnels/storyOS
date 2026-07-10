@@ -1080,7 +1080,9 @@ export function useDeleteField({
 export type ButtonAction =
   | { type: 'set_values'; values: Record<string, unknown> }
   | { type: 'create_record'; database_id: string; values: Record<string, unknown>; link_via_relation_field_id?: string }
-  | { type: 'add_comment'; body_template: string };
+  | { type: 'add_comment'; body_template: string }
+  | { type: 'notify_user'; user: string; message: string }
+  | { type: 'update_linked'; relation_field_id: string; values: Record<string, unknown> };
 
 /** Compact declarative action builder: set fields / create linked record / comment. */
 export function ButtonActionsEditor({
@@ -1100,6 +1102,8 @@ export function ButtonActionsEditor({
   const settable = dbFields.filter(
     (f) => !f.isSystem && !['title', 'relation', 'lookup', 'rollup', 'button', 'rich_text', 'created_at', 'updated_at', 'created_by'].includes(f.type),
   );
+  const userFields = dbFields.filter((f) => f.type === 'user');
+  const relationFields = dbFields.filter((f) => f.type === 'relation');
 
   function patch(i: number, next: ButtonAction) {
     onChange(actions.map((a, j) => (j === i ? next : a)));
@@ -1117,12 +1121,16 @@ export function ButtonActionsEditor({
                 const t = e.target.value;
                 if (t === 'set_values') patch(i, { type: 'set_values', values: {} });
                 else if (t === 'create_record') patch(i, { type: 'create_record', database_id: db, values: { name: 'New record for {Title}' } });
+                else if (t === 'notify_user') patch(i, { type: 'notify_user', user: '@me', message: '' });
+                else if (t === 'update_linked') patch(i, { type: 'update_linked', relation_field_id: relationFields[0]?.id ?? '', values: {} });
                 else patch(i, { type: 'add_comment', body_template: '' });
               }}
             >
               <option value="set_values">Set fields on this record</option>
               <option value="create_record">Create a record</option>
+              <option value="update_linked">Update linked records</option>
               <option value="add_comment">Add a comment</option>
+              <option value="notify_user">Notify a person</option>
             </select>
             <button type="button" className="p-1 text-faint hover:text-error" onClick={() => onChange(actions.filter((_, j) => j !== i))}>
               <Trash2 className="h-3.5 w-3.5" />
@@ -1196,6 +1204,36 @@ export function ButtonActionsEditor({
               onChange={(e) => patch(i, { ...action, body_template: e.target.value })}
             />
           )}
+
+          {action.type === 'notify_user' && (
+            <div className="flex flex-col gap-1">
+              <select
+                className="h-7 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+                value={action.user}
+                onChange={(e) => patch(i, { ...action, user: e.target.value })}
+              >
+                <option value="@me">Me (whoever runs it)</option>
+                {userFields.map((f) => (
+                  <option key={f.id} value={f.apiName}>{f.displayName}</option>
+                ))}
+              </select>
+              <Input
+                className="h-7"
+                placeholder="Message — {Field Name} interpolates values"
+                value={action.message}
+                onChange={(e) => patch(i, { ...action, message: e.target.value })}
+              />
+            </div>
+          )}
+
+          {action.type === 'update_linked' && (
+            <UpdateLinkedEditor
+              ws={ws}
+              relationFields={relationFields}
+              action={action}
+              onChange={(next) => patch(i, next)}
+            />
+          )}
         </div>
       ))}
       <button
@@ -1249,6 +1287,78 @@ function LinkBackPicker({
         <option key={f.id} value={f.id}>Link back via "{f.displayName}"</option>
       ))}
     </select>
+  );
+}
+
+/** update_linked action editor: pick a relation, then set fields on the linked (target) records. */
+function UpdateLinkedEditor({
+  ws,
+  relationFields,
+  action,
+  onChange,
+}: {
+  ws: string;
+  relationFields: Field[];
+  action: { type: 'update_linked'; relation_field_id: string; values: Record<string, unknown> };
+  onChange: (next: ButtonAction) => void;
+}) {
+  const relField = relationFields.find((f) => f.id === action.relation_field_id);
+  const targetDbId = relField?.relation?.target_database_id ?? '';
+  const target = useDatabase(ws, targetDbId);
+  const settable = (target.data?.fields ?? []).filter(
+    (f) => !f.isSystem && !['title', 'relation', 'lookup', 'rollup', 'button', 'rich_text', 'created_at', 'updated_at', 'created_by'].includes(f.type),
+  );
+  if (relationFields.length === 0) {
+    return <p className="text-[12px] text-faint">This database has no relations to update through.</p>;
+  }
+  return (
+    <div className="flex flex-col gap-1">
+      <select
+        className="h-7 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+        value={action.relation_field_id}
+        onChange={(e) => onChange({ ...action, relation_field_id: e.target.value, values: {} })}
+      >
+        {relationFields.map((f) => (
+          <option key={f.id} value={f.id}>Through "{f.displayName}"</option>
+        ))}
+      </select>
+      {Object.entries(action.values).map(([key, value]) => (
+        <div key={key} className="flex items-center gap-1.5 text-[12px] text-ink">
+          <span className="w-28 truncate text-muted">{settable.find((f) => f.apiName === key)?.displayName ?? key}</span>
+          <Input
+            className="h-7"
+            value={String(value ?? '')}
+            onChange={(e) => onChange({ ...action, values: { ...action.values, [key]: coerceActionValue(settable.find((f) => f.apiName === key), e.target.value) } })}
+          />
+          <button
+            type="button"
+            className="p-0.5 text-faint hover:text-error"
+            onClick={() => {
+              const next = { ...action.values };
+              delete next[key];
+              onChange({ ...action, values: next });
+            }}
+          >
+            <Trash2 className="h-3 w-3" />
+          </button>
+        </div>
+      ))}
+      <select
+        className="h-7 self-start rounded border border-border-default bg-card px-1 text-[12px] text-muted"
+        value=""
+        onChange={(e) => {
+          const f = settable.find((x) => x.apiName === e.target.value);
+          if (!f) return;
+          const initial = f.type === 'user' ? '@me' : f.type === 'date' ? '@today' : f.type === 'checkbox' ? true : '';
+          onChange({ ...action, values: { ...action.values, [f.apiName]: initial } });
+        }}
+      >
+        <option value="">＋ field to set on linked…</option>
+        {settable.filter((f) => !(f.apiName in action.values)).map((f) => (
+          <option key={f.id} value={f.apiName}>{f.displayName}</option>
+        ))}
+      </select>
+    </div>
   );
 }
 

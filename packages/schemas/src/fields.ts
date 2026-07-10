@@ -57,6 +57,18 @@ export const actionSchema = z.discriminatedUnion('type', [
     type: z.literal('add_comment'),
     body_template: z.string().min(1).max(2000),
   }),
+  z.object({
+    type: z.literal('notify_user'),
+    // '@me' or the api_name of a user field on this record
+    user: z.string().min(1).max(100),
+    message: z.string().min(1).max(500),
+  }),
+  z.object({
+    type: z.literal('update_linked'),
+    // a relation field on this database; its linked records get the values
+    relation_field_id: z.uuid(),
+    values: z.record(z.string(), z.unknown()),
+  }),
 ]);
 export type AutomationAction = z.infer<typeof actionSchema>;
 

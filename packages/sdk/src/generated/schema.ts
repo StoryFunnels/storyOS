@@ -1618,6 +1618,19 @@ export interface components {
                 /** @enum {string} */
                 type: "add_comment";
                 body_template: string;
+            } | {
+                /** @enum {string} */
+                type: "notify_user";
+                user: string;
+                message: string;
+            } | {
+                /** @enum {string} */
+                type: "update_linked";
+                /** Format: uuid */
+                relation_field_id: string;
+                values: {
+                    [key: string]: unknown;
+                };
             })[];
             /** @default true */
             enabled: boolean;
@@ -1667,6 +1680,19 @@ export interface components {
                 /** @enum {string} */
                 type: "add_comment";
                 body_template: string;
+            } | {
+                /** @enum {string} */
+                type: "notify_user";
+                user: string;
+                message: string;
+            } | {
+                /** @enum {string} */
+                type: "update_linked";
+                /** Format: uuid */
+                relation_field_id: string;
+                values: {
+                    [key: string]: unknown;
+                };
             })[];
             enabled?: boolean;
         };

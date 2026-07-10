@@ -37,3 +37,10 @@ Rules that run actions when records change or on a schedule. Open them from a da
 - **Dry run**: `POST …/automations/:id/test { record_id }` answers "would this run?" without writing.
 - **CSV imports do not fire automations** (mass-import safety, same choice as Airtable).
 - Scheduled rules process up to 500 matching records per tick and note truncation in the server log.
+
+## More actions (MN-080)
+
+- **Update linked records** — set fields on every record linked through a chosen relation (e.g. when a Project is marked Done, set all its Tasks to Archived).
+- **Notify a person** — send an in-app notification to a person field's value (or @me), with `{Field}` interpolation in the message.
+
+All actions still support the `@me` / `@now` / `@today` tokens and `{Field Name}` interpolation, and run through the same executor for buttons and rules.
