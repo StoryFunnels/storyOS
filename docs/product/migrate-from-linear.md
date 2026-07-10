@@ -21,6 +21,7 @@ records in place instead of duplicating them.
 | Team | Space `"<Team name> (Linear)"` with Issues + Sprints + Projects databases |
 | Issue | Record in **Issues** |
 | Issue title / identifier / URL | Name / Identifier / URL |
+| Issue / project description (markdown) | Record description (rich text) — headings, lists, links, code preserved. Only written when the record has no description yet, so re-imports never overwrite edits. |
 | Workflow state (by *type*) | State select: triage → Triage, backlog → Backlog, unstarted → To Do, started → In Progress, completed → Done, canceled → Canceled |
 | Priority (1–4) | Priority select: Urgent / High / Medium / Low (no priority → empty) |
 | Labels | Comma-separated text (promote to multi-select later if you like) |
@@ -33,8 +34,8 @@ records in place instead of duplicating them.
 
 ## What is intentionally NOT imported
 
-- **Comments and issue descriptions** — v1 imports the tracker structure; bring
-  narrative content over as you touch each issue.
+- **Comments** — v1 imports the tracker structure and descriptions; bring
+  comment threads over as you touch each issue.
 - **Custom workflow state names** — we map by state *type* (Linear's own semantic
   layer), so "Ready for QA" (type: started) lands In Progress. Add an In Review
   pass manually where it matters; the State select already ships the option.

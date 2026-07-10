@@ -4,11 +4,13 @@ import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { databases as databasesTable, fields as fieldsTable, selectOptions, spaces as spacesTable, workspaces } from '../db/schema';
 import { DatabasesService } from '../databases/databases.service';
+import { DocumentsService } from '../documents/documents.service';
 import { FieldsService } from '../fields/fields.service';
 import { RecordsService } from '../records/records.service';
 import { RelationsService } from '../relations/relations.service';
 import { SpacesService } from '../workspaces/spaces.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
+import { markdownToBlocks } from './markdown-to-blocks';
 
 interface LinearTeam {
   id: string;
@@ -18,12 +20,13 @@ interface LinearTeam {
 
 interface LinearTeamData {
   cycles: { nodes: Array<{ id: string; name: string | null; number: number; startsAt: string | null; endsAt: string | null }> };
-  projects: { nodes: Array<{ id: string; name: string; state: string; targetDate: string | null; url: string }> };
+  projects: { nodes: Array<{ id: string; name: string; description: string | null; state: string; targetDate: string | null; url: string }> };
   issues: {
     nodes: Array<{
       id: string;
       identifier: string;
       title: string;
+      description: string | null;
       url: string;
       estimate: number | null;
       priority: number;
@@ -60,9 +63,9 @@ const TEAMS_QUERY = `query Teams { teams { nodes { id key name } } }`;
 const TEAM_QUERY = `query Team($id: String!) {
   team(id: $id) {
     cycles(first: 50) { nodes { id name number startsAt endsAt } }
-    projects(first: 50) { nodes { id name state targetDate url } }
+    projects(first: 50) { nodes { id name description state targetDate url } }
     issues(first: 250) { nodes {
-      id identifier title url estimate priority
+      id identifier title description url estimate priority
       state { type name }
       labels { nodes { name } }
       assignee { name }
@@ -104,7 +107,27 @@ export class LinearService {
     private readonly fields: FieldsService,
     private readonly recordsService: RecordsService,
     private readonly relationsService: RelationsService,
+    private readonly documentsService: DocumentsService,
   ) {}
+
+  /**
+   * Write a Linear body as the record's description — but only when the record
+   * has no document yet (version 0), so a re-import fills blanks without ever
+   * clobbering a description edited in StoryOS. Empty bodies write nothing.
+   */
+  private async importDescription(
+    workspaceId: string,
+    recordId: string,
+    markdown: string | null | undefined,
+    actorId: string,
+  ) {
+    if (!markdown || !markdown.trim()) return;
+    const current = await this.documentsService.get(recordId);
+    if (current.version !== 0) return; // already has a description — leave it alone
+    const blocks = markdownToBlocks(markdown);
+    if (blocks.length === 0) return;
+    await this.documentsService.put(workspaceId, recordId, blocks, 0, actorId).catch(() => undefined);
+  }
 
   async saveConfig(workspaceId: string, config: { api_key?: string; team_keys?: string[] }) {
     const ws = await this.db.query.workspaces.findFirst({ where: eq(workspaces.id, workspaceId) });
@@ -296,6 +319,7 @@ export class LinearService {
           target_date: project.targetDate,
           url: project.url,
         }, actorId);
+        await this.importDescription(membership.workspaceId, id, project.description, actorId);
         projectIds.set(project.id, id);
         summary.projects++;
       }
@@ -318,6 +342,7 @@ export class LinearService {
           estimate: issue.estimate,
           url: issue.url,
         }, actorId);
+        await this.importDescription(membership.workspaceId, id, issue.description, actorId);
         issueIds.set(issue.id, id);
         summary.issues++;
 
