@@ -24,6 +24,8 @@ export interface ViewConfig {
   hidden_field_ids: string[];
   group_by_field_id?: string;
   card_field_ids: string[];
+  /** Board card density (MN-089). */
+  card_size?: 'small' | 'medium' | 'large';
   date_field_id?: string;
   column_widths: Record<string, number>;
 }

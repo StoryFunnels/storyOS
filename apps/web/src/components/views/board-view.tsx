@@ -18,7 +18,9 @@ import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { recordHref } from '@/lib/records';
 import { cn } from '@/lib/utils';
-import { CellDisplay, OPTION_COLORS } from '../table-view/cells';
+import { Avatar } from '@/components/ui/avatar';
+import { CellDisplay, OPTION_COLORS, OptionChip } from '../table-view/cells';
+import type { LinkChip } from '../table-view/relation-cell';
 import {
   useDatabase,
   useMembers,
@@ -181,6 +183,7 @@ export function BoardView({
             key={column.id}
             column={column}
             cardFields={cardFields}
+            size={config.card_size ?? 'medium'}
             memberNames={memberNames} memberImages={memberImages}
             readOnly={readOnly}
             onOpen={openRecord}
@@ -201,16 +204,19 @@ export function BoardView({
       </div>
       <DragOverlay>
         {dragging && (
-          <Card row={dragging} cardFields={cardFields} memberNames={memberNames} memberImages={memberImages} overlay />
+          <Card row={dragging} cardFields={cardFields} size={config.card_size ?? 'medium'} memberNames={memberNames} memberImages={memberImages} overlay />
         )}
       </DragOverlay>
     </DndContext>
   );
 }
 
+type CardSize = 'small' | 'medium' | 'large';
+
 function BoardColumn({
   column,
   cardFields,
+  size,
   memberNames,
   memberImages,
   readOnly,
@@ -219,6 +225,7 @@ function BoardColumn({
 }: {
   column: { id: string; label: string; color: string; rows: RecordRow[] };
   cardFields: Field[];
+  size: CardSize;
   memberNames: Map<string, string>;
   memberImages?: Map<string, string | null>;
   readOnly: boolean;
@@ -230,7 +237,7 @@ function BoardColumn({
     <div
       ref={setNodeRef}
       className={cn(
-        'flex w-64 shrink-0 flex-col rounded-[var(--radius-card)] border border-border-default bg-sidebar',
+        'flex w-72 shrink-0 flex-col rounded-[var(--radius-card)] border border-border-default bg-sidebar',
         isOver && 'ring-2 ring-[var(--accent)]',
       )}
     >
@@ -252,6 +259,7 @@ function BoardColumn({
             key={row.id}
             row={row}
             cardFields={cardFields}
+            size={size}
             memberNames={memberNames} memberImages={memberImages}
             disabled={readOnly}
             onOpen={() => onOpen(row)}
@@ -265,6 +273,7 @@ function BoardColumn({
 function DraggableCard({
   row,
   cardFields,
+  size,
   memberNames,
   memberImages,
   disabled,
@@ -272,6 +281,7 @@ function DraggableCard({
 }: {
   row: RecordRow;
   cardFields: Field[];
+  size: CardSize;
   memberNames: Map<string, string>;
   memberImages?: Map<string, string | null>;
   disabled: boolean;
@@ -289,45 +299,153 @@ function DraggableCard({
       className={cn(isDragging && 'opacity-40')}
       onClick={onOpen}
     >
-      <Card row={row} cardFields={cardFields} memberNames={memberNames} memberImages={memberImages} />
+      <Card row={row} cardFields={cardFields} size={size} memberNames={memberNames} memberImages={memberImages} />
     </div>
   );
 }
 
+const SIZE_STYLES: Record<CardSize, { pad: string; title: string; clamp: string; gap: string }> = {
+  small: { pad: 'p-2', title: 'text-[12px]', clamp: 'line-clamp-1', gap: 'gap-1' },
+  medium: { pad: 'p-2.5', title: 'text-[13px]', clamp: 'line-clamp-2', gap: 'gap-1.5' },
+  large: { pad: 'p-3', title: 'text-[13px]', clamp: 'line-clamp-3', gap: 'gap-2' },
+};
+
+/** The warm palette (option colors), used to give each card field its own stable hue. */
+const TRIANGLE_PALETTE = ['gold', 'orange', 'red', 'pink', 'purple', 'blue', 'teal', 'green', 'brown'] as const;
+function fieldColor(fieldId: string): string {
+  let hash = 0;
+  for (let i = 0; i < fieldId.length; i++) hash = (hash * 31 + fieldId.charCodeAt(i)) >>> 0;
+  return OPTION_COLORS[TRIANGLE_PALETTE[hash % TRIANGLE_PALETTE.length]!]!;
+}
+
+/** The signature colored triangle marker (▸) before a value chip. */
+function Triangle({ color }: { color: string }) {
+  return (
+    <span
+      aria-hidden
+      className="shrink-0"
+      style={{
+        width: 0,
+        height: 0,
+        borderTop: '3.5px solid transparent',
+        borderBottom: '3.5px solid transparent',
+        borderLeft: `6px solid ${color}`,
+      }}
+    />
+  );
+}
+
+/** These types carry their own visual identity, so they skip the field triangle. */
+const SELF_COLORED = new Set(['select', 'multi_select', 'user', 'checkbox']);
+
 function Card({
   row,
   cardFields,
+  size,
   memberNames,
   memberImages,
   overlay = false,
 }: {
   row: RecordRow;
   cardFields: Field[];
+  size: CardSize;
   memberNames: Map<string, string>;
   memberImages?: Map<string, string | null>;
   overlay?: boolean;
 }) {
+  const s = SIZE_STYLES[size];
+  const chips = cardFields
+    .map((field) => ({ field, value: field.type === 'title' ? row.title : row.values[field.apiName] }))
+    .filter(({ value }) => !(value === undefined || value === null || value === '' || (Array.isArray(value) && value.length === 0)));
+
   return (
     <div
       className={cn(
-        'cursor-pointer rounded-[var(--radius-card)] border border-border-default bg-card p-2.5 hover:border-border-strong',
+        'cursor-pointer rounded-[var(--radius-card)] border border-border-default bg-card hover:border-border-strong',
+        s.pad,
         overlay && 'shadow-[0_4px_12px_rgba(15,23,41,0.15)]',
       )}
     >
-      <p className="text-[13px] font-medium text-ink">{row.title || 'Untitled'}</p>
-      {cardFields.length > 0 && (
-        <div className="mt-1.5 flex flex-col gap-1">
-          {cardFields.map((field) => {
-            const value = field.type === 'title' ? row.title : row.values[field.apiName];
-            if (value === undefined || value === null || value === '') return null;
-            return (
-              <div key={field.id} className="flex items-center text-[12px] text-muted">
-                <CellDisplay field={field} value={value} memberNames={memberNames} memberImages={memberImages} />
-              </div>
-            );
-          })}
+      <p className={cn('font-medium text-ink', s.title, s.clamp)}>{row.title || 'Untitled'}</p>
+      {chips.length > 0 && (
+        <div className={cn('mt-2 flex flex-wrap items-center', s.gap)}>
+          {chips.map(({ field, value }) => (
+            <CardFieldChip
+              key={field.id}
+              field={field}
+              value={value}
+              memberNames={memberNames}
+              memberImages={memberImages}
+            />
+          ))}
         </div>
       )}
     </div>
+  );
+}
+
+/** One field value on a card: self-colored types render their own chip; everything
+ * else gets a muted pill with the field's stable colored triangle (MN-089). */
+function CardFieldChip({
+  field,
+  value,
+  memberNames,
+  memberImages,
+}: {
+  field: Field;
+  value: unknown;
+  memberNames: Map<string, string>;
+  memberImages?: Map<string, string | null>;
+}) {
+  if (field.type === 'select' || field.type === 'multi_select') {
+    return <CellDisplay field={field} value={value} memberNames={memberNames} memberImages={memberImages} />;
+  }
+  if (field.type === 'user') {
+    const ids = Array.isArray(value) ? (value as string[]) : [String(value)];
+    return (
+      <span className="inline-flex items-center gap-1">
+        {ids.map((id) => (
+          <span
+            key={id}
+            className="inline-flex items-center gap-1 rounded-full bg-hover px-1.5 py-0.5 text-[11px] text-ink-secondary"
+          >
+            <Avatar userId={id} name={memberNames.get(id) ?? '?'} image={memberImages?.get(id)} size={16} />
+            <span className="max-w-24 truncate">{memberNames.get(id) ?? '—'}</span>
+          </span>
+        ))}
+      </span>
+    );
+  }
+  if (field.type === 'checkbox') {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-hover px-1.5 py-0.5 text-[11px] text-ink-secondary">
+        <input type="checkbox" checked={value === true} readOnly className="pointer-events-none h-3 w-3" />
+        {field.displayName}
+      </span>
+    );
+  }
+
+  const color = fieldColor(field.id);
+  const pill = 'inline-flex max-w-full items-center gap-1 rounded-full bg-hover px-1.5 py-0.5 text-[11px] text-ink-secondary';
+  if (field.type === 'relation') {
+    const links = (value as LinkChip[]) ?? [];
+    return (
+      <>
+        {links.map((chip) => (
+          <span key={chip.id} className={pill}>
+            <Triangle color={color} />
+            <span className="max-w-32 truncate">{chip.title || 'Untitled'}</span>
+          </span>
+        ))}
+      </>
+    );
+  }
+  return (
+    <span className={pill}>
+      <Triangle color={color} />
+      <span className="max-w-40 truncate">
+        <CellDisplay field={field} value={value} memberNames={memberNames} memberImages={memberImages} />
+      </span>
+    </span>
   );
 }

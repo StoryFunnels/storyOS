@@ -143,6 +143,8 @@ export function ViewToolbar({
           fields={fields.filter((f) => !NON_TOGGLABLE.has(f.type))}
           shown={config.card_field_ids}
           onChange={(card_field_ids) => onPatch({ card_field_ids })}
+          size={viewType === 'board' ? config.card_size ?? 'medium' : undefined}
+          onSizeChange={(card_size) => onPatch({ card_size })}
         />
       ) : (
         <HiddenFieldsButton
@@ -428,15 +430,19 @@ export function SortButton({
 /** Title always shows; system timestamps never render in grids or on cards. */
 const NON_TOGGLABLE = new Set(['title', 'created_at', 'updated_at', 'created_by']);
 
-/** Board card composition (MN-042): checked fields render on cards via card_field_ids. */
+/** Board/calendar card composition (MN-042, MN-089): which fields show + card size. */
 function CardFieldsButton({
   fields,
   shown,
   onChange,
+  size,
+  onSizeChange,
 }: {
   fields: Field[];
   shown: string[];
   onChange: (ids: string[]) => void;
+  size?: 'small' | 'medium' | 'large';
+  onSizeChange: (size: 'small' | 'medium' | 'large') => void;
 }) {
   return (
     <DropdownMenu>
@@ -448,10 +454,32 @@ function CardFieldsButton({
           )}
         >
           <EyeOff className="h-3.5 w-3.5" />
-          Card fields
+          Cards
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent className="max-h-64 overflow-y-auto">
+      <DropdownMenuContent className="max-h-72 w-56 overflow-y-auto">
+        {size && (
+          <div className="px-2 pb-1.5 pt-1">
+            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-faint">Card size</div>
+            <div className="flex gap-1">
+              {(['small', 'medium', 'large'] as const).map((opt) => (
+                <button
+                  key={opt}
+                  onClick={() => onSizeChange(opt)}
+                  className={cn(
+                    'flex-1 rounded border px-1.5 py-1 text-[12px] capitalize',
+                    size === opt
+                      ? 'border-[var(--accent)] bg-accent-soft text-ink'
+                      : 'border-border-default text-muted hover:bg-hover',
+                  )}
+                >
+                  {opt === 'small' ? 'S' : opt === 'medium' ? 'M' : 'L'}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        <div className="px-2 pb-0.5 pt-1 text-[11px] font-semibold uppercase tracking-wider text-faint">Fields</div>
         {fields.map((field) => (
           <label
             key={field.id}
