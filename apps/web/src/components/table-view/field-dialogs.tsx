@@ -365,7 +365,7 @@ export function AddFieldDialog({
   return (
     <DialogContent title="Add field" className="max-w-lg">
       <form
-        className="flex max-h-[75vh] flex-col gap-4 overflow-y-auto pr-1"
+        className="flex max-h-[75vh] flex-col gap-4 overflow-y-auto px-1 py-0.5"
         onSubmit={(e) => {
           e.preventDefault();
           if (name.trim()) create.mutate();
@@ -675,7 +675,7 @@ export function EditFieldDialog({
   return (
     <DialogContent title={`Edit "${field.displayName}"`} className="max-w-lg">
       <form
-        className="flex max-h-[75vh] flex-col gap-4 overflow-y-auto pr-1"
+        className="flex max-h-[75vh] flex-col gap-4 overflow-y-auto px-1 py-0.5"
         onSubmit={(e) => {
           e.preventDefault();
           save.mutate();

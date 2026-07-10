@@ -287,12 +287,12 @@ export default function EntityPage() {
             ),
           )}
 
-          <div className="mb-6">
-            <AttachmentsStrip ws={ws} db={db} rec={rec} readOnly={readOnly} />
-          </div>
-
           <h2 className="mb-2 text-[12px] font-medium uppercase tracking-wider text-faint">Description</h2>
           <DescriptionEditor ws={ws} db={db} rec={rec} readOnly={readOnly} />
+
+          <div className="mb-6 mt-5">
+            <AttachmentsStrip ws={ws} db={db} rec={rec} readOnly={readOnly} />
+          </div>
 
           <div className="mt-8 border-t border-border-default pt-4">
             <div className="mb-4 flex gap-1">

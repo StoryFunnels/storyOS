@@ -1,7 +1,7 @@
 ---
 id: MN-081
 title: Restore typed-name confirmation on database delete (regression)
-status: todo
+status: done
 depends_on: []
 size: S
 ---
@@ -12,6 +12,6 @@ Bug: clicking the Trash icon on a database deletes it immediately with no confir
 - Restore the confirm dialog: user must type the exact database name to enable Delete; Delete stays disabled otherwise. Sends sever_relations:true as before.
 
 ## Acceptance criteria
-- [ ] Trash opens a dialog requiring the exact name typed before Delete enables
-- [ ] Wrong/empty name keeps Delete disabled; correct name deletes
-- [ ] Verified in browser
+- [x] Trash opens a dialog requiring the exact name typed before Delete enables
+- [x] Wrong/empty name keeps Delete disabled; correct name deletes
+- [x] Verified in browser

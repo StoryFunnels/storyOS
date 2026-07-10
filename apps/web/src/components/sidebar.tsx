@@ -607,7 +607,7 @@ function DeleteDatabaseDialog({
         className="flex flex-col gap-4"
         onSubmit={(e) => {
           e.preventDefault();
-          onConfirm(typed);
+          if (typed === name) onConfirm(typed); // gate Enter too, not just the button
         }}
       >
         <p className="text-[13px] text-muted">
