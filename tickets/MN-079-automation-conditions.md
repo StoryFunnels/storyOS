@@ -1,7 +1,7 @@
 ---
 id: MN-079
 title: Automation conditions — fix "op…" label, add more filter operators
-status: todo
+status: done
 depends_on: [MN-050]
 size: S
 ---
@@ -14,6 +14,6 @@ Screenshot: the automation "Only if" condition op dropdown shows a bare "op…" 
 - Value control matches the op input (text/number/date/options/relative/boolean/none).
 
 ## Acceptance criteria
-- [ ] Condition op dropdown shows named operators appropriate to the field type; no "op…"
-- [ ] Value input matches the operator; a saved rule with a real condition evaluates correctly
-- [ ] Verified in browser
+- [x] Condition op dropdown shows named operators appropriate to the field type; no "op…"
+- [x] Value input matches the operator; a saved rule with a real condition evaluates correctly
+- [x] Verified in browser

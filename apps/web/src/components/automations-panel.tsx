@@ -7,8 +7,9 @@ import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { ButtonActionsEditor } from '@/components/table-view/field-dialogs';
 import type { ButtonAction } from '@/components/table-view/field-dialogs';
-import { useDatabase } from '@/components/table-view/use-table-data';
+import { useDatabase, useMembers } from '@/components/table-view/use-table-data';
 import type { Field } from '@/components/table-view/use-table-data';
+import { OPS_BY_TYPE } from '@/components/views/view-toolbar';
 import { Button } from '@/components/ui/button';
 import { DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -244,16 +245,8 @@ function RuleRow({
   );
 }
 
-const OPS_FOR_CONDITION: Record<string, Array<{ op: string; label: string }>> = {
-  select: [{ op: 'has', label: 'is any of' }, { op: 'has_none', label: 'is none of' }, { op: 'is_empty', label: 'is empty' }],
-  multi_select: [{ op: 'has', label: 'includes' }, { op: 'is_empty', label: 'is empty' }],
-  checkbox: [{ op: 'eq', label: 'is' }],
-  text: [{ op: 'contains', label: 'contains' }, { op: 'is_empty', label: 'is empty' }],
-  title: [{ op: 'contains', label: 'contains' }],
-  number: [{ op: 'gt', label: '>' }, { op: 'lt', label: '<' }, { op: 'eq', label: '=' }],
-  date: [{ op: 'within', label: 'within' }, { op: 'is_empty', label: 'is empty' }],
-  user: [{ op: 'has', label: 'is any of' }, { op: 'is_empty', label: 'is empty' }],
-};
+const NO_VALUE_OPS = new Set(['is_empty', 'not_empty']);
+const RELATIVE_RANGES = ['today', 'yesterday', 'tomorrow', 'last_7_days', 'next_7_days', 'this_month', 'next_30_days'];
 
 function RuleEditor({
   ws,
@@ -282,27 +275,34 @@ function RuleEditor({
     return v === undefined ? '' : String(v);
   });
   const [busy, setBusy] = useState(false);
+  const membersQuery = useMembers(ws, true);
+  const members = (membersQuery.data ?? []).map((m) => ({ id: m.user.id, name: m.user.name }));
 
-  const conditionable = fields.filter((f) => OPS_FOR_CONDITION[f.type]);
+  const conditionable = fields.filter((f) => OPS_BY_TYPE[f.type]);
   const selectedConditionField = fields.find((f) => f.apiName === conditionField);
+  const conditionOps = selectedConditionField ? OPS_BY_TYPE[selectedConditionField.type] ?? [] : [];
+  const currentOp = conditionOps.find((o) => o.op === conditionOp);
   const scopableFields = fields.filter((f) => !f.isSystem && f.type !== 'title');
 
   function buildCondition(): unknown {
-    if (!conditionField || !conditionOp) return undefined;
-    const field = selectedConditionField;
-    if (!field) return undefined;
-    if (conditionOp === 'is_empty' || conditionOp === 'not_empty') return { field: conditionField, op: conditionOp };
-    let value: unknown = conditionValue;
-    if (field.type === 'select' || field.type === 'multi_select') {
-      const option = field.options?.find((o) => o.label === conditionValue || o.id === conditionValue);
-      value = [option?.id ?? conditionValue];
-    } else if (field.type === 'user') {
-      value = [conditionValue];
-    } else if (field.type === 'number') {
-      value = Number(conditionValue);
-    } else if (field.type === 'checkbox') {
-      value = conditionValue === 'true';
+    if (!conditionField || !conditionOp || !currentOp) return undefined;
+    if (NO_VALUE_OPS.has(conditionOp)) return { field: conditionField, op: conditionOp };
+    let value: unknown;
+    switch (currentOp.input) {
+      case 'options':
+        value = conditionValue ? [conditionValue] : [];
+        break;
+      case 'number':
+        value = Number(conditionValue);
+        break;
+      case 'boolean':
+        value = conditionValue === 'true';
+        break;
+      default: // text | date | relative
+        value = conditionValue;
     }
+    if (currentOp.input === 'options' && (value as unknown[]).length === 0) return undefined;
+    if (currentOp.input !== 'boolean' && (value === '' || value === undefined)) return undefined;
     return { field: conditionField, op: conditionOp, value };
   }
 
@@ -393,8 +393,12 @@ function RuleEditor({
             className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
             value={conditionField}
             onChange={(e) => {
-              setConditionField(e.target.value);
-              setConditionOp('');
+              const next = e.target.value;
+              setConditionField(next);
+              const field = fields.find((f) => f.apiName === next);
+              // Auto-pick the first operator so the dropdown never sits on a bare "op…".
+              setConditionOp(field ? OPS_BY_TYPE[field.type]?.[0]?.op ?? '' : '');
+              setConditionValue('');
             }}
           >
             <option value="">no condition</option>
@@ -410,30 +414,60 @@ function RuleEditor({
               value={conditionOp}
               onChange={(e) => setConditionOp(e.target.value)}
             >
-              <option value="">op…</option>
-              {(OPS_FOR_CONDITION[selectedConditionField.type] ?? []).map((o) => (
+              {conditionOps.map((o) => (
                 <option key={o.op} value={o.op}>
                   {o.label}
                 </option>
               ))}
             </select>
           )}
-          {selectedConditionField && conditionOp && conditionOp !== 'is_empty' && (
-            selectedConditionField.type === 'select' || selectedConditionField.type === 'multi_select' ? (
+          {selectedConditionField && currentOp && currentOp.input !== 'none' && (
+            currentOp.input === 'options' ? (
               <select
                 className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
                 value={conditionValue}
                 onChange={(e) => setConditionValue(e.target.value)}
               >
-                <option value="">option…</option>
-                {(selectedConditionField.options ?? []).map((o) => (
+                <option value="">
+                  {selectedConditionField.type === 'user' ? 'person…' : 'option…'}
+                </option>
+                {(selectedConditionField.type === 'user'
+                  ? members.map((m) => ({ id: m.id, label: m.name }))
+                  : (selectedConditionField.options ?? []).map((o) => ({ id: o.id, label: o.label }))
+                ).map((o) => (
                   <option key={o.id} value={o.id}>
                     {o.label}
                   </option>
                 ))}
               </select>
+            ) : currentOp.input === 'relative' ? (
+              <select
+                className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                value={conditionValue || 'next_7_days'}
+                onChange={(e) => setConditionValue(e.target.value)}
+              >
+                {RELATIVE_RANGES.map((r) => (
+                  <option key={r} value={r}>
+                    {r.replaceAll('_', ' ')}
+                  </option>
+                ))}
+              </select>
+            ) : currentOp.input === 'boolean' ? (
+              <select
+                className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                value={conditionValue || 'true'}
+                onChange={(e) => setConditionValue(e.target.value)}
+              >
+                <option value="true">checked</option>
+                <option value="false">unchecked</option>
+              </select>
             ) : (
-              <Input className="h-8 w-40" value={conditionValue} onChange={(e) => setConditionValue(e.target.value)} />
+              <Input
+                type={currentOp.input === 'date' ? 'date' : currentOp.input === 'number' ? 'number' : 'text'}
+                className="h-8 w-40"
+                value={conditionValue}
+                onChange={(e) => setConditionValue(e.target.value)}
+              />
             )
           )}
         </div>
