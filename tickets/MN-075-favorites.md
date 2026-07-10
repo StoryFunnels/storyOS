@@ -1,7 +1,7 @@
 ---
 id: MN-075
 title: Favorites — star a record (and database) into a sidebar Favorites section
-status: todo
+status: done
 depends_on: [MN-074]
 size: M
 ---
@@ -14,6 +14,6 @@ Fibery lets you star any entity and pins it under Favorites in the sidebar. We h
 - A star toggle on the entity header (and database header); a **Favorites** section at the top of the sidebar listing the current user's stars, each linking to the record/database.
 
 ## Acceptance criteria
-- [ ] Star/unstar a record from its header; state persists per user
-- [ ] Favorites section in the sidebar lists starred records + databases and navigates to them
-- [ ] Verified in the browser
+- [x] Star/unstar a record from its header; state persists per user
+- [x] Favorites section in the sidebar lists starred records + databases and navigates to them
+- [x] Verified in the browser

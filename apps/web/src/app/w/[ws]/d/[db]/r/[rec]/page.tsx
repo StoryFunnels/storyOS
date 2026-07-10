@@ -29,6 +29,7 @@ import {
   Pin,
   Plus,
   SlidersHorizontal,
+  Star,
   Trash2,
 } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -64,6 +65,7 @@ import { useDatabase, useMembers, useRecordMutations } from '@/components/table-
 import type { Field, RecordRow } from '@/components/table-view/use-table-data';
 import { DescriptionEditor } from '@/components/entity/description-editor';
 import { ActivityPanel, AttachmentsStrip, CommentsPanel } from '@/components/entity/panels';
+import { useFavorites } from '@/components/sidebar';
 import { cn } from '@/lib/utils';
 
 const HIDDEN = new Set(['title', 'created_at', 'updated_at', 'created_by']);
@@ -203,6 +205,7 @@ export default function EntityPage() {
           <ArrowLeft className="h-3.5 w-3.5" /> {database.data?.name}
         </Link>
         <div className="flex items-center gap-1">
+          <StarButton ws={ws} rec={rec} />
           {schemaEditable && <FieldsPopover ws={ws} db={db} fields={allFields} />}
           <RecordActions ws={ws} db={db} rec={rec} readOnly={readOnly} canCreate={schemaEditable} />
         </div>
@@ -927,6 +930,39 @@ function AddFieldRow({ ws, db }: { ws: string; db: string }) {
       </DialogTrigger>
       {open && <AddFieldDialog ws={ws} db={db} onDone={() => setOpen(false)} />}
     </Dialog>
+  );
+}
+
+/** Star toggle in the header — adds/removes this record from the sidebar Favorites (MN-075). */
+function StarButton({ ws, rec }: { ws: string; rec: string }) {
+  const qc = useQueryClient();
+  const favorites = useFavorites(ws);
+  const starred = (favorites.data ?? []).some((f) => f.target_type === 'record' && f.target_id === rec);
+  const toggle = useMutation({
+    mutationFn: async () => {
+      if (starred) {
+        const { error } = await api.DELETE('/api/v1/workspaces/{ws}/favorites/{type}/{id}', {
+          params: { path: { ws, type: 'record', id: rec } },
+        } as never);
+        if (error) throw error;
+      } else {
+        const { error } = await api.POST('/api/v1/workspaces/{ws}/favorites', {
+          params: { path: { ws } },
+          body: { target_type: 'record', target_id: rec } as never,
+        } as never);
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['favorites', ws] }),
+  });
+  return (
+    <button
+      onClick={() => toggle.mutate()}
+      title={starred ? 'Unstar' : 'Star'}
+      className="rounded p-1 text-muted hover:bg-hover hover:text-ink"
+    >
+      <Star className={cn('h-4 w-4', starred && 'fill-[var(--accent)] text-[var(--accent)]')} />
+    </button>
   );
 }
 

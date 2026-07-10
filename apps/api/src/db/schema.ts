@@ -375,6 +375,25 @@ export const notifications = pgTable(
   (t) => [index('notifications_user_idx').on(t.userId, t.workspaceId, t.readAt, t.createdAt)],
 );
 
+/** Per-user stars on a record or database, surfaced in the sidebar (MN-075). */
+export const favorites = pgTable(
+  'favorites',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: text('user_id').notNull(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    targetType: text('target_type').notNull(), // 'record' | 'database'
+    targetId: uuid('target_id').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('favorites_uq').on(t.userId, t.targetType, t.targetId),
+    index('favorites_user_idx').on(t.userId, t.workspaceId),
+  ],
+);
+
 export const activityEvents = pgTable(
   'activity_events',
   {

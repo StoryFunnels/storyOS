@@ -26,6 +26,7 @@ import { EventsModule } from './events/events.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { TemplatesModule } from './templates/templates.module';
 import { AccessModule } from './access/access.module';
+import { FavoritesModule } from './favorites/favorites.module';
 import { env } from './config/env';
 import { ApiThrottlerGuard } from './common/throttler.guard';
 import { DbModule } from './db/db.module';
@@ -66,6 +67,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     IntegrationsModule,
     TemplatesModule,
     AccessModule,
+    FavoritesModule,
     ThrottlerModule.forRoot({
       throttlers: [{ ttl: 60_000, limit: env().RATE_LIMIT_PER_MINUTE }],
     }),

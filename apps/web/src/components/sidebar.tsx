@@ -7,7 +7,7 @@ import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from 
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Check, ChevronsUpDown, Database, Home, Inbox, KeyRound, LayoutTemplate, MoreHorizontal, Plug, Plus, Search, Settings, UserRound } from 'lucide-react';
+import { Check, ChevronsUpDown, Database, Home, Inbox, KeyRound, LayoutTemplate, MoreHorizontal, Plug, Plus, Search, Settings, Star, UserRound } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -31,6 +31,52 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+
+interface Favorite {
+  target_type: 'record' | 'database';
+  target_id: string;
+  title: string;
+  database_id?: string;
+  icon?: string | null;
+}
+
+/** Per-user favorites query, shared by the sidebar section and the star toggle (MN-075). */
+export function useFavorites(ws: string) {
+  return useQuery({
+    queryKey: ['favorites', ws],
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/favorites', {
+        params: { path: { ws } },
+      } as never);
+      if (error) throw error;
+      return data as unknown as Favorite[];
+    },
+  });
+}
+
+/** Favorites section at the top of the sidebar. Hidden when the user has none. */
+function FavoritesSection({ ws }: { ws: string }) {
+  const favorites = useFavorites(ws);
+  const items = favorites.data ?? [];
+  if (items.length === 0) return null;
+  return (
+    <div className="mb-2">
+      <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-faint">Favorites</div>
+      <div className="flex flex-col gap-0.5">
+        {items.map((f) => (
+          <Link
+            key={`${f.target_type}:${f.target_id}`}
+            href={f.target_type === 'record' ? `/w/${ws}/d/${f.database_id}/r/${f.target_id}` : `/w/${ws}/d/${f.target_id}`}
+            className="flex items-center gap-2 rounded px-2 py-1 text-[13px] text-ink-secondary hover:bg-hover"
+          >
+            <Star className="h-3.5 w-3.5 shrink-0 fill-[var(--accent)] text-[var(--accent)]" />
+            <span className="truncate">{f.title}</span>
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export function Sidebar() {
   const params = useParams<{ ws: string }>();
@@ -97,6 +143,7 @@ export function Sidebar() {
           </Link>
         </div>
         {inboxOpen && <InboxPanel ws={ws} onClose={() => setInboxOpen(false)} />}
+        <FavoritesSection ws={ws} />
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onSpaceDragEnd}>
           <SortableContext
             items={(spaces.data ?? []).map((s) => s.id)}
