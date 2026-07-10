@@ -1,7 +1,7 @@
 ---
 id: MN-078
 title: Linear importer — labels/tags as a Labels database + relation (not text)
-status: todo
+status: done
 depends_on: [MN-066]
 size: M
 ---
@@ -19,6 +19,6 @@ NOTE: Linear MCP needs OAuth (unavailable in this non-interactive session) — v
 - Idempotent by Linear label id.
 
 ## Acceptance criteria
-- [ ] A Labels database is created and populated from Linear; issues link to labels via a relation
-- [ ] Re-import is idempotent; colors preserved
-- [ ] migrate-from-linear.md mapping table updated
+- [x] A Labels database is created and populated from Linear; issues link to labels via a relation
+- [x] Re-import is idempotent; colors preserved
+- [x] migrate-from-linear.md mapping table updated

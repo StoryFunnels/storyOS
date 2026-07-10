@@ -1,8 +1,8 @@
 import { Inject, Injectable, UnprocessableEntityException } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
+import { eq, or } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { databases as databasesTable, fields as fieldsTable, selectOptions, spaces as spacesTable, workspaces } from '../db/schema';
+import { databases as databasesTable, fields as fieldsTable, relations as relationsTable, selectOptions, spaces as spacesTable, workspaces } from '../db/schema';
 import { DatabasesService } from '../databases/databases.service';
 import { DocumentsService } from '../documents/documents.service';
 import { FieldsService } from '../fields/fields.service';
@@ -18,7 +18,14 @@ interface LinearTeam {
   name: string;
 }
 
+interface LinearLabel {
+  id: string;
+  name: string;
+  color: string | null;
+}
+
 interface LinearTeamData {
+  labels: { nodes: LinearLabel[] };
   cycles: { nodes: Array<{ id: string; name: string | null; number: number; startsAt: string | null; endsAt: string | null }> };
   projects: { nodes: Array<{ id: string; name: string; description: string | null; state: string; targetDate: string | null; url: string }> };
   issues: {
@@ -31,7 +38,7 @@ interface LinearTeamData {
       estimate: number | null;
       priority: number;
       state: { type: string; name: string };
-      labels: { nodes: Array<{ name: string }> };
+      labels: { nodes: LinearLabel[] };
       assignee: { name: string } | null;
       parent: { id: string } | null;
       cycle: { id: string } | null;
@@ -62,12 +69,13 @@ const TEAMS_QUERY = `query Teams { teams { nodes { id key name } } }`;
 
 const TEAM_QUERY = `query Team($id: String!) {
   team(id: $id) {
+    labels(first: 250) { nodes { id name color } }
     cycles(first: 50) { nodes { id name number startsAt endsAt } }
     projects(first: 50) { nodes { id name description state targetDate url } }
     issues(first: 250) { nodes {
       id identifier title description url estimate priority
       state { type name }
-      labels { nodes { name } }
+      labels { nodes { id name color } }
       assignee { name }
       parent { id }
       cycle { id }
@@ -159,7 +167,35 @@ export class LinearService {
     return key;
   }
 
-  /** One space per team, holding Issues + Projects + Sprints. Idempotent by space name. */
+  /** Create the Labels database + a many-to-many Issues↔Labels relation. Returns both. */
+  private async createLabelsPack(membership: Membership, spaceId: string, issuesDbId: string) {
+    const labelsDb = await this.databasesService.create(membership, { space_id: spaceId, name: 'Labels', icon: '🏷️' });
+    for (const f of [
+      { display_name: 'Color', type: 'text' as const, config: {} },
+      { display_name: 'Linear ID', type: 'text' as const, config: {} },
+    ]) await this.fields.create(labelsDb.id, f);
+    const rel = await this.relationsService.create(membership, {
+      database_a_id: issuesDbId, database_b_id: labelsDb.id,
+      cardinality: 'many_to_many', field_a_name: 'Labels', field_b_name: 'Issues',
+    });
+    return { labelsDb, labelsFieldId: (rel as { field_a: { id: string } }).field_a.id };
+  }
+
+  /** The Issues-side field of the Issues↔Labels relation (for re-imports). */
+  private async findLabelsFieldId(issuesDbId: string, labelsDbId: string): Promise<string | undefined> {
+    const rels = await this.db.query.relations.findMany({
+      where: or(eq(relationsTable.databaseAId, issuesDbId), eq(relationsTable.databaseBId, issuesDbId)),
+    });
+    const rel = rels.find(
+      (r) =>
+        (r.databaseAId === issuesDbId && r.databaseBId === labelsDbId) ||
+        (r.databaseBId === issuesDbId && r.databaseAId === labelsDbId),
+    );
+    if (!rel) return undefined;
+    return rel.databaseAId === issuesDbId ? rel.fieldAId : rel.fieldBId;
+  }
+
+  /** One space per team, holding Issues + Projects + Sprints + Labels. Idempotent by space name. */
   private async ensureTeamPack(membership: Membership, team: LinearTeam) {
     const spaceName = `${team.name} (Linear)`;
     const allSpaces = await this.db.query.spaces.findMany({
@@ -174,7 +210,17 @@ export class LinearService {
       const issuesDb = inSpace.find((d) => d.name === 'Issues');
       const projectsDb = inSpace.find((d) => d.name === 'Projects');
       const sprintsDb = inSpace.find((d) => d.name === 'Sprints');
-      if (issuesDb && projectsDb && sprintsDb) return { issuesDb, projectsDb, sprintsDb };
+      let labelsDb = inSpace.find((d) => d.name === 'Labels');
+      if (issuesDb && projectsDb && sprintsDb) {
+        // Incremental upgrade: an older import predates the Labels database.
+        let labelsFieldId = labelsDb ? await this.findLabelsFieldId(issuesDb.id, labelsDb.id) : undefined;
+        if (!labelsDb) {
+          const created = await this.createLabelsPack(membership, space.id, issuesDb.id);
+          labelsDb = created.labelsDb;
+          labelsFieldId = created.labelsFieldId;
+        }
+        return { issuesDb, projectsDb, sprintsDb, labelsDb: labelsDb!, labelsFieldId };
+      }
     }
     space = space ?? (await this.spaces.create(membership.workspaceId, { name: spaceName, icon: '📐' }));
 
@@ -212,7 +258,6 @@ export class LinearService {
         { label: 'Medium', color: 'blue' }, { label: 'Low', color: 'gray' },
       ] },
       { display_name: 'Identifier', type: 'text' as const, config: {} },
-      { display_name: 'Labels', type: 'text' as const, config: {} },
       { display_name: 'Assignee (name)', type: 'text' as const, config: {} },
       { display_name: 'Estimate', type: 'number' as const, config: {} },
       { display_name: 'URL', type: 'url' as const, config: {} },
@@ -231,7 +276,8 @@ export class LinearService {
       database_a_id: issuesDb.id, database_b_id: issuesDb.id,
       cardinality: 'one_to_many', field_a_name: 'Parent Issue', field_b_name: 'Sub-issues',
     });
-    return { issuesDb, projectsDb, sprintsDb };
+    const { labelsDb, labelsFieldId } = await this.createLabelsPack(membership, space.id, issuesDb.id);
+    return { issuesDb, projectsDb, sprintsDb, labelsDb, labelsFieldId };
   }
 
   private async upsertByLinearId(
@@ -273,7 +319,7 @@ export class LinearService {
   /** Counts only, writes nothing — the look-before-you-leap step. */
   async dryRun(membership: Membership) {
     const { teams, apiKey } = await this.fetchTeams(membership.workspaceId);
-    const summary = { dry_run: true, teams: [] as Array<{ key: string; name: string; issues: number; sprints: number; projects: number }> };
+    const summary = { dry_run: true, teams: [] as Array<{ key: string; name: string; issues: number; sprints: number; projects: number; labels: number }> };
     for (const team of teams) {
       const { team: data } = (await this.fetcher(TEAM_QUERY, { id: team.id }, apiKey)) as { team: LinearTeamData };
       summary.teams.push({
@@ -282,6 +328,7 @@ export class LinearService {
         issues: data.issues.nodes.length,
         sprints: data.cycles.nodes.length,
         projects: data.projects.nodes.length,
+        labels: data.labels.nodes.length,
       });
     }
     return summary;
@@ -289,15 +336,29 @@ export class LinearService {
 
   async sync(membership: Membership, actorId: string) {
     const { teams, apiKey } = await this.fetchTeams(membership.workspaceId);
-    const summary = { dry_run: false, issues: 0, sprints: 0, projects: 0, teams: teams.map((t) => t.key) };
+    const summary = { dry_run: false, issues: 0, sprints: 0, projects: 0, labels: 0, teams: teams.map((t) => t.key) };
 
     for (const team of teams) {
       const { team: data } = (await this.fetcher(TEAM_QUERY, { id: team.id }, apiKey)) as { team: LinearTeamData };
-      const { issuesDb, projectsDb, sprintsDb } = await this.ensureTeamPack(membership, team);
+      const { issuesDb, projectsDb, sprintsDb, labelsDb, labelsFieldId } = await this.ensureTeamPack(membership, team);
 
       const issueDefs = await this.recordsService.fieldDefs(issuesDb.id);
       const stateOptions = await this.selectLabelMap(issuesDb.id, 'state');
       const priorityOptions = await this.selectLabelMap(issuesDb.id, 'priority');
+
+      // Labels → their own database (team labels + any label seen on an issue), deduped by id.
+      const labelById = new Map<string, LinearLabel>();
+      for (const l of data.labels.nodes) labelById.set(l.id, l);
+      for (const issue of data.issues.nodes) for (const l of issue.labels.nodes) if (!labelById.has(l.id)) labelById.set(l.id, l);
+      const labelRecordIds = new Map<string, string>();
+      for (const label of labelById.values()) {
+        const id = await this.upsertByLinearId(membership, labelsDb.id, label.id, {
+          name: label.name,
+          color: label.color ?? null,
+        }, actorId);
+        labelRecordIds.set(label.id, id);
+        summary.labels++;
+      }
 
       const sprintIds = new Map<string, string>();
       for (const cycle of data.cycles.nodes) {
@@ -337,7 +398,6 @@ export class LinearService {
           identifier: issue.identifier,
           state: stateOptions.get(STATE_MAP[issue.state.type] ?? 'Backlog') ?? null,
           priority: issue.priority ? (priorityOptions.get(PRIORITY_MAP[issue.priority] ?? '') ?? null) : null,
-          labels: issue.labels.nodes.map((l) => l.name).join(', ') || null,
           assignee_name: issue.assignee?.name ?? null,
           estimate: issue.estimate,
           url: issue.url,
@@ -354,6 +414,16 @@ export class LinearService {
         };
         await link(sprintField, issue.cycle ? sprintIds.get(issue.cycle.id) : undefined);
         await link(projectField, issue.project ? projectIds.get(issue.project.id) : undefined);
+
+        // Link the issue to its label records (many-to-many).
+        const labelTargets = issue.labels.nodes
+          .map((l) => labelRecordIds.get(l.id))
+          .filter((v): v is string => Boolean(v));
+        if (labelsFieldId && labelTargets.length) {
+          await this.relationsService
+            .addLinks(membership.workspaceId, issuesDb.id, id, labelsFieldId, labelTargets, actorId)
+            .catch(() => undefined);
+        }
       }
 
       // parents in a second pass — a parent can appear later in the feed

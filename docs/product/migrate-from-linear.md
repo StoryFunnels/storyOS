@@ -24,7 +24,7 @@ records in place instead of duplicating them.
 | Issue / project description (markdown) | Record description (rich text) — headings, lists, links, code preserved. Only written when the record has no description yet, so re-imports never overwrite edits. |
 | Workflow state (by *type*) | State select: triage → Triage, backlog → Backlog, unstarted → To Do, started → In Progress, completed → Done, canceled → Canceled |
 | Priority (1–4) | Priority select: Urgent / High / Medium / Low (no priority → empty) |
-| Labels | Comma-separated text (promote to multi-select later if you like) |
+| Labels | **Labels database** (name + color) with a many-to-many relation on Issues — reusable, filterable, colorable. Idempotent by Linear label id. |
 | Estimate | Estimate (number) |
 | Assignee | **Assignee (name)** — plain text. Users aren't matched automatically: invite your team first, then reassign. Nothing is lost. |
 | Parent / sub-issues | Parent Issue self-relation (Sub-issues on the other side) |
