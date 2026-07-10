@@ -8,9 +8,9 @@ import { useCreateBlockNote } from '@blocknote/react';
 import { BlockNoteView } from '@blocknote/mantine';
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
-import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { SortableContext, arrayMove, rectSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { ArrowLeft, ChevronDown, ChevronRight, GripVertical, MoreHorizontal, Plus } from 'lucide-react';
+import { ArrowLeft, ChevronDown, ChevronRight, GripVertical, MoreHorizontal, Pin, PinOff, Plus } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/auth-client';
 import { useWorkspace } from '@/lib/queries';
@@ -42,6 +42,13 @@ import { ActivityPanel, AttachmentsStrip, CommentsPanel } from '@/components/ent
 import { cn } from '@/lib/utils';
 
 const HIDDEN = new Set(['title', 'created_at', 'updated_at', 'created_by']);
+const NOT_INLINE = new Set(['lookup', 'rollup', 'button', 'formula']);
+
+/** Entity-page order is independent of table columns: config.entity_order, else API (position) order. */
+function orderKey(field: Field, apiIndex: number): number {
+  const explicit = field.config?.['entity_order'];
+  return typeof explicit === 'number' ? explicit : apiIndex;
+}
 
 export default function EntityPage() {
   const { ws, db, rec } = useParams<{ ws: string; db: string; rec: string }>();
@@ -73,6 +80,13 @@ export default function EntityPage() {
   const memberNames = useMemo(() => new Map(memberList.map((m) => [m.id, m.name])), [memberList]);
   const memberImages = useMemo(() => new Map(memberList.map((m) => [m.id, m.image])), [memberList]);
 
+  // API index captures the position/table order — the fallback for entity ordering.
+  const apiIndex = useMemo(() => {
+    const map = new Map<string, number>();
+    (database.data?.fields ?? []).forEach((f, i) => map.set(f.id, i));
+    return map;
+  }, [database.data]);
+
   const allFields = useMemo(
     () => (database.data?.fields ?? []).filter((f) => !HIDDEN.has(f.type)),
     [database.data],
@@ -81,8 +95,20 @@ export default function EntityPage() {
     () => allFields.filter((f) => f.config?.['entity_hidden'] !== true),
     [allFields],
   );
-  // Rich text gets full-width sections (like Description), not 40px rows.
-  const fields = useMemo(() => visibleFields.filter((f) => f.type !== 'rich_text'), [visibleFields]);
+  const sortByEntity = useMemo(
+    () => (list: Field[]) =>
+      [...list].sort((a, b) => orderKey(a, apiIndex.get(a.id) ?? 0) - orderKey(b, apiIndex.get(b.id) ?? 0)),
+    [apiIndex],
+  );
+  // Pinned lead in an emphasized group; the rest fill a two-column grid; rich text gets full-width sections.
+  const pinnedFields = useMemo(
+    () => sortByEntity(visibleFields.filter((f) => f.type !== 'rich_text' && f.config?.['entity_pinned'] === true)),
+    [visibleFields, sortByEntity],
+  );
+  const gridFields = useMemo(
+    () => sortByEntity(visibleFields.filter((f) => f.type !== 'rich_text' && f.config?.['entity_pinned'] !== true)),
+    [visibleFields, sortByEntity],
+  );
   const richFields = useMemo(() => visibleFields.filter((f) => f.type === 'rich_text'), [visibleFields]);
   const hiddenFields = useMemo(
     () => allFields.filter((f) => f.config?.['entity_hidden'] === true),
@@ -90,33 +116,21 @@ export default function EntityPage() {
   );
   const [showHidden, setShowHidden] = useState(false);
 
-  const qc = useQueryClient();
-  const reorder = useMutation({
-    mutationFn: async (moves: Array<{ fieldId: string; position: number }>) => {
-      for (const move of moves) {
-        const { error } = await api.PATCH('/api/v1/workspaces/{ws}/databases/{db}/fields/{field}', {
-          params: { path: { ws, db, field: move.fieldId } },
-          body: { position: move.position },
-        });
-        if (error) throw error;
-      }
-    },
-    onSettled: () => void qc.invalidateQueries({ queryKey: ['database', ws, db] }),
-  });
-
+  const setFieldConfig = useSetFieldConfig(ws, db);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
-  function onFieldDragEnd(event: DragEndEvent) {
-    const full = database.data?.fields ?? [];
-    const fromField = fields.find((f) => f.id === event.active.id);
-    const toField = fields.find((f) => f.id === event.over?.id);
-    if (!fromField || !toField || fromField.id === toField.id) return;
-    const next = arrayMove(full, full.indexOf(fromField), full.indexOf(toField));
-    const moves = next
-      .map((f, i) => ({ f, i }))
-      .filter(({ f, i }) => full[i]?.id !== f.id && !f.isSystem)
-      .map(({ f, i }) => ({ fieldId: f.id, position: i }));
-    if (moves.length) reorder.mutate(moves);
+  function onGridDragEnd(event: DragEndEvent) {
+    if (!event.over || event.active.id === event.over.id) return;
+    const from = gridFields.findIndex((f) => f.id === event.active.id);
+    const to = gridFields.findIndex((f) => f.id === event.over!.id);
+    if (from < 0 || to < 0) return;
+    const next = arrayMove(gridFields, from, to);
+    // Write entity_order for the reordered grid only — table columns (position) stay put.
+    next.forEach((f, i) => {
+      if (orderKey(f, apiIndex.get(f.id) ?? 0) !== i) {
+        setFieldConfig.mutate({ fieldId: f.id, config: { entity_order: i } });
+      }
+    });
   }
 
   const [tab, setTab] = useState<'comments' | 'activity'>('comments');
@@ -126,6 +140,18 @@ export default function EntityPage() {
     return <p className="p-6 text-sm text-muted">Loading…</p>;
   }
   if (!record.data) return <p className="p-6 text-sm text-error">Record not found.</p>;
+
+  const valueProps = {
+    ws,
+    db,
+    rec,
+    record: record.data,
+    members: memberList,
+    memberNames,
+    memberImages,
+    readOnly,
+    onCommit: (field: Field, value: unknown) => updateRecord.mutate({ rec, values: { [field.apiName]: value } }),
+  };
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-6">
@@ -151,31 +177,29 @@ export default function EntityPage() {
         onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
       />
 
-      {/* Properties panel */}
-      <div className="mb-6 flex flex-col">
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onFieldDragEnd}>
-          <SortableContext items={fields.map((f) => f.id)} strategy={verticalListSortingStrategy}>
-            {fields.map((field) => (
-              <PropertyRow
-                key={field.id}
-                ws={ws}
-                db={db}
-                rec={rec}
-                field={field}
-                record={record.data!}
-                memberNames={memberNames}
-                memberImages={memberImages}
-                members={memberList}
-                readOnly={readOnly}
-                schemaEditable={schemaEditable}
-                onCommit={(value) => updateRecord.mutate({ rec, values: { [field.apiName]: value } })}
-              />
-            ))}
+      {/* Pinned fields — the key facts, emphasized */}
+      {pinnedFields.length > 0 && (
+        <div className="mb-4 overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card">
+          {pinnedFields.map((field) => (
+            <PinnedRow key={field.id} field={field} schemaEditable={schemaEditable} {...valueProps} />
+          ))}
+        </div>
+      )}
+
+      {/* Two-column property grid */}
+      <div className="mb-6">
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onGridDragEnd}>
+          <SortableContext items={gridFields.map((f) => f.id)} strategy={rectSortingStrategy}>
+            <div className="grid grid-cols-1 gap-x-6 gap-y-0.5 sm:grid-cols-2">
+              {gridFields.map((field) => (
+                <GridCell key={field.id} field={field} schemaEditable={schemaEditable} {...valueProps} />
+              ))}
+            </div>
           </SortableContext>
         </DndContext>
 
         {schemaEditable && hiddenFields.length > 0 && (
-          <div className="border-b border-border-default py-1.5">
+          <div className="mt-2 border-t border-border-default pt-1.5">
             <button
               className="flex items-center gap-1 text-[13px] text-faint hover:text-ink"
               onClick={() => setShowHidden((s) => !s)}
@@ -234,14 +258,14 @@ export default function EntityPage() {
           !canComment ? (
             <p className="text-[13px] text-muted">You can view this record but not comment on it.</p>
           ) : (
-          <CommentsPanel
-            ws={ws}
-            db={db}
-            rec={rec}
-            members={memberList}
-            currentUserId={session?.user.id ?? ''}
-            isAdmin={workspace.data?.role === 'admin'}
-          />
+            <CommentsPanel
+              ws={ws}
+              db={db}
+              rec={rec}
+              members={memberList}
+              currentUserId={session?.user.id ?? ''}
+              isAdmin={workspace.data?.role === 'admin'}
+            />
           )
         ) : (
           <ActivityPanel ws={ws} db={db} rec={rec} />
@@ -251,148 +275,172 @@ export default function EntityPage() {
   );
 }
 
-function PropertyRow({
-  ws,
-  db,
-  rec,
-  field,
-  record,
-  memberNames,
-  memberImages,
-  members,
-  readOnly,
-  schemaEditable,
-  onCommit,
-}: {
+interface ValueProps {
   ws: string;
   db: string;
   rec: string;
-  field: Field;
   record: RecordRow;
+  members: Array<{ id: string; name: string; image?: string | null }>;
   memberNames: Map<string, string>;
   memberImages?: Map<string, string | null>;
-  members: Array<{ id: string; name: string; image?: string | null }>;
   readOnly: boolean;
-  schemaEditable: boolean;
-  onCommit: (value: unknown) => void;
-}) {
+  onCommit: (field: Field, value: unknown) => void;
+}
+
+/** The value renderer shared by pinned rows and grid cells: inline edit for every type. */
+function FieldValue({
+  field,
+  record,
+  ws,
+  db,
+  rec,
+  members,
+  memberNames,
+  memberImages,
+  readOnly,
+  onCommit,
+}: ValueProps & { field: Field }) {
   const [editing, setEditing] = useState(false);
   const value = record.values[field.apiName];
-  const sortable = useSortable({ id: field.id, disabled: !schemaEditable });
-  const sortableStyle = {
-    transform: CSS.Transform.toString(sortable.transform),
-    transition: sortable.transition,
-  };
-  const grip = schemaEditable ? (
-    <button
-      className="-ml-5 w-5 cursor-grab touch-none self-center text-faint opacity-0 hover:text-muted group-hover:opacity-100"
-      {...sortable.attributes}
-      {...sortable.listeners}
-      onClick={(e) => e.stopPropagation()}
-    >
-      <GripVertical className="h-3.5 w-3.5" />
-    </button>
-  ) : null;
 
   if (field.type === 'relation') {
     const chips = (value as LinkChip[]) ?? [];
     return (
-      <div
-        ref={sortable.setNodeRef}
-        style={sortableStyle}
-        className={cn(
-          'group flex min-h-9 items-center border-b border-border-default py-1.5 last:border-b-0',
-          sortable.isDragging && 'z-10 bg-card opacity-80',
+      <div className="relative flex flex-wrap items-center gap-1">
+        {chips.map((chip) => (
+          <Link
+            key={chip.id}
+            href={`/w/${ws}/d/${field.relation!.target_database_id}/r/${chip.id}`}
+            className="inline-flex max-w-48 items-center truncate rounded border border-border-default bg-hover px-1.5 py-0.5 text-[12px] text-ink hover:border-border-strong"
+          >
+            {chip.title || 'Untitled'}
+          </Link>
+        ))}
+        {!readOnly && (
+          <button
+            className="inline-flex items-center gap-0.5 rounded border border-dashed border-border-default px-1.5 py-0.5 text-[12px] text-muted hover:border-border-strong hover:text-ink"
+            onClick={() => setEditing(true)}
+          >
+            <Plus className="h-3 w-3" /> {chips.length === 0 && 'Add'}
+          </button>
         )}
-      >
-        {grip}
-        <span className="w-40 shrink-0 text-[13px] text-muted">{field.displayName}</span>
-        <div className="relative flex min-w-0 flex-1 flex-wrap items-center gap-1">
-          {chips.length > 0 ? (
-            <span className="flex flex-wrap gap-1">
-              {chips.map((chip) => (
-                <Link
-                  key={chip.id}
-                  href={`/w/${ws}/d/${field.relation!.target_database_id}/r/${chip.id}`}
-                  className="inline-flex max-w-48 items-center truncate rounded border border-border-default bg-hover px-1.5 py-0.5 text-[12px] text-ink hover:border-border-strong"
-                >
-                  {chip.title || 'Untitled'}
-                </Link>
-              ))}
-            </span>
-          ) : (
-            <span className="text-[13px] text-faint">—</span>
-          )}
-          {!readOnly && (
-            <button className="text-[12px] text-info underline" onClick={() => setEditing(true)}>
-              edit
-            </button>
-          )}
-          {editing && (
-            <RelationEditor
-              ws={ws}
-              db={db}
-              recordId={rec}
-              field={field}
-              current={chips}
-              onDone={() => setEditing(false)}
-            />
-          )}
-        </div>
-        {schemaEditable && <FieldMenu ws={ws} db={db} field={field} />}
+        {editing && (
+          <RelationEditor
+            ws={ws}
+            db={db}
+            recordId={rec}
+            field={field}
+            current={chips}
+            onDone={() => setEditing(false)}
+          />
+        )}
       </div>
     );
   }
 
+  if (field.type === 'button') {
+    return <PressButton ws={ws} db={db} recordId={rec} field={field} disabled={readOnly} />;
+  }
+
+  if (editing) {
+    return (
+      <CellEditor
+        field={field}
+        value={value}
+        members={members}
+        onCommit={(next) => {
+          setEditing(false);
+          onCommit(field, next);
+        }}
+        onCancel={() => setEditing(false)}
+      />
+    );
+  }
+
+  const empty = value === undefined || value === null || value === '';
   return (
     <div
-      ref={sortable.setNodeRef}
-      style={sortableStyle}
-      className={cn(
-        'group flex min-h-9 items-center border-b border-border-default py-1.5 last:border-b-0',
-        sortable.isDragging && 'z-10 bg-card opacity-80',
-      )}
+      className={cn('min-h-6 min-w-0', !readOnly && !NOT_INLINE.has(field.type) && 'cursor-pointer')}
       onClick={() => {
-        if (['lookup', 'rollup', 'button', 'formula'].includes(field.type)) return; // not inline-editable
-        if (!readOnly && !editing && field.type !== 'checkbox') setEditing(true);
-        if (!readOnly && field.type === 'checkbox') onCommit(!(value === true));
+        if (readOnly || NOT_INLINE.has(field.type)) return;
+        if (field.type === 'checkbox') onCommit(field, !(value === true));
+        else setEditing(true);
       }}
     >
-      {grip}
-      <span className="w-40 shrink-0 text-[13px] text-muted">{field.displayName}</span>
-      <div className="relative min-h-6 min-w-0 flex-1 cursor-pointer">
-        {editing ? (
-          <CellEditor
-            field={field}
-            value={value}
-            members={members}
-            onCommit={(next) => {
-              setEditing(false);
-              onCommit(next);
-            }}
-            onCancel={() => setEditing(false)}
-          />
-        ) : field.type === 'button' ? (
-          <PressButton ws={ws} db={db} recordId={rec} field={field} disabled={readOnly} />
-        ) : value === undefined || value === null || value === '' ? (
-          <span className="text-[13px] text-faint">Empty</span>
-        ) : (
-          <CellDisplay field={field} value={value} memberNames={memberNames} memberImages={memberImages} />
-        )}
-      </div>
-      {schemaEditable && <FieldMenu ws={ws} db={db} field={field} />}
+      {empty ? (
+        <span className="text-[13px] text-faint">Empty</span>
+      ) : (
+        <CellDisplay field={field} value={value} memberNames={memberNames} memberImages={memberImages} />
+      )}
     </div>
   );
 }
 
-/** Persist the per-database entity-page visibility flag (MN-042). */
-function useSetEntityHidden(ws: string, db: string) {
+/** Full-width emphasized row for a pinned field (label left, value right). */
+function PinnedRow({
+  field,
+  schemaEditable,
+  ...value
+}: ValueProps & { field: Field; schemaEditable: boolean }) {
+  return (
+    <div className="group flex min-h-10 flex-wrap items-center gap-x-3 gap-y-1 border-b border-border-default px-3 py-2 last:border-b-0">
+      <span className="flex w-32 shrink-0 items-center gap-1.5 truncate text-[13px] font-medium text-muted sm:w-40">
+        <Pin className="h-3 w-3 shrink-0 text-accent" /> <span className="truncate">{field.displayName}</span>
+      </span>
+      <div className="min-w-0 flex-1 basis-40">
+        <FieldValue field={field} {...value} />
+      </div>
+      {schemaEditable && <FieldMenu ws={value.ws} db={value.db} field={field} pinned />}
+    </div>
+  );
+}
+
+/** Compact, draggable, label-above cell for the two-column grid. */
+function GridCell({
+  field,
+  schemaEditable,
+  ...value
+}: ValueProps & { field: Field; schemaEditable: boolean }) {
+  const sortable = useSortable({ id: field.id, disabled: !schemaEditable });
+  const style = { transform: CSS.Transform.toString(sortable.transform), transition: sortable.transition };
+  return (
+    <div
+      ref={sortable.setNodeRef}
+      style={style}
+      className={cn(
+        'group rounded-md border border-transparent px-2 py-1.5 hover:border-border-default hover:bg-hover/40',
+        sortable.isDragging && 'z-10 border-border-default bg-card opacity-80 shadow-sm',
+      )}
+    >
+      <div className="mb-0.5 flex items-center gap-1">
+        {schemaEditable && (
+          <button
+            className="-ml-1 cursor-grab touch-none text-faint opacity-0 hover:text-muted group-hover:opacity-100"
+            {...sortable.attributes}
+            {...sortable.listeners}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <GripVertical className="h-3 w-3" />
+          </button>
+        )}
+        <span className="flex-1 truncate text-[11px] font-medium uppercase tracking-wide text-faint">
+          {field.displayName}
+        </span>
+        {schemaEditable && <FieldMenu ws={value.ws} db={value.db} field={field} />}
+      </div>
+      <FieldValue field={field} {...value} />
+    </div>
+  );
+}
+
+/** Persist a merged patch onto a field's config (entity-page visibility / pin / order). */
+function useSetFieldConfig(ws: string, db: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ fieldId, hidden }: { fieldId: string; hidden: boolean }) => {
+    mutationFn: async ({ fieldId, config }: { fieldId: string; config: Record<string, unknown> }) => {
       const { error } = await api.PATCH('/api/v1/workspaces/{ws}/databases/{db}/fields/{field}', {
         params: { path: { ws, db, field: fieldId } },
-        body: { config: { entity_hidden: hidden } },
+        body: { config },
       });
       if (error) throw error;
     },
@@ -400,11 +448,11 @@ function useSetEntityHidden(ws: string, db: string) {
   });
 }
 
-/** Schema editing without leaving the record (Notion-style): ⋯ on each property row. */
-function FieldMenu({ ws, db, field }: { ws: string; db: string; field: Field }) {
+/** Schema editing without leaving the record (Notion-style): ⋯ on each property. */
+function FieldMenu({ ws, db, field, pinned = false }: { ws: string; db: string; field: Field; pinned?: boolean }) {
   const [dialog, setDialog] = useState<'edit' | 'change-type' | null>(null);
   const deleteField = useDeleteField({ ws, db, field, onDone: () => setDialog(null) });
-  const setHidden = useSetEntityHidden(ws, db);
+  const setConfig = useSetFieldConfig(ws, db);
   const canDelete = field.type !== 'relation' && !field.isSystem;
 
   return (
@@ -420,7 +468,18 @@ function FieldMenu({ ws, db, field }: { ws: string; db: string; field: Field }) 
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuItem onSelect={() => setDialog('edit')}>Edit field</DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => setHidden.mutate({ fieldId: field.id, hidden: true })}>
+          <DropdownMenuItem
+            onSelect={() =>
+              setConfig.mutate({ fieldId: field.id, config: { entity_pinned: !pinned, entity_order: null } })
+            }
+          >
+            {pinned ? (
+              <><PinOff className="mr-2 h-3.5 w-3.5" /> Unpin</>
+            ) : (
+              <><Pin className="mr-2 h-3.5 w-3.5" /> Pin to top</>
+            )}
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setConfig.mutate({ fieldId: field.id, config: { entity_hidden: true } })}>
             Hide on record page
           </DropdownMenuItem>
           {canDelete && (
@@ -500,13 +559,13 @@ function RichTextFieldSection({
 }
 
 function HiddenFieldRow({ ws, db, field }: { ws: string; db: string; field: Field }) {
-  const setHidden = useSetEntityHidden(ws, db);
+  const setConfig = useSetFieldConfig(ws, db);
   return (
     <div className="flex min-h-8 items-center py-1">
       <span className="w-40 shrink-0 text-[13px] text-faint">{field.displayName}</span>
       <button
         className="text-[12px] text-info underline-offset-2 hover:underline"
-        onClick={() => setHidden.mutate({ fieldId: field.id, hidden: false })}
+        onClick={() => setConfig.mutate({ fieldId: field.id, config: { entity_hidden: false } })}
       >
         Show
       </button>
@@ -520,7 +579,7 @@ function AddFieldRow({ ws, db }: { ws: string; db: string }) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <button className="flex items-center gap-1.5 self-start py-2 text-[13px] text-faint hover:text-ink">
+        <button className="mt-1 flex items-center gap-1.5 self-start py-2 text-[13px] text-faint hover:text-ink">
           <Plus className="h-3.5 w-3.5" /> Add a field
         </button>
       </DialogTrigger>
