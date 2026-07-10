@@ -82,11 +82,22 @@ function defaultZone(f: Field): Zone {
   if (f.type === 'rich_text' || isCollection(f)) return 'body';
   return 'sidebar'; // scalars + single references
 }
-/** Collections & rich text are pinned to the body; everything else honors config.entity_zone. */
-function zoneOf(f: Field): Zone {
-  if (f.type === 'rich_text' || isCollection(f)) return 'body';
-  const z = f.config?.['entity_zone'];
-  return z === 'top' || z === 'sidebar' || z === 'body' ? z : defaultZone(f);
+/**
+ * Which zones a field shows in (MN-077). A movable field can live in several
+ * zones at once (e.g. sidebar AND top). Collections & rich text are body-locked.
+ * Reads `entity_zones` (array); falls back to the legacy single `entity_zone`,
+ * then the type default.
+ */
+function zonesOf(f: Field): Zone[] {
+  if (f.type === 'rich_text' || isCollection(f)) return ['body'];
+  const zs = f.config?.['entity_zones'];
+  if (Array.isArray(zs)) {
+    const valid = zs.filter((z): z is Zone => z === 'top' || z === 'sidebar' || z === 'body');
+    if (valid.length) return valid;
+  }
+  const legacy = f.config?.['entity_zone'];
+  if (legacy === 'top' || legacy === 'sidebar' || legacy === 'body') return [legacy];
+  return [defaultZone(f)];
 }
 function orderKey(f: Field, apiIndex: number): number {
   const explicit = f.config?.['entity_order'];
@@ -149,9 +160,14 @@ export default function EntityPage() {
       [...list].sort((a, b) => orderKey(a, apiIndex.get(a.id) ?? 0) - orderKey(b, apiIndex.get(b.id) ?? 0)),
     [apiIndex],
   );
-  const topFields = useMemo(() => byOrder(visibleFields.filter((f) => zoneOf(f) === 'top')), [visibleFields, byOrder]);
-  const sidebarFields = useMemo(() => byOrder(visibleFields.filter((f) => zoneOf(f) === 'sidebar')), [visibleFields, byOrder]);
-  const bodyFields = useMemo(() => byOrder(visibleFields.filter((f) => zoneOf(f) === 'body')), [visibleFields, byOrder]);
+  const topFields = useMemo(() => byOrder(visibleFields.filter((f) => zonesOf(f).includes('top'))), [visibleFields, byOrder]);
+  const sidebarFields = useMemo(() => byOrder(visibleFields.filter((f) => zonesOf(f).includes('sidebar'))), [visibleFields, byOrder]);
+  const bodyFields = useMemo(() => byOrder(visibleFields.filter((f) => zonesOf(f).includes('body'))), [visibleFields, byOrder]);
+  // Fields eligible to be pinned to the top strip (movable, not already there).
+  const topCandidates = useMemo(
+    () => visibleFields.filter((f) => f.type !== 'rich_text' && !isCollection(f) && !zonesOf(f).includes('top')),
+    [visibleFields],
+  );
   const hiddenFields = useMemo(
     () => (record.data ? allFields.filter((f) => isHidden(f, record.data!)) : []),
     [allFields, record.data],
@@ -172,8 +188,13 @@ export default function EntityPage() {
       }
     });
   }
-  const moveToZone = (field: Field, zone: Zone) =>
-    setFieldConfig.mutate({ fieldId: field.id, config: { entity_zone: zone, entity_order: null } });
+  /** Toggle a field's presence in a zone (MN-077). Unchecking the last zone hides the field. */
+  const toggleZone = (field: Field, zone: Zone) => {
+    const cur = zonesOf(field);
+    const next = cur.includes(zone) ? cur.filter((z) => z !== zone) : [...cur, zone];
+    if (next.length === 0) setFieldConfig.mutate({ fieldId: field.id, config: { entity_hidden: true } });
+    else setFieldConfig.mutate({ fieldId: field.id, config: { entity_zones: next, entity_hidden: false } });
+  };
 
   const [tab, setTab] = useState<'comments' | 'activity'>('comments');
   const [titleDraft, setTitleDraft] = useState<string | null>(null);
@@ -191,7 +212,7 @@ export default function EntityPage() {
     memberImages,
     readOnly,
     schemaEditable,
-    onMove: moveToZone,
+    onToggleZone: toggleZone,
     onCommit: (field: Field, value: unknown) => updateRecord.mutate({ rec, values: { [field.apiName]: value } }),
   };
 
@@ -229,14 +250,17 @@ export default function EntityPage() {
             onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
           />
 
-          {/* Top strip — a few pinned essentials */}
-          {topFields.length > 0 && (
+          {/* Top strip — a few pinned essentials; shown (with an add affordance) so it's discoverable */}
+          {(topFields.length > 0 || schemaEditable) && (
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={(e) => reorderWithin(topFields, e)}>
               <SortableContext items={topFields.map((f) => f.id)} strategy={horizontalListSortingStrategy}>
-                <div className="mb-5 flex flex-wrap gap-2">
+                <div className="mb-5 flex flex-wrap items-center gap-2">
                   {topFields.map((field) => (
                     <TopChip key={field.id} field={field} {...vp} />
                   ))}
+                  {schemaEditable && (
+                    <TopStripAdd candidates={topCandidates} empty={topFields.length === 0} onPick={(f) => toggleZone(f, 'top')} />
+                  )}
                 </div>
               </SortableContext>
             </DndContext>
@@ -253,7 +277,7 @@ export default function EntityPage() {
                 value={record.data.values[field.apiName]}
                 readOnly={readOnly}
                 schemaEditable={schemaEditable}
-                onMove={moveToZone}
+                onToggleZone={toggleZone}
                 onCommit={(value) => updateRecord.mutate({ rec, values: { [field.apiName]: value } })}
               />
             ) : field.type === 'relation' ? (
@@ -312,8 +336,8 @@ export default function EntityPage() {
               {schemaEditable && (
                 <FieldPicker
                   label="Add a property"
-                  candidates={visibleFields.filter((f) => zoneOf(f) !== 'sidebar' && !isCollection(f) && f.type !== 'rich_text')}
-                  onPick={(f) => moveToZone(f, 'sidebar')}
+                  candidates={visibleFields.filter((f) => !zonesOf(f).includes('sidebar') && !isCollection(f) && f.type !== 'rich_text')}
+                  onPick={(f) => toggleZone(f, 'sidebar')}
                 />
               )}
             </div>
@@ -365,7 +389,7 @@ interface VP {
   memberImages?: Map<string, string | null>;
   readOnly: boolean;
   schemaEditable: boolean;
-  onMove: (field: Field, zone: Zone) => void;
+  onToggleZone: (field: Field, zone: Zone) => void;
   onCommit: (field: Field, value: unknown) => void;
 }
 
@@ -440,7 +464,7 @@ function ScalarValue({ field, record, ws, db, rec, members, memberNames, memberI
 }
 
 /** Compact draggable property in the right sidebar (label above value). */
-function SidebarField({ field, schemaEditable, onMove, ...vp }: VP & { field: Field }) {
+function SidebarField({ field, schemaEditable, onToggleZone, ...vp }: VP & { field: Field }) {
   const sortable = useSortable({ id: field.id, disabled: !schemaEditable });
   const style = { transform: CSS.Transform.toString(sortable.transform), transition: sortable.transition };
   const collapsed = field.config?.['entity_collapsed'] === true;
@@ -472,15 +496,15 @@ function SidebarField({ field, schemaEditable, onMove, ...vp }: VP & { field: Fi
         <span className="flex-1 truncate text-[11px] font-medium uppercase tracking-wide text-faint">
           {field.displayName}
         </span>
-        {schemaEditable && <FieldMenu field={field} zone="sidebar" onMove={onMove} ws={vp.ws} db={vp.db} />}
+        {schemaEditable && <FieldMenu field={field} onToggleZone={onToggleZone} ws={vp.ws} db={vp.db} />}
       </div>
-      {!collapsed && <ScalarValue field={field} schemaEditable={schemaEditable} onMove={onMove} {...vp} />}
+      {!collapsed && <ScalarValue field={field} schemaEditable={schemaEditable} onToggleZone={onToggleZone} {...vp} />}
     </div>
   );
 }
 
 /** Pinned essential in the top strip (label + value inline). */
-function TopChip({ field, schemaEditable, onMove, ...vp }: VP & { field: Field }) {
+function TopChip({ field, schemaEditable, onToggleZone, ...vp }: VP & { field: Field }) {
   const sortable = useSortable({ id: field.id, disabled: !schemaEditable });
   const style = { transform: CSS.Transform.toString(sortable.transform), transition: sortable.transition };
   return (
@@ -498,11 +522,11 @@ function TopChip({ field, schemaEditable, onMove, ...vp }: VP & { field: Field }
         <Pin className="h-3 w-3 text-accent" /> {field.displayName}
       </span>
       <div onPointerDown={(e) => e.stopPropagation()}>
-        <ScalarValue field={field} schemaEditable={schemaEditable} onMove={onMove} {...vp} />
+        <ScalarValue field={field} schemaEditable={schemaEditable} onToggleZone={onToggleZone} {...vp} />
       </div>
       {schemaEditable && (
         <span onPointerDown={(e) => e.stopPropagation()}>
-          <FieldMenu field={field} zone="top" onMove={onMove} ws={vp.ws} db={vp.db} />
+          <FieldMenu field={field} onToggleZone={onToggleZone} ws={vp.ws} db={vp.db} />
         </span>
       )}
     </div>
@@ -510,15 +534,15 @@ function TopChip({ field, schemaEditable, onMove, ...vp }: VP & { field: Field }
 }
 
 /** A scalar field the user moved into the main body (full-width, label left). */
-function BodyScalar({ field, schemaEditable, onMove, ...vp }: VP & { field: Field }) {
+function BodyScalar({ field, schemaEditable, onToggleZone, ...vp }: VP & { field: Field }) {
   return (
     <div className="group mb-4 flex items-start gap-3 border-b border-border-default pb-3">
       <span className="flex w-40 shrink-0 items-center gap-1 pt-0.5 text-[12px] font-medium uppercase tracking-wide text-faint">
         {field.displayName}
-        {schemaEditable && <FieldMenu field={field} zone="body" onMove={onMove} ws={vp.ws} db={vp.db} />}
+        {schemaEditable && <FieldMenu field={field} onToggleZone={onToggleZone} ws={vp.ws} db={vp.db} />}
       </span>
       <div className="min-w-0 flex-1">
-        <ScalarValue field={field} schemaEditable={schemaEditable} onMove={onMove} {...vp} />
+        <ScalarValue field={field} schemaEditable={schemaEditable} onToggleZone={onToggleZone} {...vp} />
       </div>
     </div>
   );
@@ -538,7 +562,7 @@ interface CollectionView {
  * TARGET database via the query engine — filtered to "linked to this record"
  * through the inverse relation field — so we get full values to sort/filter/color.
  */
-function CollectionSection({ field, schemaEditable, onMove, readOnly, ws, db, rec, record, members }: VP & { field: Field }) {
+function CollectionSection({ field, schemaEditable, onToggleZone, readOnly, ws, db, rec, record, members }: VP & { field: Field }) {
   const [adding, setAdding] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const collapsed = field.config?.['entity_collapsed'] === true;
@@ -597,7 +621,7 @@ function CollectionSection({ field, schemaEditable, onMove, readOnly, ws, db, re
         />
         <h2 className="text-[12px] font-medium uppercase tracking-wider text-faint">{field.displayName}</h2>
         <span className="text-[11px] text-faint">{total}</span>
-        {schemaEditable && <FieldMenu field={field} zone="body" onMove={onMove} ws={ws} db={db} collection />}
+        {schemaEditable && <FieldMenu field={field} onToggleZone={onToggleZone} ws={ws} db={db} collection />}
         {schemaEditable && !collapsed && targetDb.data && (
           <span className="flex flex-wrap items-center gap-1">
             {conditions.map((c, i) => (
@@ -773,28 +797,62 @@ function FieldPicker({
   );
 }
 
-/** Per-field ⋯ menu: move between zones, edit, hide, delete. */
+/** Empty/populate affordance for the top strip — pin any movable field up top (MN-077). */
+function TopStripAdd({
+  candidates,
+  empty,
+  onPick,
+}: {
+  candidates: Field[];
+  empty: boolean;
+  onPick: (f: Field) => void;
+}) {
+  if (candidates.length === 0 && !empty) return null;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          className="inline-flex items-center gap-1 rounded-md border border-dashed border-border-default px-2 py-1.5 text-[12px] text-muted hover:border-border-strong hover:text-ink"
+          title="Pin a field to the top strip"
+        >
+          <Pin className="h-3 w-3" /> {empty ? 'Pin a field' : 'Pin'}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto">
+        {candidates.length === 0 ? (
+          <p className="px-2 py-1.5 text-[12px] text-faint">All fields already pinned.</p>
+        ) : (
+          candidates.map((f) => (
+            <DropdownMenuItem key={f.id} onSelect={() => onPick(f)}>
+              {f.displayName}
+            </DropdownMenuItem>
+          ))
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** Per-field ⋯ menu: choose zones (a field can be in several), edit, hide, delete. */
 function FieldMenu({
   ws,
   db,
   field,
-  zone,
-  onMove,
+  onToggleZone,
   collection = false,
 }: {
   ws: string;
   db: string;
   field: Field;
-  zone: Zone;
-  onMove: (field: Field, zone: Zone) => void;
+  onToggleZone: (field: Field, zone: Zone) => void;
   collection?: boolean;
 }) {
   const [dialog, setDialog] = useState<'edit' | 'change-type' | null>(null);
   const deleteField = useDeleteField({ ws, db, field, onDone: () => setDialog(null) });
   const setConfig = useSetFieldConfig(ws, db);
   const canDelete = field.type !== 'relation' && !field.isSystem;
-  // Collections & rich text can't leave the body; single-refs & scalars move freely.
-  const movable: Zone[] = collection ? [] : (['top', 'sidebar', 'body'] as Zone[]).filter((z) => z !== zone);
+  // Collections & rich text are body-locked; scalars & single-refs can be shown in any zones.
+  const zones = collection ? [] : zonesOf(field);
 
   return (
     <>
@@ -809,11 +867,18 @@ function FieldMenu({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuItem onSelect={() => setDialog('edit')}>Edit field</DropdownMenuItem>
-          {movable.map((z) => (
-            <DropdownMenuItem key={z} onSelect={() => onMove(field, z)}>
-              Move to {ZONE_LABEL[z]}
-            </DropdownMenuItem>
-          ))}
+          {!collection &&
+            (['top', 'sidebar', 'body'] as Zone[]).map((z) => (
+              <DropdownMenuItem
+                key={z}
+                onSelect={(e) => {
+                  e.preventDefault();
+                  onToggleZone(field, z);
+                }}
+              >
+                <span className="mr-2 w-3 text-accent">{zones.includes(z) ? '✓' : ''}</span> Show in {ZONE_LABEL[z]}
+              </DropdownMenuItem>
+            ))}
           <DropdownMenuSeparator />
           <DropdownMenuItem
             onSelect={() =>
@@ -853,7 +918,7 @@ function RichTextFieldSection({
   value,
   readOnly,
   schemaEditable,
-  onMove,
+  onToggleZone,
   onCommit,
 }: {
   ws: string;
@@ -862,7 +927,7 @@ function RichTextFieldSection({
   value: unknown;
   readOnly: boolean;
   schemaEditable: boolean;
-  onMove: (field: Field, zone: Zone) => void;
+  onToggleZone: (field: Field, zone: Zone) => void;
   onCommit: (value: unknown) => void;
 }) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -875,7 +940,7 @@ function RichTextFieldSection({
     <div className="group mb-5">
       <div className="mb-1.5 flex items-center gap-1">
         <h2 className="text-[12px] font-medium uppercase tracking-wider text-faint">{field.displayName}</h2>
-        {schemaEditable && <FieldMenu ws={ws} db={db} field={field} zone="body" onMove={onMove} collection />}
+        {schemaEditable && <FieldMenu ws={ws} db={db} field={field} onToggleZone={onToggleZone} collection />}
       </div>
       <div className="rounded-[var(--radius-card)] border border-border-default bg-card py-3 [&_.bn-editor]:bg-transparent">
         <BlockNoteView
