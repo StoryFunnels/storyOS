@@ -194,10 +194,10 @@ export function TableView({
 
   const widthOf = useCallback(
     (field: Field) =>
-      // The id column is a fixed, narrow, non-resizable system gutter (MN-087).
-      field.type === 'id'
-        ? 56
-        : widths[field.id] ?? columnWidths?.[field.id] ?? (field.type === 'title' ? TITLE_WIDTH : DEFAULT_WIDTH),
+      widths[field.id] ??
+      columnWidths?.[field.id] ??
+      // The id column starts narrow (a compact number gutter) but is resizable (MN-087).
+      (field.type === 'id' ? 56 : field.type === 'title' ? TITLE_WIDTH : DEFAULT_WIDTH),
     [widths, columnWidths],
   );
 
@@ -312,6 +312,7 @@ export function TableView({
                 readOnly={!schemaEditable}
                 sticky={pinned}
                 stickyLeft={frozenLeft(i)}
+                stickyZ={30 + (frozenCount - i)}
                 isFirst={i === 0}
                 pinned={pinned}
                 onTogglePin={i === 0 ? togglePinned : undefined}
@@ -651,6 +652,7 @@ function HeaderCell({
   width,
   readOnly,
   onResize,
+  stickyZ,
   reorderable = false,
   sticky = false,
   stickyLeft,
@@ -667,6 +669,7 @@ function HeaderCell({
   reorderable?: boolean;
   sticky?: boolean;
   stickyLeft?: number;
+  stickyZ?: number;
   isFirst?: boolean;
   pinned?: boolean;
   onTogglePin?: () => void;
@@ -681,7 +684,7 @@ function HeaderCell({
     width,
     transform: reorderable ? CSS.Transform.toString(sortable.transform) : undefined,
     transition: reorderable ? sortable.transition : undefined,
-    ...(sticky ? { position: 'sticky', left: stickyLeft, zIndex: 30 } : {}),
+    ...(sticky ? { position: 'sticky', left: stickyLeft, zIndex: stickyZ ?? 30 } : {}),
   };
 
   return (
@@ -746,23 +749,20 @@ function HeaderCell({
           <ChangeTypeDialog ws={ws} db={db} field={field} onDone={() => setDialog(null)} />
         )}
       </Dialog>
-      {/* The id column is a fixed system gutter — no resize handle (MN-087). */}
-      {field.type !== 'id' && (
-        <div
-          className="absolute -right-0.5 top-0 z-40 h-full w-1.5 cursor-col-resize hover:bg-accent"
-          onPointerDown={(e) => {
-            startRef.current = { x: e.clientX, width };
-            (e.target as HTMLElement).setPointerCapture(e.pointerId);
-          }}
-          onPointerMove={(e) => {
-            if (!startRef.current) return;
-            onResize(Math.max(48, startRef.current.width + (e.clientX - startRef.current.x)));
-          }}
-          onPointerUp={() => {
-            startRef.current = null;
-          }}
-        />
-      )}
+      <div
+        className="absolute -right-0.5 top-0 z-40 h-full w-1.5 cursor-col-resize hover:bg-accent"
+        onPointerDown={(e) => {
+          startRef.current = { x: e.clientX, width };
+          (e.target as HTMLElement).setPointerCapture(e.pointerId);
+        }}
+        onPointerMove={(e) => {
+          if (!startRef.current) return;
+          onResize(Math.max(48, startRef.current.width + (e.clientX - startRef.current.x)));
+        }}
+        onPointerUp={() => {
+          startRef.current = null;
+        }}
+      />
     </div>
   );
 }
