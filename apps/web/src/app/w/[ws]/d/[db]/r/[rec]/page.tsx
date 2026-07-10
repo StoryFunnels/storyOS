@@ -217,7 +217,7 @@ export default function EntityPage() {
   };
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-6">
+    <div className="px-8 py-6">
       <div className="mb-4 flex items-center justify-between">
         <Link
           href={`/w/${ws}/d/${db}`}
