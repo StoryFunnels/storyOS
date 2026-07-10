@@ -2,12 +2,12 @@
 
 import Link from 'next/link';
 import { useParams, usePathname, useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Check, ChevronsUpDown, Database, Home, Inbox, KeyRound, LayoutTemplate, MoreHorizontal, Plug, Plus, Search, Settings, Star, UserRound } from 'lucide-react';
+import { Check, ChevronRight, ChevronsUpDown, Database, Home, Inbox, KeyRound, LayoutTemplate, MoreHorizontal, Plug, Plus, Search, Settings, Star, UserRound } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -286,6 +286,20 @@ function SpaceSection({
   const [sharing, setSharing] = useState(false);
   const [iconing, setIconing] = useState(false);
 
+  // Per-user, per-space collapse (MN-088) so a packed sidebar stays scannable.
+  const collapseKey = `storyos:space-collapsed:${space.id}`;
+  const [collapsed, setCollapsed] = useState(false);
+  useEffect(() => {
+    if (typeof window !== 'undefined') setCollapsed(window.localStorage.getItem(collapseKey) === '1');
+  }, [collapseKey]);
+  const toggleCollapsed = () => {
+    setCollapsed((c) => {
+      const next = !c;
+      if (typeof window !== 'undefined') window.localStorage.setItem(collapseKey, next ? '1' : '0');
+      return next;
+    });
+  };
+
   return (
     <div
       ref={setNodeRef}
@@ -306,10 +320,21 @@ function SpaceSection({
             }}
           />
         ) : (
-          <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-faint">
+          <button
+            className="flex min-w-0 flex-1 items-center gap-1 text-left text-[11px] font-medium uppercase tracking-wider text-faint hover:text-muted"
+            onClick={toggleCollapsed}
+            onPointerDown={(e) => e.stopPropagation()}
+            title={collapsed ? 'Expand' : 'Collapse'}
+          >
+            <ChevronRight
+              className={cn('h-3 w-3 shrink-0 transition-transform', !collapsed && 'rotate-90')}
+            />
             {space.icon && <span className="text-[13px] leading-none">{space.icon}</span>}
-            {space.name}
-          </span>
+            <span className="truncate">{space.name}</span>
+            {collapsed && databases.length > 0 && (
+              <span className="ml-1 text-faint/70">{databases.length}</span>
+            )}
+          </button>
         )}
         {canEdit && (
           <span className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
@@ -376,16 +401,17 @@ function SpaceSection({
         )}
       </Dialog>
 
-      {databases.map((db) => (
-        <DatabaseRow
-          key={db.id}
-          ws={ws}
-          db={db}
-          active={pathname.startsWith(`/w/${ws}/d/${db.id}`)}
-          canEdit={canEdit}
-          isAdmin={isAdmin}
-        />
-      ))}
+      {!collapsed &&
+        databases.map((db) => (
+          <DatabaseRow
+            key={db.id}
+            ws={ws}
+            db={db}
+            active={pathname.startsWith(`/w/${ws}/d/${db.id}`)}
+            canEdit={canEdit}
+            isAdmin={isAdmin}
+          />
+        ))}
     </div>
   );
 }
