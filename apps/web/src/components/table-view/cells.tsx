@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -166,14 +167,7 @@ export function CellEditor({ field, value, members, onCommit, onCancel }: Editor
     case 'email':
       return <TextEditor initial={value == null ? '' : String(value)} onCommit={(v) => onCommit(v === '' ? null : v)} onCancel={onCancel} />;
     case 'number':
-      return (
-        <TextEditor
-          initial={value == null ? '' : String(value)}
-          inputMode="decimal"
-          onCommit={(v) => onCommit(v === '' ? null : Number(v))}
-          onCancel={onCancel}
-        />
-      );
+      return <NumberEditor initial={value == null ? null : Number(value)} onCommit={onCommit} onCancel={onCancel} />;
     case 'date': {
       const includeTime = field.config['include_time'] === true;
       return (
@@ -262,6 +256,81 @@ function TextEditor({
         e.stopPropagation();
       }}
     />
+  );
+}
+
+/** Number editor with arrow-key + on-screen +/- stepping (MN-072). */
+function NumberEditor({
+  initial,
+  onCommit,
+  onCancel,
+}: {
+  initial: number | null;
+  onCommit: (value: number | null) => void;
+  onCancel: () => void;
+}) {
+  const [val, setVal] = useState(initial === null ? '' : String(initial));
+  const committed = useRef(false);
+  const commit = (raw: string) => {
+    committed.current = true;
+    onCommit(raw.trim() === '' ? null : Number(raw));
+  };
+  const step = (delta: number) => {
+    const next = (Number(val) || 0) + delta;
+    setVal(String(next));
+  };
+  return (
+    <div className="flex h-full items-center gap-1 bg-card pr-1">
+      <input
+        autoFocus
+        inputMode="decimal"
+        className="h-full min-w-0 flex-1 bg-transparent px-2 text-[13px] text-ink outline-none"
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+        onFocus={(e) => e.target.select()}
+        onBlur={() => {
+          if (!committed.current) commit(val);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') commit(val);
+          else if (e.key === 'Escape') {
+            committed.current = true;
+            onCancel();
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            step(1);
+          } else if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            step(-1);
+          }
+          e.stopPropagation();
+        }}
+      />
+      <div className="flex flex-col">
+        <button
+          type="button"
+          tabIndex={-1}
+          className="flex h-3 w-4 items-center justify-center rounded-sm text-faint hover:bg-hover hover:text-ink"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            step(1);
+          }}
+        >
+          <ChevronUp className="h-3 w-3" />
+        </button>
+        <button
+          type="button"
+          tabIndex={-1}
+          className="flex h-3 w-4 items-center justify-center rounded-sm text-faint hover:bg-hover hover:text-ink"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            step(-1);
+          }}
+        >
+          <ChevronDown className="h-3 w-3" />
+        </button>
+      </div>
+    </div>
   );
 }
 

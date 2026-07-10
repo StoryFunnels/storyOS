@@ -76,6 +76,14 @@ function orderKey(f: Field, apiIndex: number): number {
   const explicit = f.config?.['entity_order'];
   return typeof explicit === 'number' ? explicit : apiIndex;
 }
+function isEmptyValue(v: unknown): boolean {
+  return v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0);
+}
+/** Hidden outright, or flagged hide-when-empty and currently empty. */
+function isHidden(f: Field, record: RecordRow): boolean {
+  if (f.config?.['entity_hidden'] === true) return true;
+  return f.config?.['hide_when_empty'] === true && isEmptyValue(record.values[f.apiName]);
+}
 
 export default function EntityPage() {
   const { ws, db, rec } = useParams<{ ws: string; db: string; rec: string }>();
@@ -117,8 +125,8 @@ export default function EntityPage() {
     [database.data],
   );
   const visibleFields = useMemo(
-    () => allFields.filter((f) => f.config?.['entity_hidden'] !== true),
-    [allFields],
+    () => (record.data ? allFields.filter((f) => !isHidden(f, record.data!)) : []),
+    [allFields, record.data],
   );
   const byOrder = useMemo(
     () => (list: Field[]) =>
@@ -128,7 +136,10 @@ export default function EntityPage() {
   const topFields = useMemo(() => byOrder(visibleFields.filter((f) => zoneOf(f) === 'top')), [visibleFields, byOrder]);
   const sidebarFields = useMemo(() => byOrder(visibleFields.filter((f) => zoneOf(f) === 'sidebar')), [visibleFields, byOrder]);
   const bodyFields = useMemo(() => byOrder(visibleFields.filter((f) => zoneOf(f) === 'body')), [visibleFields, byOrder]);
-  const hiddenFields = useMemo(() => allFields.filter((f) => f.config?.['entity_hidden'] === true), [allFields]);
+  const hiddenFields = useMemo(
+    () => (record.data ? allFields.filter((f) => isHidden(f, record.data!)) : []),
+    [allFields, record.data],
+  );
   const [showHidden, setShowHidden] = useState(false);
 
   const setFieldConfig = useSetFieldConfig(ws, db);
@@ -370,17 +381,20 @@ function ScalarValue({ field, record, ws, db, rec, members, memberNames, memberI
   }
   if (field.type === 'button') return <PressButton ws={ws} db={db} recordId={rec} field={field} disabled={readOnly} />;
   if (editing) {
+    // relative anchor so absolute-positioned option lists / pickers drop under the field
     return (
-      <CellEditor
-        field={field}
-        value={value}
-        members={members}
-        onCommit={(next) => {
-          setEditing(false);
-          onCommit(field, next);
-        }}
-        onCancel={() => setEditing(false)}
-      />
+      <div className="relative min-h-6">
+        <CellEditor
+          field={field}
+          value={value}
+          members={members}
+          onCommit={(next) => {
+            setEditing(false);
+            onCommit(field, next);
+          }}
+          onCancel={() => setEditing(false)}
+        />
+      </div>
     );
   }
   const empty = value === undefined || value === null || value === '';
@@ -406,6 +420,8 @@ function ScalarValue({ field, record, ws, db, rec, members, memberNames, memberI
 function SidebarField({ field, schemaEditable, onMove, ...vp }: VP & { field: Field }) {
   const sortable = useSortable({ id: field.id, disabled: !schemaEditable });
   const style = { transform: CSS.Transform.toString(sortable.transform), transition: sortable.transition };
+  const collapsed = field.config?.['entity_collapsed'] === true;
+  const setConfig = useSetFieldConfig(vp.ws, vp.db);
   return (
     <div
       ref={sortable.setNodeRef}
@@ -426,12 +442,16 @@ function SidebarField({ field, schemaEditable, onMove, ...vp }: VP & { field: Fi
             <GripVertical className="h-3 w-3" />
           </button>
         )}
+        <CollapseToggle
+          collapsed={collapsed}
+          onToggle={() => setConfig.mutate({ fieldId: field.id, config: { entity_collapsed: !collapsed } })}
+        />
         <span className="flex-1 truncate text-[11px] font-medium uppercase tracking-wide text-faint">
           {field.displayName}
         </span>
         {schemaEditable && <FieldMenu field={field} zone="sidebar" onMove={onMove} ws={vp.ws} db={vp.db} />}
       </div>
-      <ScalarValue field={field} schemaEditable={schemaEditable} onMove={onMove} {...vp} />
+      {!collapsed && <ScalarValue field={field} schemaEditable={schemaEditable} onMove={onMove} {...vp} />}
     </div>
   );
 }
@@ -481,43 +501,80 @@ function BodyScalar({ field, schemaEditable, onMove, ...vp }: VP & { field: Fiel
   );
 }
 
+const COLLECTION_CAP = 20;
+
 /** A to-many relation rendered as a working list in the body (Fibery-style collection). */
 function CollectionSection({ field, schemaEditable, onMove, readOnly, ws, db, rec, record }: VP & { field: Field }) {
   const [adding, setAdding] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+  const collapsed = field.config?.['entity_collapsed'] === true;
+  const setConfig = useSetFieldConfig(ws, db);
   const chips = (record.values[field.apiName] as LinkChip[]) ?? [];
+  const shown = showAll ? chips : chips.slice(0, COLLECTION_CAP);
+
   return (
     <div className="group mb-5">
       <div className="mb-1.5 flex items-center gap-1.5">
+        <CollapseToggle
+          collapsed={collapsed}
+          onToggle={() => setConfig.mutate({ fieldId: field.id, config: { entity_collapsed: !collapsed } })}
+        />
         <h2 className="text-[12px] font-medium uppercase tracking-wider text-faint">{field.displayName}</h2>
         <span className="text-[11px] text-faint">{chips.length}</span>
         {schemaEditable && <FieldMenu field={field} zone="body" onMove={onMove} ws={ws} db={db} collection />}
       </div>
-      <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card">
-        {chips.length === 0 && <p className="px-3 py-2.5 text-[13px] text-faint">Nothing linked yet.</p>}
-        {chips.map((chip) => (
-          <Link
-            key={chip.id}
-            href={`/w/${ws}/d/${field.relation!.target_database_id}/r/${chip.id}`}
-            className="flex items-center border-b border-border-default px-3 py-2 text-[13px] text-ink last:border-b-0 hover:bg-hover"
-          >
-            {chip.title || 'Untitled'}
-          </Link>
-        ))}
-        {!readOnly && (
-          <div className="relative px-3 py-2">
-            <button
-              className="inline-flex items-center gap-1 text-[13px] text-muted hover:text-ink"
-              onClick={() => setAdding(true)}
-            >
-              <Plus className="h-3.5 w-3.5" /> Add
-            </button>
-            {adding && (
-              <RelationEditor ws={ws} db={db} recordId={rec} field={field} current={chips} onDone={() => setAdding(false)} />
+      {!collapsed && (
+        <>
+          <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card">
+            {chips.length === 0 && <p className="px-3 py-2.5 text-[13px] text-faint">Nothing linked yet.</p>}
+            {shown.map((chip) => (
+              <Link
+                key={chip.id}
+                href={`/w/${ws}/d/${field.relation!.target_database_id}/r/${chip.id}`}
+                className="flex items-center border-b border-border-default px-3 py-2 text-[13px] text-ink last:border-b-0 hover:bg-hover"
+              >
+                {chip.title || 'Untitled'}
+              </Link>
+            ))}
+            {chips.length > COLLECTION_CAP && (
+              <button
+                className="flex w-full items-center gap-1 px-3 py-2 text-[12px] text-info hover:bg-hover"
+                onClick={() => setShowAll((s) => !s)}
+              >
+                {showAll ? 'Show less' : `Show all ${chips.length}`}
+              </button>
             )}
           </div>
-        )}
-      </div>
+          {/* Add lives OUTSIDE the overflow-hidden card so its picker never clips. */}
+          {!readOnly && (
+            <div className="relative mt-1 px-1">
+              <button
+                className="inline-flex items-center gap-1 text-[13px] text-muted hover:text-ink"
+                onClick={() => setAdding(true)}
+              >
+                <Plus className="h-3.5 w-3.5" /> Add
+              </button>
+              {adding && (
+                <RelationEditor ws={ws} db={db} recordId={rec} field={field} current={chips} onDone={() => setAdding(false)} />
+              )}
+            </div>
+          )}
+        </>
+      )}
     </div>
+  );
+}
+
+/** Chevron that collapses/expands a field or section (persisted in config.entity_collapsed). */
+function CollapseToggle({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+  return (
+    <button
+      className="-ml-1 rounded p-0.5 text-faint hover:bg-hover hover:text-ink"
+      onClick={onToggle}
+      title={collapsed ? 'Expand' : 'Collapse'}
+    >
+      {collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+    </button>
   );
 }
 
@@ -607,6 +664,16 @@ function FieldMenu({
             </DropdownMenuItem>
           ))}
           <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onSelect={() =>
+              setConfig.mutate({
+                fieldId: field.id,
+                config: { hide_when_empty: field.config?.['hide_when_empty'] !== true },
+              })
+            }
+          >
+            {field.config?.['hide_when_empty'] === true ? 'Always show (even empty)' : 'Hide when empty'}
+          </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => setConfig.mutate({ fieldId: field.id, config: { entity_hidden: true } })}>
             Hide on record page
           </DropdownMenuItem>
@@ -680,13 +747,20 @@ function RichTextFieldSection({
 
 function HiddenFieldRow({ ws, db, field }: { ws: string; db: string; field: Field }) {
   const setConfig = useSetFieldConfig(ws, db);
+  // Clear whichever flag hid it: an explicit hide, or hide-when-empty.
+  const reveal = () =>
+    setConfig.mutate({
+      fieldId: field.id,
+      config: field.config?.['entity_hidden'] === true ? { entity_hidden: false } : { hide_when_empty: false },
+    });
+  const reason = field.config?.['entity_hidden'] === true ? '' : ' (empty)';
   return (
     <div className="flex min-h-7 items-center justify-between py-0.5">
-      <span className="truncate text-[12px] text-faint">{field.displayName}</span>
-      <button
-        className="text-[12px] text-info underline-offset-2 hover:underline"
-        onClick={() => setConfig.mutate({ fieldId: field.id, config: { entity_hidden: false } })}
-      >
+      <span className="truncate text-[12px] text-faint">
+        {field.displayName}
+        {reason}
+      </span>
+      <button className="text-[12px] text-info underline-offset-2 hover:underline" onClick={reveal}>
         Show
       </button>
     </div>
