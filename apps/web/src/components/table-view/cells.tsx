@@ -143,6 +143,9 @@ export function CellDisplay({ field, value, memberNames, memberImages }: Display
       );
     case 'number':
       return <span className="w-full truncate text-right text-[13px] tabular-nums">{String(value)}</span>;
+    case 'id':
+      // Public per-database sequential id (MN-087) — muted, monospace-ish.
+      return <span className="truncate text-[12px] tabular-nums text-faint">{String(value)}</span>;
     case 'title':
       return <span className="truncate text-[13px] font-medium text-ink">{String(value)}</span>;
     default:

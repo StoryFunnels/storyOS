@@ -194,6 +194,14 @@ export class DatabasesService {
       await tx.insert(fields).values([
         {
           databaseId: database!.id,
+          displayName: 'ID',
+          apiName: 'id',
+          type: 'id',
+          isSystem: true,
+          position: -1, // renders before the title (MN-087)
+        },
+        {
+          databaseId: database!.id,
           displayName: 'Name',
           apiName: 'name',
           type: 'title',

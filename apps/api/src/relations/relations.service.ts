@@ -203,7 +203,7 @@ export class RelationsService {
     const otherCol = side === 'a' ? recordLinks.toRecordId : recordLinks.fromRecordId;
 
     const rows = await this.db
-      .select({ id: records.id, title: records.title })
+      .select({ id: records.id, title: records.title, number: records.number })
       .from(recordLinks)
       .innerJoin(records, eq(records.id, otherCol))
       .where(

@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  NotFoundException,
   Param,
   Patch,
   Post,
@@ -161,6 +162,19 @@ export class RecordsController {
   async trash(@Req() req: WorkspaceRequest, @Param('db') databaseId: string) {
     await this.assertDb(req, databaseId, 'editor');
     return { data: await this.recordsService.listTrash(databaseId) };
+  }
+
+  @Get('by-number/:number')
+  @ApiOperation({ summary: 'Resolve a record by its public per-database number (MN-087)' })
+  async getByNumber(
+    @Req() req: WorkspaceRequest,
+    @Param('db') databaseId: string,
+    @Param('number') number: string,
+  ) {
+    await this.assertDb(req, databaseId);
+    const n = Number.parseInt(number, 10);
+    if (!Number.isInteger(n)) throw new NotFoundException('Record not found');
+    return this.recordsService.getByNumber(databaseId, n);
   }
 
   @Get(':rec')

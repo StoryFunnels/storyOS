@@ -14,8 +14,16 @@ async function runMigrations() {
   const { join } = await import('node:path');
   const pool = new Pool({ connectionString: env().DATABASE_URL });
   await migrate(drizzle(pool), { migrationsFolder: join(__dirname, '..', 'drizzle') });
+  // MN-087: retrofit the 'id' system field onto pre-existing databases. Must run
+  // AFTER migrate() commits — Postgres forbids using the freshly-added 'id' enum
+  // value in the same transaction it was added in. Idempotent (WHERE NOT EXISTS).
+  await pool.query(`
+    INSERT INTO fields (database_id, display_name, api_name, type, is_system, position)
+    SELECT d.id, 'ID', 'id', 'id', true, -1 FROM databases d
+    WHERE NOT EXISTS (SELECT 1 FROM fields f WHERE f.database_id = d.id AND f.api_name = 'id')
+  `);
   await pool.end();
-   
+
   console.log('migrations applied');
 }
 

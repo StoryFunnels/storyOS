@@ -61,12 +61,14 @@ describe('databases CRUD (MN-009)', () => {
     });
     const body = detail.json();
     expect(body.fields.map((f: { apiName: string }) => f.apiName)).toEqual([
+      'id',
       'name',
       'created_at',
       'updated_at',
       'created_by',
     ]);
-    expect(body.fields[0].type).toBe('title');
+    expect(body.fields[0].type).toBe('id');
+    expect(body.fields[1].type).toBe('title');
     expect(body.views).toHaveLength(1);
     expect(body.views[0].type).toBe('table');
   });

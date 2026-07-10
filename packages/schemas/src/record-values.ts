@@ -49,7 +49,12 @@ export function validateRecordValues(
       result.issues.push({ path: `values.${key}`, message: `unknown field "${key}"` });
       continue;
     }
-    if (field.type === 'created_at' || field.type === 'updated_at' || field.type === 'created_by') {
+    if (
+      field.type === 'id' ||
+      field.type === 'created_at' ||
+      field.type === 'updated_at' ||
+      field.type === 'created_by'
+    ) {
       result.issues.push({ path: `values.${key}`, message: `"${key}" is read-only` });
       continue;
     }

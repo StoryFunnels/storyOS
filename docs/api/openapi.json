@@ -1294,6 +1294,43 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/databases/{db}/records/by-number/{number}": {
+      "get": {
+        "operationId": "RecordsController_getByNumber",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "number",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Resolve a record by its public per-database number (MN-087)",
+        "tags": [
+          "records"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}": {
       "get": {
         "operationId": "RecordsController_get",

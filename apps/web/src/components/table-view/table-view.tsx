@@ -36,6 +36,7 @@ import {
   useRecordsInfinite,
 } from './use-table-data';
 import type { Field, RecordRow } from './use-table-data';
+import { recordHref } from '@/lib/records';
 import { cn } from '@/lib/utils';
 
 const ROW_HEIGHT = 32;
@@ -131,12 +132,12 @@ export function TableView({
   });
   function onColumnDragEnd(event: DragEndEvent) {
     if (!event.over || event.active.id === event.over.id) return;
-    // The first (title) column stays put; reorder happens among the rest.
-    const rest = fields.slice(1);
+    // The frozen leading columns (id, title) stay put; reorder happens among the rest.
+    const rest = fields.slice(frozenCount);
     const from = rest.findIndex((f) => f.id === event.active.id);
     const to = rest.findIndex((f) => f.id === event.over!.id);
     if (from < 0 || to < 0) return;
-    const next = [fields[0]!, ...arrayMove(rest, from, to)];
+    const next = [...fields.slice(0, frozenCount), ...arrayMove(rest, from, to)];
     const moves = next
       .map((f, i) => ({ f, i }))
       .filter(({ f }) => !f.isSystem)
@@ -195,12 +196,29 @@ export function TableView({
     (field: Field) =>
       widths[field.id] ??
       columnWidths?.[field.id] ??
-      (field.type === 'title' ? TITLE_WIDTH : DEFAULT_WIDTH),
+      (field.type === 'id' ? 64 : field.type === 'title' ? TITLE_WIDTH : DEFAULT_WIDTH),
     [widths, columnWidths],
   );
 
   const valueOf = (row: RecordRow, field: Field): unknown =>
-    field.type === 'title' ? row.title : row.values[field.apiName];
+    field.type === 'id' ? row.number : field.type === 'title' ? row.title : row.values[field.apiName];
+
+  // Leading non-reorderable columns stay frozen when pinned: the public id (MN-087)
+  // then the title. Everything after is draggable. If the id column is hidden, only
+  // the title freezes.
+  const frozenCount = useMemo(() => {
+    let n = 0;
+    for (const f of fields) {
+      if (f.type === 'id' || f.type === 'title') n++;
+      else break;
+    }
+    return n;
+  }, [fields]);
+  // Cumulative left offset (after the 56px gutter) for each frozen column.
+  const frozenLeft = useCallback(
+    (colIndex: number) => 56 + fields.slice(0, colIndex).reduce((sum, f) => sum + widthOf(f), 0),
+    [fields, widthOf],
+  );
 
   function commitEdit(row: RecordRow, field: Field, value: unknown) {
     setEditing(false);
@@ -236,7 +254,7 @@ export function TableView({
       toggleSelect(cursor.row, e.shiftKey);
     } else if (e.key.toLowerCase() === 'e' && cursor) {
       const row = rows[cursor.row];
-      if (row) router.push(`/w/${ws}/d/${db}/r/${row.id}`);
+      if (row) router.push(recordHref(ws, db, row));
     } else if (e.key.toLowerCase() === 'a' && (e.metaKey || e.ctrlKey) && !readOnly) {
       e.preventDefault();
       setSelected(new Set(rows.map((r) => r.id)));
@@ -283,28 +301,28 @@ export function TableView({
           {/* Header */}
           <div className="sticky top-0 z-20 flex border-b border-border-default bg-app">
             <div className={cn('w-14 shrink-0 bg-app', pinned && 'sticky left-0 z-30')} />
-            {fields[0] && (
+            {fields.slice(0, frozenCount).map((field, i) => (
               <HeaderCell
-                key={fields[0].id}
+                key={field.id}
                 ws={ws}
                 db={db}
-                field={fields[0]}
-                width={widthOf(fields[0])}
+                field={field}
+                width={widthOf(field)}
                 readOnly={!schemaEditable}
                 sticky={pinned}
-                stickyLeft={56}
-                isFirst
+                stickyLeft={frozenLeft(i)}
+                isFirst={i === 0}
                 pinned={pinned}
-                onTogglePin={togglePinned}
+                onTogglePin={i === 0 ? togglePinned : undefined}
                 onResize={(w) => {
-                  setWidths((prev) => ({ ...prev, [fields[0]!.id]: w }));
-                  onColumnResize?.(fields[0]!.id, w);
+                  setWidths((prev) => ({ ...prev, [field.id]: w }));
+                  onColumnResize?.(field.id, w);
                 }}
               />
-            )}
+            ))}
             <DndContext sensors={columnSensors} collisionDetection={closestCenter} onDragEnd={onColumnDragEnd}>
-              <SortableContext items={fields.slice(1).map((f) => f.id)} strategy={horizontalListSortingStrategy}>
-                {fields.slice(1).map((field) => (
+              <SortableContext items={fields.slice(frozenCount).map((f) => f.id)} strategy={horizontalListSortingStrategy}>
+                {fields.slice(frozenCount).map((field) => (
                   <HeaderCell
                     key={field.id}
                     ws={ws}
@@ -366,7 +384,7 @@ export function TableView({
                       />
                     )}
                     <Link
-                      href={`/w/${ws}/d/${db}/r/${row.id}`}
+                      href={recordHref(ws, db, row)}
                       title="Open record"
                       className="rounded p-0.5 text-faint opacity-0 hover:text-ink group-hover:opacity-100"
                     >
@@ -388,14 +406,15 @@ export function TableView({
                     return (
                       <div
                         key={field.id}
-                        style={{ width: widthOf(field), ...(pinned && colIndex === 0 ? { left: 56 } : {}) }}
+                        style={{ width: widthOf(field), ...(pinned && colIndex < frozenCount ? { left: frozenLeft(colIndex) } : {}) }}
                         className={cn(
                           'relative flex shrink-0 items-center overflow-visible border-r border-border-default px-2',
                           isCursor && 'z-20 ring-2 ring-inset ring-[var(--accent)]',
                           pinned &&
-                            colIndex === 0 &&
+                            colIndex < frozenCount &&
                             cn(
-                              'sticky z-10 shadow-[2px_0_4px_-2px_rgba(15,23,41,0.12)]',
+                              'sticky z-10',
+                              colIndex === frozenCount - 1 && 'shadow-[2px_0_4px_-2px_rgba(15,23,41,0.12)]',
                               selected.has(row.id) ? 'bg-accent-soft' : 'bg-card group-hover:bg-hover',
                             ),
                         )}
@@ -404,7 +423,7 @@ export function TableView({
                           if (readOnly) return;
                           if (field.type === 'checkbox') {
                             commitEdit(row, field, !(valueOf(row, field) === true));
-                          } else if (field.type !== 'title') {
+                          } else if (field.type !== 'title' && field.type !== 'id') {
                             setEditing(true);
                           }
                         }}
@@ -454,7 +473,7 @@ export function TableView({
                             <CellDisplay field={field} value={valueOf(row, field)} memberNames={memberNames} memberImages={memberImages} />
                             {field.type === 'title' && (
                               <Link
-                                href={`/w/${ws}/d/${db}/r/${row.id}`}
+                                href={recordHref(ws, db, row)}
                                 onClick={(e) => e.stopPropagation()}
                                 className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-1 rounded border border-border-default bg-card px-1.5 py-0.5 text-[11px] font-medium text-muted opacity-0 shadow-sm hover:text-ink group-hover:opacity-100"
                               >

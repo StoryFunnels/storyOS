@@ -11,6 +11,8 @@ import type { Field } from './use-table-data';
 export interface LinkChip {
   id: string;
   title: string;
+  /** Public per-database number for pretty links (MN-087); absent on freshly-picked chips. */
+  number?: number | null;
 }
 
 export function RelationChips({ chips }: { chips: LinkChip[] }) {

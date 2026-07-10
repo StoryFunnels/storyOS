@@ -45,6 +45,8 @@ export interface DatabaseDetail {
 
 export interface RecordRow {
   id: string;
+  /** Per-database sequential public id — the human handle in URLs (MN-087). */
+  number: number | null;
   title: string;
   values: Record<string, unknown>;
   position: string;

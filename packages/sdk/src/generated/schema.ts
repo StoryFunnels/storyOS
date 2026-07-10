@@ -475,6 +475,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/databases/{db}/records/by-number/{number}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Resolve a record by its public per-database number (MN-087) */
+        get: operations["RecordsController_getByNumber"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}": {
         parameters: {
             query?: never;
@@ -2555,6 +2572,26 @@ export interface operations {
             header?: never;
             path: {
                 db: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RecordsController_getByNumber: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                number: string;
             };
             cookie?: never;
         };

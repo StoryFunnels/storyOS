@@ -83,19 +83,19 @@ describe('relations backend (MN-018)', () => {
       { record_ids: [acme] },
     );
     expect(add.statusCode, add.body).toBe(201);
-    expect(add.json().data).toEqual([{ id: acme, title: 'Acme' }]);
+    expect(add.json().data).toEqual([{ id: acme, title: 'Acme', number: expect.any(Number) }]);
 
     const inverse = await inject(
       'GET',
       `/workspaces/${wsId}/databases/${clientsDb}/records/${acme}/links/${clientField.id}`,
     );
-    expect(inverse.json().data).toEqual([{ id: siteRedesign, title: 'Site redesign' }]);
+    expect(inverse.json().data).toEqual([{ id: siteRedesign, title: 'Site redesign', number: expect.any(Number) }]);
 
     const project = await inject('GET', `/workspaces/${wsId}/databases/${projectsDb}/records/${siteRedesign}`);
-    expect(project.json().values.client).toEqual([{ id: acme, title: 'Acme' }]);
+    expect(project.json().values.client).toEqual([{ id: acme, title: 'Acme', number: expect.any(Number) }]);
 
     const clientRead = await inject('GET', `/workspaces/${wsId}/databases/${clientsDb}/records/${acme}`);
-    expect(clientRead.json().values.projects).toEqual([{ id: siteRedesign, title: 'Site redesign' }]);
+    expect(clientRead.json().values.projects).toEqual([{ id: siteRedesign, title: 'Site redesign', number: expect.any(Number) }]);
   });
 
   it('writes relation.linked activity on both records', async () => {
@@ -121,7 +121,7 @@ describe('relations backend (MN-018)', () => {
       { record_ids: [globex] },
     );
     expect(replace.statusCode).toBe(200);
-    expect(replace.json().data).toEqual([{ id: globex, title: 'Globex' }]);
+    expect(replace.json().data).toEqual([{ id: globex, title: 'Globex', number: expect.any(Number) }]);
   });
 
   it('filters records by relation: has / is_empty in both directions', async () => {
@@ -171,13 +171,13 @@ describe('relations backend (MN-018)', () => {
       `/workspaces/${wsId}/databases/${projectsDb}/records/${siteRedesign}/links/${blocksField.id}`,
       { record_ids: [seoAudit] },
     );
-    expect(link.json().data).toEqual([{ id: seoAudit, title: 'SEO audit' }]);
+    expect(link.json().data).toEqual([{ id: seoAudit, title: 'SEO audit', number: expect.any(Number) }]);
 
     const inverse = await inject(
       'GET',
       `/workspaces/${wsId}/databases/${projectsDb}/records/${seoAudit}/links/${res.json().field_b.id}`,
     );
-    expect(inverse.json().data).toEqual([{ id: siteRedesign, title: 'Site redesign' }]);
+    expect(inverse.json().data).toEqual([{ id: siteRedesign, title: 'Site redesign', number: expect.any(Number) }]);
 
     await inject('DELETE', `/workspaces/${wsId}/relations/${res.json().id}`, { confirm: true });
   });

@@ -36,6 +36,7 @@ function joinNodes(parts: SQL[], separator: SQL): SQL {
 
 /** Typed value expression for a field, extracted from the JSONB values column. */
 function fieldExpr(def: FieldDef): SQL {
+  if (def.type === 'id') return sql`${records.number}`;
   if (def.type === 'title') return sql`${records.title}`;
   if (def.type === 'created_at') return sql`${records.createdAt}`;
   if (def.type === 'updated_at') return sql`${records.updatedAt}`;
@@ -46,6 +47,7 @@ function fieldExpr(def: FieldDef): SQL {
 }
 
 function presentExpr(def: FieldDef): SQL {
+  if (def.type === 'id') return sql`(${records.number} IS NOT NULL)`;
   if (def.type === 'title') return sql`(${records.title} <> '')`;
   if (def.type === 'created_at' || def.type === 'updated_at') return sql`TRUE`;
   if (def.type === 'created_by') return sql`(${records.createdBy} IS NOT NULL)`;
@@ -69,6 +71,7 @@ function compileCondition(fieldName: string, op: FilterOp, value: unknown, ctx: 
     case 'url':
     case 'email':
       return compileTextish(def, op, value);
+    case 'id':
     case 'number':
       return compileNumber(def, op, value);
     case 'checkbox': {

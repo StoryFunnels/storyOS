@@ -29,6 +29,7 @@ export const membershipStatus = pgEnum('membership_status', ['pending', 'active'
 export const accessRole = pgEnum('access_role', ['viewer', 'commenter', 'editor', 'creator']);
 
 export const fieldType = pgEnum('field_type', [
+  'id',
   'title',
   'text',
   'rich_text',
@@ -133,6 +134,8 @@ export const databases = pgTable(
     color: text('color'),
     apiSlug: text('api_slug').notNull(),
     position: integer('position').notNull().default(0),
+    /** Allocator for per-database sequential public record numbers (MN-087). */
+    recordCounter: integer('record_counter').notNull().default(0),
     ...timestamps,
   },
   (t) => [uniqueIndex('databases_workspace_slug_uq').on(t.workspaceId, t.apiSlug)],
@@ -191,6 +194,8 @@ export const records = pgTable(
       .references(() => databases.id, { onDelete: 'cascade' }),
     /** Title promoted to a real column (search, pickers, activity rendering). */
     title: text('title').notNull().default(''),
+    /** Per-database sequential public id (MN-087) — the human handle in URLs. */
+    number: integer('number'),
     /** User-defined values keyed by field UUID — ADR-0002. Relations live in record_links. */
     values: jsonb('values').notNull().default({}),
     /** Fractional-index rank, one per database (ADR-0005). */
@@ -205,6 +210,7 @@ export const records = pgTable(
     index('records_db_position_idx').on(t.databaseId, t.position),
     index('records_db_created_idx').on(t.databaseId, t.createdAt, t.id),
     index('records_title_trgm').using('gin', sql`${t.title} gin_trgm_ops`),
+    uniqueIndex('records_db_number_uq').on(t.databaseId, t.number),
   ],
 );
 

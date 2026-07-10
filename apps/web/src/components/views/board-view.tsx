@@ -16,6 +16,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
+import { recordHref } from '@/lib/records';
 import { cn } from '@/lib/utils';
 import { CellDisplay, OPTION_COLORS } from '../table-view/cells';
 import {
@@ -101,7 +102,7 @@ export function BoardView({
 
   function openRecord(row: RecordRow) {
     if (Date.now() - lastDragEnd.current < 200) return;
-    router.push(`/w/${ws}/d/${db}/r/${row.id}`);
+    router.push(recordHref(ws, db, row));
   }
 
   const move = useMutation({

@@ -66,9 +66,10 @@ import type { Field, RecordRow } from '@/components/table-view/use-table-data';
 import { DescriptionEditor } from '@/components/entity/description-editor';
 import { ActivityPanel, AttachmentsStrip, CommentsPanel } from '@/components/entity/panels';
 import { useFavorites } from '@/components/sidebar';
+import { parseRecordParam, recordHref } from '@/lib/records';
 import { cn } from '@/lib/utils';
 
-const HIDDEN = new Set(['title', 'created_at', 'updated_at', 'created_by']);
+const HIDDEN = new Set(['id', 'title', 'created_at', 'updated_at', 'created_by']);
 const NOT_INLINE = new Set(['lookup', 'rollup', 'button', 'formula']);
 
 type Zone = 'top' | 'sidebar' | 'body';
@@ -125,8 +126,18 @@ export default function EntityPage() {
   const record = useQuery({
     queryKey: ['record', ws, db, rec],
     queryFn: async () => {
+      // Resolve either a legacy UUID or a pretty `slug-{number}` URL (MN-087).
+      const parsed = parseRecordParam(rec);
+      if (parsed.kind === 'number') {
+        const { data, error } = await api.GET(
+          '/api/v1/workspaces/{ws}/databases/{db}/records/by-number/{number}',
+          { params: { path: { ws, db, number: String(parsed.value) } } } as never,
+        );
+        if (error) throw error;
+        return data as unknown as RecordRow;
+      }
       const { data, error } = await api.GET('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}', {
-        params: { path: { ws, db, rec } },
+        params: { path: { ws, db, rec: parsed.value } },
       });
       if (error) throw error;
       return data as unknown as RecordRow;
@@ -219,12 +230,19 @@ export default function EntityPage() {
   return (
     <div className="px-8 py-6">
       <div className="mb-4 flex items-center justify-between">
-        <Link
-          href={`/w/${ws}/d/${db}`}
-          className="inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-ink"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" /> {database.data?.name}
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href={`/w/${ws}/d/${db}`}
+            className="inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-ink"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" /> {database.data?.name}
+          </Link>
+          {record.data.number !== null && (
+            <span className="rounded bg-hover px-1.5 py-0.5 text-[11px] tabular-nums text-faint" title="Public id">
+              #{record.data.number}
+            </span>
+          )}
+        </div>
         <div className="flex items-center gap-1">
           <StarButton ws={ws} rec={rec} />
           {schemaEditable && <FieldsPopover ws={ws} db={db} fields={allFields} />}
@@ -406,7 +424,7 @@ function ScalarValue({ field, record, ws, db, rec, members, memberNames, memberI
         {chips.map((chip) => (
           <Link
             key={chip.id}
-            href={`/w/${ws}/d/${field.relation!.target_database_id}/r/${chip.id}`}
+            href={recordHref(ws, field.relation!.target_database_id, chip)}
             className="inline-flex max-w-full items-center truncate rounded border border-border-default bg-hover px-1.5 py-0.5 text-[12px] text-ink hover:border-border-strong"
           >
             {chip.title || 'Untitled'}
@@ -667,7 +685,7 @@ function CollectionSection({ field, schemaEditable, onToggleZone, readOnly, ws, 
               return (
                 <Link
                   key={row.id}
-                  href={`/w/${ws}/d/${targetDbId}/r/${row.id}`}
+                  href={recordHref(ws, targetDbId, row)}
                   className="flex items-center gap-2 border-b border-border-default px-3 py-2 text-[13px] text-ink last:border-b-0 hover:bg-hover"
                 >
                   {color && <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />}

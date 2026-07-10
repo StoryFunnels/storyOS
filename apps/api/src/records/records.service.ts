@@ -10,7 +10,7 @@ import type { FormulaNode } from '@storyos/schemas';
 import type { FieldDef } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { activityEvents, documents, fields, recordLinks, records, relations, selectOptions } from '../db/schema';
+import { activityEvents, databases, documents, fields, recordLinks, records, relations, selectOptions } from '../db/schema';
 import type { QueryRecordsInput } from '@storyos/schemas';
 import { compileFilter, cursorCondition, sortExpr } from './query-compiler';
 import type { SortSpec } from './query-compiler';
@@ -22,6 +22,8 @@ type RecordRow = typeof records.$inferSelect;
 
 export interface ProjectedRecord {
   id: string;
+  /** Per-database sequential public id — the human handle in URLs (MN-087). */
+  number: number | null;
   title: string;
   values: Record<string, unknown>;
   position: string;
@@ -80,6 +82,7 @@ export class RecordsService {
     for (const def of defs) {
       if (def.type === 'title' || def.type === 'relation') continue;
       if (def.type === 'created_at' || def.type === 'updated_at' || def.type === 'created_by') continue;
+      if (def.type === 'id') continue; // surfaced top-level as `number`, not in values
       const raw = stored[def.id];
       if (raw === undefined || raw === null) continue;
       if (def.type === 'select') {
@@ -93,6 +96,7 @@ export class RecordsService {
     }
     return {
       id: row.id,
+      number: row.number,
       title: row.title,
       values,
       position: row.position,
@@ -117,7 +121,7 @@ export class RecordsService {
       const otherCol = side === 'a' ? recordLinks.toRecordId : recordLinks.fromRecordId;
 
       const rows = await this.db
-        .select({ mine: myCol, id: records.id, title: records.title })
+        .select({ mine: myCol, id: records.id, title: records.title, number: records.number })
         .from(recordLinks)
         .innerJoin(records, eq(records.id, otherCol))
         .where(
@@ -128,10 +132,10 @@ export class RecordsService {
           ),
         );
 
-      const byRecord = new Map<string, Array<{ id: string; title: string }>>();
+      const byRecord = new Map<string, Array<{ id: string; title: string; number: number | null }>>();
       for (const row of rows) {
         const list = byRecord.get(row.mine) ?? [];
-        list.push({ id: row.id, title: row.title });
+        list.push({ id: row.id, title: row.title, number: row.number });
         byRecord.set(row.mine, list);
       }
       for (const record of projected) {
@@ -389,7 +393,7 @@ export class RecordsService {
     const src = await this.get(databaseId, recordId);
     const defs = await this.fieldDefs(databaseId);
     const SKIP = new Set([
-      'relation', 'lookup', 'rollup', 'formula', 'button', 'title', 'created_at', 'updated_at', 'created_by',
+      'id', 'relation', 'lookup', 'rollup', 'formula', 'button', 'title', 'created_at', 'updated_at', 'created_by',
     ]);
     const input: Record<string, unknown> = { name: `${(src.title ?? '').trim() || 'Untitled'} (copy)` };
     for (const def of defs) {
@@ -457,11 +461,20 @@ export class RecordsService {
     const positions = await keysAfter(await this.lastPosition(databaseId), inputs.length);
 
     const rows = await this.db.transaction(async (tx) => {
+      // Allocate a contiguous block of public numbers atomically (MN-087): bump the
+      // per-database counter by N and take the returned high-water mark. Gap-tolerant.
+      const [db] = await tx
+        .update(databases)
+        .set({ recordCounter: sql`${databases.recordCounter} + ${inputs.length}` })
+        .where(eq(databases.id, databaseId))
+        .returning({ counter: databases.recordCounter });
+      const firstNumber = (db!.counter as number) - inputs.length + 1;
       const inserted = await tx
         .insert(records)
         .values(
           validated.map((v, i) => ({
             databaseId,
+            number: firstNumber + i,
             title: v.title ?? '',
             values: stripNulls(v.values),
             position: positions[i]!,
@@ -509,6 +522,17 @@ export class RecordsService {
       this.getRow(databaseId, recordId),
       this.fieldDefs(databaseId),
     ]);
+    const [projected] = await this.attachLinks([this.project(row, defs)], defs);
+    return projected!;
+  }
+
+  /** Resolve a record by its public per-database number (MN-087, pretty URLs). */
+  async getByNumber(databaseId: string, number: number): Promise<ProjectedRecord> {
+    const row = await this.db.query.records.findFirst({
+      where: and(eq(records.databaseId, databaseId), eq(records.number, number), isNull(records.deletedAt)),
+    });
+    if (!row) throw new NotFoundException('Record not found');
+    const defs = await this.fieldDefs(databaseId);
     const [projected] = await this.attachLinks([this.project(row, defs)], defs);
     return projected!;
   }
@@ -791,7 +815,7 @@ export class RecordsService {
     const byApiName = new Map(defs.map((d) => [d.api_name, d]));
 
     const SORTABLE = new Set([
-      'title', 'text', 'number', 'date', 'url', 'email', 'select',
+      'id', 'title', 'text', 'number', 'date', 'url', 'email', 'select',
       'checkbox', 'created_at', 'updated_at', 'created_by', 'user',
     ]);
     const sorts: SortSpec[] = input.sorts.map((s) => {
@@ -903,6 +927,7 @@ function stripNulls(values: Record<string, unknown>): Record<string, unknown> {
 }
 
 function extractSortValue(row: RecordRow, def: { id: string; type: string }): unknown {
+  if (def.type === 'id') return row.number;
   if (def.type === 'title') return row.title;
   if (def.type === 'created_at') return row.createdAt.toISOString();
   if (def.type === 'updated_at') return row.updatedAt.toISOString();
