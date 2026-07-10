@@ -1,7 +1,7 @@
 ---
 id: MN-073
 title: Collection field views — filter, sort, and color styling for relation/lookup lists
-status: todo
+status: done
 depends_on: [MN-072]
 size: L
 ---
@@ -15,6 +15,6 @@ A to-many relation on an entity page (e.g. a project's 105 issues) renders as an
 - Builds on MN-072's 20-cap + expand.
 
 ## Acceptance criteria
-- [ ] A collection can be filtered and sorted by the linked database's fields; config persists on the field
-- [ ] Rows can be colored by a target select field, using its option colors
-- [ ] Verified in the browser on a 100+ item collection
+- [x] A collection can be filtered and sorted by the linked database's fields; config persists on the field
+- [x] Rows can be colored by a target select field, using its option colors
+- [x] Verified in the browser on a 100+ item collection

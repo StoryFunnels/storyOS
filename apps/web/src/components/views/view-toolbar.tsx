@@ -13,7 +13,7 @@ import type { Field } from '../table-view/use-table-data';
 import type { FilterCondition, SortSpec, ViewConfig } from './use-view-state';
 
 /** Op menu per field type — mirrors the API op×type matrix. */
-const OPS_BY_TYPE: Record<string, Array<{ op: string; label: string; input: 'text' | 'number' | 'date' | 'options' | 'relative' | 'boolean' | 'none' }>> = {
+export const OPS_BY_TYPE: Record<string, Array<{ op: string; label: string; input: 'text' | 'number' | 'date' | 'options' | 'relative' | 'boolean' | 'none' }>> = {
   title: [
     { op: 'contains', label: 'contains', input: 'text' },
     { op: 'eq', label: 'is', input: 'text' },
@@ -80,7 +80,7 @@ const RELATIVE_RANGES = [
   'next_30_days',
 ];
 
-const SORTABLE = new Set(['title', 'text', 'number', 'date', 'url', 'email', 'select', 'checkbox', 'created_at', 'updated_at']);
+export const SORTABLE = new Set(['title', 'text', 'number', 'date', 'url', 'email', 'select', 'checkbox', 'created_at', 'updated_at']);
 
 export function ViewToolbar({
   fields,
@@ -189,7 +189,7 @@ function defaultValueFor(input: string): unknown {
   return '';
 }
 
-function AddFilterButton({ fields, onAdd }: { fields: Field[]; onAdd: (field: Field) => void }) {
+export function AddFilterButton({ fields, onAdd }: { fields: Field[]; onAdd: (field: Field) => void }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -212,7 +212,7 @@ function AddFilterButton({ fields, onAdd }: { fields: Field[]; onAdd: (field: Fi
   );
 }
 
-function FilterChip({
+export function FilterChip({
   fields,
   members,
   condition,
@@ -361,7 +361,7 @@ function OptionMultiPick({
   );
 }
 
-function SortButton({
+export function SortButton({
   fields,
   sorts,
   onChange,

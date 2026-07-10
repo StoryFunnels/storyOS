@@ -25,6 +25,7 @@ import {
   CopyPlus,
   GripVertical,
   MoreHorizontal,
+  Palette,
   Pin,
   Plus,
   SlidersHorizontal,
@@ -34,7 +35,15 @@ import { api } from '@/lib/api';
 import { useSession } from '@/lib/auth-client';
 import { useWorkspace } from '@/lib/queries';
 import { atLeast } from '@/lib/access';
-import { CellDisplay, CellEditor, PressButton } from '@/components/table-view/cells';
+import { CellDisplay, CellEditor, OPTION_COLORS, PressButton } from '@/components/table-view/cells';
+import {
+  AddFilterButton,
+  FilterChip,
+  OPS_BY_TYPE,
+  SORTABLE,
+  SortButton,
+} from '@/components/views/view-toolbar';
+import type { FilterCondition, SortSpec } from '@/components/views/use-view-state';
 import {
   AddFieldDialog,
   ChangeTypeDialog,
@@ -514,45 +523,137 @@ function BodyScalar({ field, schemaEditable, onMove, ...vp }: VP & { field: Fiel
 
 const COLLECTION_CAP = 20;
 
-/** A to-many relation rendered as a working list in the body (Fibery-style collection). */
-function CollectionSection({ field, schemaEditable, onMove, readOnly, ws, db, rec, record }: VP & { field: Field }) {
+interface CollectionView {
+  filters?: { and: FilterCondition[] };
+  sorts?: SortSpec[];
+  color_by?: string; // target select field api_name
+}
+
+/**
+ * A to-many relation rendered as a working list in the body (MN-071), now with
+ * filter / sort / color-by (MN-073). The linked records are fetched from the
+ * TARGET database via the query engine — filtered to "linked to this record"
+ * through the inverse relation field — so we get full values to sort/filter/color.
+ */
+function CollectionSection({ field, schemaEditable, onMove, readOnly, ws, db, rec, record, members }: VP & { field: Field }) {
   const [adding, setAdding] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const collapsed = field.config?.['entity_collapsed'] === true;
   const setConfig = useSetFieldConfig(ws, db);
   const chips = (record.values[field.apiName] as LinkChip[]) ?? [];
-  const shown = showAll ? chips : chips.slice(0, COLLECTION_CAP);
+
+  const targetDbId = field.relation?.target_database_id ?? '';
+  const targetDb = useDatabase(ws, targetDbId);
+  const targetFields = useMemo(() => targetDb.data?.fields ?? [], [targetDb.data]);
+  const inverseApi = targetFields.find((f) => f.id === field.relation?.inverse_field_id)?.apiName;
+  const cv = (field.config?.['collection_view'] as CollectionView | undefined) ?? {};
+  const setCv = (patch: Partial<CollectionView>) =>
+    setConfig.mutate({ fieldId: field.id, config: { collection_view: { ...cv, ...patch } } });
+
+  const linked = useQuery({
+    queryKey: ['collection', ws, targetDbId, rec, field.id, cv],
+    enabled: Boolean(targetDbId && inverseApi) && !collapsed,
+    queryFn: async () => {
+      // Only apply conditions that are actually complete — a half-built filter (no value yet) must not 422.
+      const valueless = new Set(['is_empty', 'not_empty']);
+      const usable = (cv.filters?.and ?? []).filter(
+        (c) =>
+          valueless.has(c.op) ||
+          (c.value !== undefined && c.value !== '' && !(Array.isArray(c.value) && c.value.length === 0)),
+      );
+      const filter = { and: [{ field: inverseApi!, op: 'has', value: [rec] }, ...usable] };
+      const { data, error } = await api.POST('/api/v1/workspaces/{ws}/databases/{db}/records/query', {
+        params: { path: { ws, db: targetDbId } },
+        body: { filter, sorts: cv.sorts ?? [], limit: 200 } as never,
+      });
+      if (error) throw error;
+      return (data as unknown as { data: RecordRow[] }).data;
+    },
+  });
+  const rows = linked.data ?? [];
+  const shown = showAll ? rows : rows.slice(0, COLLECTION_CAP);
+  const filtersActive = (cv.filters?.and?.length ?? 0) > 0 || (cv.sorts?.length ?? 0) > 0;
+  const total = filtersActive ? rows.length : chips.length;
+
+  const colorField = cv.color_by ? targetFields.find((f) => f.apiName === cv.color_by) : undefined;
+  const dotColor = (row: RecordRow): string | null => {
+    if (!colorField) return null;
+    const opt = colorField.options?.find((o) => o.id === row.values[colorField.apiName]);
+    return opt ? OPTION_COLORS[opt.color] ?? OPTION_COLORS.gray! : null;
+  };
+  const filterable = targetFields.filter((f) => OPS_BY_TYPE[f.type]);
+  const conditions = cv.filters?.and ?? [];
+  const setConditions = (next: FilterCondition[]) => setCv({ filters: next.length ? { and: next } : undefined });
 
   return (
     <div className="group mb-5">
-      <div className="mb-1.5 flex items-center gap-1.5">
+      <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
         <CollapseToggle
           collapsed={collapsed}
           onToggle={() => setConfig.mutate({ fieldId: field.id, config: { entity_collapsed: !collapsed } })}
         />
         <h2 className="text-[12px] font-medium uppercase tracking-wider text-faint">{field.displayName}</h2>
-        <span className="text-[11px] text-faint">{chips.length}</span>
+        <span className="text-[11px] text-faint">{total}</span>
         {schemaEditable && <FieldMenu field={field} zone="body" onMove={onMove} ws={ws} db={db} collection />}
+        {schemaEditable && !collapsed && targetDb.data && (
+          <span className="flex flex-wrap items-center gap-1">
+            {conditions.map((c, i) => (
+              <FilterChip
+                key={i}
+                fields={filterable}
+                members={members}
+                condition={c}
+                onChange={(next) => setConditions(conditions.map((x, j) => (j === i ? next : x)))}
+                onRemove={() => setConditions(conditions.filter((_, j) => j !== i))}
+              />
+            ))}
+            <AddFilterButton
+              fields={filterable}
+              onAdd={(f) => {
+                const op = OPS_BY_TYPE[f.type]![0]!;
+                setConditions([...conditions, { field: f.apiName, op: op.op as FilterCondition['op'], value: undefined }]);
+              }}
+            />
+            <SortButton
+              fields={targetFields.filter((f) => SORTABLE.has(f.type))}
+              sorts={cv.sorts ?? []}
+              onChange={(sorts) => setCv({ sorts: sorts.length ? sorts : undefined })}
+            />
+            <ColorByButton
+              fields={targetFields.filter((f) => f.type === 'select')}
+              value={cv.color_by}
+              onChange={(color_by) => setCv({ color_by })}
+            />
+          </span>
+        )}
       </div>
       {!collapsed && (
         <>
           <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card">
-            {chips.length === 0 && <p className="px-3 py-2.5 text-[13px] text-faint">Nothing linked yet.</p>}
-            {shown.map((chip) => (
-              <Link
-                key={chip.id}
-                href={`/w/${ws}/d/${field.relation!.target_database_id}/r/${chip.id}`}
-                className="flex items-center border-b border-border-default px-3 py-2 text-[13px] text-ink last:border-b-0 hover:bg-hover"
-              >
-                {chip.title || 'Untitled'}
-              </Link>
-            ))}
-            {chips.length > COLLECTION_CAP && (
+            {rows.length === 0 && (
+              <p className="px-3 py-2.5 text-[13px] text-faint">
+                {filtersActive ? 'No matches.' : 'Nothing linked yet.'}
+              </p>
+            )}
+            {shown.map((row) => {
+              const color = dotColor(row);
+              return (
+                <Link
+                  key={row.id}
+                  href={`/w/${ws}/d/${targetDbId}/r/${row.id}`}
+                  className="flex items-center gap-2 border-b border-border-default px-3 py-2 text-[13px] text-ink last:border-b-0 hover:bg-hover"
+                >
+                  {color && <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />}
+                  <span className="truncate">{row.title || 'Untitled'}</span>
+                </Link>
+              );
+            })}
+            {rows.length > COLLECTION_CAP && (
               <button
                 className="flex w-full items-center gap-1 px-3 py-2 text-[12px] text-info hover:bg-hover"
                 onClick={() => setShowAll((s) => !s)}
               >
-                {showAll ? 'Show less' : `Show all ${chips.length}`}
+                {showAll ? 'Show less' : `Show all ${rows.length}`}
               </button>
             )}
           </div>
@@ -573,6 +674,42 @@ function CollectionSection({ field, schemaEditable, onMove, readOnly, ws, db, re
         </>
       )}
     </div>
+  );
+}
+
+/** "Color by" picker for a collection — colors rows by a target select field (MN-073). */
+function ColorByButton({
+  fields,
+  value,
+  onChange,
+}: {
+  fields: Field[];
+  value: string | undefined;
+  onChange: (apiName: string | undefined) => void;
+}) {
+  if (fields.length === 0) return null;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          className={cn(
+            'flex items-center gap-1 rounded px-1.5 py-1 text-[12px] hover:bg-hover hover:text-ink',
+            value ? 'text-ink' : 'text-muted',
+          )}
+        >
+          <Palette className="h-3.5 w-3.5" /> Color
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        <DropdownMenuItem onSelect={() => onChange(undefined)}>None</DropdownMenuItem>
+        {fields.map((f) => (
+          <DropdownMenuItem key={f.id} onSelect={() => onChange(f.apiName)}>
+            {value === f.apiName ? '✓ ' : ''}
+            {f.displayName}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
