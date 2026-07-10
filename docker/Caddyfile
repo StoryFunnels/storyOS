@@ -1,0 +1,11 @@
+# StoryOS reverse proxy: one hostname for web + API (MN-068).
+# TLS terminates at Cloudflare (proxied DNS) or a fronting proxy; Caddy serves HTTP.
+# To let Caddy do TLS itself instead, replace `:80` with your domain name.
+:80 {
+	handle /api/* {
+		reverse_proxy api:3001
+	}
+	handle {
+		reverse_proxy web:3000
+	}
+}

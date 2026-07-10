@@ -21,7 +21,7 @@ async function runMigrations() {
 
 async function bootstrap() {
   if (env().RUN_MIGRATIONS) await runMigrations();
-  const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter({ bodyLimit: 3 * 1024 * 1024 }), {
+  const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter({ bodyLimit: 3 * 1024 * 1024, trustProxy: true }), {
     bufferLogs: true,
   });
   app.useLogger(app.get(Logger));

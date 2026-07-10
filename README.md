@@ -65,7 +65,7 @@ echo "BETTER_AUTH_SECRET=$(openssl rand -hex 32)" > .env
 docker compose up -d
 ```
 
-Open **http://localhost:3000** and sign up — the first account creates its own workspace, migrations run automatically. 1 GB RAM is plenty for a small team.
+Open **http://localhost** and sign up — the first account creates its own workspace, migrations run automatically. 1 GB RAM is plenty for a small team.
 
 The full guide — environment matrix, SMTP, Google OAuth, S3/MinIO attachments, backups, upgrades — is in **[docs/self-hosting.md](docs/self-hosting.md)**.
 
