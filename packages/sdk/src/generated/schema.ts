@@ -494,6 +494,23 @@ export interface paths {
         patch: operations["RecordsController_update"];
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/duplicate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Duplicate: clone values + description + single/m2m links (not owned collections) */
+        post: operations["RecordsController_duplicate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/move": {
         parameters: {
             query?: never;
@@ -2541,6 +2558,26 @@ export interface operations {
         };
         responses: {
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RecordsController_duplicate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                rec: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -10,7 +10,7 @@ import type { FormulaNode } from '@storyos/schemas';
 import type { FieldDef } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { activityEvents, fields, recordLinks, records, relations, selectOptions } from '../db/schema';
+import { activityEvents, documents, fields, recordLinks, records, relations, selectOptions } from '../db/schema';
 import type { QueryRecordsInput } from '@storyos/schemas';
 import { compileFilter, cursorCondition, sortExpr } from './query-compiler';
 import type { SortSpec } from './query-compiler';
@@ -372,6 +372,75 @@ export class RecordsService {
   ): Promise<ProjectedRecord> {
     const [created] = await this.createBatch(workspaceId, databaseId, [input], actorId, depth);
     return created!;
+  }
+
+  /**
+   * Duplicate a record (MN-074): scalar values + description document + the
+   * record's single references and many-to-many links. Owned collections
+   * (one_to_many where this record is the "one" side) are NOT copied — a child
+   * can only have one parent, so we never reparent them. Title gets " (copy)".
+   */
+  async duplicate(
+    workspaceId: string,
+    databaseId: string,
+    recordId: string,
+    actorId: string,
+  ): Promise<ProjectedRecord> {
+    const src = await this.get(databaseId, recordId);
+    const defs = await this.fieldDefs(databaseId);
+    const SKIP = new Set([
+      'relation', 'lookup', 'rollup', 'formula', 'button', 'title', 'created_at', 'updated_at', 'created_by',
+    ]);
+    const input: Record<string, unknown> = { name: `${(src.title ?? '').trim() || 'Untitled'} (copy)` };
+    for (const def of defs) {
+      if (SKIP.has(def.type)) continue;
+      const v = src.values[def.api_name];
+      if (v !== undefined && v !== null) input[def.api_name] = v;
+    }
+    const created = await this.create(workspaceId, databaseId, input, actorId, 0);
+
+    // Copy links: single references (one_to_many side a) and many-to-many; skip owned collections.
+    for (const def of defs.filter((d) => d.type === 'relation')) {
+      const relation = await this.db.query.relations.findFirst({
+        where: eq(relations.id, def.config['relation_id'] as string),
+      });
+      if (!relation) continue;
+      const side = def.config['side'] as 'a' | 'b';
+      if (relation.cardinality === 'one_to_many' && side === 'b') continue;
+      if (side === 'a') {
+        const rows = await this.db
+          .select({ to: recordLinks.toRecordId })
+          .from(recordLinks)
+          .where(and(eq(recordLinks.relationId, relation.id), eq(recordLinks.fromRecordId, recordId)));
+        if (rows.length) {
+          await this.db
+            .insert(recordLinks)
+            .values(rows.map((r) => ({ relationId: relation.id, fromRecordId: created.id, toRecordId: r.to })))
+            .onConflictDoNothing();
+        }
+      } else {
+        const rows = await this.db
+          .select({ from: recordLinks.fromRecordId })
+          .from(recordLinks)
+          .where(and(eq(recordLinks.relationId, relation.id), eq(recordLinks.toRecordId, recordId)));
+        if (rows.length) {
+          await this.db
+            .insert(recordLinks)
+            .values(rows.map((r) => ({ relationId: relation.id, fromRecordId: r.from, toRecordId: created.id })))
+            .onConflictDoNothing();
+        }
+      }
+    }
+
+    // Copy the description document, if any.
+    const doc = await this.db.query.documents.findFirst({ where: eq(documents.recordId, recordId) });
+    if (doc?.content) {
+      await this.db
+        .insert(documents)
+        .values({ recordId: created.id, content: doc.content, contentText: doc.contentText, version: 1 });
+    }
+
+    return this.get(databaseId, created.id);
   }
 
   /** Batch create (≤100, enforced by the DTO), one transaction, one activity event each. */

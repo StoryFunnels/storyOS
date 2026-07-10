@@ -1411,6 +1411,43 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/duplicate": {
+      "post": {
+        "operationId": "RecordsController_duplicate",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "rec",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Duplicate: clone values + description + single/m2m links (not owned collections)",
+        "tags": [
+          "records"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/move": {
       "post": {
         "operationId": "RecordsController_move",

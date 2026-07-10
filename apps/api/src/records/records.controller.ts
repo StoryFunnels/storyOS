@@ -208,6 +208,22 @@ export class RecordsController {
     );
   }
 
+  @Post(':rec/duplicate')
+  @ApiOperation({ summary: 'Duplicate: clone values + description + single/m2m links (not owned collections)' })
+  async duplicate(
+    @Req() req: WorkspaceRequest,
+    @Param('db') databaseId: string,
+    @Param('rec') recordId: string,
+  ) {
+    await this.assertDb(req, databaseId, 'creator');
+    return this.recordsService.duplicate(
+      req.membership.workspaceId,
+      databaseId,
+      recordId,
+      req.user.id,
+    );
+  }
+
   @Post(':rec/move')
   @ApiOperation({ summary: 'Atomic move: fractional reposition + optional value patch (kanban drop)' })
   async move(

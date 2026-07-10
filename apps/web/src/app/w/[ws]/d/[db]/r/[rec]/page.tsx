@@ -1,8 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { toast } from 'sonner';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCreateBlockNote } from '@blocknote/react';
 import { BlockNoteView } from '@blocknote/mantine';
@@ -20,10 +21,14 @@ import {
   ArrowLeft,
   ChevronDown,
   ChevronRight,
+  Copy,
+  CopyPlus,
   GripVertical,
   MoreHorizontal,
   Pin,
   Plus,
+  SlidersHorizontal,
+  Trash2,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/auth-client';
@@ -181,12 +186,18 @@ export default function EntityPage() {
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-6">
-      <Link
-        href={`/w/${ws}/d/${db}`}
-        className="mb-4 inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-ink"
-      >
-        <ArrowLeft className="h-3.5 w-3.5" /> {database.data?.name}
-      </Link>
+      <div className="mb-4 flex items-center justify-between">
+        <Link
+          href={`/w/${ws}/d/${db}`}
+          className="inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-ink"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" /> {database.data?.name}
+        </Link>
+        <div className="flex items-center gap-1">
+          {schemaEditable && <FieldsPopover ws={ws} db={db} fields={allFields} />}
+          <RecordActions ws={ws} db={db} rec={rec} readOnly={readOnly} canCreate={schemaEditable} />
+        </div>
+      </div>
 
       <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
         {/* MAIN BODY: title, pinned strip, collections + rich sections, description, discussion */}
@@ -779,5 +790,145 @@ function AddFieldRow({ ws, db }: { ws: string; db: string }) {
       </DialogTrigger>
       {open && <AddFieldDialog ws={ws} db={db} onDone={() => setOpen(false)} />}
     </Dialog>
+  );
+}
+
+/** Header Actions menu: duplicate, copy link, delete (MN-074). */
+function RecordActions({
+  ws,
+  db,
+  rec,
+  readOnly,
+  canCreate,
+}: {
+  ws: string;
+  db: string;
+  rec: string;
+  readOnly: boolean;
+  canCreate: boolean;
+}) {
+  const router = useRouter();
+  const qc = useQueryClient();
+
+  const duplicate = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await api.POST(
+        '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/duplicate',
+        { params: { path: { ws, db, rec } } } as never,
+      );
+      if (error) throw error;
+      return data as unknown as { id: string };
+    },
+    onSuccess: (r) => {
+      toast.success('Record duplicated');
+      void qc.invalidateQueries({ queryKey: ['records', ws, db] });
+      router.push(`/w/${ws}/d/${db}/r/${r.id}`);
+    },
+    onError: () => toast.error('Could not duplicate'),
+  });
+
+  const remove = useMutation({
+    mutationFn: async () => {
+      const { error } = await api.DELETE('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}', {
+        params: { path: { ws, db, rec } },
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success('Record moved to trash');
+      router.push(`/w/${ws}/d/${db}`);
+      // Drop the deleted record's queries (don't refetch a 404); refresh the list.
+      qc.removeQueries({ predicate: (query) => Array.isArray(query.queryKey) && query.queryKey.includes(rec) });
+      void qc.invalidateQueries({ queryKey: ['records', ws, db] });
+    },
+    onError: () => toast.error('Could not delete'),
+  });
+
+  const copyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      toast.success('Link copied');
+    } catch {
+      toast.error('Could not copy link');
+    }
+  };
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button className="rounded p-1 text-muted hover:bg-hover hover:text-ink" title="Actions">
+          <MoreHorizontal className="h-4 w-4" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        {canCreate && (
+          <DropdownMenuItem onSelect={() => duplicate.mutate()}>
+            <CopyPlus className="mr-2 h-3.5 w-3.5" /> Duplicate
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuItem onSelect={copyLink}>
+          <Copy className="mr-2 h-3.5 w-3.5" /> Copy link
+        </DropdownMenuItem>
+        {!readOnly && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem className="text-error" onSelect={() => remove.mutate()}>
+              <Trash2 className="mr-2 h-3.5 w-3.5" /> Delete
+            </DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** "Fields" popover: one place to toggle which fields show on the record (MN-074). */
+function FieldsPopover({ ws, db, fields }: { ws: string; db: string; fields: Field[] }) {
+  const setConfig = useSetFieldConfig(ws, db);
+  const [q, setQ] = useState('');
+  const list = fields.filter((f) => f.displayName.toLowerCase().includes(q.trim().toLowerCase()));
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button className="flex items-center gap-1.5 rounded px-2 py-1 text-[13px] text-muted hover:bg-hover hover:text-ink">
+          <SlidersHorizontal className="h-3.5 w-3.5" /> Fields
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-64">
+        <input
+          autoFocus
+          placeholder="Filter fields…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => e.stopPropagation()}
+          className="mb-1 w-full rounded border border-border-default bg-card px-2 py-1 text-[13px] text-ink outline-none placeholder:text-faint"
+        />
+        <div className="max-h-72 overflow-y-auto">
+          {list.map((f) => {
+            const shown = f.config?.['entity_hidden'] !== true;
+            return (
+              <DropdownMenuItem
+                key={f.id}
+                onSelect={(e) => {
+                  e.preventDefault();
+                  setConfig.mutate({ fieldId: f.id, config: { entity_hidden: shown } });
+                }}
+              >
+                <span
+                  className={cn(
+                    'flex h-4 w-7 shrink-0 items-center rounded-full px-0.5 transition-colors',
+                    shown ? 'justify-end bg-accent' : 'justify-start bg-border-default',
+                  )}
+                >
+                  <span className="h-3 w-3 rounded-full bg-card" />
+                </span>
+                <span className="truncate">{f.displayName}</span>
+              </DropdownMenuItem>
+            );
+          })}
+          {list.length === 0 && <p className="px-2 py-1.5 text-[12px] text-faint">No fields.</p>}
+        </div>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
