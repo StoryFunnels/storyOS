@@ -47,30 +47,51 @@ is the remaining phase — it lands with the cloud tier (see MN-069).
 
 ## Configure
 
-Create a personal access token in StoryOS (**Settings → API**, `mn_pat_…`).
+> Not published to npm yet — run it from this repo's build. (Once published, the
+> `npx -y @storyos/mcp` form below becomes the one-liner.)
 
-**Claude Code**
+**1. Get a token** — in StoryOS, sidebar → **API tokens** → create one for the
+workspace you want. Copy the `mn_pat_…` (shown once; scoped to that workspace).
+
+**2. Build the package** (once):
 
 ```bash
-claude mcp add storyos -e STORYOS_URL=http://localhost:3001 -e STORYOS_TOKEN=mn_pat_xxx -- npx -y @storyos/mcp
+pnpm install
+pnpm --filter @storyos/mcp build      # → packages/mcp/dist/index.js
 ```
 
-**Claude Desktop** (`claude_desktop_config.json`)
+**3a. Claude Code**
+
+```bash
+claude mcp add storyos \
+  -e STORYOS_URL=https://os.jamescookmedia.com \
+  -e STORYOS_TOKEN=mn_pat_xxx \
+  -- node /ABSOLUTE/PATH/to/repo/packages/mcp/dist/index.js
+```
+
+**3b. Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json`)
 
 ```json
 {
   "mcpServers": {
     "storyos": {
-      "command": "npx",
-      "args": ["-y", "@storyos/mcp"],
-      "env": { "STORYOS_URL": "http://localhost:3001", "STORYOS_TOKEN": "mn_pat_xxx" }
+      "command": "node",
+      "args": ["/ABSOLUTE/PATH/to/repo/packages/mcp/dist/index.js"],
+      "env": {
+        "STORYOS_URL": "https://os.jamescookmedia.com",
+        "STORYOS_TOKEN": "mn_pat_xxx"
+      }
     }
   }
 }
 ```
 
-`STORYOS_URL` defaults to `http://localhost:3001`; point it at your deployment
-(e.g. `https://os.jamescookmedia.com`) in production.
+`STORYOS_URL` is `https://os.jamescookmedia.com` for the cloud box, or
+`http://localhost:3001` for local dev (the default). Restart Claude, then ask it to
+"list my StoryOS databases".
+
+**Once published to npm**, replace the command with `npx -y @storyos/mcp` (no build,
+no path).
 
 ## Develop
 

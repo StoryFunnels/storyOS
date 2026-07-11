@@ -97,6 +97,7 @@ pnpm dev                                          # api on :3001, web on :3000
 | [apps/web](apps/web/) | Next.js web app — client #1 of the API |
 | [packages/schemas](packages/schemas/) | Shared zod schemas + the formula engine |
 | [packages/sdk](packages/sdk/) | Typed client generated from the OpenAPI spec |
+| [packages/mcp](packages/mcp/) | **MCP server** — use StoryOS from Claude / any MCP client ([setup](packages/mcp/README.md)) |
 | [docs/self-hosting.md](docs/self-hosting.md) | Install, configure, backup, upgrade |
 | [docs/product/](docs/product/) | Vision, formulas, automations, templates, migration guides |
 | [docs/architecture/](docs/architecture/) | Meta-model, record storage, API conventions, auth |
