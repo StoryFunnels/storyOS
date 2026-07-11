@@ -91,7 +91,7 @@ export function ListView({
 
   return (
     <div className="h-full overflow-auto">
-      <div className="mx-auto max-w-4xl px-4 py-3">
+      <div className="max-w-5xl px-4 py-3">
         {groups.map((group) => {
           const isCollapsed = collapsed.has(group.id);
           return (

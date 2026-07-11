@@ -50,7 +50,7 @@ export function FeedView({
 
   return (
     <div className="h-full overflow-auto">
-      <div className="mx-auto flex max-w-2xl flex-col gap-3 px-4 py-4">
+      <div className="flex max-w-2xl flex-col gap-3 px-4 py-4">
         {rows.map((row) => {
           const preview = richField ? richTextPreview(row.values[richField.apiName], 280) : '';
           const author = row.created_by;

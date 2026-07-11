@@ -213,100 +213,36 @@ function NewViewDialog({
           </div>
           <div className="flex flex-col gap-1.5">
             <Label>Type</Label>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                className={cn(
-                  'flex flex-1 items-center justify-center gap-2 rounded-[var(--radius-control)] border px-3 py-2 text-[13px]',
-                  type === 'table' ? 'border-[var(--accent)] bg-accent-soft text-ink' : 'border-border-default text-muted',
-                )}
-                onClick={() => setType('table')}
-              >
-                <Table2 className="h-4 w-4" /> Table
-              </button>
-              <button
-                type="button"
-                className={cn(
-                  'flex flex-1 items-center justify-center gap-2 rounded-[var(--radius-control)] border px-3 py-2 text-[13px]',
-                  type === 'board' ? 'border-[var(--accent)] bg-accent-soft text-ink' : 'border-border-default text-muted',
-                )}
-                onClick={() => setType('board')}
-                disabled={selectFields.length === 0}
-                title={selectFields.length === 0 ? 'Boards need a single-select field' : undefined}
-              >
-                <Kanban className="h-4 w-4" /> Board
-              </button>
-              <button
-                type="button"
-                className={cn(
-                  'flex flex-1 items-center justify-center gap-2 rounded-[var(--radius-control)] border px-3 py-2 text-[13px]',
-                  type === 'calendar' ? 'border-[var(--accent)] bg-accent-soft text-ink' : 'border-border-default text-muted',
-                )}
-                onClick={() => setType('calendar')}
-                disabled={dateFields.length === 0}
-                title={dateFields.length === 0 ? 'Calendars need a date field' : undefined}
-              >
-                <CalendarDays className="h-4 w-4" /> Calendar
-              </button>
-            </div>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                className={cn(
-                  'flex flex-1 items-center justify-center gap-2 rounded-[var(--radius-control)] border px-3 py-2 text-[13px]',
-                  type === 'gallery' ? 'border-[var(--accent)] bg-accent-soft text-ink' : 'border-border-default text-muted',
-                )}
-                onClick={() => setType('gallery')}
-              >
-                <LayoutGrid className="h-4 w-4" /> Gallery
-              </button>
-              <button
-                type="button"
-                className={cn(
-                  'flex flex-1 items-center justify-center gap-2 rounded-[var(--radius-control)] border px-3 py-2 text-[13px]',
-                  type === 'list' ? 'border-[var(--accent)] bg-accent-soft text-ink' : 'border-border-default text-muted',
-                )}
-                onClick={() => setType('list')}
-              >
-                <ListIcon className="h-4 w-4" /> List
-              </button>
-            </div>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                className={cn(
-                  'flex flex-1 items-center justify-center gap-2 rounded-[var(--radius-control)] border px-3 py-2 text-[13px]',
-                  type === 'feed' ? 'border-[var(--accent)] bg-accent-soft text-ink' : 'border-border-default text-muted',
-                )}
-                onClick={() => setType('feed')}
-              >
-                <Newspaper className="h-4 w-4" /> Feed
-              </button>
-              <button
-                type="button"
-                className={cn(
-                  'flex flex-1 items-center justify-center gap-2 rounded-[var(--radius-control)] border px-3 py-2 text-[13px]',
-                  type === 'timeline' ? 'border-[var(--accent)] bg-accent-soft text-ink' : 'border-border-default text-muted',
-                )}
-                onClick={() => setType('timeline')}
-                disabled={dateFields.length === 0}
-                title={dateFields.length === 0 ? 'Timelines need a date field' : undefined}
-              >
-                <GanttChart className="h-4 w-4" /> Timeline
-              </button>
-            </div>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                className={cn(
-                  'flex flex-1 items-center justify-center gap-2 rounded-[var(--radius-control)] border px-3 py-2 text-[13px]',
-                  type === 'form' ? 'border-[var(--accent)] bg-accent-soft text-ink' : 'border-border-default text-muted',
-                )}
-                onClick={() => setType('form')}
-              >
-                <FormInput className="h-4 w-4" /> Form
-              </button>
-              <div className="flex-1" />
+            <div className="grid grid-cols-2 gap-2">
+              {(
+                [
+                  { kind: 'table', label: 'Table', Icon: Table2 },
+                  { kind: 'board', label: 'Board', Icon: Kanban, need: selectFields.length === 0 ? 'Needs a select field' : null },
+                  { kind: 'calendar', label: 'Calendar', Icon: CalendarDays, need: dateFields.length === 0 ? 'Needs a date field' : null },
+                  { kind: 'gallery', label: 'Gallery', Icon: LayoutGrid },
+                  { kind: 'list', label: 'List', Icon: ListIcon },
+                  { kind: 'feed', label: 'Feed', Icon: Newspaper },
+                  { kind: 'timeline', label: 'Timeline', Icon: GanttChart, need: dateFields.length === 0 ? 'Needs a date field' : null },
+                  { kind: 'form', label: 'Form', Icon: FormInput },
+                ] as Array<{ kind: ViewKind; label: string; Icon: typeof Table2; need?: string | null }>
+              ).map(({ kind, label, Icon, need }) => (
+                <button
+                  key={kind}
+                  type="button"
+                  disabled={Boolean(need)}
+                  title={need ?? undefined}
+                  onClick={() => setType(kind)}
+                  className={cn(
+                    'flex h-16 flex-col items-center justify-center gap-1 rounded-[var(--radius-control)] border text-[13px]',
+                    type === kind ? 'border-[var(--accent)] bg-accent-soft text-ink' : 'border-border-default text-muted',
+                    need && 'cursor-not-allowed opacity-50',
+                  )}
+                >
+                  <Icon className="h-4 w-4" />
+                  <span>{label}</span>
+                  {need && <span className="text-[10px] text-faint">{need}</span>}
+                </button>
+              ))}
             </div>
           </div>
           {type === 'timeline' && (
