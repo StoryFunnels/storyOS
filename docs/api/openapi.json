@@ -2045,6 +2045,165 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/spaces/{space}/documents": {
+      "get": {
+        "operationId": "SpaceDocumentsController_list",
+        "parameters": [
+          {
+            "name": "space",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Standalone documents in a space (MN-095)",
+        "tags": [
+          "documents"
+        ]
+      },
+      "post": {
+        "operationId": "SpaceDocumentsController_create",
+        "parameters": [
+          {
+            "name": "space",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSpaceDocDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create a standalone document in a space",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/documents/{doc}": {
+      "get": {
+        "operationId": "SpaceDocumentsController_get",
+        "parameters": [
+          {
+            "name": "doc",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "A standalone document (BlockNote content + version)",
+        "tags": [
+          "documents"
+        ]
+      },
+      "patch": {
+        "operationId": "SpaceDocumentsController_update",
+        "parameters": [
+          {
+            "name": "doc",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSpaceDocDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update title/icon/content — 409 on version conflict",
+        "tags": [
+          "documents"
+        ]
+      },
+      "delete": {
+        "operationId": "SpaceDocumentsController_remove",
+        "parameters": [
+          {
+            "name": "doc",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Delete a standalone document",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
     "/api/v1/me/tokens": {
       "get": {
         "operationId": "TokensController_list",
@@ -4217,7 +4376,10 @@
               "board",
               "calendar",
               "gallery",
-              "list"
+              "list",
+              "feed",
+              "timeline",
+              "form"
             ]
           },
           "config": {
@@ -4292,6 +4454,65 @@
                 "type": "string",
                 "format": "uuid",
                 "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "start_date_field_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "end_date_field_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "form": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  "description": {
+                    "type": "string",
+                    "maxLength": 2000
+                  },
+                  "submit_text": {
+                    "type": "string",
+                    "maxLength": 50
+                  },
+                  "fields": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "field_id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "required": {
+                          "type": "boolean"
+                        },
+                        "label": {
+                          "type": "string",
+                          "maxLength": 100
+                        },
+                        "help": {
+                          "type": "string",
+                          "maxLength": 500
+                        }
+                      },
+                      "required": [
+                        "field_id"
+                      ]
+                    }
+                  },
+                  "public_token": {
+                    "type": "string",
+                    "maxLength": 64
+                  }
+                }
               },
               "column_widths": {
                 "default": {},
@@ -4452,6 +4673,65 @@
                 "format": "uuid",
                 "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
               },
+              "start_date_field_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "end_date_field_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "form": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  "description": {
+                    "type": "string",
+                    "maxLength": 2000
+                  },
+                  "submit_text": {
+                    "type": "string",
+                    "maxLength": 50
+                  },
+                  "fields": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "field_id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "required": {
+                          "type": "boolean"
+                        },
+                        "label": {
+                          "type": "string",
+                          "maxLength": 100
+                        },
+                        "help": {
+                          "type": "string",
+                          "maxLength": 500
+                        }
+                      },
+                      "required": [
+                        "field_id"
+                      ]
+                    }
+                  },
+                  "public_token": {
+                    "type": "string",
+                    "maxLength": 64
+                  }
+                }
+              },
               "column_widths": {
                 "default": {},
                 "type": "object",
@@ -4484,6 +4764,39 @@
           "content",
           "expected_version"
         ]
+      },
+      "CreateSpaceDocDto": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "icon": {
+            "type": "string",
+            "maxLength": 16
+          }
+        }
+      },
+      "UpdateSpaceDocDto": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "icon": {
+            "type": "string",
+            "maxLength": 16,
+            "nullable": true
+          },
+          "content": {},
+          "expected_version": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        }
       },
       "CreateTokenDto": {
         "type": "object",

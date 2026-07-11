@@ -1,10 +1,18 @@
 ---
 id: MN-095
 title: Standalone documents — space-level rich docs (not tied to a record)
-status: todo
+status: done
 depends_on: []
 size: M
 ---
+
+> **Done.** New `space_documents` table + `SpaceDocumentsService/Controller`
+> (create / list / get / update / delete, single-editor optimistic concurrency →
+> 409). Sidebar: each space's "+" is now a menu (New database / New document); docs
+> render under databases and open a full-page BlockNote editor at `/w/{ws}/doc/{id}`
+> with title + autosave. Verified end-to-end (create v1 → edit v2 → stale 409 →
+> delete → 404). **Deferred:** starring docs (favorites are record/database-only —
+> needs a `document` target type) and drag-reorder of docs.
 
 ## Fibery parity
 

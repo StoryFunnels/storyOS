@@ -7,8 +7,8 @@ import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from 
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Check, ChevronRight, ChevronsUpDown, Database, Home, Inbox, KeyRound, LayoutTemplate, MoreHorizontal, Plug, Plus, Search, Settings, Star, UserRound } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
+import { Check, ChevronRight, ChevronsUpDown, Database, FileText, Home, Inbox, KeyRound, LayoutTemplate, MoreHorizontal, Plug, Plus, Search, Settings, Star, UserRound } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { authClient } from '@/lib/auth-client';
@@ -300,6 +300,34 @@ function SpaceSection({
     });
   };
 
+  // Standalone documents in this space (MN-095).
+  const qc = useQueryClient();
+  const docs = useQuery({
+    queryKey: ['space-docs', ws, space.id],
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/spaces/{space}/documents', {
+        params: { path: { ws, space: space.id } },
+      } as never);
+      if (error) throw error;
+      return (data as unknown as { data: Array<{ id: string; title: string; icon: string | null }> }).data;
+    },
+  });
+  const createDoc = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await api.POST('/api/v1/workspaces/{ws}/spaces/{space}/documents', {
+        params: { path: { ws, space: space.id } },
+        body: { title: 'Untitled' } as never,
+      } as never);
+      if (error) throw error;
+      return data as unknown as { id: string };
+    },
+    onSuccess: (d) => {
+      void qc.invalidateQueries({ queryKey: ['space-docs', ws, space.id] });
+      router.push(`/w/${ws}/doc/${d.id}`);
+    },
+    onError: () => toast.error('Could not create document'),
+  });
+
   return (
     <div
       ref={setNodeRef}
@@ -338,12 +366,22 @@ function SpaceSection({
         )}
         {canEdit && (
           <span className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
-            <Dialog open={newDbOpen} onOpenChange={setNewDbOpen}>
-              <DialogTrigger asChild>
-                <button className="rounded p-0.5 text-muted hover:bg-active" title="New database">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="rounded p-0.5 text-muted hover:bg-active" title="Add">
                   <Plus className="h-3.5 w-3.5" />
                 </button>
-              </DialogTrigger>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuItem onSelect={() => setNewDbOpen(true)}>
+                  <Database className="mr-2 h-3.5 w-3.5" /> New database
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => createDoc.mutate()}>
+                  <FileText className="mr-2 h-3.5 w-3.5" /> New document
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Dialog open={newDbOpen} onOpenChange={setNewDbOpen}>
               <NewDatabaseDialog
                 onCreate={(name) => {
                   mutations.createDatabase.mutate(
@@ -401,17 +439,33 @@ function SpaceSection({
         )}
       </Dialog>
 
-      {!collapsed &&
-        databases.map((db) => (
-          <DatabaseRow
-            key={db.id}
-            ws={ws}
-            db={db}
-            active={pathname.startsWith(`/w/${ws}/d/${db.id}`)}
-            canEdit={canEdit}
-            isAdmin={isAdmin}
-          />
-        ))}
+      {!collapsed && (
+        <>
+          {databases.map((db) => (
+            <DatabaseRow
+              key={db.id}
+              ws={ws}
+              db={db}
+              active={pathname.startsWith(`/w/${ws}/d/${db.id}`)}
+              canEdit={canEdit}
+              isAdmin={isAdmin}
+            />
+          ))}
+          {(docs.data ?? []).map((d) => (
+            <Link
+              key={d.id}
+              href={`/w/${ws}/doc/${d.id}`}
+              className={cn(
+                'flex items-center gap-2 rounded px-2 py-1 text-[13px] hover:bg-hover',
+                pathname === `/w/${ws}/doc/${d.id}` ? 'bg-active font-medium text-ink' : 'text-ink-secondary',
+              )}
+            >
+              {d.icon ? <span className="text-[13px] leading-none">{d.icon}</span> : <FileText className="h-3.5 w-3.5 shrink-0 text-muted" />}
+              <span className="truncate">{d.title || 'Untitled'}</span>
+            </Link>
+          ))}
+        </>
+      )}
     </div>
   );
 }

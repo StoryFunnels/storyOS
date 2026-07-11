@@ -270,6 +270,30 @@ export const documents = pgTable('documents', {
   ...timestamps,
 });
 
+/** Standalone rich docs living in a space, independent of any record (MN-095). */
+export const spaceDocuments = pgTable(
+  'space_documents',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    spaceId: uuid('space_id')
+      .notNull()
+      .references(() => spaces.id, { onDelete: 'cascade' }),
+    title: text('title').notNull().default(''),
+    icon: text('icon'),
+    content: jsonb('content'),
+    contentText: text('content_text').notNull().default(''),
+    version: integer('version').notNull().default(1),
+    position: integer('position').notNull().default(0),
+    createdBy: text('created_by'),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [index('space_documents_space_idx').on(t.spaceId)],
+);
+
 export const comments = pgTable(
   'comments',
   {

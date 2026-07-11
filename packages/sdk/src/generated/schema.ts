@@ -669,6 +669,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/spaces/{space}/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Standalone documents in a space (MN-095) */
+        get: operations["SpaceDocumentsController_list"];
+        put?: never;
+        /** Create a standalone document in a space */
+        post: operations["SpaceDocumentsController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/documents/{doc}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A standalone document (BlockNote content + version) */
+        get: operations["SpaceDocumentsController_get"];
+        put?: never;
+        post?: never;
+        /** Delete a standalone document */
+        delete: operations["SpaceDocumentsController_remove"];
+        options?: never;
+        head?: never;
+        /** Update title/icon/content — 409 on version conflict */
+        patch: operations["SpaceDocumentsController_update"];
+        trace?: never;
+    };
     "/api/v1/me/tokens": {
         parameters: {
             query?: never;
@@ -1498,7 +1535,7 @@ export interface components {
         CreateViewDto: {
             name: string;
             /** @enum {string} */
-            type: "table" | "board" | "calendar" | "gallery" | "list";
+            type: "table" | "board" | "calendar" | "gallery" | "list" | "feed" | "timeline" | "form";
             /**
              * @default {
              *       "sorts": [],
@@ -1528,6 +1565,24 @@ export interface components {
                 card_size?: "small" | "medium" | "large";
                 /** Format: uuid */
                 date_field_id?: string;
+                /** Format: uuid */
+                start_date_field_id?: string;
+                /** Format: uuid */
+                end_date_field_id?: string;
+                form?: {
+                    title?: string;
+                    description?: string;
+                    submit_text?: string;
+                    /** @default [] */
+                    fields: {
+                        /** Format: uuid */
+                        field_id: string;
+                        required?: boolean;
+                        label?: string;
+                        help?: string;
+                    }[];
+                    public_token?: string;
+                };
                 /** @default {} */
                 column_widths: {
                     [key: string]: number;
@@ -1567,6 +1622,24 @@ export interface components {
                 card_size?: "small" | "medium" | "large";
                 /** Format: uuid */
                 date_field_id?: string;
+                /** Format: uuid */
+                start_date_field_id?: string;
+                /** Format: uuid */
+                end_date_field_id?: string;
+                form?: {
+                    title?: string;
+                    description?: string;
+                    submit_text?: string;
+                    /** @default [] */
+                    fields: {
+                        /** Format: uuid */
+                        field_id: string;
+                        required?: boolean;
+                        label?: string;
+                        help?: string;
+                    }[];
+                    public_token?: string;
+                };
                 /** @default {} */
                 column_widths: {
                     [key: string]: number;
@@ -1577,6 +1650,16 @@ export interface components {
         PutDocumentDto: {
             content: unknown;
             expected_version: number;
+        };
+        CreateSpaceDocDto: {
+            title?: string;
+            icon?: string;
+        };
+        UpdateSpaceDocDto: {
+            title?: string;
+            icon?: string | null;
+            content?: unknown;
+            expected_version?: number;
         };
         CreateTokenDto: {
             name: string;
@@ -2977,6 +3060,109 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["PutDocumentDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SpaceDocumentsController_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                space: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SpaceDocumentsController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                space: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSpaceDocDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SpaceDocumentsController_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                doc: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SpaceDocumentsController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                doc: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SpaceDocumentsController_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                doc: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateSpaceDocDto"];
             };
         };
         responses: {
