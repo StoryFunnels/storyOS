@@ -9,19 +9,31 @@ validated server-side.
 Design + roadmap: [`docs/product/mcp-plan.md`](../../docs/product/mcp-plan.md).
 Ticket: [MN-076](../../tickets/MN-076-mcp-server.md).
 
-## Phase 1 — read-only tools
+## Tools
 
+**Read**
 | Tool | What it does |
 |---|---|
 | `get_started` | Orientation + a workspace map + the filter cheat-sheet. Call first. |
 | `list_workspaces` | Workspaces the token can access. |
 | `list_databases` | Databases in a workspace. |
-| `describe_database` | A database's schema — exact `api_name`s, types, options, relation targets. **Read before querying.** |
+| `describe_database` | A database's schema — exact `api_name`s, types, options, relation targets. **Read before writing.** |
 | `search` | Full-text record search — turn a name into a real id. |
 | `query_records` | Filter / sort / paginate records (structured filter AST). |
 | `get_record` | One record in full, by uuid or public number. |
 
-Writes (create/update/link/comment/run-button) and hosted HTTP come in later phases.
+**Write** (each returns the resulting record; each 422 is surfaced verbatim)
+| Tool | What it does |
+|---|---|
+| `create_record` | Create a record; `values` by `api_name`, selects accept the **label**. |
+| `update_record` | Merge-update (null clears); record by uuid or public number. |
+| `delete_record` | Trash a record (restorable 30 days). |
+| `link_records` | Link a record to targets through a relation field. |
+| `add_comment` | Post a comment. |
+| `run_button` | Press a button field, running its automation actions. |
+
+Hosted Streamable HTTP (for ChatGPT / claude.ai connectors without a local process)
+is the remaining phase — it lands with the cloud tier (see MN-069).
 
 ## Why it doesn't hallucinate
 

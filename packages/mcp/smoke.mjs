@@ -17,7 +17,7 @@ let pass = 0, fail = 0;
 const check = (label, ok, extra = '') => { (ok ? pass++ : fail++); console.log(`${ok ? 'PASS' : 'FAIL'}  ${label}${extra ? ' — ' + extra : ''}`); };
 
 const tools = await client.listTools();
-check('lists 7 tools', tools.tools.length === 7, tools.tools.map((t) => t.name).join(','));
+check('lists 13 tools', tools.tools.length === 13, tools.tools.map((t) => t.name).join(','));
 
 const lw = await call(client, 'list_workspaces');
 check('list_workspaces sees MCP WS', lw.text.includes('MCP WS'));
@@ -44,6 +44,22 @@ check('bad filter → isError with message', bad.isError && /nope|unknown|field/
 // bad workspace name → helpful resolver error
 const badws = await call(client, 'list_databases', { workspace: 'Nonexistent WS' });
 check('bad workspace → resolver error', badws.isError && /No workspace matches/i.test(badws.text));
+
+// ---- writes ----
+const cr = await call(client, 'create_record', { workspace: 'MCP WS', database: 'Tasks', values: { name: 'Third task', priority: 'High' } });
+check('create_record (label-friendly select)', !cr.isError && cr.text.includes('Third task'));
+
+const upd = await call(client, 'update_record', { workspace: 'MCP WS', database: 'Tasks', record: '1', values: { name: 'First task (edited)' } });
+check('update_record by number', !upd.isError && upd.text.includes('edited'));
+
+const badwrite = await call(client, 'create_record', { workspace: 'MCP WS', database: 'Tasks', values: { nope_field: 'x' } });
+check('create with bad field → teaching error', badwrite.isError && /unknown field|nope_field/i.test(badwrite.text), badwrite.text.slice(0, 80));
+
+const cm = await call(client, 'add_comment', { workspace: 'MCP WS', database: 'Tasks', record: '2', body: 'via MCP' });
+check('add_comment', !cm.isError);
+
+const del = await call(client, 'delete_record', { workspace: 'MCP WS', database: 'Tasks', record: '2' });
+check('delete_record', !del.isError && del.text.includes('deleted'));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 await client.close();
