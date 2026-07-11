@@ -120,6 +120,21 @@ export const accessGrants = pgTable(
   (t) => [index('access_grants_user_idx').on(t.workspaceId, t.userId)],
 );
 
+/** Named collapsible containers inside a space, for sidebar IA (MN-096). */
+export const spaceFolders = pgTable('space_folders', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  workspaceId: uuid('workspace_id')
+    .notNull()
+    .references(() => workspaces.id, { onDelete: 'cascade' }),
+  spaceId: uuid('space_id')
+    .notNull()
+    .references(() => spaces.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  icon: text('icon'),
+  position: integer('position').notNull().default(0),
+  ...timestamps,
+});
+
 export const databases = pgTable(
   'databases',
   {
@@ -131,6 +146,8 @@ export const databases = pgTable(
     spaceId: uuid('space_id')
       .notNull()
       .references(() => spaces.id, { onDelete: 'cascade' }),
+    /** Optional sidebar folder (MN-096); null = at the space root. */
+    folderId: uuid('folder_id').references(() => spaceFolders.id, { onDelete: 'set null' }),
     name: text('name').notNull(),
     icon: text('icon'),
     color: text('color'),
@@ -281,6 +298,8 @@ export const spaceDocuments = pgTable(
     spaceId: uuid('space_id')
       .notNull()
       .references(() => spaces.id, { onDelete: 'cascade' }),
+    /** Optional sidebar folder (MN-096); null = at the space root. */
+    folderId: uuid('folder_id').references(() => spaceFolders.id, { onDelete: 'set null' }),
     title: text('title').notNull().default(''),
     icon: text('icon'),
     content: jsonb('content'),

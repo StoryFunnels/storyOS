@@ -248,7 +248,7 @@ export class DatabasesService {
   async update(
     membership: Membership,
     databaseId: string,
-    patch: { name?: string; icon?: string | null; color?: string | null; space_id?: string; position?: number },
+    patch: { name?: string; icon?: string | null; color?: string | null; space_id?: string; folder_id?: string | null; position?: number },
   ) {
     await this.get(membership, databaseId);
 
@@ -266,6 +266,7 @@ export class DatabasesService {
         icon: patch.icon,
         color: patch.color === null ? null : patch.color,
         spaceId: patch.space_id,
+        folderId: patch.folder_id,
         position: patch.position,
       })
       .where(eq(databases.id, databaseId))

@@ -230,6 +230,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/spaces/{space}/folders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Folders in a space (MN-096) */
+        get: operations["FoldersController_list"];
+        put?: never;
+        /** Create a folder in a space */
+        post: operations["FoldersController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/folders/{folder}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a folder (its items fall back to the space root) */
+        delete: operations["FoldersController_remove"];
+        options?: never;
+        head?: never;
+        /** Rename / re-icon / reorder a folder */
+        patch: operations["FoldersController_update"];
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/databases": {
         parameters: {
             query?: never;
@@ -1374,6 +1410,15 @@ export interface components {
         AcceptInviteDto: {
             token: string;
         };
+        CreateFolderDto: {
+            name: string;
+            icon?: string;
+        };
+        UpdateFolderDto: {
+            name?: string;
+            icon?: string | null;
+            position?: number;
+        };
         CreateDatabaseDto: {
             /** Format: uuid */
             space_id: string;
@@ -1387,6 +1432,8 @@ export interface components {
             color?: "gray" | "brown" | "gold" | "orange" | "red" | "pink" | "purple" | "blue" | "teal" | "green" | null;
             /** Format: uuid */
             space_id?: string;
+            /** Format: uuid */
+            folder_id?: string | null;
             position?: number;
         };
         DeleteDatabaseDto: {
@@ -2197,6 +2244,90 @@ export interface operations {
         };
         responses: {
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    FoldersController_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                space: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    FoldersController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                space: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateFolderDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    FoldersController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                folder: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    FoldersController_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                folder: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateFolderDto"];
+            };
+        };
+        responses: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };

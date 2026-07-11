@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { FoldersController } from '../spaces/folders.controller';
+import { FoldersService } from '../spaces/folders.service';
 import { InvitesService } from './invites.service';
 import { MembersService } from './members.service';
 import { SpacesService } from './spaces.service';
@@ -11,12 +13,13 @@ import {
 import { WorkspacesService } from './workspaces.service';
 
 @Module({
-  controllers: [WorkspacesController, WorkspaceController, InviteAcceptController],
+  controllers: [WorkspacesController, WorkspaceController, InviteAcceptController, FoldersController],
   providers: [
     WorkspacesService,
     SpacesService,
     MembersService,
     InvitesService,
+    FoldersService,
     WorkspaceAccessGuard,
   ],
   exports: [WorkspaceAccessGuard, SpacesService],

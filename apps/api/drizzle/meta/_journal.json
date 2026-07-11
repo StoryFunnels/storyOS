@@ -183,6 +183,13 @@
       "when": 1783729692864,
       "tag": "0025_blushing_mauler",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1783730132659,
+      "tag": "0026_burly_captain_marvel",
+      "breakpoints": true
     }
   ]
 }

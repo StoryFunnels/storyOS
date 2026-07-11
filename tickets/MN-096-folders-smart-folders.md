@@ -1,10 +1,19 @@
 ---
 id: MN-096
 title: Folders & Smart Folders — organize the sidebar as spaces fill up
-status: todo
+status: done
 depends_on: [MN-088]
 size: M
 ---
+
+> **Manual Folders shipped.** New `space_folders` table + nullable `folder_id` on
+> databases (and space_documents), FoldersService/Controller (create / list /
+> rename / delete; deleting a folder drops its items back to the space root via FK
+> set null). Sidebar: space "+" menu gains "New folder"; folders render as
+> collapsible, counted sub-sections; a database's "⋯ → Move to" relocates it into a
+> folder or back to the root. Verified end-to-end (create → move in → list →
+> delete → fallback). **Deferred (follow-ups):** Smart Folders (rule-based
+> membership), docs-in-folders UI, and drag-and-drop into folders.
 
 ## Fibery parity
 

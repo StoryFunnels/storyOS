@@ -13,6 +13,7 @@ export interface Space {
 export interface DatabaseSummary {
   id: string;
   spaceId: string;
+  folderId: string | null;
   name: string;
   icon: string | null;
   color: string | null;
@@ -107,6 +108,7 @@ export function useSidebarMutations(ws: string) {
         icon?: string | null;
         color?: string | null;
         space_id?: string;
+        folder_id?: string | null;
         position?: number;
       }) =>
         unwrap<DatabaseSummary>(

@@ -7,7 +7,7 @@ import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from 
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Check, ChevronRight, ChevronsUpDown, Database, FileText, Home, Inbox, KeyRound, LayoutTemplate, MoreHorizontal, Plug, Plus, Search, Settings, Star, UserRound } from 'lucide-react';
+import { Check, ChevronRight, ChevronsUpDown, Database, FileText, Folder as FolderIcon, Home, Inbox, KeyRound, LayoutTemplate, MoreHorizontal, Plug, Plus, Search, Settings, Star, UserRound } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -27,6 +27,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
@@ -328,6 +329,32 @@ function SpaceSection({
     onError: () => toast.error('Could not create document'),
   });
 
+  // Folders in this space (MN-096).
+  const foldersQuery = useQuery({
+    queryKey: ['folders', ws, space.id],
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/spaces/{space}/folders', {
+        params: { path: { ws, space: space.id } },
+      } as never);
+      if (error) throw error;
+      return (data as unknown as { data: Array<{ id: string; name: string; icon: string | null }> }).data;
+    },
+  });
+  const folders = foldersQuery.data ?? [];
+  const createFolder = useMutation({
+    mutationFn: async (name: string) => {
+      const { error } = await api.POST('/api/v1/workspaces/{ws}/spaces/{space}/folders', {
+        params: { path: { ws, space: space.id } },
+        body: { name } as never,
+      } as never);
+      if (error) throw error;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['folders', ws, space.id] }),
+    onError: () => toast.error('Could not create folder'),
+  });
+  const moveToFolder = (dbId: string, folderId: string | null) =>
+    mutations.updateDatabase.mutate({ id: dbId, folder_id: folderId });
+
   return (
     <div
       ref={setNodeRef}
@@ -378,6 +405,14 @@ function SpaceSection({
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => createDoc.mutate()}>
                   <FileText className="mr-2 h-3.5 w-3.5" /> New document
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={() => {
+                    const name = window.prompt('Folder name');
+                    if (name?.trim()) createFolder.mutate(name.trim());
+                  }}
+                >
+                  <FolderIcon className="mr-2 h-3.5 w-3.5" /> New folder
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -441,16 +476,33 @@ function SpaceSection({
 
       {!collapsed && (
         <>
-          {databases.map((db) => (
-            <DatabaseRow
-              key={db.id}
+          {folders.map((folder) => (
+            <FolderSection
+              key={folder.id}
               ws={ws}
-              db={db}
-              active={pathname.startsWith(`/w/${ws}/d/${db.id}`)}
+              folder={folder}
+              databases={databases.filter((d) => d.folderId === folder.id)}
+              folders={folders}
+              onMove={moveToFolder}
+              pathname={pathname}
               canEdit={canEdit}
               isAdmin={isAdmin}
             />
           ))}
+          {databases
+            .filter((db) => !db.folderId)
+            .map((db) => (
+              <DatabaseRow
+                key={db.id}
+                ws={ws}
+                db={db}
+                active={pathname.startsWith(`/w/${ws}/d/${db.id}`)}
+                canEdit={canEdit}
+                isAdmin={isAdmin}
+                folders={folders}
+                onMove={moveToFolder}
+              />
+            ))}
           {(docs.data ?? []).map((d) => (
             <Link
               key={d.id}
@@ -470,18 +522,92 @@ function SpaceSection({
   );
 }
 
+interface FolderInfo {
+  id: string;
+  name: string;
+  icon: string | null;
+}
+
+/** A collapsible folder inside a space, holding databases (MN-096). */
+function FolderSection({
+  ws,
+  folder,
+  databases,
+  folders,
+  onMove,
+  pathname,
+  canEdit,
+  isAdmin,
+}: {
+  ws: string;
+  folder: FolderInfo;
+  databases: DatabaseSummary[];
+  folders: FolderInfo[];
+  onMove: (dbId: string, folderId: string | null) => void;
+  pathname: string;
+  canEdit: boolean;
+  isAdmin: boolean;
+}) {
+  const key = `storyos:folder-collapsed:${folder.id}`;
+  const [collapsed, setCollapsed] = useState(false);
+  useEffect(() => {
+    if (typeof window !== 'undefined') setCollapsed(window.localStorage.getItem(key) === '1');
+  }, [key]);
+  const toggle = () =>
+    setCollapsed((c) => {
+      const next = !c;
+      if (typeof window !== 'undefined') window.localStorage.setItem(key, next ? '1' : '0');
+      return next;
+    });
+
+  return (
+    <div>
+      <button
+        onClick={toggle}
+        className="flex w-full items-center gap-1 rounded px-2 py-1 text-[13px] text-ink-secondary hover:bg-hover"
+      >
+        <ChevronRight className={cn('h-3 w-3 shrink-0 text-faint transition-transform', !collapsed && 'rotate-90')} />
+        {folder.icon ? <span className="text-[13px] leading-none">{folder.icon}</span> : <FolderIcon className="h-3.5 w-3.5 shrink-0 text-muted" />}
+        <span className="truncate">{folder.name}</span>
+        {databases.length > 0 && <span className="ml-auto text-[11px] text-faint">{databases.length}</span>}
+      </button>
+      {!collapsed && (
+        <div className="ml-3 border-l border-border-default pl-1">
+          {databases.length === 0 && <p className="px-2 py-1 text-[12px] text-faint">Empty</p>}
+          {databases.map((db) => (
+            <DatabaseRow
+              key={db.id}
+              ws={ws}
+              db={db}
+              active={pathname.startsWith(`/w/${ws}/d/${db.id}`)}
+              canEdit={canEdit}
+              isAdmin={isAdmin}
+              folders={folders}
+              onMove={onMove}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DatabaseRow({
   ws,
   db,
   active,
   canEdit,
   isAdmin,
+  folders = [],
+  onMove,
 }: {
   ws: string;
   db: DatabaseSummary;
   active: boolean;
   canEdit: boolean;
   isAdmin: boolean;
+  folders?: FolderInfo[];
+  onMove?: (dbId: string, folderId: string | null) => void;
 }) {
   const mutations = useSidebarMutations(ws);
   const [renaming, setRenaming] = useState(false);
@@ -532,6 +658,23 @@ function DatabaseRow({
             <DropdownMenuItem onSelect={() => setAutomating(true)}>Buttons & automations</DropdownMenuItem>
             {isAdmin && (
               <DropdownMenuItem onSelect={() => setSharing(true)}>Manage access</DropdownMenuItem>
+            )}
+            {onMove && (folders.length > 0 || db.folderId) && (
+              <>
+                <DropdownMenuSeparator />
+                <div className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-faint">Move to</div>
+                {db.folderId && (
+                  <DropdownMenuItem onSelect={() => onMove(db.id, null)}>↑ Space root</DropdownMenuItem>
+                )}
+                {folders
+                  .filter((f) => f.id !== db.folderId)
+                  .map((f) => (
+                    <DropdownMenuItem key={f.id} onSelect={() => onMove(db.id, f.id)}>
+                      <FolderIcon className="mr-2 h-3.5 w-3.5" /> {f.name}
+                    </DropdownMenuItem>
+                  ))}
+                <DropdownMenuSeparator />
+              </>
             )}
             <DropdownMenuItem asChild>
               <Link href={`/w/${ws}/d/${db.id}/trash`}>Trash</Link>

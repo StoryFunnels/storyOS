@@ -15,6 +15,8 @@ export const updateDatabaseSchema = z.object({
   icon: z.string().max(16).nullable().optional(),
   color: databaseColorSchema.nullable().optional(),
   space_id: z.uuid().optional(),
+  /** Sidebar folder (MN-096); null moves the database to the space root. */
+  folder_id: z.uuid().nullable().optional(),
   position: z.number().int().optional(),
 });
 
