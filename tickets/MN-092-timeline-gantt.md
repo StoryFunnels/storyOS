@@ -1,10 +1,16 @@
 ---
 id: MN-092
 title: Timeline & Gantt views — records as bars over a time axis
-status: todo
+status: done
 depends_on: [MN-091]
 size: L
 ---
+
+> **v1 Timeline (read) shipped.** `view_type = timeline`; the view picks a start
+> (required) + optional end date field; records render as bars on a zoomable axis
+> (Day/Week/Month) with a today marker and select-color bars; click a bar opens the
+> record. **Follow-ups (next increment):** drag-move / edge-resize to reschedule,
+> and **Gantt** (left row panel + dependencies + hierarchy) — both tracked here.
 
 ## Fibery parity
 

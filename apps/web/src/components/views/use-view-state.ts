@@ -27,13 +27,24 @@ export interface ViewConfig {
   /** Board card density (MN-089). */
   card_size?: 'small' | 'medium' | 'large';
   date_field_id?: string;
+  /** Timeline (MN-092). */
+  start_date_field_id?: string;
+  end_date_field_id?: string;
+  /** Form (MN-094). */
+  form?: {
+    title?: string;
+    description?: string;
+    submit_text?: string;
+    fields: Array<{ field_id: string; required?: boolean; label?: string; help?: string }>;
+    public_token?: string;
+  };
   column_widths: Record<string, number>;
 }
 
 export interface ViewSummary {
   id: string;
   name: string;
-  type: 'table' | 'board' | 'calendar' | 'gallery' | 'list';
+  type: 'table' | 'board' | 'calendar' | 'gallery' | 'list' | 'feed' | 'timeline' | 'form';
   config: ViewConfig;
 }
 
@@ -114,7 +125,7 @@ export function useViewMutations(ws: string, db: string) {
 
   return {
     createView: useMutation({
-      mutationFn: async (body: { name: string; type: 'table' | 'board' | 'calendar' | 'gallery' | 'list'; config: ViewConfig }) => {
+      mutationFn: async (body: { name: string; type: 'table' | 'board' | 'calendar' | 'gallery' | 'list' | 'feed' | 'timeline' | 'form'; config: ViewConfig }) => {
         const { data, error } = await api.POST('/api/v1/workspaces/{ws}/databases/{db}/views', {
           params: { path: { ws, db } },
           body: body as never,

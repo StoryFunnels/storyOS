@@ -138,7 +138,7 @@ export function ViewToolbar({
       <SortButton fields={fields.filter((f) => SORTABLE.has(f.type))} sorts={config.sorts} onChange={(sorts) => onPatch({ sorts })} />
 
       {/* Field visibility: tables hide columns, boards pick card fields */}
-      {viewType === 'board' || viewType === 'calendar' || viewType === 'gallery' || viewType === 'list' ? (
+      {viewType === 'board' || viewType === 'calendar' || viewType === 'gallery' || viewType === 'list' || viewType === 'feed' ? (
         <CardFieldsButton
           fields={fields.filter((f) => !NON_TOGGLABLE.has(f.type))}
           shown={config.card_field_ids}

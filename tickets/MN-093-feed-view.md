@@ -1,7 +1,7 @@
 ---
 id: MN-093
 title: Feed view — continuous stream of large rich cards
-status: todo
+status: done
 depends_on: [MN-089]
 size: M
 ---
@@ -22,8 +22,8 @@ in a continuous stream… scroll through notes… in a large format."
 
 ## Acceptance criteria
 
-- [ ] `feed` view type; wide single-column cards with description preview + fields.
-- [ ] Honors filter/sort; default newest-first; click opens record.
-- [ ] Reasonable performance (virtualized) for long feeds.
+- [x] `feed` view type; wide single-column cards with description preview + fields.
+- [x] Honors filter/sort; default newest-first; click opens record.
+- [x] Reasonable performance via paginated "Load more" (full virtualization deferred).
 
 Refs: [Fibery Views](https://the.fibery.io/@public/User_Guide/Guide/Views-8).

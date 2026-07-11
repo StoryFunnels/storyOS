@@ -2,11 +2,13 @@
 
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useMemo, useState } from 'react';
-import { CalendarDays, Kanban, LayoutGrid, List as ListIcon, Plus, Table2, X } from 'lucide-react';
+import { CalendarDays, GanttChart, Kanban, LayoutGrid, List as ListIcon, Newspaper, Plus, Table2, X } from 'lucide-react';
 import { BoardView } from '@/components/views/board-view';
 import { CalendarView } from '@/components/views/calendar-view';
 import { GalleryView } from '@/components/views/gallery-view';
 import { ListView } from '@/components/views/list-view';
+import { FeedView } from '@/components/views/feed-view';
+import { TimelineView } from '@/components/views/timeline-view';
 import { TableView } from '@/components/table-view/table-view';
 import { ViewToolbar } from '@/components/views/view-toolbar';
 import {
@@ -15,6 +17,7 @@ import {
   useViewMutations,
   useViewState,
 } from '@/components/views/use-view-state';
+import type { ViewConfig } from '@/components/views/use-view-state';
 import { useDatabase, useMembers } from '@/components/table-view/use-table-data';
 import { atLeast } from '@/lib/access';
 import { Button } from '@/components/ui/button';
@@ -76,6 +79,10 @@ function DatabasePageInner() {
               <LayoutGrid className="h-3.5 w-3.5" />
             ) : view.type === 'list' ? (
               <ListIcon className="h-3.5 w-3.5" />
+            ) : view.type === 'feed' ? (
+              <Newspaper className="h-3.5 w-3.5" />
+            ) : view.type === 'timeline' ? (
+              <GanttChart className="h-3.5 w-3.5" />
             ) : (
               <Table2 className="h-3.5 w-3.5" />
             )}
@@ -96,17 +103,9 @@ function DatabasePageInner() {
         {!readOnly && database.data && (
           <NewViewDialog
             fields={database.data.fields}
-            onCreate={(name, type, groupBy, dateField) =>
+            onCreate={(name, type, configPatch) =>
               viewMutations.createView.mutate(
-                {
-                  name,
-                  type,
-                  config: {
-                    ...EMPTY_CONFIG,
-                    ...(groupBy ? { group_by_field_id: groupBy } : {}),
-                    ...(dateField ? { date_field_id: dateField } : {}),
-                  },
-                },
+                { name, type, config: { ...EMPTY_CONFIG, ...configPatch } },
                 { onSuccess: (v) => router.replace(`/w/${ws}/d/${db}?view=${v.id}`) },
               )
             }
@@ -135,6 +134,10 @@ function DatabasePageInner() {
           <GalleryView ws={ws} db={db} config={config} readOnly={readOnly} />
         ) : activeView?.type === 'list' ? (
           <ListView ws={ws} db={db} config={config} readOnly={readOnly} />
+        ) : activeView?.type === 'feed' ? (
+          <FeedView ws={ws} db={db} config={config} readOnly={readOnly} />
+        ) : activeView?.type === 'timeline' ? (
+          <TimelineView ws={ws} db={db} config={config} readOnly={readOnly} />
         ) : (
           <TableView
             ws={ws}
@@ -154,23 +157,22 @@ function DatabasePageInner() {
   );
 }
 
+type ViewKind = 'table' | 'board' | 'calendar' | 'gallery' | 'list' | 'feed' | 'timeline';
+
 function NewViewDialog({
   fields,
   onCreate,
 }: {
   fields: Array<{ id: string; displayName: string; type: string }>;
-  onCreate: (
-    name: string,
-    type: 'table' | 'board' | 'calendar' | 'gallery' | 'list',
-    groupBy?: string,
-    dateField?: string,
-  ) => void;
+  onCreate: (name: string, type: ViewKind, configPatch?: Partial<ViewConfig>) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
-  const [type, setType] = useState<'table' | 'board' | 'calendar' | 'gallery' | 'list'>('table');
+  const [type, setType] = useState<ViewKind>('table');
   const dateFields = fields.filter((f) => f.type === 'date');
   const [dateField, setDateField] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
   const selectFields = fields.filter((f) => f.type === 'select');
   const [groupBy, setGroupBy] = useState('');
 
@@ -187,12 +189,15 @@ function NewViewDialog({
           onSubmit={(e) => {
             e.preventDefault();
             if (!name.trim()) return;
-            onCreate(
-              name.trim(),
-              type,
-              type === 'board' ? groupBy || selectFields[0]?.id : type === 'list' ? groupBy || undefined : undefined,
-              type === 'calendar' ? dateField || dateFields[0]?.id : undefined,
-            );
+            const patch: Partial<ViewConfig> = {};
+            if (type === 'board') patch.group_by_field_id = groupBy || selectFields[0]?.id;
+            if (type === 'list' && groupBy) patch.group_by_field_id = groupBy;
+            if (type === 'calendar') patch.date_field_id = dateField || dateFields[0]?.id;
+            if (type === 'timeline') {
+              patch.start_date_field_id = startDate || dateFields[0]?.id;
+              if (endDate) patch.end_date_field_id = endDate;
+            }
+            onCreate(name.trim(), type, patch);
             setOpen(false);
             setName('');
           }}
@@ -261,7 +266,62 @@ function NewViewDialog({
                 <ListIcon className="h-4 w-4" /> List
               </button>
             </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className={cn(
+                  'flex flex-1 items-center justify-center gap-2 rounded-[var(--radius-control)] border px-3 py-2 text-[13px]',
+                  type === 'feed' ? 'border-[var(--accent)] bg-accent-soft text-ink' : 'border-border-default text-muted',
+                )}
+                onClick={() => setType('feed')}
+              >
+                <Newspaper className="h-4 w-4" /> Feed
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  'flex flex-1 items-center justify-center gap-2 rounded-[var(--radius-control)] border px-3 py-2 text-[13px]',
+                  type === 'timeline' ? 'border-[var(--accent)] bg-accent-soft text-ink' : 'border-border-default text-muted',
+                )}
+                onClick={() => setType('timeline')}
+                disabled={dateFields.length === 0}
+                title={dateFields.length === 0 ? 'Timelines need a date field' : undefined}
+              >
+                <GanttChart className="h-4 w-4" /> Timeline
+              </button>
+            </div>
           </div>
+          {type === 'timeline' && (
+            <div className="flex gap-2">
+              <div className="flex flex-1 flex-col gap-1.5">
+                <Label htmlFor="start-date">Start date</Label>
+                <select
+                  id="start-date"
+                  className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-sm text-ink"
+                  value={startDate || dateFields[0]?.id || ''}
+                  onChange={(e) => setStartDate(e.target.value)}
+                >
+                  {dateFields.map((f) => (
+                    <option key={f.id} value={f.id}>{f.displayName}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex flex-1 flex-col gap-1.5">
+                <Label htmlFor="end-date">End date (optional)</Label>
+                <select
+                  id="end-date"
+                  className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-sm text-ink"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                >
+                  <option value="">None</option>
+                  {dateFields.map((f) => (
+                    <option key={f.id} value={f.id}>{f.displayName}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
           {type === 'calendar' && (
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="date-field">Date field</Label>

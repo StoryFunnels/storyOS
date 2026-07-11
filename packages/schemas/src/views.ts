@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import { filterSchema, sortSchema } from './query';
 
-export const viewTypeSchema = z.enum(['table', 'board', 'calendar', 'gallery', 'list']);
+export const viewTypeSchema = z.enum([
+  'table', 'board', 'calendar', 'gallery', 'list', 'feed', 'timeline', 'form',
+]);
 export type ViewType = z.infer<typeof viewTypeSchema>;
 
 /**
@@ -22,6 +24,28 @@ export const viewConfigSchema = z.object({
   card_size: z.enum(['small', 'medium', 'large']).optional(),
   /** Calendar only — the date field that places records on the grid (MN-051). */
   date_field_id: z.uuid().optional(),
+  /** Timeline (MN-092) — start (required) + optional end date field. */
+  start_date_field_id: z.uuid().optional(),
+  end_date_field_id: z.uuid().optional(),
+  /** Form (MN-094) — ordered inputs + presentation + optional public token. */
+  form: z
+    .object({
+      title: z.string().max(200).optional(),
+      description: z.string().max(2000).optional(),
+      submit_text: z.string().max(50).optional(),
+      fields: z
+        .array(
+          z.object({
+            field_id: z.uuid(),
+            required: z.boolean().optional(),
+            label: z.string().max(100).optional(),
+            help: z.string().max(500).optional(),
+          }),
+        )
+        .default([]),
+      public_token: z.string().max(64).optional(),
+    })
+    .optional(),
   column_widths: z.record(z.uuid(), z.number().int().min(40).max(1200)).default({}),
 });
 export type ViewConfig = z.infer<typeof viewConfigSchema>;
