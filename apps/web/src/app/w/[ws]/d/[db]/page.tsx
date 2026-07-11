@@ -2,9 +2,11 @@
 
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useMemo, useState } from 'react';
-import { CalendarDays, Kanban, Plus, Table2, X } from 'lucide-react';
+import { CalendarDays, Kanban, LayoutGrid, List as ListIcon, Plus, Table2, X } from 'lucide-react';
 import { BoardView } from '@/components/views/board-view';
 import { CalendarView } from '@/components/views/calendar-view';
+import { GalleryView } from '@/components/views/gallery-view';
+import { ListView } from '@/components/views/list-view';
 import { TableView } from '@/components/table-view/table-view';
 import { ViewToolbar } from '@/components/views/view-toolbar';
 import {
@@ -66,7 +68,17 @@ function DatabasePageInner() {
             )}
             onClick={() => router.replace(`/w/${ws}/d/${db}?view=${view.id}`)}
           >
-            {view.type === 'board' ? <Kanban className="h-3.5 w-3.5" /> : view.type === 'calendar' ? <CalendarDays className="h-3.5 w-3.5" /> : <Table2 className="h-3.5 w-3.5" />}
+            {view.type === 'board' ? (
+              <Kanban className="h-3.5 w-3.5" />
+            ) : view.type === 'calendar' ? (
+              <CalendarDays className="h-3.5 w-3.5" />
+            ) : view.type === 'gallery' ? (
+              <LayoutGrid className="h-3.5 w-3.5" />
+            ) : view.type === 'list' ? (
+              <ListIcon className="h-3.5 w-3.5" />
+            ) : (
+              <Table2 className="h-3.5 w-3.5" />
+            )}
             {view.name}
             {!readOnly && views.length > 1 && view.id === activeView?.id && (
               <X
@@ -119,6 +131,10 @@ function DatabasePageInner() {
           <BoardView ws={ws} db={db} config={config} readOnly={readOnly} />
         ) : activeView?.type === 'calendar' ? (
           <CalendarView ws={ws} db={db} config={config} readOnly={readOnly} />
+        ) : activeView?.type === 'gallery' ? (
+          <GalleryView ws={ws} db={db} config={config} readOnly={readOnly} />
+        ) : activeView?.type === 'list' ? (
+          <ListView ws={ws} db={db} config={config} readOnly={readOnly} />
         ) : (
           <TableView
             ws={ws}
@@ -143,11 +159,16 @@ function NewViewDialog({
   onCreate,
 }: {
   fields: Array<{ id: string; displayName: string; type: string }>;
-  onCreate: (name: string, type: 'table' | 'board' | 'calendar', groupBy?: string, dateField?: string) => void;
+  onCreate: (
+    name: string,
+    type: 'table' | 'board' | 'calendar' | 'gallery' | 'list',
+    groupBy?: string,
+    dateField?: string,
+  ) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
-  const [type, setType] = useState<'table' | 'board' | 'calendar'>('table');
+  const [type, setType] = useState<'table' | 'board' | 'calendar' | 'gallery' | 'list'>('table');
   const dateFields = fields.filter((f) => f.type === 'date');
   const [dateField, setDateField] = useState('');
   const selectFields = fields.filter((f) => f.type === 'select');
@@ -169,7 +190,7 @@ function NewViewDialog({
             onCreate(
               name.trim(),
               type,
-              type === 'board' ? groupBy || selectFields[0]?.id : undefined,
+              type === 'board' ? groupBy || selectFields[0]?.id : type === 'list' ? groupBy || undefined : undefined,
               type === 'calendar' ? dateField || dateFields[0]?.id : undefined,
             );
             setOpen(false);
@@ -218,6 +239,28 @@ function NewViewDialog({
                 <CalendarDays className="h-4 w-4" /> Calendar
               </button>
             </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className={cn(
+                  'flex flex-1 items-center justify-center gap-2 rounded-[var(--radius-control)] border px-3 py-2 text-[13px]',
+                  type === 'gallery' ? 'border-[var(--accent)] bg-accent-soft text-ink' : 'border-border-default text-muted',
+                )}
+                onClick={() => setType('gallery')}
+              >
+                <LayoutGrid className="h-4 w-4" /> Gallery
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  'flex flex-1 items-center justify-center gap-2 rounded-[var(--radius-control)] border px-3 py-2 text-[13px]',
+                  type === 'list' ? 'border-[var(--accent)] bg-accent-soft text-ink' : 'border-border-default text-muted',
+                )}
+                onClick={() => setType('list')}
+              >
+                <ListIcon className="h-4 w-4" /> List
+              </button>
+            </div>
           </div>
           {type === 'calendar' && (
             <div className="flex flex-col gap-1.5">
@@ -236,15 +279,16 @@ function NewViewDialog({
               </select>
             </div>
           )}
-          {type === 'board' && (
+          {(type === 'board' || type === 'list') && selectFields.length > 0 && (
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="group-by">Group by</Label>
+              <Label htmlFor="group-by">Group by{type === 'list' ? ' (optional)' : ''}</Label>
               <select
                 id="group-by"
                 className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-sm text-ink"
-                value={groupBy || selectFields[0]?.id || ''}
+                value={type === 'board' ? groupBy || selectFields[0]?.id || '' : groupBy}
                 onChange={(e) => setGroupBy(e.target.value)}
               >
+                {type === 'list' && <option value="">None</option>}
                 {selectFields.map((f) => (
                   <option key={f.id} value={f.id}>
                     {f.displayName}

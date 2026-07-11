@@ -33,7 +33,7 @@ export interface ViewConfig {
 export interface ViewSummary {
   id: string;
   name: string;
-  type: 'table' | 'board' | 'calendar';
+  type: 'table' | 'board' | 'calendar' | 'gallery' | 'list';
   config: ViewConfig;
 }
 
@@ -114,7 +114,7 @@ export function useViewMutations(ws: string, db: string) {
 
   return {
     createView: useMutation({
-      mutationFn: async (body: { name: string; type: 'table' | 'board' | 'calendar'; config: ViewConfig }) => {
+      mutationFn: async (body: { name: string; type: 'table' | 'board' | 'calendar' | 'gallery' | 'list'; config: ViewConfig }) => {
         const { data, error } = await api.POST('/api/v1/workspaces/{ws}/databases/{db}/views', {
           params: { path: { ws, db } },
           body: body as never,

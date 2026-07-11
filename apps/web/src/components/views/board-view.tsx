@@ -211,7 +211,7 @@ export function BoardView({
   );
 }
 
-type CardSize = 'small' | 'medium' | 'large';
+export type CardSize = 'small' | 'medium' | 'large';
 
 function BoardColumn({
   column,
@@ -338,7 +338,7 @@ function Triangle({ color }: { color: string }) {
 /** These types carry their own visual identity, so they skip the field triangle. */
 const SELF_COLORED = new Set(['select', 'multi_select', 'user', 'checkbox']);
 
-function Card({
+export function Card({
   row,
   cardFields,
   size,
@@ -386,7 +386,7 @@ function Card({
 
 /** One field value on a card: self-colored types render their own chip; everything
  * else gets a muted pill with the field's stable colored triangle (MN-089). */
-function CardFieldChip({
+export function CardFieldChip({
   field,
   value,
   memberNames,

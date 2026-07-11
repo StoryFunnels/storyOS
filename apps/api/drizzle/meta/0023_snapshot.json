@@ -1,6 +1,6 @@
 {
-  "id": "003c0388-737c-4302-9820-253e08819064",
-  "prevId": "1d4f4f8d-9a76-4854-a8eb-881278fff105",
+  "id": "ffa9f546-0845-449c-8e0c-9c9e21a43fa2",
+  "prevId": "003c0388-737c-4302-9820-253e08819064",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -2732,7 +2732,9 @@
       "values": [
         "table",
         "board",
-        "calendar"
+        "calendar",
+        "gallery",
+        "list"
       ]
     }
   },
