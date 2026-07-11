@@ -43,7 +43,8 @@ const ROW_HEIGHT = 32;
 const DEFAULT_WIDTH = 180;
 const TITLE_WIDTH = 260;
 
-const HIDDEN_TYPES = new Set(['created_at', 'updated_at', 'created_by']);
+// The public id renders in the row gutter (Airtable-style), not as its own column.
+const HIDDEN_TYPES = new Set(['id', 'created_at', 'updated_at', 'created_by']);
 // checkbox toggles on click; rich_text edits on the record page; lookup is computed.
 const NO_EDITOR = new Set(['checkbox', 'rich_text', 'lookup', 'button', 'formula']);
 
@@ -301,7 +302,9 @@ export function TableView({
         <div ref={gridRef} style={{ width: totalWidth }} className="outline-none">
           {/* Header */}
           <div className="sticky top-0 z-20 flex border-b border-border-default bg-app">
-            <div className={cn('w-14 shrink-0 bg-app', pinned && 'sticky left-0 z-30')} />
+            <div className={cn('flex w-14 shrink-0 items-center justify-center bg-app text-[11px] font-medium text-faint', pinned && 'sticky left-0 z-30')}>
+              #
+            </div>
             {fields.slice(0, frozenCount).map((field, i) => (
               <HeaderCell
                 key={field.id}
@@ -365,42 +368,58 @@ export function TableView({
                 >
                   <div
                     className={cn(
-                      'flex w-14 shrink-0 items-center justify-center gap-0.5',
+                      'relative flex w-14 shrink-0 items-center justify-center',
                       pinned && 'sticky left-0 z-10',
                       selected.has(row.id) ? 'bg-accent-soft' : 'bg-card group-hover:bg-hover',
                     )}
                   >
-                    {!readOnly && (
-                      <input
-                        type="checkbox"
+                    {/* Public id in the gutter by default (MN-087) — fades to row actions on hover. */}
+                    {row.number !== null && (
+                      <span
                         className={cn(
-                          'h-3 w-3 cursor-pointer',
-                          selected.size > 0 || selected.has(row.id) ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+                          'text-[11px] tabular-nums text-faint',
+                          selected.size > 0 ? 'opacity-0' : 'group-hover:opacity-0',
                         )}
-                        checked={selected.has(row.id)}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleSelect(item.index, (e.nativeEvent as MouseEvent).shiftKey);
-                        }}
-                        readOnly
-                      />
-                    )}
-                    <Link
-                      href={recordHref(ws, db, row)}
-                      title="Open record"
-                      className="rounded p-0.5 text-faint opacity-0 hover:text-ink group-hover:opacity-100"
-                    >
-                      <Maximize2 className="h-3.5 w-3.5" />
-                    </Link>
-                    {!readOnly && (
-                      <button
-                        title="Delete record"
-                        className="rounded p-0.5 text-faint opacity-0 hover:text-error group-hover:opacity-100"
-                        onClick={() => deleteRecord.mutate(row.id)}
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+                        {row.number}
+                      </span>
                     )}
+                    <div
+                      className={cn(
+                        'absolute inset-0 flex items-center justify-center gap-0.5',
+                        selected.size > 0 ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+                      )}
+                    >
+                      {!readOnly && (
+                        <input
+                          type="checkbox"
+                          className="h-3 w-3 cursor-pointer"
+                          checked={selected.has(row.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleSelect(item.index, (e.nativeEvent as MouseEvent).shiftKey);
+                          }}
+                          readOnly
+                        />
+                      )}
+                      <Link
+                        href={recordHref(ws, db, row)}
+                        title="Open record"
+                        className="rounded p-0.5 text-faint hover:text-ink"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <Maximize2 className="h-3.5 w-3.5" />
+                      </Link>
+                      {!readOnly && (
+                        <button
+                          title="Delete record"
+                          className="rounded p-0.5 text-faint hover:text-error"
+                          onClick={() => deleteRecord.mutate(row.id)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                   {fields.map((field, colIndex) => {
                     const isCursor = cursor?.row === item.index && cursor?.col === colIndex;

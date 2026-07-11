@@ -2856,6 +2856,50 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/files": {
+      "post": {
+        "operationId": "FilesController_upload",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Upload an image for the editor (multipart \"file\"); returns { id, url }",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/v1/files/{id}": {
+      "get": {
+        "operationId": "PublicFilesController_serve",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Serve an uploaded editor image by id (capability URL)",
+        "tags": [
+          "files"
+        ]
+      }
+    },
     "/api/v1/users/me/avatar": {
       "post": {
         "operationId": "UsersController_upload",

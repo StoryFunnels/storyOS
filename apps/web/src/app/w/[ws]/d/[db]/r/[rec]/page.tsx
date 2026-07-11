@@ -67,6 +67,7 @@ import { DescriptionEditor } from '@/components/entity/description-editor';
 import { ActivityPanel, AttachmentsStrip, CommentsPanel } from '@/components/entity/panels';
 import { useFavorites } from '@/components/sidebar';
 import { parseRecordParam, recordHref } from '@/lib/records';
+import { uploadEditorImage } from '@/lib/editor-upload';
 import { cn } from '@/lib/utils';
 
 const HIDDEN = new Set(['id', 'title', 'created_at', 'updated_at', 'created_by']);
@@ -955,6 +956,7 @@ function RichTextFieldSection({
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const editor = useCreateBlockNote({
     initialContent: Array.isArray(value) && value.length > 0 ? (value as never) : undefined,
+    uploadFile: (file: File) => uploadEditorImage(ws, file),
   });
   useEffect(() => () => (timer.current !== null ? clearTimeout(timer.current) : undefined), []);
 

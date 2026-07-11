@@ -366,6 +366,21 @@ export const attachments = pgTable(
   (t) => [index('attachments_record_idx').on(t.recordId, t.createdAt)],
 );
 
+/** Workspace-scoped uploads for rich-text editors (MN-097) — images embedded in
+ * descriptions / documents. Served by unguessable id (capability URL). */
+export const workspaceFiles = pgTable('workspace_files', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  workspaceId: uuid('workspace_id')
+    .notNull()
+    .references(() => workspaces.id, { onDelete: 'cascade' }),
+  filename: text('filename').notNull().default(''),
+  mime: text('mime').notNull(),
+  size: integer('size').notNull().default(0),
+  storageKey: text('storage_key').notNull(),
+  uploadedBy: text('uploaded_by'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 /** MN-047: automation rules + run log. */
 export const automations = pgTable(
   'automations',

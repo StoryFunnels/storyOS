@@ -190,6 +190,13 @@
       "when": 1783730132659,
       "tag": "0026_burly_captain_marvel",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1783759241271,
+      "tag": "0027_perpetual_mimic",
+      "breakpoints": true
     }
   ]
 }

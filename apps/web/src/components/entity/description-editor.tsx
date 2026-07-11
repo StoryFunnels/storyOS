@@ -7,6 +7,7 @@ import { BlockNoteView } from '@blocknote/mantine';
 import type { Block } from '@blocknote/core';
 import '@blocknote/core/fonts/inter.css';
 import '@blocknote/mantine/style.css';
+import { uploadEditorImage } from '@/lib/editor-upload';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 
@@ -70,6 +71,7 @@ function EditorInner({
 
   const editor = useCreateBlockNote({
     initialContent: initial.content && initial.content.length > 0 ? initial.content : undefined,
+    uploadFile: (file: File) => uploadEditorImage(ws, file),
   });
 
   const save = useMutation({

@@ -8,6 +8,7 @@ import { BlockNoteView } from '@blocknote/mantine';
 import '@blocknote/core/fonts/inter.css';
 import '@blocknote/mantine/style.css';
 import { api } from '@/lib/api';
+import { uploadEditorImage } from '@/lib/editor-upload';
 
 interface SpaceDoc {
   id: string;
@@ -55,6 +56,7 @@ function DocEditor({
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const editor = useCreateBlockNote({
     initialContent: Array.isArray(initial.content) && initial.content.length > 0 ? (initial.content as never) : undefined,
+    uploadFile: (file: File) => uploadEditorImage(ws, file),
   });
   useEffect(() => () => (timer.current !== null ? clearTimeout(timer.current) : undefined), []);
 

@@ -17,6 +17,7 @@ import { DocumentsModule } from './documents/documents.module';
 import { TokensModule } from './tokens/tokens.module';
 import { CollaborationModule } from './comments/collaboration.module';
 import { AttachmentsModule } from './attachments/attachments.module';
+import { FilesModule } from './files/files.module';
 import { UsersModule } from './users/users.module';
 import { SearchModule } from './search/search.module';
 import { NotificationsModule } from './notifications/notifications.module';
@@ -58,6 +59,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     TokensModule,
     CollaborationModule,
     AttachmentsModule,
+    FilesModule,
     UsersModule,
     SearchModule,
     NotificationsModule,
