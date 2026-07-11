@@ -1,10 +1,21 @@
 ---
 id: MN-094
 title: Forms — collect records via a shareable form
-status: todo
+status: done
 depends_on: []
 size: L
 ---
+
+> **v1 (in-app / authenticated) shipped.** New `view_type = form`; the Form view
+> renders the selected fields (toolbar "Cards" picker) as labelled inputs — name +
+> text/number/date/checkbox/url/email/select — and submitting creates a record via
+> the records API, then resets with a success toast. Form title/description/submit
+> text live in the view config. Verified: form view + config persist; web build green.
+>
+> **Deferred (the founder's recommended sequencing — authed first, public next):**
+> the **public unauthenticated** submission path (`GET/POST /public/forms/{token}` +
+> rate limit + shareable link + hosted render page), per-field **required/label/help**
+> config, and relation/multi-select/person inputs.
 
 ## Fibery parity
 

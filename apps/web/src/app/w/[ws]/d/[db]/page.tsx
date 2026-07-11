@@ -2,13 +2,14 @@
 
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useMemo, useState } from 'react';
-import { CalendarDays, GanttChart, Kanban, LayoutGrid, List as ListIcon, Newspaper, Plus, Table2, X } from 'lucide-react';
+import { CalendarDays, FormInput, GanttChart, Kanban, LayoutGrid, List as ListIcon, Newspaper, Plus, Table2, X } from 'lucide-react';
 import { BoardView } from '@/components/views/board-view';
 import { CalendarView } from '@/components/views/calendar-view';
 import { GalleryView } from '@/components/views/gallery-view';
 import { ListView } from '@/components/views/list-view';
 import { FeedView } from '@/components/views/feed-view';
 import { TimelineView } from '@/components/views/timeline-view';
+import { FormView } from '@/components/views/form-view';
 import { TableView } from '@/components/table-view/table-view';
 import { ViewToolbar } from '@/components/views/view-toolbar';
 import {
@@ -83,6 +84,8 @@ function DatabasePageInner() {
               <Newspaper className="h-3.5 w-3.5" />
             ) : view.type === 'timeline' ? (
               <GanttChart className="h-3.5 w-3.5" />
+            ) : view.type === 'form' ? (
+              <FormInput className="h-3.5 w-3.5" />
             ) : (
               <Table2 className="h-3.5 w-3.5" />
             )}
@@ -138,6 +141,8 @@ function DatabasePageInner() {
           <FeedView ws={ws} db={db} config={config} readOnly={readOnly} />
         ) : activeView?.type === 'timeline' ? (
           <TimelineView ws={ws} db={db} config={config} readOnly={readOnly} />
+        ) : activeView?.type === 'form' ? (
+          <FormView ws={ws} db={db} config={config} readOnly={readOnly} />
         ) : (
           <TableView
             ws={ws}
@@ -157,7 +162,7 @@ function DatabasePageInner() {
   );
 }
 
-type ViewKind = 'table' | 'board' | 'calendar' | 'gallery' | 'list' | 'feed' | 'timeline';
+type ViewKind = 'table' | 'board' | 'calendar' | 'gallery' | 'list' | 'feed' | 'timeline' | 'form';
 
 function NewViewDialog({
   fields,
@@ -289,6 +294,19 @@ function NewViewDialog({
               >
                 <GanttChart className="h-4 w-4" /> Timeline
               </button>
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className={cn(
+                  'flex flex-1 items-center justify-center gap-2 rounded-[var(--radius-control)] border px-3 py-2 text-[13px]',
+                  type === 'form' ? 'border-[var(--accent)] bg-accent-soft text-ink' : 'border-border-default text-muted',
+                )}
+                onClick={() => setType('form')}
+              >
+                <FormInput className="h-4 w-4" /> Form
+              </button>
+              <div className="flex-1" />
             </div>
           </div>
           {type === 'timeline' && (
