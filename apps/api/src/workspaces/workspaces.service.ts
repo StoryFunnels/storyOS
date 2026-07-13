@@ -3,6 +3,12 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { memberships, spaces, workspaces } from '../db/schema';
+import { redactSecrets } from '../common/redact-secrets';
+
+/** Strip integration secrets from `settings` before a workspace leaves the API (MN-144). */
+function serialize<T extends { settings?: unknown }>(w: T): T {
+  return { ...w, settings: redactSecrets(w.settings ?? {}) };
+}
 
 @Injectable()
 export class WorkspacesService {
@@ -36,7 +42,7 @@ export class WorkspacesService {
       await tx
         .insert(memberships)
         .values({ workspaceId: ws!.id, userId, role: 'admin', status: 'active' });
-      return ws!;
+      return serialize(ws!);
     });
   }
 
@@ -52,7 +58,7 @@ export class WorkspacesService {
       ),
     });
     const roleByWs = new Map(mine.map((m) => [m.workspaceId, m.role]));
-    return wss.map((w) => ({ ...w, role: roleByWs.get(w.id) }));
+    return wss.map((w) => ({ ...serialize(w), role: roleByWs.get(w.id) }));
   }
 
   async update(id: string, patch: { name?: string }) {
@@ -61,6 +67,6 @@ export class WorkspacesService {
       .set(patch)
       .where(eq(workspaces.id, id))
       .returning();
-    return ws!;
+    return serialize(ws!);
   }
 }
