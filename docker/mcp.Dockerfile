@@ -18,7 +18,10 @@ COPY packages/config ./packages/config
 COPY packages/sdk ./packages/sdk
 COPY packages/mcp ./packages/mcp
 RUN pnpm install --frozen-lockfile --filter @storyos/mcp... --filter @storyos/sdk --filter @storyos/config
-RUN pnpm --filter @storyos/sdk build && pnpm --filter @storyos/mcp build
+# Bundle (esbuild) so the runtime image is self-contained — inlines @storyos/sdk, which is a
+# devDependency and therefore excluded by the --prod install below. Only @modelcontextprotocol/sdk
+# + zod stay external, and those are prod deps. (Fixes the 502 from a missing @storyos/sdk.)
+RUN pnpm --filter @storyos/sdk build && pnpm --filter @storyos/mcp bundle
 
 FROM base AS runtime
 ENV NODE_ENV=production
