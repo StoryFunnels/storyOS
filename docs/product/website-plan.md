@@ -21,13 +21,22 @@ database" and be the obvious answer when someone wants AI agents on their own da
 ## 2. Tech decision
 
 **Astro** for `storyos.dev` (marketing) + **Astro Starlight** for `docs.storyos.dev`.
-Rationale: content-first, ships near-zero JS by default (Lighthouse 95+ easily),
-markdown/MDX-native (docs generate straight from the repo `docs/`), islands for the few
-interactive bits (view-type switcher, pricing toggle), and it deploys **independently of
-the app** so it stays fast and can't break the product. Tailwind for styling with the
-ported StoryOS tokens. Lives in the monorepo as **`apps/marketing`** (+ `apps/docs`).
-_Fallback if we want one framework: a Next.js static-export marketing app — but Astro is
-the right tool for a content site._
+Content-first, near-zero JS (Lighthouse 95+), markdown/MDX-native, islands for the few
+interactive bits, deploys independently. Tailwind with the ported StoryOS tokens.
+
+### Repo split (decided) — the marketing site is NOT in the open-source repo
+- **`storyos-website` (private repo)** → the **marketing site** (`storyos.dev`). It's a
+  business/brand asset — keeping it out of the AGPL OSS repo means competitors can't fork
+  our go-to-market, self-hosters don't pull it, and analytics/CRM secrets stay private.
+- **`storyOS` (public OSS repo)** → keeps the **docs**: `docs/` content stays here (it
+  documents the open product and versions with the code), and the Starlight docs-site
+  build lives in **`apps/docs`** → `docs.storyos.dev`. Only the marketing site splits out.
+- **Design sharing**: copy the ~15 brand CSS vars (cream/navy/gold + Figtree) into the
+  website repo — trivial, no shared package. (A tiny `@storyos/tokens` package later if needed.)
+
+### Hosting — **Cloudflare Pages** (both sites; DNS already on Cloudflare)
+Git-connected, free, per-PR preview deploys, great for static Astro. `storyos-website`
+repo → `storyos.dev`; OSS `apps/docs` → `docs.storyos.dev`. (Vercel/Netlify equivalent.)
 
 ## 3. Design system (port from the app)
 
