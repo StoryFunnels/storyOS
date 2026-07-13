@@ -3,7 +3,15 @@ import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { bearer, mcp } from 'better-auth/plugins';
 import { env } from '../config/env';
 import type { Db } from '../db/client';
-import { account, session, user, verification } from '../db/auth-schema';
+import {
+  account,
+  session,
+  user,
+  verification,
+  oauthApplication,
+  oauthAccessToken,
+  oauthConsent,
+} from '../db/auth-schema';
 import { sendMail } from '../mail/mailer';
 
 /**
@@ -23,7 +31,7 @@ export function createAuth(db: Db) {
     trustedOrigins: [e.WEB_URL],
     database: drizzleAdapter(db, {
       provider: 'pg',
-      schema: { user, session, account, verification },
+      schema: { user, session, account, verification, oauthApplication, oauthAccessToken, oauthConsent },
     }),
     emailAndPassword: {
       enabled: true,
