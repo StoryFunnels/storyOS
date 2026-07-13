@@ -32,11 +32,11 @@ export function TimelineView({
   ws,
   db,
   config,
-  readOnly,
 }: {
   ws: string;
   db: string;
   config: ViewConfig;
+  /** Accepted for parity with other views; drag-to-reschedule (which uses it) is tracked in MN-092. */
   readOnly: boolean;
 }) {
   const database = useDatabase(ws, db);
