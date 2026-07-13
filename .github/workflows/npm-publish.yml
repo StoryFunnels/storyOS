@@ -1,0 +1,26 @@
+name: Publish @storyos/mcp to npm
+
+# Publishes the MCP package when a tag like `mcp-v0.1.0` is pushed (or manually).
+# Requires an NPM_TOKEN repo secret (npm automation token with publish rights to
+# the @storyos scope). prepublishOnly builds + bundles a self-contained package.
+on:
+  push:
+    tags:
+      - 'mcp-v*'
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: 'https://registry.npmjs.org'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @storyos/mcp publish --access public --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
