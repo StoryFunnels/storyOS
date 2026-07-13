@@ -23,6 +23,18 @@
 		reverse_proxy mcp:3002
 	}
 
+	# OAuth authorization-server discovery at the ROOT (RFC 8414 / MN-154). better-auth's
+	# issuer is the app origin, so clients (claude.ai) look for the metadata here — proxy
+	# it to better-auth under /api/v1/auth. Needed for hosted-MCP OAuth connectors.
+	handle /.well-known/oauth-authorization-server {
+		rewrite * /api/v1/auth/.well-known/oauth-authorization-server
+		reverse_proxy api:3001
+	}
+	handle /.well-known/openid-configuration {
+		rewrite * /api/v1/auth/.well-known/openid-configuration
+		reverse_proxy api:3001
+	}
+
 	# App: API + web on the main host(s).
 	handle /api/* {
 		reverse_proxy api:3001

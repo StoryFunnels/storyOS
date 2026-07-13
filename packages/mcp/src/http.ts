@@ -49,7 +49,7 @@ function rpcError(res: ServerResponse, status: number, code: number, message: st
 // resource metadata to find the AS and run the OAuth flow.
 const OAUTH = process.env.MCP_OAUTH === 'true' || process.env.MCP_OAUTH === '1';
 const PUBLIC_URL = (process.env.MCP_PUBLIC_URL ?? 'https://mcp.storyos.dev').replace(/\/$/, '');
-const AUTH_SERVER = (process.env.MCP_AUTH_SERVER ?? 'https://app.storyos.dev/api/v1/auth').replace(/\/$/, '');
+const AUTH_SERVER = (process.env.MCP_AUTH_SERVER ?? 'https://app.storyos.dev').replace(/\/$/, '');
 const RESOURCE_METADATA = `${PUBLIC_URL}/.well-known/oauth-protected-resource`;
 
 const server = createServer(async (req, res) => {
