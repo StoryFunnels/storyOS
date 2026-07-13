@@ -355,6 +355,36 @@ function SpaceSection({
   const moveToFolder = (dbId: string, folderId: string | null) =>
     mutations.updateDatabase.mutate({ id: dbId, folder_id: folderId });
 
+  // Document rename/delete (MN-26): the API already supports PATCH/DELETE; expose it.
+  const renameDoc = useMutation({
+    mutationFn: async (v: { id: string; title: string }) => {
+      const { error } = await api.PATCH('/api/v1/workspaces/{ws}/documents/{doc}', {
+        params: { path: { ws, doc: v.id } },
+        body: { title: v.title } as never,
+      } as never);
+      if (error) throw error;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['space-docs', ws, space.id] }),
+    onError: () => toast.error('Could not rename document'),
+  });
+  const deleteDoc = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await api.DELETE('/api/v1/workspaces/{ws}/documents/{doc}', {
+        params: { path: { ws, doc: id } },
+      } as never);
+      if (error) throw error;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['space-docs', ws, space.id] }),
+    onError: () => toast.error('Could not delete document'),
+  });
+
+  // Styled name/confirm dialog replaces window.prompt/confirm (MN-24).
+  const [dialog, setDialog] = useState<
+    | null
+    | { kind: 'name'; title: string; value: string; submit: (v: string) => void }
+    | { kind: 'confirm'; title: string; danger?: boolean; submit: () => void }
+  >(null);
+
   return (
     <div
       ref={setNodeRef}
@@ -408,8 +438,7 @@ function SpaceSection({
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onSelect={() => {
-                    const name = window.prompt('Folder name');
-                    if (name?.trim()) createFolder.mutate(name.trim());
+                    setDialog({ kind: 'name', title: 'New folder', value: '', submit: (v) => createFolder.mutate(v) });
                   }}
                 >
                   <FolderIcon className="mr-2 h-3.5 w-3.5" /> New folder
@@ -504,21 +533,97 @@ function SpaceSection({
               />
             ))}
           {(docs.data ?? []).map((d) => (
-            <Link
-              key={d.id}
-              href={`/w/${ws}/doc/${d.id}`}
-              className={cn(
-                'flex items-center gap-2 rounded px-2 py-1 text-[13px] hover:bg-hover',
-                pathname === `/w/${ws}/doc/${d.id}` ? 'bg-active font-medium text-ink' : 'text-ink-secondary',
-              )}
-            >
-              {d.icon ? <span className="text-[13px] leading-none">{d.icon}</span> : <FileText className="h-3.5 w-3.5 shrink-0 text-muted" />}
-              <span className="truncate">{d.title || 'Untitled'}</span>
-            </Link>
+            <div key={d.id} className="group/doc relative flex items-center">
+              <Link
+                href={`/w/${ws}/doc/${d.id}`}
+                className={cn(
+                  'flex min-w-0 flex-1 items-center gap-2 rounded px-2 py-1 text-[13px] hover:bg-hover',
+                  pathname === `/w/${ws}/doc/${d.id}` ? 'bg-active font-medium text-ink' : 'text-ink-secondary',
+                )}
+              >
+                {d.icon ? <span className="text-[13px] leading-none">{d.icon}</span> : <FileText className="h-3.5 w-3.5 shrink-0 text-muted" />}
+                <span className="truncate">{d.title || 'Untitled'}</span>
+              </Link>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className="absolute right-1 rounded p-0.5 text-muted opacity-0 hover:bg-active hover:text-ink group-hover/doc:opacity-100">
+                    <MoreHorizontal className="h-3.5 w-3.5" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    onSelect={() => setDialog({ kind: 'name', title: 'Rename document', value: d.title || '', submit: (v) => renameDoc.mutate({ id: d.id, title: v }) })}
+                  >
+                    Rename
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="text-error"
+                    onSelect={() => setDialog({ kind: 'confirm', title: `Delete "${d.title || 'Untitled'}"?`, danger: true, submit: () => deleteDoc.mutate(d.id) })}
+                  >
+                    Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           ))}
         </>
       )}
+      {dialog && <PromptDialog state={dialog} onClose={() => setDialog(null)} />}
     </div>
+  );
+}
+
+/** Styled replacement for window.prompt / window.confirm (MN-24). */
+function PromptDialog({
+  state,
+  onClose,
+}: {
+  state:
+    | { kind: 'name'; title: string; value: string; submit: (v: string) => void }
+    | { kind: 'confirm'; title: string; danger?: boolean; submit: () => void };
+  onClose: () => void;
+}) {
+  const [val, setVal] = useState(state.kind === 'name' ? state.value : '');
+  const confirm = () => {
+    if (state.kind === 'name') {
+      if (val.trim()) state.submit(val.trim());
+    } else {
+      state.submit();
+    }
+    onClose();
+  };
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent title={state.title} className="max-w-sm">
+        <div className="flex flex-col gap-3 p-1">
+          {state.kind === 'name' && (
+            <input
+              autoFocus
+              value={val}
+              onChange={(e) => setVal(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') confirm();
+              }}
+              className="w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1.5 text-[13px] text-ink outline-none focus:border-border-strong"
+            />
+          )}
+          <div className="flex justify-end gap-2">
+            <button className="rounded-[var(--radius-control)] px-3 py-1.5 text-[13px] text-muted hover:bg-hover" onClick={onClose}>
+              Cancel
+            </button>
+            <button
+              className={cn(
+                'rounded-[var(--radius-control)] px-3 py-1.5 text-[13px] font-medium text-white',
+                state.kind === 'confirm' && state.danger ? 'bg-error' : 'bg-ink',
+              )}
+              onClick={confirm}
+            >
+              {state.kind === 'confirm' ? 'Delete' : 'Save'}
+            </button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
