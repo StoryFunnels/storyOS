@@ -286,20 +286,25 @@ export function AddFieldDialog({
   ws,
   db,
   onDone,
+  initialType,
+  initialRelationId,
 }: {
   ws: string;
   db: string;
   onDone: () => void;
+  /** Preset the dialog — e.g. "Add a field from linked records" opens it on lookup + the relation (MN-17). */
+  initialType?: string;
+  initialRelationId?: string;
 }) {
   const { invalidate } = useFieldMutations(ws, db);
   const [name, setName] = useState('');
-  const [type, setType] = useState<string>('text');
+  const [type, setType] = useState<string>(initialType ?? 'text');
   const [config, setConfig] = useState<Record<string, unknown>>({});
   const [options, setOptions] = useState<OptionDraft[]>([]);
   const [targetDb, setTargetDb] = useState('');
   const [singleTarget, setSingleTarget] = useState(true);
   const [inverseName, setInverseName] = useState('');
-  const [lookupRelationId, setLookupRelationId] = useState('');
+  const [lookupRelationId, setLookupRelationId] = useState(initialRelationId ?? '');
   const [lookupTargetApi, setLookupTargetApi] = useState('');
   const [rollupOp, setRollupOp] = useState('count');
   const [buttonActions, setButtonActions] = useState<ButtonAction[]>([

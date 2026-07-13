@@ -100,7 +100,7 @@ export function TableView({
   const [widths, setWidths] = useState<Record<string, number>>({});
   const [cursor, setCursor] = useState<Cursor | null>(null);
   const [editing, setEditing] = useState(false);
-  const [addingField, setAddingField] = useState(false);
+  const [addingField, setAddingField] = useState<null | { type?: string; relationId?: string }>(null);
 
   // First column frozen by default; per-user, per-database preference (MN-083).
   const pinKey = `storyos:pin-first:${db}`;
@@ -418,6 +418,7 @@ export function TableView({
                     width={widthOf(field)}
                     readOnly={!schemaEditable}
                     reorderable={schemaEditable}
+                    onAddLookup={(id) => setAddingField({ type: 'lookup', relationId: id })}
                     onResize={(w) => {
                       setWidths((prev) => ({ ...prev, [field.id]: w }));
                       onColumnResize?.(field.id, w);
@@ -427,13 +428,21 @@ export function TableView({
               </SortableContext>
             </DndContext>
             {schemaEditable && (
-              <Dialog open={addingField} onOpenChange={setAddingField}>
+              <Dialog open={addingField !== null} onOpenChange={(open) => setAddingField(open ? {} : null)}>
                 <DialogTrigger asChild>
                   <button className="flex h-8 w-[110px] shrink-0 items-center gap-1.5 border-r border-border-default px-2 text-[12px] font-medium text-muted hover:bg-hover hover:text-ink">
                     <Plus className="h-3.5 w-3.5" /> New field
                   </button>
                 </DialogTrigger>
-                {addingField && <AddFieldDialog ws={ws} db={db} onDone={() => setAddingField(false)} />}
+                {addingField && (
+                  <AddFieldDialog
+                    ws={ws}
+                    db={db}
+                    initialType={addingField.type}
+                    initialRelationId={addingField.relationId}
+                    onDone={() => setAddingField(null)}
+                  />
+                )}
               </Dialog>
             )}
           </div>
@@ -760,6 +769,7 @@ function HeaderCell({
   isFirst = false,
   pinned = false,
   onTogglePin,
+  onAddLookup,
 }: {
   ws: string;
   db: string;
@@ -767,6 +777,7 @@ function HeaderCell({
   width: number;
   readOnly: boolean;
   onResize: (width: number) => void;
+  onAddLookup?: (relationFieldId: string) => void;
   reorderable?: boolean;
   sticky?: boolean;
   stickyLeft?: number;
@@ -830,6 +841,9 @@ function HeaderCell({
           <DropdownMenuContent>
             <DropdownMenuItem onSelect={() => setDialog('edit')}>Edit field</DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setDialog('change-type')}>Change type</DropdownMenuItem>
+            {field.type === 'relation' && onAddLookup && (
+              <DropdownMenuItem onSelect={() => onAddLookup(field.id)}>Add field from linked records</DropdownMenuItem>
+            )}
             <DropdownMenuItem className="text-error" onSelect={() => deleteField.mutate()}>
               Delete field
             </DropdownMenuItem>
