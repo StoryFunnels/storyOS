@@ -1,6 +1,13 @@
 # StoryOS reverse proxy: one hostname for web + API (MN-068).
 # TLS terminates at Cloudflare (proxied DNS) or a fronting proxy; Caddy serves HTTP.
 # To let Caddy do TLS itself instead, replace `:80` with your domain name.
+
+# Keep :80 and :443 independent: don't auto-redirect HTTP→HTTPS. Behind Cloudflare
+# a forced redirect can cause a loop, and it lets :80 stay a working fallback.
+{
+	auto_https disable_redirects
+}
+
 :80 {
 	handle /api/* {
 		reverse_proxy api:3001
@@ -9,3 +16,9 @@
 		reverse_proxy web:3000
 	}
 }
+
+# Optional origin TLS on :443. Drop a snippet in docker/tls.d/*.caddy to serve
+# HTTPS with your own certificate — e.g. a Cloudflare Origin CA cert so Cloudflare
+# can run in "Full (strict)" mode instead of "Flexible". No snippet present (the
+# default) = plain HTTP :80 only. See docker/tls.d/origin.caddy.example.
+import /etc/caddy/tls.d/*.caddy

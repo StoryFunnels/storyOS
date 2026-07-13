@@ -1,0 +1,23 @@
+# Origin TLS for Cloudflare "Full (strict)" mode.
+#
+# Copy this file to `origin.caddy` (same directory) ON YOUR SERVER ONLY, then
+# place a Cloudflare Origin CA certificate + key at:
+#   docker/certs/origin.pem   — the Origin Certificate
+#   docker/certs/origin.key   — the Private Key
+#
+# Generate them in Cloudflare → SSL/TLS → Origin Server → Create Certificate
+# (hostnames: your-domain.com, *.your-domain.com; 15-year validity is fine).
+# NEVER commit origin.caddy or the certs — they are gitignored on purpose.
+#
+# `:443` with an explicit cert makes Caddy present it for every hostname without
+# ACME, so it works behind Cloudflare's proxy. Then set the zone's SSL/TLS mode
+# to "Full (strict)".
+:443 {
+	tls /etc/caddy/certs/origin.pem /etc/caddy/certs/origin.key
+	handle /api/* {
+		reverse_proxy api:3001
+	}
+	handle {
+		reverse_proxy web:3000
+	}
+}

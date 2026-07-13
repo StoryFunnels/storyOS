@@ -13,6 +13,11 @@ coverage/
 .env.*
 !.env.example
 
+# Origin TLS certs & live Caddy TLS drop-ins (operator-provided, never committed)
+docker/certs/*
+!docker/certs/.gitkeep
+docker/tls.d/*.caddy
+
 # OS / editor
 .DS_Store
 *.log

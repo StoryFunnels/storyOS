@@ -69,6 +69,8 @@ services:
       - api
     volumes:
       - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./docker/tls.d:/etc/caddy/tls.d:ro
+      - ./docker/certs:/etc/caddy/certs:ro
       - storyos_caddy:/data
     ports:
       - "${HTTP_PORT:-80}:80"
