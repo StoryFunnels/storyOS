@@ -41,10 +41,20 @@ export function cleanViewConfig(
         ? config.group_by_field_id
         : undefined,
     card_field_ids: (config.card_field_ids ?? []).filter((id) => liveFieldIds.has(id)),
+    card_size: config.card_size,
     date_field_id:
       config.date_field_id && liveFieldIds.has(config.date_field_id)
         ? config.date_field_id
         : undefined,
+    start_date_field_id:
+      config.start_date_field_id && liveFieldIds.has(config.start_date_field_id)
+        ? config.start_date_field_id
+        : undefined,
+    end_date_field_id:
+      config.end_date_field_id && liveFieldIds.has(config.end_date_field_id)
+        ? config.end_date_field_id
+        : undefined,
+    form: config.form,
     column_widths: Object.fromEntries(
       Object.entries(config.column_widths ?? {}).filter(([id]) => liveFieldIds.has(id)),
     ),
