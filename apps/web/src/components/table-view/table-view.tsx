@@ -20,7 +20,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { CellDisplay, CellEditor, PressButton } from './cells';
+import { CellDisplay, CellEditor, PressButton, fieldValue } from './cells';
 import {
   AddFieldDialog,
   ChangeTypeDialog,
@@ -44,9 +44,9 @@ const DEFAULT_WIDTH = 180;
 const TITLE_WIDTH = 260;
 
 // The public id renders in the row gutter (Airtable-style), not as its own column.
-const HIDDEN_TYPES = new Set(['id', 'created_at', 'updated_at', 'created_by']);
+const HIDDEN_TYPES = new Set(['id', 'created_by']);
 // checkbox toggles on click; rich_text edits on the record page; lookup is computed.
-const NO_EDITOR = new Set(['checkbox', 'rich_text', 'lookup', 'button', 'formula']);
+const NO_EDITOR = new Set(['checkbox', 'rich_text', 'lookup', 'button', 'formula', 'created_at', 'updated_at']);
 
 interface Cursor {
   row: number;
@@ -203,7 +203,7 @@ export function TableView({
   );
 
   const valueOf = (row: RecordRow, field: Field): unknown =>
-    field.type === 'id' ? row.number : field.type === 'title' ? row.title : row.values[field.apiName];
+    fieldValue(row, field);
 
   // Leading non-reorderable columns stay frozen when pinned: the public id (MN-087)
   // then the title. Everything after is draggable. If the id column is hidden, only
@@ -444,7 +444,7 @@ export function TableView({
                           if (readOnly) return;
                           if (field.type === 'checkbox') {
                             commitEdit(row, field, !(valueOf(row, field) === true));
-                          } else if (field.type !== 'title' && field.type !== 'id') {
+                          } else if (field.type !== 'title' && field.type !== 'id' && !NO_EDITOR.has(field.type)) {
                             setEditing(true);
                           }
                         }}

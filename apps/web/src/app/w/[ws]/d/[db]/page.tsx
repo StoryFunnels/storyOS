@@ -174,7 +174,7 @@ function NewViewDialog({
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [type, setType] = useState<ViewKind>('table');
-  const dateFields = fields.filter((f) => f.type === 'date');
+  const dateFields = fields.filter((f) => f.type === 'date' || f.type === 'created_at' || f.type === 'updated_at');
   const [dateField, setDateField] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');

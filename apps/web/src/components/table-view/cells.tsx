@@ -129,6 +129,15 @@ export function CellDisplay({ field, value, memberNames, memberImages }: Display
         </span>
       );
     }
+    case 'date':
+    case 'created_at':
+    case 'updated_at': {
+      const d = new Date(String(value));
+      if (Number.isNaN(d.getTime())) return <span className="truncate text-[13px]">{String(value)}</span>;
+      // System timestamps carry a time; plain date fields show the day only.
+      const shown = field.type === 'date' ? d.toLocaleDateString() : d.toLocaleString();
+      return <span className="truncate text-[13px] tabular-nums text-ink-secondary">{shown}</span>;
+    }
     case 'url':
       return (
         <a
@@ -150,6 +159,41 @@ export function CellDisplay({ field, value, memberNames, memberImages }: Display
       return <span className="truncate text-[13px] font-medium text-ink">{String(value)}</span>;
     default:
       return <span className="truncate text-[13px]">{String(value)}</span>;
+  }
+}
+
+/** A record as views see it — scalar values keyed by api_name, plus system columns. */
+export interface ViewRow {
+  number: number | null;
+  title: string;
+  values: Record<string, unknown>;
+  created_at?: string;
+  updated_at?: string;
+}
+
+/** created_at/updated_at are date-typed system fields — usable anywhere a date is (MN-150). */
+export function isDateField(field: { type: string }): boolean {
+  return field.type === 'date' || field.type === 'created_at' || field.type === 'updated_at';
+}
+
+/** created_at/updated_at can't be edited (system-managed). */
+export function isSystemDate(type: string): boolean {
+  return type === 'created_at' || type === 'updated_at';
+}
+
+/** Read a field's value, sourcing system columns (id/title/timestamps) from the row. */
+export function fieldValue(row: ViewRow, field: { type: string; apiName: string }): unknown {
+  switch (field.type) {
+    case 'id':
+      return row.number;
+    case 'title':
+      return row.title;
+    case 'created_at':
+      return row.created_at;
+    case 'updated_at':
+      return row.updated_at;
+    default:
+      return row.values[field.apiName];
   }
 }
 

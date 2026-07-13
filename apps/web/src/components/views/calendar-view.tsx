@@ -13,7 +13,7 @@ import {
 } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { CellDisplay } from '../table-view/cells';
+import { CellDisplay, fieldValue, isSystemDate } from '../table-view/cells';
 import { useDatabase, useMembers, useRecordMutations, useRecordsInfinite } from '../table-view/use-table-data';
 import type { Field, RecordRow } from '../table-view/use-table-data';
 import { fmtDate, MONTH_NAMES, monthMatrix } from '@/lib/dates';
@@ -76,7 +76,7 @@ export function CalendarView({
     const map = new Map<string, RecordRow[]>();
     if (!dateField) return map;
     for (const row of rows) {
-      const raw = row.values[dateField.apiName];
+      const raw = fieldValue(row, dateField);
       if (typeof raw !== 'string') continue;
       // Datetimes bucket by the viewer's local day (documented, matches Notion).
       const day = raw.length > 10 ? fmtDate(new Date(raw)) : raw.slice(0, 10);
@@ -97,12 +97,12 @@ export function CalendarView({
 
   function onDragEnd(event: DragEndEvent) {
     lastDragEnd.current = Date.now();
-    if (!dateField || !event.over || readOnly) return;
+    if (!dateField || !event.over || readOnly || isSystemDate(dateField.type)) return;
     const day = String(event.over.id).replace('day:', '');
     const rec = String(event.active.id);
     const row = rows.find((r) => r.id === rec);
     if (!row) return;
-    const raw = row.values[dateField.apiName];
+    const raw = fieldValue(row, dateField);
     // Preserve the time component for datetime fields.
     const time = typeof raw === 'string' && raw.length > 10 ? raw.slice(10) : '';
     updateRecord.mutate({ rec, values: { [dateField.apiName]: `${day}${time}` } });
@@ -180,7 +180,7 @@ export function CalendarView({
                 onCreate={() => {
                   if (readOnly) return;
                   createRecord.mutate(
-                    { name: 'Untitled', [dateField.apiName]: iso },
+                    isSystemDate(dateField.type) ? { name: 'Untitled' } : { name: 'Untitled', [dateField.apiName]: iso },
                     { onSuccess: (created) => router.push(`/w/${ws}/d/${db}/r/${created.id}`) },
                   );
                 }}

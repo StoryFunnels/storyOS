@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { recordHref } from '@/lib/records';
-import { OPTION_COLORS } from '../table-view/cells';
+import { OPTION_COLORS, fieldValue, isDateField } from '../table-view/cells';
 import { useDatabase, useRecordsInfinite } from '../table-view/use-table-data';
 import type { RecordRow } from '../table-view/use-table-data';
 import type { ViewConfig } from './use-view-state';
@@ -48,17 +48,17 @@ export function TimelineView({
   const [zoom, setZoom] = useState<'day' | 'week' | 'month'>('week');
   const pxPerDay = ZOOM[zoom]!.px;
 
-  const startField = database.data?.fields.find((f) => f.id === config.start_date_field_id && f.type === 'date');
-  const endField = database.data?.fields.find((f) => f.id === config.end_date_field_id && f.type === 'date');
+  const startField = database.data?.fields.find((f) => f.id === config.start_date_field_id && isDateField(f));
+  const endField = database.data?.fields.find((f) => f.id === config.end_date_field_id && isDateField(f));
   const colorField = database.data?.fields.find((f) => f.type === 'select');
 
   const bars = useMemo(() => {
     if (!startField) return [];
     return rows
       .map((row) => {
-        const start = toDay(row.values[startField.apiName]);
+        const start = toDay(fieldValue(row, startField) as string | undefined);
         if (start === null) return null;
-        const end = endField ? toDay(row.values[endField.apiName]) ?? start : start;
+        const end = endField ? toDay(fieldValue(row, endField) as string | undefined) ?? start : start;
         return { row, start, end: Math.max(start, end) };
       })
       .filter((b): b is { row: RecordRow; start: number; end: number } => b !== null);

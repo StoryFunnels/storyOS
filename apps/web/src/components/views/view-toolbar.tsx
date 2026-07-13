@@ -161,7 +161,7 @@ export function ViewToolbar({
           onChange={(e) => onPatch({ date_field_id: e.target.value })}
           title="Date field"
         >
-          {fields.filter((f) => f.type === 'date').map((f) => (
+          {fields.filter((f) => f.type === 'date' || f.type === 'created_at' || f.type === 'updated_at').map((f) => (
             <option key={f.id} value={f.id}>
               {f.displayName}
             </option>
@@ -428,7 +428,7 @@ export function SortButton({
 }
 
 /** Title always shows; system timestamps never render in grids or on cards. */
-const NON_TOGGLABLE = new Set(['title', 'created_at', 'updated_at', 'created_by']);
+const NON_TOGGLABLE = new Set(['title', 'created_by']);
 
 /** Board/calendar card composition (MN-042, MN-089): which fields show + card size. */
 function CardFieldsButton({

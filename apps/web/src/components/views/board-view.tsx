@@ -19,7 +19,7 @@ import { api } from '@/lib/api';
 import { recordHref } from '@/lib/records';
 import { cn } from '@/lib/utils';
 import { Avatar } from '@/components/ui/avatar';
-import { CellDisplay, OPTION_COLORS, OptionChip } from '../table-view/cells';
+import { CellDisplay, OPTION_COLORS, OptionChip, fieldValue } from '../table-view/cells';
 import type { LinkChip } from '../table-view/relation-cell';
 import {
   useDatabase,
@@ -355,7 +355,7 @@ export function Card({
 }) {
   const s = SIZE_STYLES[size];
   const chips = cardFields
-    .map((field) => ({ field, value: field.type === 'title' ? row.title : row.values[field.apiName] }))
+    .map((field) => ({ field, value: fieldValue(row, field) }))
     .filter(({ value }) => !(value === undefined || value === null || value === '' || (Array.isArray(value) && value.length === 0)));
 
   return (
