@@ -84,10 +84,14 @@ export function registerTools(server: McpServer, client: Client) {
     },
     handle<{ workspace?: string }>(async ({ workspace }) => {
       const intro = [
-        'StoryOS MCP — read a workspace of user-defined relational databases.',
+        'StoryOS MCP — read AND build a workspace of user-defined relational databases.',
         '',
-        'Flow: list_workspaces → list_databases → describe_database (READ THE SCHEMA before querying) → query_records / search / get_record.',
-        'Never invent ids: they come only from search / list_* / a prior result. Names and slugs are accepted and resolved server-side.',
+        'READ:  list_workspaces → list_databases → describe_database (READ THE SCHEMA first) → query_records / search / get_record.',
+        'WRITE: describe_database first, then create_record / update_record. Fill the FULL field template, not just a couple of fields.',
+        'BUILD: list_spaces → create_space → create_database → add_field → create_view → create_relation. Then create_record to populate.',
+        '',
+        'Refs: address a database by its qualified "space/database" slug (from list_databases) — a bare name that exists in two spaces is rejected. Never invent ids; they come from search / list_* / a prior result. Names, slugs and select labels are resolved server-side.',
+        'Values: select/multi_select take the human label (e.g. "High"); rich_text fields accept a plain string (auto-wrapped) or a blocks array.',
         '',
         FILTER_GUIDE,
       ].join('\n');
@@ -207,8 +211,9 @@ export function registerTools(server: McpServer, client: Client) {
             body: { filter, sorts: sorts ?? [], limit: limit ?? 50, cursor } as never,
           }),
         );
+        const detail = await getDetail(ws.id, db.id);
         return text({
-          records: res.data.map((r) => ({ id: r.id, number: r.number, title: r.title, values: r.values })),
+          records: res.data.map((r) => ({ id: r.id, number: r.number, title: r.title, values: labelize(detail, r.values) })),
           next_cursor: res.next_cursor,
           has_more: res.has_more,
         });
@@ -242,7 +247,8 @@ export function registerTools(server: McpServer, client: Client) {
               params: { path: { ws: ws.id, db: db.id, rec: record } },
             }),
           );
-      return text(row);
+      const detail = await getDetail(ws.id, db.id);
+      return text({ ...row, values: labelize(detail, row.values) });
     }),
   );
 
@@ -270,6 +276,45 @@ export function registerTools(server: McpServer, client: Client) {
       else if (f.type === 'multi_select' && Array.isArray(value)) out[key] = value.map(toId);
     }
     return out;
+  }
+
+  /** rich_text accepts a plain string for convenience (#6): wrap it in a paragraph block. */
+  const toBlocks = (s: string) => [{ type: 'paragraph', content: [{ type: 'text', text: s }] }];
+
+  /** Full write mapping (#6 + labels): select labels → ids, and a string on a rich_text
+   * field → a blocks array, so the model can write prose without knowing the block format. */
+  function mapWriteValues(detail: DatabaseDetail, values: Record<string, unknown>): Record<string, unknown> {
+    const byApi = new Map(detail.fields.map((f) => [f.apiName, f]));
+    const out = mapSelectLabels(detail, values);
+    for (const [k, v] of Object.entries(out)) {
+      if (byApi.get(k)?.type === 'rich_text' && typeof v === 'string') out[k] = toBlocks(v);
+    }
+    return out;
+  }
+
+  /** Read mapping (#8): resolve select/multi_select option ids → labels so agents see
+   * "In Progress", not a UUID. Unknown ids pass through untouched. */
+  function labelize(detail: DatabaseDetail, values: Record<string, unknown>): Record<string, unknown> {
+    const byApi = new Map(detail.fields.map((f) => [f.apiName, f]));
+    const out: Record<string, unknown> = { ...values };
+    for (const [k, v] of Object.entries(values)) {
+      const f = byApi.get(k);
+      if (!f?.options?.length) continue;
+      const toLabel = (x: unknown) => f.options!.find((o) => o.id === x)?.label ?? x;
+      if (f.type === 'select') out[k] = typeof v === 'string' ? toLabel(v) : v;
+      else if (f.type === 'multi_select' && Array.isArray(v)) out[k] = v.map(toLabel);
+    }
+    return out;
+  }
+
+  /** Non-system fields with no value in `values` — surfaced by create_record so agents
+   * (and their humans) notice a skeletal record instead of silently under-filling it (#14). */
+  function unsetFields(detail: DatabaseDetail, values: Record<string, unknown>): string[] {
+    const SYS = ['id', 'title', 'created_at', 'updated_at', 'created_by', 'formula', 'rollup', 'lookup'];
+    return detail.fields
+      .filter((f) => !SYS.includes(f.type))
+      .filter((f) => values[f.apiName] === undefined || values[f.apiName] === null || values[f.apiName] === '')
+      .map((f) => f.apiName);
   }
 
   async function resolveRecordId(wsId: string, dbId: string, ref: string): Promise<string> {
@@ -313,10 +358,16 @@ export function registerTools(server: McpServer, client: Client) {
       const row = await unwrap<RecordRow>(
         client.POST('/api/v1/workspaces/{ws}/databases/{db}/records', {
           params: { path: { ws: ws.id, db: db.id } },
-          body: { values: mapSelectLabels(detail, values) } as never,
+          body: { values: mapWriteValues(detail, values) } as never,
         }),
       );
-      return text(row);
+      const record = { ...row, values: labelize(detail, row.values) };
+      const unset = unsetFields(detail, values);
+      return text(
+        unset.length
+          ? { record, unset_fields: unset, note: `Left empty — if relevant to this record, fill them: ${unset.join(', ')}. Call describe_database to see each field.` }
+          : record,
+      );
     }),
   );
 
@@ -341,10 +392,10 @@ export function registerTools(server: McpServer, client: Client) {
         const row = await unwrap<RecordRow>(
           client.PATCH('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}', {
             params: { path: { ws: ws.id, db: db.id, rec } },
-            body: { values: mapSelectLabels(detail, values) } as never,
+            body: { values: mapWriteValues(detail, values) } as never,
           }),
         );
-        return text(row);
+        return text({ ...row, values: labelize(detail, row.values) });
       },
     ),
   );
@@ -456,12 +507,12 @@ export function registerTools(server: McpServer, client: Client) {
   // ============ Schema building (MN-146): databases, fields, views ============
 
   async function resolveSpaceId(wsId: string, ref: string): Promise<string> {
-    const spaces = await unwrap<Array<{ id: string; name: string }>>(
+    const spaces = await unwrap<Array<{ id: string; name: string; slug?: string }>>(
       client.GET('/api/v1/workspaces/{ws}/spaces', { params: { path: { ws: wsId } as never } }),
     );
     const lower = ref.trim().toLowerCase();
-    const s = spaces.find((x) => x.id === ref || x.name.toLowerCase() === lower);
-    if (!s) throw new Error(`No space matches "${ref}". Available: ${spaces.map((x) => x.name).join(', ') || '(none)'}.`);
+    const s = spaces.find((x) => x.id === ref || x.name.toLowerCase() === lower || x.slug?.toLowerCase() === lower);
+    if (!s) throw new Error(`No space matches "${ref}". Available: ${spaces.map((x) => x.slug ?? x.name).join(', ') || '(none)'}.`);
     return s.id;
   }
 
@@ -609,9 +660,10 @@ export function registerTools(server: McpServer, client: Client) {
   );
 
   const VIEW_TYPES = ['table', 'board', 'calendar', 'gallery', 'list', 'feed', 'timeline', 'form'] as const;
-  type ViewOpts = { group_by?: string; card_fields?: string[]; date_field?: string; start_date_field?: string; end_date_field?: string };
+  type ViewOpts = { group_by?: string; card_fields?: string[]; date_field?: string; start_date_field?: string; end_date_field?: string; filters?: unknown; sorts?: Array<{ field: string; direction?: string }> };
   function buildViewConfig(detail: DatabaseDetail, type: string, o: ViewOpts): Record<string, unknown> {
-    const config: Record<string, unknown> = { sorts: [], hidden_field_ids: [], card_field_ids: [], column_widths: {} };
+    const config: Record<string, unknown> = { sorts: o.sorts ?? [], hidden_field_ids: [], card_field_ids: [], column_widths: {} };
+    if (o.filters) config.filters = o.filters;
     if (o.card_fields) config.card_field_ids = o.card_fields.map((f) => anyField(detail, f));
     if (type === 'board' && o.group_by) config.group_by_field_id = anyField(detail, o.group_by);
     if (type === 'calendar' && o.date_field) config.date_field_id = anyField(detail, o.date_field);
@@ -638,6 +690,8 @@ export function registerTools(server: McpServer, client: Client) {
         date_field: z.string().optional().describe('calendar: the date field.'),
         start_date_field: z.string().optional().describe('timeline: start date field.'),
         end_date_field: z.string().optional().describe('timeline: end date field.'),
+        filters: z.any().optional().describe('Filter AST by field api_name — same shape as query_records (see get_started).'),
+        sorts: z.array(z.object({ field: z.string(), direction: z.enum(['asc', 'desc']).optional() })).optional().describe('Sort keys by field api_name.'),
       },
     },
     handle<{ workspace: string; database: string; name: string; type: string } & ViewOpts>(
@@ -671,6 +725,8 @@ export function registerTools(server: McpServer, client: Client) {
         date_field: z.string().optional(),
         start_date_field: z.string().optional(),
         end_date_field: z.string().optional(),
+        filters: z.any().optional(),
+        sorts: z.array(z.object({ field: z.string(), direction: z.enum(['asc', 'desc']).optional() })).optional(),
       },
     },
     handle<{ workspace: string; database: string; view: string; rename_to?: string } & ViewOpts>(
@@ -771,6 +827,185 @@ export function registerTools(server: McpServer, client: Client) {
         }),
       );
       return text(res);
+    }),
+  );
+
+  // ============ Spaces + database/field management (backlog #1,2,4,5,9,10,11) ============
+
+  server.registerTool(
+    'list_spaces',
+    {
+      title: 'List spaces',
+      description: 'List the spaces in a workspace (id, name, slug). Databases live in spaces; use a space name/slug with create_database.',
+      inputSchema: { workspace: z.string() },
+    },
+    handle<{ workspace: string }>(async ({ workspace }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const spaces = await unwrap<Array<{ id: string; name: string; slug?: string }>>(
+        client.GET('/api/v1/workspaces/{ws}/spaces', { params: { path: { ws: ws.id } } as never }),
+      );
+      return text(spaces.map((s) => ({ id: s.id, name: s.name, slug: s.slug })));
+    }),
+  );
+
+  server.registerTool(
+    'create_space',
+    {
+      title: 'Create space',
+      description: 'Create a space (a named group of databases). Returns it with its slug — pass that to create_database to build inside it.',
+      inputSchema: {
+        workspace: z.string(),
+        name: z.string().describe('Space name, e.g. "Client Work".'),
+        icon: z.string().optional().describe('An emoji.'),
+        color: z.string().optional(),
+      },
+    },
+    handle<{ workspace: string; name: string; icon?: string; color?: string }>(async ({ workspace, name, icon, color }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const space = await unwrap<unknown>(
+        client.POST('/api/v1/workspaces/{ws}/spaces', {
+          params: { path: { ws: ws.id } } as never,
+          body: { name, icon, color } as never,
+        }),
+      );
+      return text(space);
+    }),
+  );
+
+  server.registerTool(
+    'delete_database',
+    {
+      title: 'Delete database',
+      description: 'Permanently delete a database and all its records (irreversible). Guardrail: `confirm` must equal the database name exactly. Set sever_relations to also drop relations pointing at it.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        confirm: z.string().describe('Must equal the database name exactly.'),
+        sever_relations: z.boolean().optional(),
+      },
+    },
+    handle<{ workspace: string; database: string; confirm: string; sever_relations?: boolean }>(
+      async ({ workspace, database, confirm, sever_relations }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const res = await unwrap<unknown>(
+          client.DELETE('/api/v1/workspaces/{ws}/databases/{db}', {
+            params: { path: { ws: ws.id, db: db.id } } as never,
+            body: { confirm, sever_relations } as never,
+          }),
+        );
+        return text(res ?? { deleted: true });
+      },
+    ),
+  );
+
+  server.registerTool(
+    'update_database',
+    {
+      title: 'Update database',
+      description: 'Rename a database, set its icon, or move it to another space. The api_slug is stable (rename does not change the ref). Only the fields you pass change.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        rename_to: z.string().optional(),
+        icon: z.string().optional(),
+        move_to_space: z.string().optional().describe('Space name or slug to move the database into.'),
+      },
+    },
+    handle<{ workspace: string; database: string; rename_to?: string; icon?: string; move_to_space?: string }>(
+      async ({ workspace, database, rename_to, icon, move_to_space }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const body: Record<string, unknown> = {};
+        if (rename_to) body.name = rename_to;
+        if (icon !== undefined) body.icon = icon;
+        if (move_to_space) body.space_id = await resolveSpaceId(ws.id, move_to_space);
+        const res = await unwrap<unknown>(
+          client.PATCH('/api/v1/workspaces/{ws}/databases/{db}', {
+            params: { path: { ws: ws.id, db: db.id } } as never,
+            body: body as never,
+          }),
+        );
+        return text(res);
+      },
+    ),
+  );
+
+  server.registerTool(
+    'change_field_type',
+    {
+      title: 'Change field type',
+      description: 'Convert a field to a different type (e.g. text → select). Set dry_run to preview the conversion result without applying. Unsupported conversions return a clear error.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        field: z.string(),
+        new_type: z.enum(FIELD_TYPES),
+        dry_run: z.boolean().optional(),
+      },
+    },
+    handle<{ workspace: string; database: string; field: string; new_type: string; dry_run?: boolean }>(
+      async ({ workspace, database, field, new_type, dry_run }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const detail = await getDetail(ws.id, db.id);
+        const fieldId = anyField(detail, field);
+        const res = await unwrap<unknown>(
+          client.POST('/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/change-type', {
+            params: { path: { ws: ws.id, db: db.id, field: fieldId } } as never,
+            body: { type: new_type, dry_run: dry_run ?? false } as never,
+          }),
+        );
+        return text(res);
+      },
+    ),
+  );
+
+  const reorder = async (
+    wsId: string,
+    dbId: string,
+    order: string[],
+    resolveOne: (detail: DatabaseDetail, ref: string) => string,
+    patchPath: '/api/v1/workspaces/{ws}/databases/{db}/fields/{field}' | '/api/v1/workspaces/{ws}/databases/{db}/views/{view}',
+    key: 'field' | 'view',
+  ) => {
+    const detail = await getDetail(wsId, dbId);
+    const ids = order.map((ref) => resolveOne(detail, ref));
+    for (let i = 0; i < ids.length; i++) {
+      await unwrap<unknown>(
+        client.PATCH(patchPath, { params: { path: { ws: wsId, db: dbId, [key]: ids[i] } } as never, body: { position: i } as never }),
+      );
+    }
+    return getDetail(wsId, dbId);
+  };
+
+  server.registerTool(
+    'reorder_fields',
+    {
+      title: 'Reorder fields',
+      description: 'Set the order of fields in a database. Pass the field names (or api_names) in the desired order; any omitted stay after the ordered ones.',
+      inputSchema: { workspace: z.string(), database: z.string(), order: z.array(z.string()).describe('Field names in desired order.') },
+    },
+    handle<{ workspace: string; database: string; order: string[] }>(async ({ workspace, database, order }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const detail = await reorder(ws.id, db.id, order, anyField, '/api/v1/workspaces/{ws}/databases/{db}/fields/{field}', 'field');
+      return text(detail.fields.map((f) => f.apiName));
+    }),
+  );
+
+  server.registerTool(
+    'reorder_views',
+    {
+      title: 'Reorder views',
+      description: 'Set the order of views in a database. Pass the view names in the desired order.',
+      inputSchema: { workspace: z.string(), database: z.string(), order: z.array(z.string()).describe('View names in desired order.') },
+    },
+    handle<{ workspace: string; database: string; order: string[] }>(async ({ workspace, database, order }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const detail = await reorder(ws.id, db.id, order, (d, ref) => resolveView(d, ref).id, '/api/v1/workspaces/{ws}/databases/{db}/views/{view}', 'view');
+      return text((detail.views ?? []).map((v) => v.name));
     }),
   );
 }

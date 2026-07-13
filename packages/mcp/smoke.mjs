@@ -17,7 +17,7 @@ let pass = 0, fail = 0;
 const check = (label, ok, extra = '') => { (ok ? pass++ : fail++); console.log(`${ok ? 'PASS' : 'FAIL'}  ${label}${extra ? ' — ' + extra : ''}`); };
 
 const tools = await client.listTools();
-check('lists 22 tools', tools.tools.length === 22, tools.tools.map((t) => t.name).join(','));
+check('lists 29 tools', tools.tools.length === 29, tools.tools.map((t) => t.name).join(','));
 
 const lw = await call(client, 'list_workspaces');
 check('list_workspaces sees MCP WS', lw.text.includes('MCP WS'));

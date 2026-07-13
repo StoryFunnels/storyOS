@@ -32,6 +32,18 @@ Ticket: [MN-076](../../tickets/MN-076-mcp-server.md).
 | `add_comment` | Post a comment. |
 | `run_button` | Press a button field, running its automation actions. |
 
+**Build / schema** (agents design the workspace, not just fill it)
+| Tool | What it does |
+|---|---|
+| `list_spaces` / `create_space` | List / create spaces (a space holds databases). |
+| `create_database` / `update_database` / `delete_database` | Create, rename/move, or delete a database (delete needs `confirm` = name). |
+| `add_field` / `update_field` / `delete_field` / `change_field_type` | Manage fields; select options by label; convert a field's type (`dry_run` to preview). |
+| `create_view` / `update_view` / `delete_view` | Manage views; accepts `group_by` / `card_fields` / date fields plus `filters` + `sorts`. |
+| `create_relation` / `delete_relation` | Link two databases (one_to_many / many_to_many) — paired relation fields. |
+| `reorder_fields` / `reorder_views` | Set field / view order by name. |
+
+Conveniences: `query_records` / `get_record` return select values as **labels** (not option ids); `create_record` / `update_record` accept a plain **string** on a rich_text field (auto-wrapped to blocks) and select **labels**; `create_record` reports any **unset** template fields.
+
 Hosted Streamable HTTP (for ChatGPT / claude.ai connectors without a local process)
 is the remaining phase — it lands with the cloud tier (see MN-069).
 
