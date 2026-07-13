@@ -20,7 +20,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { CellDisplay, CellEditor, PressButton, fieldValue } from './cells';
+import { CellDisplay, CellEditor, PressButton, cellToText, fieldValue } from './cells';
 import {
   AddFieldDialog,
   ChangeTypeDialog,
@@ -230,6 +230,82 @@ export function TableView({
     gridRef.current?.focus();
   }
 
+  // Copy/paste a cell value between cells (MN-15). Keeps the raw copied value +
+  // source field so same-type paste is exact; falls back to the clipboard text.
+  const copiedRef = useRef<{ field: Field; value: unknown } | null>(null);
+  const READONLY_TYPES = ['id', 'created_at', 'updated_at', 'created_by', 'lookup', 'rollup', 'formula'];
+
+  function copyCell() {
+    if (!cursor) return;
+    const row = rows[cursor.row];
+    const field = fields[cursor.col];
+    if (!row || !field) return;
+    const value = valueOf(row, field) ?? null;
+    copiedRef.current = { field, value };
+    void navigator.clipboard?.writeText(cellToText(field, value)).catch(() => {});
+    toast.success('Copied');
+  }
+
+  function coercePaste(target: Field, text: string): unknown {
+    const copied = copiedRef.current;
+    const optId = (label: string) =>
+      target.options?.find((o) => o.label.toLowerCase() === label.trim().toLowerCase())?.id;
+    // Same-type internal paste is exact for scalars; selects go through labels so
+    // ids resolve to the target field's own options.
+    if (copied && copied.field.type === target.type && !['select', 'multi_select', 'relation', 'user'].includes(target.type)) {
+      return copied.value;
+    }
+    const t = (copied ? cellToText(copied.field, copied.value) : text).trim();
+    switch (target.type) {
+      case 'number':
+      case 'currency':
+      case 'percent': {
+        if (t === '') return null;
+        const n = Number(t.replace(/[,$%\s]/g, ''));
+        return Number.isNaN(n) ? undefined : n;
+      }
+      case 'checkbox':
+        return /^(true|1|yes|✓|checked|done)$/i.test(t);
+      case 'select':
+        return t === '' ? null : (optId(t) ?? undefined);
+      case 'multi_select':
+        return t
+          .split(',')
+          .map((s) => optId(s))
+          .filter((x): x is string => Boolean(x));
+      case 'rich_text':
+        return t === '' ? null : [{ type: 'paragraph', content: [{ type: 'text', text: t }] }];
+      case 'relation':
+      case 'user':
+        return undefined; // not safely pasteable
+      default:
+        return t; // text, title, url, email, date
+    }
+  }
+
+  async function pasteCell() {
+    if (!cursor || readOnly) return;
+    const row = rows[cursor.row];
+    const target = fields[cursor.col];
+    if (!row || !target) return;
+    if (READONLY_TYPES.includes(target.type)) {
+      toast.error(`${target.displayName} is read-only`);
+      return;
+    }
+    let text = '';
+    try {
+      text = await navigator.clipboard.readText();
+    } catch {
+      /* clipboard read blocked — fall back to the in-app copied value */
+    }
+    const value = coercePaste(target, text);
+    if (value === undefined) {
+      toast.error(`Can't paste into a ${target.type} field`);
+      return;
+    }
+    commitEdit(row, target, value);
+  }
+
   function onKeyDown(e: React.KeyboardEvent) {
     if (editing || rows.length === 0) return;
     const max: Cursor = { row: rows.length - 1, col: fields.length - 1 };
@@ -245,7 +321,13 @@ export function TableView({
         return next;
       });
     };
-    if (e.key === 'ArrowDown') move(1, 0);
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'c' && cursor) {
+      e.preventDefault();
+      copyCell();
+    } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'v' && cursor && !readOnly) {
+      e.preventDefault();
+      void pasteCell();
+    } else if (e.key === 'ArrowDown') move(1, 0);
     else if (e.key === 'ArrowUp') move(-1, 0);
     else if (e.key === 'ArrowRight' || e.key === 'Tab') move(0, 1);
     else if (e.key === 'ArrowLeft') move(0, -1);

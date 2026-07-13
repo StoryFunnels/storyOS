@@ -15,17 +15,29 @@ export interface LinkChip {
   number?: number | null;
 }
 
-export function RelationChips({ chips }: { chips: LinkChip[] }) {
+/** Compact relation display (MN-16): cap visible chips so a heavily-linked cell
+ * never blows up the row; the rest collapse into a "+N" pill (tooltip lists them). */
+export function RelationChips({ chips, max = 3 }: { chips: LinkChip[]; max?: number }) {
+  const shown = chips.slice(0, max);
+  const rest = chips.slice(max);
   return (
-    <span className="flex gap-1 overflow-hidden">
-      {chips.map((chip) => (
+    <span className="flex items-center gap-1 overflow-hidden">
+      {shown.map((chip) => (
         <span
           key={chip.id}
-          className="inline-flex max-w-40 items-center truncate rounded border border-border-default bg-hover px-1.5 py-0.5 text-[12px] text-ink"
+          className="inline-flex max-w-40 shrink-0 items-center truncate rounded border border-border-default bg-hover px-1.5 py-0.5 text-[12px] text-ink"
         >
           <span className="truncate">{chip.title || 'Untitled'}</span>
         </span>
       ))}
+      {rest.length > 0 && (
+        <span
+          className="shrink-0 rounded border border-border-default bg-muted-bg px-1.5 py-0.5 text-[12px] text-muted"
+          title={rest.map((c) => c.title || 'Untitled').join(', ')}
+        >
+          +{rest.length}
+        </span>
+      )}
     </span>
   );
 }

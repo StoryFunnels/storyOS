@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   DndContext,
@@ -1431,9 +1431,56 @@ export function FormulaEditor({
   }
 
   const [panel, setPanel] = useState<'none' | 'fields' | 'functions'>('none');
-  // Typing "{" opens the field picker inline; explicit buttons open either panel.
-  const openFieldsIf = (v: string) => setPanel(v.endsWith('{') ? 'fields' : (p) => (p === 'fields' ? 'none' : p));
   const insert = (snippet: string) => onChange(expression + snippet);
+
+  // Live autocomplete (MN-18): suggest fields inside {…} and functions on a bare word.
+  const taRef = useRef<HTMLTextAreaElement>(null);
+  const [ac, setAc] = useState<{ items: Array<{ label: string; hint: string; apply: () => void }>; index: number } | null>(null);
+  const funcEntries = Object.entries(FORMULA_FUNCTIONS);
+
+  function replaceRange(start: number, end: number, text: string) {
+    onChange(expression.slice(0, start) + text + expression.slice(end));
+    setAc(null);
+    requestAnimationFrame(() => {
+      const pos = start + text.length;
+      taRef.current?.focus();
+      taRef.current?.setSelectionRange(pos, pos);
+    });
+  }
+
+  function refreshSuggestions(value: string, caret: number) {
+    const before = value.slice(0, caret);
+    const brace = before.lastIndexOf('{');
+    if (brace >= 0 && !before.slice(brace).includes('}')) {
+      const partial = before.slice(brace + 1).toLowerCase();
+      const items = infos
+        .filter((f) => f.display_name.toLowerCase().includes(partial))
+        .slice(0, 8)
+        .map((f) => ({ label: f.display_name, hint: String(f.formula_type), apply: () => replaceRange(brace, caret, `{${f.display_name}}`) }));
+      setAc(items.length ? { items, index: 0 } : null);
+      return;
+    }
+    const word = before.match(/[a-zA-Z_][a-zA-Z0-9_]*$/)?.[0] ?? '';
+    if (!word) return setAc(null);
+    const start = caret - word.length;
+    const items = funcEntries
+      .filter(([name]) => name.toLowerCase().startsWith(word.toLowerCase()))
+      .slice(0, 8)
+      .map(([name, spec]) => ({
+        label: name,
+        hint: (spec as { doc?: string }).doc ?? '',
+        apply: () => replaceRange(start, caret, name === 'now' || name === 'today' ? `${name}()` : `${name}(`),
+      }));
+    setAc(items.length ? { items, index: 0 } : null);
+  }
+
+  function onFormulaKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (!ac) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); setAc({ ...ac, index: (ac.index + 1) % ac.items.length }); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setAc({ ...ac, index: (ac.index - 1 + ac.items.length) % ac.items.length }); }
+    else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); ac.items[ac.index]?.apply(); }
+    else if (e.key === 'Escape') { e.preventDefault(); setAc(null); }
+  }
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -1456,17 +1503,41 @@ export function FormulaEditor({
           </button>
         </div>
       </div>
-      <textarea
-        id="formula-src"
-        rows={3}
-        className="w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1.5 font-mono text-[13px] text-ink outline-none focus:border-border-strong"
-        placeholder={'if({Estimate} > 5, "big", "small")'}
-        value={expression}
-        onChange={(e) => {
-          onChange(e.target.value);
-          openFieldsIf(e.target.value);
-        }}
-      />
+      <div className="relative">
+        <textarea
+          id="formula-src"
+          ref={taRef}
+          rows={3}
+          className="w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1.5 font-mono text-[13px] text-ink outline-none focus:border-border-strong"
+          placeholder={'if({Estimate} > 5, "big", "small")'}
+          value={expression}
+          onChange={(e) => {
+            onChange(e.target.value);
+            refreshSuggestions(e.target.value, e.target.selectionStart);
+          }}
+          onKeyDown={onFormulaKeyDown}
+          onClick={(e) => refreshSuggestions(e.currentTarget.value, e.currentTarget.selectionStart)}
+          onBlur={() => setTimeout(() => setAc(null), 120)}
+        />
+        {ac && (
+          <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-48 overflow-y-auto rounded-[var(--radius-card)] border border-border-strong bg-card shadow-lg">
+            {ac.items.map((it, i) => (
+              <button
+                key={it.label}
+                type="button"
+                className={cn('flex w-full items-baseline gap-2 px-2 py-1 text-left', i === ac.index ? 'bg-active' : 'hover:bg-hover')}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  it.apply();
+                }}
+              >
+                <span className="font-mono text-[12px] text-ink">{it.label}</span>
+                {it.hint && <span className="truncate text-[11px] text-muted">{it.hint}</span>}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
       {panel === 'fields' && (
         <div className="flex max-h-28 flex-wrap gap-1 overflow-y-auto rounded-[var(--radius-card)] border border-border-default bg-card p-1.5">
           {infos.length === 0 && <span className="px-1 text-[12px] text-faint">No referenceable fields yet.</span>}
