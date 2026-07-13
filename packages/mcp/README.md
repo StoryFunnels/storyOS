@@ -64,7 +64,7 @@ pnpm --filter @storyos/mcp build      # → packages/mcp/dist/index.js
 
 ```bash
 claude mcp add storyos \
-  -e STORYOS_URL=https://os.jamescookmedia.com \
+  -e STORYOS_URL=https://app.storyos.dev \
   -e STORYOS_TOKEN=mn_pat_xxx \
   -- node /ABSOLUTE/PATH/to/repo/packages/mcp/dist/index.js
 ```
@@ -78,7 +78,7 @@ claude mcp add storyos \
       "command": "node",
       "args": ["/ABSOLUTE/PATH/to/repo/packages/mcp/dist/index.js"],
       "env": {
-        "STORYOS_URL": "https://os.jamescookmedia.com",
+        "STORYOS_URL": "https://app.storyos.dev",
         "STORYOS_TOKEN": "mn_pat_xxx"
       }
     }
@@ -86,12 +86,38 @@ claude mcp add storyos \
 }
 ```
 
-`STORYOS_URL` is `https://os.jamescookmedia.com` for the cloud box, or
+`STORYOS_URL` is `https://app.storyos.dev` for the cloud box, or
 `http://localhost:3001` for local dev (the default). Restart Claude, then ask it to
 "list my StoryOS databases".
 
 **Once published to npm**, replace the command with `npx -y @storyos/mcp` (no build,
 no path).
+
+## Hosted (Streamable HTTP) — no local process
+
+For cloud use, run the same tools over HTTP so teammates connect with just a URL +
+token (claude.ai / ChatGPT connectors, MCP Inspector, etc.) — no repo, no `node` path.
+
+- Entry: `dist/http.js` (`pnpm --filter @storyos/mcp start:http`), listens on `PORT` (3002).
+- Endpoint: `POST /mcp` (stateless Streamable HTTP); `GET /health` for liveness.
+- **Auth is per-request**: each call sends its own PAT as `Authorization: Bearer mn_pat_…`,
+  so one endpoint serves every user and the API scopes each response. No shared token.
+- Deploy: the `mcp` service in `docker-compose.yml` runs it; route a subdomain
+  (`mcp.your-domain.com → mcp:3002`) in your Caddy TLS drop-in (see
+  `docker/tls.d/origin.caddy.example`).
+
+Connect a client to `https://mcp.your-domain.com/mcp`:
+
+```json
+{
+  "mcpServers": {
+    "storyos": {
+      "url": "https://mcp.your-domain.com/mcp",
+      "headers": { "Authorization": "Bearer mn_pat_xxx" }
+    }
+  }
+}
+```
 
 ## Develop
 

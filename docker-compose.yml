@@ -62,6 +62,20 @@ services:
     depends_on:
       - api
 
+  # Hosted MCP endpoint (Streamable HTTP). Route a subdomain to it in your Caddy
+  # TLS drop-in, e.g. mcp.your-domain.com → mcp:3002. Auth is per-request: each
+  # client sends its own StoryOS PAT in the Authorization header.
+  mcp:
+    build:
+      context: .
+      dockerfile: docker/mcp.Dockerfile
+    image: storyos-mcp:latest
+    depends_on:
+      - api
+    environment:
+      STORYOS_URL: ${MCP_STORYOS_URL:-http://api:3001}
+      PORT: "3002"
+
   caddy:
     image: caddy:2-alpine
     depends_on:

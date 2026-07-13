@@ -14,6 +14,16 @@
 # to "Full (strict)".
 :443 {
 	tls /etc/caddy/certs/origin.pem /etc/caddy/certs/origin.key
+
+	# Hosted MCP on its own subdomain. Change mcp.example.com to YOUR domain
+	# (e.g. mcp.storyos.dev) and add an A record for it. Remove this block if
+	# you're not running the mcp service.
+	@mcp host mcp.example.com
+	handle @mcp {
+		reverse_proxy mcp:3002
+	}
+
+	# App: API + web on the main host(s).
 	handle /api/* {
 		reverse_proxy api:3001
 	}

@@ -4,14 +4,17 @@
   "private": true,
   "type": "module",
   "bin": {
-    "storyos-mcp": "./dist/index.js"
+    "storyos-mcp": "./dist/index.js",
+    "storyos-mcp-http": "./dist/http.js"
   },
   "main": "./dist/server.js",
   "types": "./dist/server.d.ts",
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/index.js",
+    "start:http": "node dist/http.js",
     "dev": "tsx src/index.ts",
+    "dev:http": "tsx src/http.ts",
     "lint": "eslint src",
     "typecheck": "tsc --noEmit"
   },
