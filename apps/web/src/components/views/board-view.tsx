@@ -121,24 +121,43 @@ export function BoardView({
       );
       if (error) throw error;
     },
-    // Optimistically move the card in the cache so it stays where it was dropped —
-    // otherwise it snaps back to the old column until the refetch lands, then jumps (MN-19).
+    // Optimistically move the card in the cache — both its column (group value) AND
+    // its position (via the before/after anchor) — so a dropped card stays exactly where
+    // it landed instead of snapping back until the refetch, then jumping (MN-19).
     onMutate: async (input) => {
-      if (!input.values || !groupField) return {};
+      if (!groupField) return {};
+      const apiName = groupField.apiName;
       await qc.cancelQueries({ queryKey: ['records', ws, db] });
       const snapshot = qc.getQueriesData<{ pages: Array<{ data: RecordRow[] }> }>({ queryKey: ['records', ws, db] });
-      const newVal = (input.values[groupField.apiName] as string | null) ?? null;
       qc.setQueriesData<{ pages: Array<{ data: RecordRow[] }> }>({ queryKey: ['records', ws, db] }, (old) => {
         if (!old?.pages) return old;
-        return {
-          ...old,
-          pages: old.pages.map((page) => ({
-            ...page,
-            data: page.data.map((r) =>
-              r.id === input.rec ? { ...r, values: { ...r.values, [groupField.apiName]: newVal } } : r,
-            ),
-          })),
-        };
+        const sizes = old.pages.map((p) => p.data.length);
+        const flat = old.pages.flatMap((p) => p.data);
+        const idx = flat.findIndex((r) => r.id === input.rec);
+        if (idx === -1) return old;
+        let card = flat[idx]!;
+        if (input.values && apiName in input.values) {
+          card = { ...card, values: { ...card.values, [apiName]: (input.values[apiName] as string | null) ?? null } };
+        }
+        const next = flat.filter((_, i) => i !== idx);
+        let at = next.length;
+        if (input.before_record_id) {
+          const j = next.findIndex((r) => r.id === input.before_record_id);
+          if (j >= 0) at = j;
+        } else if (input.after_record_id) {
+          const j = next.findIndex((r) => r.id === input.after_record_id);
+          if (j >= 0) at = j + 1;
+        }
+        next.splice(at, 0, card);
+        // Re-chunk into the original page sizes (the last page absorbs the remainder).
+        let cur = 0;
+        const pages = old.pages.map((page, i) => {
+          const take = i === old.pages.length - 1 ? next.length - cur : sizes[i]!;
+          const slice = next.slice(cur, cur + take);
+          cur += take;
+          return { ...page, data: slice };
+        });
+        return { ...old, pages };
       });
       return { snapshot };
     },
