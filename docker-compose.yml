@@ -47,6 +47,8 @@ services:
       MAIL_FROM: ${MAIL_FROM:-StoryOS <noreply@localhost>}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      # OAuth for hosted-MCP connectors (MN-154). Off unless set true; needs oidc tables migrated.
+      MCP_OAUTH: ${MCP_OAUTH:-}
     volumes:
       - storyos_attachments:/data/attachments
 
@@ -75,6 +77,10 @@ services:
     environment:
       STORYOS_URL: ${MCP_STORYOS_URL:-http://api:3001}
       PORT: "3002"
+      # OAuth discovery advertising (MN-154). Set true once the AS (api) has MCP_OAUTH on.
+      MCP_OAUTH: ${MCP_OAUTH:-}
+      MCP_PUBLIC_URL: ${MCP_PUBLIC_URL:-https://mcp.storyos.dev}
+      MCP_AUTH_SERVER: ${MCP_AUTH_SERVER:-https://app.storyos.dev/api/v1/auth}
 
   caddy:
     image: caddy:2-alpine
