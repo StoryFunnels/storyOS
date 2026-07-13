@@ -60,9 +60,39 @@ export class AuthGuard implements CanActivate {
       return true;
     }
 
-    const session = await this.auth.api.getSession({ headers: toWebHeaders(request.headers) });
-    if (!session) throw new UnauthorizedException('Authentication required');
-    (request as AuthedRequest).user = session.user as AuthedUser;
-    return true;
+    const headers = toWebHeaders(request.headers);
+
+    const session = await this.auth.api.getSession({ headers });
+    if (session) {
+      (request as AuthedRequest).user = session.user as AuthedUser;
+      return true;
+    }
+
+    // OAuth access token from a hosted-MCP connector (MN-154). getMcpSession exists on
+    // auth.api only when MCP_OAUTH enabled the mcp plugin; it validates the Bearer as an
+    // OAuth access token and yields the owning user.
+    const getMcpSession = (
+      this.auth.api as {
+        getMcpSession?: (opts: { headers: Headers }) => Promise<{ userId?: string } | null>;
+      }
+    ).getMcpSession;
+    if (getMcpSession) {
+      const mcpToken = await getMcpSession({ headers }).catch(() => null);
+      if (mcpToken?.userId) {
+        const account = await this.db.query.user.findFirst({ where: eq(user.id, mcpToken.userId) });
+        if (account) {
+          (request as AuthedRequest).user = {
+            id: account.id,
+            email: account.email,
+            name: account.name,
+            image: account.image,
+            emailVerified: account.emailVerified,
+          };
+          return true;
+        }
+      }
+    }
+
+    throw new UnauthorizedException('Authentication required');
   }
 }
