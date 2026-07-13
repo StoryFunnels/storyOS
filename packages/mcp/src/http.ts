@@ -44,6 +44,14 @@ function rpcError(res: ServerResponse, status: number, code: number, message: st
   res.end(JSON.stringify({ jsonrpc: '2.0', error: { code, message }, id: null }));
 }
 
+// OAuth discovery (MN-154). Advertised only when MCP_OAUTH is on (i.e. the StoryOS
+// authorization server is live); PAT auth works regardless. Clients read the
+// resource metadata to find the AS and run the OAuth flow.
+const OAUTH = process.env.MCP_OAUTH === 'true' || process.env.MCP_OAUTH === '1';
+const PUBLIC_URL = (process.env.MCP_PUBLIC_URL ?? 'https://mcp.storyos.dev').replace(/\/$/, '');
+const AUTH_SERVER = (process.env.MCP_AUTH_SERVER ?? 'https://app.storyos.dev/api/v1/auth').replace(/\/$/, '');
+const RESOURCE_METADATA = `${PUBLIC_URL}/.well-known/oauth-protected-resource`;
+
 const server = createServer(async (req, res) => {
   // Permissive CORS so browser-based MCP clients (e.g. the Inspector) can connect.
   res.setHeader('Access-Control-Allow-Origin', req.headers.origin ?? '*');
@@ -65,15 +73,26 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  // Protected Resource Metadata (RFC 9728) — points MCP clients at the authorization server.
+  if (OAUTH && pathname === '/.well-known/oauth-protected-resource') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ resource: `${PUBLIC_URL}/mcp`, authorization_servers: [AUTH_SERVER] }));
+    return;
+  }
+
   if (pathname !== '/mcp') {
     rpcError(res, 404, -32601, 'Not found — the MCP endpoint is POST /mcp');
     return;
   }
 
+  // Dual auth: any Bearer is forwarded to the StoryOS API, which validates it as a
+  // PAT (mn_pat_…, self-managed) or — when OAuth is enabled — an OAuth access token.
   const token = bearer(req);
   if (!token) {
-    rpcError(res, 401, -32001, 'Missing bearer token — send Authorization: Bearer mn_pat_… (a StoryOS PAT)', {
-      'WWW-Authenticate': 'Bearer realm="StoryOS MCP"',
+    rpcError(res, 401, -32001, 'Missing bearer token — send Authorization: Bearer <StoryOS PAT or OAuth token>', {
+      'WWW-Authenticate': OAUTH
+        ? `Bearer realm="StoryOS MCP", resource_metadata="${RESOURCE_METADATA}"`
+        : 'Bearer realm="StoryOS MCP"',
     });
     return;
   }

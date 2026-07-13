@@ -1,6 +1,6 @@
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
-import { bearer } from 'better-auth/plugins';
+import { bearer, mcp } from 'better-auth/plugins';
 import { env } from '../config/env';
 import type { Db } from '../db/client';
 import { account, session, user, verification } from '../db/auth-schema';
@@ -54,7 +54,24 @@ export function createAuth(db: Db) {
           },
         }
       : undefined,
-    plugins: [bearer()],
+    plugins: [
+      bearer(),
+      // OAuth authorization server for hosted-MCP connectors (MN-154). Gated: needs the
+      // oidc tables migrated. PAT auth is unaffected whether this is on or off.
+      ...(e.MCP_OAUTH
+        ? [
+            mcp({
+              loginPage: `${e.WEB_URL}/login`,
+              oidcConfig: {
+                loginPage: `${e.WEB_URL}/login`,
+                requirePKCE: true,
+                allowDynamicClientRegistration: true,
+                scopes: ['openid', 'profile', 'email'],
+              },
+            }),
+          ]
+        : []),
+    ],
   });
 }
 

@@ -16,6 +16,13 @@ const envSchema = z.object({
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
   MAIL_FROM: z.string().default('StoryOS <noreply@storyos.local>'),
+  /** OAuth for the hosted MCP (MN-154). Off by default; requires the oidc tables migrated.
+   * When on, better-auth acts as the OAuth authorization server for MCP connectors. PATs
+   * keep working either way. */
+  MCP_OAUTH: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
   /** Per token/session. Test default is effectively unlimited. */
   RATE_LIMIT_PER_MINUTE: z.coerce
     .number()
