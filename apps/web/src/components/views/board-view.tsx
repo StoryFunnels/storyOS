@@ -19,7 +19,7 @@ import { api } from '@/lib/api';
 import { recordHref } from '@/lib/records';
 import { cn } from '@/lib/utils';
 import { Avatar } from '@/components/ui/avatar';
-import { CellDisplay, OPTION_COLORS, OptionChip, fieldValue } from '../table-view/cells';
+import { CellDisplay, OPTION_COLORS, fieldValue } from '../table-view/cells';
 import type { LinkChip } from '../table-view/relation-cell';
 import {
   useDatabase,
@@ -121,7 +121,31 @@ export function BoardView({
       );
       if (error) throw error;
     },
-    onError: () => toast.error('Could not move the card'),
+    // Optimistically move the card in the cache so it stays where it was dropped —
+    // otherwise it snaps back to the old column until the refetch lands, then jumps (MN-19).
+    onMutate: async (input) => {
+      if (!input.values || !groupField) return {};
+      await qc.cancelQueries({ queryKey: ['records', ws, db] });
+      const snapshot = qc.getQueriesData<{ pages: Array<{ data: RecordRow[] }> }>({ queryKey: ['records', ws, db] });
+      const newVal = (input.values[groupField.apiName] as string | null) ?? null;
+      qc.setQueriesData<{ pages: Array<{ data: RecordRow[] }> }>({ queryKey: ['records', ws, db] }, (old) => {
+        if (!old?.pages) return old;
+        return {
+          ...old,
+          pages: old.pages.map((page) => ({
+            ...page,
+            data: page.data.map((r) =>
+              r.id === input.rec ? { ...r, values: { ...r.values, [groupField.apiName]: newVal } } : r,
+            ),
+          })),
+        };
+      });
+      return { snapshot };
+    },
+    onError: (_err, _input, ctx) => {
+      toast.error('Could not move the card');
+      for (const [key, data] of ctx?.snapshot ?? []) qc.setQueryData(key, data);
+    },
     onSettled: () => void qc.invalidateQueries({ queryKey: ['records', ws, db] }),
   });
 
@@ -334,9 +358,6 @@ function Triangle({ color }: { color: string }) {
     />
   );
 }
-
-/** These types carry their own visual identity, so they skip the field triangle. */
-const SELF_COLORED = new Set(['select', 'multi_select', 'user', 'checkbox']);
 
 export function Card({
   row,
