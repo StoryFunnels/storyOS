@@ -219,7 +219,13 @@ function InviteDialog({
       setAcceptUrl(data.accept_url);
       void qc.invalidateQueries({ queryKey: ['invites', ws] });
     },
-    onError: () => toast.error('Invite failed — guests need at least one space'),
+    onError: (err: unknown) => {
+      const message =
+        (err as { error?: { message?: string } })?.error?.message ??
+        (err as { message?: string })?.message ??
+        'Invite failed — please try again';
+      toast.error(message);
+    },
   });
 
   function reset() {

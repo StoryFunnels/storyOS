@@ -34,22 +34,34 @@ export class InvitesService {
     input: { email: string; role: MembershipRole; grants?: GrantInput[] },
   ) {
     const token = randomBytes(24).toString('base64url');
-    const [invite] = await this.db
-      .insert(invites)
-      .values({
-        workspaceId,
-        email: input.email.toLowerCase(),
-        role: input.role,
-        grants: input.role === 'guest' ? input.grants : null,
-        tokenHash: sha256(token),
-        expiresAt: new Date(Date.now() + INVITE_TTL_MS),
-        invitedBy,
-      })
-      .returning();
+    const email = input.email.toLowerCase();
+    const values = {
+      role: input.role,
+      grants: input.role === 'guest' ? input.grants : null,
+      tokenHash: sha256(token),
+      expiresAt: new Date(Date.now() + INVITE_TTL_MS),
+      invitedBy,
+    };
+
+    // Re-inviting the same address refreshes the pending invite (new token) rather
+    // than stacking duplicate rows.
+    const existing = await this.db.query.invites.findFirst({
+      where: and(
+        eq(invites.workspaceId, workspaceId),
+        eq(invites.email, email),
+        isNull(invites.acceptedAt),
+      ),
+    });
+    const [invite] = existing
+      ? await this.db.update(invites).set(values).where(eq(invites.id, existing.id)).returning()
+      : await this.db
+          .insert(invites)
+          .values({ workspaceId, email, ...values })
+          .returning();
 
     const acceptUrl = `${env().WEB_URL}/invite?token=${token}`;
     await sendMail({
-      to: input.email,
+      to: email,
       subject: `You're invited to StoryOS`,
       text: `You've been invited to a StoryOS workspace as ${input.role}. Accept: ${acceptUrl}`,
     });

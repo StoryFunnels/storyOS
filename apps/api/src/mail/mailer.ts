@@ -33,5 +33,14 @@ export async function sendMail(opts: { to: string; subject: string; text: string
     logger.warn(`SMTP not configured — email to ${opts.to} skipped. [${opts.subject}] ${opts.text}`);
     return;
   }
-  await t.sendMail({ from: env().MAIL_FROM, ...opts });
+  // Best-effort: a mail hiccup (e.g. an unverified sender domain) must never fail
+  // the calling flow — the invite/verification row is already the source of truth,
+  // and admins can copy the accept link. Log and move on.
+  try {
+    await t.sendMail({ from: env().MAIL_FROM, ...opts });
+  } catch (err) {
+    logger.error(
+      `Email send failed to ${opts.to} [${opts.subject}]: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
 }
