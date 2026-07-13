@@ -442,4 +442,267 @@ export function registerTools(server: McpServer, client: Client) {
       return text(res);
     }),
   );
+
+  // ============ Schema building (MN-146): databases, fields, views ============
+
+  async function resolveSpaceId(wsId: string, ref: string): Promise<string> {
+    const spaces = await unwrap<Array<{ id: string; name: string }>>(
+      client.GET('/api/v1/workspaces/{ws}/spaces', { params: { path: { ws: wsId } as never } }),
+    );
+    const lower = ref.trim().toLowerCase();
+    const s = spaces.find((x) => x.id === ref || x.name.toLowerCase() === lower);
+    if (!s) throw new Error(`No space matches "${ref}". Available: ${spaces.map((x) => x.name).join(', ') || '(none)'}.`);
+    return s.id;
+  }
+
+  /** Resolve any field by name/api_name/id (no type filter). */
+  const anyField = (detail: DatabaseDetail, ref: string): string => {
+    const lower = ref.trim().toLowerCase();
+    const f = detail.fields.find(
+      (x) => x.id === ref || x.apiName.toLowerCase() === lower || x.displayName.toLowerCase() === lower,
+    );
+    if (!f) throw new Error(`No field matches "${ref}". Available: ${detail.fields.map((x) => x.apiName).join(', ')}.`);
+    return f.id;
+  };
+
+  const resolveView = (detail: DatabaseDetail, ref: string) => {
+    const lower = ref.trim().toLowerCase();
+    const v = (detail.views ?? []).find((x) => x.id === ref || x.name.toLowerCase() === lower);
+    if (!v) throw new Error(`No view matches "${ref}". Available: ${(detail.views ?? []).map((x) => x.name).join(', ') || '(none)'}.`);
+    return v;
+  };
+
+  server.registerTool(
+    'create_database',
+    {
+      title: 'Create database',
+      description:
+        'Create a new database (table) in a space. Returns it with its auto-created system fields (id, name). Then shape it with add_field and create_view.',
+      inputSchema: {
+        workspace: z.string(),
+        space: z.string().describe('Space name or id the database belongs to.'),
+        name: z.string().describe('Database name, e.g. "Clients".'),
+        icon: z.string().optional().describe('An emoji, e.g. "📁".'),
+      },
+    },
+    handle<{ workspace: string; space: string; name: string; icon?: string }>(async ({ workspace, space, name, icon }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const spaceId = await resolveSpaceId(ws.id, space);
+      const db = await unwrap<unknown>(
+        client.POST('/api/v1/workspaces/{ws}/databases', {
+          params: { path: { ws: ws.id } as never },
+          body: { space_id: spaceId, name, icon } as never,
+        }),
+      );
+      return text(db);
+    }),
+  );
+
+  const FIELD_TYPES = [
+    'text', 'rich_text', 'number', 'checkbox', 'date', 'select', 'multi_select',
+    'url', 'email', 'user', 'lookup', 'rollup', 'button', 'formula',
+  ] as const;
+  const optionShape = z.union([z.string(), z.object({ label: z.string(), color: z.string().optional() })]);
+  const normOptions = (o?: Array<string | { label: string; color?: string }>) =>
+    o?.map((x) => (typeof x === 'string' ? { label: x } : x));
+
+  server.registerTool(
+    'add_field',
+    {
+      title: 'Add field',
+      description:
+        'Add a field to a database. For select/multi_select pass options as labels. lookup/rollup/formula need config. (Relations link two databases — not added here yet.) Returns the field.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        name: z.string().describe('Field name, e.g. "Status".'),
+        type: z.enum(FIELD_TYPES),
+        options: z.array(optionShape).optional().describe('select/multi_select choices, as labels or {label,color}.'),
+        config: z.record(z.string(), z.any()).optional().describe('Advanced per-type config (lookup/rollup/formula).'),
+      },
+    },
+    handle<{ workspace: string; database: string; name: string; type: string; options?: Array<string | { label: string; color?: string }>; config?: Record<string, unknown> }>(
+      async ({ workspace, database, name, type, options, config }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const field = await unwrap<unknown>(
+          client.POST('/api/v1/workspaces/{ws}/databases/{db}/fields', {
+            params: { path: { ws: ws.id, db: db.id } },
+            body: { display_name: name, type, options: normOptions(options), config } as never,
+          }),
+        );
+        return text(field);
+      },
+    ),
+  );
+
+  server.registerTool(
+    'update_field',
+    {
+      title: 'Update field',
+      description: 'Rename a field and/or add new select options. Returns the updated field.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        field: z.string().describe('Field to update (name, api_name, or id).'),
+        rename_to: z.string().optional(),
+        add_options: z.array(optionShape).optional().describe('New choices to add to a select/multi_select field.'),
+      },
+    },
+    handle<{ workspace: string; database: string; field: string; rename_to?: string; add_options?: Array<string | { label: string; color?: string }> }>(
+      async ({ workspace, database, field, rename_to, add_options }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const detail = await getDetail(ws.id, db.id);
+        const fieldId = anyField(detail, field);
+        if (rename_to) {
+          await unwrap<unknown>(
+            client.PATCH('/api/v1/workspaces/{ws}/databases/{db}/fields/{field}', {
+              params: { path: { ws: ws.id, db: db.id, field: fieldId } } as never,
+              body: { display_name: rename_to } as never,
+            }),
+          );
+        }
+        for (const o of normOptions(add_options) ?? []) {
+          await unwrap<unknown>(
+            client.POST('/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/options', {
+              params: { path: { ws: ws.id, db: db.id, field: fieldId } } as never,
+              body: o as never,
+            }),
+          );
+        }
+        const updated = await getDetail(ws.id, db.id);
+        return text(updated.fields.find((f) => f.id === fieldId));
+      },
+    ),
+  );
+
+  server.registerTool(
+    'delete_field',
+    {
+      title: 'Delete field',
+      description: 'Soft-delete a field (records keep their other values). Returns records_with_value.',
+      inputSchema: { workspace: z.string(), database: z.string(), field: z.string() },
+    },
+    handle<{ workspace: string; database: string; field: string }>(async ({ workspace, database, field }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const detail = await getDetail(ws.id, db.id);
+      const fieldId = anyField(detail, field);
+      const res = await unwrap<unknown>(
+        client.DELETE('/api/v1/workspaces/{ws}/databases/{db}/fields/{field}', {
+          params: { path: { ws: ws.id, db: db.id, field: fieldId } } as never,
+        }),
+      );
+      return text(res);
+    }),
+  );
+
+  const VIEW_TYPES = ['table', 'board', 'calendar', 'gallery', 'list', 'feed', 'timeline', 'form'] as const;
+  type ViewOpts = { group_by?: string; card_fields?: string[]; date_field?: string; start_date_field?: string; end_date_field?: string };
+  function buildViewConfig(detail: DatabaseDetail, type: string, o: ViewOpts): Record<string, unknown> {
+    const config: Record<string, unknown> = { sorts: [], hidden_field_ids: [], card_field_ids: [], column_widths: {} };
+    if (o.card_fields) config.card_field_ids = o.card_fields.map((f) => anyField(detail, f));
+    if (type === 'board' && o.group_by) config.group_by_field_id = anyField(detail, o.group_by);
+    if (type === 'calendar' && o.date_field) config.date_field_id = anyField(detail, o.date_field);
+    if (type === 'timeline') {
+      if (o.start_date_field) config.start_date_field_id = anyField(detail, o.start_date_field);
+      if (o.end_date_field) config.end_date_field_id = anyField(detail, o.end_date_field);
+    }
+    return config;
+  }
+
+  server.registerTool(
+    'create_view',
+    {
+      title: 'Create view',
+      description:
+        'Create a saved view. board needs group_by (a select field); calendar needs date_field; timeline needs start_date_field/end_date_field; board/gallery/list show card_fields (chips on calendar).',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        name: z.string(),
+        type: z.enum(VIEW_TYPES),
+        group_by: z.string().optional().describe('board: single-select field to group columns by.'),
+        card_fields: z.array(z.string()).optional().describe('Fields shown on cards / chips.'),
+        date_field: z.string().optional().describe('calendar: the date field.'),
+        start_date_field: z.string().optional().describe('timeline: start date field.'),
+        end_date_field: z.string().optional().describe('timeline: end date field.'),
+      },
+    },
+    handle<{ workspace: string; database: string; name: string; type: string } & ViewOpts>(
+      async ({ workspace, database, name, type, ...rest }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const detail = await getDetail(ws.id, db.id);
+        const view = await unwrap<unknown>(
+          client.POST('/api/v1/workspaces/{ws}/databases/{db}/views', {
+            params: { path: { ws: ws.id, db: db.id } },
+            body: { name, type, config: buildViewConfig(detail, type, rest) } as never,
+          }),
+        );
+        return text(view);
+      },
+    ),
+  );
+
+  server.registerTool(
+    'update_view',
+    {
+      title: 'Update view',
+      description: 'Rename a view or change its grouping / card fields / date fields. Only the parts you pass change.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        view: z.string().describe('View name or id.'),
+        rename_to: z.string().optional(),
+        group_by: z.string().optional(),
+        card_fields: z.array(z.string()).optional(),
+        date_field: z.string().optional(),
+        start_date_field: z.string().optional(),
+        end_date_field: z.string().optional(),
+      },
+    },
+    handle<{ workspace: string; database: string; view: string; rename_to?: string } & ViewOpts>(
+      async ({ workspace, database, view, rename_to, ...rest }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const detail = await getDetail(ws.id, db.id);
+        const v = resolveView(detail, view);
+        const patch: Record<string, unknown> = {};
+        if (rename_to) patch.name = rename_to;
+        if ((['group_by', 'card_fields', 'date_field', 'start_date_field', 'end_date_field'] as const).some((k) => rest[k] !== undefined)) {
+          patch.config = buildViewConfig(detail, v.type, rest);
+        }
+        const updated = await unwrap<unknown>(
+          client.PATCH('/api/v1/workspaces/{ws}/databases/{db}/views/{view}', {
+            params: { path: { ws: ws.id, db: db.id, view: v.id } } as never,
+            body: patch as never,
+          }),
+        );
+        return text(updated);
+      },
+    ),
+  );
+
+  server.registerTool(
+    'delete_view',
+    {
+      title: 'Delete view',
+      description: 'Delete a view (409 if it is the last view on the database).',
+      inputSchema: { workspace: z.string(), database: z.string(), view: z.string() },
+    },
+    handle<{ workspace: string; database: string; view: string }>(async ({ workspace, database, view }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const detail = await getDetail(ws.id, db.id);
+      const v = resolveView(detail, view);
+      const res = await unwrap<unknown>(
+        client.DELETE('/api/v1/workspaces/{ws}/databases/{db}/views/{view}', {
+          params: { path: { ws: ws.id, db: db.id, view: v.id } } as never,
+        }),
+      );
+      return text(res);
+    }),
+  );
 }
