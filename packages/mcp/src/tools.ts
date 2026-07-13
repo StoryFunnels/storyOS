@@ -715,4 +715,62 @@ export function registerTools(server: McpServer, client: Client) {
       return text(res);
     }),
   );
+
+  // ============ Relations (MN-146 fast-follow): link databases ============
+
+  server.registerTool(
+    'create_relation',
+    {
+      title: 'Create relation',
+      description:
+        'Link two databases with a relation field on each side. one_to_many: each record in `database` links to ONE record in `related_database`, and each related record gets MANY back — e.g. database=Tasks, related_database=Projects means each task has one project and each project has many tasks. many_to_many: both sides link to many. Use the space/database form for names that exist in more than one space.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string().describe('The "many" side for one_to_many (e.g. tasks).'),
+        related_database: z.string().describe('The "one" / parent side (e.g. projects).'),
+        type: z.enum(['one_to_many', 'many_to_many']).default('one_to_many'),
+        field_name: z.string().optional().describe('Relation field name on `database` (default: the related database name).'),
+        reverse_field_name: z.string().optional().describe('Inverse field name on `related_database` (default: this database name).'),
+      },
+    },
+    handle<{ workspace: string; database: string; related_database: string; type?: string; field_name?: string; reverse_field_name?: string }>(
+      async ({ workspace, database, related_database, type, field_name, reverse_field_name }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const a = await resolveDatabase(client, ws.id, database); // "many" side (A)
+        const b = await resolveDatabase(client, ws.id, related_database); // "one" side (B)
+        const rel = await unwrap<unknown>(
+          client.POST('/api/v1/workspaces/{ws}/relations', {
+            params: { path: { ws: ws.id } as never },
+            body: {
+              database_a_id: a.id,
+              database_b_id: b.id,
+              cardinality: type ?? 'one_to_many',
+              ...(field_name ? { field_a_name: field_name } : {}),
+              ...(reverse_field_name ? { field_b_name: reverse_field_name } : {}),
+            } as never,
+          }),
+        );
+        return text(rel);
+      },
+    ),
+  );
+
+  server.registerTool(
+    'delete_relation',
+    {
+      title: 'Delete relation',
+      description: 'Delete a relation by its id (from a describe_database relation field or a prior create_relation), removing both fields and all links.',
+      inputSchema: { workspace: z.string(), relation_id: z.string() },
+    },
+    handle<{ workspace: string; relation_id: string }>(async ({ workspace, relation_id }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.DELETE('/api/v1/workspaces/{ws}/relations/{rel}', {
+          params: { path: { ws: ws.id, rel: relation_id } } as never,
+          body: { confirm: true } as never,
+        }),
+      );
+      return text(res);
+    }),
+  );
 }
