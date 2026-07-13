@@ -8,9 +8,10 @@ size: M
 
 ## Why
 
-`storyos.dev` needs a front door that isn't the app login. A marketing site that sells
+The **apex `storyos.dev` is the marketing site** — a front door that is NOT the app
+(the app lives on `app.storyos.dev`, docs on `docs.storyos.dev` — see MN-105). It sells
 the vision (agentic business OS), shows the product, and routes to sign-up / self-host /
-docs. Plus a real docs site at `docs.storyos.dev`.
+docs.
 
 ## Scope
 
@@ -20,7 +21,8 @@ docs. Plus a real docs site at `docs.storyos.dev`.
 - Sections: what it is (databases + views + relations), the 8 view types, templates /
   packs, **the agentic story** (MN-109) as the differentiator, self-host vs cloud,
   open-source (AGPL), pricing (MN-107), social proof / screenshots.
-- CTAs: Start free (cloud) · Self-host (GitHub) · Read the docs · Use with Claude (MCP).
+- CTAs: **Start free → app.storyos.dev** · Self-host (GitHub) · Read the docs
+  (docs.storyos.dev) · Use with Claude (MCP).
 - SEO/OG (reuse MN-067 branding), fast, static-first.
 
 **Docs site** (`docs.storyos.dev`):
