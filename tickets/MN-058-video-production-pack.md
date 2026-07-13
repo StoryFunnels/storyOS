@@ -6,7 +6,7 @@ depends_on: [MN-053]
 size: S
 ---
 
-Fibery `digital-video-production`: Video, Expense, Stage, Task + script writing.
+the reference tool `digital-video-production`: Video, Expense, Stage, Task + script writing.
 
 **Databases:** Videos 🎬 (Stage select Idea/Script/Shoot/Edit/Review/Published; Publish Date; Platform select YouTube/Shorts/TikTok/Instagram/Client; Length min number; Script rich_text; Brief rich_text) ↔ Production Tasks ✅ ↔ Expenses 💳 (Amount, Category select Gear/Location/Talent/Music/Post).
 **Views:** Videos board by Stage, Publish calendar, Tasks "This week", Expenses table.

@@ -12,7 +12,7 @@ size: L
 
 - **Notion calendar view**: month grid; records render as chips on their date; drag chip to another day = reschedule; click a day's empty area = quick-create with the date prefilled; per-view choice of which date property drives placement.
 - **Airtable calendar**: date field chosen at view creation; optional end-date makes spans; color by single-select.
-- **Fibery calendar**: same, plus multi-day spans.
+- **the reference tool calendar**: same, plus multi-day spans.
 - **Linear**: no calendar (cycles/timeline instead) — their domain is engineering; ours includes content, so calendar ranks above timeline for us.
 
 **Synthesis:** third view type `calendar`; config = `date_field_id`; month navigation; chips with card fields; drag = date change; day-click = create-with-date. Spans (end date) explicitly deferred.

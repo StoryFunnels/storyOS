@@ -8,7 +8,7 @@ size: M
 
 **Problem (founder, 2026-07-09):** "Text" currently stretches from a one-line string to `multiline`, and there is no formatted-text field at all. Users expect a clear split: **Text** = simple string, **Rich Text** = real formatting (headings, lists, bold, links).
 
-**Research.** Notion: "Text" properties are plain; rich content lives in the page body — but users constantly ask for rich text properties. Fibery: distinct "Text" (plain) and "Rich Text" (collaborative doc) field types; rich text renders as a block on the entity view, and as a plain-text preview in grids. Airtable: "Long text" with an *Enable rich text formatting* toggle; grid shows a stripped preview, expanded record shows the editor. Consensus: **rich text edits on the entity view with a real editor, grids show a read-only plain preview**.
+**Research.** Notion: "Text" properties are plain; rich content lives in the page body — but users constantly ask for rich text properties. the reference tool: distinct "Text" (plain) and "Rich Text" (collaborative doc) field types; rich text renders as a block on the entity view, and as a plain-text preview in grids. Airtable: "Long text" with an *Enable rich text formatting* toggle; grid shows a stripped preview, expanded record shows the editor. Consensus: **rich text edits on the entity view with a real editor, grids show a read-only plain preview**.
 
 **Design.**
 

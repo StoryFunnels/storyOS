@@ -31,8 +31,8 @@ BYO model key. We monetize **operating it for you**, not the features.
   usage for AI). Where's the free-tier ceiling?
 - Trial shape (14-day Pro? free tier forever + AI paid?).
 - Billing stack (Stripe) + dunning + tax — ties to the admin panel (MN-104).
-- Competitive anchors: Fibery (~$10–17/mo/user), Airtable ($20–45), Notion ($8–15),
-  Linear ($8–14). Position below Fibery on base, differentiate hard on AI/agents.
+- Competitive anchors: the reference tool (~$10–17/mo/user), Airtable ($20–45), Notion ($8–15),
+  Linear ($8–14). Position below the reference tool on base, differentiate hard on AI/agents.
 
 ## Deliverable
 - A pricing page-worthy tier table + limits matrix, the metering model for AI, and the

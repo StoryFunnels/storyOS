@@ -17,10 +17,10 @@ size: L
 > rate limit + shareable link + hosted render page), per-field **required/label/help**
 > config, and relation/multi-select/person inputs.
 
-## Fibery parity
+## feature parity
 
 A **Form** is a view that renders selected fields as inputs; submitting creates a
-record in the database. Fibery forms can be shared (internal or public link),
+record in the database. the reference tool forms can be shared (internal or public link),
 support field ordering, required fields, descriptions, and a thank-you/redirect.
 Key for intake: feedback, requests, applications, lead capture.
 
@@ -46,4 +46,4 @@ Key for intake: feedback, requests, applications, lead capture.
 - [ ] Shareable link renders the form; submit creates a valid record (schema-checked).
 - [ ] Spam/rate-limit guard on the public endpoint.
 
-Refs: [Fibery Views](https://the.fibery.io/@public/User_Guide/Guide/Views-8).
+Refs: [the reference tool Views](https://the.the reference tool.io/@public/User_Guide/Guide/Views-8).

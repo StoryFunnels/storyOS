@@ -12,9 +12,9 @@ size: M
 
 - **Notion**: any page takes an emoji (or upload); picker = search + category grid + recent + skin-tone variants. Emoji everywhere: sidebar, tabs, breadcrumbs, mentions.
 - **Linear**: teams and projects pick from a curated icon set + a color; the color tints the icon chip consistently across sidebar, boards, and mentions — color IS the recognition system.
-- **Fibery**: databases pick icon + accent color; spaces are colored folders.
+- **the reference tool**: databases pick icon + accent color; spaces are colored folders.
 
-**Synthesis (revised after founder's Fibery sidebar screenshot, 2026-07-09):** Fibery's actual system — **databases keep the stacked-disk glyph but color-tinted** (red/blue/teal disks are how OWOX tells 25 databases apart at a glance), while **spaces carry an emoji/pictogram**. So: databases = color first (tints the existing Database glyph), emoji as optional override; spaces = emoji + optional color. Both from our 10-color palette.
+**Synthesis (revised after founder's the reference tool'sidebar screenshot, 2026-07-09):** the reference tool's actual system — **databases keep the stacked-disk glyph but color-tinted** (red/blue/teal disks are how OWOX tells 25 databases apart at a glance), while **spaces carry an emoji/pictogram**. So: databases = color first (tints the existing Database glyph), emoji as optional override; spaces = emoji + optional color. Both from our 10-color palette.
 
 ## Design
 

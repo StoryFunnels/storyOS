@@ -1,6 +1,6 @@
 import type { TemplateDef } from '../types';
 
-/** People & Ops category (MN-062, MN-063) — from the Fibery template review. */
+/** People & Ops category (MN-062, MN-063) — from the template research. */
 
 export const orgChart: TemplateDef = {
   slug: 'org-chart',

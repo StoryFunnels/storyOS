@@ -2,7 +2,7 @@
 
 **One-liner:** an open-source, self-hostable work platform where teams model their company as related databases — and run everything (client work, content, CRM, planning) on that one engine.
 
-**Reference UX:** Fibery (databases + relations + views + entity pages), *not* Notion (docs-first). Rich text lives inside records; it is never the organizing skeleton.
+**Reference UX:** the reference tool (databases + relations + views + entity pages), *not* Notion (docs-first). Rich text lives inside records; it is never the organizing skeleton.
 
 **License & promise:** AGPL-3.0. The core is fully capable and free forever. Monetization (later) is managed cloud hosting and advanced AI features layered on top — never removing capability from the open core. If the community builds an MCP server or integrations on our API, that's success, not leakage.
 
@@ -18,7 +18,7 @@
 
 ## Personas
 
-**P1 — Olena, the Builder (workspace admin).** Agency operations lead / founder, coming from Fibery or Notion. Designs the schema: databases, fields, relations, views, templates. Invites people, manages roles, creates API tokens. Success = *"I modeled our whole agency in an afternoon and stopped paying for Fibery."*
+**P1 — Olena, the Builder (workspace admin).** Agency operations lead / founder, coming from your current tools or Notion. Designs the schema: databases, fields, relations, views, templates. Invites people, manages roles, creates API tokens. Success = *"I modeled our whole agency in an afternoon and stopped paying for the old tool."*
 
 **P2 — Max, the Team Member.** Writer / PM / designer. Never touches schema. Lives in saved views: drags cards on the task board, updates fields, writes descriptions, comments and @mentions. Success = *"I open 'My Tasks', see what's next, and everything I need is one click deep."*
 
@@ -26,7 +26,7 @@
 
 ## First user
 
-JCM (agency). Day-1 workloads: client/project/task tracking and a content/article pipeline. The v1 acceptance bar is: **JCM runs its client work in this tool instead of Fibery.**
+JCM (agency). Day-1 workloads: client/project/task tracking and a content/article pipeline. The v1 acceptance bar is: **JCM runs its client work in this tool instead of the old tool.**
 
 ## Monetization stance (for later, recorded now)
 

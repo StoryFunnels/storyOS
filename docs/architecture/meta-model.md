@@ -35,7 +35,7 @@ First-class rows with stable IDs — **never inline strings**. `field_id`, `labe
 ### Relation
 First-class object: `workspace_id`, `database_a_id`, `database_b_id`, `field_a_id`, `field_b_id`, `cardinality` (`one_to_many` | `many_to_many`; side `a` is the "many" side for one_to_many). Creating a relation always creates **two** relation-fields (one per database) pointing at the shared `relation_id`. Self-relations (`database_a == database_b`) and cross-space relations allowed. 1:1 deferred.
 
-Why paired-inverse-fields (Fibery/Airtable model): uniform rendering (views iterate `fields[]`, no special cases), both directions always navigable by construction (no orphaned one-way links), clean introspectable API for generic clients/MCP, one source of truth for links.
+Why paired-inverse-fields (the reference tool/Airtable model): uniform rendering (views iterate `fields[]`, no special cases), both directions always navigable by construction (no orphaned one-way links), clean introspectable API for generic clients/MCP, one source of truth for links.
 
 ### RecordLink
 One row per link: `relation_id`, `from_record_id`, `to_record_id`. `UNIQUE (relation_id, from_record_id, to_record_id)`; partial unique index on `(relation_id, from_record_id)` when cardinality is one_to_many; `ON DELETE CASCADE` from records. One row serves both sides — no dual-write divergence; reverse lookups are indexed queries; relation filters compile to `EXISTS`.

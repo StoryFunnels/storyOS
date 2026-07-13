@@ -14,9 +14,9 @@ size: M
 > delete → 404). **Deferred:** starring docs (favorites are record/database-only —
 > needs a `document` target type) and drag-reorder of docs.
 
-## Fibery parity
+## feature parity
 
-Fibery lets you create **Documents** directly in a space (sidebar), independent of
+the reference tool lets you create **Documents** directly in a space (sidebar), independent of
 any database — a rich-text page (specs, wikis, meeting notes) that lives in the
 nav tree next to databases and views. We currently only have per-record
 descriptions (the `documents` table is keyed by `record_id`).
@@ -36,4 +36,4 @@ descriptions (the `documents` table is keyed by `record_id`).
 - [ ] Full-page rich editor with autosave + version guard.
 - [ ] Can be starred; survives reload; scoped by space access.
 
-Refs: [Fibery Views](https://the.fibery.io/@public/User_Guide/Guide/Views-8).
+Refs: [the reference tool Views](https://the.the reference tool.io/@public/User_Guide/Guide/Views-8).

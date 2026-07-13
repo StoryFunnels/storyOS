@@ -29,13 +29,13 @@ filters + label-friendly writes**. Ease and correctness come from the same place
   custom fields — a luxury we don't have (our databases are user-defined). We must expose
   schema explicitly.
 
-### Fibery MCP (tool surface observed)
-- **Shape:** very granular — `schema`, `schema_detailed`, a generic `query` (Fibery's own
+### the reference tool MCP (tool surface observed)
+- **Shape:** very granular — `schema`, `schema_detailed`, a generic `query` (the reference tool's own
   query language), `create_databases`, `create_entities`, `update_entities`, and a tool
   **per field type** (`create_single_select_fields`, `create_multi_select_fields`,
-  `create_formula_field`, `create_workflow_field`, …), plus `get_fibery_skill` — a meta-tool
-  that *teaches the agent how to use Fibery*.
-- **Good ideas to steal:** `schema`/`schema_detailed` for grounding, and the `get_fibery_skill`
+  `create_formula_field`, `create_workflow_field`, …), plus `its orientation tool` — a meta-tool
+  that *teaches the agent how to use the reference tool*.
+- **Good ideas to steal:** `schema`/`schema_detailed` for grounding, and the `its orientation tool`
   orientation tool (we'll do a tighter `get_started`).
 - **Weaknesses to beat:** (1) the raw **query language** is a hallucination magnet — the model
   guesses syntax and gets opaque errors. (2) ~40 narrow tools bloat the tool list and dilute
@@ -50,8 +50,8 @@ filters + label-friendly writes**. Ease and correctness come from the same place
   crisply before writes), markdown↔block round-tripping loses structure, and filters are a
   fiddly nested JSON the model gets wrong.
 
-**Synthesis:** Linear's upsert + human-friendly resolution + pagination, Fibery's explicit
-schema + orientation tool, Notion's small surface — minus Fibery's raw query language and
+**Synthesis:** Linear's upsert + human-friendly resolution + pagination, the reference tool's explicit
+schema + orientation tool, Notion's small surface — minus the reference tool's raw query language and
 Notion's property guessing. Our differentiator is that the **API already enforces the schema**,
 so wrong writes fail loudly and *usefully*.
 
@@ -109,7 +109,7 @@ Claude Desktop / Claude Code / any MCP client
 **Orientation**
 - `get_started(workspace?)` — one call that returns: how these tools fit together, the op×type
   filter cheat-sheet, and a compact map of the workspace (spaces → databases → field summary).
-  The antidote to cold-start guessing. (Our tight take on Fibery's `get_fibery_skill`.)
+  The antidote to cold-start guessing. (Our tight take on the reference tool's `its orientation tool`.)
 
 **Discovery / schema (grounding)**
 - `list_workspaces()` → the PAT's workspaces.
@@ -185,7 +185,7 @@ becomes a number we can put on the box.
 
 ## 10. Decisions to confirm before we ticket it
 1. **Package home:** `packages/mcp` → npm `@storyos/mcp`. (Recommend yes.)
-2. **Surface size:** minimal ~16 high-leverage tools (recommend) vs Fibery-style granular.
+2. **Surface size:** minimal ~16 high-leverage tools (recommend) vs work-OS-style granular.
 3. **Filtering:** structured AST + cheat-sheet (recommend) vs a natural-language filter the MCP
    compiles. AST is the non-hallucination play; NL can come later as sugar.
 4. **Write values:** accept labels/names for select/person and resolve server-side (recommend
@@ -193,4 +193,4 @@ becomes a number we can put on the box.
 5. **First milestone:** local stdio + PAT, Phase 1 read-only. (Recommend — usable in a day,
    zero write risk, great demo.)
 6. **Eval harness:** build the non-hallucination eval alongside Phase 1 so "better than
-   Notion/Fibery/Linear" is measured, not asserted.
+   Notion/the reference tool/Linear" is measured, not asserted.

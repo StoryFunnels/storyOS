@@ -27,7 +27,7 @@ The single source of truth for what v1 is. Anything not in the IN list is OUT, e
 - Calendar, timeline, list, gallery, chart views; dashboards
 - OR / nested filter groups in the UI (API supports nesting; UI stays flat AND)
 - Per-view manual ordering (one manual order per database in v1 — [ADR-0005](../decisions/ADR-0005-record-ordering.md))
-- CSV import/export UI (migration from Fibery/spreadsheets happens via API batch-create)
+- CSV import/export UI (migration from your current tools/spreadsheets happens via API batch-create)
 - In-app notification inbox; comment threads & reactions; description version history
 - Public share links & public forms; whiteboards
 - File management beyond the attachments strip (folders, previews, quotas UI, file field type)

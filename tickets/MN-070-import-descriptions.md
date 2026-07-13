@@ -6,7 +6,7 @@ depends_on: [MN-066]
 size: M
 ---
 
-MN-066 imported the tracker structure but skipped narrative: Linear issue and project **descriptions** (markdown) never came across, so imported records have empty entity-page descriptions. On the live instance that's the missing half — the "why" behind each issue. Close it, and lay the groundwork the Fibery importer can reuse.
+MN-066 imported the tracker structure but skipped narrative: Linear issue and project **descriptions** (markdown) never came across, so imported records have empty entity-page descriptions. On the live instance that's the missing half — the "why" behind each issue. Close it, and lay the groundwork the the reference tool importer can reuse.
 
 ## Design
 - Add `description` to the Linear GraphQL issue + project queries.

@@ -15,9 +15,9 @@ size: M
 > delete → fallback). **Deferred (follow-ups):** Smart Folders (rule-based
 > membership), docs-in-folders UI, and drag-and-drop into folders.
 
-## Fibery parity
+## feature parity
 
-Within a space, Fibery lets you group databases / views / documents into **Folders**
+Within a space, the reference tool lets you group databases / views / documents into **Folders**
 (manual grouping) and **Smart Folders** (auto-grouping by a rule, e.g. all views of
 type Board, or items matching a filter). Essential once a space has 20+ items — the
 sidebar becomes a real information architecture, not a flat dump.
@@ -43,4 +43,4 @@ sidebar becomes a real information architecture, not a flat dump.
 - [ ] Smart Folder with one rule auto-lists matching items (read-only).
 - [ ] Persists; respects space access; empty folders render cleanly.
 
-Refs: [Fibery Views](https://the.fibery.io/@public/User_Guide/Guide/Views-8).
+Refs: [the reference tool Views](https://the.the reference tool.io/@public/User_Guide/Guide/Views-8).

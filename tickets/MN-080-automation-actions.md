@@ -1,14 +1,14 @@
 ---
 id: MN-080
-title: Automation actions — add more (Fibery-parity)
+title: Automation actions — add more (feature parity)
 status: done
 depends_on: [MN-050]
 size: M
 ---
 
-Founder: more actions available; check what Fibery does. Today: set_values, create_record, add_comment.
+Founder: more actions available; check what the reference tool does. Today: set_values, create_record, add_comment.
 
-## Fibery-inspired actions to add
+## the reference tool-inspired actions to add
 - **Update linked/related record** (set fields on a related record).
 - **Notify a user** (create a notification / @mention) — reuses the notifications system.
 - **Add/remove a label (multi-select option)** convenience action.

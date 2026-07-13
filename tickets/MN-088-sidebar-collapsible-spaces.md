@@ -10,7 +10,7 @@ size: S
 
 The left sidebar lists every space with all its databases expanded. For a real
 workspace (JCM already has ~10 spaces × many databases) this grows unmanageably
-fast — you scroll forever and can't find anything. Fibery solves this with a
+fast — you scroll forever and can't find anything. the reference tool'solves this with a
 collapsible workspace → space → database tree (disclosure triangles); ours looks
 cleaner only because it isn't packed yet.
 

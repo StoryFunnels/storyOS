@@ -24,7 +24,7 @@ only the *human* sequential ID on records.
 
 ## Reference
 
-Linear (`ENG-1234`), Jira (`PROJ-123`), Height, Fibery (public id per DB) all use
+Linear (`ENG-1234`), Jira (`PROJ-123`), Height, the reference tool (public id per DB) all use
 a per-container running integer as the shareable, memorable handle — UUIDs are for
 machines, the number is for humans and URLs.
 

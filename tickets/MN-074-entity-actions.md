@@ -6,7 +6,7 @@ depends_on: [MN-072]
 size: M
 ---
 
-Fibery's entity card has an Actions menu (Duplicate, Copy link, Watch, Configure Fields, Delete…) and a "select which fields to show" popover. Our record page has none of that. Founder ask: duplicate a record, copy link, and a header field picker; star/favorite is separate (MN-075).
+the reference tool's entity card has an Actions menu (Duplicate, Copy link, Watch, Configure Fields, Delete…) and a "select which fields to show" popover. Our record page has none of that. Founder ask: duplicate a record, copy link, and a header field picker; star/favorite is separate (MN-075).
 
 ## Design
 - **Duplicate** — backend `POST /records/:rec/duplicate`: clones scalar values + the description document, copies single-reference and many-to-many links, but NOT owned collections (a child can't have two parents — one_to_many side b is skipped). Title gets " (copy)". Returns the new record; UI navigates to it.

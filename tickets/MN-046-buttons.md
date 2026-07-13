@@ -11,7 +11,7 @@ size: L
 ## Research
 
 - **Airtable button field**: label + style + ONE action; lives in the grid as a real button. Simplicity is the feature.
-- **Fibery buttons**: per-database, multiple declarative actions (update entity, create linked entity, notify), optional confirmation, run as the clicking user, visible on entity view + grids.
+- **the reference tool buttons**: per-database, multiple declarative actions (update entity, create linked entity, notify), optional confirmation, run as the clicking user, visible on entity view + grids.
 - **Notion buttons**: a checklist of primitives (edit props, add page, show confirmation) — confirms the primitive set.
 
 **Synthesis:** a button is a field whose config is an ordered list of **declarative actions** executed server-side in one transaction when pressed. Three primitives cover the real use cases ("Approve", "Start sprint", "Request changes", "Log a call"): set fields on this record, create a linked record, add a comment. Deliberately not Turing-complete — that's MN-047's job to extend, not this field's.
@@ -52,7 +52,7 @@ Action =
 
 **Rendering** — in cells and on the entity property row: a real `<button>` (small, filled with the config color or accent), label text, pressed state = spinner; on success a toast lists effects ("Set State → Done · Commented"). `confirm` set → window.confirm first. Read-only/viewer/commenter see a disabled button with tooltip "Requires editor access".
 
-**Management surface (revised after Fibery sidebar screenshot):** Fibery lists *Buttons* as a per-database section beside Automation Rules. We mirror that: database ⋯ menu → **"Buttons & automations"** panel with two tabs (Buttons | Rules — Rules tab lands with MN-047). The Buttons tab lists button fields with their action summaries and opens the same builder; buttons remain field-typed underneath (they render in grids), but management is centralized.
+**Management surface (revised after the reference tool'sidebar screenshot):** the reference tool lists *Buttons* as a per-database section beside Automation Rules. We mirror that: database ⋯ menu → **"Buttons & automations"** panel with two tabs (Buttons | Rules — Rules tab lands with MN-047). The Buttons tab lists button fields with their action summaries and opens the same builder; buttons remain field-typed underneath (they render in grids), but management is centralized.
 
 **Builder** (in Add/Edit field dialog when type=button, and from the panel):
 - Label + color swatch + optional confirmation text.

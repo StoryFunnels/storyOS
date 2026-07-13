@@ -6,7 +6,7 @@ depends_on: [MN-053]
 size: M
 ---
 
-Fibery `sales-crm`: Account, Opportunity, Sales task, Contact — a real pipeline vs our thin Leads+Proposals.
+the reference tool `sales-crm`: Account, Opportunity, Sales task, Contact — a real pipeline vs our thin Leads+Proposals.
 
 **New pack `sales-crm`** (agency-crm stays for existing installs, gallery hides it): Accounts 🏢 (Industry select, Size select, Website, Owner user) ↔ Contacts 👤 (Email, Phone, Role text, Primary checkbox) ↔ Opportunities 💰 (Stage select Prospect/Qualified/Proposal/Negotiation/Won/Lost — colored pipeline; Amount currency; Close Date; Probability % number; Next Step text) ↔ Sales Tasks ✅ (Due, Owner, Done).
 **Views:** Pipeline board (Opportunities by Stage, card fields Amount+Close), "Closing this month", Accounts table, "My tasks due" (@me).

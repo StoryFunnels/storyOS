@@ -30,7 +30,7 @@ size: L
 
 ### Web — the palette
 
-- Global `Cmd+K` / `Ctrl+K` listener in the workspace layout (ignores when a dialog is already open); plus a **sidebar "Search" entry** in the new top nav section (revised per founder's Fibery screenshot: Home / Search / Inbox sit above spaces as first-class rows).
+- Global `Cmd+K` / `Ctrl+K` listener in the workspace layout (ignores when a dialog is already open); plus a **sidebar "Search" entry** in the new top nav section (revised per founder's the reference tool'screenshot: Home / Search / Inbox sit above spaces as first-class rows).
 - Own component (~200 lines, no cmdk dep): fixed top-center modal, input, grouped list, footer hint row (`↑↓ navigate · ↵ open · esc close`).
 - **Sections**:
   1. *Records* — icon of their database + title + database name right-aligned; Enter → entity page.

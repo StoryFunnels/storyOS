@@ -25,7 +25,7 @@ export * from './auth-schema';
 export const membershipRole = pgEnum('membership_role', ['admin', 'member', 'guest']);
 export const membershipStatus = pgEnum('membership_status', ['pending', 'active']);
 
-/** Graded scope access for guests (ADR-0007, Fibery model). */
+/** Graded scope access for guests (ADR-0007, connected-data model). */
 export const accessRole = pgEnum('access_role', ['viewer', 'commenter', 'editor', 'creator']);
 
 export const fieldType = pgEnum('field_type', [

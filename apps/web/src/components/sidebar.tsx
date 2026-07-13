@@ -110,7 +110,7 @@ export function Sidebar() {
       <WorkspaceSwitcher ws={ws} currentName={workspace.data?.name} />
 
       <nav className="flex-1 overflow-y-auto p-2">
-        {/* Top nav (Fibery-style): Home / Search above spaces */}
+        {/* Top nav (work-OS-style): Home / Search above spaces */}
         <div className="mb-2 flex flex-col gap-0.5">
           <Link
             href={`/w/${ws}`}

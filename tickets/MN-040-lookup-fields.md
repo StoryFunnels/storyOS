@@ -8,7 +8,7 @@ size: L
 
 **Problem (founder, 2026-07-09):** there is no way to surface a related record's data on this database — e.g. show the Client's `Contact Email` on each Project. Users duplicate data instead.
 
-**Research.** Fibery: "Lookup" — pick one of the database's relations, then a field of the related database; value is read-only and live (changes on the source reflect immediately); chainable one level. Notion: "Rollup" with aggregation `Show original` covers the same case — property config = (relation property, target property). Airtable: "Lookup" identically. Common shape: **config is (relation field, target field), value is computed at read time, never written, rendered with the target field's display type**.
+**Research.** the reference tool: "Lookup" — pick one of the database's relations, then a field of the related database; value is read-only and live (changes on the source reflect immediately); chainable one level. Notion: "Rollup" with aggregation `Show original` covers the same case — property config = (relation property, target property). Airtable: "Lookup" identically. Common shape: **config is (relation field, target field), value is computed at read time, never written, rendered with the target field's display type**.
 
 **Design.**
 

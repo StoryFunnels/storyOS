@@ -6,7 +6,7 @@ depends_on: []
 size: M
 ---
 
-Fibery's `linear` template mirrors Linear (8 synced databases). Our dev-project pack already IS the Linear model — so our play is migration, not mirroring.
+the reference tool's `linear` template mirrors Linear (8 synced databases). Our dev-project pack already IS the Linear model — so our play is migration, not mirroring.
 
 ## Design
 - Settings → Integrations → Linear: API key; pick teams.

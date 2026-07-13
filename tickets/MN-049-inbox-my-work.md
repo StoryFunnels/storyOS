@@ -11,7 +11,7 @@ size: L
 ## Research
 
 - **Linear Inbox**: one stream of personally-relevant events (assigned, mentioned, replies, status changes on subscribed issues); unread markers; keyboard triage; snooze. My Issues: assigned/created/subscribed tabs, grouped by state.
-- **Fibery**: notification bell + per-user "My space" of references.
+- **the reference tool**: notification bell + per-user "My space" of references.
 - **Notion**: Inbox tab with mentions and comment replies; the simple read/unread model is enough.
 - **Height/Asana**: assignment notifications drive >half of all opens — assignment is the #1 producer to get right.
 
@@ -44,7 +44,7 @@ Producers write in the same transaction as their parent op (no lost notification
 
 ### Inbox UI
 
-- **Sidebar top-nav (revised per founder's Fibery screenshot):** a section above spaces with `Home` (workspace home), `Search` (MN-048 palette), `Inbox` with unread badge (99+ cap), `My Work`. Inbox badge polls every 60s via react-query `refetchInterval`, refetch on window focus. No header bell — the sidebar row IS the surface, like Fibery/Linear.
+- **Sidebar top-nav (revised per founder's the reference tool'screenshot):** a section above spaces with `Home` (workspace home), `Search` (MN-048 palette), `Inbox` with unread badge (99+ cap), `My Work`. Inbox badge polls every 60s via react-query `refetchInterval`, refetch on window focus. No header bell — the sidebar row IS the surface, like the reference tool/Linear.
 - Click → right-side panel (not a route — keeps context): rows = actor Avatar (MN-045), sentence ("**Max** assigned you · *Fix flaky test*", "**Dana** mentioned you · *Sprint 12*"), database chip, snippet for comments, relative time; unread = bold + dot. Click row → marks read + navigates to the record. Header: "Mark all read".
 - Empty state: "You're all caught up 🎉".
 

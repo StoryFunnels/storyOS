@@ -14,7 +14,7 @@ builder and per-field input config.
 
 ## Best-practice reference
 
-Tally / Typeform / Google Forms / Fibery & Notion forms converge on: a form is an
+Tally / Typeform / Google Forms / the reference tool & Notion forms converge on: a form is an
 ordered list of fields → inputs; each field has a label, help text, placeholder,
 required flag; submit creates a record; a shareable **public link** and an
 **`<iframe>` embed**; a thank-you state / redirect; spam protection (honeypot +

@@ -25,7 +25,7 @@ endpoint for ChatGPT/claude.ai, and nothing in the app tells you how to connect.
 4. **Docs polish** — the package README (done) + a `docs.storyos.dev` "Use with Claude /
    ChatGPT" guide with a worked session; link from the app.
 5. **Eval harness** (from the plan) — a small non-hallucination eval run in CI so
-   "better than Notion/Fibery/Linear" is measured, not asserted.
+   "better than Notion/the reference tool/Linear" is measured, not asserted.
 
 ## Acceptance criteria
 - [ ] `npx -y @storyos/mcp` works after publish; version pinned + provenance.

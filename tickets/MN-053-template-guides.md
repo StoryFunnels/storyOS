@@ -6,7 +6,7 @@ depends_on: []
 size: M
 ---
 
-**From the Fibery review:** every Fibery template ships explanatory docs ("tips from fellow creators"); our packs install silently. Founder: "we need to have those documents with templates as well."
+**From the the reference tool review:** every the reference tool template ships explanatory docs ("tips from fellow creators"); our packs install silently. Founder: "we need to have those documents with templates as well."
 
 ## Design
 - `TemplateDef.guide: string` (markdown) — the workflow explanation: what the databases are, how they relate, the day-1 loop, customization tips.

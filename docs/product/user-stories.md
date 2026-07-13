@@ -104,7 +104,7 @@ Personas: **builder** (admin), **member**, **guest** — see [vision.md](vision.
 - **E5 [M]** As a developer, I want an accurate OpenAPI 3.1 spec at `/api/v1/openapi.json` + reference docs at `/api/docs`.
   - Generated from the same route definitions the server enforces; examples per endpoint; a "Build an MCP server" guide
 - **E6 [M]** As a developer, I want record create/update/delete via API, including linking/unlinking relations.
-- **E7 [S]** As a developer, I want batch record creation (≤100 per call) so imports and scripts are efficient. (This is the Fibery-migration path.)
+- **E7 [S]** As a developer, I want batch record creation (≤100 per call) so imports and scripts are efficient. (This is the the reference tool-migration path.)
 - **E8 [S]** As an admin, I want basic per-token rate limiting so a runaway script can't take down the instance.
 - **E9 [L]** Webhooks · scoped/read-only tokens · official published SDKs (community can generate from OpenAPI).
 

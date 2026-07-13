@@ -6,11 +6,11 @@ depends_on: [MN-040]
 size: XL
 ---
 
-**Ask (founder, 2026-07-09):** a Formula field type, with instructions in docs on how to use it (Fibery docs as the reference for tone and structure).
+**Ask (founder, 2026-07-09):** a Formula field type, with instructions in docs on how to use it (the reference tool docs as the reference for tone and structure).
 
 ## Research
 
-- **Fibery**: expressions over the entity's fields (`[Estimate] * 2`, `If(IsEmpty([Due]), "—", Days([Due] - Today()))`), typed function library, one relation hop, read-only results recalculated on dependency change. Docs = short intro → recipe gallery → function reference. Errors show inline in the formula editor.
+- **the reference tool**: expressions over the entity's fields (`[Estimate] * 2`, `If(IsEmpty([Due]), "—", Days([Due] - Today()))`), typed function library, one relation hop, read-only results recalculated on dependency change. Docs = short intro → recipe gallery → function reference. Errors show inline in the formula editor.
 - **Notion formulas 2.0**: editor with autocomplete popup for fields and functions, live preview of the result under the input, typed errors ("Expected number, got text"). Property tokens are pills, not raw text — but serialize to names underneath.
 - **Airtable**: the largest function library; the lesson is that ~20 functions cover >90% of real formulas (IF, math, string concat, date diff).
 - **Coda**: everything-is-a-formula; too far for us. Confirms the ceiling, not the v1.
@@ -21,7 +21,7 @@ size: XL
 
 ### Expression language
 
-- **Syntax**: field refs as `{Field Name}` (curly braces — friendlier to type than Fibery's brackets, unambiguous vs our api_names); string literals `"…"`, numbers, `true/false`; operators `+ - * / %`, `== != > >= < <=`, `and or not`; parentheses; function calls `name(arg, …)`.
+- **Syntax**: field refs as `{Field Name}` (curly braces — friendlier to type than the reference tool's brackets, unambiguous vs our api_names); string literals `"…"`, numbers, `true/false`; operators `+ - * / %`, `== != > >= < <=`, `and or not`; parentheses; function calls `name(arg, …)`.
 - **Stdlib v1 (~18 functions)**:
   - Logic: `if(cond, then, else)`, `is_empty(x)`, `coalesce(a, b, …)`
   - Text: `concat(…)`, `upper(s)`, `lower(s)`, `trim(s)`, `replace(s, find, repl)`, `length(s)`, `format(x)` (any → text)
@@ -57,7 +57,7 @@ size: XL
 
 ### Docs deliverable — `docs/product/formulas.md`
 
-Structure mirrors Fibery's guide: (1) 90-second intro with one worked example; (2) **Recipes** — Days until due, Overdue flag, Effort remaining, Health emoji from state, Full name concat, Budget utilization %, Age of record, Quarter label, Weighted score, Traffic-light checkbox; (3) Reference — every function with signature, one-line doc, example in/out (generated from the stdlib table); (4) Limits (no multi-hop, no filtering by formulas yet, 5-formula chains).
+Structure mirrors the reference tool's guide: (1) 90-second intro with one worked example; (2) **Recipes** — Days until due, Overdue flag, Effort remaining, Health emoji from state, Full name concat, Budget utilization %, Age of record, Quarter label, Weighted score, Traffic-light checkbox; (3) Reference — every function with signature, one-line doc, example in/out (generated from the stdlib table); (4) Limits (no multi-hop, no filtering by formulas yet, 5-formula chains).
 
 ## Implementation plan
 
@@ -81,7 +81,7 @@ Multi-hop traversal (`{Client.Owner.Email}`), aggregation over relations (`sum({
 
 ## Open questions (founder)
 
-- Comfortable with `{Field Name}` syntax vs Fibery's `[Field Name]`? (Curly chosen for typability; either is a 1-line tokenizer change.)
+- Comfortable with `{Field Name}` syntax vs the reference tool's `[Field Name]`? (Curly chosen for typability; either is a 1-line tokenizer change.)
 - Should formula results show in board cards / calendar chips by default? (Plan: yes, they're fields like any other.)
 
 ## Acceptance criteria

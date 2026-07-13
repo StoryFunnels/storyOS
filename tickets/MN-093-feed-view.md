@@ -6,11 +6,11 @@ depends_on: [MN-089]
 size: M
 ---
 
-## Fibery parity
+## feature parity
 
 **Feed** shows records as a continuous, scrollable stream of large cards, each
 surfacing the record's rich content (description preview) + key fields — built for
-reviewing incoming feedback, notes, or updates. Fibery: "Track activity and updates
+reviewing incoming feedback, notes, or updates. the reference tool: "Track activity and updates
 in a continuous stream… scroll through notes… in a large format."
 
 ## Scope (v1)
@@ -26,4 +26,4 @@ in a continuous stream… scroll through notes… in a large format."
 - [x] Honors filter/sort; default newest-first; click opens record.
 - [x] Reasonable performance via paginated "Load more" (full virtualization deferred).
 
-Refs: [Fibery Views](https://the.fibery.io/@public/User_Guide/Guide/Views-8).
+Refs: [the reference tool Views](https://the.the reference tool.io/@public/User_Guide/Guide/Views-8).

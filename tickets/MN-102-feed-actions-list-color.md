@@ -10,7 +10,7 @@ size: M
 
 - **Feed** is "amazing" but **not actionable enough** — it reads, it doesn't let you
   *do*. Add per-item quick actions.
-- **List** rows can't yet be styled with colors — "review the Fibery docs." Add
+- **List** rows can't yet be styled with colors — "review the the reference tool docs." Add
   color-by (and confirm inline field chips read well).
 
 ## Scope
@@ -27,7 +27,7 @@ size: M
 - `color_by` (a select field) in the view config, exposed via a **Color** control in
   the toolbar (reuse the collection/board `color_by` pattern). List rows get a
   leading colored dot / left accent; Feed cards get a colored accent.
-- Review List row styling vs Fibery (chip density, truncation, spacing).
+- Review List row styling vs the reference tool (chip density, truncation, spacing).
 
 ## Acceptance criteria
 - [ ] Feed cards have working inline actions (status/assignee/checkbox + comment + open).

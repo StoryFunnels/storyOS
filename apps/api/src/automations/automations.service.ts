@@ -228,7 +228,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
       if (rule.condition) {
         const matches = await this.conditionMatches(databaseId, rule.condition as FilterNode, recordId, rule.createdBy ?? '');
         if (!matches) {
-          return; // silent non-match: no run row (Fibery behavior; run log stays signal, not noise)
+          return; // silent non-match: no run row (intended behavior; run log stays signal, not noise)
         }
       }
       const record = await this.recordsService.get(databaseId, recordId).catch(() => null);

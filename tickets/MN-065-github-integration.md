@@ -6,7 +6,7 @@ depends_on: []
 size: L
 ---
 
-Fibery syncs Repository/Branch/Issue/PR/Member one-way; linking PRs to work items is manual. Founder: "you can do this one significantly better."
+the reference tool'syncs Repository/Branch/Issue/PR/Member one-way; linking PRs to work items is manual. Founder: "you can do this one significantly better."
 
 ## Where we beat them (v1 scope)
 1. **Import lands in a working tracker** — issues arrive as task-DNA records (states/labels/assignee mapped), not a read-only mirror.

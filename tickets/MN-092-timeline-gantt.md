@@ -12,13 +12,13 @@ size: L
 > record. **Follow-ups (next increment):** drag-move / edge-resize to reschedule,
 > and **Gantt** (left row panel + dependencies + hierarchy) — both tracked here.
 
-## Fibery parity
+## feature parity
 
 - **Timeline**: each record is a row with **start + end dates**, drawn as a bar on
   a horizontal, zoomable time axis (day/week/month/quarter). Drag to move, drag
   edges to reschedule. "each Entity is represented as a row with start and end dates."
 - **Gantt** = **List + Timeline**: the timeline plus a left-hand hierarchical/row
-  panel, **dependencies** (finish-to-start arrows), and grouping. Fibery frames it
+  panel, **dependencies** (finish-to-start arrows), and grouping. the reference tool frames it
   as "List View + Timeline View."
 
 ## What we need first (prereq)
@@ -44,5 +44,5 @@ size: L
 - [ ] Drag-move and edge-resize persist the date field(s); filter/sort apply.
 - [ ] Gantt (dependencies + hierarchy) tracked as a follow-up here.
 
-Refs: [Timeline](https://the.fibery.io/@public/User_Guide/Guide/Timeline-View-12),
-[Gantt](https://the.fibery.io/@public/User_Guide/Guide/Gantt-View-408).
+Refs: [Timeline](https://the.the reference tool.io/@public/User_Guide/Guide/Timeline-View-12),
+[Gantt](https://the.the reference tool.io/@public/User_Guide/Guide/Gantt-View-408).

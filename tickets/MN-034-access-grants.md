@@ -1,6 +1,6 @@
 ---
 id: MN-034
-title: Access grants — Fibery-style roles at space + database level
+title: Access grants — work-OS-style roles at space + database level
 status: done
 depends_on: [MN-032]
 size: L

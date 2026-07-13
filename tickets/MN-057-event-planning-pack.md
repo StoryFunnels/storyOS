@@ -6,7 +6,7 @@ depends_on: [MN-053]
 size: S
 ---
 
-Fibery `event-planning`: Event, Expense, Task, Category; "track budget, see which category is most expensive."
+the reference tool `event-planning`: Event, Expense, Task, Category; "track budget, see which category is most expensive."
 
 **Databases:** Events 🎪 (Date, Venue, Status select Planning/Confirmed/Done, Budget number currency, Attendees Expected number) ↔ Event Tasks ✅ (DNA-lite: State, Owner, Due) ↔ Expenses 💳 (Amount currency, Category select Venue/Catering/Marketing/Travel/Production/Other, Paid checkbox, Vendor text).
 **Views:** Events calendar, Expenses "By category" board, Tasks board, "Unpaid" table.

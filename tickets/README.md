@@ -88,7 +88,7 @@ Every [M] story in [docs/product/user-stories.md](../docs/product/user-stories.m
 | # | Ticket | Size | Depends on |
 |---|---|---|---|
 | MN-033 | [Template-first onboarding — nobody starts from blank](MN-033-template-first-onboarding.md) | L | 032 |
-| MN-034 | [Access grants — Fibery-style roles at space + database level](MN-034-access-grants.md) | L | 032 |
+| MN-034 | [Access grants — work-OS-style roles at space + database level](MN-034-access-grants.md) | L | 032 |
 | MN-035 | [Agency template packs + Task DNA installer](MN-035-agency-template-packs.md) | L | 033, 034 |
 | MN-036 | [Creators template packs](MN-036-creators-template-packs.md) | M | 035 |
 | MN-037 | [Dev template packs](MN-037-dev-template-packs.md) | M | 035 |
@@ -105,7 +105,7 @@ Every [M] story in [docs/product/user-stories.md](../docs/product/user-stories.m
 
 ## Team-adoption wave (planned 2026-07-09 — computed fields, identity, automation, daily-driver surfaces)
 
-Goal: everything JCM needs to move its daily work in. Sources: founder asks (formulas, icons, avatars, buttons, workflows) + a Linear feature review (command palette, inbox/My Issues, batch editing, keyboard fluency) + the two adoption gates (calendar for content, CSV import from Fibery).
+Goal: everything JCM needs to move its daily work in. Sources: founder asks (formulas, icons, avatars, buttons, workflows) + a Linear feature review (command palette, inbox/My Issues, batch editing, keyboard fluency) + the two adoption gates (calendar for content, CSV import from your current tools).
 
 | # | Ticket | Size | Depends on |
 |---|---|---|---|
@@ -118,9 +118,9 @@ Goal: everything JCM needs to move its daily work in. Sources: founder asks (for
 | MN-049 | [Notifications inbox + My Work](MN-049-inbox-my-work.md) | L | 045 |
 | MN-050 | [Table power pack — multi-select, batch edit, shortcuts](MN-050-table-power.md) | L | — |
 | MN-051 | [Calendar view](MN-051-calendar-view.md) | L | 038 |
-| MN-052 | [CSV import + Fibery migration guide](MN-052-csv-import.md) | L | — |
+| MN-052 | [CSV import + the reference tool migration guide](MN-052-csv-import.md) | L | — |
 
-## Template-library wave (Fibery review, 2026-07-10 — docs/product/fibery-template-review.md)
+## Template-library wave (the reference tool review, 2026-07-10 — docs/product/template-research.md)
 
 | # | Ticket | Size | Depends on |
 |---|---|---|---|

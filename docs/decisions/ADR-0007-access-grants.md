@@ -1,4 +1,4 @@
-# ADR-0007: Access grants — Fibery-style roles at space and database level
+# ADR-0007: Access grants — work-OS-style roles at space and database level
 
 - **Status:** accepted
 - **Date:** 2026-07-08
@@ -6,7 +6,7 @@
 
 ## Context
 
-First real-world need (founder, day 1): a client should be able to *work* in their space — create and edit tasks, drag boards, comment — without being able to change schema or manage people. The v1 guest (read + comment, space-scoped) is too weak; member is too strong. Fibery's model fits: share a scope with a person at a role.
+First real-world need (founder, day 1): a client should be able to *work* in their space — create and edit tasks, drag boards, comment — without being able to change schema or manage people. The v1 guest (read + comment, space-scoped) is too weak; member is too strong. a connected-data model fits: share a scope with a person at a role.
 
 ## Decision
 

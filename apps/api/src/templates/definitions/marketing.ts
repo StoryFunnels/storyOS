@@ -1,8 +1,8 @@
 import type { TemplateDef } from '../types';
 
 /**
- * Marketing category (MN-054, 056, 057, 058, 060, 061) — from the Fibery
- * template review (docs/product/fibery-template-review.md). Every pack ships
+ * Marketing category (MN-054, 056, 057, 058, 060, 061) — from the template
+ * research (docs/product/template-research.md). Every pack ships
  * a guide (MN-053).
  */
 
@@ -83,7 +83,7 @@ export const customerJourney: TemplateDef = {
   space: 'Customer Journey',
   guide: `## How this works
 
-Fibery models this with nine databases; we compress to three without losing the method: **Journeys** (one per persona), **Stages** (the steps, ordered), **Insights** (everything you learn, tagged with a Kind).
+The classic approach uses nine databases; we compress to three without losing the method: **Journeys** (one per persona), **Stages** (the steps, ordered), **Insights** (everything you learn, tagged with a Kind).
 
 ## The method
 
@@ -319,7 +319,7 @@ export const campaignsHq: TemplateDef = {
   space: 'Campaigns',
   guide: `## How this works
 
-One pack replaces two Fibery templates (Campaign Brief + Product Marketing). **Campaigns** carry the brief as structured fields + a rich-text Objective; **Audiences** are reusable across campaigns; **Key Metrics** hold target vs actual; **Campaign Tasks** carry execution.
+One pack replaces two separate templates (Campaign Brief + Product Marketing). **Campaigns** carry the brief as structured fields + a rich-text Objective; **Audiences** are reusable across campaigns; **Key Metrics** hold target vs actual; **Campaign Tasks** carry execution.
 
 ## The loop
 

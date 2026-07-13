@@ -45,7 +45,7 @@ function triggerSentence(rule: Rule, fields: Field[]): string {
   return t.type;
 }
 
-/** Buttons & automations panel (MN-046/047) — Fibery's per-database sections. */
+/** Buttons & automations panel (MN-046/047) — per-database sections. */
 export function AutomationsPanel({ ws, db, onClose }: { ws: string; db: string; onClose: () => void }) {
   const qc = useQueryClient();
   const database = useDatabase(ws, db);

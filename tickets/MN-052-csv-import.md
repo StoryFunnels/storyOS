@@ -1,21 +1,21 @@
 ---
 id: MN-052
-title: CSV import — move the team's data in (with a Fibery migration guide)
+title: CSV import — move the team's data in (with a the reference tool migration guide)
 status: done
 depends_on: []
 size: L
 ---
 
-**Problem.** "We need to make our team move inside" — and the team's working data lives in Fibery today. The API can batch-create, but nobody migrates a company through curl. Import quality decides whether the move-in happens at all; a bad first import (mangled types, lost relations) burns trust permanently.
+**Problem.** "We need to make our team move inside" — and the team's working data lives in the reference tool today. The API can batch-create, but nobody migrates a company through curl. Import quality decides whether the move-in happens at all; a bad first import (mangled types, lost relations) burns trust permanently.
 
 ## Research
 
-- **Fibery export**: every database exports CSV — entity fields as columns, **relations as comma-separated target names**, dates ISO, selects as labels. So CSV is precisely the bridge format, and "match relation cells by target title" is the key trick.
+- **the reference tool export**: every database exports CSV — entity fields as columns, **relations as comma-separated target names**, dates ISO, selects as labels. So CSV is precisely the bridge format, and "match relation cells by target title" is the key trick.
 - **Notion import**: CSV → new database; types inferred; zero mapping UI (fast but wrong types stick — we want the mapping step).
 - **Airtable import**: into existing table with per-column mapping (existing field / new field / skip) + preview of first rows.
 - **Linear importer**: the gold standard flow — upload → map → **dry-run summary with per-row issues** → import → report. The dry run is what makes people trust it.
 
-**Synthesis:** upload → parse + infer → mapping table → dry-run with per-row errors → chunked import; relations resolve by target title; a written Fibery-specific runbook.
+**Synthesis:** upload → parse + infer → mapping table → dry-run with per-row errors → chunked import; relations resolve by target title; a written the reference tool'specific runbook.
 
 ## Design
 
@@ -60,11 +60,11 @@ mapping: Array<{
 3. **Dry run** — summary card (N rows → N records, M new fields, K warnings listed grouped by kind, expandable); Back to fix mapping or Import.
 4. **Import** — progress (chunk count), then done state: created count, warnings, "Download issues CSV", link to the database.
 
-### Docs deliverable — `docs/product/migrate-from-fibery.md`
+### Docs deliverable — `docs/product/migrate-data.md`
 
-- Export steps in Fibery (per database → CSV).
+- Export steps in the reference tool (per database → CSV).
 - **Import order rule**: targets before sources (Clients before Projects before Tasks) so relation titles resolve; StoryOS relations must exist before importing the source side (create schema via template or manually first — recommended path: install the closest template pack, then import into its databases).
-- Field-type mapping table (Fibery type → StoryOS type → caveats), known non-migrations v1: rich-text documents, comments, files, automation rules, users (invite them first so person columns can be mapped manually afterward — person fields import as skip+warning in v1).
+- Field-type mapping table (Source type → StoryOS type → caveats), known non-migrations v1: rich-text documents, comments, files, automation rules, users (invite them first so person columns can be mapped manually afterward — person fields import as skip+warning in v1).
 - A worked JCM example end-to-end.
 
 ## Implementation plan
@@ -74,7 +74,7 @@ mapping: Array<{
 3. Endpoints + caps + SDK regen; integration tests: into-existing with all mapping kinds, import-new with inference, relation hit/miss/ambiguous, empty-title skip, 500-chunk boundaries.
 4. Wizard UI (4 steps) wired to all 3 entry points.
 5. Docs runbook with the JCM worked example; link from wizard step 1.
-6. Browser-verify with a real Fibery export of one JCM database.
+6. Browser-verify with a real the reference tool export of one JCM database.
 
 ## Edge cases
 
@@ -85,7 +85,7 @@ mapping: Array<{
 
 ## Out of scope
 
-Upsert/dedupe by key column, scheduled/recurring imports, Excel files, direct Fibery API importer (v2 — CSV path first proves the mapping engine), person-field matching by email (explicitly v1.1 — needs invited users + email column matching).
+Upsert/dedupe by key column, scheduled/recurring imports, Excel files, direct the reference tool API importer (v2 — CSV path first proves the mapping engine), person-field matching by email (explicitly v1.1 — needs invited users + email column matching).
 
 ## Acceptance criteria
 
@@ -94,4 +94,4 @@ Upsert/dedupe by key column, scheduled/recurring imports, Excel files, direct Fi
 - [ ] Import-as-new-database with confirmed inference; relation resolution by title with hit/miss/ambiguous semantics tested
 - [ ] Wizard: upload → map → dry-run → import → report, reachable from 3 entry points; member+ only
 - [ ] Imports don't fire automations; created ids recorded in the activity event
-- [ ] docs/product/migrate-from-fibery.md with import-order rule, type table, JCM worked example
+- [ ] docs/product/migrate-data.md with import-order rule, type table, JCM worked example

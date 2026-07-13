@@ -1,9 +1,9 @@
-# Migrating from Fibery
+# Migrating your data
 
-StoryOS imports CSV — and Fibery exports every database to CSV, including relation columns as
+StoryOS imports CSV — and the reference tool exports every database to CSV, including relation columns as
 **target names**. That pair is the whole migration path.
 
-## Export from Fibery
+## Export from your current tool
 
 For each database: open its grid view → `⋯` → **Export** → CSV. You get one file per database
 with entity fields as columns; relation fields export as comma-separated target names; selects
@@ -36,7 +36,7 @@ Database `⋯` menu → **Import CSV…**
 
 ## Field-type mapping
 
-| Fibery type | StoryOS type | Notes |
+| Source type | StoryOS type | Notes |
 |---|---|---|
 | Text (one-line) | Text | |
 | Rich Text | — | does not migrate in v1 (export is plain text; import as Text if useful) |
@@ -58,9 +58,9 @@ event if you need to identify an import batch.
 ## Worked example (JCM)
 
 1. Install the **Client Work** pack → Clients/Contacts/Projects/Tasks with relations wired.
-2. Export the four Fibery databases to CSV.
+2. Export your four source databases to CSV.
 3. Import `clients.csv` into Clients (Name → title, Status → existing select…).
 4. Import `projects.csv` into Projects; map the `Client` column to the Client relation.
 5. Import `tasks.csv` into Tasks; map `Project` to the Project relation, `State` to the
    existing State select (labels must match — rename options first if they differ).
-6. Spot-check counts against Fibery, then invite the team.
+6. Spot-check counts against the source, then invite the team.

@@ -9,12 +9,12 @@ size: M
 ## Problem
 
 The Kanban board cards look plain — a title and, at best, a stacked list of raw
-values. The founder wants Fibery-grade cards: compact chips per field, avatars for
+values. The founder wants the reference tool-grade cards: compact chips per field, avatars for
 people, colored dots for statuses, and — the signature — a small **colored
 triangle marker** before each value chip that varies by field, which "makes it
 LIVE." Cards must also be customizable (which fields show, card size).
 
-Reference: Fibery board cards (founder screenshots) — each card shows a few field
+Reference: the reference tool board cards (founder screenshots) — each card shows a few field
 chips; relations/people render as chips with a small colored marker + name; the
 "Cards" panel controls the displayed fields, group-by, and card size.
 

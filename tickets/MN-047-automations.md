@@ -10,7 +10,7 @@ size: XL
 
 ## Research
 
-- **Fibery automations**: per-database rules = trigger (created / updated-with-field-scope / linked / hourly-daily schedule) + filter + action list; a run log with per-run errors; rules auto-pause when they error repeatedly.
+- **the reference tool automations**: per-database rules = trigger (created / updated-with-field-scope / linked / hourly-daily schedule) + filter + action list; a run log with per-run errors; rules auto-pause when they error repeatedly.
 - **Linear**: few, opinionated, *scheduled* built-ins (auto-close stale issues, auto-archive completed) — evidence that time-based rules carry as much value as event rules; also the cleanest "recent runs" surface.
 - **Airtable automations**: trigger → conditions → action steps; run history with input/output per step; monthly caps.
 - **Notion database automations**: same triple, minimal but sufficient.
@@ -51,7 +51,7 @@ automation_runs:  id, automation_id, trigger_record_id|null, status enum(ok|erro
 - A `setInterval` worker in the API process ticks every 60s: `SELECT` enabled schedule rules whose `next_due_at <= now()` (materialized column updated after each run — no cron parsing at tick time), takes an advisory lock per rule (correctness on multi-node later, single-node now), selects matching records via the compiled condition (LIMIT 500/run, logged if truncated), executes actions per record at depth 1.
 - Documented as single-process v1; the advisory lock makes it forward-compatible with multiple API replicas.
 
-**Actor attribution**: runs execute as a synthetic actor `automation:<id>`; activity events render "⚡ <Rule name>" as the actor. Permission model: rules are creator-authored, so they act with full editor authority on their database — stated explicitly in docs (matches Fibery).
+**Actor attribution**: runs execute as a synthetic actor `automation:<id>`; activity events render "⚡ <Rule name>" as the actor. Permission model: rules are creator-authored, so they act with full editor authority on their database — stated explicitly in docs (matches the reference tool).
 
 ### API
 
@@ -59,7 +59,7 @@ automation_runs:  id, automation_id, trigger_record_id|null, status enum(ok|erro
 - `GET /databases/:db/automations/:id/runs?cursor` — run history.
 - `POST /databases/:db/automations/:id/test` — dry-run against a chosen record: evaluates condition + validates actions, returns would-do effects without writing. This is what makes rules debuggable.
 
-### UI (database ⋯ menu → "Buttons & automations", Rules tab — shared panel with MN-046, mirroring Fibery's per-database Automation Rules / Buttons sections)
+### UI (database ⋯ menu → "Buttons & automations", Rules tab — shared panel with MN-046, mirroring the reference tool's per-database Automation Rules / Buttons sections)
 
 - **List**: rows = enabled toggle, name, human trigger sentence ("When State changes and Priority is Urgent → set Due, comment"), last-run status dot, run count. Disabled-by-failures rows show a warning banner.
 - **Editor** (dialog or side panel): name → trigger picker (4 cards; schedule card reveals every/at/weekday selects) → condition = the existing FilterChip builder verbatim → actions = the MN-046 builder verbatim → footer: "Test with a record…" (record picker → dry-run result panel), Save.

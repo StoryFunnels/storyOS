@@ -19,7 +19,7 @@ The founder wants:
 - The **main body to fill the whole space** between the left nav sidebar and the
   right properties sidebar.
 
-Reference — Notion, Linear, Fibery all run the record body full-bleed with the
+Reference — Notion, Linear, the reference tool all run the record body full-bleed with the
 metadata panel flush to the right edge; the capped-and-centered look is unusual
 for a work OS.
 

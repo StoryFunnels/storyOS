@@ -18,7 +18,7 @@
 
 ---
 
-StoryOS is what you get when you take Fibery/Notion's "databases + relations + views" model, make it open source, and refuse to paywall anything. You define databases, connect them with real relations, and look at the same records through tables, kanban boards, and calendars. The web UI is just the first client of a public REST API — everything it does, a script can do.
+StoryOS is a connected-database work OS, open source and API-first. You define databases, connect them with real relations, and look at the same records through tables, kanban boards, calendars, galleries, lists, feeds, and timelines. Nothing is paywalled. The web UI is just the first client of a public REST API — everything it does, a script (or an AI agent, via MCP) can do.
 
 ![Kanban board](docs/assets/board-view.png)
 
@@ -40,7 +40,7 @@ StoryOS is what you get when you take Fibery/Notion's "databases + relations + v
 - **Automations & buttons** — trigger on record changes or a schedule; buttons run actions with one click. [Docs →](docs/product/automations.md)
 - **Cmd+K** — palette with search, navigation, and recents. Inbox and My Work views for notifications and assignments.
 - **Guests & granular access** — invite a client into exactly one space with viewer → commenter → editor → creator grants. Everything else is invisible to them.
-- **CSV import** — with type inference, relation matching by title, and a dry run. [Migrate from Fibery →](docs/product/migrate-from-fibery.md)
+- **CSV import** — with type inference, relation matching by title, and a dry run. [Migrate your data →](docs/product/migrate-data.md)
 
 ![Template gallery](docs/assets/template-gallery.png)
 ![Content calendar](docs/assets/calendar-view.png)

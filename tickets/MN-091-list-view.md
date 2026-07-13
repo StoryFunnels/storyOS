@@ -6,11 +6,11 @@ depends_on: [MN-073]
 size: S
 ---
 
-## Problem / Fibery parity
+## Problem / feature parity
 
-Fibery's **List** view is a compact, scannable stack of rows, optionally grouped
+the reference tool's **List** view is a compact, scannable stack of rows, optionally grouped
 by a field (e.g. Status) with collapsible group headers — lighter than a table,
-denser than a board. Great for backlogs and triage. (Fibery's List also supports
+denser than a board. Great for backlogs and triage. (the reference tool's List also supports
 hierarchy/depth; v1 here is a flat, groupable list.)
 
 ## Scope (v1)
@@ -28,4 +28,4 @@ hierarchy/depth; v1 here is a flat, groupable list.)
 - [x] Inline field chips honor the card-fields selection; filter/sort apply.
 - [x] Row click opens the record; a new-record affordance creates in the group.
 
-Refs: [Fibery Views](https://the.fibery.io/@public/User_Guide/Guide/Views-8).
+Refs: [the reference tool Views](https://the.the reference tool.io/@public/User_Guide/Guide/Views-8).
