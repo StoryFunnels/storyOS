@@ -4,6 +4,7 @@ import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { spaces } from '../db/schema';
 import { AccessService } from '../access/access.service';
+import { slugify } from '../databases/databases.service';
 import type { Membership } from './workspace-access.guard';
 
 @Injectable()
@@ -25,14 +26,24 @@ export class SpacesService {
     return this.db.query.spaces.findMany({ where: scope, orderBy: [asc(spaces.position)] });
   }
 
+  /** Slug unique per workspace (MN-153) — namespaces the databases inside it. */
+  private uniqueSpaceSlug(name: string, taken: Set<string>): string {
+    const root = slugify(name) || 'space';
+    for (let i = 0; ; i++) {
+      const candidate = i === 0 ? root : `${root}_${i + 1}`;
+      if (!taken.has(candidate)) return candidate;
+    }
+  }
+
   async create(workspaceId: string, input: { name: string; icon?: string; color?: string }) {
     const existing = await this.db.query.spaces.findMany({
       where: eq(spaces.workspaceId, workspaceId),
     });
     const position = Math.max(-1, ...existing.map((s) => s.position)) + 1;
+    const slug = this.uniqueSpaceSlug(input.name, new Set(existing.map((s) => s.slug)));
     const [space] = await this.db
       .insert(spaces)
-      .values({ workspaceId, name: input.name, icon: input.icon, color: input.color, position })
+      .values({ workspaceId, name: input.name, slug, icon: input.icon, color: input.color, position })
       .returning();
     return space!;
   }

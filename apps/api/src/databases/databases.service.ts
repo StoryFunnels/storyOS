@@ -49,12 +49,12 @@ export class DatabasesService {
     return { database, my_access: effective! };
   }
 
-  private async uniqueSlug(workspaceId: string, name: string): Promise<string> {
-    const root = slugify(name);
+  /** Make `root` unique within a SPACE (MN-153), suffixing `_N` on collision. */
+  private async uniqueSlugFor(spaceId: string, root: string): Promise<string> {
     const taken = new Set(
       (
         await this.db.query.databases.findMany({
-          where: eq(databases.workspaceId, workspaceId),
+          where: eq(databases.spaceId, spaceId),
           columns: { apiSlug: true },
         })
       ).map((d) => d.apiSlug),
@@ -65,16 +65,35 @@ export class DatabasesService {
     }
   }
 
+  /** Slug unique within its SPACE, derived from the database name. */
+  private uniqueSlug(spaceId: string, name: string): Promise<string> {
+    return this.uniqueSlugFor(spaceId, slugify(name));
+  }
+
+  /** spaceId → slug for the workspace, to build qualified `space/database` refs. */
+  private async spaceSlugs(workspaceId: string): Promise<Map<string, string>> {
+    const rows = await this.db.query.spaces.findMany({
+      where: eq(spaces.workspaceId, workspaceId),
+      columns: { id: true, slug: true },
+    });
+    return new Map(rows.map((s) => [s.id, s.slug]));
+  }
+
   async list(membership: Membership) {
     const visibility = await this.access.guestVisibility(membership);
     const rows = await this.db.query.databases.findMany({
       where: eq(databases.workspaceId, membership.workspaceId),
       orderBy: [asc(databases.position)],
     });
-    if (!visibility) return rows;
-    return rows.filter(
-      (d) => visibility.databaseIds.has(d.id) || visibility.spaceIds.has(d.spaceId),
-    );
+    const spaceSlugMap = await this.spaceSlugs(membership.workspaceId);
+    const withRef = (d: (typeof rows)[number]) => {
+      const spaceSlug = spaceSlugMap.get(d.spaceId) ?? null;
+      return { ...d, spaceSlug, qualifiedSlug: spaceSlug ? `${spaceSlug}/${d.apiSlug}` : d.apiSlug };
+    };
+    if (!visibility) return rows.map(withRef);
+    return rows
+      .filter((d) => visibility.databaseIds.has(d.id) || visibility.spaceIds.has(d.spaceId))
+      .map(withRef);
   }
 
   /** Full introspection payload: database + live fields + views + my_access (E4, ADR-0007). */
@@ -158,7 +177,19 @@ export class DatabasesService {
       config: cleanViewConfig((v.config ?? {}) as ViewConfig, liveIds, liveNames),
     }));
 
-    return { ...database, my_access, fields: fieldsWithOptions, views: cleanedViews };
+    const space = await this.db.query.spaces.findFirst({
+      where: eq(spaces.id, database.spaceId),
+      columns: { slug: true },
+    });
+    const spaceSlug = space?.slug ?? null;
+    return {
+      ...database,
+      spaceSlug,
+      qualifiedSlug: spaceSlug ? `${spaceSlug}/${database.apiSlug}` : database.apiSlug,
+      my_access,
+      fields: fieldsWithOptions,
+      views: cleanedViews,
+    };
   }
 
   /** Creates the database + title/system fields + default table view, atomically (B2). */
@@ -171,7 +202,7 @@ export class DatabasesService {
     });
     if (!space) throw new NotFoundException('Space not found');
 
-    const apiSlug = await this.uniqueSlug(membership.workspaceId, input.name);
+    const apiSlug = await this.uniqueSlug(input.space_id, input.name);
     const siblings = await this.db.query.databases.findMany({
       where: eq(databases.spaceId, input.space_id),
       columns: { position: true },
@@ -241,7 +272,11 @@ export class DatabasesService {
         position: 0,
       });
 
-      return database!;
+      return {
+        ...database!,
+        spaceSlug: space.slug,
+        qualifiedSlug: `${space.slug}/${database!.apiSlug}`,
+      };
     });
   }
 
@@ -250,13 +285,21 @@ export class DatabasesService {
     databaseId: string,
     patch: { name?: string; icon?: string | null; color?: string | null; space_id?: string; folder_id?: string | null; position?: number },
   ) {
+    const current = await this.db.query.databases.findFirst({
+      where: and(eq(databases.id, databaseId), eq(databases.workspaceId, membership.workspaceId)),
+    });
+    if (!current) throw new NotFoundException('Database not found');
     await this.get(membership, databaseId);
 
-    if (patch.space_id) {
+    // Moving to another space: keep the slug if free there, else suffix — the
+    // per-space uniqueness (MN-153) would otherwise 500 on a collision.
+    let apiSlug: string | undefined;
+    if (patch.space_id && patch.space_id !== current.spaceId) {
       const space = await this.db.query.spaces.findFirst({
         where: and(eq(spaces.id, patch.space_id), eq(spaces.workspaceId, membership.workspaceId)),
       });
       if (!space) throw new NotFoundException('Target space not found');
+      apiSlug = await this.uniqueSlugFor(patch.space_id, current.apiSlug);
     }
 
     const [updated] = await this.db
@@ -266,6 +309,7 @@ export class DatabasesService {
         icon: patch.icon,
         color: patch.color === null ? null : patch.color,
         spaceId: patch.space_id,
+        apiSlug,
         folderId: patch.folder_id,
         position: patch.position,
       })

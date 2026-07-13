@@ -23,7 +23,7 @@ describe('database foundation (MN-004)', () => {
 
     const [space] = await db
       .insert(spaces)
-      .values({ workspaceId: ws!.id, name: 'General' })
+      .values({ workspaceId: ws!.id, name: 'General', slug: 'general' })
       .returning();
 
     await db.insert(memberships).values({

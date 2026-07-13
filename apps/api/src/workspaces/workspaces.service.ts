@@ -38,7 +38,7 @@ export class WorkspacesService {
         .insert(workspaces)
         .values({ name: input.name, slug })
         .returning();
-      await tx.insert(spaces).values({ workspaceId: ws!.id, name: 'General', position: 0 });
+      await tx.insert(spaces).values({ workspaceId: ws!.id, name: 'General', slug: 'general', position: 0 });
       await tx
         .insert(memberships)
         .values({ workspaceId: ws!.id, userId, role: 'admin', status: 'active' });

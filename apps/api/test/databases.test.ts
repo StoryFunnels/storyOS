@@ -73,14 +73,26 @@ describe('databases CRUD (MN-009)', () => {
     expect(body.views[0].type).toBe('table');
   });
 
-  it('generates unique api slugs per workspace', async () => {
-    const res = await app.inject({
+  it('generates unique api slugs per space (MN-153)', async () => {
+    // clientSpace already has a "Tasks" (slug `tasks`). The same name in a
+    // DIFFERENT space keeps the clean slug — namespacing is by space.
+    const inGeneral = await app.inject({
       method: 'POST',
       url: `/api/v1/workspaces/${wsId}/databases`,
       headers: authed(admin.token),
       payload: { space_id: generalSpaceId, name: 'Tasks' },
     });
-    expect(res.json().apiSlug).toBe('tasks_2');
+    expect(inGeneral.json().apiSlug).toBe('tasks');
+    expect(inGeneral.json().qualifiedSlug).toBe('general/tasks');
+
+    // A second "Tasks" in the SAME space is suffixed.
+    const dupe = await app.inject({
+      method: 'POST',
+      url: `/api/v1/workspaces/${wsId}/databases`,
+      headers: authed(admin.token),
+      payload: { space_id: generalSpaceId, name: 'Tasks' },
+    });
+    expect(dupe.json().apiSlug).toBe('tasks_2');
   });
 
   it('guests see only databases in their scoped spaces (list + direct get)', async () => {

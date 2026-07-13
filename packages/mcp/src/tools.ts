@@ -33,6 +33,8 @@ interface FieldDef {
 interface DatabaseDetail {
   id: string;
   name: string;
+  spaceSlug?: string | null;
+  qualifiedSlug?: string;
   my_access?: string;
   fields: FieldDef[];
   views?: Array<{ id: string; name: string; type: string }>;
@@ -92,7 +94,10 @@ export function registerTools(server: McpServer, client: Client) {
       if (!workspace) return text(intro);
       const ws = await resolveWorkspace(client, workspace);
       const dbs = await listDatabases(client, ws.id);
-      const map = { workspace: { id: ws.id, name: ws.name }, databases: dbs.map((d) => ({ id: d.id, name: d.name })) };
+      const map = {
+        workspace: { id: ws.id, name: ws.name },
+        databases: dbs.map((d) => ({ id: d.id, name: d.name, ref: d.qualifiedSlug ?? d.apiSlug, space: d.spaceSlug ?? null })),
+      };
       return text(`${intro}\n\nWorkspace map:\n${JSON.stringify(map, null, 2)}`);
     }),
   );
@@ -111,13 +116,16 @@ export function registerTools(server: McpServer, client: Client) {
     'list_databases',
     {
       title: 'List databases',
-      description: 'Databases in a workspace (id, name, api slug). Group these by space if needed.',
+      description:
+        'Databases in a workspace. `ref` is the canonical space/database slug — use it (not the bare name) to target a database unambiguously, since the same name can exist in two spaces.',
       inputSchema: { workspace: z.string().describe('Workspace name or id.') },
     },
     handle<{ workspace: string }>(async ({ workspace }) => {
       const ws = await resolveWorkspace(client, workspace);
       const dbs = await listDatabases(client, ws.id);
-      return text(dbs.map((d) => ({ id: d.id, name: d.name, api_slug: d.apiSlug })));
+      return text(
+        dbs.map((d) => ({ id: d.id, name: d.name, ref: d.qualifiedSlug ?? d.apiSlug, space: d.spaceSlug ?? null })),
+      );
     }),
   );
 
@@ -141,6 +149,8 @@ export function registerTools(server: McpServer, client: Client) {
       return text({
         id: detail.id,
         name: detail.name,
+        ref: detail.qualifiedSlug ?? undefined,
+        space: detail.spaceSlug ?? undefined,
         my_access: detail.my_access,
         fields: describeFields(detail),
         views: (detail.views ?? []).map((v) => ({ name: v.name, type: v.type })),

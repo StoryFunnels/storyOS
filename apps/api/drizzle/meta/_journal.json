@@ -197,6 +197,13 @@
       "when": 1783759241271,
       "tag": "0027_perpetual_mimic",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1783966502692,
+      "tag": "0028_greedy_quasar",
+      "breakpoints": true
     }
   ]
 }

@@ -74,17 +74,23 @@ export const workspaces = pgTable('workspaces', {
   ...timestamps,
 });
 
-export const spaces = pgTable('spaces', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  workspaceId: uuid('workspace_id')
-    .notNull()
-    .references(() => workspaces.id, { onDelete: 'cascade' }),
-  name: text('name').notNull(),
-  icon: text('icon'),
-  color: text('color'),
-  position: integer('position').notNull().default(0),
-  ...timestamps,
-});
+export const spaces = pgTable(
+  'spaces',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    /** URL/API-safe handle, unique per workspace. Namespaces database slugs (MN-153). */
+    slug: text('slug').notNull(),
+    icon: text('icon'),
+    color: text('color'),
+    position: integer('position').notNull().default(0),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex('spaces_workspace_slug_uq').on(t.workspaceId, t.slug)],
+);
 
 export const memberships = pgTable(
   'memberships',
@@ -157,7 +163,7 @@ export const databases = pgTable(
     recordCounter: integer('record_counter').notNull().default(0),
     ...timestamps,
   },
-  (t) => [uniqueIndex('databases_workspace_slug_uq').on(t.workspaceId, t.apiSlug)],
+  (t) => [uniqueIndex('databases_space_slug_uq').on(t.spaceId, t.apiSlug)],
 );
 
 export const fields = pgTable(

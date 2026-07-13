@@ -19,6 +19,9 @@ export interface DatabaseRef {
   name: string;
   apiSlug?: string;
   spaceId?: string;
+  spaceSlug?: string | null;
+  /** Canonical cross-space reference: `space/database` (MN-153). */
+  qualifiedSlug?: string;
   icon?: string | null;
 }
 
@@ -47,17 +50,42 @@ export async function listDatabases(client: Client, workspaceId: string): Promis
   );
 }
 
+/** How a candidate reads back to the model when it must disambiguate (MN-153). */
+const qualify = (d: DatabaseRef) => d.qualifiedSlug ?? (d.spaceSlug ? `${d.spaceSlug}/${d.apiSlug ?? d.name}` : d.name);
+
 export async function resolveDatabase(client: Client, workspaceId: string, ref: string): Promise<DatabaseRef> {
   const list = await listDatabases(client, workspaceId);
   const lower = ref.trim().toLowerCase();
-  const exact = list.find(
-    (d) => d.id === ref || d.name.toLowerCase() === lower || d.apiSlug?.toLowerCase() === lower,
+
+  // ids and the canonical qualified `space/database` are always unambiguous.
+  const byId = list.find((d) => d.id === ref);
+  if (byId) return byId;
+  const byQualified = list.find((d) => d.qualifiedSlug?.toLowerCase() === lower);
+  if (byQualified) return byQualified;
+
+  // `space/name` written with a display name instead of a slug.
+  if (lower.includes('/')) {
+    const [sp, db] = lower.split('/', 2);
+    const inSpace = list.filter((d) => d.spaceSlug?.toLowerCase() === sp);
+    const hit = inSpace.find((d) => d.apiSlug?.toLowerCase() === db || d.name.toLowerCase() === db);
+    if (hit) return hit;
+  }
+
+  // Bare name or slug — MUST be unambiguous. Never silently pick the first (MN-153).
+  const bare = list.filter(
+    (d) => d.name.toLowerCase() === lower || d.apiSlug?.toLowerCase() === lower,
   );
-  if (exact) return exact;
+  if (bare.length === 1) return bare[0]!;
+  if (bare.length > 1) {
+    throw new Error(
+      `"${ref}" matches ${bare.length} databases. Use the qualified space/database form: ${bare.map(qualify).join(', ')}.`,
+    );
+  }
+
   const partial = list.filter((d) => d.name.toLowerCase().includes(lower));
   if (partial.length === 1) return partial[0]!;
   if (partial.length > 1) {
-    throw new Error(`"${ref}" matches multiple databases: ${partial.map((d) => d.name).join(', ')}. Be more specific.`);
+    throw new Error(`"${ref}" matches multiple databases: ${partial.map(qualify).join(', ')}. Be more specific (use space/database).`);
   }
-  throw new Error(`No database matches "${ref}" in this workspace. Available: ${list.map((d) => d.name).join(', ') || '(none)'}.`);
+  throw new Error(`No database matches "${ref}" in this workspace. Available: ${list.map(qualify).join(', ') || '(none)'}.`);
 }
