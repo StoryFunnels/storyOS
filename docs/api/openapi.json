@@ -3027,13 +3027,22 @@
     "/api/v1/workspaces/{ws}/my-work": {
       "get": {
         "operationId": "SearchController_myWork",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "tab",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": ""
           }
         },
-        "summary": "Records across databases where any person field contains me (MN-049)",
+        "summary": "Records across databases assigned to me or created by me (MN-049, #36)",
         "tags": [
           "search"
         ]
