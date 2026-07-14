@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 import { Figtree } from 'next/font/google';
 import { Providers } from './providers';
+import { THEME_INIT_SCRIPT } from '@/lib/theme';
 import './globals.css';
 
 const figtree = Figtree({
@@ -40,7 +41,11 @@ export const viewport = { themeColor: '#FAF7F1' };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className={figtree.variable}>
+    <html lang="en" className={figtree.variable} suppressHydrationWarning>
+      <head>
+        {/* Resolve + apply the saved theme before paint so there's no light flash (#30). */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
       <body className="font-sans">
         <Providers>{children}</Providers>
       </body>
