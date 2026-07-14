@@ -9,6 +9,7 @@ import '@blocknote/core/fonts/inter.css';
 import '@blocknote/mantine/style.css';
 import { api } from '@/lib/api';
 import { uploadEditorImage } from '@/lib/editor-upload';
+import { useTheme } from '@/lib/theme';
 
 interface SpaceDoc {
   id: string;
@@ -54,6 +55,7 @@ function DocEditor({
   const versionRef = useRef(initial.version);
   const [title, setTitle] = useState(initial.title);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { resolved: theme } = useTheme();
   const editor = useCreateBlockNote({
     initialContent: Array.isArray(initial.content) && initial.content.length > 0 ? (initial.content as never) : undefined,
     uploadFile: (file: File) => uploadEditorImage(ws, file),
@@ -87,7 +89,7 @@ function DocEditor({
       />
       <BlockNoteView
         editor={editor}
-        theme="light"
+        theme={theme}
         onChange={() => {
           if (timer.current !== null) clearTimeout(timer.current);
           timer.current = setTimeout(() => {

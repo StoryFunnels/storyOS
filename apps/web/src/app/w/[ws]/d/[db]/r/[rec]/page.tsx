@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/auth-client';
+import { useTheme } from '@/lib/theme';
 import { useWorkspace } from '@/lib/queries';
 import { atLeast } from '@/lib/access';
 import { CellDisplay, CellEditor, OPTION_COLORS, PressButton } from '@/components/table-view/cells';
@@ -954,6 +955,7 @@ function RichTextFieldSection({
   onCommit: (value: unknown) => void;
 }) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { resolved: theme } = useTheme();
   const editor = useCreateBlockNote({
     initialContent: Array.isArray(value) && value.length > 0 ? (value as never) : undefined,
     uploadFile: (file: File) => uploadEditorImage(ws, file),
@@ -970,7 +972,7 @@ function RichTextFieldSection({
         <BlockNoteView
           editor={editor}
           editable={!readOnly}
-          theme="light"
+          theme={theme}
           onChange={() => {
             if (readOnly) return;
             if (timer.current !== null) clearTimeout(timer.current);

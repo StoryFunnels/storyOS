@@ -106,11 +106,13 @@ export function Sidebar() {
   }
 
   return (
-    <aside className="flex w-60 flex-col border-r border-border-default bg-sidebar">
-      <WorkspaceSwitcher ws={ws} currentName={workspace.data?.name} />
+    <aside className="sticky top-0 flex h-screen w-60 flex-col border-r border-border-default bg-sidebar">
+      <div className="shrink-0">
+        <WorkspaceSwitcher ws={ws} currentName={workspace.data?.name} />
+      </div>
 
       {/* Sticky top nav — stays put while the spaces tree scrolls (issue #34). */}
-      <div className="flex flex-col gap-0.5 border-b border-border-default px-2 py-1.5">
+      <div className="flex shrink-0 flex-col gap-0.5 border-b border-border-default px-2 py-1.5">
         <Link
           href={`/w/${ws}`}
           className="flex items-center gap-2 rounded px-2 py-[3px] text-[13px] text-ink-secondary hover:bg-hover"
@@ -197,7 +199,7 @@ export function Sidebar() {
         )}
       </nav>
 
-      <div className="flex flex-col gap-0.5 border-t border-border-default p-2">
+      <div className="flex shrink-0 flex-col gap-0.5 border-t border-border-default p-2">
         {isAdmin && (
           <>
             <Link
@@ -411,7 +413,7 @@ function SpaceSection({
     <div
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
-      className="mb-3"
+      className="mb-1"
     >
       <div
         className="group flex items-center justify-between px-2 py-1"
