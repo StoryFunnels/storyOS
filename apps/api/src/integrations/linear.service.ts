@@ -97,6 +97,23 @@ const STATE_MAP: Record<string, string> = {
 const PRIORITY_MAP: Record<number, string> = { 1: 'Urgent', 2: 'High', 3: 'Medium', 4: 'Low' };
 
 /**
+ * Resolve a select option id from a label→id map, trying each candidate in order,
+ * case-insensitively (#68). Linear's state.type only knows categories (started,
+ * completed…), so an "In Review" issue (type `started`) would collapse to "In
+ * Progress"; matching on the state *name* first preserves it, and any custom-named
+ * state that matches an option is kept instead of being dropped to a fallback.
+ */
+export function pickOption(map: Map<string, string>, ...candidates: Array<string | undefined>): string | null {
+  const lower = new Map([...map].map(([label, id]) => [label.toLowerCase(), id]));
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const id = map.get(candidate) ?? lower.get(candidate.toLowerCase());
+    if (id) return id;
+  }
+  return null;
+}
+
+/**
  * Linear importer (MN-066): leave Linear, keep your data. One-shot GraphQL
  * import — each team becomes a dev-project-shaped space (Issues + Projects +
  * Sprints from cycles), idempotent by Linear ID so re-imports update instead
@@ -396,8 +413,8 @@ export class LinearService {
         const id = await this.upsertByLinearId(membership, issuesDb.id, issue.id, {
           name: issue.title,
           identifier: issue.identifier,
-          state: stateOptions.get(STATE_MAP[issue.state.type] ?? 'Backlog') ?? null,
-          priority: issue.priority ? (priorityOptions.get(PRIORITY_MAP[issue.priority] ?? '') ?? null) : null,
+          state: pickOption(stateOptions, issue.state.name, STATE_MAP[issue.state.type], 'Backlog'),
+          priority: issue.priority ? pickOption(priorityOptions, PRIORITY_MAP[issue.priority]) : null,
           assignee_name: issue.assignee?.name ?? null,
           estimate: issue.estimate,
           url: issue.url,
