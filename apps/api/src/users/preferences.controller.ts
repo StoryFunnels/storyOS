@@ -14,8 +14,17 @@ const notificationTogglesSchema = z
   })
   .partial();
 
+const regionalSchema = z
+  .object({
+    dateFormat: z.enum(['system', 'MDY', 'DMY', 'YMD']),
+    timeFormat: z.enum(['system', '12h', '24h']),
+    firstDayOfWeek: z.enum(['system', 'sunday', 'monday', 'saturday']),
+  })
+  .partial();
+
 const preferencesPatchSchema = z.object({
   notifications: notificationTogglesSchema.optional(),
+  regional: regionalSchema.optional(),
 });
 class PreferencesPatchDto extends createZodDto(preferencesPatchSchema) {}
 

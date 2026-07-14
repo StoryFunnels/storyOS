@@ -4,6 +4,7 @@ import { useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Avatar } from '@/components/ui/avatar';
 import { recordHref } from '@/lib/records';
+import { useDateFormat } from '@/lib/preferences';
 import { CardFieldChip } from './board-view';
 import { richTextPreview } from '../table-view/cells';
 import { useDatabase, useMembers, useRecordsInfinite } from '../table-view/use-table-data';
@@ -26,6 +27,7 @@ export function FeedView({
 }) {
   const database = useDatabase(ws, db);
   const router = useRouter();
+  const fmt = useDateFormat();
   const queryBody = useMemo(() => queryBodyFromConfig(config), [config]);
   const records = useRecordsInfinite(ws, db, queryBody);
 
@@ -77,7 +79,7 @@ export function FeedView({
                 {author && <Avatar userId={author} name={memberNames.get(author) ?? '?'} image={memberImages?.get(author)} size={16} />}
                 {author && <span>{memberNames.get(author) ?? 'Someone'}</span>}
                 <span>·</span>
-                <span>{new Date(row.created_at).toLocaleDateString()}</span>
+                <span>{fmt.date(row.created_at)}</span>
                 {row.number !== null && <span className="ml-auto tabular-nums">#{row.number}</span>}
               </div>
             </div>

@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api, API_URL } from '@/lib/api';
+import { useDateFormat } from '@/lib/preferences';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -21,6 +22,7 @@ interface Token {
 export default function ApiSettingsPage() {
   const { ws } = useParams<{ ws: string }>();
   const qc = useQueryClient();
+  const fmt = useDateFormat();
 
   const tokens = useQuery({
     queryKey: ['tokens'],
@@ -69,9 +71,9 @@ export default function ApiSettingsPage() {
               <p className="text-sm font-medium text-ink">{token.name}</p>
               <p className="text-[12px] text-muted">
                 <code>{token.token_prefix}</code> · created{' '}
-                {new Date(token.created_at).toLocaleDateString()} ·{' '}
+                {fmt.date(token.created_at)} ·{' '}
                 {token.last_used_at
-                  ? `last used ${new Date(token.last_used_at).toLocaleString()}`
+                  ? `last used ${fmt.dateTime(token.last_used_at)}`
                   : 'never used'}
               </p>
             </div>

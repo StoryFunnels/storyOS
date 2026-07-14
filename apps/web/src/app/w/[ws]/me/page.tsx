@@ -6,6 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Database } from 'lucide-react';
 import { api } from '@/lib/api';
 import { EntityIcon } from '@/components/ui/icon-picker';
+import { useDateFormat } from '@/lib/preferences';
 
 interface MyWorkGroup {
   database: { id: string; name: string; icon: string | null; color: string | null };
@@ -15,6 +16,7 @@ interface MyWorkGroup {
 /** My Work (MN-049): everything with my name on it, across databases. */
 export default function MyWorkPage() {
   const { ws } = useParams<{ ws: string }>();
+  const fmt = useDateFormat();
   const myWork = useQuery({
     queryKey: ['my-work', ws],
     queryFn: async () => {
@@ -65,7 +67,7 @@ export default function MyWorkPage() {
                   {record.title || 'Untitled'}
                 </span>
                 <span className="shrink-0 text-[11px] text-faint">
-                  {new Date(record.updated_at).toLocaleDateString()}
+                  {fmt.date(record.updated_at)}
                 </span>
               </Link>
             ))}

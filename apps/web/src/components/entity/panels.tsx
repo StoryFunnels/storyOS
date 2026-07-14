@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useDateFormat } from '@/lib/preferences';
 import { Paperclip, Send, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, API_URL } from '@/lib/api';
@@ -41,6 +42,7 @@ export function CommentsPanel({
   isAdmin: boolean;
 }) {
   const qc = useQueryClient();
+  const fmt = useDateFormat();
   const key = ['comments', ws, db, rec];
   const memberNames = useMemo(() => new Map(members.map((m) => [m.id, m.name])), [members]);
 
@@ -104,7 +106,7 @@ export function CommentsPanel({
               {comment.author.name}
             </span>
             <span className="flex items-center gap-2 text-[11px] text-faint">
-              {new Date(comment.created_at).toLocaleString()}
+              {fmt.dateTime(comment.created_at)}
               {(comment.author.id === currentUserId || isAdmin) && (
                 <button
                   className="opacity-0 hover:text-error group-hover:opacity-100"
@@ -210,6 +212,7 @@ const EVENT_LABELS: Record<string, string> = {
 };
 
 export function ActivityPanel({ ws, db, rec }: { ws: string; db: string; rec: string }) {
+  const dates = useDateFormat();
   const activity = useQuery({
     queryKey: ['activity', ws, db, rec],
     queryFn: async () => {
@@ -233,7 +236,7 @@ export function ActivityPanel({ ws, db, rec }: { ws: string; db: string; rec: st
       {(activity.data ?? []).map((event) => (
         <div key={event.id} className="flex items-baseline gap-2 text-[12px]">
           <span className="whitespace-nowrap text-faint">
-            {new Date(event.created_at).toLocaleString()}
+            {dates.dateTime(event.created_at)}
           </span>
           <span className="text-ink-secondary">
             <span className="font-medium text-ink">{event.actor?.name ?? 'Someone'}</span>{' '}

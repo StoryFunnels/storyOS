@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { MousePointerClick, Play, Zap } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
+import { useDateFormat } from '@/lib/preferences';
 import { ButtonActionsEditor } from '@/components/table-view/field-dialogs';
 import type { ButtonAction } from '@/components/table-view/field-dialogs';
 import { useDatabase, useMembers } from '@/components/table-view/use-table-data';
@@ -192,6 +193,7 @@ function RuleRow({
   onDelete: () => void;
 }) {
   const [showRuns, setShowRuns] = useState(false);
+  const fmt = useDateFormat();
   const runs = useQuery({
     queryKey: ['automation-runs', ws, db, rule.id],
     queryFn: async () => {
@@ -235,7 +237,7 @@ function RuleRow({
                   run.status === 'ok' ? 'bg-success' : run.status === 'error' ? 'bg-error' : 'bg-warning',
                 )}
               />
-              {new Date(run.createdAt).toLocaleString()} · {run.status}
+              {fmt.dateTime(run.createdAt)} · {run.status}
               {run.error ? ` — ${run.error.slice(0, 80)}` : ''} · {run.durationMs}ms
             </p>
           ))}

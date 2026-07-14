@@ -22,6 +22,7 @@ export class PreferencesService {
     const current = await this.get(userId);
     const next: UserPreferences = {
       notifications: { ...current.notifications, ...(patch.notifications ?? {}) },
+      regional: { ...current.regional, ...(patch.regional ?? {}) },
     };
     await this.db
       .insert(userPreferences)
