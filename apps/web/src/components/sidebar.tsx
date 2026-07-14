@@ -7,7 +7,7 @@ import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from 
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Check, ChevronRight, ChevronsDownUp, ChevronsUpDown, Database, FileText, Folder as FolderIcon, Home, Inbox, KeyRound, LayoutTemplate, MoreHorizontal, Plug, Plus, Search, Settings, Star, UserRound } from 'lucide-react';
+import { Check, ChevronRight, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, Home, Inbox, KeyRound, LayoutTemplate, MoreHorizontal, Plug, Plus, Search, Settings, Star, UserRound } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -17,6 +17,7 @@ import { ImportWizard } from '@/components/import-wizard';
 import { InboxPanel, useUnreadCount } from '@/components/inbox-panel';
 import { openPalette } from '@/lib/shortcuts';
 import { useDatabases, useSidebarMutations, useSpaces, useWorkspace } from '@/lib/queries';
+import { useHidden } from '@/lib/hidden-sidebar';
 import type { DatabaseSummary, Space } from '@/lib/queries';
 import { ShareDialog } from '@/components/share-dialog';
 import { EntityIcon, IconColorPicker } from '@/components/ui/icon-picker';
@@ -93,6 +94,15 @@ export function Sidebar() {
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [inboxOpen, setInboxOpen] = useState(false);
   const unread = useUnreadCount(ws);
+  const { isHidden, unhide } = useHidden(ws);
+
+  // Personal hide (#35): hidden spaces drop out entirely; a database hidden on its own
+  // (its space still visible) drops out too. Both surface in the Hidden section.
+  const allSpaces = spaces.data ?? [];
+  const allDatabases = databases.data ?? [];
+  const visibleSpaces = allSpaces.filter((s) => !isHidden('space', s.id));
+  const hiddenSpaces = allSpaces.filter((s) => isHidden('space', s.id));
+  const hiddenDatabases = allDatabases.filter((d) => isHidden('database', d.id) && !isHidden('space', d.spaceId));
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
@@ -161,16 +171,13 @@ export function Sidebar() {
           )}
         </div>
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onSpaceDragEnd}>
-          <SortableContext
-            items={(spaces.data ?? []).map((s) => s.id)}
-            strategy={verticalListSortingStrategy}
-          >
-            {(spaces.data ?? []).map((space) => (
+          <SortableContext items={visibleSpaces.map((s) => s.id)} strategy={verticalListSortingStrategy}>
+            {visibleSpaces.map((space) => (
               <SpaceSection
                 key={space.id}
                 ws={ws}
                 space={space}
-                databases={(databases.data ?? []).filter((d) => d.spaceId === space.id)}
+                databases={allDatabases.filter((d) => d.spaceId === space.id && !isHidden('database', d.id))}
                 canEdit={canEdit}
                 isAdmin={isAdmin}
               />
@@ -197,6 +204,8 @@ export function Sidebar() {
             )}
           </>
         )}
+
+        <HiddenSection spaces={hiddenSpaces} databases={hiddenDatabases} onUnhide={unhide} />
       </nav>
 
       <div className="flex shrink-0 flex-col gap-0.5 border-t border-border-default p-2">
@@ -280,6 +289,71 @@ function WorkspaceSwitcher({ ws, currentName }: { ws: string; currentName?: stri
   );
 }
 
+/** The "Hidden" section at the bottom of the tree (#35): personally-hidden spaces and
+ * databases, each with a one-click "show again". Renders nothing when empty. */
+function HiddenSection({
+  spaces,
+  databases,
+  onUnhide,
+}: {
+  spaces: Space[];
+  databases: DatabaseSummary[];
+  onUnhide: (kind: 'space' | 'database', id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const count = spaces.length + databases.length;
+  if (count === 0) return null;
+  return (
+    <div className="mt-2 border-t border-border-default pt-2">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-1 px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-faint hover:text-muted"
+      >
+        <ChevronRight className={cn('h-3 w-3 transition-transform', open && 'rotate-90')} />
+        Hidden <span className="ml-0.5 font-normal normal-case text-faint">{count}</span>
+      </button>
+      {open && (
+        <div className="flex flex-col gap-0.5">
+          {spaces.map((s) => (
+            <HiddenRow key={`s-${s.id}`} icon={s.icon} color={s.color} name={s.name} onUnhide={() => onUnhide('space', s.id)} />
+          ))}
+          {databases.map((d) => (
+            <HiddenRow key={`d-${d.id}`} icon={d.icon} color={d.color} name={d.name} onUnhide={() => onUnhide('database', d.id)} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HiddenRow({
+  icon,
+  color,
+  name,
+  onUnhide,
+}: {
+  icon: string | null;
+  color: string | null;
+  name: string;
+  onUnhide: () => void;
+}) {
+  return (
+    <div className="group/h flex items-center justify-between rounded px-2 py-[3px] text-[13px] text-muted">
+      <span className="flex min-w-0 items-center gap-2 truncate">
+        <EntityIcon icon={icon} color={color} fallback={<Database className="h-3.5 w-3.5 text-faint" />} />
+        <span className="truncate">{name}</span>
+      </span>
+      <button
+        onClick={onUnhide}
+        title="Show in my sidebar"
+        className="rounded p-0.5 text-faint opacity-0 hover:bg-active hover:text-muted group-hover/h:opacity-100"
+      >
+        <Eye className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+}
+
 function SpaceSection({
   ws,
   space,
@@ -296,6 +370,7 @@ function SpaceSection({
   const pathname = usePathname();
   const router = useRouter();
   const mutations = useSidebarMutations(ws);
+  const { hide } = useHidden(ws);
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: space.id });
   const [renaming, setRenaming] = useState(false);
   const [newDbOpen, setNewDbOpen] = useState(false);
@@ -495,6 +570,10 @@ function SpaceSection({
                 {isAdmin && (
                   <DropdownMenuItem onSelect={() => setSharing(true)}>Manage access</DropdownMenuItem>
                 )}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => hide('space', space.id)}>
+                  <EyeOff className="mr-2 h-3.5 w-3.5" /> Hide from my sidebar
+                </DropdownMenuItem>
                 <DropdownMenuItem
                   className="text-error"
                   onSelect={() => {
@@ -745,6 +824,7 @@ function DatabaseRow({
   const [iconing, setIconing] = useState(false);
   const [importing, setImporting] = useState(false);
   const [automating, setAutomating] = useState(false);
+  const { hide } = useHidden(ws);
 
   return (
     <div
@@ -805,6 +885,10 @@ function DatabaseRow({
                 <DropdownMenuSeparator />
               </>
             )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => hide('database', db.id)}>
+              <EyeOff className="mr-2 h-3.5 w-3.5" /> Hide from my sidebar
+            </DropdownMenuItem>
             <DropdownMenuItem asChild>
               <Link href={`/w/${ws}/d/${db.id}/trash`}>Trash</Link>
             </DropdownMenuItem>

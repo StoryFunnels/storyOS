@@ -23,11 +23,13 @@ import { useDatabase, useMembers } from '@/components/table-view/use-table-data'
 import { atLeast } from '@/lib/access';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/components/ui/dialog';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 
 function DatabasePageInner() {
+  const confirm = useConfirm();
   const { ws, db } = useParams<{ ws: string; db: string }>();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -93,9 +95,17 @@ function DatabasePageInner() {
             {!readOnly && views.length > 1 && view.id === activeView?.id && (
               <X
                 className="h-3 w-3 text-faint opacity-0 hover:text-error group-hover/tab:opacity-100"
-                onClick={(e) => {
+                onClick={async (e) => {
                   e.stopPropagation();
-                  if (!window.confirm(`Delete the view "${view.name}"? Records are not affected.`)) return;
+                  if (
+                    !(await confirm({
+                      title: `Delete view "${view.name}"?`,
+                      message: 'The view is removed. Records are not affected.',
+                      confirmLabel: 'Delete',
+                      danger: true,
+                    }))
+                  )
+                    return;
                   viewMutations.deleteView.mutate(view.id);
                   router.replace(`/w/${ws}/d/${db}`);
                 }}

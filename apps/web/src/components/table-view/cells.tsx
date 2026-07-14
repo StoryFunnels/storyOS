@@ -11,6 +11,7 @@ import { RelationChips } from './relation-cell';
 import type { LinkChip } from './relation-cell';
 import type { Field, SelectOption } from './use-table-data';
 import { useDateFormat } from '@/lib/preferences';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 
 /** Warm-tuned chip colors (docs/design/design-system.md). */
 export const OPTION_COLORS: Record<string, string> = {
@@ -513,13 +514,14 @@ export function PressButton({
   onPressed?: () => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const confirm = useConfirm();
   const color = OPTION_COLORS[(field.config['color'] as string) ?? 'gold'] ?? OPTION_COLORS.gold!;
   const confirmText = field.config['confirm'] as string | undefined;
 
   async function press(e: React.MouseEvent) {
     e.stopPropagation();
     if (disabled || busy) return;
-    if (confirmText && !window.confirm(confirmText)) return;
+    if (confirmText && !(await confirm({ title: confirmText, confirmLabel: 'Continue' }))) return;
     setBusy(true);
     const { data, error } = await api.POST(
       '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/buttons/{field}/press' as never,

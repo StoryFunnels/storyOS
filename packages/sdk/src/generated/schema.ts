@@ -1010,7 +1010,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Records across databases where any person field contains me (MN-049) */
+        /** Records across databases assigned to me or created by me (MN-049, #36) */
         get: operations["SearchController_myWork"];
         put?: never;
         post?: never;
@@ -3827,7 +3827,9 @@ export interface operations {
     };
     SearchController_myWork: {
         parameters: {
-            query?: never;
+            query: {
+                tab: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
