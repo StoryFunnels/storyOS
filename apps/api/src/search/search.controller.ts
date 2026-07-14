@@ -107,8 +107,9 @@ export class SearchController {
   }
 
   @Get('my-work')
-  @ApiOperation({ summary: 'Records across databases where any person field contains me (MN-049)' })
-  async myWork(@Req() req: WorkspaceRequest) {
+  @ApiOperation({ summary: 'Records across databases assigned to me or created by me (MN-049, #36)' })
+  async myWork(@Req() req: WorkspaceRequest, @Query('tab') tab?: string) {
+    const mode = tab === 'created' ? 'created' : 'assigned';
     const visible = await this.visibleDatabaseIds(req);
     if (visible !== null && visible.length === 0) return { groups: [] };
 
@@ -125,18 +126,21 @@ export class SearchController {
       records: Array<{ id: string; title: string; updated_at: Date }>;
     }> = [];
     for (const database of dbRows) {
-      const userFields = await this.db.query.fields.findMany({
-        where: and(eq(fields.databaseId, database.id), eq(fields.type, 'user'), isNull(fields.deletedAt)),
-        columns: { id: true },
-      });
-      if (userFields.length === 0) continue;
-      const anyMine = or(
-        ...userFields.map((f) => sql`${records.values}->${f.id} ? ${req.user.id}`),
-      );
+      let predicate;
+      if (mode === 'created') {
+        predicate = eq(records.createdBy, req.user.id);
+      } else {
+        const userFields = await this.db.query.fields.findMany({
+          where: and(eq(fields.databaseId, database.id), eq(fields.type, 'user'), isNull(fields.deletedAt)),
+          columns: { id: true },
+        });
+        if (userFields.length === 0) continue;
+        predicate = or(...userFields.map((f) => sql`${records.values}->${f.id} ? ${req.user.id}`));
+      }
       const mine = await this.db
         .select({ id: records.id, title: records.title, updated_at: records.updatedAt })
         .from(records)
-        .where(and(eq(records.databaseId, database.id), isNull(records.deletedAt), anyMine))
+        .where(and(eq(records.databaseId, database.id), isNull(records.deletedAt), predicate))
         .orderBy(desc(records.updatedAt))
         .limit(50);
       if (mine.length > 0) groups.push({ database, records: mine });
