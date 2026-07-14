@@ -447,6 +447,15 @@ export const notifications = pgTable(
   (t) => [index('notifications_user_idx').on(t.userId, t.workspaceId, t.readAt, t.createdAt)],
 );
 
+/** Per-user preferences blob (#30/#31): notification toggles now, regional
+ * formats next. Keyed by better-auth user id (text; the user table lives in
+ * auth-schema and isn't managed here, like notifications/favorites). */
+export const userPreferences = pgTable('user_preferences', {
+  userId: text('user_id').primaryKey(),
+  preferences: jsonb('preferences').notNull().default({}),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 /** Per-user stars on a record or database, surfaced in the sidebar (MN-075). */
 export const favorites = pgTable(
   'favorites',

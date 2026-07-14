@@ -2,7 +2,8 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { and, desc, eq, gt, inArray, isNull, lt, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { comments, databases, notifications, records, user } from '../db/schema';
+import { comments, databases, notifications, records, user, userPreferences } from '../db/schema';
+import { mergePreferences } from '../users/preferences.constants';
 
 export type NotificationType = 'assigned' | 'mentioned' | 'commented';
 
@@ -27,7 +28,9 @@ export class NotificationsService {
   constructor(@Inject(DB) private readonly db: Db) {}
 
   async notify(input: NotifyInput): Promise<void> {
-    const recipients = [...new Set(input.recipients)].filter((r) => r !== input.actorId).slice(0, 20);
+    let recipients = [...new Set(input.recipients)].filter((r) => r !== input.actorId).slice(0, 20);
+    if (recipients.length === 0) return;
+    recipients = await this.filterByPreference(recipients, input.type);
     if (recipients.length === 0) return;
     try {
       for (const userId of recipients) {
@@ -61,6 +64,23 @@ export class NotificationsService {
       }
     } catch (error) {
       this.logger.warn(`notification write failed: ${String(error)}`);
+    }
+  }
+
+  /** Drop recipients who've turned this notification type off (#31). Defaults to on,
+   * so a user with no saved preferences still gets everything. Best-effort. */
+  private async filterByPreference(recipients: string[], type: NotificationType): Promise<string[]> {
+    try {
+      const rows = await this.db.query.userPreferences.findMany({
+        where: inArray(userPreferences.userId, recipients),
+      });
+      const stored = new Map(rows.map((r) => [r.userId, r.preferences]));
+      return recipients.filter((id) =>
+        stored.has(id) ? mergePreferences(stored.get(id)).notifications[type] : true,
+      );
+    } catch (error) {
+      this.logger.warn(`preference read failed, delivering anyway: ${String(error)}`);
+      return recipients;
     }
   }
 

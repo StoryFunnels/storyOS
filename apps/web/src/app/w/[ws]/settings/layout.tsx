@@ -30,6 +30,7 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
   const personal = [
     { href: `${base}/account`, label: 'Account' },
     { href: `${base}/preferences`, label: 'Preferences' },
+    { href: `${base}/notifications`, label: 'Notifications' },
   ];
   const workspaceLinks = [
     ...(isAdmin ? [{ href: `${base}/members`, label: 'Members' }] : []),
