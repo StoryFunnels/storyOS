@@ -1278,6 +1278,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/integrations/slack": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Slack config (token/webhook presence + default channel) */
+        get: operations["SlackIntegrationsController_getConfig"];
+        put?: never;
+        /** Save Slack bot token, webhook URL and/or default channel */
+        post: operations["SlackIntegrationsController_saveConfig"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/templates": {
         parameters: {
             query?: never;
@@ -1816,6 +1834,11 @@ export interface components {
                 values: {
                     [key: string]: unknown;
                 };
+            } | {
+                /** @enum {string} */
+                type: "send_slack_message";
+                text: string;
+                channel?: string;
             })[];
             /** @default true */
             enabled: boolean;
@@ -1878,6 +1901,11 @@ export interface components {
                 values: {
                     [key: string]: unknown;
                 };
+            } | {
+                /** @enum {string} */
+                type: "send_slack_message";
+                text: string;
+                channel?: string;
             })[];
             enabled?: boolean;
         };
@@ -1892,6 +1920,12 @@ export interface components {
         LinearConfigDto: {
             api_key?: string;
             team_keys?: string[];
+        };
+        SlackConfigDto: {
+            bot_token?: string;
+            default_channel?: string;
+            /** Format: uri */
+            webhook_url?: string;
         };
         ApplyTemplateDto: {
             /** Format: uuid */
@@ -4115,6 +4149,44 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SlackIntegrationsController_getConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SlackIntegrationsController_saveConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SlackConfigDto"];
+            };
+        };
         responses: {
             201: {
                 headers: {

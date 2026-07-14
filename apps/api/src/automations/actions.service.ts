@@ -5,6 +5,7 @@ import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { databases, fields, relations } from '../db/schema';
 import { CommentsService } from '../comments/comments.service';
+import { SlackService } from '../integrations/slack.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { RecordsService } from '../records/records.service';
 import type { ProjectedRecord } from '../records/records.service';
@@ -38,6 +39,7 @@ export class AutomationActionsService {
     private readonly relationsService: RelationsService,
     private readonly commentsService: CommentsService,
     private readonly notificationsService: NotificationsService,
+    private readonly slackService: SlackService,
   ) {}
 
   /** The related database + this record's linked ids through a relation field. */
@@ -201,6 +203,24 @@ export class AutomationActionsService {
           });
         } else {
           effects.push({ type: 'update_linked', summary: 'No linked records to update' });
+        }
+      } else if (action.type === 'send_slack_message') {
+        const text = this.interpolate(action.text, ctx, displayToApi);
+        // External side-effect: don't let an unconfigured Slack or a network
+        // blip roll back the triggering record write — record it and move on.
+        try {
+          const sent = await this.slackService.sendMessage(ctx.workspaceId, { channel: action.channel, text });
+          effects.push({
+            type: 'send_slack_message',
+            record_id: ctx.record.id,
+            summary: `Sent Slack message${sent.channel ? ` to ${sent.channel}` : ''}`,
+          });
+        } catch (err) {
+          effects.push({
+            type: 'send_slack_message',
+            record_id: ctx.record.id,
+            summary: `Slack message failed: ${err instanceof Error ? err.message : 'unknown error'}`,
+          });
         }
       }
     }

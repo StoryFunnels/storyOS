@@ -15,6 +15,15 @@ describe('redactSecrets', () => {
     });
   });
 
+  it('masks Slack bot token and webhook URL but keeps the default channel', () => {
+    const out = redactSecrets({
+      slack: { bot_token: 'xoxb-123', webhook_url: 'https://hooks.slack.com/services/T/B/secret', default_channel: '#general' },
+    });
+    expect(out).toEqual({
+      slack: { bot_token: '[redacted]', webhook_url: '[redacted]', default_channel: '#general' },
+    });
+  });
+
   it('covers camelCase and nested secret keys', () => {
     const out = redactSecrets({ a: { accessToken: 'x', clientSecret: 'y', password: 'z', keep: 1 } });
     expect(out).toEqual({ a: { accessToken: '[redacted]', clientSecret: '[redacted]', password: '[redacted]', keep: 1 } });

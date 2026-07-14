@@ -3479,6 +3479,44 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/integrations/slack": {
+      "get": {
+        "operationId": "SlackIntegrationsController_getConfig",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Slack config (token/webhook presence + default channel)",
+        "tags": [
+          "integrations"
+        ]
+      },
+      "post": {
+        "operationId": "SlackIntegrationsController_saveConfig",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SlackConfigDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Save Slack bot token, webhook URL and/or default channel",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
     "/api/v1/templates": {
       "get": {
         "operationId": "TemplatesController_list",
@@ -5313,6 +5351,31 @@
                     "relation_field_id",
                     "values"
                   ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "send_slack_message"
+                      ]
+                    },
+                    "text": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 3000
+                    },
+                    "channel": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "text"
+                  ]
                 }
               ]
             }
@@ -5553,6 +5616,31 @@
                     "relation_field_id",
                     "values"
                   ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "send_slack_message"
+                      ]
+                    },
+                    "text": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 3000
+                    },
+                    "channel": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "text"
+                  ]
                 }
               ]
             }
@@ -5609,6 +5697,26 @@
               "minLength": 1,
               "maxLength": 20
             }
+          }
+        }
+      },
+      "SlackConfigDto": {
+        "type": "object",
+        "properties": {
+          "bot_token": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "default_channel": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "webhook_url": {
+            "type": "string",
+            "maxLength": 500,
+            "format": "uri"
           }
         }
       },
