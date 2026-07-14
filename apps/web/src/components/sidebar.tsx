@@ -7,7 +7,7 @@ import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from 
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Check, ChevronRight, ChevronsUpDown, Database, FileText, Folder as FolderIcon, Home, Inbox, KeyRound, LayoutTemplate, MoreHorizontal, Plug, Plus, Search, Settings, Star, UserRound } from 'lucide-react';
+import { Check, ChevronRight, ChevronsDownUp, ChevronsUpDown, Database, FileText, Folder as FolderIcon, Home, Inbox, KeyRound, LayoutTemplate, MoreHorizontal, Plug, Plus, Search, Settings, Star, UserRound } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -68,7 +68,7 @@ function FavoritesSection({ ws }: { ws: string }) {
           <Link
             key={`${f.target_type}:${f.target_id}`}
             href={f.target_type === 'record' ? `/w/${ws}/d/${f.database_id}/r/${f.target_id}` : `/w/${ws}/d/${f.target_id}`}
-            className="flex items-center gap-2 rounded px-2 py-1 text-[13px] text-ink-secondary hover:bg-hover"
+            className="flex items-center gap-2 rounded px-2 py-[3px] text-[13px] text-ink-secondary hover:bg-hover"
           >
             <Star className="h-3.5 w-3.5 shrink-0 fill-[var(--accent)] text-[var(--accent)]" />
             <span className="truncate">{f.title}</span>
@@ -109,42 +109,55 @@ export function Sidebar() {
     <aside className="flex w-60 flex-col border-r border-border-default bg-sidebar">
       <WorkspaceSwitcher ws={ws} currentName={workspace.data?.name} />
 
+      {/* Sticky top nav — stays put while the spaces tree scrolls (issue #34). */}
+      <div className="flex flex-col gap-0.5 border-b border-border-default px-2 py-1.5">
+        <Link
+          href={`/w/${ws}`}
+          className="flex items-center gap-2 rounded px-2 py-[3px] text-[13px] text-ink-secondary hover:bg-hover"
+        >
+          <Home className="h-3.5 w-3.5" /> Home
+        </Link>
+        <button
+          className="flex w-full items-center gap-2 rounded px-2 py-[3px] text-[13px] text-ink-secondary hover:bg-hover"
+          onClick={openPalette}
+        >
+          <Search className="h-3.5 w-3.5" /> Search
+          <span className="ml-auto text-[10px] text-faint">⌘K</span>
+        </button>
+        <button
+          className="flex w-full items-center gap-2 rounded px-2 py-[3px] text-[13px] text-ink-secondary hover:bg-hover"
+          onClick={() => setInboxOpen(true)}
+        >
+          <Inbox className="h-3.5 w-3.5" /> Inbox
+          {(unread.data ?? 0) > 0 && (
+            <span className="ml-auto rounded-full bg-[var(--accent)] px-1.5 text-[10px] font-semibold text-[var(--text-on-dark)]">
+              {(unread.data ?? 0) > 99 ? '99+' : unread.data}
+            </span>
+          )}
+        </button>
+        <Link
+          href={`/w/${ws}/me`}
+          className="flex items-center gap-2 rounded px-2 py-[3px] text-[13px] text-ink-secondary hover:bg-hover"
+        >
+          <UserRound className="h-3.5 w-3.5" /> My Work
+        </Link>
+      </div>
+      {inboxOpen && <InboxPanel ws={ws} onClose={() => setInboxOpen(false)} />}
+
       <nav className="flex-1 overflow-y-auto p-2">
-        {/* Top nav (work-OS-style): Home / Search above spaces */}
-        <div className="mb-2 flex flex-col gap-0.5">
-          <Link
-            href={`/w/${ws}`}
-            className="flex items-center gap-2 rounded px-2 py-1 text-[13px] text-ink-secondary hover:bg-hover"
-          >
-            <Home className="h-3.5 w-3.5" /> Home
-          </Link>
-          <button
-            className="flex w-full items-center gap-2 rounded px-2 py-1 text-[13px] text-ink-secondary hover:bg-hover"
-            onClick={openPalette}
-          >
-            <Search className="h-3.5 w-3.5" /> Search
-            <span className="ml-auto text-[10px] text-faint">⌘K</span>
-          </button>
-          <button
-            className="flex w-full items-center gap-2 rounded px-2 py-1 text-[13px] text-ink-secondary hover:bg-hover"
-            onClick={() => setInboxOpen(true)}
-          >
-            <Inbox className="h-3.5 w-3.5" /> Inbox
-            {(unread.data ?? 0) > 0 && (
-              <span className="ml-auto rounded-full bg-[var(--accent)] px-1.5 text-[10px] font-semibold text-[var(--text-on-dark)]">
-                {(unread.data ?? 0) > 99 ? '99+' : unread.data}
-              </span>
-            )}
-          </button>
-          <Link
-            href={`/w/${ws}/me`}
-            className="flex items-center gap-2 rounded px-2 py-1 text-[13px] text-ink-secondary hover:bg-hover"
-          >
-            <UserRound className="h-3.5 w-3.5" /> My Work
-          </Link>
-        </div>
-        {inboxOpen && <InboxPanel ws={ws} onClose={() => setInboxOpen(false)} />}
         <FavoritesSection ws={ws} />
+        <div className="mb-0.5 mt-1 flex items-center justify-between px-2">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-faint">Spaces</span>
+          {(spaces.data ?? []).length > 0 && (
+            <button
+              onClick={() => window.dispatchEvent(new CustomEvent('storyos:collapse-all'))}
+              title="Collapse all spaces"
+              className="rounded p-0.5 text-faint hover:bg-hover hover:text-muted"
+            >
+              <ChevronsDownUp className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onSpaceDragEnd}>
           <SortableContext
             items={(spaces.data ?? []).map((s) => s.id)}
@@ -167,7 +180,7 @@ export function Sidebar() {
         {canEdit && (
           <>
             <button
-              className="flex w-full items-center gap-2 rounded px-2 py-1 text-[13px] text-muted hover:bg-hover"
+              className="flex w-full items-center gap-2 rounded px-2 py-[3px] text-[13px] text-muted hover:bg-hover"
               onClick={() => setGalleryOpen(true)}
             >
               <LayoutTemplate className="h-3.5 w-3.5" /> From template
@@ -189,13 +202,13 @@ export function Sidebar() {
           <>
             <Link
               href={`/w/${ws}/settings/members`}
-              className="flex items-center gap-2 rounded px-2 py-1.5 text-[13px] text-ink-secondary hover:bg-hover"
+              className="flex items-center gap-2 rounded px-2 py-1 text-[13px] text-ink-secondary hover:bg-hover"
             >
               <Settings className="h-3.5 w-3.5" /> Settings & members
             </Link>
             <Link
               href={`/w/${ws}/settings/integrations`}
-              className="flex items-center gap-2 rounded px-2 py-1.5 text-[13px] text-ink-secondary hover:bg-hover"
+              className="flex items-center gap-2 rounded px-2 py-1 text-[13px] text-ink-secondary hover:bg-hover"
             >
               <Plug className="h-3.5 w-3.5" /> Integrations
             </Link>
@@ -204,7 +217,7 @@ export function Sidebar() {
         {canEdit && (
           <Link
             href={`/w/${ws}/settings/api`}
-            className="flex items-center gap-2 rounded px-2 py-1.5 text-[13px] text-ink-secondary hover:bg-hover"
+            className="flex items-center gap-2 rounded px-2 py-1 text-[13px] text-ink-secondary hover:bg-hover"
           >
             <KeyRound className="h-3.5 w-3.5" /> API tokens
           </Link>
@@ -240,7 +253,7 @@ function WorkspaceSwitcher({ ws, currentName }: { ws: string; currentName?: stri
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button className="flex h-12 w-full items-center gap-2 border-b border-border-default px-4 text-left hover:bg-hover">
+        <button className="flex h-11 w-full items-center gap-2 border-b border-border-default px-4 text-left hover:bg-hover">
           <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-primary text-[11px] font-bold text-[var(--text-on-dark)]">
             {currentName?.[0]?.toUpperCase() ?? 'S'}
           </div>
@@ -292,6 +305,15 @@ function SpaceSection({
   const [collapsed, setCollapsed] = useState(false);
   useEffect(() => {
     if (typeof window !== 'undefined') setCollapsed(window.localStorage.getItem(collapseKey) === '1');
+  }, [collapseKey]);
+  // "Collapse all" (issue #34): one button collapses every space at once.
+  useEffect(() => {
+    const onCollapseAll = () => {
+      setCollapsed(true);
+      if (typeof window !== 'undefined') window.localStorage.setItem(collapseKey, '1');
+    };
+    window.addEventListener('storyos:collapse-all', onCollapseAll);
+    return () => window.removeEventListener('storyos:collapse-all', onCollapseAll);
   }, [collapseKey]);
   const toggleCollapsed = () => {
     setCollapsed((c) => {
@@ -537,7 +559,7 @@ function SpaceSection({
               <Link
                 href={`/w/${ws}/doc/${d.id}`}
                 className={cn(
-                  'flex min-w-0 flex-1 items-center gap-2 rounded px-2 py-1 text-[13px] hover:bg-hover',
+                  'flex min-w-0 flex-1 items-center gap-2 rounded px-2 py-[3px] text-[13px] hover:bg-hover',
                   pathname === `/w/${ws}/doc/${d.id}` ? 'bg-active font-medium text-ink' : 'text-ink-secondary',
                 )}
               >
@@ -604,16 +626,16 @@ function PromptDialog({
               onKeyDown={(e) => {
                 if (e.key === 'Enter') confirm();
               }}
-              className="w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1.5 text-[13px] text-ink outline-none focus:border-border-strong"
+              className="w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-[13px] text-ink outline-none focus:border-border-strong"
             />
           )}
           <div className="flex justify-end gap-2">
-            <button className="rounded-[var(--radius-control)] px-3 py-1.5 text-[13px] text-muted hover:bg-hover" onClick={onClose}>
+            <button className="rounded-[var(--radius-control)] px-3 py-1 text-[13px] text-muted hover:bg-hover" onClick={onClose}>
               Cancel
             </button>
             <button
               className={cn(
-                'rounded-[var(--radius-control)] px-3 py-1.5 text-[13px] font-medium text-white',
+                'rounded-[var(--radius-control)] px-3 py-1 text-[13px] font-medium text-white',
                 state.kind === 'confirm' && state.danger ? 'bg-error' : 'bg-ink',
               )}
               onClick={confirm}
@@ -669,7 +691,7 @@ function FolderSection({
     <div>
       <button
         onClick={toggle}
-        className="flex w-full items-center gap-1 rounded px-2 py-1 text-[13px] text-ink-secondary hover:bg-hover"
+        className="flex w-full items-center gap-1 rounded px-2 py-[3px] text-[13px] text-ink-secondary hover:bg-hover"
       >
         <ChevronRight className={cn('h-3 w-3 shrink-0 text-faint transition-transform', !collapsed && 'rotate-90')} />
         {folder.icon ? <span className="text-[13px] leading-none">{folder.icon}</span> : <FolderIcon className="h-3.5 w-3.5 shrink-0 text-muted" />}
@@ -725,7 +747,7 @@ function DatabaseRow({
   return (
     <div
       className={cn(
-        'group flex items-center justify-between rounded px-2 py-1 text-[13px]',
+        'group flex items-center justify-between rounded px-2 py-[3px] text-[13px]',
         active
           ? 'bg-active text-ink shadow-[inset_2px_0_0_var(--accent)]'
           : 'text-ink-secondary hover:bg-hover',
@@ -856,7 +878,7 @@ function NewSpaceButton({ onCreate }: { onCreate: (name: string) => void }) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <button className="mt-1 flex w-full items-center gap-2 rounded px-2 py-1 text-[13px] text-muted hover:bg-hover">
+        <button className="mt-1 flex w-full items-center gap-2 rounded px-2 py-[3px] text-[13px] text-muted hover:bg-hover">
           <Plus className="h-3.5 w-3.5" /> New space
         </button>
       </DialogTrigger>
