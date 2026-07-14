@@ -25,7 +25,7 @@ interface Platform {
 const PLATFORMS: Platform[] = [
   { slug: 'github', name: 'GitHub', Icon: GitBranch, description: 'Import Issues & Pull Requests; PRs auto-link to the issues they reference.', status: 'available' },
   { slug: 'linear', name: 'Linear', Icon: ArrowDownToLine, description: 'One-shot migration — teams become spaces with Issues, Sprints and Projects.', status: 'available' },
-  { slug: 'slack', name: 'Slack', Icon: MessageSquare, description: 'Notifications and record actions in Slack; create records from messages.', status: 'soon' },
+  { slug: 'slack', name: 'Slack', Icon: MessageSquare, description: 'Send messages to Slack from automations — post updates to a channel when records change.', status: 'available' },
   { slug: 'google-calendar', name: 'Google Calendar', Icon: CalendarDays, description: 'Two-way sync between date fields and your calendar.', status: 'soon' },
   { slug: 'storyfunnels', name: 'StoryFunnels', Icon: Target, description: 'Native integration with StoryFunnels — pipelines and content in sync.', status: 'soon' },
   { slug: 'storypages', name: 'StoryPages', Icon: Sparkles, description: 'Native integration with StoryPages — publish and track pages from here.', status: 'soon' },
@@ -48,8 +48,17 @@ export default function IntegrationsPage() {
       return data as unknown as { has_key: boolean } | undefined;
     },
   });
+  const slack = useQuery({
+    queryKey: ['slack-config', ws],
+    queryFn: async () => {
+      const { data } = await api.GET('/api/v1/workspaces/{ws}/integrations/slack', { params: { path: { ws } } } as never);
+      return data as unknown as { has_token: boolean; has_webhook: boolean } | undefined;
+    },
+  });
   const connected = (slug: string) =>
-    (slug === 'github' && github.data?.has_token) || (slug === 'linear' && linear.data?.has_key);
+    (slug === 'github' && github.data?.has_token) ||
+    (slug === 'linear' && linear.data?.has_key) ||
+    (slug === 'slack' && (slack.data?.has_token || slack.data?.has_webhook));
 
   return (
     <div className="mx-auto max-w-4xl p-8">

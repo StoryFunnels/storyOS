@@ -69,6 +69,13 @@ export const actionSchema = z.discriminatedUnion('type', [
     relation_field_id: z.uuid(),
     values: z.record(z.string(), z.unknown()),
   }),
+  z.object({
+    type: z.literal('send_slack_message'),
+    // {Field Name} tokens are interpolated from the triggering record
+    text: z.string().min(1).max(3000),
+    // channel id/name; falls back to the workspace's default Slack channel
+    channel: z.string().min(1).max(200).optional(),
+  }),
 ]);
 export type AutomationAction = z.infer<typeof actionSchema>;
 

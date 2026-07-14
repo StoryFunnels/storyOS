@@ -10,6 +10,7 @@
 const SECRET_KEYS = new Set([
   'apikey',
   'token',
+  'bottoken',
   'accesstoken',
   'refreshtoken',
   'secret',
@@ -19,6 +20,8 @@ const SECRET_KEYS = new Set([
   'privatekey',
   'credential',
   'credentials',
+  // A Slack incoming-webhook URL embeds a secret path, so treat it like a token.
+  'webhookurl',
 ]);
 
 const REDACTED = '[redacted]';
