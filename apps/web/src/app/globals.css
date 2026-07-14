@@ -81,3 +81,13 @@ body {
   outline: none;
   box-shadow: 0 0 0 3px rgba(212, 160, 23, 0.25);
 }
+
+/* Command palette (⌘K) indeterminate search bar */
+@keyframes cmdk-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
+}
