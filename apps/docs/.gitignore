@@ -1,0 +1,6 @@
+# build output
+dist/
+.astro/
+# synced from docs/api/openapi.json at build time
+openapi.json
+node_modules/

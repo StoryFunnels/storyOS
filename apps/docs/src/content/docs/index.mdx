@@ -1,0 +1,56 @@
+---
+title: StoryOS Docs
+description: The open-source, API-first work OS — user-defined relational databases you can run, and let AI agents run, an entire company on.
+template: splash
+hero:
+  tagline: The open-source work OS. User-defined relational databases that can run an entire company — clients, tasks, content pipelines, CRM, sprints. One engine, your schema, your server.
+  image:
+    dark: ../../assets/logo-dark.svg
+    light: ../../assets/logo.svg
+  actions:
+    - text: Get started
+      link: /getting-started/what-is-storyos/
+      icon: right-arrow
+      variant: primary
+    - text: Self-host in one command
+      link: /self-hosting/overview/
+      icon: rocket
+    - text: View on GitHub
+      link: https://github.com/StoryFunnels/storyOS
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+## Start here
+
+<CardGrid stagger>
+  <Card title="What is StoryOS" icon="open-book">
+    Connected databases, real relations, and one dataset seen through many views.
+    [Read the intro →](/getting-started/what-is-storyos/)
+  </Card>
+  <Card title="Self-host it" icon="rocket">
+    One Postgres, two containers, one `docker compose up`. Free forever.
+    [Quickstart →](/self-hosting/overview/)
+  </Card>
+  <Card title="Use it with AI" icon="puzzle">
+    The MCP server gives Claude and ChatGPT read/write hands on your workspace.
+    [Connect an agent →](/mcp/overview/)
+  </Card>
+  <Card title="Build on the API" icon="setting">
+    A versioned REST API under `/api/v1`, generated from an OpenAPI spec.
+    [API reference →](/api/overview/)
+  </Card>
+</CardGrid>
+
+## Explore the concepts
+
+<CardGrid>
+  <LinkCard title="Databases & fields" href="/concepts/databases-and-fields/" />
+  <LinkCard title="Relations" href="/concepts/relations/" />
+  <LinkCard title="Lookups & rollups" href="/concepts/lookups-and-rollups/" />
+  <LinkCard title="Formulas" href="/concepts/formulas/" />
+  <LinkCard title="Views" href="/concepts/views/" />
+  <LinkCard title="Automations & buttons" href="/concepts/automations/" />
+</CardGrid>
