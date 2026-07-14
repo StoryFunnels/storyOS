@@ -44,7 +44,7 @@ Ticket: [MN-076](../../tickets/MN-076-mcp-server.md).
 | `create_relation` / `delete_relation` | Link two databases (one_to_many / many_to_many) — paired relation fields. |
 | `reorder_fields` / `reorder_views` | Set field / view order by name. |
 
-Conveniences: `query_records` / `get_record` return select values as **labels** (not option ids); `create_record` / `update_record` accept a plain **string** on a rich_text field (auto-wrapped to blocks) and select **labels**; `create_record` reports any **unset** template fields.
+Conveniences: `query_records` / `get_record` return select values as **labels** (not option ids) and rich_text as **Markdown**; `create_record` / `update_record` accept **Markdown** on a rich_text field (headings, lists, links, code → parsed to blocks) and select **labels**; `create_record` reports any **unset** template fields.
 
 Hosted Streamable HTTP (for ChatGPT / claude.ai connectors without a local process)
 is the remaining phase — it lands with the cloud tier (see MN-069).
