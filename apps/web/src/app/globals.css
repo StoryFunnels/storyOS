@@ -39,6 +39,43 @@
   --radius-modal: 12px;
 }
 
+/* Dark theme (#30). Everything downstream reads the semantic --bg/--text/--border
+   vars through @theme inline, so overriding the raw tokens here flips the whole app.
+   The resolved theme ('light' | 'dark') is written to <html data-theme> before paint
+   by the no-flash script in layout.tsx; 'system' resolves to one of the two. */
+:root[data-theme='dark'] {
+  /* Surfaces — warm navy dark, not flat black */
+  --bg-app: #0f131b;
+  --bg-sidebar: #0b0e15;
+  --bg-card: #171c26;
+  --bg-hover: #1e2430;
+  --bg-active: #28303d;
+
+  /* Text */
+  --text-primary: #f3efe7;
+  --text-secondary: #d0cabc;
+  --text-muted: #9a9488;
+  --text-faint: #63605a;
+  --text-on-dark: #faf7f1;
+
+  /* Borders */
+  --border-default: #262d39;
+  --border-strong: #38404e;
+
+  /* Brand & actions — keep the cream-on-navy CTA pairing legible on the darker canvas */
+  --primary: #35427a;
+  --primary-hover: #414f92;
+  --accent: #e0af2b;
+  --accent-hover: #f0c247;
+  --accent-soft: #332e1c;
+
+  /* Status — lifted for contrast on dark */
+  --success: #57b37f;
+  --error: #e2705f;
+  --warning: #d8ad3e;
+  --info: #7a92d6;
+}
+
 @theme inline {
   --color-app: var(--bg-app);
   --color-sidebar: var(--bg-sidebar);

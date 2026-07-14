@@ -1,6 +1,6 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { API_URL } from '@/lib/api';
@@ -37,6 +37,7 @@ async function resizeTo256(file: File): Promise<Blob> {
 
 export function AccountMenu() {
   const router = useRouter();
+  const { ws } = useParams<{ ws: string }>();
   const { data: session } = useSession();
   const fileRef = useRef<HTMLInputElement>(null);
   // Cache-bust locally after an upload without waiting for a session refetch.
@@ -81,6 +82,12 @@ export function AccountMenu() {
             <p className="truncate text-[12px] text-muted">{session.user.email}</p>
           </div>
         </div>
+        <DropdownMenuItem onSelect={() => router.push(`/w/${ws}/settings/account`)}>
+          Account
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => router.push(`/w/${ws}/settings/preferences`)}>
+          Preferences
+        </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => fileRef.current?.click()}>
           {imageUrl ? 'Change photo' : 'Set photo'}
         </DropdownMenuItem>
