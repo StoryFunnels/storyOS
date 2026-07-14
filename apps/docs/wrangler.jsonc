@@ -1,0 +1,11 @@
+{
+  // Serve the built Starlight docs as a STATIC-ASSETS Worker (no SSR adapter).
+  // `npx wrangler deploy` uploads ./dist as-is — this is what stops Cloudflare from
+  // auto-adding @astrojs/cloudflare (which caused the prismjs build failure). The docs
+  // are fully static (astro build → dist/), so no Worker script/`main` is needed.
+  "name": "storyos-docs",
+  "compatibility_date": "2026-07-14",
+  "assets": {
+    "directory": "./dist"
+  }
+}
