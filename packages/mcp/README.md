@@ -30,6 +30,8 @@ Ticket: [MN-076](../../tickets/MN-076-mcp-server.md).
 | `delete_record` | Trash a record (restorable 30 days). |
 | `link_records` | Link a record to targets through a relation field. |
 | `add_comment` | Post a comment. |
+| `attach_file` | Attach a file to a record — from a public `url` (fetched server-side) or inline `content_base64`; images get a thumbnail. |
+| `list_attachments` / `delete_attachment` | List a record's files, or remove one by id. |
 | `run_button` | Press a button field, running its automation actions. |
 
 **Build / schema** (agents design the workspace, not just fill it)

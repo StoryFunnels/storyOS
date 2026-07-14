@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { Client } from './client.js';
-import { unwrap } from './client.js';
+import type { Ctx } from './client.js';
+import { unwrap, uploadAttachment } from './client.js';
 import { listDatabases, listWorkspaces, resolveDatabase, resolveWorkspace } from './resolve.js';
 
 /** MCP text result. */
@@ -73,7 +73,8 @@ function describeFields(db: DatabaseDetail) {
 }
 
 /** Register the Phase-1 (read-only) tool catalog (MN-076). */
-export function registerTools(server: McpServer, client: Client) {
+export function registerTools(server: McpServer, ctx: Ctx) {
+  const { client } = ctx;
   server.registerTool(
     'get_started',
     {
@@ -475,6 +476,114 @@ export function registerTools(server: McpServer, client: Client) {
       );
       return text({ commented_on: rec });
     }),
+  );
+
+  // ============ Attachments (MN-37): files on a record ============
+
+  const MIME_BY_EXT: Record<string, string> = {
+    png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp',
+    svg: 'image/svg+xml', pdf: 'application/pdf', csv: 'text/csv', txt: 'text/plain', md: 'text/markdown',
+    json: 'application/json', zip: 'application/zip', doc: 'application/msword',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    xls: 'application/vnd.ms-excel',
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  };
+  const guessMime = (name: string): string | undefined => MIME_BY_EXT[name.split('.').pop()?.toLowerCase() ?? ''];
+  const nameFromUrl = (u: string): string => {
+    try {
+      const last = new URL(u).pathname.split('/').filter(Boolean).pop();
+      return last ? decodeURIComponent(last) : 'file';
+    } catch {
+      return 'file';
+    }
+  };
+
+  server.registerTool(
+    'attach_file',
+    {
+      title: 'Attach file',
+      description:
+        'Attach a file to a record — either from a public `url` (fetched server-side) or from inline `content_base64` bytes. Images get a thumbnail automatically. record is a uuid or public number. Returns the created attachment.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        record: z.string().describe('Record uuid or public number.'),
+        url: z.string().url().optional().describe('A publicly reachable URL to fetch and attach.'),
+        content_base64: z.string().optional().describe('Base64-encoded file bytes (use instead of url).'),
+        filename: z.string().optional().describe('File name — required with content_base64; inferred from the URL otherwise.'),
+        mime: z.string().optional().describe('MIME type, e.g. "image/png". Inferred from the extension / URL response when omitted.'),
+      },
+    },
+    handle<{ workspace: string; database: string; record: string; url?: string; content_base64?: string; filename?: string; mime?: string }>(
+      async ({ workspace, database, record, url, content_base64, filename, mime }) => {
+        if (!url && !content_base64) throw new Error('Provide either `url` or `content_base64`.');
+        if (url && content_base64) throw new Error('Provide only one of `url` or `content_base64`, not both.');
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const rec = await resolveRecordId(ws.id, db.id, record);
+
+        let data: Uint8Array;
+        let name = filename;
+        let type = mime;
+        if (url) {
+          const res = await fetch(url);
+          if (!res.ok) throw new Error(`Could not fetch ${url} (HTTP ${res.status}).`);
+          data = new Uint8Array(await res.arrayBuffer());
+          name = name ?? nameFromUrl(url);
+          type = type ?? res.headers.get('content-type')?.split(';')[0]?.trim() ?? guessMime(name);
+        } else {
+          if (!filename) throw new Error('`filename` is required when attaching content_base64.');
+          data = Uint8Array.from(Buffer.from(content_base64!, 'base64'));
+          name = filename;
+          type = type ?? guessMime(filename);
+        }
+
+        const attachment = await uploadAttachment(ctx, { ws: ws.id, db: db.id, rec }, { filename: name!, mime: type, data });
+        return text(attachment);
+      },
+    ),
+  );
+
+  server.registerTool(
+    'list_attachments',
+    {
+      title: 'List attachments',
+      description: 'List the files attached to a record (id, filename, mime, size). record is a uuid or public number.',
+      inputSchema: { workspace: z.string(), database: z.string(), record: z.string() },
+    },
+    handle<{ workspace: string; database: string; record: string }>(async ({ workspace, database, record }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const rec = await resolveRecordId(ws.id, db.id, record);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/attachments', {
+          params: { path: { ws: ws.id, db: db.id, rec } },
+        }),
+      );
+      return text(res);
+    }),
+  );
+
+  server.registerTool(
+    'delete_attachment',
+    {
+      title: 'Delete attachment',
+      description: 'Remove a file from a record by attachment id (from list_attachments). record is a uuid or public number.',
+      inputSchema: { workspace: z.string(), database: z.string(), record: z.string(), attachment_id: z.string() },
+    },
+    handle<{ workspace: string; database: string; record: string; attachment_id: string }>(
+      async ({ workspace, database, record, attachment_id }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const rec = await resolveRecordId(ws.id, db.id, record);
+        const res = await unwrap<unknown>(
+          client.DELETE('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/attachments/{att}', {
+            params: { path: { ws: ws.id, db: db.id, rec, att: attachment_id } } as never,
+          }),
+        );
+        return text(res ?? { deleted: attachment_id });
+      },
+    ),
   );
 
   server.registerTool(

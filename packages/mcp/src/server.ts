@@ -1,5 +1,5 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { makeClient, type Client } from './client.js';
+import { makeClient, type Ctx } from './client.js';
 import { registerTools } from './tools.js';
 
 /**
@@ -8,8 +8,8 @@ import { registerTools } from './tools.js';
  * connects it over Streamable HTTP (hosted ChatGPT / claude.ai connectors) with a
  * per-request client. Pass a client for the hosted case; omit for stdio/env.
  */
-export function buildServer(client: Client = makeClient()): McpServer {
+export function buildServer(ctx: Ctx = makeClient()): McpServer {
   const server = new McpServer({ name: 'storyos', version: '0.1.0' });
-  registerTools(server, client);
+  registerTools(server, ctx);
   return server;
 }
