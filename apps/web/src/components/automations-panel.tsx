@@ -12,6 +12,7 @@ import { useDatabase, useMembers } from '@/components/table-view/use-table-data'
 import type { Field } from '@/components/table-view/use-table-data';
 import { OPS_BY_TYPE } from '@/components/views/view-toolbar';
 import { Button } from '@/components/ui/button';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import { DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -49,6 +50,7 @@ function triggerSentence(rule: Rule, fields: Field[]): string {
 /** Buttons & automations panel (MN-046/047) — per-database sections. */
 export function AutomationsPanel({ ws, db, onClose }: { ws: string; db: string; onClose: () => void }) {
   const qc = useQueryClient();
+  const confirm = useConfirm();
   const database = useDatabase(ws, db);
   const [tab, setTab] = useState<'rules' | 'buttons'>('rules');
   const [editing, setEditing] = useState<Rule | 'new' | null>(null);
@@ -138,8 +140,9 @@ export function AutomationsPanel({ ws, db, onClose }: { ws: string; db: string; 
                 fields={fields}
                 onToggle={(enabled) => toggle.mutate({ id: rule.id, enabled })}
                 onEdit={() => setEditing(rule)}
-                onDelete={() => {
-                  if (window.confirm(`Delete the rule "${rule.name}"?`)) remove.mutate(rule.id);
+                onDelete={async () => {
+                  if (await confirm({ title: `Delete rule "${rule.name}"?`, confirmLabel: 'Delete', danger: true }))
+                    remove.mutate(rule.id);
                 }}
               />
             ))}

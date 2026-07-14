@@ -44,6 +44,7 @@ import { FORMULA_FUNCTIONS, evaluateFormula, parseFormula, typecheck } from '@st
 import { useDatabases } from '@/lib/queries';
 import { Button } from '@/components/ui/button';
 import { DialogClose, DialogContent } from '@/components/ui/dialog';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -749,6 +750,7 @@ export function EditFieldDialog({
 
 /** Options on an existing field: rename inline, recolor via palette, drag to reorder, delete. */
 function LiveOptionsEditor({ ws, db, field }: { ws: string; db: string; field: Field }) {
+  const confirm = useConfirm();
   const { invalidate } = useFieldMutations(ws, db);
   const options = field.options ?? [];
   const [pending, setPending] = useState('');
@@ -789,7 +791,14 @@ function LiveOptionsEditor({ ws, db, field }: { ws: string; db: string; field: F
       if (res.error) {
         const message = (res.error as { error?: { message?: string } }).error?.message ?? '';
         if (message.includes('confirm')) {
-          if (window.confirm(`${message.split('.')[0]}. Clear it from those records?`)) {
+          if (
+            await confirm({
+              title: 'Clear option',
+              message: `${message.split('.')[0]}. Clear it from those records?`,
+              confirmLabel: 'Clear',
+              danger: true,
+            })
+          ) {
             const forced = await api.DELETE(
               '/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/options/{option}',
               { params: { path: { ws, db, field: field.id, option: id } }, body: { confirm: true } },
@@ -1040,6 +1049,7 @@ export function useDeleteField({
   onDone: () => void;
 }) {
   const { invalidate } = useFieldMutations(ws, db);
+  const confirm = useConfirm();
 
   const del = useMutation({
     mutationFn: async () => {
@@ -1049,11 +1059,15 @@ export function useDeleteField({
       );
       const count = (usage.data as { records_with_value: number } | undefined)?.records_with_value ?? 0;
       if (
-        !window.confirm(
-          count > 0
-            ? `"${field.displayName}" has values on ${count} record(s). Delete anyway?`
-            : `Delete "${field.displayName}"?`,
-        )
+        !(await confirm({
+          title: `Delete "${field.displayName}"?`,
+          message:
+            count > 0
+              ? `This field has values on ${count} record(s). They'll be lost. Delete anyway?`
+              : undefined,
+          confirmLabel: 'Delete',
+          danger: true,
+        }))
       ) {
         return false;
       }
