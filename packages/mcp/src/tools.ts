@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Ctx } from './client.js';
 import { unwrap, uploadAttachment } from './client.js';
+import { blocksToMarkdown, markdownToBlocks } from './markdown.js';
 import { listDatabases, listWorkspaces, resolveDatabase, resolveWorkspace } from './resolve.js';
 
 /** MCP text result. */
@@ -92,7 +93,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
         'BUILD: list_spaces → create_space → create_database → add_field → create_view → create_relation. Then create_record to populate.',
         '',
         'Refs: address a database by its qualified "space/database" slug (from list_databases) — a bare name that exists in two spaces is rejected. Never invent ids; they come from search / list_* / a prior result. Names, slugs and select labels are resolved server-side.',
-        'Values: select/multi_select take the human label (e.g. "High"); rich_text fields accept a plain string (auto-wrapped) or a blocks array.',
+        'Values: select/multi_select take the human label (e.g. "High"); rich_text fields accept Markdown (headings, lists, links, code — parsed to blocks) and are returned to you as Markdown.',
         '',
         FILTER_GUIDE,
       ].join('\n');
@@ -279,28 +280,31 @@ export function registerTools(server: McpServer, ctx: Ctx) {
     return out;
   }
 
-  /** rich_text accepts a plain string for convenience (#6): wrap it in a paragraph block. */
-  const toBlocks = (s: string) => [{ type: 'paragraph', content: [{ type: 'text', text: s }] }];
-
-  /** Full write mapping (#6 + labels): select labels → ids, and a string on a rich_text
-   * field → a blocks array, so the model can write prose without knowing the block format. */
+  /** Full write mapping (#6 + labels + #60): select labels → ids, and a string on a
+   * rich_text field is parsed as Markdown → blocks, so the model writes real structure
+   * (headings/lists/links) instead of knowing the block format. An array passes through. */
   function mapWriteValues(detail: DatabaseDetail, values: Record<string, unknown>): Record<string, unknown> {
     const byApi = new Map(detail.fields.map((f) => [f.apiName, f]));
     const out = mapSelectLabels(detail, values);
     for (const [k, v] of Object.entries(out)) {
-      if (byApi.get(k)?.type === 'rich_text' && typeof v === 'string') out[k] = toBlocks(v);
+      if (byApi.get(k)?.type === 'rich_text' && typeof v === 'string') out[k] = markdownToBlocks(v);
     }
     return out;
   }
 
-  /** Read mapping (#8): resolve select/multi_select option ids → labels so agents see
-   * "In Progress", not a UUID. Unknown ids pass through untouched. */
+  /** Read mapping (#8 + #60): resolve select/multi_select option ids → labels, and
+   * render rich_text blocks as Markdown so agents get readable prose, not raw block JSON. */
   function labelize(detail: DatabaseDetail, values: Record<string, unknown>): Record<string, unknown> {
     const byApi = new Map(detail.fields.map((f) => [f.apiName, f]));
     const out: Record<string, unknown> = { ...values };
     for (const [k, v] of Object.entries(values)) {
       const f = byApi.get(k);
-      if (!f?.options?.length) continue;
+      if (!f) continue;
+      if (f.type === 'rich_text' && Array.isArray(v)) {
+        out[k] = blocksToMarkdown(v);
+        continue;
+      }
+      if (!f.options?.length) continue;
       const toLabel = (x: unknown) => f.options!.find((o) => o.id === x)?.label ?? x;
       if (f.type === 'select') out[k] = typeof v === 'string' ? toLabel(v) : v;
       else if (f.type === 'multi_select' && Array.isArray(v)) out[k] = v.map(toLabel);
