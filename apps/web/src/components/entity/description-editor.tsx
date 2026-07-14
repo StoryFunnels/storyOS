@@ -9,6 +9,7 @@ import '@blocknote/core/fonts/inter.css';
 import '@blocknote/mantine/style.css';
 import { uploadEditorImage } from '@/lib/editor-upload';
 import { api } from '@/lib/api';
+import { useTheme } from '@/lib/theme';
 import { Button } from '@/components/ui/button';
 
 interface DocumentPayload {
@@ -67,6 +68,7 @@ function EditorInner({
   const versionRef = useRef(initial.version);
   const [conflict, setConflict] = useState(false);
   const [saving, setSaving] = useState(false);
+  const { resolved: theme } = useTheme();
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const editor = useCreateBlockNote({
@@ -130,7 +132,7 @@ function EditorInner({
         <BlockNoteView
           editor={editor}
           editable={!readOnly && !conflict}
-          theme="light"
+          theme={theme}
           onChange={() => {
             if (readOnly) return;
             setSaving(true);

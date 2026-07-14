@@ -227,7 +227,7 @@ export function TableView({
     const current = valueOf(row, field) ?? null;
     if (JSON.stringify(current) === JSON.stringify(value)) return;
     updateRecord.mutate({ rec: row.id, values: { [field.apiName]: value } });
-    gridRef.current?.focus();
+    scrollRef.current?.focus();
   }
 
   // Copy/paste a cell value between cells (MN-15). Keeps the raw copied value +
@@ -532,6 +532,8 @@ export function TableView({
                         )}
                         onClick={() => {
                           setCursor({ row: item.index, col: colIndex });
+                          // Focus the keydown container so Cmd/Ctrl+C/V + arrows work (#15).
+                          scrollRef.current?.focus();
                           if (readOnly) return;
                           if (field.type === 'checkbox') {
                             commitEdit(row, field, !(valueOf(row, field) === true));
@@ -557,7 +559,7 @@ export function TableView({
                             current={(valueOf(row, field) as Array<{ id: string; title: string }>) ?? []}
                             onDone={() => {
                               setEditing(false);
-                              gridRef.current?.focus();
+                              scrollRef.current?.focus();
                             }}
                           />
                         ) : isEditing && !NO_EDITOR.has(field.type) ? (
@@ -568,7 +570,7 @@ export function TableView({
                             onCommit={(value) => commitEdit(row, field, value)}
                             onCancel={() => {
                               setEditing(false);
-                              gridRef.current?.focus();
+                              scrollRef.current?.focus();
                             }}
                           />
                         ) : field.type === 'button' ? (
