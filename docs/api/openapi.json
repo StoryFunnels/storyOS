@@ -2952,6 +2952,54 @@
         ]
       }
     },
+    "/api/v1/users/me/preferences": {
+      "get": {
+        "operationId": "PreferencesController_get",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "My preferences (defaults applied)",
+        "tags": [
+          "users"
+        ]
+      },
+      "patch": {
+        "operationId": "PreferencesController_update",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreferencesPatchDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update my preferences (deep-merged)",
+        "tags": [
+          "users"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/search": {
       "get": {
         "operationId": "SearchController_search",
@@ -5127,6 +5175,25 @@
         "required": [
           "body"
         ]
+      },
+      "PreferencesPatchDto": {
+        "type": "object",
+        "properties": {
+          "notifications": {
+            "type": "object",
+            "properties": {
+              "assigned": {
+                "type": "boolean"
+              },
+              "mentioned": {
+                "type": "boolean"
+              },
+              "commented": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
       },
       "CreateAutomationDto": {
         "type": "object",

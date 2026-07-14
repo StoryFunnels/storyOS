@@ -968,6 +968,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/users/me/preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** My preferences (defaults applied) */
+        get: operations["PreferencesController_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update my preferences (deep-merged) */
+        patch: operations["PreferencesController_update"];
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/search": {
         parameters: {
             query?: never;
@@ -1775,6 +1793,13 @@ export interface components {
                 type: "mention";
                 user_id: string;
             })[];
+        };
+        PreferencesPatchDto: {
+            notifications?: {
+                assigned?: boolean;
+                mentioned?: boolean;
+                commented?: boolean;
+            };
         };
         CreateAutomationDto: {
             name: string;
@@ -3726,6 +3751,44 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PreferencesController_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PreferencesController_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreferencesPatchDto"];
+            };
+        };
         responses: {
             200: {
                 headers: {
