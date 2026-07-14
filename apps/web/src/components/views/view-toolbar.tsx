@@ -1,8 +1,11 @@
 'use client';
 
 import { useState } from 'react';
-import { ArrowUpDown, EyeOff, ListFilter, Plus, X } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { ArrowUpDown, Check, EyeOff, GripVertical, ListFilter, Palette, Plus, X } from 'lucide-react';
+import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
+import type { DragEndEvent } from '@dnd-kit/core';
+import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -85,23 +88,15 @@ export const SORTABLE = new Set(['title', 'text', 'number', 'date', 'url', 'emai
 export function ViewToolbar({
   fields,
   config,
-  dirty,
-  readOnly,
   members,
   viewType = 'table',
   onPatch,
-  onSave,
-  onReset,
 }: {
   fields: Field[];
   config: ViewConfig;
-  dirty: boolean;
-  readOnly: boolean;
   members: Array<{ id: string; name: string }>;
   viewType?: string;
   onPatch: (updates: Partial<ViewConfig>) => void;
-  onSave: () => void;
-  onReset: () => void;
 }) {
   const filterable = fields.filter((f) => OPS_BY_TYPE[f.type]);
   const conditions = config.filters?.and ?? [];
@@ -169,17 +164,55 @@ export function ViewToolbar({
         </select>
       )}
 
-      {dirty && !readOnly && (
-        <span className="ml-auto flex items-center gap-1.5">
-          <Button size="sm" variant="ghost" onClick={onReset}>
-            Reset
-          </Button>
-          <Button size="sm" onClick={onSave}>
-            Save to view
-          </Button>
-        </span>
+      {/* Color-by (MN-102): tint rows/cards by a select field's option color. */}
+      {(viewType === 'list' || viewType === 'feed' || viewType === 'timeline') && (
+        <ColorByButton
+          fields={fields.filter((f) => f.type === 'select')}
+          value={config.color_by_field_id}
+          onChange={(color_by_field_id) => onPatch({ color_by_field_id })}
+        />
       )}
     </div>
+  );
+}
+
+export function ColorByButton({
+  fields,
+  value,
+  onChange,
+}: {
+  fields: Field[];
+  value?: string;
+  onChange: (fieldId: string | undefined) => void;
+}) {
+  if (fields.length === 0) return null;
+  const active = fields.find((f) => f.id === value);
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button className="flex items-center gap-1 rounded px-1.5 py-1 text-[12px] text-muted hover:bg-hover hover:text-ink">
+          <Palette className="h-3.5 w-3.5" /> {active ? `Color: ${active.displayName}` : 'Color'}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent className="min-w-44">
+        <button
+          className="flex w-full items-center justify-between rounded px-2 py-1.5 text-[13px] text-ink hover:bg-hover"
+          onClick={() => onChange(undefined)}
+        >
+          None {!value && <Check className="h-3.5 w-3.5 text-accent" />}
+        </button>
+        {fields.map((field) => (
+          <button
+            key={field.id}
+            className="flex w-full items-center justify-between rounded px-2 py-1.5 text-[13px] text-ink hover:bg-hover"
+            onClick={() => onChange(field.id)}
+          >
+            {field.displayName}
+            {value === field.id && <Check className="h-3.5 w-3.5 text-accent" />}
+          </button>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -479,24 +512,87 @@ function CardFieldsButton({
             </div>
           </div>
         )}
-        <div className="px-2 pb-0.5 pt-1 text-[11px] font-semibold uppercase tracking-wider text-faint">Fields</div>
-        {fields.map((field) => (
-          <label
-            key={field.id}
-            className="flex items-center gap-2 rounded px-2 py-1.5 text-[13px] text-ink hover:bg-hover"
-          >
-            <input
-              type="checkbox"
-              checked={shown.includes(field.id)}
-              onChange={(e) =>
-                onChange(e.target.checked ? [...shown, field.id] : shown.filter((id) => id !== field.id))
-              }
-            />
-            {field.displayName}
-          </label>
-        ))}
+        <CardFieldPicker fields={fields} shown={shown} onChange={onChange} />
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+/** Shown card fields (draggable, ordered) + a list to add more (MN-151). */
+function CardFieldPicker({ fields, shown, onChange }: { fields: Field[]; shown: string[]; onChange: (ids: string[]) => void }) {
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  const shownFields = shown
+    .map((id) => fields.find((f) => f.id === id))
+    .filter((f): f is Field => Boolean(f));
+  const available = fields.filter((f) => !shown.includes(f.id));
+
+  const onDragEnd = (e: DragEndEvent) => {
+    const { active, over } = e;
+    if (!over || active.id === over.id) return;
+    const from = shown.indexOf(String(active.id));
+    const to = shown.indexOf(String(over.id));
+    if (from < 0 || to < 0) return;
+    onChange(arrayMove(shown, from, to));
+  };
+
+  return (
+    <>
+      {shownFields.length > 0 && (
+        <>
+          <div className="px-2 pb-0.5 pt-1 text-[11px] font-semibold uppercase tracking-wider text-faint">
+            Shown · drag to reorder
+          </div>
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+            <SortableContext items={shown} strategy={verticalListSortingStrategy}>
+              {shownFields.map((field) => (
+                <SortableCardField
+                  key={field.id}
+                  field={field}
+                  onRemove={() => onChange(shown.filter((id) => id !== field.id))}
+                />
+              ))}
+            </SortableContext>
+          </DndContext>
+        </>
+      )}
+      {available.length > 0 && (
+        <>
+          <div className="px-2 pb-0.5 pt-1.5 text-[11px] font-semibold uppercase tracking-wider text-faint">Add</div>
+          {available.map((field) => (
+            <button
+              key={field.id}
+              onClick={() => onChange([...shown, field.id])}
+              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-[13px] text-muted hover:bg-hover hover:text-ink"
+            >
+              <Plus className="h-3.5 w-3.5" /> {field.displayName}
+            </button>
+          ))}
+        </>
+      )}
+    </>
+  );
+}
+
+function SortableCardField({ field, onRemove }: { field: Field; onRemove: () => void }) {
+  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: field.id });
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className="group flex items-center gap-2 rounded px-2 py-1.5 text-[13px] text-ink hover:bg-hover"
+    >
+      <button {...attributes} {...listeners} className="cursor-grab text-faint hover:text-muted" title="Drag to reorder">
+        <GripVertical className="h-3.5 w-3.5" />
+      </button>
+      <span className="flex-1 truncate">{field.displayName}</span>
+      <button
+        onClick={onRemove}
+        className="text-faint opacity-0 hover:text-error group-hover:opacity-100"
+        title="Remove from cards"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </div>
   );
 }
 

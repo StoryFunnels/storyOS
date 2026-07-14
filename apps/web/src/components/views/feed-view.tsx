@@ -6,7 +6,7 @@ import { Avatar } from '@/components/ui/avatar';
 import { recordHref } from '@/lib/records';
 import { useDateFormat } from '@/lib/preferences';
 import { CardFieldChip } from './board-view';
-import { richTextPreview } from '../table-view/cells';
+import { richTextPreview, optionColor } from '../table-view/cells';
 import { useDatabase, useMembers, useRecordsInfinite } from '../table-view/use-table-data';
 import type { ViewConfig } from './use-view-state';
 import { queryBodyFromConfig } from './use-view-state';
@@ -43,10 +43,15 @@ export function FeedView({
 
   const rows = useMemo(() => (records.data?.pages ?? []).flatMap((p) => p.data), [records.data]);
   const richField = database.data?.fields.find((f) => f.type === 'rich_text');
+  // Preserve the saved card_field_ids order (MN-151), not schema order.
   const cardFields = useMemo(
-    () => (database.data?.fields ?? []).filter((f) => config.card_field_ids.includes(f.id)),
+    () =>
+      config.card_field_ids
+        .map((id) => (database.data?.fields ?? []).find((f) => f.id === id))
+        .filter((f): f is NonNullable<typeof f> => Boolean(f)),
     [database.data, config.card_field_ids],
   );
+  const colorField = database.data?.fields.find((f) => f.id === config.color_by_field_id);
 
   if (rows.length === 0) return <p className="p-6 text-sm text-faint">No records yet.</p>;
 
@@ -56,10 +61,12 @@ export function FeedView({
         {rows.map((row) => {
           const preview = richField ? richTextPreview(row.values[richField.apiName], 280) : '';
           const author = row.created_by;
+          const dot = colorField ? optionColor(colorField, row.values[colorField.apiName]) : null;
           return (
             <div
               key={row.id}
               onClick={() => router.push(recordHref(ws, db, row))}
+              style={dot ? { borderLeftColor: dot, borderLeftWidth: 3 } : undefined}
               className="cursor-pointer rounded-[var(--radius-card)] border border-border-default bg-card p-4 hover:border-border-strong"
             >
               <p className="text-[15px] font-semibold text-ink">{row.title || 'Untitled'}</p>

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { ChevronRight, Plus } from 'lucide-react';
 import { recordHref } from '@/lib/records';
 import { cn } from '@/lib/utils';
-import { OPTION_COLORS } from '../table-view/cells';
+import { OPTION_COLORS, optionColor } from '../table-view/cells';
 import { useDatabase, useMembers, useRecordMutations, useRecordsInfinite } from '../table-view/use-table-data';
 import type { RecordRow } from '../table-view/use-table-data';
 import { CardFieldChip } from './board-view';
@@ -45,11 +45,13 @@ export function ListView({
 
   const rows = useMemo(() => (records.data?.pages ?? []).flatMap((p) => p.data), [records.data]);
   const groupField = database.data?.fields.find((f) => f.id === config.group_by_field_id && f.type === 'select');
+  const colorField = database.data?.fields.find((f) => f.id === config.color_by_field_id);
+  // Preserve the saved card_field_ids order (MN-151), not schema order.
   const cardFields = useMemo(
     () =>
-      (database.data?.fields ?? []).filter(
-        (f) => config.card_field_ids.includes(f.id) && f.id !== groupField?.id,
-      ),
+      config.card_field_ids
+        .map((id) => (database.data?.fields ?? []).find((f) => f.id === id))
+        .filter((f): f is NonNullable<typeof f> => !!f && f.id !== groupField?.id),
     [database.data, config.card_field_ids, groupField?.id],
   );
 
@@ -109,12 +111,15 @@ export function ListView({
               )}
               {!isCollapsed && (
                 <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card">
-                  {group.rows.map((row) => (
+                  {group.rows.map((row) => {
+                    const dot = colorField ? optionColor(colorField, row.values[colorField.apiName]) : null;
+                    return (
                     <div
                       key={row.id}
                       onClick={() => router.push(recordHref(ws, db, row))}
                       className="flex cursor-pointer items-center gap-3 border-b border-border-default px-3 py-2 last:border-b-0 hover:bg-hover"
                     >
+                      {dot && <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: dot }} />}
                       {row.number !== null && <span className="w-8 shrink-0 text-[11px] tabular-nums text-faint">{row.number}</span>}
                       <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{row.title || 'Untitled'}</span>
                       <span className="flex shrink-0 flex-wrap items-center justify-end gap-1">
@@ -127,7 +132,8 @@ export function ListView({
                         })}
                       </span>
                     </div>
-                  ))}
+                    );
+                  })}
                   {!readOnly && (
                     <button
                       onClick={() => addIn(group.id)}

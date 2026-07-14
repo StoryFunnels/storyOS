@@ -50,7 +50,10 @@ export function TimelineView({
 
   const startField = database.data?.fields.find((f) => f.id === config.start_date_field_id && isDateField(f));
   const endField = database.data?.fields.find((f) => f.id === config.end_date_field_id && isDateField(f));
-  const colorField = database.data?.fields.find((f) => f.type === 'select');
+  // Honor the view's color-by choice (MN-102); fall back to the first select field.
+  const colorField =
+    database.data?.fields.find((f) => f.id === config.color_by_field_id && f.type === 'select') ??
+    database.data?.fields.find((f) => f.type === 'select');
 
   const bars = useMemo(() => {
     if (!startField) return [];
