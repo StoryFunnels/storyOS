@@ -1800,6 +1800,14 @@ export interface components {
                 mentioned?: boolean;
                 commented?: boolean;
             };
+            regional?: {
+                /** @enum {string} */
+                dateFormat?: "system" | "MDY" | "DMY" | "YMD";
+                /** @enum {string} */
+                timeFormat?: "system" | "12h" | "24h";
+                /** @enum {string} */
+                firstDayOfWeek?: "system" | "sunday" | "monday" | "saturday";
+            };
         };
         CreateAutomationDto: {
             name: string;

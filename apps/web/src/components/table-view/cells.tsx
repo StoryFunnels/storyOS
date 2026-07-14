@@ -10,6 +10,7 @@ import { Avatar } from '@/components/ui/avatar';
 import { RelationChips } from './relation-cell';
 import type { LinkChip } from './relation-cell';
 import type { Field, SelectOption } from './use-table-data';
+import { useDateFormat } from '@/lib/preferences';
 
 /** Warm-tuned chip colors (docs/design/design-system.md). */
 export const OPTION_COLORS: Record<string, string> = {
@@ -90,6 +91,7 @@ export function cellToText(field: { type: string; options?: SelectOption[] }, va
 }
 
 export function CellDisplay({ field, value, memberNames, memberImages }: DisplayProps) {
+  const fmt = useDateFormat();
   if (value === undefined || value === null || value === '') {
     return <span className="text-faint"> </span>;
   }
@@ -162,7 +164,7 @@ export function CellDisplay({ field, value, memberNames, memberImages }: Display
       const d = new Date(String(value));
       if (Number.isNaN(d.getTime())) return <span className="truncate text-[13px]">{String(value)}</span>;
       // System timestamps carry a time; plain date fields show the day only.
-      const shown = field.type === 'date' ? d.toLocaleDateString() : d.toLocaleString();
+      const shown = field.type === 'date' ? fmt.date(d) : fmt.dateTime(d);
       return <span className="truncate text-[13px] tabular-nums text-ink-secondary">{shown}</span>;
     }
     case 'url':

@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
+import { useDateFormat } from '@/lib/preferences';
 import { Button } from '@/components/ui/button';
 
 interface TrashedRecord {
@@ -16,6 +17,7 @@ interface TrashedRecord {
 export default function TrashPage() {
   const { ws, db } = useParams<{ ws: string; db: string }>();
   const qc = useQueryClient();
+  const fmt = useDateFormat();
 
   const trash = useQuery({
     queryKey: ['trash', ws, db],
@@ -63,7 +65,7 @@ export default function TrashPage() {
               <div>
                 <p className="text-sm text-ink">{record.title || 'Untitled'}</p>
                 <p className="text-[13px] text-muted">
-                  Deleted {new Date(record.deleted_at).toLocaleString()}
+                  Deleted {fmt.dateTime(record.deleted_at)}
                 </p>
               </div>
               <Button variant="secondary" size="sm" onClick={() => restore.mutate(record.id)}>

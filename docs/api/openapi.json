@@ -5192,6 +5192,37 @@
                 "type": "boolean"
               }
             }
+          },
+          "regional": {
+            "type": "object",
+            "properties": {
+              "dateFormat": {
+                "type": "string",
+                "enum": [
+                  "system",
+                  "MDY",
+                  "DMY",
+                  "YMD"
+                ]
+              },
+              "timeFormat": {
+                "type": "string",
+                "enum": [
+                  "system",
+                  "12h",
+                  "24h"
+                ]
+              },
+              "firstDayOfWeek": {
+                "type": "string",
+                "enum": [
+                  "system",
+                  "sunday",
+                  "monday",
+                  "saturday"
+                ]
+              }
+            }
           }
         }
       },

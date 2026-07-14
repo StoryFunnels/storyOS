@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { API_URL } from '@/lib/api';
 import { authClient, useSession } from '@/lib/auth-client';
+import { useDateFormat } from '@/lib/preferences';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -242,6 +243,7 @@ interface SessionRow {
 
 function SessionsSection({ currentToken }: { currentToken: string }) {
   const qc = useQueryClient();
+  const fmt = useDateFormat();
   const sessions = useQuery({
     queryKey: ['auth-sessions'],
     queryFn: async () => {
@@ -279,7 +281,7 @@ function SessionsSection({ currentToken }: { currentToken: string }) {
                   {isCurrent && <span className="ml-2 text-[12px] text-success">This device</span>}
                 </p>
                 <p className="text-[12px] text-muted">
-                  {s.ipAddress || 'unknown IP'} · signed in {new Date(s.createdAt).toLocaleString()}
+                  {s.ipAddress || 'unknown IP'} · signed in {fmt.dateTime(s.createdAt)}
                 </p>
               </div>
               {!isCurrent && (

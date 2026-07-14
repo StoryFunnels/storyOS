@@ -1,7 +1,9 @@
 'use client';
 
+import { useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+import { DEFAULT_REGIONAL, formatDate, formatDateTime } from '@/lib/format';
 
 /** Mirrors the API's UserPreferences shape (apps/api/src/users/preferences.constants.ts). */
 export interface UserPreferences {
@@ -9,6 +11,11 @@ export interface UserPreferences {
     assigned: boolean;
     mentioned: boolean;
     commented: boolean;
+  };
+  regional: {
+    dateFormat: 'system' | 'MDY' | 'DMY' | 'YMD';
+    timeFormat: 'system' | '12h' | '24h';
+    firstDayOfWeek: 'system' | 'sunday' | 'monday' | 'saturday';
   };
 }
 
@@ -24,6 +31,20 @@ export function usePreferences() {
       return data as unknown as UserPreferences;
     },
   });
+}
+
+/** Date/time formatters bound to the current user's regional preferences (#30).
+ * Falls back to locale defaults until preferences load. */
+export function useDateFormat() {
+  const prefs = usePreferences();
+  const regional = prefs.data?.regional ?? DEFAULT_REGIONAL;
+  return useMemo(
+    () => ({
+      date: (value: unknown) => formatDate(value, regional),
+      dateTime: (value: unknown) => formatDateTime(value, regional),
+    }),
+    [regional.dateFormat, regional.timeFormat, regional.firstDayOfWeek],
+  );
 }
 
 /** Patch (deep-merged server-side) the current user's preferences. */
