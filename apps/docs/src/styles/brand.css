@@ -1,0 +1,99 @@
+/* StoryOS brand theme for Starlight.
+   Cream #faf7f1 · Ink/navy #0f1729 · Gold #d4a017 · Figtree.
+   Ported from apps/web/src/app/globals.css so docs feel like one product. */
+
+:root {
+  --font-figtree: 'Figtree Variable', -apple-system, 'Segoe UI', sans-serif;
+  --sl-font: var(--font-figtree);
+
+  /* StoryOS raw brand tokens */
+  --storyos-cream: #faf7f1;
+  --storyos-surface: #ffffff;
+  --storyos-muted: #f4efe5;
+  --storyos-ink: #0f1729;
+  --storyos-ink-soft: #1a2545;
+  --storyos-gold: #d4a017;
+  --storyos-gold-hover: #e8b830;
+  --storyos-gold-soft: #fbf3d8;
+
+  --sl-nav-height: 3.75rem;
+}
+
+/* ---------- Light theme (the default StoryOS look) ---------- */
+:root[data-theme='light'] {
+  --sl-color-accent-low: var(--storyos-gold-soft);
+  --sl-color-accent: var(--storyos-gold);
+  --sl-color-accent-high: var(--storyos-ink);
+
+  --sl-color-white: var(--storyos-ink);
+  --sl-color-gray-1: #1c2436;
+  --sl-color-gray-2: #33405a;
+  --sl-color-gray-3: #5a6784;
+  --sl-color-gray-4: #7c88a3;
+  --sl-color-gray-5: #aab2c4;
+  --sl-color-gray-6: #e6e0d4;
+  --sl-color-gray-7: #f1ecdf;
+  --sl-color-black: var(--storyos-cream);
+
+  --sl-color-bg: var(--storyos-cream);
+  --sl-color-bg-nav: rgba(250, 247, 241, 0.85);
+  --sl-color-bg-sidebar: var(--storyos-muted);
+  --sl-color-bg-inline-code: var(--storyos-muted);
+  --sl-color-hairline-light: #e6e0d4;
+  --sl-color-hairline: #ece6da;
+  --sl-color-text-accent: #a97d12; /* darkened gold for AA contrast on cream */
+  --sl-color-text: var(--storyos-ink);
+}
+
+/* ---------- Dark theme ---------- */
+:root[data-theme='dark'] {
+  --sl-color-accent-low: #3a2c05;
+  --sl-color-accent: var(--storyos-gold);
+  --sl-color-accent-high: var(--storyos-gold-soft);
+
+  --sl-color-white: #ffffff;
+  --sl-color-gray-1: #eceef2;
+  --sl-color-gray-2: #c7ccd6;
+  --sl-color-gray-3: #949cad;
+  --sl-color-gray-4: #5c6578;
+  --sl-color-gray-5: #3a4356;
+  --sl-color-gray-6: #1a2338;
+  --sl-color-gray-7: #141c30;
+  --sl-color-black: #0b111f;
+
+  --sl-color-bg: #0b111f;
+  --sl-color-bg-nav: rgba(11, 17, 31, 0.85);
+  --sl-color-bg-sidebar: #0f1729;
+  --sl-color-bg-inline-code: #1a2338;
+  --sl-color-text-accent: var(--storyos-gold-hover);
+}
+
+/* Gold underline accents on the active nav + hovered links */
+.sidebar a[aria-current='page'],
+.sidebar a[aria-current='page']:hover {
+  color: var(--sl-color-text-accent);
+  background-color: var(--sl-color-accent-low);
+  font-weight: 600;
+}
+
+.sl-markdown-content a {
+  text-underline-offset: 0.2em;
+}
+
+/* Slightly warmer, tighter display headings to match the app */
+.sl-markdown-content h1,
+.sl-markdown-content h2 {
+  letter-spacing: -0.015em;
+}
+
+/* Hero (splash template) tint */
+.hero .actions a.primary {
+  background: var(--storyos-ink);
+  border-color: var(--storyos-ink);
+  color: var(--storyos-cream);
+}
+:root[data-theme='dark'] .hero .actions a.primary {
+  background: var(--storyos-gold);
+  border-color: var(--storyos-gold);
+  color: var(--storyos-ink);
+}
