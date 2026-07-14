@@ -16,6 +16,26 @@ function walk(dir) {
 }
 walk('.');
 
+// Site-absolute links (/foo/bar/) are Starlight route URLs, not repo file paths:
+// extensionless, slug-based, resolved by the docs site. Validate them against the
+// Starlight content root instead of the filesystem-relative path.
+const DOCS_ROOT = 'apps/docs/src/content/docs';
+// Routes generated at build time (not backed by a content file). starlight-openapi
+// renders the whole OpenAPI reference under `api/reference/*` from openapi.json
+// (see apps/docs/astro.config.mjs), so those pages have no .md source.
+const GENERATED_ROUTE_PREFIXES = ['api/reference'];
+function docsRouteExists(link) {
+  const slug = link.replace(/^\/+|\/+$/g, '');
+  if (slug === '') return true; // site root → index
+  if (GENERATED_ROUTE_PREFIXES.some((p) => slug === p || slug.startsWith(`${p}/`))) return true;
+  return [
+    `${DOCS_ROOT}/${slug}.md`,
+    `${DOCS_ROOT}/${slug}.mdx`,
+    `${DOCS_ROOT}/${slug}/index.md`,
+    `${DOCS_ROOT}/${slug}/index.mdx`,
+  ].some(existsSync);
+}
+
 let broken = 0;
 const linkRe = /\]\(([^)#\s]+)(?:#[^)]*)?\)/g;
 for (const file of mdFiles) {
@@ -23,8 +43,10 @@ for (const file of mdFiles) {
   for (const match of text.matchAll(linkRe)) {
     const link = match[1];
     if (/^(https?:|mailto:)/.test(link)) continue;
-    const target = normalize(join(dirname(file), link));
-    if (!existsSync(target)) {
+    const ok = link.startsWith('/')
+      ? docsRouteExists(link)
+      : existsSync(normalize(join(dirname(file), link)));
+    if (!ok) {
       console.error(`BROKEN: ${file} -> ${link}`);
       broken++;
     }
