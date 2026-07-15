@@ -4699,12 +4699,6 @@
             ]
           },
           "config": {
-            "default": {
-              "sorts": [],
-              "hidden_field_ids": [],
-              "card_field_ids": [],
-              "column_widths": {}
-            },
             "type": "object",
             "properties": {
               "filters": {
@@ -4745,6 +4739,11 @@
                 }
               },
               "group_by_field_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "color_by_field_id": {
                 "type": "string",
                 "format": "uuid",
                 "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
@@ -4831,12 +4830,9 @@
                 }
               },
               "column_widths": {
-                "default": {},
                 "type": "object",
                 "additionalProperties": {
-                  "type": "integer",
-                  "minimum": 40,
-                  "maximum": 1200
+                  "type": "number"
                 }
               }
             }
@@ -4967,6 +4963,11 @@
                 "format": "uuid",
                 "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
               },
+              "color_by_field_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
               "card_field_ids": {
                 "default": [],
                 "type": "array",
@@ -5049,12 +5050,9 @@
                 }
               },
               "column_widths": {
-                "default": {},
                 "type": "object",
                 "additionalProperties": {
-                  "type": "integer",
-                  "minimum": 40,
-                  "maximum": 1200
+                  "type": "number"
                 }
               }
             }

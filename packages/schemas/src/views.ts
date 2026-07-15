@@ -18,6 +18,8 @@ export const viewConfigSchema = z.object({
   hidden_field_ids: z.array(z.uuid()).default([]),
   /** Board only — must reference a single-select field (v1). */
   group_by_field_id: z.uuid().optional(),
+  /** Color rows/cards by a select field's option color (MN-102). */
+  color_by_field_id: z.uuid().optional(),
   /** Board/gallery/list card body fields (also calendar chip fields). */
   card_field_ids: z.array(z.uuid()).default([]),
   /** Board/gallery card density (MN-089). */
@@ -46,7 +48,18 @@ export const viewConfigSchema = z.object({
       public_token: z.string().max(64).optional(),
     })
     .optional(),
-  column_widths: z.record(z.uuid(), z.number().int().min(40).max(1200)).default({}),
+  /**
+   * Column widths come from a resize drag, so they arrive as fractional pixels
+   * (247.5) and can overshoot the sane range. Round + clamp rather than reject:
+   * a stray pixel must never fail the whole view save (#78) — which auto-save
+   * (MN-152) would otherwise retry on every config change.
+   */
+  column_widths: z
+    .record(
+      z.uuid(),
+      z.number().finite().transform((v) => Math.min(1200, Math.max(40, Math.round(v)))),
+    )
+    .default({}),
 });
 export type ViewConfig = z.infer<typeof viewConfigSchema>;
 

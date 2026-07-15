@@ -40,6 +40,10 @@ export function cleanViewConfig(
       config.group_by_field_id && liveFieldIds.has(config.group_by_field_id)
         ? config.group_by_field_id
         : undefined,
+    color_by_field_id:
+      config.color_by_field_id && liveFieldIds.has(config.color_by_field_id)
+        ? config.color_by_field_id
+        : undefined,
     card_field_ids: (config.card_field_ids ?? []).filter((id) => liveFieldIds.has(id)),
     card_size: config.card_size,
     date_field_id:

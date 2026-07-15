@@ -154,7 +154,14 @@ function DatabasePageInner() {
             hiddenFieldIds={config.hidden_field_ids}
             columnWidths={config.column_widths}
             onColumnResize={(fieldId, width) =>
-              patch({ column_widths: { ...config.column_widths, [fieldId]: width } })
+              // Round at the source: a drag yields fractional px, which the saved
+              // config rejects — and auto-save would then retry it forever (#78).
+              patch({
+                column_widths: {
+                  ...config.column_widths,
+                  [fieldId]: Math.min(1200, Math.max(40, Math.round(width))),
+                },
+              })
             }
           />
         )}

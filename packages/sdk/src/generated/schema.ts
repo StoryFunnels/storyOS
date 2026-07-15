@@ -1653,15 +1653,7 @@ export interface components {
             name: string;
             /** @enum {string} */
             type: "table" | "board" | "calendar" | "gallery" | "list" | "feed" | "timeline" | "form";
-            /**
-             * @default {
-             *       "sorts": [],
-             *       "hidden_field_ids": [],
-             *       "card_field_ids": [],
-             *       "column_widths": {}
-             *     }
-             */
-            config: {
+            config?: {
                 filters?: components["schemas"]["CreateViewDto__schema0"];
                 /** @default [] */
                 sorts: {
@@ -1676,6 +1668,8 @@ export interface components {
                 hidden_field_ids: string[];
                 /** Format: uuid */
                 group_by_field_id?: string;
+                /** Format: uuid */
+                color_by_field_id?: string;
                 /** @default [] */
                 card_field_ids: string[];
                 /** @enum {string} */
@@ -1700,8 +1694,7 @@ export interface components {
                     }[];
                     public_token?: string;
                 };
-                /** @default {} */
-                column_widths: {
+                column_widths?: {
                     [key: string]: number;
                 };
             };
@@ -1733,6 +1726,8 @@ export interface components {
                 hidden_field_ids: string[];
                 /** Format: uuid */
                 group_by_field_id?: string;
+                /** Format: uuid */
+                color_by_field_id?: string;
                 /** @default [] */
                 card_field_ids: string[];
                 /** @enum {string} */
@@ -1757,8 +1752,7 @@ export interface components {
                     }[];
                     public_token?: string;
                 };
-                /** @default {} */
-                column_widths: {
+                column_widths?: {
                     [key: string]: number;
                 };
             };
