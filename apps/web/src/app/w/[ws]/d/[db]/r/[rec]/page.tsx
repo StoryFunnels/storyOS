@@ -35,6 +35,7 @@ import {
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/auth-client';
 import { useTheme } from '@/lib/theme';
+import { MarkdownActions } from '@/components/entity/markdown-actions';
 import { useWorkspace } from '@/lib/queries';
 import { atLeast } from '@/lib/access';
 import { CellDisplay, CellEditor, OPTION_COLORS, PressButton } from '@/components/table-view/cells';
@@ -967,6 +968,9 @@ function RichTextFieldSection({
       <div className="mb-1.5 flex items-center gap-1">
         <h2 className="text-[12px] font-medium uppercase tracking-wider text-faint">{field.displayName}</h2>
         {schemaEditable && <FieldMenu ws={ws} db={db} field={field} onToggleZone={onToggleZone} collection />}
+        <span className="ml-auto">
+          <MarkdownActions editor={editor} filename={field.displayName} />
+        </span>
       </div>
       <div className="rounded-[var(--radius-card)] border border-border-default bg-card py-3 [&_.bn-editor]:bg-transparent">
         <BlockNoteView

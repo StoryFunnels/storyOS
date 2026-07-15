@@ -35,6 +35,8 @@ export interface ValidatedRecordValues {
 const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const urlRe = /^https?:\/\/\S+$/i;
 const dateOnlyRe = /^\d{4}-\d{2}-\d{2}$/;
+/** #RGB or #RRGGBB, normalized to lowercase #RRGGBB on write (MN-89). */
+const hexColorRe = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
 
 export function validateRecordValues(
   fields: FieldDef[],
@@ -141,6 +143,15 @@ function coerce(field: FieldDef, raw: unknown): { value?: unknown; error?: strin
     case 'email': {
       if (typeof raw !== 'string' || !emailRe.test(raw)) return { error: 'expected an email address' };
       return { value: raw };
+    }
+    case 'color': {
+      // Accept #RGB or #RRGGBB (with or without the #), store lowercase #RRGGBB.
+      if (typeof raw !== 'string') return { error: 'expected a hex color like #4EA7FC' };
+      const hex = raw.trim().startsWith('#') ? raw.trim() : `#${raw.trim()}`;
+      if (!hexColorRe.test(hex)) return { error: 'expected a hex color like #4EA7FC' };
+      const body = hex.slice(1).toLowerCase();
+      const full = body.length === 3 ? body.split('').map((c) => c + c).join('') : body;
+      return { value: `#${full}` };
     }
     case 'select': {
       if (typeof raw !== 'string') return { error: 'expected an option id' };

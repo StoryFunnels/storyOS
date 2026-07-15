@@ -10,6 +10,7 @@ import '@blocknote/mantine/style.css';
 import { uploadEditorImage } from '@/lib/editor-upload';
 import { api } from '@/lib/api';
 import { useTheme } from '@/lib/theme';
+import { MarkdownActions } from '@/components/entity/markdown-actions';
 import { Button } from '@/components/ui/button';
 
 interface DocumentPayload {
@@ -128,6 +129,9 @@ function EditorInner({
           </span>
         </div>
       )}
+      <div className="flex items-center justify-end">
+        <MarkdownActions editor={editor} filename="description" />
+      </div>
       <div className="min-h-40 rounded-[var(--radius-card)] border border-border-default bg-card py-3 [&_.bn-editor]:bg-transparent">
         <BlockNoteView
           editor={editor}

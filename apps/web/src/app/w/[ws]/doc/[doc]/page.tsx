@@ -10,6 +10,7 @@ import '@blocknote/mantine/style.css';
 import { api } from '@/lib/api';
 import { uploadEditorImage } from '@/lib/editor-upload';
 import { useTheme } from '@/lib/theme';
+import { MarkdownActions } from '@/components/entity/markdown-actions';
 
 interface SpaceDoc {
   id: string;
@@ -78,15 +79,20 @@ function DocEditor({
 
   return (
     <div className="mx-auto max-w-3xl px-8 py-8">
-      <input
-        className="mb-4 w-full bg-transparent text-3xl font-bold text-ink outline-none placeholder:text-faint"
-        placeholder="Untitled"
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        onBlur={() => {
-          if (title !== initial.title) save.mutate({ title }, { onSuccess: onRenamed });
-        }}
-      />
+      <div className="mb-4 flex items-start gap-2">
+        <input
+          className="w-full bg-transparent text-3xl font-bold text-ink outline-none placeholder:text-faint"
+          placeholder="Untitled"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          onBlur={() => {
+            if (title !== initial.title) save.mutate({ title }, { onSuccess: onRenamed });
+          }}
+        />
+        <span className="mt-2 shrink-0">
+          <MarkdownActions editor={editor} filename={title || 'document'} />
+        </span>
+      </div>
       <BlockNoteView
         editor={editor}
         theme={theme}

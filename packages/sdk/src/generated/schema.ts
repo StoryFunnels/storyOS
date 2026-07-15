@@ -1514,7 +1514,7 @@ export interface components {
         CreateFieldDto: {
             display_name: string;
             /** @enum {string} */
-            type: "text" | "rich_text" | "number" | "checkbox" | "date" | "select" | "multi_select" | "url" | "email" | "user" | "lookup" | "rollup" | "button" | "formula";
+            type: "text" | "rich_text" | "number" | "checkbox" | "date" | "select" | "multi_select" | "url" | "email" | "color" | "user" | "lookup" | "rollup" | "button" | "formula";
             config?: {
                 [key: string]: unknown;
             };
@@ -1532,7 +1532,7 @@ export interface components {
         };
         ChangeFieldTypeDto: {
             /** @enum {string} */
-            type: "text" | "rich_text" | "number" | "checkbox" | "date" | "select" | "multi_select" | "url" | "email" | "user" | "lookup" | "rollup" | "button" | "formula";
+            type: "text" | "rich_text" | "number" | "checkbox" | "date" | "select" | "multi_select" | "url" | "email" | "color" | "user" | "lookup" | "rollup" | "button" | "formula";
             /** @default false */
             dry_run: boolean;
         };

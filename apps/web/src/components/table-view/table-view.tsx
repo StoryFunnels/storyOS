@@ -493,14 +493,8 @@ export function TableView({
                           readOnly
                         />
                       )}
-                      <Link
-                        href={recordHref(ws, db, row)}
-                        title="Open record"
-                        className="rounded p-0.5 text-faint hover:text-ink"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <Maximize2 className="h-3.5 w-3.5" />
-                      </Link>
+                      {/* The labelled "Open" affordance on the title cell is the single way
+                          to expand a row (#90) — no duplicate icon here. */}
                       {!readOnly && (
                         <button
                           title="Delete record"
