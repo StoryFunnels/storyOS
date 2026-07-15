@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   DndContext,
@@ -41,7 +41,7 @@ import type { LucideIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { FORMULA_FUNCTIONS, evaluateFormula, parseFormula, typecheck } from '@storyos/schemas';
-import { useDatabases } from '@/lib/queries';
+import { useDatabases, useSpaces } from '@/lib/queries';
 import { Button } from '@/components/ui/button';
 import { DialogClose, DialogContent } from '@/components/ui/dialog';
 import { useConfirm } from '@/components/ui/confirm-dialog';
@@ -314,7 +314,16 @@ export function AddFieldDialog({
   const [buttonColor, setButtonColor] = useState('gold');
   const [expression, setExpression] = useState('');
   const databases = useDatabases(ws);
+  const spaces = useSpaces(ws);
   const currentDb = useDatabase(ws, db);
+  // Label relation targets "space / database" (#84): a bare name is ambiguous when
+  // several spaces each have e.g. a "Projects" database.
+  const relationTargets = useMemo(() => {
+    const spaceName = new Map((spaces.data ?? []).map((s) => [s.id, s.name]));
+    return (databases.data ?? [])
+      .map((d) => ({ id: d.id, label: `${spaceName.get(d.spaceId) ?? '—'} / ${d.name}` }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [databases.data, spaces.data]);
   const relationFields = (currentDb.data?.fields ?? []).filter((f) => f.type === 'relation');
   const lookupRelation = relationFields.find((f) => f.id === lookupRelationId);
   const lookupTargetDb = useDatabase(ws, lookupRelation?.relation?.target_database_id ?? '');
@@ -507,14 +516,18 @@ export function AddFieldDialog({
                 required
                 className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-sm text-ink"
                 value={targetDb}
-                onChange={(e) => setTargetDb(e.target.value)}
+                onChange={(e) => {
+                  setTargetDb(e.target.value);
+                  // Default the paired field's name to this database (#84) — it's required.
+                  if (!inverseName.trim() && currentDb.data?.name) setInverseName(currentDb.data.name);
+                }}
               >
                 <option value="" disabled>
                   Pick a database…
                 </option>
-                {(databases.data ?? []).map((d) => (
+                {relationTargets.map((d) => (
                   <option key={d.id} value={d.id}>
-                    {d.name}
+                    {d.label}
                   </option>
                 ))}
               </select>
@@ -531,10 +544,11 @@ export function AddFieldDialog({
               </label>
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="inverse-name">Field name on the other side (optional)</Label>
+              <Label htmlFor="inverse-name">Field name on the other side</Label>
               <Input
                 id="inverse-name"
-                placeholder="defaults to this database's name"
+                required
+                placeholder={currentDb.data?.name ?? "this database's name"}
                 value={inverseName}
                 onChange={(e) => setInverseName(e.target.value)}
               />
