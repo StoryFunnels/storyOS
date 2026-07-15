@@ -120,7 +120,9 @@ interface OptionDraft {
 
 function TypePicker({ value, onChange }: { value: string; onChange: (type: string) => void }) {
   return (
-    <div className="grid grid-cols-2 gap-1.5">
+    // 3 columns so the whole catalogue fits without pushing the type config below the
+    // fold (#86); falls back to 2 on narrow viewports.
+    <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
       {FIELD_TYPES.map((t) => (
         <button
           key={t.value}
@@ -378,7 +380,7 @@ export function AddFieldDialog({
   const isSelect = type === 'select' || type === 'multi_select';
 
   return (
-    <DialogContent title="Add field" className="max-w-lg">
+    <DialogContent title="Add field" className="max-w-2xl">
       <form
         className="flex max-h-[75vh] flex-col gap-4 overflow-y-auto px-1 py-0.5"
         onSubmit={(e) => {
