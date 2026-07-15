@@ -38,12 +38,7 @@ function DatabasePageInner() {
   const schemaEditable = atLeast(database.data?.my_access, 'creator');
 
   const viewId = searchParams.get('view');
-  const { views, activeView, config, dirty, patch, reset, save } = useViewState(
-    ws,
-    db,
-    database.data,
-    viewId,
-  );
+  const { views, activeView, config, patch } = useViewState(ws, db, database.data, viewId, readOnly);
   const viewMutations = useViewMutations(ws, db);
   const members = useMembers(ws, !readOnly);
   const memberList = useMemo(
@@ -129,13 +124,9 @@ function DatabasePageInner() {
       <ViewToolbar
         fields={database.data?.fields ?? []}
         config={config}
-        dirty={dirty}
-        readOnly={readOnly}
         members={memberList}
         viewType={activeView?.type}
         onPatch={patch}
-        onSave={save}
-        onReset={reset}
       />
 
       <div className="min-h-0 flex-1">

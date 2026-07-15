@@ -27,6 +27,17 @@ export const OPTION_COLORS: Record<string, string> = {
   green: '#2D7A4F',
 };
 
+/** Hex color for a record's value on a select field (via its option color), or null.
+ * Shared color-by helper for feed/list/timeline views (MN-102). */
+export function optionColor(
+  field: { type: string; options?: SelectOption[] } | undefined,
+  value: unknown,
+): string | null {
+  if (!field || field.type !== 'select') return null;
+  const opt = field.options?.find((o) => o.id === value);
+  return opt ? OPTION_COLORS[opt.color] ?? OPTION_COLORS.gray! : null;
+}
+
 export function OptionChip({ option }: { option: SelectOption }) {
   const color = OPTION_COLORS[option.color] ?? OPTION_COLORS.gray!;
   return (

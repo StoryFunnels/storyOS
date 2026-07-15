@@ -23,6 +23,8 @@ export interface ViewConfig {
   sorts: SortSpec[];
   hidden_field_ids: string[];
   group_by_field_id?: string;
+  /** Color rows/cards by a select field's option color (MN-102). */
+  color_by_field_id?: string;
   card_field_ids: string[];
   /** Board card density (MN-089). */
   card_size?: 'small' | 'medium' | 'large';
@@ -70,7 +72,13 @@ function normalize(config: Partial<ViewConfig> | undefined): ViewConfig {
  * Saved view config + local ad-hoc overrides (C11): tweaks don't touch the
  * shared view until "Save to view"; Reset discards.
  */
-export function useViewState(ws: string, db: string, database: DatabaseDetail | undefined, viewId: string | null) {
+export function useViewState(
+  ws: string,
+  db: string,
+  database: DatabaseDetail | undefined,
+  viewId: string | null,
+  readOnly = false,
+) {
   const qc = useQueryClient();
   const views = useMemo<ViewSummary[]>(
     () => (database?.views ?? []).map((v) => ({ ...v, config: normalize(v.config as Partial<ViewConfig>) }) as ViewSummary),
@@ -103,10 +111,19 @@ export function useViewState(ws: string, db: string, database: DatabaseDetail | 
     onSuccess: () => {
       setDraft(null);
       void qc.invalidateQueries({ queryKey: ['database', ws, db] });
-      toast.success('View saved');
     },
     onError: () => toast.error('Could not save the view'),
   });
+
+  // Auto-save (MN-152): persist config edits automatically, debounced — no manual
+  // "Save to view". Coalesces rapid patches (e.g. a column-resize drag) into one PATCH.
+  const saveMutate = save.mutate;
+  useEffect(() => {
+    if (readOnly || !activeView || draft === null) return;
+    if (JSON.stringify(draft) === JSON.stringify(activeView.config)) return;
+    const timer = setTimeout(() => saveMutate(), 600);
+    return () => clearTimeout(timer);
+  }, [draft, activeView, readOnly, saveMutate]);
 
   return {
     views,
