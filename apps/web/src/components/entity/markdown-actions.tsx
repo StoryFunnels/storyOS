@@ -50,7 +50,7 @@ export function MarkdownActions({ editor, filename }: { editor: MarkdownSource; 
     try {
       ok = document.execCommand('copy');
     } catch {
-      ok = false;
+      // ignore — `ok` stays false and the caller shows the error toast.
     }
     ta.remove();
     return ok;
