@@ -27,6 +27,73 @@ export const OPTION_COLORS: Record<string, string> = {
   green: '#2D7A4F',
 };
 
+/** Color cell editor (#89): a native swatch picker + a hex input, with the brand
+ * palette as presets. Commits a normalized #rrggbb; empty clears the value. */
+function ColorEditor({
+  initial,
+  onCommit,
+  onCancel,
+}: {
+  initial: string;
+  onCommit: (value: unknown) => void;
+  onCancel: () => void;
+}) {
+  const [hex, setHex] = useState(initial);
+  const valid = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(hex.trim());
+  const commit = () => {
+    const v = hex.trim();
+    if (v === '') return onCommit(null);
+    if (valid) return onCommit(v.toLowerCase());
+    onCancel();
+  };
+  return (
+    <div className="absolute left-0 top-0 z-30 flex w-56 flex-col gap-2 rounded-[var(--radius-card)] border border-border-default bg-card p-2 shadow-[0_8px_24px_rgba(15,23,41,0.15)]">
+      <div className="flex items-center gap-1.5">
+        <input
+          type="color"
+          value={valid ? hex : '#000000'}
+          onChange={(e) => setHex(e.target.value)}
+          className="h-7 w-8 cursor-pointer rounded border border-border-default bg-card p-0.5"
+        />
+        <input
+          autoFocus
+          value={hex}
+          placeholder="#4EA7FC"
+          onChange={(e) => setHex(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commit();
+            if (e.key === 'Escape') onCancel();
+          }}
+          className="h-7 min-w-0 flex-1 rounded border border-border-default bg-card px-1.5 text-[13px] tabular-nums text-ink outline-none"
+        />
+      </div>
+      <div className="flex flex-wrap gap-1">
+        {Object.entries(OPTION_COLORS).map(([name, value]) => (
+          <button
+            key={name}
+            title={name}
+            onClick={() => onCommit(value.toLowerCase())}
+            className="h-4 w-4 rounded-[3px] border border-border-default"
+            style={{ backgroundColor: value }}
+          />
+        ))}
+      </div>
+      <div className="flex justify-end gap-1.5 text-[12px]">
+        <button className="rounded px-1.5 py-0.5 text-muted hover:bg-hover" onClick={() => onCommit(null)}>
+          Clear
+        </button>
+        <button
+          className="rounded px-1.5 py-0.5 text-ink hover:bg-hover disabled:opacity-40"
+          disabled={hex.trim() !== '' && !valid}
+          onClick={commit}
+        >
+          Save
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /** Hex color for a record's value on a select field (via its option color), or null.
  * Shared color-by helper for feed/list/timeline views (MN-102). */
 export function optionColor(
@@ -179,6 +246,16 @@ export function CellDisplay({ field, value, memberNames, memberImages }: Display
       const shown = field.type === 'date' ? fmt.date(d) : fmt.dateTime(d);
       return <span className="truncate text-[13px] tabular-nums text-ink-secondary">{shown}</span>;
     }
+    case 'color':
+      return (
+        <span className="flex min-w-0 items-center gap-1.5 text-[13px] tabular-nums text-ink-secondary">
+          <span
+            className="h-3.5 w-3.5 shrink-0 rounded-[3px] border border-border-default"
+            style={{ backgroundColor: String(value) }}
+          />
+          <span className="truncate">{String(value)}</span>
+        </span>
+      );
     case 'url':
       return (
         <a
@@ -256,6 +333,8 @@ export function CellEditor({ field, value, members, onCommit, onCancel }: Editor
       return <TextEditor initial={value == null ? '' : String(value)} onCommit={(v) => onCommit(v === '' ? null : v)} onCancel={onCancel} />;
     case 'number':
       return <NumberEditor initial={value == null ? null : Number(value)} onCommit={onCommit} onCancel={onCancel} />;
+    case 'color':
+      return <ColorEditor initial={value == null ? '' : String(value)} onCommit={onCommit} onCancel={onCancel} />;
     case 'date': {
       const includeTime = field.config['include_time'] === true;
       return (

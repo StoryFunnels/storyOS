@@ -40,6 +40,7 @@ export const fieldType = pgEnum('field_type', [
   'multi_select',
   'url',
   'email',
+  'color',
   'user',
   'relation',
   'lookup',

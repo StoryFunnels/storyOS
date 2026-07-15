@@ -674,7 +674,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
 
   const FIELD_TYPES = [
     'text', 'rich_text', 'number', 'checkbox', 'date', 'select', 'multi_select',
-    'url', 'email', 'user', 'lookup', 'rollup', 'button', 'formula',
+    'url', 'email', 'color', 'user', 'lookup', 'rollup', 'button', 'formula',
   ] as const;
   const optionShape = z.union([z.string(), z.object({ label: z.string(), color: z.string().optional() })]);
   const normOptions = (o?: Array<string | { label: string; color?: string }>) =>
