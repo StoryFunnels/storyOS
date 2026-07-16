@@ -43,6 +43,7 @@ import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { FORMULA_FUNCTIONS, evaluateFormula, parseFormula, typecheck } from '@storyos/schemas';
 import { useDatabases, useSpaces } from '@/lib/queries';
+import { atLeast } from '@/lib/access';
 import { Button } from '@/components/ui/button';
 import { DialogClose, DialogContent } from '@/components/ui/dialog';
 import { useConfirm } from '@/components/ui/confirm-dialog';
@@ -952,8 +953,13 @@ export function EditFieldDialog({
 
   const isSelect = field.type === 'select' || field.type === 'multi_select';
   // Relations ARE deletable (via the relations API, handled in useDeleteField) —
-  // deleting drops both paired fields. Only title/system fields are undeletable.
-  const canDelete = field.type !== 'title' && !field.isSystem;
+  // deleting drops both paired fields, which needs creator on the OTHER database
+  // too; only offer Delete when the user really can (#136).
+  const deleteTargetDb = useDatabase(ws, field.relation?.target_database_id ?? '');
+  const canDelete =
+    field.type !== 'title' &&
+    !field.isSystem &&
+    (field.type !== 'relation' || atLeast(deleteTargetDb.data?.my_access, 'creator'));
   const canConvert = (CONVERTIBLE[field.type] ?? []).length > 0;
   const typeMeta = FIELD_TYPES.find((t) => t.value === field.type);
 

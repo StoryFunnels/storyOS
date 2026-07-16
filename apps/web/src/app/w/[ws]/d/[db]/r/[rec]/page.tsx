@@ -690,6 +690,54 @@ function CollectionSection({ field, schemaEditable, onToggleZone, readOnly, ws, 
   const targetDb = useDatabase(ws, targetDbId);
   const targetFields = useMemo(() => targetDb.data?.fields ?? [], [targetDb.data]);
   const inverseApi = targetFields.find((f) => f.id === field.relation?.inverse_field_id)?.apiName;
+
+  // MN-206 part 2 (#142): edit the LINKED records' fields in place + create pre-linked.
+  // Both act on the TARGET database, so its access ladder gates them — not this one's.
+  const qc = useQueryClient();
+  const canEditTargets = atLeast(targetDb.data?.my_access, 'contributor');
+  const [editingCell, setEditingCell] = useState<{ rowId: string; fieldId: string } | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [newTitle, setNewTitle] = useState('');
+  const invalidateCollection = () => {
+    void qc.invalidateQueries({ queryKey: ['collection', ws, targetDbId, rec, field.id] });
+    void qc.invalidateQueries({ queryKey: ['record', ws, db, rec] });
+  };
+  const updateLinked = useMutation({
+    mutationFn: async ({ rowId, values }: { rowId: string; values: Record<string, unknown> }) => {
+      const { error } = await api.PATCH('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}', {
+        params: { path: { ws, db: targetDbId, rec: rowId } },
+        body: { values } as never,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      setEditingCell(null);
+      invalidateCollection();
+    },
+    onError: () => {
+      setEditingCell(null);
+      toast.error('Could not update the linked record');
+    },
+  });
+  const createLinked = useMutation({
+    mutationFn: async (title: string) => {
+      const titleApi = targetFields.find((f) => f.type === 'title')?.apiName ?? 'name';
+      // MN-080 inline relation write: naming the inverse field links it in the same create.
+      const { error } = await api.POST('/api/v1/workspaces/{ws}/databases/{db}/records', {
+        params: { path: { ws, db: targetDbId } },
+        body: {
+          values: { [titleApi]: title, ...(inverseApi ? { [inverseApi]: [rec] } : {}) },
+        } as never,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      setNewTitle('');
+      setCreating(false);
+      invalidateCollection();
+    },
+    onError: () => toast.error('Could not create the record'),
+  });
   const cv = (field.config?.['collection_view'] as CollectionView | undefined) ?? {};
   const setCv = (patch: Partial<CollectionView>) =>
     setConfig.mutate({ fieldId: field.id, config: { collection_view: { ...cv, ...patch } } });
@@ -796,7 +844,13 @@ function CollectionSection({ field, schemaEditable, onToggleZone, readOnly, ws, 
       </div>
       {!collapsed && (
         <>
-          <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card">
+          <div
+            className={cn(
+              'rounded-[var(--radius-card)] border border-border-default bg-card',
+              // The cell editor pops below its row — don't clip it while it's open.
+              editingCell ? 'overflow-visible' : 'overflow-hidden',
+            )}
+          >
             {rows.length === 0 && (
               <p className="px-3 py-2.5 text-[13px] text-faint">
                 {filtersActive ? 'No matches.' : 'Nothing linked yet.'}
@@ -805,26 +859,73 @@ function CollectionSection({ field, schemaEditable, onToggleZone, readOnly, ws, 
             {shown.map((row) => {
               const color = dotColor(row);
               return (
-                <Link
+                // Only the TITLE area navigates — the column cells are interactive
+                // editors and must never live inside the anchor (MN-206 pt 2).
+                <div
                   key={row.id}
-                  href={recordHref(ws, targetDbId, row)}
                   className="flex items-center gap-2 border-b border-border-default px-3 py-2 text-[13px] text-ink last:border-b-0 hover:bg-hover"
                 >
-                  {color && <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />}
-                  <span className="min-w-0 flex-1 truncate">{row.title || 'Untitled'}</span>
-                  {columns.map((col) =>
-                    row.values[col.apiName] != null ? (
-                      <span key={col.id} className="flex max-w-[9rem] shrink-0 items-center text-[12px]">
-                        <CellDisplay
-                          field={col}
-                          value={row.values[col.apiName]}
-                          memberNames={memberNames}
-                          memberImages={memberImages}
-                        />
+                  <Link
+                    href={recordHref(ws, targetDbId, row)}
+                    className="flex min-w-0 flex-1 items-center gap-2"
+                  >
+                    {color && <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />}
+                    <span className="min-w-0 flex-1 truncate">{row.title || 'Untitled'}</span>
+                  </Link>
+                  {columns.map((col) => {
+                    const value = row.values[col.apiName];
+                    const editable = canEditTargets && !NOT_INLINE.has(col.type);
+                    const isEditing = editingCell?.rowId === row.id && editingCell.fieldId === col.id;
+                    if (value == null && !editable) return null;
+                    return (
+                      <span
+                        key={col.id}
+                        className={cn(
+                          'relative flex max-w-[9rem] shrink-0 items-center text-[12px]',
+                          editable && 'cursor-pointer rounded px-0.5 hover:bg-active',
+                        )}
+                        onClick={
+                          editable
+                            ? () => {
+                                if (col.type === 'checkbox') {
+                                  updateLinked.mutate({ rowId: row.id, values: { [col.apiName]: !(value === true) } });
+                                } else {
+                                  setEditingCell(isEditing ? null : { rowId: row.id, fieldId: col.id });
+                                }
+                              }
+                            : undefined
+                        }
+                      >
+                        {value != null ? (
+                          <CellDisplay
+                            field={col}
+                            value={value}
+                            memberNames={memberNames}
+                            memberImages={memberImages}
+                          />
+                        ) : (
+                          <span className="text-faint">—</span>
+                        )}
+                        {isEditing && (
+                          <span
+                            className="absolute right-0 top-full z-30 mt-1 w-56"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <span className="relative block min-h-8 rounded-[var(--radius-card)] border border-border-default bg-card p-1 shadow-[0_8px_24px_rgba(15,23,41,0.15)]">
+                              <CellEditor
+                                field={col}
+                                value={value ?? null}
+                                members={members}
+                                onCommit={(next) => updateLinked.mutate({ rowId: row.id, values: { [col.apiName]: next } })}
+                                onCancel={() => setEditingCell(null)}
+                              />
+                            </span>
+                          </span>
+                        )}
                       </span>
-                    ) : null,
-                  )}
-                </Link>
+                    );
+                  })}
+                </div>
               );
             })}
             {rows.length > COLLECTION_CAP && (
@@ -838,13 +939,38 @@ function CollectionSection({ field, schemaEditable, onToggleZone, readOnly, ws, 
           </div>
           {/* Add lives OUTSIDE the overflow-hidden card so its picker never clips. */}
           {!readOnly && (
-            <div className="relative mt-1 px-1">
+            <div className="relative mt-1 flex items-center gap-3 px-1">
               <button
                 className="inline-flex items-center gap-1 text-[13px] text-muted hover:text-ink"
                 onClick={() => setAdding(true)}
               >
                 <Plus className="h-3.5 w-3.5" /> Add
               </button>
+              {canEditTargets && !creating && (
+                <button
+                  className="inline-flex items-center gap-1 text-[13px] text-muted hover:text-ink"
+                  onClick={() => setCreating(true)}
+                >
+                  <Plus className="h-3.5 w-3.5" /> New
+                </button>
+              )}
+              {creating && (
+                <input
+                  autoFocus
+                  className="h-7 w-64 rounded-md border border-border-default bg-card px-2 text-[13px] text-ink"
+                  placeholder={`New ${targetDb.data?.name ?? 'record'} — Enter to create, linked here`}
+                  value={newTitle}
+                  onChange={(e) => setNewTitle(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && newTitle.trim()) createLinked.mutate(newTitle.trim());
+                    if (e.key === 'Escape') {
+                      setCreating(false);
+                      setNewTitle('');
+                    }
+                  }}
+                  disabled={createLinked.isPending}
+                />
+              )}
               {adding && (
                 <RelationEditor ws={ws} db={db} recordId={rec} field={field} current={chips} onDone={() => setAdding(false)} />
               )}
@@ -1038,8 +1164,13 @@ function FieldMenu({
   const [dialog, setDialog] = useState<'edit' | 'change-type' | null>(null);
   const deleteField = useDeleteField({ ws, db, field, onDone: () => setDialog(null) });
   const setConfig = useSetFieldConfig(ws, db);
-  // Relations delete via the relations API (useDeleteField), removing both paired fields.
-  const canDelete = field.type !== 'title' && !field.isSystem;
+  // Relations delete via the relations API, removing both paired fields — which needs
+  // creator on the OTHER database too, so only offer it when the user really can (#136).
+  const deleteTargetDb = useDatabase(ws, field.relation?.target_database_id ?? '');
+  const canDelete =
+    field.type !== 'title' &&
+    !field.isSystem &&
+    (field.type !== 'relation' || atLeast(deleteTargetDb.data?.my_access, 'creator'));
   // Collections & rich text are body-locked; scalars & single-refs can be shown in any zones.
   const zones = collection ? [] : zonesOf(field);
 
