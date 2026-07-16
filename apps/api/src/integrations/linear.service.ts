@@ -142,6 +142,7 @@ export class LinearService {
    */
   private async importDescription(
     workspaceId: string,
+    databaseId: string,
     recordId: string,
     markdown: string | null | undefined,
     actorId: string,
@@ -151,7 +152,9 @@ export class LinearService {
     if (current.version !== 0) return; // already has a description — leave it alone
     const blocks = markdownToBlocks(markdown);
     if (blocks.length === 0) return;
-    await this.documentsService.put(workspaceId, recordId, blocks, 0, actorId).catch(() => undefined);
+    await this.documentsService
+      .put(workspaceId, databaseId, recordId, blocks, 0, actorId)
+      .catch(() => undefined);
   }
 
   async saveConfig(workspaceId: string, config: { api_key?: string; team_keys?: string[] }) {
@@ -397,7 +400,7 @@ export class LinearService {
           target_date: project.targetDate,
           url: project.url,
         }, actorId);
-        await this.importDescription(membership.workspaceId, id, project.description, actorId);
+        await this.importDescription(membership.workspaceId, projectsDb.id, id, project.description, actorId);
         projectIds.set(project.id, id);
         summary.projects++;
       }
@@ -419,7 +422,7 @@ export class LinearService {
           estimate: issue.estimate,
           url: issue.url,
         }, actorId);
-        await this.importDescription(membership.workspaceId, id, issue.description, actorId);
+        await this.importDescription(membership.workspaceId, issuesDb.id, id, issue.description, actorId);
         issueIds.set(issue.id, id);
         summary.issues++;
 

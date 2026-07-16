@@ -25,7 +25,19 @@ interface LinkNode {
   href: string;
   content: TextNode[];
 }
-type Inline = TextNode | LinkNode;
+/**
+ * A mention (MN-205): @member or #record. Stored as a BlockNote custom inline node
+ * carrying the id (the durable reference) + a label (the name/title at write time,
+ * only a fallback — the editor renders the LIVE name). In Markdown it round-trips as
+ * a link with a `user:`/`record:` scheme, so an agent can read AND write mentions and
+ * md → blocks → md never destroys them.
+ */
+interface MentionNode {
+  type: 'mention';
+  props: { kind: 'user' | 'record'; id: string; label: string };
+  content?: undefined;
+}
+type Inline = TextNode | LinkNode | MentionNode;
 interface Block {
   type: string;
   props?: Record<string, unknown>;
@@ -38,6 +50,11 @@ function inlineToMarkdown(content: unknown): string {
   if (!Array.isArray(content)) return '';
   return content
     .map((node) => {
+      if (node && typeof node === 'object' && (node as MentionNode).type === 'mention') {
+        const p = (node as MentionNode).props ?? { kind: 'user', id: '', label: '' };
+        const prefix = p.kind === 'record' ? '#' : '@';
+        return `[${prefix}${p.label}](${p.kind}:${p.id})`;
+      }
       if (node && typeof node === 'object' && (node as LinkNode).type === 'link') {
         const link = node as LinkNode;
         return `[${inlineToMarkdown(link.content)}](${link.href})`;
@@ -127,8 +144,19 @@ function parseInline(input: string): Inline[] {
     else if (tok.startsWith('*')) nodes.push(text(tok.slice(1, -1), { italic: true }));
     else {
       const lm = tok.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
-      if (lm) nodes.push({ type: 'link', href: lm[2]!, content: [text(lm[1]!)] });
-      else nodes.push(text(tok));
+      if (lm) {
+        const label = lm[1]!;
+        const href = lm[2]!;
+        // A user:/record: scheme is a mention, not a plain link (MN-205).
+        const scheme = href.match(/^(user|record):(.+)$/);
+        if (scheme) {
+          const kind = scheme[1] as 'user' | 'record';
+          const bare = label.replace(kind === 'record' ? /^#/ : /^@/, '');
+          nodes.push({ type: 'mention', props: { kind, id: scheme[2]!, label: bare } });
+        } else {
+          nodes.push({ type: 'link', href, content: [text(label)] });
+        }
+      } else nodes.push(text(tok));
     }
     rest = rest.slice(m.index + tok.length);
   }

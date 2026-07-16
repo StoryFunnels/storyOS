@@ -8,6 +8,7 @@ import { eq } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { activityEvents, documents } from '../db/schema';
+import { MentionsService } from '../mentions/mentions.service';
 
 const MAX_BYTES = 2 * 1024 * 1024;
 
@@ -29,7 +30,10 @@ export function extractText(content: unknown): string {
 
 @Injectable()
 export class DocumentsService {
-  constructor(@Inject(DB) private readonly db: Db) {}
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    private readonly mentions: MentionsService,
+  ) {}
 
   /** Lazily created: a record without a document reads as version 0. */
   async get(recordId: string) {
@@ -48,6 +52,7 @@ export class DocumentsService {
   /** Single-editor optimistic concurrency: stale expected_version → 409 + current. */
   async put(
     workspaceId: string,
+    databaseId: string,
     recordId: string,
     content: unknown,
     expectedVersion: number,
@@ -73,7 +78,7 @@ export class DocumentsService {
       });
     }
 
-    return this.db.transaction(async (tx) => {
+    const result = await this.db.transaction(async (tx) => {
       let saved;
       if (existing) {
         [saved] = await tx
@@ -96,5 +101,22 @@ export class DocumentsService {
       });
       return { record_id: recordId, content: saved!.content, version: saved!.version, updated_at: saved!.updatedAt };
     });
+
+    // Reconcile #record backlinks + @mention notifications (MN-205). Best-effort:
+    // never fail the save because mention bookkeeping hiccuped.
+    try {
+      await this.mentions.syncDocumentMentions(
+        workspaceId,
+        databaseId,
+        recordId,
+        content,
+        actorId,
+        contentText.slice(0, 140),
+      );
+    } catch {
+      // swallowed on purpose — the document is already saved.
+    }
+
+    return result;
   }
 }
