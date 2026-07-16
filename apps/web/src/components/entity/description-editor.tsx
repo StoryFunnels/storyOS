@@ -11,6 +11,11 @@ import { uploadEditorImage } from '@/lib/editor-upload';
 import { api } from '@/lib/api';
 import { useTheme } from '@/lib/theme';
 import { MarkdownActions } from '@/components/entity/markdown-actions';
+import {
+  MentionScope,
+  MentionSuggestionMenus,
+  mentionSchema,
+} from '@/components/entity/mentions';
 import { Button } from '@/components/ui/button';
 
 interface DocumentPayload {
@@ -73,12 +78,14 @@ function EditorInner({
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const editor = useCreateBlockNote({
-    initialContent: initial.content && initial.content.length > 0 ? initial.content : undefined,
+    schema: mentionSchema,
+    initialContent:
+      initial.content && initial.content.length > 0 ? (initial.content as never) : undefined,
     uploadFile: (file: File) => uploadEditorImage(ws, file),
   });
 
   const save = useMutation({
-    mutationFn: async (content: Block[]) => {
+    mutationFn: async (content: Block[] | unknown[]) => {
       const { data, error, response } = await api.PUT(
         '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/document',
         {
@@ -120,7 +127,7 @@ function EditorInner({
                 );
                 versionRef.current = (data as unknown as DocumentPayload).version;
                 setConflict(false);
-                save.mutate(editor.document);
+                save.mutate(editor.document as never);
                 qcInvalidate();
               }}
             >
@@ -133,17 +140,21 @@ function EditorInner({
         <MarkdownActions editor={editor} filename="description" />
       </div>
       <div className="min-h-40 rounded-[var(--radius-card)] border border-border-default bg-card py-3 [&_.bn-editor]:bg-transparent">
-        <BlockNoteView
-          editor={editor}
-          editable={!readOnly && !conflict}
-          theme={theme}
-          onChange={() => {
-            if (readOnly) return;
-            setSaving(true);
-            if (timer.current !== null) clearTimeout(timer.current);
-            timer.current = setTimeout(() => save.mutate(editor.document), 800);
-          }}
-        />
+        <MentionScope ws={ws}>
+          <BlockNoteView
+            editor={editor}
+            editable={!readOnly && !conflict}
+            theme={theme}
+            onChange={() => {
+              if (readOnly) return;
+              setSaving(true);
+              if (timer.current !== null) clearTimeout(timer.current);
+              timer.current = setTimeout(() => save.mutate(editor.document as never), 800);
+            }}
+          >
+            <MentionSuggestionMenus editor={editor as never} ws={ws} />
+          </BlockNoteView>
+        </MentionScope>
       </div>
       <p className="text-right text-[11px] text-faint">{saving ? 'Saving…' : 'Saved'}</p>
     </div>

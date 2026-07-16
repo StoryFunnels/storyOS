@@ -23,6 +23,8 @@ import type { CommentSegment } from './comments.service';
 const segmentSchema = z.union([
   z.object({ type: z.literal('text'), text: z.string().max(5000) }),
   z.object({ type: z.literal('mention'), user_id: z.string() }),
+  // #record mention (#140) — validated against live workspace records server-side.
+  z.object({ type: z.literal('record'), record_id: z.uuid(), database_id: z.uuid() }),
 ]);
 const commentBodySchema = z.object({ body: z.array(segmentSchema).min(1).max(200) });
 class CommentBodyDto extends createZodDto(commentBodySchema) {}
@@ -114,6 +116,7 @@ export class CommentsController {
       commentId,
       req.user.id,
       req.membership.role === 'admin',
+      req.membership.workspaceId,
     );
   }
 }

@@ -18,6 +18,7 @@ import type { SortSpec } from './query-compiler';
 import { keyBetween, keysAfter } from './rank';
 import { NotificationsService } from '../notifications/notifications.service';
 import { DomainEventsService } from '../events/domain-events.service';
+import { MentionsService } from '../mentions/mentions.service';
 
 type RecordRow = typeof records.$inferSelect;
 
@@ -54,6 +55,7 @@ export class RecordsService {
     @Inject(DB) private readonly db: Db,
     private readonly notificationsService: NotificationsService,
     private readonly domainEvents: DomainEventsService,
+    private readonly mentions: MentionsService,
   ) {}
 
   /** Live field definitions + valid option ids, in validator shape. */
@@ -844,6 +846,14 @@ export class RecordsService {
       actorId,
       depth,
     });
+
+    // #140: a rich_text field can carry @/# mentions — re-sync backlinks +
+    // notifications when one changed. Fire-and-forget: never fails the write.
+    if (defs.some((d) => d.type === 'rich_text' && d.id in diff)) {
+      void this.mentions
+        .syncRecordMentions(workspaceId, databaseId, recordId, actorId)
+        .catch(() => undefined);
+    }
 
     // MN-049: newly-added people on user fields get an "assigned" notification.
     const addedUsers = new Set<string>();

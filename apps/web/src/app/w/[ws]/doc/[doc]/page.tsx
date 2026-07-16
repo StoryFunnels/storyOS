@@ -11,6 +11,11 @@ import { api } from '@/lib/api';
 import { uploadEditorImage } from '@/lib/editor-upload';
 import { useTheme } from '@/lib/theme';
 import { MarkdownActions } from '@/components/entity/markdown-actions';
+import {
+  MentionScope,
+  MentionSuggestionMenus,
+  mentionSchema,
+} from '@/components/entity/mentions';
 
 interface SpaceDoc {
   id: string;
@@ -58,6 +63,7 @@ function DocEditor({
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { resolved: theme } = useTheme();
   const editor = useCreateBlockNote({
+    schema: mentionSchema,
     initialContent: Array.isArray(initial.content) && initial.content.length > 0 ? (initial.content as never) : undefined,
     uploadFile: (file: File) => uploadEditorImage(ws, file),
   });
@@ -93,16 +99,20 @@ function DocEditor({
           <MarkdownActions editor={editor} filename={title || 'document'} />
         </span>
       </div>
-      <BlockNoteView
-        editor={editor}
-        theme={theme}
-        onChange={() => {
-          if (timer.current !== null) clearTimeout(timer.current);
-          timer.current = setTimeout(() => {
-            save.mutate({ content: editor.document, expected_version: versionRef.current });
-          }, 800);
-        }}
-      />
+      <MentionScope ws={ws}>
+        <BlockNoteView
+          editor={editor}
+          theme={theme}
+          onChange={() => {
+            if (timer.current !== null) clearTimeout(timer.current);
+            timer.current = setTimeout(() => {
+              save.mutate({ content: editor.document, expected_version: versionRef.current });
+            }, 800);
+          }}
+        >
+          <MentionSuggestionMenus editor={editor as never} ws={ws} />
+        </BlockNoteView>
+      </MentionScope>
     </div>
   );
 }

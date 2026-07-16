@@ -68,6 +68,11 @@ import type { LinkChip } from '@/components/table-view/relation-cell';
 import { useDatabase, useMembers, useRecordMutations } from '@/components/table-view/use-table-data';
 import type { Field, RecordRow } from '@/components/table-view/use-table-data';
 import { DescriptionEditor } from '@/components/entity/description-editor';
+import {
+  MentionScope,
+  MentionSuggestionMenus,
+  mentionSchema,
+} from '@/components/entity/mentions';
 import { ActivityPanel, AttachmentsStrip, CommentsPanel, MentionedIn } from '@/components/entity/panels';
 import { useFavorites } from '@/components/sidebar';
 import { parseRecordParam, recordHref } from '@/lib/records';
@@ -1117,6 +1122,7 @@ function RichTextFieldSection({
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { resolved: theme } = useTheme();
   const editor = useCreateBlockNote({
+    schema: mentionSchema,
     initialContent: Array.isArray(value) && value.length > 0 ? (value as never) : undefined,
     uploadFile: (file: File) => uploadEditorImage(ws, file),
   });
@@ -1132,19 +1138,23 @@ function RichTextFieldSection({
         </span>
       </div>
       <div className="rounded-[var(--radius-card)] border border-border-default bg-card py-3 [&_.bn-editor]:bg-transparent">
-        <BlockNoteView
-          editor={editor}
-          editable={!readOnly}
-          theme={theme}
-          onChange={() => {
-            if (readOnly) return;
-            if (timer.current !== null) clearTimeout(timer.current);
-            timer.current = setTimeout(() => {
-              const doc = editor.document;
-              onCommit(doc.length > 0 ? doc : null);
-            }, 800);
-          }}
-        />
+        <MentionScope ws={ws}>
+          <BlockNoteView
+            editor={editor}
+            editable={!readOnly}
+            theme={theme}
+            onChange={() => {
+              if (readOnly) return;
+              if (timer.current !== null) clearTimeout(timer.current);
+              timer.current = setTimeout(() => {
+                const doc = editor.document;
+                onCommit(doc.length > 0 ? doc : null);
+              }, 800);
+            }}
+          >
+            <MentionSuggestionMenus editor={editor as never} ws={ws} />
+          </BlockNoteView>
+        </MentionScope>
       </div>
     </div>
   );

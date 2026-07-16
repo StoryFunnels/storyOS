@@ -105,14 +105,9 @@ export class DocumentsService {
     // Reconcile #record backlinks + @mention notifications (MN-205). Best-effort:
     // never fail the save because mention bookkeeping hiccuped.
     try {
-      await this.mentions.syncDocumentMentions(
-        workspaceId,
-        databaseId,
-        recordId,
-        content,
-        actorId,
-        contentText.slice(0, 140),
-      );
+      await this.mentions.syncRecordMentions(workspaceId, databaseId, recordId, actorId, {
+        snippet: contentText.slice(0, 140),
+      });
     } catch {
       // swallowed on purpose — the document is already saved.
     }

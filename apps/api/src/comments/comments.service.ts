@@ -8,18 +8,24 @@ import {
 import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { activityEvents, comments, memberships, records, user } from '../db/schema';
+import { activityEvents, comments, databases, memberships, records, user } from '../db/schema';
 import { env } from '../config/env';
 import { sendMail } from '../mail/mailer';
 import { NotificationsService } from '../notifications/notifications.service';
+import { MentionsService } from '../mentions/mentions.service';
 
-export type CommentSegment = { type: 'text'; text: string } | { type: 'mention'; user_id: string };
+export type CommentSegment =
+  | { type: 'text'; text: string }
+  | { type: 'mention'; user_id: string }
+  /** #record mention (#140): the id is durable; database_id makes the chip navigable. */
+  | { type: 'record'; record_id: string; database_id: string };
 
 @Injectable()
 export class CommentsService {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly notificationsService: NotificationsService,
+    private readonly mentionsService: MentionsService,
   ) {}
 
   /** Extracts mentions server-side and validates they are active members (D4). */
@@ -27,6 +33,28 @@ export class CommentsService {
     workspaceId: string,
     body: CommentSegment[],
   ): Promise<{ mentions: string[] }> {
+    // #record segments must point at live records in THIS workspace (#140) — a
+    // stale/foreign id is refused, not stored.
+    const recordIds = [
+      ...new Set(body.filter((s) => s.type === 'record').map((s) => (s as { record_id: string }).record_id)),
+    ];
+    if (recordIds.length > 0) {
+      const found = await this.db
+        .select({ id: records.id })
+        .from(records)
+        .innerJoin(databases, eq(databases.id, records.databaseId))
+        .where(
+          and(
+            inArray(records.id, recordIds),
+            eq(databases.workspaceId, workspaceId),
+            isNull(records.deletedAt),
+          ),
+        );
+      if (found.length !== recordIds.length) {
+        throw new UnprocessableEntityException('a mentioned record was not found in this workspace');
+      }
+    }
+
     const mentionIds = [...new Set(body.filter((s) => s.type === 'mention').map((s) => (s as { user_id: string }).user_id))];
     if (mentionIds.length === 0) return { mentions: [] };
 
@@ -43,6 +71,20 @@ export class CommentsService {
       throw new UnprocessableEntityException(`mentioned user "${invalid}" is not a mentionable member`);
     }
     return { mentions: mentionIds };
+  }
+
+  /** #140: comments feed record backlinks — resync after any comment write. Best-effort. */
+  private resyncMentions(workspaceId: string, recordId: string, actorId: string): void {
+    void this.db.query.records
+      .findFirst({ where: eq(records.id, recordId), columns: { databaseId: true } })
+      .then((r) =>
+        r
+          ? this.mentionsService.syncRecordMentions(workspaceId, r.databaseId, recordId, actorId, {
+              notify: false, // comments notify their own @mentions
+            })
+          : undefined,
+      )
+      .catch(() => undefined);
   }
 
   async list(recordId: string, limit = 100) {
@@ -126,6 +168,7 @@ export class CommentsService {
       recipients: participants,
       snippet,
     });
+    this.resyncMentions(workspaceId, recordId, authorId);
     return { id: created.id, body: created.body, created_at: created.createdAt };
   }
 
@@ -163,15 +206,18 @@ export class CommentsService {
       .set({ body, mentions, editedAt: new Date() })
       .where(eq(comments.id, commentId))
       .returning();
+    this.resyncMentions(workspaceId, recordId, actorId);
     return { id: updated!.id, body: updated!.body, edited_at: updated!.editedAt };
   }
 
-  async remove(recordId: string, commentId: string, actorId: string, isAdmin: boolean) {
+  async remove(recordId: string, commentId: string, actorId: string, isAdmin: boolean, workspaceId?: string) {
     const comment = await this.getLive(recordId, commentId);
     if (comment.authorId !== actorId && !isAdmin) {
       throw new ForbiddenException('Only the author or an admin can delete a comment');
     }
     await this.db.update(comments).set({ deletedAt: new Date() }).where(eq(comments.id, commentId));
+    // A deleted comment's #mentions must drop their backlinks (#140).
+    if (workspaceId) this.resyncMentions(workspaceId, recordId, actorId);
     return { deleted: true };
   }
 
