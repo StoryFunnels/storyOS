@@ -97,6 +97,28 @@ function MembersPageContent() {
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['invites', ws] }),
   });
 
+  const exportMember = useMutation({
+    mutationFn: async (member: Member) => {
+      const { data, error } = await api.GET(
+        '/api/v1/workspaces/{ws}/members/{member}/gdpr/export',
+        { params: { path: { ws, member: member.id } } },
+      );
+      if (error) throw error;
+      const blob = new Blob(
+        [JSON.stringify({ ...data, exported_at: new Date().toISOString() }, null, 2)],
+        { type: 'application/json' },
+      );
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `storyos-data-export-${member.user.email ?? member.user.id}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    },
+    onSuccess: () => toast.success('Data exported'),
+    onError: () => toast.error('Export failed'),
+  });
+
   const isAdmin = workspace.data?.role === 'admin';
 
   return (
@@ -140,9 +162,19 @@ function MembersPageContent() {
                     <option value="member">Member</option>
                     <option value="guest">Guest</option>
                   </select>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => exportMember.mutate(member)}
+                    disabled={exportMember.isPending}
+                    title="Export everything held about this member (GDPR)"
+                  >
+                    Export
+                  </Button>
                   <Button variant="ghost" size="sm" onClick={() => removeMember.mutate(member.id)}>
                     Remove
                   </Button>
+                  <EraseMemberDialog ws={ws} member={member} onDone={() => void qc.invalidateQueries({ queryKey: ['members', ws] })} />
                 </>
               ) : (
                 <span className="text-[13px] capitalize text-muted">{member.role}</span>
@@ -174,6 +206,91 @@ function MembersPageContent() {
         </>
       )}
     </div>
+  );
+}
+
+function EraseMemberDialog({
+  ws,
+  member,
+  onDone,
+}: {
+  ws: string;
+  member: Member;
+  onDone: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [confirm, setConfirm] = useState('');
+  const target = member.user.email ?? member.user.name;
+
+  const erase = useMutation({
+    mutationFn: async () => {
+      const { error } = await api.POST(
+        '/api/v1/workspaces/{ws}/members/{member}/gdpr/anonymize',
+        { params: { path: { ws, member: member.id } } },
+      );
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success('Member erased and anonymized');
+      setOpen(false);
+      setConfirm('');
+      onDone();
+    },
+    onError: () => toast.error('Could not erase (last admin?)'),
+  });
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setConfirm('');
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button variant="destructive" size="sm">
+          Erase
+        </Button>
+      </DialogTrigger>
+      <DialogContent title="Erase this member (GDPR)">
+        <div className="flex flex-col gap-4">
+          <p className="text-[13px] text-ink-secondary">
+            This fulfils a data-subject erasure. It permanently wipes{' '}
+            <span className="font-medium text-ink">{member.user.name}</span>&rsquo;s
+            identity to an anonymous tombstone, destroys their sessions, sign-in
+            credentials, and API tokens, and removes their access to this
+            workspace. Their comments and history stay in place but are no longer
+            attributed to a real person. <span className="font-medium">This cannot be undone.</span>
+          </p>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="erase-confirm">
+              Type <span className="font-medium text-ink">{target}</span> to confirm
+            </Label>
+            <Input
+              id="erase-confirm"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              autoComplete="off"
+            />
+          </div>
+          <div className="flex justify-end gap-2">
+            <DialogClose asChild>
+              <Button type="button" variant="secondary">
+                Cancel
+              </Button>
+            </DialogClose>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={confirm !== target || erase.isPending}
+              onClick={() => erase.mutate()}
+            >
+              Erase permanently
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
