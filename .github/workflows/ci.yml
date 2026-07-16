@@ -76,6 +76,19 @@ jobs:
           git diff --exit-code packages/sdk/src/generated || {
             echo "::error::the generated SDK is out of date. Run pnpm sdk:generate and commit."; exit 1; }
 
+      # MN-235: fail on any shipped dependency whose license is incompatible with
+      # AGPL-3.0-or-later, and produce a CycloneDX SBOM for diligence/scanners.
+      - name: Dependency license scan + SBOM
+        run: pnpm license:check
+
+      - name: Upload SBOM
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cyclonedx
+          path: sbom.cdx.json
+          if-no-files-found: warn
+
   # MN-129: `pnpm build` says nothing about whether the SERVER can build or run
   # these. The Docker graph is different — it copies a subset of the workspace and
   # installs with --frozen-lockfile --prod. Both 2026-07-16 deploy failures were

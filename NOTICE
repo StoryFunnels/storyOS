@@ -1,0 +1,10 @@
+StoryOS
+Copyright (c) 2026 Ievgen Krasovytskyi
+
+This product is licensed under the GNU Affero General Public License v3.0 or
+later (AGPL-3.0-or-later). See the LICENSE file for the full text.
+
+The copyright holder above will move to the company entity once incorporated.
+
+Third-party dependencies retain their own licenses; a CycloneDX SBOM and an
+allow-list gate are produced by `scripts/license-check.mjs` (run in CI).
