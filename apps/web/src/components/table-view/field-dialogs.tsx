@@ -884,7 +884,9 @@ export function EditFieldDialog({
   });
 
   const isSelect = field.type === 'select' || field.type === 'multi_select';
-  const canDelete = field.type !== 'title' && field.type !== 'relation' && !field.isSystem;
+  // Relations ARE deletable (via the relations API, handled in useDeleteField) —
+  // deleting drops both paired fields. Only title/system fields are undeletable.
+  const canDelete = field.type !== 'title' && !field.isSystem;
   const canConvert = (CONVERTIBLE[field.type] ?? []).length > 0;
   const typeMeta = FIELD_TYPES.find((t) => t.value === field.type);
 
@@ -1266,6 +1268,29 @@ export function useDeleteField({
 
   const del = useMutation({
     mutationFn: async () => {
+      // A relation is a paired field on two databases — deleting it goes through the
+      // relations API, which drops BOTH fields + every link (the field-delete API
+      // refuses relations). Warn about the blast radius before doing it.
+      if (field.type === 'relation' && field.relation) {
+        const other = field.relation.target_database_name ?? 'the other database';
+        if (
+          !(await confirm({
+            title: `Delete the "${field.displayName}" relation?`,
+            message: `This removes the relation, BOTH paired fields (this one and its inverse on ${other}), and every link between records. This can't be undone.`,
+            confirmLabel: 'Delete relation',
+            danger: true,
+          }))
+        ) {
+          return false;
+        }
+        const { error } = await api.DELETE('/api/v1/workspaces/{ws}/relations/{rel}', {
+          params: { path: { ws, rel: field.relation.id } },
+          body: { confirm: true } as never,
+        });
+        if (error) throw error;
+        return true;
+      }
+
       const usage = await api.GET(
         '/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/usage',
         { params: { path: { ws, db, field: field.id } } },
@@ -1293,12 +1318,17 @@ export function useDeleteField({
     onSuccess: (deleted) => {
       if (deleted) {
         invalidate();
-        toast.success('Field deleted');
+        toast.success(field.type === 'relation' ? 'Relation deleted' : 'Field deleted');
       }
       onDone();
     },
-    onError: () => {
-      toast.error('This field cannot be deleted');
+    onError: (err: unknown) => {
+      // Surface the server's reason (e.g. "needs creator on both databases") when present.
+      const message =
+        err && typeof err === 'object' && 'error' in err
+          ? (err as { error?: { message?: string } }).error?.message
+          : undefined;
+      toast.error(message ?? 'This field cannot be deleted');
       onDone();
     },
   });
