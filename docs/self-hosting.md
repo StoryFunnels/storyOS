@@ -26,7 +26,7 @@ Set in `.env` next to `docker-compose.yml`. Only `BETTER_AUTH_SECRET` is require
 
 | Variable | Default | Notes |
 |---|---|---|
-| `BETTER_AUTH_SECRET` | — (required) | `openssl rand -hex 32` |
+| `BETTER_AUTH_SECRET` | — (required) | `openssl rand -hex 32`. The API **refuses to boot in production** if this is unset or left at a default — sessions are signed with it, so a public value means anyone can forge a login. |
 | `POSTGRES_PASSWORD` | `storyos` | change for anything internet-facing |
 | `API_URL` / `WEB_URL` | `http://localhost:3001` / `:3000` | set BOTH to your public URL (same origin), e.g. `https://os.example.com` |
 | `HTTP_PORT` / `HTTPS_PORT` | `80` / `443` | host ports of the caddy proxy |
