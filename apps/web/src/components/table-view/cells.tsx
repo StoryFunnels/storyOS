@@ -123,6 +123,12 @@ interface DisplayProps {
   value: unknown;
   memberNames: Map<string, string>;
   memberImages?: Map<string, string | null>;
+  /**
+   * MN-132: the properties sidebar wants prose to WRAP, not clip — a single-line
+   * `truncate` is right for a fixed-height grid row but unreadable in the sidebar.
+   * When set, text-carrying types wrap and break instead of truncating.
+   */
+  wrap?: boolean;
 }
 
 /** Plain text of a BlockNote document, for grid previews. */
@@ -169,8 +175,10 @@ export function cellToText(field: { type: string; options?: SelectOption[] }, va
   }
 }
 
-export function CellDisplay({ field, value, memberNames, memberImages }: DisplayProps) {
+export function CellDisplay({ field, value, memberNames, memberImages, wrap }: DisplayProps) {
   const fmt = useDateFormat();
+  // The prose class: wrap+break in the sidebar (MN-132), truncate in a grid row.
+  const prose = wrap ? 'whitespace-pre-wrap break-words' : 'truncate';
   if (value === undefined || value === null || value === '') {
     return <span className="text-faint"> </span>;
   }
@@ -178,7 +186,7 @@ export function CellDisplay({ field, value, memberNames, memberImages }: Display
     case 'rich_text': {
       const preview = richTextPreview(value);
       return preview ? (
-        <span className="truncate text-[13px] text-ink-secondary">{preview}</span>
+        <span className={cn('text-[13px] text-ink-secondary', prose)}>{preview}</span>
       ) : (
         <span className="text-faint"> </span>
       );
@@ -224,7 +232,9 @@ export function CellDisplay({ field, value, memberNames, memberImages }: Display
         </span>
       );
     }
-    case 'user': {
+    // 'user' and 'created_by' are both people, resolved the same way (MN-126).
+    case 'user':
+    case 'created_by': {
       const ids = Array.isArray(value) ? (value as string[]) : [String(value)];
       return (
         <span className="flex min-w-0 items-center gap-1.5 overflow-hidden">
@@ -262,7 +272,7 @@ export function CellDisplay({ field, value, memberNames, memberImages }: Display
           href={String(value)}
           target="_blank"
           rel="noreferrer"
-          className="block max-w-full truncate text-[13px] text-info underline"
+          className={cn('block max-w-full text-[13px] text-info underline', wrap ? 'break-all' : 'truncate')}
           onClick={(e) => e.stopPropagation()}
         >
           {String(value).replace(/^https?:\/\//, '')}
@@ -274,9 +284,12 @@ export function CellDisplay({ field, value, memberNames, memberImages }: Display
       // Public per-database sequential id (MN-087) — muted, monospace-ish.
       return <span className="truncate text-[12px] tabular-nums text-faint">{String(value)}</span>;
     case 'title':
-      return <span className="truncate text-[13px] font-medium text-ink">{String(value)}</span>;
+      return <span className={cn('text-[13px] font-medium text-ink', prose)}>{String(value)}</span>;
+    case 'email':
+      return <span className={cn('text-[13px]', wrap ? 'break-all' : 'truncate')}>{String(value)}</span>;
     default:
-      return <span className="truncate text-[13px]">{String(value)}</span>;
+      // text and anything else prose-like.
+      return <span className={cn('text-[13px]', prose)}>{String(value)}</span>;
   }
 }
 
