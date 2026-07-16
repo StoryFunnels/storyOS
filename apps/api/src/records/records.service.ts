@@ -11,7 +11,7 @@ import type { FormulaNode } from '@storyos/schemas';
 import type { FieldDef } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { activityEvents, databases, documents, fields, recordLinks, records, relations, selectOptions } from '../db/schema';
+import { activityEvents, databases, documents, fields, memberships, recordLinks, records, relations, selectOptions, user } from '../db/schema';
 import type { QueryRecordsInput } from '@storyos/schemas';
 import { compileFilter, cursorCondition, sortExpr } from './query-compiler';
 import type { SortSpec } from './query-compiler';
@@ -355,6 +355,90 @@ export class RecordsService {
     return projected;
   }
 
+  /** Active members of a workspace, for resolving a person by id / email / name. */
+  private async userDirectory(workspaceId: string) {
+    const rows = await this.db
+      .select({ id: user.id, name: user.name, email: user.email })
+      .from(memberships)
+      .innerJoin(user, eq(user.id, memberships.userId))
+      .where(and(eq(memberships.workspaceId, workspaceId), eq(memberships.status, 'active')));
+    return rows;
+  }
+
+  /**
+   * MN-118: resolve people written to a user field.
+   *
+   * The validator accepted ANY string as a user id, so `assignee: "Ievgen"` was
+   * stored verbatim and echoed back as success — the UI then rendered "(unknown)".
+   * Silent corruption with a success receipt is the worst failure mode for an
+   * agent-first product: an agent that verifies its own write by reading the echo
+   * reports success.
+   *
+   * So a person may be written by id, email or display name, and anything that
+   * doesn't resolve to exactly one active member throws — the raw string is never
+   * stored. Runs before validation, so the validator still only ever sees ids.
+   */
+  private async resolveUserInputs(
+    workspaceId: string,
+    defs: FieldDef[],
+    input: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const userKeys = Object.keys(input).filter(
+      (k) => defs.find((d) => d.api_name === k)?.type === 'user',
+    );
+    if (userKeys.length === 0) return input;
+
+    const directory = await this.userDirectory(workspaceId);
+    const byId = new Map(directory.map((u) => [u.id, u]));
+    const byEmail = new Map(directory.map((u) => [u.email.toLowerCase(), u]));
+    const byName = new Map<string, Array<{ id: string; name: string }>>();
+    for (const u of directory) {
+      const key = (u.name ?? '').trim().toLowerCase();
+      if (!key) continue;
+      byName.set(key, [...(byName.get(key) ?? []), u]);
+    }
+
+    const resolveOne = (raw: unknown, apiName: string): string => {
+      if (typeof raw !== 'string' || !raw.trim()) {
+        throw new UnprocessableEntityException({
+          message: 'Record values validation failed',
+          details: [{ path: `values.${apiName}`, message: 'expected a user id, email or name' }],
+        });
+      }
+      const value = raw.trim();
+      if (byId.has(value)) return value;
+      const email = byEmail.get(value.toLowerCase());
+      if (email) return email.id;
+      const named = byName.get(value.toLowerCase()) ?? [];
+      if (named.length === 1) return named[0]!.id;
+
+      // Name the candidates: the agent's next turn should be able to fix itself.
+      const who = directory.map((u) => `${u.name} <${u.email}>`).join(', ');
+      throw new UnprocessableEntityException({
+        message: 'Record values validation failed',
+        details: [
+          {
+            path: `values.${apiName}`,
+            message:
+              named.length > 1
+                ? `"${value}" matches ${named.length} people — use their email or id. Members: ${who}`
+                : `no member "${value}" — use a user id, email, or exact name. Members: ${who}`,
+          },
+        ],
+      });
+    };
+
+    const out = { ...input };
+    for (const key of userKeys) {
+      const raw = out[key];
+      if (raw === null) continue; // explicit clear
+      out[key] = Array.isArray(raw)
+        ? [...new Set(raw.map((v) => resolveOne(v, key)))]
+        : resolveOne(raw, key);
+    }
+    return out;
+  }
+
   private validateOrThrow(defs: FieldDef[], input: Record<string, unknown>) {
     // MN-080: relations are accepted inline and written with the record, so a
     // seeding job doesn't need a second round-trip per record and never leaves a
@@ -592,7 +676,12 @@ export class RecordsService {
     options: { suppressAutomations?: boolean } = {},
   ): Promise<ProjectedRecord[]> {
     const defs = await this.fieldDefs(databaseId);
-    const validated = inputs.map((input) => this.validateOrThrow(defs, input));
+    // MN-118: people resolve to real ids before validation, so a name can never be
+    // stored verbatim and reported as success.
+    const resolved = await Promise.all(
+      inputs.map((input) => this.resolveUserInputs(workspaceId, defs, input)),
+    );
+    const validated = resolved.map((input) => this.validateOrThrow(defs, input));
     // Resolved up front: an unknown target must fail before any record is inserted.
     const linkPlans = await Promise.all(
       validated.map((v) => (v.links ? this.planLinks(defs, v.links) : Promise.resolve([]))),
@@ -692,7 +781,10 @@ export class RecordsService {
   ): Promise<ProjectedRecord> {
     const defs = await this.fieldDefs(databaseId);
     const row = await this.getRow(databaseId, recordId);
-    const validated = this.validateOrThrow(defs, input);
+    const validated = this.validateOrThrow(
+      defs,
+      await this.resolveUserInputs(workspaceId, defs, input),
+    );
     // MN-080: resolved before the transaction — a bad target must not half-apply.
     const linkPlans = validated.links ? await this.planLinks(defs, validated.links) : [];
 
