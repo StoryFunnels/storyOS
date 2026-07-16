@@ -28,7 +28,8 @@ Ticket: [MN-076](../../tickets/MN-076-mcp-server.md).
 | `create_record` | Create a record; `values` by `api_name`, selects accept the **label**. |
 | `update_record` | Merge-update (null clears); record by uuid or public number. |
 | `delete_record` | Trash a record (restorable 30 days). |
-| `link_records` | Link a record to targets through a relation field. |
+| `link_records` | Link a record to targets through a relation field. `replace: true` sets the link set to exactly `targets` — how you re-point or clear a one-to-many link. |
+| `unlink_records` | Remove specific links from a relation field (the relation itself stays). |
 | `add_comment` | Post a comment. |
 | `attach_file` | Attach a file to a record — from a public `url` (fetched server-side) or inline `content_base64`; images get a thumbnail. |
 | `list_attachments` / `delete_attachment` | List a record's files, or remove one by id. |

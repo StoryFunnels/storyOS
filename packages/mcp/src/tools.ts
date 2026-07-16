@@ -73,6 +73,40 @@ function describeFields(db: DatabaseDetail) {
     });
 }
 
+/**
+ * Resolve select/multi_select FILTER values from human labels → option ids (#77).
+ *
+ * get_started promises "select labels are resolved server-side", and writes already
+ * do this via mapSelectLabels — but filters didn't, so the API (which validates
+ * option ids) rejected `{field:'state', op:'eq', value:'Done'}` with an opaque
+ * "unknown option id". Every realistic agent filter is on a select, which is why
+ * filtering looked completely broken. Unknown labels raise a helpful error naming
+ * the valid options instead of failing at the API.
+ */
+export function mapFilterValues(detail: DatabaseDetail, node: unknown): unknown {
+  if (!node || typeof node !== 'object') return node;
+  for (const key of ['and', 'or'] as const) {
+    const children = (node as Record<string, unknown>)[key];
+    if (Array.isArray(children)) {
+      return { [key]: children.map((child) => mapFilterValues(detail, child)) };
+    }
+  }
+  const cond = node as { field?: string; op?: string; value?: unknown };
+  if (typeof cond.field !== 'string') return node;
+  const f = detail.fields.find((x) => x.apiName === cond.field);
+  if (!f || (f.type !== 'select' && f.type !== 'multi_select') || !f.options?.length) return node;
+
+  const toId = (v: unknown): unknown => {
+    if (typeof v !== 'string') return v;
+    const opt = f.options!.find((o) => o.id === v || o.label.toLowerCase() === v.toLowerCase());
+    if (opt) return opt.id;
+    throw new Error(
+      `No option "${v}" on field "${f.apiName}". Available: ${f.options!.map((o) => o.label).join(', ')}.`,
+    );
+  };
+  return { ...cond, value: Array.isArray(cond.value) ? cond.value.map(toId) : toId(cond.value) };
+}
+
 /** Register the Phase-1 (read-only) tool catalog (MN-076). */
 export function registerTools(server: McpServer, ctx: Ctx) {
   const { client } = ctx;
@@ -207,13 +241,14 @@ export function registerTools(server: McpServer, ctx: Ctx) {
       async ({ workspace, database, filter, sorts, limit, cursor }) => {
         const ws = await resolveWorkspace(client, workspace);
         const db = await resolveDatabase(client, ws.id, database);
+        // Read the schema first so select labels in the filter can be resolved (#77).
+        const detail = await getDetail(ws.id, db.id);
         const res = await unwrap<{ data: RecordRow[]; next_cursor: string | null; has_more: boolean }>(
           client.POST('/api/v1/workspaces/{ws}/databases/{db}/records/query', {
             params: { path: { ws: ws.id, db: db.id } },
-            body: { filter, sorts: sorts ?? [], limit: limit ?? 50, cursor } as never,
+            body: { filter: mapFilterValues(detail, filter), sorts: sorts ?? [], limit: limit ?? 50, cursor } as never,
           }),
         );
-        const detail = await getDetail(ws.id, db.id);
         return text({
           records: res.data.map((r) => ({ id: r.id, number: r.number, title: r.title, values: labelize(detail, r.values) })),
           next_cursor: res.next_cursor,
@@ -428,13 +463,63 @@ export function registerTools(server: McpServer, ctx: Ctx) {
     {
       title: 'Link records',
       description:
-        'Add links from a record through a relation field to target records (by uuid or public number). Get target ids from search / query_records first.',
+        'Link a record through a relation field to target records (by uuid or public number). Default ADDS links. Use replace:true to set the link set to exactly `targets` — that is how you re-point or clear a one-to-many link (adding a second target without replace returns a 409). Get target ids from search / query_records first.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
         record: z.string(),
         relation_field: z.string().describe('The relation field on this database (api_name, name, or id).'),
-        targets: z.array(z.string()).describe('Target record uuids or public numbers.'),
+        targets: z.array(z.string()).describe('Target record uuids or public numbers. With replace:true, an empty array clears all links.'),
+        replace: z
+          .boolean()
+          .optional()
+          .describe('Replace the whole link set with `targets` instead of adding to it — required to change a one-to-many link (#81).'),
+      },
+    },
+    handle<{ workspace: string; database: string; record: string; relation_field: string; targets: string[]; replace?: boolean }>(
+      async ({ workspace, database, record, relation_field, targets, replace }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const detail = await getDetail(ws.id, db.id);
+        const fieldId = resolveFieldId(detail, relation_field, ['relation'], 'relation');
+        const rec = await resolveRecordId(ws.id, db.id, record);
+        const relField = detail.fields.find((f) => f.id === fieldId);
+        const targetDbId = relField?.relation?.target_database_id ?? db.id;
+        const targetIds = await Promise.all(targets.map((t) => resolveRecordId(ws.id, targetDbId, t)));
+        const path = { ws: ws.id, db: db.id, rec, field: fieldId };
+        // PUT replaces the link set; POST adds. The API has always supported both —
+        // only `add` was exposed, so "Use replace instead" was unreachable (#81).
+        await unwrap(
+          replace
+            ? client.PUT('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/links/{field}', {
+                params: { path } as never,
+                body: { record_ids: targetIds } as never,
+              })
+            : client.POST('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/links/{field}', {
+                params: { path } as never,
+                body: { record_ids: targetIds } as never,
+              }),
+        );
+        const row = await unwrap<RecordRow>(
+          client.GET('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}', { params: { path: { ws: ws.id, db: db.id, rec } } }),
+        );
+        return text(row);
+      },
+    ),
+  );
+
+  server.registerTool(
+    'unlink_records',
+    {
+      title: 'Unlink records',
+      description:
+        'Remove specific links from a record\'s relation field, leaving the relation and every other link intact. Use this (or link_records with replace) to fix a mis-link — never delete_relation, which drops the relation everywhere (#81).',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        record: z.string(),
+        relation_field: z.string().describe('The relation field on this database (api_name, name, or id).'),
+        targets: z.array(z.string()).describe('Target record uuids or public numbers to unlink.'),
       },
     },
     handle<{ workspace: string; database: string; record: string; relation_field: string; targets: string[] }>(
@@ -448,7 +533,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
         const targetDbId = relField?.relation?.target_database_id ?? db.id;
         const targetIds = await Promise.all(targets.map((t) => resolveRecordId(ws.id, targetDbId, t)));
         await unwrap(
-          client.POST('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/links/{field}', {
+          client.DELETE('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/links/{field}', {
             params: { path: { ws: ws.id, db: db.id, rec, field: fieldId } } as never,
             body: { record_ids: targetIds } as never,
           }),
@@ -776,7 +861,8 @@ export function registerTools(server: McpServer, ctx: Ctx) {
   type ViewOpts = { group_by?: string; card_fields?: string[]; date_field?: string; start_date_field?: string; end_date_field?: string; filters?: unknown; sorts?: Array<{ field: string; direction?: string }> };
   function buildViewConfig(detail: DatabaseDetail, type: string, o: ViewOpts): Record<string, unknown> {
     const config: Record<string, unknown> = { sorts: o.sorts ?? [], hidden_field_ids: [], card_field_ids: [], column_widths: {} };
-    if (o.filters) config.filters = o.filters;
+    // Saved views take the same AST, so resolve select labels here too (#77).
+    if (o.filters) config.filters = mapFilterValues(detail, o.filters);
     if (o.card_fields) config.card_field_ids = o.card_fields.map((f) => anyField(detail, f));
     if (type === 'board' && o.group_by) config.group_by_field_id = anyField(detail, o.group_by);
     if (type === 'calendar' && o.date_field) config.date_field_id = anyField(detail, o.date_field);
