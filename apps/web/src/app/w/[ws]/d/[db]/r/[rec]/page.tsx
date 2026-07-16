@@ -1033,7 +1033,8 @@ function FieldMenu({
   const [dialog, setDialog] = useState<'edit' | 'change-type' | null>(null);
   const deleteField = useDeleteField({ ws, db, field, onDone: () => setDialog(null) });
   const setConfig = useSetFieldConfig(ws, db);
-  const canDelete = field.type !== 'relation' && !field.isSystem;
+  // Relations delete via the relations API (useDeleteField), removing both paired fields.
+  const canDelete = field.type !== 'title' && !field.isSystem;
   // Collections & rich text are body-locked; scalars & single-refs can be shown in any zones.
   const zones = collection ? [] : zonesOf(field);
 
