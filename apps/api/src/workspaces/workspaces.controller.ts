@@ -23,6 +23,7 @@ import {
   UpdateSpaceDto,
   UpdateWorkspaceDto,
 } from './dto';
+import { AccessService } from '../access/access.service';
 import { InvitesService } from './invites.service';
 import { MembersService } from './members.service';
 import { SpacesService } from './spaces.service';
@@ -58,6 +59,7 @@ export class WorkspaceController {
     private readonly spaces: SpacesService,
     private readonly members: MembersService,
     private readonly invites: InvitesService,
+    private readonly access: AccessService,
   ) {}
 
   @Get()
@@ -102,9 +104,12 @@ export class WorkspaceController {
   }
 
   @Delete('spaces/:space')
-  @MinRole('member')
-  @ApiOperation({ summary: 'Delete a space' })
-  deleteSpace(@Req() req: WorkspaceRequest, @Param('space') spaceId: string) {
+  // MN-124: deleting a space cascades every database and grant inside it. That
+  // needs creator ON THIS SPACE (or admin) — `@MinRole('member')` asked nothing
+  // about the scope, so the only friction was a confirm box.
+  @ApiOperation({ summary: 'Delete a space (creator on this space, or admin)' })
+  async deleteSpace(@Req() req: WorkspaceRequest, @Param('space') spaceId: string) {
+    await this.access.assertSpace(req.membership, spaceId, 'creator');
     return this.spaces.remove(req.membership.workspaceId, spaceId);
   }
 

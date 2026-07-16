@@ -1,15 +1,16 @@
 import { sql } from 'drizzle-orm';
 import {
-  pgTable,
-  pgEnum,
-  uuid,
-  text,
+  boolean,
+  check,
+  index,
   integer,
   jsonb,
-  boolean,
+  pgEnum,
+  pgTable,
+  text,
   timestamp,
-  index,
   uniqueIndex,
+  uuid,
 } from 'drizzle-orm/pg-core';
 
 /**
@@ -128,14 +129,43 @@ export const accessGrants = pgTable(
       .notNull()
       .references(() => workspaces.id, { onDelete: 'cascade' }),
     userId: text('user_id').notNull(),
-    /** Exactly one of spaceId/databaseId (service-enforced). Highest grant wins. */
+    /**
+     * Exactly one of spaceId/databaseId — now enforced by a CHECK, not just the
+     * service (MN-125). Highest grant wins.
+     */
     spaceId: uuid('space_id').references(() => spaces.id, { onDelete: 'cascade' }),
-    databaseId: uuid('database_id'),
+    /**
+     * MN-125: this had NO foreign key while spaceId did, so a grant survived its
+     * database being deleted — a dangling row that could match a recycled id.
+     */
+    databaseId: uuid('database_id').references(() => databases.id, { onDelete: 'cascade' }),
     role: accessRole('role').notNull(),
     createdBy: text('created_by'),
     ...timestamps,
   },
-  (t) => [index('access_grants_user_idx').on(t.workspaceId, t.userId)],
+  (t) => [
+    index('access_grants_user_idx').on(t.workspaceId, t.userId),
+    /**
+     * MN-125: the upsert was a read-then-write with nothing backing it, so two
+     * concurrent grants on the same scope produced duplicate rows. Reads took a
+     * max and so failed safe — but deleteGrant removed only ONE row, meaning
+     * revoking access reported success while access silently persisted. A
+     * security control that says "done" and does nothing is the dangerous half.
+     *
+     * Partial indexes because exactly one column is non-null per row.
+     */
+    uniqueIndex('access_grants_user_space_uq')
+      .on(t.userId, t.spaceId)
+      .where(sql`${t.spaceId} IS NOT NULL`),
+    uniqueIndex('access_grants_user_database_uq')
+      .on(t.userId, t.databaseId)
+      .where(sql`${t.databaseId} IS NOT NULL`),
+    /** The scope XOR the service always claimed, now actually enforced. */
+    check(
+      'access_grants_scope_xor',
+      sql`(${t.spaceId} IS NULL) <> (${t.databaseId} IS NULL)`,
+    ),
+  ],
 );
 
 /** Named collapsible containers inside a space, for sidebar IA (MN-096). */

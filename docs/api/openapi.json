@@ -269,7 +269,7 @@
             "bearer": []
           }
         ],
-        "summary": "Delete a space",
+        "summary": "Delete a space (creator on this space, or admin)",
         "tags": [
           "workspaces"
         ]
@@ -745,7 +745,7 @@
             "bearer": []
           }
         ],
-        "summary": "Hard delete — body.confirm must equal the database name",
+        "summary": "Hard delete (creator on this database, or admin) — body.confirm must equal the name",
         "tags": [
           "databases"
         ]
