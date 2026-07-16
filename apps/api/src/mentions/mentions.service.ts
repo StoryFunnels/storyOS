@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { databases, records, recordMentions } from '../db/schema';
+import { comments, databases, documents, fields, records, recordMentions } from '../db/schema';
 import { AccessService } from '../access/access.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
@@ -47,20 +47,53 @@ export class MentionsService {
   ) {}
 
   /**
-   * Reconcile the backlinks + notifications for a record's document after a save.
-   * Best-effort: mention bookkeeping must never fail the document write, so callers
-   * invoke this after commit and swallow errors. Replaces this source's mention set
-   * wholesale (a removed #mention drops its backlink); notifies newly-@mentioned users.
+   * Reconcile the backlinks + notifications for EVERYTHING a record says (#140):
+   * its document, its rich_text field values, and its comments' #record segments.
+   * One method owns the whole mention set so the three surfaces never clobber each
+   * other's backlinks. Best-effort: callers invoke after commit and swallow errors.
+   *
+   * @user notifications come from the BlockNote surfaces only (doc + fields) —
+   * comments already notify their own mentions on create. Pass notify: false when
+   * the trigger was a comment write so a comment doesn't re-ping doc mentions.
    */
-  async syncDocumentMentions(
+  async syncRecordMentions(
     workspaceId: string,
     databaseId: string,
     sourceRecordId: string,
-    content: unknown,
     actorId: string,
-    snippet?: string,
+    opts: { snippet?: string; notify?: boolean } = {},
   ): Promise<void> {
-    const { userIds, recordIds } = collectMentions(content);
+    const [doc, record, richTextFields, commentRows] = await Promise.all([
+      this.db.query.documents.findFirst({ where: eq(documents.recordId, sourceRecordId) }),
+      this.db.query.records.findFirst({ where: eq(records.id, sourceRecordId) }),
+      this.db.query.fields.findMany({
+        where: and(eq(fields.databaseId, databaseId), eq(fields.type, 'rich_text'), isNull(fields.deletedAt)),
+        columns: { id: true },
+      }),
+      this.db.query.comments.findMany({
+        where: and(eq(comments.recordId, sourceRecordId), isNull(comments.deletedAt)),
+        columns: { body: true },
+      }),
+    ]);
+
+    const userIds = new Set<string>();
+    const recordIdSet = new Set<string>();
+    const addFrom = (content: unknown) => {
+      const found = collectMentions(content);
+      found.userIds.forEach((id) => userIds.add(id));
+      found.recordIds.forEach((id) => recordIdSet.add(id));
+    };
+    addFrom(doc?.content);
+    const values = (record?.values ?? {}) as Record<string, unknown>;
+    for (const f of richTextFields) addFrom(values[f.id]);
+    // Comments carry their own segment shape ({type:'record', record_id}); only the
+    // #record half feeds backlinks here — @s in comments notify via the comment path.
+    for (const c of commentRows) {
+      for (const seg of (c.body as Array<{ type?: string; record_id?: string }>) ?? []) {
+        if (seg?.type === 'record' && seg.record_id) recordIdSet.add(seg.record_id);
+      }
+    }
+    const recordIds = [...recordIdSet];
 
     // Keep only #targets that really exist in this workspace (ignore stale/foreign ids),
     // and never let a record backlink to itself.
@@ -92,15 +125,15 @@ export class MentionsService {
       }
     });
 
-    if (userIds.length) {
+    if (userIds.size && opts.notify !== false) {
       await this.notifications.notify({
         workspaceId,
         databaseId,
         recordId: sourceRecordId,
         actorId,
         type: 'mentioned',
-        recipients: userIds,
-        snippet,
+        recipients: [...userIds],
+        snippet: opts.snippet,
       });
     }
   }

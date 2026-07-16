@@ -17,7 +17,44 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
-type Segment = { type: 'text'; text: string } | { type: 'mention'; user_id: string };
+type Segment =
+  | { type: 'text'; text: string }
+  | { type: 'mention'; user_id: string }
+  /** #record mention (#140): id is durable, database_id makes the chip navigable. */
+  | { type: 'record'; record_id: string; database_id: string };
+
+/** Live-title record chip for a #mention in a comment — store the id, render the label. */
+function CommentRecordChip({ ws, segment }: { ws: string; segment: { record_id: string; database_id: string } }) {
+  const record = useQuery({
+    queryKey: ['mention-record', ws, segment.database_id, segment.record_id],
+    retry: false,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const { data, error, response } = await api.GET(
+        '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}',
+        { params: { path: { ws, db: segment.database_id, rec: segment.record_id } } },
+      );
+      if (error) {
+        if (response.status === 404) return { deleted: true as const };
+        throw error;
+      }
+      return data as unknown as { title: string };
+    },
+  });
+  const deleted = record.data && 'deleted' in record.data;
+  const title = record.data && 'title' in record.data ? record.data.title : '…';
+  if (deleted) {
+    return <span className="rounded bg-accent-soft px-1 font-medium text-faint line-through">#deleted</span>;
+  }
+  return (
+    <Link
+      href={`/w/${ws}/d/${segment.database_id}/r/${segment.record_id}`}
+      className="rounded bg-accent-soft px-1 font-medium text-[var(--accent)] no-underline"
+    >
+      #{title || 'Untitled'}
+    </Link>
+  );
+}
 
 interface Comment {
   id: string;
@@ -25,6 +62,72 @@ interface Comment {
   author: { id: string; name: string; image: string | null };
   created_at: string;
   edited_at: string | null;
+}
+
+/** "#" button in the comment composer: search records (grant-scoped), insert a chip. */
+function RecordMentionButton({
+  ws,
+  onPick,
+}: {
+  ws: string;
+  onPick: (recordId: string, databaseId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const results = useQuery({
+    queryKey: ['comment-record-picker', ws, search],
+    enabled: open && search.trim().length > 0,
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/search', {
+        params: { path: { ws }, query: { q: search.trim() } },
+      } as never);
+      if (error) throw error;
+      return (data as unknown as {
+        records: Array<{ id: string; title: string; database_id: string; database_name: string }>;
+      }).records;
+    },
+  });
+
+  return (
+    <span className="relative">
+      <Button variant="secondary" size="sm" title="Mention a record" onClick={() => setOpen((v) => !v)}>
+        #
+      </Button>
+      {open && (
+        <div className="absolute bottom-full right-0 z-30 mb-1 w-72 rounded-[var(--radius-card)] border border-border-default bg-card p-2 shadow-[0_8px_24px_rgba(15,23,41,0.15)]">
+          <input
+            autoFocus
+            className="mb-1 h-8 w-full rounded-md border border-border-default bg-card px-2 text-[13px] text-ink"
+            placeholder="Search records…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setOpen(false);
+            }}
+          />
+          <div className="max-h-48 overflow-y-auto">
+            {(results.data ?? []).map((r) => (
+              <button
+                key={r.id}
+                className="flex w-full items-baseline gap-2 rounded px-2 py-1 text-left text-[13px] text-ink hover:bg-hover"
+                onClick={() => {
+                  onPick(r.id, r.database_id);
+                  setOpen(false);
+                  setSearch('');
+                }}
+              >
+                <span className="truncate">{r.title || 'Untitled'}</span>
+                <span className="shrink-0 text-[11px] text-faint">{r.database_name}</span>
+              </button>
+            ))}
+            {search.trim() && results.data?.length === 0 && (
+              <p className="px-2 py-1 text-[12px] text-faint">No matches.</p>
+            )}
+          </div>
+        </div>
+      )}
+    </span>
+  );
 }
 
 export function CommentsPanel({
@@ -122,6 +225,8 @@ export function CommentsPanel({
             {comment.body.map((segment, i) =>
               segment.type === 'text' ? (
                 <span key={i}>{segment.text}</span>
+              ) : segment.type === 'record' ? (
+                <CommentRecordChip key={i} ws={ws} segment={segment} />
               ) : (
                 <span key={i} className="rounded bg-accent-soft px-1 font-medium text-ink">
                   @{memberNames.get(segment.user_id) ?? 'unknown'}
@@ -141,6 +246,10 @@ export function CommentsPanel({
                   <span key={i} className="mr-1 rounded bg-accent-soft px-1 text-[12px] font-medium text-ink">
                     @{memberNames.get(segment.user_id)}
                   </span>
+                ) : segment.type === 'record' ? (
+                  <span key={i} className="mr-1 rounded bg-accent-soft px-1 text-[12px] font-medium text-ink">
+                    <CommentRecordChip ws={ws} segment={segment} />
+                  </span>
                 ) : (
                   <span key={i} className="mr-1 text-[13px]">{segment.text}</span>
                 ),
@@ -149,7 +258,7 @@ export function CommentsPanel({
           )}
           <input
             className="w-full bg-card text-[13px] text-ink outline-none placeholder:text-faint"
-            placeholder="Write a comment… (@ to mention)"
+            placeholder="Write a comment… (@ people, # records)"
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
@@ -184,6 +293,17 @@ export function CommentsPanel({
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
+        <RecordMentionButton
+          ws={ws}
+          onPick={(record_id, database_id) => {
+            setSegments((prev) => [
+              ...prev,
+              ...(text.trim() ? [{ type: 'text', text: `${text.trim()} ` } as Segment] : []),
+              { type: 'record', record_id, database_id },
+            ]);
+            setText('');
+          }}
+        />
         <Button size="sm" onClick={submit} disabled={post.isPending}>
           <Send className="h-3.5 w-3.5" />
         </Button>
