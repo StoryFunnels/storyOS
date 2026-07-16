@@ -1,4 +1,5 @@
 import { Controller, Get, Param, Query, Req, Res, UseGuards } from '@nestjs/common';
+import { Readable } from 'node:stream';
 import type { FastifyReply } from 'fastify';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '../auth/auth.guard';
@@ -31,17 +32,15 @@ export class ExportController {
     @Query('view') viewId?: string,
   ) {
     await this.databases.assertAccess(req.membership, databaseId, 'viewer');
-    const { csv, databaseName, truncated } = await this.exportService.exportCsv(
+    // Validate the db + view here (404s surface before any body goes out).
+    const { databaseName, generate } = await this.exportService.prepareExport(
       databaseId,
       viewId,
       req.user.id,
     );
     reply.header('content-type', 'text/csv; charset=utf-8');
     reply.header('content-disposition', `attachment; filename="${csvFilename(databaseName, new Date())}"`);
-    // For API/script consumers: a table past the row cap is cut off rather than
-    // failed. The web UI downloads via a plain link and so can't read this — a
-    // visible warning there needs the cap surfaced some other way (see MN-128).
-    reply.header('x-storyos-truncated', truncated ? 'true' : 'false');
-    return reply.send(csv);
+    // Streamed (MN-128): the whole table, one page at a time, no row cap.
+    return reply.send(Readable.from(generate()));
   }
 }

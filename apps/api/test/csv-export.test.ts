@@ -209,3 +209,32 @@ describe('export → import round-trip (MN-075 AC)', () => {
     expect(alpha.values.state, 'the select label re-resolved to an option').toBe(todoId);
   });
 });
+
+describe('streaming — no row cap (MN-128)', () => {
+  it('exports a table larger than a single page, in full', async () => {
+    const space = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
+    const big = (await inject('POST', `/workspaces/${wsId}/databases`, { space_id: space, name: 'Big' })).json().id;
+
+    // 1200 records = well past the 500-row page size, so it exercises >2 pages.
+    const N = 1200;
+    for (let i = 0; i < N; i += 100) {
+      const records = Array.from({ length: Math.min(100, N - i) }, (_, j) => ({
+        values: { name: `row-${i + j}` },
+      }));
+      const res = await inject('POST', `/workspaces/${wsId}/databases/${big}/records/batch`, { records });
+      expect(res.statusCode, res.body).toBe(201);
+    }
+
+    const res = await inject('GET', `/workspaces/${wsId}/databases/${big}/export/csv`);
+    expect(res.statusCode).toBe(200);
+    const rows = parseCsv(res.body);
+    // header + N data rows — nothing silently dropped.
+    expect(rows.length - 1, 'every record must be in the CSV, no 50k-style cap').toBe(N);
+
+    // spot-check first and last so it's not just a count coincidence.
+    const nameCol = rows[0]!.indexOf('Name');
+    const names = new Set(rows.slice(1).map((r) => r[nameCol]));
+    expect(names.has('row-0')).toBe(true);
+    expect(names.has('row-1199')).toBe(true);
+  });
+});
