@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { toast } from 'sonner';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCreateBlockNote } from '@blocknote/react';
@@ -73,8 +74,13 @@ import { parseRecordParam, recordHref } from '@/lib/records';
 import { uploadEditorImage } from '@/lib/editor-upload';
 import { cn } from '@/lib/utils';
 
-const HIDDEN = new Set(['id', 'title', 'created_at', 'updated_at', 'created_by']);
-const NOT_INLINE = new Set(['lookup', 'rollup', 'button', 'formula']);
+// id renders in the header, title is the page heading — showing them again is
+// duplication. The audit fields (MN-126) are NOT hidden outright any more: they
+// exist on every database and are now opt-in from the field picker.
+const HIDDEN = new Set(['id', 'title']);
+/** System audit fields — read-only, opt-in, sourced from the record row not values (MN-126). */
+const AUDIT_TYPES = new Set(['created_at', 'updated_at', 'created_by']);
+const NOT_INLINE = new Set(['lookup', 'rollup', 'button', 'formula', 'created_at', 'updated_at', 'created_by']);
 
 type Zone = 'top' | 'sidebar' | 'body';
 const ZONE_LABEL: Record<Zone, string> = { top: 'top strip', sidebar: 'sidebar', body: 'main body' };
@@ -114,7 +120,17 @@ function isEmptyValue(v: unknown): boolean {
 /** Hidden outright, or flagged hide-when-empty and currently empty. */
 function isHidden(f: Field, record: RecordRow): boolean {
   if (f.config?.['entity_hidden'] === true) return true;
+  // Audit fields are available but default-hidden, so a record doesn't sprout three
+  // new rows until the user opts in from the picker (MN-126).
+  if (AUDIT_TYPES.has(f.type) && f.config?.['entity_hidden'] !== false) return true;
   return f.config?.['hide_when_empty'] === true && isEmptyValue(record.values[f.apiName]);
+}
+/** Audit fields live on the record row, not in `values` (MN-126). */
+function auditValue(f: Field, record: RecordRow): unknown {
+  if (f.type === 'created_by') return record.created_by;
+  if (f.type === 'created_at') return record.created_at;
+  if (f.type === 'updated_at') return record.updated_at;
+  return undefined;
 }
 
 export default function EntityPage() {
@@ -424,7 +440,17 @@ interface VP {
 /** Inline value renderer for scalar fields (sidebar, top strip, body). */
 function ScalarValue({ field, record, ws, db, rec, members, memberNames, memberImages, readOnly, onCommit }: VP & { field: Field }) {
   const [editing, setEditing] = useState(false);
-  const value = record.values[field.apiName];
+  const value = AUDIT_TYPES.has(field.type) ? auditValue(field, record) : record.values[field.apiName];
+
+  // MN-126: audit fields are read-only and sourced from the record row. CellDisplay
+  // already renders created_at/updated_at as datetimes and created_by as a person.
+  if (AUDIT_TYPES.has(field.type)) {
+    return value === undefined || value === null ? (
+      <span className="text-[13px] text-faint">—</span>
+    ) : (
+      <CellDisplay field={field} value={value} memberNames={memberNames} memberImages={memberImages} />
+    );
+  }
 
   if (field.type === 'relation') {
     // Single reference (collections render as their own body section).
@@ -484,8 +510,52 @@ function ScalarValue({ field, record, ws, db, rec, members, memberNames, memberI
     >
       {empty ? (
         <span className="text-[13px] text-faint">Empty</span>
+      ) : PROSE_TYPES.has(field.type) ? (
+        <ClampedValue>
+          <CellDisplay field={field} value={value} memberNames={memberNames} memberImages={memberImages} wrap />
+        </ClampedValue>
       ) : (
         <CellDisplay field={field} value={value} memberNames={memberNames} memberImages={memberImages} />
+      )}
+    </div>
+  );
+}
+
+/** Sidebar prose fields that should wrap rather than clip (MN-132). */
+const PROSE_TYPES = new Set(['text', 'email', 'url', 'rich_text']);
+
+/**
+ * MN-132: wrap a long value to a few lines, with expand-on-click. Measures whether
+ * the content actually overflows the clamp so the toggle only shows when it earns
+ * its place. Clicking the toggle must not open the field editor — hence stopPropagation.
+ */
+function ClampedValue({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [overflows, setOverflows] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    setOverflows(el.scrollHeight > el.clientHeight + 1);
+  }, [children, expanded]);
+
+  return (
+    <div className="min-w-0">
+      <div ref={ref} className={cn('min-w-0', !expanded && 'line-clamp-4')}>
+        {children}
+      </div>
+      {(overflows || expanded) && (
+        <button
+          type="button"
+          className="mt-0.5 text-[11px] text-muted hover:text-ink"
+          onClick={(e) => {
+            e.stopPropagation();
+            setExpanded((v) => !v);
+          }}
+        >
+          {expanded ? 'Show less' : 'Show more'}
+        </button>
       )}
     </div>
   );
@@ -1081,13 +1151,12 @@ function RichTextFieldSection({
 
 function HiddenFieldRow({ ws, db, field }: { ws: string; db: string; field: Field }) {
   const setConfig = useSetFieldConfig(ws, db);
-  // Clear whichever flag hid it: an explicit hide, or hide-when-empty.
+  // Clear every reason it could be hidden: an explicit hide, hide-when-empty, or
+  // the audit-field default (MN-126, which keys off entity_hidden !== false).
   const reveal = () =>
-    setConfig.mutate({
-      fieldId: field.id,
-      config: field.config?.['entity_hidden'] === true ? { entity_hidden: false } : { hide_when_empty: false },
-    });
-  const reason = field.config?.['entity_hidden'] === true ? '' : ' (empty)';
+    setConfig.mutate({ fieldId: field.id, config: { entity_hidden: false, hide_when_empty: false } });
+  const reason =
+    field.config?.['entity_hidden'] === true || AUDIT_TYPES.has(field.type) ? '' : ' (empty)';
   return (
     <div className="flex min-h-7 items-center justify-between py-0.5">
       <span className="truncate text-[12px] text-faint">

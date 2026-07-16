@@ -298,7 +298,22 @@ export class FieldsService {
     patch: { display_name?: string; config?: Record<string, unknown>; position?: number },
   ) {
     const field = await this.getField(databaseId, fieldId);
-    if (field.isSystem) throw new UnprocessableEntityException('System fields cannot be edited');
+    // A system field's schema (name, type, position) is fixed — but its per-view
+    // LAYOUT config is not schema. The record page needs to toggle entity_zones /
+    // entity_hidden on the audit fields to show them (MN-126), so allow a
+    // config-only patch on system fields while still refusing name/position edits.
+    if (field.isSystem) {
+      if (patch.display_name !== undefined || patch.position !== undefined) {
+        throw new UnprocessableEntityException('System fields cannot be renamed or reordered');
+      }
+      if (!patch.config) return this.withOptions(this.db, field);
+      const [updated] = await this.db
+        .update(fields)
+        .set({ config: { ...(field.config as object), ...patch.config } })
+        .where(eq(fields.id, fieldId))
+        .returning();
+      return this.withOptions(this.db, updated!);
+    }
 
     const [updated] = await this.db
       .update(fields)
