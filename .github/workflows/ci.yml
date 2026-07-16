@@ -73,3 +73,85 @@ jobs:
           pnpm --filter @storyos/sdk generate
           git diff --exit-code packages/sdk/src/generated || {
             echo "::error::the generated SDK is out of date. Run pnpm sdk:generate and commit."; exit 1; }
+
+  # MN-129: `pnpm build` says nothing about whether the SERVER can build or run
+  # these. The Docker graph is different — it copies a subset of the workspace and
+  # installs with --frozen-lockfile --prod. Both 2026-07-16 deploy failures were
+  # invisible to the job above: one broke the mcp image build, the next built fine
+  # and died at boot. So: build all three, then actually START the mcp one.
+  images:
+    name: Docker images
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build api image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/api.Dockerfile
+          tags: storyos-api:ci
+          load: true
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,scope=api,mode=max
+
+      - name: Build web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/web.Dockerfile
+          tags: storyos-web:ci
+          load: true
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,scope=web,mode=max
+
+      - name: Build mcp image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/mcp.Dockerfile
+          tags: storyos-mcp:ci
+          load: true
+          cache-from: type=gha,scope=mcp
+          cache-to: type=gha,scope=mcp,mode=max
+
+      # A build-only check would have passed the "Dynamic require of zod" failure —
+      # that image built perfectly and then died on startup. Booting it is the
+      # cheapest thing that catches a broken bundle.
+      - name: Boot the mcp image and health-check it
+        run: |
+          docker run -d --name mcp-ci -p 3002:3002 -e PORT=3002 storyos-mcp:ci
+          for i in $(seq 1 20); do
+            if curl -fsS --max-time 3 http://localhost:3002/health > /dev/null 2>&1; then
+              echo "mcp image booted and answered /health"
+              docker rm -f mcp-ci > /dev/null
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::the mcp image did not serve /health within 40s — it builds but does not run"
+          docker logs mcp-ci
+          exit 1
+
+      # The compose file is what the server actually runs; a typo here is a failed
+      # deploy at 3am, not a failed test.
+      - name: Validate docker-compose.yml
+        env:
+          BETTER_AUTH_SECRET: ci-validation-only
+        run: docker compose -f docker-compose.yml config > /dev/null
+
+      - name: Every long-lived service must self-heal (MN-127)
+        env:
+          BETTER_AUTH_SECRET: ci-validation-only
+        run: |
+          docker compose -f docker-compose.yml config --format json > /tmp/compose.json
+          missing=$(python3 -c "import json; svc = json.load(open('/tmp/compose.json'))['services']; print(' '.join(n for n, s in svc.items() if s.get('restart') != 'unless-stopped'))")
+          if [ -n "$missing" ]; then
+            echo "::error::services without restart: unless-stopped -> $missing"
+            echo "a container that dies must come back on its own; caddy dying 521s the whole site."
+            exit 1
+          fi
+          echo "all services declare restart: unless-stopped"
