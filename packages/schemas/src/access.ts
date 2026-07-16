@@ -1,7 +1,16 @@
 import { z } from 'zod';
 
-/** ADR-0007: graded scope access. */
-export const grantRoleSchema = z.enum(['viewer', 'commenter', 'editor', 'creator']);
+/**
+ * ADR-0007: graded scope access. `contributor` (MN-121) = read + create + update
+ * records, no delete — and the boundary the billing layer reads for a paid seat.
+ */
+export const grantRoleSchema = z.enum([
+  'viewer',
+  'commenter',
+  'contributor',
+  'editor',
+  'creator',
+]);
 export type GrantRoleInput = z.infer<typeof grantRoleSchema>;
 
 export const grantScopeSchema = z

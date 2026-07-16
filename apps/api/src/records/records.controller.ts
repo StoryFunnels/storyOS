@@ -58,7 +58,7 @@ export class RecordsController {
   private async assertDb(
     req: WorkspaceRequest,
     databaseId: string,
-    min: 'viewer' | 'commenter' | 'editor' | 'creator' = 'viewer',
+    min: 'viewer' | 'commenter' | 'contributor' | 'editor' | 'creator' = 'viewer',
   ) {
     await this.databases.assertAccess(req.membership, databaseId, min);
   }
@@ -81,7 +81,7 @@ export class RecordsController {
     @Param('db') databaseId: string,
     @Body() body: CreateRecordDto,
   ) {
-    await this.assertDb(req, databaseId, 'editor');
+    await this.assertDb(req, databaseId, 'contributor');
     return this.recordsService.create(
       req.membership.workspaceId,
       databaseId,
@@ -108,7 +108,7 @@ export class RecordsController {
     @Param('db') databaseId: string,
     @Body() body: CreateRecordsBatchDto,
   ) {
-    await this.assertDb(req, databaseId, 'editor');
+    await this.assertDb(req, databaseId, 'contributor');
     const created = await this.recordsService.createBatch(
       req.membership.workspaceId,
       databaseId,
@@ -125,7 +125,7 @@ export class RecordsController {
     @Param('db') databaseId: string,
     @Body() body: BatchUpdateRecordsDto,
   ) {
-    await this.assertDb(req, databaseId, 'editor');
+    await this.assertDb(req, databaseId, 'contributor');
     return this.recordsService.batchUpdate(
       req.membership.workspaceId,
       databaseId,
@@ -196,7 +196,7 @@ export class RecordsController {
     @Param('rec') recordId: string,
     @Body() body: UpdateRecordDto,
   ) {
-    await this.assertDb(req, databaseId, 'editor');
+    await this.assertDb(req, databaseId, 'contributor');
     return this.recordsService.update(
       req.membership.workspaceId,
       databaseId,
@@ -246,7 +246,7 @@ export class RecordsController {
     @Param('rec') recordId: string,
     @Body() body: MoveRecordDto,
   ) {
-    await this.assertDb(req, databaseId, 'editor');
+    await this.assertDb(req, databaseId, 'contributor');
     return this.recordsService.move(
       req.membership.workspaceId,
       databaseId,

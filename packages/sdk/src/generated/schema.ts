@@ -1544,7 +1544,7 @@ export interface components {
                 /** Format: uuid */
                 database_id?: string;
                 /** @enum {string} */
-                role: "viewer" | "commenter" | "editor" | "creator";
+                role: "viewer" | "commenter" | "contributor" | "editor" | "creator";
             }[];
         };
         AcceptInviteDto: {
@@ -2071,7 +2071,7 @@ export interface components {
             /** Format: uuid */
             database_id?: string;
             /** @enum {string} */
-            role: "viewer" | "commenter" | "editor" | "creator";
+            role: "viewer" | "commenter" | "contributor" | "editor" | "creator";
         };
         FavoriteDto: {
             /** @enum {string} */
