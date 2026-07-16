@@ -2,14 +2,23 @@
 
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Blocks, CheckCircle2, Circle } from 'lucide-react';
+import { Blocks, CheckCircle2, Circle, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { useDatabases, useSpaces, useWorkspace } from '@/lib/queries';
 import { TEMPLATE_ICONS, TemplateGalleryDialog, useTemplateRegistry } from '@/components/template-gallery';
 import { Button } from '@/components/ui/button';
+
+interface OnboardingState {
+  database_created: boolean;
+  records_added: boolean;
+  teammate_invited: boolean;
+  board_view_built: boolean;
+  relation_created: boolean;
+  ai_connected: boolean;
+}
 
 export default function WorkspaceHome() {
   const { ws } = useParams<{ ws: string }>();
@@ -35,16 +44,19 @@ export default function WorkspaceHome() {
     },
   });
 
-  const membersProbe = useQuery({
-    queryKey: ['members', ws],
+  // MN-213: each step derives from REAL workspace state, computed server-side —
+  // never a stored flag that drifts and tells an activated user they did nothing.
+  const onboarding = useQuery({
+    queryKey: ['onboarding', ws],
     queryFn: async () => {
-      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/members', {
+      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/onboarding' as never, {
         params: { path: { ws } },
-      });
+      } as never);
       if (error) throw error;
-      return data as unknown as unknown[];
+      return data as unknown as OnboardingState;
     },
     retry: false,
+    refetchOnWindowFocus: true,
   });
 
   const registry = useTemplateRegistry();
@@ -52,17 +64,40 @@ export default function WorkspaceHome() {
   const [gallerySlug, setGallerySlug] = useState<string | undefined>(undefined);
   const canInstall = workspace.data?.role !== 'guest';
 
+  // Dismissible, and self-hiding once everything is done (MN-213).
+  const dismissKey = `storyos:gs-dismissed:${ws}`;
+  const [dismissed, setDismissed] = useState(true); // default hidden until localStorage read
+  useEffect(() => {
+    setDismissed(typeof window !== 'undefined' && window.localStorage.getItem(dismissKey) === '1');
+  }, [dismissKey]);
+
   const firstDb = databases.data?.[0];
-  const steps = [
-    { label: 'Create a database', done: (databases.data?.length ?? 0) > 0, href: undefined },
-    {
-      label: 'Open it and add a few records',
-      done: false,
-      href: firstDb ? `/w/${ws}/d/${firstDb.id}` : undefined,
-    },
-    { label: 'Invite a teammate', done: (membersProbe.data?.length ?? 1) > 1, href: `/w/${ws}/settings/members` },
-    { label: 'Build a board view', done: false, href: firstDb ? `/w/${ws}/d/${firstDb.id}` : undefined },
-  ];
+  const gs = onboarding.data;
+  // Ordered along the activation path; "Connect your AI" is the differentiator.
+  const steps = gs
+    ? [
+        { label: 'Create a database', done: gs.database_created, href: undefined },
+        {
+          label: 'Open it and add a few records',
+          done: gs.records_added,
+          href: firstDb ? `/w/${ws}/d/${firstDb.id}` : undefined,
+        },
+        {
+          label: 'Build a board view',
+          done: gs.board_view_built,
+          href: firstDb ? `/w/${ws}/d/${firstDb.id}` : undefined,
+        },
+        {
+          label: 'Connect two databases with a relation',
+          done: gs.relation_created,
+          href: firstDb ? `/w/${ws}/d/${firstDb.id}` : undefined,
+        },
+        { label: 'Invite a teammate', done: gs.teammate_invited, href: `/w/${ws}/settings/members` },
+        { label: 'Connect your AI (MCP)', done: gs.ai_connected, href: `/w/${ws}/settings/api` },
+      ]
+    : [];
+  const allDone = steps.length > 0 && steps.every((s) => s.done);
+  const showChecklist = steps.length > 0 && !allDone && !dismissed;
 
   return (
     <div className="mx-auto max-w-2xl p-10">
@@ -85,29 +120,44 @@ export default function WorkspaceHome() {
         sidebar.
       </p>
 
-      <div className="rounded-[var(--radius-card)] border border-border-default bg-card p-4">
-        <p className="mb-3 text-[12px] font-medium uppercase tracking-wider text-faint">
-          Getting started
-        </p>
-        <div className="flex flex-col gap-2.5">
-          {steps.map((step) => (
-            <div key={step.label} className="flex items-center gap-2.5">
-              {step.done ? (
-                <CheckCircle2 className="h-4 w-4 text-success" />
-              ) : (
-                <Circle className="h-4 w-4 text-faint" />
-              )}
-              {step.href && !step.done ? (
-                <Link href={step.href} className="text-[13px] text-ink underline-offset-2 hover:underline">
-                  {step.label}
-                </Link>
-              ) : (
-                <span className="text-[13px] text-ink-secondary">{step.label}</span>
-              )}
-            </div>
-          ))}
+      {showChecklist && (
+        <div className="rounded-[var(--radius-card)] border border-border-default bg-card p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <p className="text-[12px] font-medium uppercase tracking-wider text-faint">
+              Getting started · {steps.filter((s) => s.done).length}/{steps.length}
+            </p>
+            <button
+              type="button"
+              className="rounded p-0.5 text-faint hover:bg-hover hover:text-ink"
+              title="Dismiss"
+              onClick={() => {
+                window.localStorage.setItem(dismissKey, '1');
+                setDismissed(true);
+              }}
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          <div className="flex flex-col gap-2.5">
+            {steps.map((step) => (
+              <div key={step.label} className="flex items-center gap-2.5">
+                {step.done ? (
+                  <CheckCircle2 className="h-4 w-4 text-success" />
+                ) : (
+                  <Circle className="h-4 w-4 text-faint" />
+                )}
+                {step.href && !step.done ? (
+                  <Link href={step.href} className="text-[13px] text-ink underline-offset-2 hover:underline">
+                    {step.label}
+                  </Link>
+                ) : (
+                  <span className="text-[13px] text-ink-secondary">{step.label}</span>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {canInstall && (
         <div className="mt-8">

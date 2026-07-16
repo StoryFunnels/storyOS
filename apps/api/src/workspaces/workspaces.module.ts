@@ -3,6 +3,7 @@ import { FoldersController } from '../spaces/folders.controller';
 import { FoldersService } from '../spaces/folders.service';
 import { InvitesService } from './invites.service';
 import { MembersService } from './members.service';
+import { OnboardingController } from './onboarding.controller';
 import { SpacesService } from './spaces.service';
 import { WorkspaceAccessGuard } from './workspace-access.guard';
 import {
@@ -13,7 +14,7 @@ import {
 import { WorkspacesService } from './workspaces.service';
 
 @Module({
-  controllers: [WorkspacesController, WorkspaceController, InviteAcceptController, FoldersController],
+  controllers: [WorkspacesController, WorkspaceController, InviteAcceptController, FoldersController, OnboardingController],
   providers: [
     WorkspacesService,
     SpacesService,
