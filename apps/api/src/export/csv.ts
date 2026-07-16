@@ -82,15 +82,34 @@ export function serializeCell(
  * Column order and visibility are the caller's decision (a view exports exactly
  * what it shows); this just renders them.
  */
+/** Columns that actually make it into the CSV — everything but the data-less ones. */
+export function exportColumns(fields: ExportField[]): ExportField[] {
+  return fields.filter((f) => !SKIP.has(f.type));
+}
+
+/** The header line (no trailing newline). Shared by batch + streaming export (MN-128). */
+export function csvHeaderLine(cols: ExportField[]): string {
+  return csvRow(cols.map((f) => f.displayName));
+}
+
+/** One record's line (no trailing newline). */
+export function csvRecordLine(
+  cols: ExportField[],
+  record: ExportRecord,
+  userNames: Map<string, string>,
+): string {
+  return csvRow(cols.map((f) => serializeCell(f, record, userNames)));
+}
+
 export function serializeCsv(
   fields: ExportField[],
   records: ExportRecord[],
   userNames: Map<string, string> = new Map(),
 ): string {
-  const cols = fields.filter((f) => !SKIP.has(f.type));
-  const lines = [csvRow(cols.map((f) => f.displayName))];
+  const cols = exportColumns(fields);
+  const lines = [csvHeaderLine(cols)];
   for (const record of records) {
-    lines.push(csvRow(cols.map((f) => serializeCell(f, record, userNames))));
+    lines.push(csvRecordLine(cols, record, userNames));
   }
   // Trailing newline: POSIX, and Excel is happier.
   return `${lines.join('\r\n')}\r\n`;

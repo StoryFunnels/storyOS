@@ -5,18 +5,26 @@ import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { databases, fields, selectOptions, views } from '../db/schema';
 import { RecordsService } from '../records/records.service';
-import { serializeCsv, type ExportField, type ExportRecord } from './csv';
+import {
+  csvHeaderLine,
+  csvRecordLine,
+  exportColumns,
+  type ExportField,
+} from './csv';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const MAX_ROWS = 50_000;
 const PAGE = 500;
 
 /**
  * CSV export (MN-075) — the way OUT, matching MN-052's way in.
  *
  * A view exports exactly what it shows (its filters, sorts, column order and
- * hidden fields); a database exports everything. Records are paged rather than
- * loaded at once, so a big table doesn't blow up memory or time out.
+ * hidden fields); a database exports everything.
+ *
+ * The whole thing STREAMS (MN-128): one page is in memory at a time and each page
+ * is written as it's read, so memory is bounded and there is no row cap — the old
+ * 50k limit silently truncated a large export, and the header that warned of it
+ * couldn't be read by the browser's link download. Complete or nothing.
  */
 @Injectable()
 export class ExportService {
@@ -25,11 +33,8 @@ export class ExportService {
     private readonly records: RecordsService,
   ) {}
 
-  async exportCsv(
-    databaseId: string,
-    viewId: string | undefined,
-    currentUserId: string,
-  ): Promise<{ csv: string; databaseName: string; truncated: boolean }> {
+  /** Resolve the database, optional view config, columns and label maps. */
+  private async prepare(databaseId: string, viewId: string | undefined) {
     const database = await this.db.query.databases.findFirst({
       where: eq(databases.id, databaseId),
     });
@@ -57,44 +62,57 @@ export class ExportService {
       .filter((f) => !hidden.has(f.id))
       .map((f) => ({ id: f.id, displayName: f.displayName, apiName: f.apiName, type: f.type }));
 
-    // Select/multi_select store option ids; the importer reads labels.
     const labels = await this.optionLabels(live.map((f) => f.id));
     const userNames = await this.userNames();
+    return { database, config, exportFields, labels, userNames };
+  }
 
-    const rows: ExportRecord[] = [];
-    let cursor: string | undefined;
-    let truncated = false;
-    for (;;) {
-      const page = await this.records.query(
-        databaseId,
-        {
-          // The query API calls it `filter`; a ViewConfig calls it `filters`.
-          filter: config?.filters,
-          sorts: config?.sorts ?? [],
-          limit: PAGE,
-          cursor,
-        },
-        currentUserId,
-      );
-      for (const record of page.data) {
-        rows.push({
-          number: record.number,
-          title: record.title,
-          values: this.labelizeValues(record.values, labels),
-        });
-      }
-      if (rows.length >= MAX_ROWS) {
-        truncated = true;
-        break;
-      }
-      if (!page.next_cursor || page.data.length === 0) break;
-      cursor = page.next_cursor;
-    }
+  /**
+   * Validate EAGERLY (resolve the db + view — 404s surface here, before any body),
+   * then hand back a generator that streams the CSV line by line. Splitting it this
+   * way keeps a bad view a clean 404 rather than a 200 with a broken stream, since
+   * we can't change the status once bytes are flowing (MN-128).
+   */
+  async prepareExport(
+    databaseId: string,
+    viewId: string | undefined,
+    currentUserId: string,
+  ): Promise<{ databaseName: string; generate: () => AsyncGenerator<string> }> {
+    const { database, config, exportFields, labels, userNames } = await this.prepare(
+      databaseId,
+      viewId,
+    );
+    const cols = exportColumns(exportFields);
+    const query = this.records.query.bind(this.records);
+    const labelize = (v: Record<string, unknown>) => this.labelizeValues(v, labels);
 
     return {
-      csv: serializeCsv(exportFields, rows, userNames),
       databaseName: database.name,
-      truncated,
+      generate: async function* () {
+        yield `${csvHeaderLine(cols)}\r\n`;
+        let cursor: string | undefined;
+        for (;;) {
+          const page = await query(
+            databaseId,
+            {
+              // The query API calls it `filter`; a ViewConfig calls it `filters`.
+              filter: config?.filters,
+              sorts: config?.sorts ?? [],
+              limit: PAGE,
+              cursor,
+            },
+            currentUserId,
+          );
+          if (page.data.length === 0) break;
+          let chunk = '';
+          for (const record of page.data) {
+            chunk += `${csvRecordLine(cols, { number: record.number, title: record.title, values: labelize(record.values) }, userNames)}\r\n`;
+          }
+          yield chunk;
+          if (!page.next_cursor) break;
+          cursor = page.next_cursor;
+        }
+      },
     };
   }
 
