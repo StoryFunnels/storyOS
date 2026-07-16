@@ -25,8 +25,8 @@ Ticket: [MN-076](../../tickets/MN-076-mcp-server.md).
 **Write** (each returns the resulting record; each 422 is surfaced verbatim)
 | Tool | What it does |
 |---|---|
-| `create_record` | Create a record; `values` by `api_name`, selects accept the **label**. |
-| `update_record` | Merge-update (null clears); record by uuid or public number. |
+| `create_record` | Create a record; `values` by `api_name`, selects accept the **label**, relations accept an array of target **numbers/ids** (linked in the same write). |
+| `update_record` | Merge-update (null clears); record by uuid or public number. Naming a relation sets it to exactly those targets. |
 | `delete_record` | Trash a record (restorable 30 days). |
 | `link_records` | Link a record to targets through a relation field. `replace: true` sets the link set to exactly `targets` — how you re-point or clear a one-to-many link. |
 | `unlink_records` | Remove specific links from a relation field (the relation itself stays). |

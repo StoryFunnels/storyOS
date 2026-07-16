@@ -29,7 +29,22 @@ export interface ValidatedRecordValues {
   values: Record<string, unknown>;
   /** New title, when the title field was present in the input. */
   title?: string;
+  /**
+   * MN-080: relation targets keyed by field api_name, when `relations: 'collect'`.
+   * Ids or public numbers — resolving numbers needs the db, so that's the caller's
+   * job. Links live in their own table, never in `values`.
+   */
+  links?: Record<string, Array<string | number>>;
   issues: ValidationIssue[];
+}
+
+export interface ValidateOptions {
+  /**
+   * 'reject' (default) keeps the original contract: relations are set through the
+   * links endpoints. 'collect' lets a caller accept them inline and write them in
+   * the same transaction as the record (MN-080).
+   */
+  relations?: 'reject' | 'collect';
 }
 
 const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -41,6 +56,7 @@ const hexColorRe = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
 export function validateRecordValues(
   fields: FieldDef[],
   input: Record<string, unknown>,
+  options: ValidateOptions = {},
 ): ValidatedRecordValues {
   const byApiName = new Map(fields.map((f) => [f.api_name, f]));
   const result: ValidatedRecordValues = { values: {}, issues: [] };
@@ -61,10 +77,32 @@ export function validateRecordValues(
       continue;
     }
     if (field.type === 'relation') {
-      result.issues.push({
-        path: `values.${key}`,
-        message: `relation values are set via the links endpoints, not values`,
-      });
+      if (options.relations !== 'collect') {
+        result.issues.push({
+          path: `values.${key}`,
+          message: `relation values are set via the links endpoints, not values`,
+        });
+        continue;
+      }
+      // null / [] both mean "no targets" — i.e. clear the link set.
+      const raw2 = raw === null ? [] : raw;
+      if (!Array.isArray(raw2)) {
+        result.issues.push({
+          path: `values.${key}`,
+          message: 'expected an array of record ids or numbers',
+        });
+        continue;
+      }
+      const bad = raw2.find((v) => typeof v !== 'string' && !Number.isInteger(v));
+      if (bad !== undefined) {
+        result.issues.push({
+          path: `values.${key}`,
+          message: 'expected an array of record ids or numbers',
+        });
+        continue;
+      }
+      result.links ??= {};
+      result.links[key] = raw2 as Array<string | number>;
       continue;
     }
     if (field.type === 'title') {
