@@ -2,7 +2,9 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Ctx } from './client.js';
 import { unwrap, uploadAttachment } from './client.js';
-import { blocksToMarkdown, markdownToBlocks } from '@storyos/schemas';
+// Subpath, not the barrel: markdown is zod-free, and pulling the whole schemas
+// index into this ESM bundle inlines a CJS require('zod') that throws at boot.
+import { blocksToMarkdown, markdownToBlocks } from '@storyos/schemas/markdown';
 import { listDatabases, listWorkspaces, resolveDatabase, resolveWorkspace } from './resolve.js';
 
 /** MCP text result. */
