@@ -329,6 +329,12 @@ export function AddFieldDialog({
       .sort((a, b) => a.label.localeCompare(b.label));
   }, [databases.data, spaces.data]);
   const relationFields = (currentDb.data?.fields ?? []).filter((f) => f.type === 'relation');
+  // MN-212: display names are unique per database — flag a duplicate before submit.
+  const duplicateName = useMemo(() => {
+    const wanted = name.trim().toLowerCase();
+    if (!wanted) return false;
+    return (currentDb.data?.fields ?? []).some((f) => f.displayName.trim().toLowerCase() === wanted);
+  }, [name, currentDb.data]);
   const lookupRelation = relationFields.find((f) => f.id === lookupRelationId);
   const lookupTargetDb = useDatabase(ws, lookupRelation?.relation?.target_database_id ?? '');
   const LOOKUPABLE = new Set(['title', 'text', 'number', 'checkbox', 'date', 'select', 'multi_select', 'url', 'email']);
@@ -393,6 +399,9 @@ export function AddFieldDialog({
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="field-name">Name</Label>
           <Input id="field-name" autoFocus required value={name} onChange={(e) => setName(e.target.value)} />
+          {duplicateName && (
+            <p className="text-[12px] text-error">A field named “{name.trim()}” already exists in this database.</p>
+          )}
         </div>
         <div className="flex flex-col gap-1.5">
           <Label>Type</Label>
@@ -570,6 +579,7 @@ export function AddFieldDialog({
             type="submit"
             disabled={
               create.isPending ||
+              duplicateName ||
               (type === 'relation' && !targetDb) ||
               (type === 'button' && buttonActions.length === 0) ||
               (type === 'formula' && !expression.trim()) ||
@@ -863,6 +873,15 @@ export function EditFieldDialog({
   const [name, setName] = useState(field.displayName);
   const [config, setConfig] = useState<Record<string, unknown>>(field.config ?? {});
   const deleteField = useDeleteField({ ws, db, field, onDone });
+  const currentDb = useDatabase(ws, db);
+  // MN-212: renaming to another field's name is refused server-side — flag it inline first.
+  const duplicateName = useMemo(() => {
+    const wanted = name.trim().toLowerCase();
+    if (!wanted) return false;
+    return (currentDb.data?.fields ?? []).some(
+      (f) => f.id !== field.id && f.displayName.trim().toLowerCase() === wanted,
+    );
+  }, [name, currentDb.data, field.id]);
 
   const save = useMutation({
     mutationFn: async () => {
@@ -902,6 +921,9 @@ export function EditFieldDialog({
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="rename">Name</Label>
           <Input id="rename" autoFocus value={name} onChange={(e) => setName(e.target.value)} />
+          {duplicateName && (
+            <p className="text-[12px] text-error">A field named “{name.trim()}” already exists in this database.</p>
+          )}
           <p className="text-[12px] text-faint">
             {typeMeta?.label ?? field.type} field · API name{' '}
             <code className="text-muted">{field.apiName}</code> stays stable across renames.
@@ -953,7 +975,7 @@ export function EditFieldDialog({
                 Cancel
               </Button>
             </DialogClose>
-            <Button type="submit" disabled={save.isPending}>
+            <Button type="submit" disabled={save.isPending || duplicateName}>
               Save
             </Button>
           </div>
