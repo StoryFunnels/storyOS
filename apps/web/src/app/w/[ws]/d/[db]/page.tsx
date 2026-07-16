@@ -128,6 +128,9 @@ function DatabasePageInner() {
         members={memberList}
         viewType={activeView?.type}
         onPatch={patch}
+        ws={ws}
+        db={db}
+        viewId={activeView?.id}
       />
 
       <div className="min-h-0 flex-1">

@@ -13,6 +13,7 @@ import { FieldsModule } from './fields/fields.module';
 import { RecordsModule } from './records/records.module';
 import { RelationsModule } from './relations/relations.module';
 import { ViewsModule } from './views/views.module';
+import { ExportModule } from './export/export.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { DocumentsModule } from './documents/documents.module';
 import { TokensModule } from './tokens/tokens.module';
@@ -56,6 +57,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     RecordsModule,
     RelationsModule,
     ViewsModule,
+    ExportModule,
     WebhooksModule,
     DocumentsModule,
     TokensModule,

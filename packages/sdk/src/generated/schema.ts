@@ -687,6 +687,23 @@ export interface paths {
         patch: operations["ViewsController_update"];
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/databases/{db}/export/csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download the database (or a view) as CSV */
+        get: operations["ExportController_csv"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/webhooks": {
         parameters: {
             query?: never;
@@ -3330,6 +3347,27 @@ export interface operations {
                 "application/json": components["schemas"]["UpdateViewDto"];
             };
         };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ExportController_csv: {
+        parameters: {
+            query: {
+                view: string;
+            };
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             200: {
                 headers: {
