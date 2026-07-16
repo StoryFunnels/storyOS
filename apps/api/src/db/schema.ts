@@ -295,6 +295,12 @@ export const relations = pgTable('relations', {
   fieldAId: uuid('field_a_id').notNull(),
   fieldBId: uuid('field_b_id').notNull(),
   cardinality: relationCardinality('cardinality').notNull(),
+  /**
+   * Auto-link rules (MN-085): field-to-field match conditions that populate this
+   * relation automatically. null = off. Shape: { conditions: [{ field_a_id,
+   * field_b_id }], case_sensitive }. field ids are resolved + validated at save.
+   */
+  autoLink: jsonb('auto_link'),
   ...timestamps,
 });
 

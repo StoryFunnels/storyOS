@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Param,
+  Patch,
   Post,
   Put,
   Req,
@@ -16,6 +17,7 @@ import {
   deleteRelationSchema,
   linkRecordsSchema,
   replaceLinksSchema,
+  updateRelationSchema,
 } from '@storyos/schemas';
 import { AuthGuard } from '../auth/auth.guard';
 import { RequiresScope } from '../auth/token-scope.guard';
@@ -26,6 +28,7 @@ import { RelationsService } from './relations.service';
 
 class CreateRelationDto extends createZodDto(createRelationSchema) {}
 class DeleteRelationDto extends createZodDto(deleteRelationSchema) {}
+class UpdateRelationDto extends createZodDto(updateRelationSchema) {}
 class LinkRecordsDto extends createZodDto(linkRecordsSchema) {}
 class ReplaceLinksDto extends createZodDto(replaceLinksSchema) {}
 
@@ -46,6 +49,37 @@ export class RelationsController {
     await this.databases.assertAccess(req.membership, body.database_a_id, 'creator');
     await this.databases.assertAccess(req.membership, body.database_b_id, 'creator');
     return this.relationsService.create(req.membership, body);
+  }
+
+  @Get(':rel')
+  @ApiOperation({ summary: 'Relation config + comparable fields for the auto-link editor' })
+  async detail(@Req() req: WorkspaceRequest, @Param('rel') relationId: string) {
+    const relation = await this.relationsService.getRelation(req.membership.workspaceId, relationId);
+    await this.databases.assertAccess(req.membership, relation.databaseAId, 'viewer');
+    await this.databases.assertAccess(req.membership, relation.databaseBId, 'viewer');
+    return this.relationsService.getRelationDetail(req.membership.workspaceId, relationId);
+  }
+
+  @Patch(':rel')
+  @ApiOperation({ summary: 'Set or clear a relation’s auto-link rules (MN-085)' })
+  async update(
+    @Req() req: WorkspaceRequest,
+    @Param('rel') relationId: string,
+    @Body() body: UpdateRelationDto,
+  ) {
+    const relation = await this.relationsService.getRelation(req.membership.workspaceId, relationId);
+    await this.databases.assertAccess(req.membership, relation.databaseAId, 'creator');
+    await this.databases.assertAccess(req.membership, relation.databaseBId, 'creator');
+    return this.relationsService.setAutoLink(req.membership.workspaceId, relationId, body.auto_link);
+  }
+
+  @Post(':rel/auto-link')
+  @ApiOperation({ summary: 'Run auto-link now across existing records — returns a summary (MN-085)' })
+  async runAutoLink(@Req() req: WorkspaceRequest, @Param('rel') relationId: string) {
+    const relation = await this.relationsService.getRelation(req.membership.workspaceId, relationId);
+    await this.databases.assertAccess(req.membership, relation.databaseAId, 'editor');
+    await this.databases.assertAccess(req.membership, relation.databaseBId, 'editor');
+    return this.relationsService.runAutoLink(req.membership.workspaceId, relationId, req.user.id);
   }
 
   @Delete(':rel')

@@ -1,0 +1,1 @@
+ALTER TABLE "relations" ADD COLUMN "auto_link" jsonb;
