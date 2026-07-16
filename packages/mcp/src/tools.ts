@@ -792,13 +792,13 @@ export function registerTools(server: McpServer, ctx: Ctx) {
     {
       title: 'Create view',
       description:
-        'Create a saved view. board needs group_by (a select field); calendar needs date_field; timeline needs start_date_field/end_date_field; board/gallery/list show card_fields (chips on calendar).',
+        'Create a saved view. board needs group_by (a select, a single user, or a one-to-many relation field); calendar needs date_field; timeline needs start_date_field/end_date_field; board/gallery/list show card_fields (chips on calendar).',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
         name: z.string(),
         type: z.enum(VIEW_TYPES),
-        group_by: z.string().optional().describe('board: single-select field to group columns by.'),
+        group_by: z.string().optional().describe('board: field to group columns by — a select, a single user, or the single side of a one-to-many relation (one column per related record).'),
         card_fields: z.array(z.string()).optional().describe('Fields shown on cards / chips.'),
         date_field: z.string().optional().describe('calendar: the date field.'),
         start_date_field: z.string().optional().describe('timeline: start date field.'),

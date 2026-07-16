@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   DndContext,
   DragOverlay,
@@ -12,7 +12,7 @@ import {
   useSensors,
 } from '@dnd-kit/core';
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -76,25 +76,70 @@ export function BoardView({
     [database.data, config],
   );
 
+  // MN-079: a board groups by a select, a single user, or the single side of a
+  // one-to-many relation. Each supplies the same two things — the columns to show,
+  // and which column a card sits in.
+  const targetDb = groupField?.type === 'relation' ? groupField.relation?.target_database_id : undefined;
+  const targets = useQuery({
+    queryKey: ['board-groups', ws, targetDb],
+    enabled: Boolean(targetDb),
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/databases/{db}/records', {
+        params: { path: { ws, db: targetDb! }, query: { limit: 100 } },
+      });
+      if (error) throw error;
+      return (data as unknown as { data: Array<{ id: string; title: string }> }).data;
+    },
+  });
+
+  const groupOf = useCallback(
+    (row: RecordRow): string => {
+      if (!groupField) return NO_VALUE;
+      const raw = row.values[groupField.apiName];
+      if (groupField.type === 'relation') return (raw as LinkChip[] | undefined)?.[0]?.id ?? NO_VALUE;
+      return (raw as string | null | undefined) ?? NO_VALUE;
+    },
+    [groupField],
+  );
+
   const columns = useMemo(() => {
     if (!groupField) return [];
+    const defs: Array<{ id: string; label: string; color: string }> =
+      groupField.type === 'select'
+        ? (groupField.options ?? []).map((o) => ({
+            id: o.id,
+            label: o.label,
+            color: OPTION_COLORS[o.color] ?? OPTION_COLORS.gray!,
+          }))
+        : groupField.type === 'user'
+          ? (memberQuery.data ?? []).map((m) => ({
+              id: m.user.id,
+              label: m.user.name,
+              color: OPTION_COLORS.gray!,
+            }))
+          : (targets.data ?? []).map((t) => ({
+              id: t.id,
+              label: t.title || 'Untitled',
+              color: OPTION_COLORS.gray!,
+            }));
+
     const buckets = new Map<string, RecordRow[]>();
-    for (const option of groupField.options ?? []) buckets.set(option.id, []);
+    for (const def of defs) buckets.set(def.id, []);
     buckets.set(NO_VALUE, []);
-    for (const row of rows) {
-      const value = (row.values[groupField.apiName] as string | undefined) ?? NO_VALUE;
-      (buckets.get(value) ?? buckets.get(NO_VALUE)!).push(row);
-    }
+    for (const row of rows) (buckets.get(groupOf(row)) ?? buckets.get(NO_VALUE)!).push(row);
+
     return [
-      ...(groupField.options ?? []).map((option) => ({
-        id: option.id,
-        label: option.label,
-        color: OPTION_COLORS[option.color] ?? OPTION_COLORS.gray!,
-        rows: buckets.get(option.id)!,
-      })),
-      { id: NO_VALUE, label: 'No value', color: OPTION_COLORS.gray!, rows: buckets.get(NO_VALUE)! },
+      ...defs.map((def) => ({ ...def, rows: buckets.get(def.id)! })),
+      {
+        id: NO_VALUE,
+        label: groupField.type === 'select' ? 'No value' : 'Unassigned',
+        color: OPTION_COLORS.gray!,
+        rows: buckets.get(NO_VALUE)!,
+      },
     ];
-  }, [groupField, rows]);
+  }, [groupField, rows, groupOf, memberQuery.data, targets.data]);
+
+  const columnLabels = useMemo(() => new Map(columns.map((c) => [c.id, c.label])), [columns]);
 
   const router = useRouter();
   const [dragging, setDragging] = useState<RecordRow | null>(null);
@@ -113,8 +158,25 @@ export function BoardView({
       after_record_id?: string;
       before_record_id?: string;
       values?: Record<string, unknown>;
+      /** MN-079: relation columns re-link instead of patching values. */
+      link?: string | null;
     }) => {
-      const { rec, ...body } = input;
+      const { rec, link, ...body } = input;
+      // Relation values are rejected by the value validator by design — links have
+      // their own endpoint, so a relation column change is a PUT before the move.
+      if (link !== undefined && groupField) {
+        const { error } = await api.PUT(
+          '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/links/{field}',
+          {
+            params: { path: { ws, db, rec, field: groupField.id } },
+            body: { record_ids: link ? [link] : [] },
+          },
+        );
+        if (error) throw error;
+      }
+      // The move endpoint needs an anchor or values; a relation re-link with no
+      // reorder has neither, and the PUT above already did the work.
+      if (Object.keys(body).length === 0) return;
       const { error } = await api.POST(
         '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/move',
         { params: { path: { ws, db, rec } }, body: body as never },
@@ -138,6 +200,17 @@ export function BoardView({
         let card = flat[idx]!;
         if (input.values && apiName in input.values) {
           card = { ...card, values: { ...card.values, [apiName]: (input.values[apiName] as string | null) ?? null } };
+        } else if (input.link !== undefined) {
+          // Mirror the chip shape the read path returns, so the card lands in the
+          // relation column immediately instead of after the refetch.
+          const chip = columnLabels.get(input.link ?? '');
+          card = {
+            ...card,
+            values: {
+              ...card.values,
+              [apiName]: input.link ? [{ id: input.link, title: chip ?? '' }] : [],
+            },
+          };
         }
         const next = flat.filter((_, i) => i !== idx);
         let at = next.length;
@@ -165,7 +238,11 @@ export function BoardView({
       toast.error('Could not move the card');
       for (const [key, data] of ctx?.snapshot ?? []) qc.setQueryData(key, data);
     },
-    onSettled: () => void qc.invalidateQueries({ queryKey: ['records', ws, db] }),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: ['records', ws, db] });
+      // A re-link changes the other side of the relation too.
+      if (targetDb) void qc.invalidateQueries({ queryKey: ['records', ws, targetDb] });
+    },
   });
 
   function onDragStart(event: DragStartEvent) {
@@ -192,20 +269,23 @@ export function BoardView({
     } else {
       const overRecord = rows.find((r) => r.id === overId);
       if (!overRecord) return;
-      targetColumn = (overRecord.values[groupField.apiName] as string | undefined) ?? NO_VALUE;
+      targetColumn = groupOf(overRecord);
       if (!hasSorts && overId !== recId) anchor = { before_record_id: overId };
     }
 
-    const currentColumn = (record.values[groupField.apiName] as string | undefined) ?? NO_VALUE;
+    const currentColumn = groupOf(record);
     const changesColumn = targetColumn !== currentColumn;
     if (!changesColumn && Object.keys(anchor).length === 0) return;
     if (readOnly) return;
 
+    const value = targetColumn === NO_VALUE ? null : targetColumn;
     move.mutate({
       rec: recId,
       ...anchor,
       ...(changesColumn
-        ? { values: { [groupField.apiName]: targetColumn === NO_VALUE ? null : targetColumn } }
+        ? groupField.type === 'relation'
+          ? { link: value }
+          : { values: { [groupField.apiName]: value } }
         : {}),
     });
   }
@@ -213,7 +293,8 @@ export function BoardView({
   if (!groupField) {
     return (
       <p className="p-6 text-sm text-muted">
-        This board has no valid group-by field. Edit the view and pick a single-select field.
+        This board has no valid group-by field. Edit the view and pick a select, a user, or a
+        one-to-many relation field.
       </p>
     );
   }
