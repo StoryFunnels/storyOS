@@ -266,6 +266,23 @@ export interface paths {
         patch: operations["FoldersController_update"];
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/onboarding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Live Getting-Started state, derived from what actually exists (MN-213) */
+        get: operations["OnboardingController_onboarding"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/databases": {
         parameters: {
             query?: never;
@@ -2611,6 +2628,23 @@ export interface operations {
                 "application/json": components["schemas"]["UpdateFolderDto"];
             };
         };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    OnboardingController_onboarding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             200: {
                 headers: {

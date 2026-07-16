@@ -600,6 +600,26 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/onboarding": {
+      "get": {
+        "operationId": "OnboardingController_onboarding",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Live Getting-Started state, derived from what actually exists (MN-213)",
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/databases": {
       "get": {
         "operationId": "DatabasesController_list",
