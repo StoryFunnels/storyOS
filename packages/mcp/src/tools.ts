@@ -384,11 +384,15 @@ export function registerTools(server: McpServer, ctx: Ctx) {
     {
       title: 'Create record',
       description:
-        'Create a record. values are keyed by api_name (call describe_database first); select/person values accept the human label. Returns the created record.',
+        'Create a record. values are keyed by api_name (call describe_database first); select/person values accept the human label, rich_text accepts Markdown, and relation fields accept an array of target record numbers or ids — linked in the same write, so no follow-up link_records. Returns the created record.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
-        values: z.record(z.string(), z.any()).describe('Field values by api_name; "name" sets the title.'),
+        values: z
+          .record(z.string(), z.any())
+          .describe(
+            'Field values by api_name; "name" sets the title. A relation field takes an array of target record numbers or ids, e.g. { project: [12] } — created atomically with the record.',
+          ),
       },
     },
     handle<{ workspace: string; database: string; values: Record<string, unknown> }>(async ({ workspace, database, values }) => {

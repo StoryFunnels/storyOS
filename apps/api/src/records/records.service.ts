@@ -1,4 +1,5 @@
 import {
+  ConflictException,
   Inject,
   Injectable,
   NotFoundException,
@@ -19,6 +20,14 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { DomainEventsService } from '../events/domain-events.service';
 
 type RecordRow = typeof records.$inferSelect;
+
+/** MN-080: a resolved relation write — validated targets plus which side we're on. */
+interface LinkPlan {
+  relationId: string;
+  side: 'a' | 'b';
+  apiName: string;
+  targets: Array<{ id: string; title: string }>;
+}
 
 export interface ProjectedRecord {
   id: string;
@@ -347,7 +356,10 @@ export class RecordsService {
   }
 
   private validateOrThrow(defs: FieldDef[], input: Record<string, unknown>) {
-    const result = validateRecordValues(defs, input);
+    // MN-080: relations are accepted inline and written with the record, so a
+    // seeding job doesn't need a second round-trip per record and never leaves a
+    // record briefly unlinked.
+    const result = validateRecordValues(defs, input, { relations: 'collect' });
     if (result.issues.length > 0) {
       throw new UnprocessableEntityException({
         message: 'Record values validation failed',
@@ -355,6 +367,129 @@ export class RecordsService {
       });
     }
     return result;
+  }
+
+  /**
+   * MN-080: turn `{ project: [3] | ['<uuid>'] }` into everything needed to write
+   * record_links. Resolved and fully validated BEFORE the transaction opens, so a
+   * bad target id fails the whole write instead of leaving an unlinked record.
+   */
+  private async planLinks(
+    defs: FieldDef[],
+    links: Record<string, Array<string | number>>,
+  ): Promise<LinkPlan[]> {
+    const plans: LinkPlan[] = [];
+    for (const [apiName, raw] of Object.entries(links)) {
+      const def = defs.find((d) => d.api_name === apiName)!;
+      const config = def.config as { relation_id?: string; side?: 'a' | 'b' };
+      const relation = config.relation_id
+        ? await this.db.query.relations.findFirst({ where: eq(relations.id, config.relation_id) })
+        : undefined;
+      if (!relation || !config.side) {
+        throw new UnprocessableEntityException({
+          message: 'Record values validation failed',
+          details: [{ path: `values.${apiName}`, message: 'relation no longer exists' }],
+        });
+      }
+      const side = config.side;
+      const targetDatabaseId = side === 'a' ? relation.databaseBId : relation.databaseAId;
+
+      // Ids and public numbers both allowed; numbers are the friendly form.
+      const ids = raw.filter((v): v is string => typeof v === 'string');
+      const numbers = raw.filter((v): v is number => typeof v === 'number');
+      const found = raw.length
+        ? await this.db.query.records.findMany({
+            where: and(
+              eq(records.databaseId, targetDatabaseId),
+              isNull(records.deletedAt),
+              numbers.length && ids.length
+                ? or(inArray(records.id, ids), inArray(records.number, numbers))
+                : numbers.length
+                  ? inArray(records.number, numbers)
+                  : inArray(records.id, ids),
+            ),
+            columns: { id: true, title: true, number: true },
+          })
+        : [];
+
+      const targets: Array<{ id: string; title: string }> = [];
+      for (const v of raw) {
+        const hit = found.find((r) => (typeof v === 'string' ? r.id === v : r.number === v));
+        if (!hit) {
+          throw new UnprocessableEntityException({
+            message: 'Record values validation failed',
+            details: [
+              {
+                path: `values.${apiName}`,
+                message: `no record "${v}" in the target database — links are not created`,
+              },
+            ],
+          });
+        }
+        if (!targets.some((t) => t.id === hit.id)) targets.push({ id: hit.id, title: hit.title });
+      }
+
+      if (relation.cardinality === 'one_to_many' && side === 'a' && targets.length > 1) {
+        throw new ConflictException(
+          `"${apiName}" can link to only one target (one-to-many); got ${targets.length}`,
+        );
+      }
+      plans.push({ relationId: relation.id, side, apiName, targets });
+    }
+    return plans;
+  }
+
+  /**
+   * Writes a plan's links inside an existing transaction. `replace` clears the
+   * record's current targets first — an update naming a relation means "set it to
+   * exactly this", the same semantics as PUT /links.
+   */
+  private async writeLinks(
+    tx: Db,
+    workspaceId: string,
+    actorId: string,
+    record: { id: string; title: string },
+    plans: LinkPlan[],
+    replace: boolean,
+  ) {
+    for (const plan of plans) {
+      const myCol = plan.side === 'a' ? recordLinks.fromRecordId : recordLinks.toRecordId;
+      if (replace) {
+        await tx
+          .delete(recordLinks)
+          .where(and(eq(recordLinks.relationId, plan.relationId), eq(myCol, record.id)));
+      }
+      if (plan.targets.length) {
+        await tx
+          .insert(recordLinks)
+          .values(
+            plan.targets.map((t) => ({
+              relationId: plan.relationId,
+              fromRecordId: plan.side === 'a' ? record.id : t.id,
+              toRecordId: plan.side === 'a' ? t.id : record.id,
+            })),
+          )
+          .onConflictDoNothing();
+        await tx.insert(activityEvents).values(
+          plan.targets.flatMap((target) => [
+            {
+              workspaceId,
+              recordId: record.id,
+              actorId,
+              type: 'relation.linked',
+              payload: { relation_id: plan.relationId, other: target },
+            },
+            {
+              workspaceId,
+              recordId: target.id,
+              actorId,
+              type: 'relation.linked',
+              payload: { relation_id: plan.relationId, other: { id: record.id, title: record.title } },
+            },
+          ]),
+        );
+      }
+    }
   }
 
   private async lastPosition(databaseId: string): Promise<string | null> {
@@ -458,6 +593,10 @@ export class RecordsService {
   ): Promise<ProjectedRecord[]> {
     const defs = await this.fieldDefs(databaseId);
     const validated = inputs.map((input) => this.validateOrThrow(defs, input));
+    // Resolved up front: an unknown target must fail before any record is inserted.
+    const linkPlans = await Promise.all(
+      validated.map((v) => (v.links ? this.planLinks(defs, v.links) : Promise.resolve([]))),
+    );
     const positions = await keysAfter(await this.lastPosition(databaseId), inputs.length);
 
     const rows = await this.db.transaction(async (tx) => {
@@ -492,6 +631,12 @@ export class RecordsService {
           payload: { title: row.title },
         })),
       );
+      for (const [i, row] of inserted.entries()) {
+        const plans = linkPlans[i]!;
+        if (plans.length) {
+          await this.writeLinks(tx as unknown as Db, workspaceId, actorId, row, plans, false);
+        }
+      }
       return inserted;
     });
     if (!options.suppressAutomations) {
@@ -548,6 +693,8 @@ export class RecordsService {
     const defs = await this.fieldDefs(databaseId);
     const row = await this.getRow(databaseId, recordId);
     const validated = this.validateOrThrow(defs, input);
+    // MN-080: resolved before the transaction — a bad target must not half-apply.
+    const linkPlans = validated.links ? await this.planLinks(defs, validated.links) : [];
 
     const before = row.values as Record<string, unknown>;
     const merged: Record<string, unknown> = { ...before };
@@ -564,7 +711,8 @@ export class RecordsService {
       diff['title'] = { from: row.title, to: validated.title };
     }
 
-    if (Object.keys(diff).length === 0) return this.project(row, defs);
+    // A relation-only update has no value diff, but is still a real change.
+    if (Object.keys(diff).length === 0 && linkPlans.length === 0) return this.project(row, defs);
 
     const updated = await this.db.transaction(async (tx) => {
       const [next] = await tx
@@ -572,13 +720,26 @@ export class RecordsService {
         .set({ values: merged, title: validated.title ?? row.title, updatedBy: actorId })
         .where(eq(records.id, recordId))
         .returning();
-      await tx.insert(activityEvents).values({
-        workspaceId,
-        recordId,
-        actorId,
-        type: 'record.updated',
-        payload: { diff },
-      });
+      if (Object.keys(diff).length > 0) {
+        await tx.insert(activityEvents).values({
+          workspaceId,
+          recordId,
+          actorId,
+          type: 'record.updated',
+          payload: { diff },
+        });
+      }
+      // Naming a relation in an update sets it to exactly these targets.
+      if (linkPlans.length) {
+        await this.writeLinks(
+          tx as unknown as Db,
+          workspaceId,
+          actorId,
+          { id: next!.id, title: next!.title },
+          linkPlans,
+          true,
+        );
+      }
       return next!;
     });
 
