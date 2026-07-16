@@ -1,4 +1,4 @@
-import { Injectable, Inject, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { Injectable, Inject, UnauthorizedException } from '@nestjs/common';
 import type { CanActivate, ExecutionContext } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 import { eq } from 'drizzle-orm';
@@ -17,17 +17,7 @@ export interface AuthedUser {
   emailVerified: boolean;
 }
 
-/**
- * How this request authenticated. `via: 'token'` carries the PAT's workspace, so
- * downstream code can tell a scoped credential from a full session (MN-122).
- */
-export interface AuthContext {
-  via: 'session' | 'token' | 'oauth';
-  /** Only set for `via: 'token'` — the workspace the PAT was minted for. */
-  workspaceId?: string;
-}
-
-export type AuthedRequest = FastifyRequest & { user: AuthedUser; auth: AuthContext };
+export type AuthedRequest = FastifyRequest & { user: AuthedUser };
 
 export function toWebHeaders(raw: FastifyRequest['headers']): Headers {
   const headers = new Headers();
@@ -60,22 +50,6 @@ export class AuthGuard implements CanActivate {
       if (!resolved) throw new UnauthorizedException('Invalid or revoked token');
       const account = await this.db.query.user.findFirst({ where: eq(user.id, resolved.userId) });
       if (!account) throw new UnauthorizedException('Token owner no longer exists');
-
-      /**
-       * MN-122: a PAT is minted FOR a workspace, so it must only work there.
-       * The check lives here, not in WorkspaceAccessGuard, because this guard runs
-       * on every authenticated route — a controller that forgets the workspace
-       * guard still cannot escape its token's scope. `:ws` is always a raw uuid
-       * (WorkspaceAccessGuard 404s anything else), so comparing it is safe.
-       *
-       * 404, not 403: the no-leak convention — a token for another workspace must
-       * not be able to probe which workspaces exist.
-       */
-      const params = request.params as { ws?: string } | undefined;
-      if (params?.ws && params.ws !== resolved.workspaceId) {
-        throw new NotFoundException('Workspace not found');
-      }
-
       (request as AuthedRequest).user = {
         id: account.id,
         email: account.email,
@@ -83,7 +57,6 @@ export class AuthGuard implements CanActivate {
         image: account.image,
         emailVerified: account.emailVerified,
       };
-      (request as AuthedRequest).auth = { via: 'token', workspaceId: resolved.workspaceId };
       return true;
     }
 
@@ -92,7 +65,6 @@ export class AuthGuard implements CanActivate {
     const session = await this.auth.api.getSession({ headers });
     if (session) {
       (request as AuthedRequest).user = session.user as AuthedUser;
-      (request as AuthedRequest).auth = { via: 'session' };
       return true;
     }
 
@@ -116,7 +88,6 @@ export class AuthGuard implements CanActivate {
             image: account.image,
             emailVerified: account.emailVerified,
           };
-          (request as AuthedRequest).auth = { via: 'oauth' };
           return true;
         }
       }
