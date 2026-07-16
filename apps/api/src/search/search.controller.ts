@@ -3,11 +3,15 @@ import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { activityEvents, databases, fields, records, spaces } from '../db/schema';
+import { activityEvents, databases, fields, records, selectOptions, spaces } from '../db/schema';
 import { AuthGuard } from '../auth/auth.guard';
 import { AccessService } from '../access/access.service';
+import { RecordsService } from '../records/records.service';
 import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
+
+/** Field types worth rendering as a dense-row chip in My Work (MN-072). */
+const DENSE_TYPES = new Set(['select', 'multi_select', 'user', 'relation', 'date', 'checkbox']);
 
 /**
  * Global search (MN-048): title trigram over records + name matches on
@@ -20,7 +24,34 @@ export class SearchController {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly access: AccessService,
+    private readonly recordsService: RecordsService,
   ) {}
+
+  /** Renderable field metadata for a database's dense My Work rows (MN-072). */
+  private async denseFields(databaseId: string) {
+    const fieldRows = await this.db.query.fields.findMany({
+      where: and(eq(fields.databaseId, databaseId), isNull(fields.deletedAt)),
+      orderBy: (f, { asc }) => [asc(f.position)],
+    });
+    const dense = fieldRows.filter((f) => DENSE_TYPES.has(f.type));
+    const selectIds = dense.filter((f) => f.type === 'select' || f.type === 'multi_select').map((f) => f.id);
+    const opts = selectIds.length
+      ? await this.db.query.selectOptions.findMany({ where: inArray(selectOptions.fieldId, selectIds) })
+      : [];
+    const byField = new Map<string, Array<{ id: string; label: string; color: string }>>();
+    for (const o of opts) {
+      const list = byField.get(o.fieldId) ?? [];
+      list.push({ id: o.id, label: o.label, color: o.color });
+      byField.set(o.fieldId, list);
+    }
+    return dense.map((f) => ({
+      id: f.id,
+      api_name: f.apiName,
+      display_name: f.displayName,
+      type: f.type,
+      options: byField.get(f.id) ?? undefined,
+    }));
+  }
 
   /** Databases the caller may see, or null for members/admins (= all). */
   private async visibleDatabaseIds(req: WorkspaceRequest): Promise<string[] | null> {
@@ -123,7 +154,8 @@ export class SearchController {
 
     const groups: Array<{
       database: { id: string; name: string; icon: string | null; color: string | null };
-      records: Array<{ id: string; title: string; updated_at: Date }>;
+      fields: Awaited<ReturnType<SearchController['denseFields']>>;
+      records: Array<{ id: string; title: string; number: number | null; updated_at: Date; values: Record<string, unknown> }>;
     }> = [];
     for (const database of dbRows) {
       let predicate;
@@ -137,13 +169,31 @@ export class SearchController {
         if (userFields.length === 0) continue;
         predicate = or(...userFields.map((f) => sql`${records.values}->${f.id} ? ${req.user.id}`));
       }
-      const mine = await this.db
-        .select({ id: records.id, title: records.title, updated_at: records.updatedAt })
-        .from(records)
-        .where(and(eq(records.databaseId, database.id), isNull(records.deletedAt), predicate))
-        .orderBy(desc(records.updatedAt))
-        .limit(50);
-      if (mine.length > 0) groups.push({ database, records: mine });
+      // Full rows so we can project values (status/priority/assignee/…) for dense rows (MN-072).
+      const rows = await this.db.query.records.findMany({
+        where: and(eq(records.databaseId, database.id), isNull(records.deletedAt), predicate),
+        orderBy: [desc(records.updatedAt)],
+        limit: 50,
+      });
+      if (rows.length === 0) continue;
+
+      const defs = await this.recordsService.fieldDefs(database.id);
+      const projected = await this.recordsService.attachLinks(
+        rows.map((r) => this.recordsService.project(r, defs)),
+        defs,
+      );
+      const byId = new Map(projected.map((p) => [p.id, p]));
+      groups.push({
+        database,
+        fields: await this.denseFields(database.id),
+        records: rows.map((r) => ({
+          id: r.id,
+          title: r.title,
+          number: r.number,
+          updated_at: r.updatedAt,
+          values: byId.get(r.id)?.values ?? {},
+        })),
+      });
     }
     return { groups };
   }

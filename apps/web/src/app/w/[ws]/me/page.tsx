@@ -2,17 +2,55 @@
 
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Database } from 'lucide-react';
+import { ChevronDown, ChevronRight, Database } from 'lucide-react';
 import { api } from '@/lib/api';
 import { EntityIcon } from '@/components/ui/icon-picker';
+import { CellDisplay } from '@/components/table-view/cells';
+import { useMembers } from '@/components/table-view/use-table-data';
+import type { Field } from '@/components/table-view/use-table-data';
 import { useDateFormat } from '@/lib/preferences';
 import { cn } from '@/lib/utils';
 
+interface DenseField {
+  id: string;
+  api_name: string;
+  display_name: string;
+  type: string;
+  options?: Array<{ id: string; label: string; color: string }>;
+}
+interface MyWorkRecord {
+  id: string;
+  title: string;
+  number: number | null;
+  updated_at: string;
+  values: Record<string, unknown>;
+}
 interface MyWorkGroup {
   database: { id: string; name: string; icon: string | null; color: string | null };
-  records: Array<{ id: string; title: string; updated_at: string }>;
+  fields: DenseField[];
+  records: MyWorkRecord[];
+}
+
+/** Up to this many field chips per dense row, in a priority order (MN-072). */
+const CHIP_ORDER = ['select', 'multi_select', 'user', 'relation', 'date', 'checkbox'];
+function denseChips(fields: DenseField[]): DenseField[] {
+  return [...fields]
+    .sort((a, b) => CHIP_ORDER.indexOf(a.type) - CHIP_ORDER.indexOf(b.type))
+    .slice(0, 4);
+}
+/** Adapt a My Work dense field to the table-view Field shape CellDisplay expects. */
+function toField(f: DenseField): Field {
+  return {
+    id: f.id,
+    apiName: f.api_name,
+    displayName: f.display_name,
+    type: f.type,
+    config: {},
+    isSystem: false,
+    options: f.options,
+  };
 }
 interface RecentRecord {
   id: string;
@@ -35,6 +73,17 @@ export default function MyWorkPage() {
   const { ws } = useParams<{ ws: string }>();
   const fmt = useDateFormat();
   const [tab, setTab] = useState<Tab>('assigned');
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+
+  const members = useMembers(ws, true);
+  const memberNames = useMemo(
+    () => new Map((members.data ?? []).map((m) => [m.user.id, m.user.name])),
+    [members.data],
+  );
+  const memberImages = useMemo(
+    () => new Map((members.data ?? []).map((m) => [m.user.id, m.user.image])),
+    [members.data],
+  );
 
   const grouped = useQuery({
     queryKey: ['my-work', ws, tab],
@@ -95,34 +144,73 @@ export default function MyWorkPage() {
       )}
 
       {tab !== 'activity' &&
-        groups.map((group) => (
-          <div key={group.database.id} className="mb-6 max-w-3xl">
-            <Link
-              href={`/w/${ws}/d/${group.database.id}`}
-              className="mb-2 flex items-center gap-1.5 text-[12px] font-medium uppercase tracking-wider text-faint hover:text-ink"
-            >
-              <EntityIcon
-                icon={group.database.icon}
-                color={group.database.color}
-                fallback={<Database className="h-3.5 w-3.5" />}
-              />
-              {group.database.name}
-              <span className="text-faint">{group.records.length}</span>
-            </Link>
-            <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card">
-              {group.records.map((record) => (
-                <Link
-                  key={record.id}
-                  href={`/w/${ws}/d/${group.database.id}/r/${record.id}`}
-                  className="flex items-center justify-between border-b border-border-default px-4 py-2.5 last:border-b-0 hover:bg-hover"
+        groups.map((group) => {
+          const isCollapsed = collapsed.has(group.database.id);
+          const chips = denseChips(group.fields ?? []);
+          return (
+            <div key={group.database.id} className="mb-6 max-w-4xl">
+              <div className="mb-2 flex items-center gap-1.5 text-[12px] font-medium uppercase tracking-wider text-faint">
+                <button
+                  className="flex items-center gap-1 hover:text-ink"
+                  onClick={() =>
+                    setCollapsed((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(group.database.id)) next.delete(group.database.id);
+                      else next.add(group.database.id);
+                      return next;
+                    })
+                  }
                 >
-                  <span className="truncate text-[13px] font-medium text-ink">{record.title || 'Untitled'}</span>
-                  <span className="shrink-0 text-[11px] text-faint">{fmt.date(record.updated_at)}</span>
+                  {isCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                </button>
+                <Link
+                  href={`/w/${ws}/d/${group.database.id}`}
+                  className="flex items-center gap-1.5 hover:text-ink"
+                >
+                  <EntityIcon
+                    icon={group.database.icon}
+                    color={group.database.color}
+                    fallback={<Database className="h-3.5 w-3.5" />}
+                  />
+                  {group.database.name}
+                  <span className="text-faint">{group.records.length}</span>
                 </Link>
-              ))}
+              </div>
+              {!isCollapsed && (
+                <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card">
+                  {group.records.map((record) => (
+                    <Link
+                      key={record.id}
+                      href={`/w/${ws}/d/${group.database.id}/r/${record.id}`}
+                      className="flex items-center gap-3 border-b border-border-default px-4 py-2.5 last:border-b-0 hover:bg-hover"
+                    >
+                      <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">
+                        {record.title || 'Untitled'}
+                      </span>
+                      <span className="flex shrink-0 items-center gap-2">
+                        {chips.map((f) =>
+                          record.values[f.api_name] != null ? (
+                            <span key={f.id} className="flex max-w-[10rem] items-center text-[12px]">
+                              <CellDisplay
+                                field={toField(f)}
+                                value={record.values[f.api_name]}
+                                memberNames={memberNames}
+                                memberImages={memberImages}
+                              />
+                            </span>
+                          ) : null,
+                        )}
+                        <span className="w-16 shrink-0 text-right text-[11px] text-faint">
+                          {fmt.date(record.updated_at)}
+                        </span>
+                      </span>
+                    </Link>
+                  ))}
+                </div>
+              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
 
       {tab === 'activity' && recent.length > 0 && (
         <div className="max-w-3xl overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card">
