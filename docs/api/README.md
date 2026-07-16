@@ -4,6 +4,7 @@ The API contract is code-generated — this folder holds the committed spec and 
 
 - **`openapi.json`** — generated from the NestJS route definitions at build time (ticket MN-005), committed so contract changes show up in PR diffs, served live at `/api/v1/openapi.json`, rendered at `/api/docs` (Scalar). *Not present until the API skeleton exists.*
 - Conventions (auth, errors, cursors, the query endpoint, op×type matrix): [../architecture/api-conventions.md](../architecture/api-conventions.md)
+- Icons & background colours for databases/spaces (`set:<name>` and the palette): [../icons.md](../icons.md)
 
 ## Guides (to be written alongside the relevant tickets)
 

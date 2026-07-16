@@ -5,6 +5,7 @@ import { useParams, usePathname, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { Database, FileText, FolderOpen, Home, LayoutTemplate, Plus, Search, Settings, UserPlus, UserRound } from 'lucide-react';
 import { api } from '@/lib/api';
+import { EntityIcon } from '@/components/ui/icon-picker';
 import { OPEN_PALETTE_EVENT, useShortcut } from '@/lib/shortcuts';
 import { cn } from '@/lib/utils';
 
@@ -108,7 +109,7 @@ export function CommandPalette() {
       out.push({
         key: `rec:${hit.id}`,
         group: 'Records',
-        icon: hit.database_icon ? <span className="text-[13px] leading-none">{hit.database_icon}</span> : <FileText className="h-3.5 w-3.5" />,
+        icon: <EntityIcon icon={hit.database_icon} color={null} fallback={<FileText className="h-3.5 w-3.5" />} className="text-[13px]" />,
         label: hit.title || 'Untitled',
         hint: hit.database_name,
         run: () => go(`/w/${ws}/d/${hit.database_id}/r/${hit.id}`),
@@ -118,7 +119,7 @@ export function CommandPalette() {
       out.push({
         key: `place:${place.id}`,
         group: 'Places',
-        icon: place.icon ? <span className="text-[13px] leading-none">{place.icon}</span> : place.kind === 'database' ? <Database className="h-3.5 w-3.5" /> : <FolderOpen className="h-3.5 w-3.5" />,
+        icon: <EntityIcon icon={place.icon} color={null} fallback={place.kind === 'database' ? <Database className="h-3.5 w-3.5" /> : <FolderOpen className="h-3.5 w-3.5" />} className="text-[13px]" />,
         label: place.name,
         hint: place.kind === 'database' ? 'Database' : 'Space',
         run: () => (place.kind === 'database' ? go(`/w/${ws}/d/${place.id}`) : go(`/w/${ws}`)),
