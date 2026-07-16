@@ -687,6 +687,59 @@ export interface paths {
         patch: operations["ViewsController_update"];
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/webhooks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List webhooks (secrets are never returned) */
+        get: operations["WebhooksController_list"];
+        put?: never;
+        /** Create a webhook — the signing secret is returned once, here only */
+        post: operations["WebhooksController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/webhooks/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a webhook */
+        delete: operations["WebhooksController_remove"];
+        options?: never;
+        head?: never;
+        /** Update a webhook (url / events / enabled) */
+        patch: operations["WebhooksController_update"];
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/webhooks/{id}/deliveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Recent delivery attempts — status, code, error, retries */
+        get: operations["WebhooksController_deliveries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/document": {
         parameters: {
             query?: never;
@@ -1758,6 +1811,21 @@ export interface components {
             };
             position?: number;
         };
+        CreateWebhookDto: {
+            /** Format: uri */
+            url: string;
+            /** Format: uuid */
+            database_id?: string;
+            events: ("record.created" | "record.updated" | "record.deleted" | "record.restored" | "relation.linked" | "relation.unlinked" | "comment.created")[];
+            /** @default true */
+            enabled: boolean;
+        };
+        UpdateWebhookDto: {
+            /** Format: uri */
+            url?: string;
+            events?: ("record.created" | "record.updated" | "record.deleted" | "record.restored" | "relation.linked" | "relation.unlinked" | "comment.created")[];
+            enabled?: boolean;
+        };
         PutDocumentDto: {
             content: unknown;
             expected_version: number;
@@ -1866,6 +1934,15 @@ export interface components {
                 type: "send_slack_message";
                 text: string;
                 channel?: string;
+            } | {
+                /** @enum {string} */
+                type: "send_webhook";
+                /** Format: uri */
+                url: string;
+                body_template?: string;
+                headers?: {
+                    [key: string]: string;
+                };
             })[];
             /** @default true */
             enabled: boolean;
@@ -1933,6 +2010,15 @@ export interface components {
                 type: "send_slack_message";
                 text: string;
                 channel?: string;
+            } | {
+                /** @enum {string} */
+                type: "send_webhook";
+                /** Format: uri */
+                url: string;
+                body_template?: string;
+                headers?: {
+                    [key: string]: string;
+                };
             })[];
             enabled?: boolean;
         };
@@ -3244,6 +3330,107 @@ export interface operations {
                 "application/json": components["schemas"]["UpdateViewDto"];
             };
         };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    WebhooksController_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    WebhooksController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateWebhookDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    WebhooksController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    WebhooksController_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateWebhookDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    WebhooksController_deliveries: {
+        parameters: {
+            query: {
+                limit: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             200: {
                 headers: {

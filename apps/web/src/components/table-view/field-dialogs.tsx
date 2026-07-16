@@ -1119,7 +1119,8 @@ export type ButtonAction =
   | { type: 'create_record'; database_id: string; values: Record<string, unknown>; link_via_relation_field_id?: string }
   | { type: 'add_comment'; body_template: string }
   | { type: 'notify_user'; user: string; message: string }
-  | { type: 'update_linked'; relation_field_id: string; values: Record<string, unknown> };
+  | { type: 'update_linked'; relation_field_id: string; values: Record<string, unknown> }
+  | { type: 'send_webhook'; url: string; body_template?: string; headers?: Record<string, string> };
 
 /** Compact declarative action builder: set fields / create linked record / comment. */
 export function ButtonActionsEditor({
@@ -1160,6 +1161,7 @@ export function ButtonActionsEditor({
                 else if (t === 'create_record') patch(i, { type: 'create_record', database_id: db, values: { name: 'New record for {Title}' } });
                 else if (t === 'notify_user') patch(i, { type: 'notify_user', user: '@me', message: '' });
                 else if (t === 'update_linked') patch(i, { type: 'update_linked', relation_field_id: relationFields[0]?.id ?? '', values: {} });
+                else if (t === 'send_webhook') patch(i, { type: 'send_webhook', url: '' });
                 else patch(i, { type: 'add_comment', body_template: '' });
               }}
             >
@@ -1168,6 +1170,7 @@ export function ButtonActionsEditor({
               <option value="update_linked">Update linked records</option>
               <option value="add_comment">Add a comment</option>
               <option value="notify_user">Notify a person</option>
+              <option value="send_webhook">Send a webhook</option>
             </select>
             <button type="button" className="p-1 text-faint hover:text-error" onClick={() => onChange(actions.filter((_, j) => j !== i))}>
               <Trash2 className="h-3.5 w-3.5" />
@@ -1240,6 +1243,27 @@ export function ButtonActionsEditor({
               value={action.body_template}
               onChange={(e) => patch(i, { ...action, body_template: e.target.value })}
             />
+          )}
+
+          {action.type === 'send_webhook' && (
+            <div className="flex flex-col gap-1">
+              <Input
+                className="h-7"
+                type="url"
+                placeholder="https://hooks.example.com/... — {Field Name} interpolates"
+                value={action.url}
+                onChange={(e) => patch(i, { ...action, url: e.target.value })}
+              />
+              <textarea
+                className="min-h-[56px] rounded border border-border-default bg-card px-2 py-1 font-mono text-[12px] text-ink"
+                placeholder={'Body (optional) — JSON is sent as-is, {Field Name} interpolates.\nLeave empty to send the whole record.'}
+                value={action.body_template ?? ''}
+                onChange={(e) => patch(i, { ...action, body_template: e.target.value || undefined })}
+              />
+              <p className="text-[11px] text-faint">
+                Signed with the workspace webhook secret; failures retry automatically.
+              </p>
+            </div>
           )}
 
           {action.type === 'notify_user' && (

@@ -2095,6 +2095,157 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/webhooks": {
+      "get": {
+        "operationId": "WebhooksController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List webhooks (secrets are never returned)",
+        "tags": [
+          "webhooks"
+        ]
+      },
+      "post": {
+        "operationId": "WebhooksController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWebhookDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create a webhook — the signing secret is returned once, here only",
+        "tags": [
+          "webhooks"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/webhooks/{id}": {
+      "patch": {
+        "operationId": "WebhooksController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateWebhookDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update a webhook (url / events / enabled)",
+        "tags": [
+          "webhooks"
+        ]
+      },
+      "delete": {
+        "operationId": "WebhooksController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Delete a webhook",
+        "tags": [
+          "webhooks"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/webhooks/{id}/deliveries": {
+      "get": {
+        "operationId": "WebhooksController_deliveries",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Recent delivery attempts — status, code, error, retries",
+        "tags": [
+          "webhooks"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/document": {
       "get": {
         "operationId": "DocumentsController_get",
@@ -5064,6 +5215,76 @@
           }
         }
       },
+      "CreateWebhookDto": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "maxLength": 2000,
+            "format": "uri"
+          },
+          "database_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "events": {
+            "minItems": 1,
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "record.created",
+                "record.updated",
+                "record.deleted",
+                "record.restored",
+                "relation.linked",
+                "relation.unlinked",
+                "comment.created"
+              ]
+            }
+          },
+          "enabled": {
+            "default": true,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "url",
+          "events"
+        ]
+      },
+      "UpdateWebhookDto": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "maxLength": 2000,
+            "format": "uri"
+          },
+          "events": {
+            "minItems": 1,
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "record.created",
+                "record.updated",
+                "record.deleted",
+                "record.restored",
+                "relation.linked",
+                "relation.unlinked",
+                "comment.created"
+              ]
+            }
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        }
+      },
       "PutDocumentDto": {
         "type": "object",
         "properties": {
@@ -5483,6 +5704,37 @@
                     "type",
                     "text"
                   ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "send_webhook"
+                      ]
+                    },
+                    "url": {
+                      "type": "string",
+                      "maxLength": 2000,
+                      "format": "uri"
+                    },
+                    "body_template": {
+                      "type": "string",
+                      "maxLength": 10000
+                    },
+                    "headers": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "string",
+                        "maxLength": 1000
+                      }
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "url"
+                  ]
                 }
               ]
             }
@@ -5747,6 +5999,37 @@
                   "required": [
                     "type",
                     "text"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "send_webhook"
+                      ]
+                    },
+                    "url": {
+                      "type": "string",
+                      "maxLength": 2000,
+                      "format": "uri"
+                    },
+                    "body_template": {
+                      "type": "string",
+                      "maxLength": 10000
+                    },
+                    "headers": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "string",
+                        "maxLength": 1000
+                      }
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "url"
                   ]
                 }
               ]

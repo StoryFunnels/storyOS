@@ -22,6 +22,9 @@ const SECRET_KEYS = new Set([
   'credentials',
   // A Slack incoming-webhook URL embeds a secret path, so treat it like a token.
   'webhookurl',
+  // Signs button webhooks (MN-088); lives in settings, so it needs naming here —
+  // "secret" alone doesn't match once it's prefixed.
+  'webhooksigningsecret',
 ]);
 
 const REDACTED = '[redacted]';
