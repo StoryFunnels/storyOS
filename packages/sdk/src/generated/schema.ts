@@ -1861,6 +1861,13 @@ export interface components {
             name: string;
             /** Format: uuid */
             workspace_id: string;
+            /**
+             * @default admin
+             * @enum {string}
+             */
+            scope: "read" | "write" | "admin";
+            /** @default true */
+            allow_run_button: boolean;
         };
         CommentBodyDto: {
             body: ({

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { Ctx } from './client.js';
+import type { Ctx, EffectiveScope, ToolScope } from './client.js';
 import { unwrap, uploadAttachment } from './client.js';
 // Subpath, not the barrel: markdown is zod-free, and pulling the whole schemas
 // index into this ESM bundle inlines a CJS require('zod') that throws at boot.
@@ -109,10 +109,94 @@ export function mapFilterValues(detail: DatabaseDetail, node: unknown): unknown 
   return { ...cond, value: Array.isArray(cond.value) ? cond.value.map(toId) : toId(cond.value) };
 }
 
-/** Register the Phase-1 (read-only) tool catalog (MN-076). */
-export function registerTools(server: McpServer, ctx: Ctx) {
+/**
+ * Each tool's minimum scope (MN-134). The advertised catalog = the token's scope
+ * intersected with these floors, so a read-only token never even sees a mutating
+ * tool. This mirrors the server-side @RequiresScope decorations exactly — the API
+ * is the enforcement; this map is the UX that stops an agent calling a doomed tool.
+ * run_button lives in `write` but is separately gateable via allow_run_button.
+ */
+const TOOL_SCOPE: Record<string, ToolScope> = {
+  // read
+  get_started: 'read',
+  list_workspaces: 'read',
+  list_databases: 'read',
+  describe_database: 'read',
+  search: 'read',
+  query_records: 'read',
+  get_record: 'read',
+  list_attachments: 'read',
+  list_spaces: 'read',
+  // write (record + content mutations)
+  create_record: 'write',
+  update_record: 'write',
+  delete_record: 'write',
+  link_records: 'write',
+  unlink_records: 'write',
+  add_comment: 'write',
+  attach_file: 'write',
+  delete_attachment: 'write',
+  run_button: 'write',
+  // admin (schema mutations)
+  create_database: 'admin',
+  update_database: 'admin',
+  delete_database: 'admin',
+  add_field: 'admin',
+  update_field: 'admin',
+  delete_field: 'admin',
+  change_field_type: 'admin',
+  reorder_fields: 'admin',
+  create_view: 'admin',
+  update_view: 'admin',
+  delete_view: 'admin',
+  reorder_views: 'admin',
+  create_relation: 'admin',
+  delete_relation: 'admin',
+  create_space: 'admin',
+};
+
+/** Tools gated by run_button on top of write scope (MN-134). */
+const RUN_BUTTON_TOOLS = new Set(['run_button']);
+
+const SCOPE_RANK: Record<ToolScope, number> = { read: 0, write: 1, admin: 2 };
+
+/** Human summary of what a scope excludes, for get_started. */
+function scopeExclusions(effective: EffectiveScope): string {
+  if (effective.scope === 'admin') {
+    return effective.allowRunButton
+      ? 'Full access — every tool is available.'
+      : 'Full access, except run_button (this token cannot press buttons).';
+  }
+  const excluded: string[] = [];
+  if (effective.scope === 'read') excluded.push('all writes (create/update/delete/link/comment/attach)', 'all schema tools');
+  if (effective.scope === 'write') excluded.push('schema tools (create_database, add_field, create_view, create_relation, …)');
+  if (SCOPE_RANK[effective.scope] >= SCOPE_RANK.write && !effective.allowRunButton) excluded.push('run_button');
+  return `This token is ${effective.scope}-scoped. Not available: ${excluded.join('; ')}.`;
+}
+
+/**
+ * Register the tool catalog (MN-076), trimmed to what the credential can do (MN-134).
+ * `effective` comes from GET /me; a session/OAuth login (or a /me hiccup) is full admin.
+ */
+export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveScope = { scope: 'admin', allowRunButton: true }) {
   const { client } = ctx;
-  server.registerTool(
+
+  /**
+   * Gate registration on scope: a tool above the token's ceiling is never advertised,
+   * and a run_button-gated tool is dropped when allow_run_button is false. Unknown
+   * names default to admin (fail closed on the advertise side; the API still enforces).
+   */
+  const reg = (
+    name: string,
+    config: Record<string, unknown>,
+    handler: (args: never) => unknown,
+  ): void => {
+    const need = TOOL_SCOPE[name] ?? 'admin';
+    if (SCOPE_RANK[effective.scope] < SCOPE_RANK[need]) return;
+    if (RUN_BUTTON_TOOLS.has(name) && !effective.allowRunButton) return;
+    server.registerTool(name as string, config as never, handler as never);
+  };
+  reg(
     'get_started',
     {
       title: 'Get started',
@@ -131,6 +215,8 @@ export function registerTools(server: McpServer, ctx: Ctx) {
         'Refs: address a database by its qualified "space/database" slug (from list_databases) — a bare name that exists in two spaces is rejected. Never invent ids; they come from search / list_* / a prior result. Names, slugs and select labels are resolved server-side.',
         'Values: select/multi_select take the human label (e.g. "High"); rich_text fields accept Markdown (headings, lists, links, code — parsed to blocks) and are returned to you as Markdown.',
         '',
+        `SCOPE: ${scopeExclusions(effective)}`,
+        '',
         FILTER_GUIDE,
       ].join('\n');
       if (!workspace) return text(intro);
@@ -144,7 +230,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
     }),
   );
 
-  server.registerTool(
+  reg(
     'list_workspaces',
     {
       title: 'List workspaces',
@@ -154,7 +240,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
     handle<Record<string, never>>(async () => text(await listWorkspaces(client))),
   );
 
-  server.registerTool(
+  reg(
     'list_databases',
     {
       title: 'List databases',
@@ -171,7 +257,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
     }),
   );
 
-  server.registerTool(
+  reg(
     'describe_database',
     {
       title: 'Describe database',
@@ -200,7 +286,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
     }),
   );
 
-  server.registerTool(
+  reg(
     'search',
     {
       title: 'Search records',
@@ -221,7 +307,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
     }),
   );
 
-  server.registerTool(
+  reg(
     'query_records',
     {
       title: 'Query records',
@@ -260,7 +346,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
     ),
   );
 
-  server.registerTool(
+  reg(
     'get_record',
     {
       title: 'Get record',
@@ -381,7 +467,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
     return f.id;
   }
 
-  server.registerTool(
+  reg(
     'create_record',
     {
       title: 'Create record',
@@ -417,7 +503,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
     }),
   );
 
-  server.registerTool(
+  reg(
     'update_record',
     {
       title: 'Update record',
@@ -446,7 +532,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
     ),
   );
 
-  server.registerTool(
+  reg(
     'delete_record',
     {
       title: 'Delete record',
@@ -464,7 +550,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
     }),
   );
 
-  server.registerTool(
+  reg(
     'link_records',
     {
       title: 'Link records',
@@ -514,7 +600,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
     ),
   );
 
-  server.registerTool(
+  reg(
     'unlink_records',
     {
       title: 'Unlink records',
@@ -552,7 +638,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
     ),
   );
 
-  server.registerTool(
+  reg(
     'add_comment',
     {
       title: 'Add comment',
@@ -593,7 +679,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
     }
   };
 
-  server.registerTool(
+  reg(
     'attach_file',
     {
       title: 'Attach file',
@@ -639,7 +725,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
     ),
   );
 
-  server.registerTool(
+  reg(
     'list_attachments',
     {
       title: 'List attachments',
@@ -659,7 +745,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
     }),
   );
 
-  server.registerTool(
+  reg(
     'delete_attachment',
     {
       title: 'Delete attachment',
@@ -681,7 +767,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
     ),
   );
 
-  server.registerTool(
+  reg(
     'run_button',
     {
       title: 'Run button',
@@ -737,7 +823,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
     return v;
   };
 
-  server.registerTool(
+  reg(
     'create_database',
     {
       title: 'Create database',
@@ -771,7 +857,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
   const normOptions = (o?: Array<string | { label: string; color?: string }>) =>
     o?.map((x) => (typeof x === 'string' ? { label: x } : x));
 
-  server.registerTool(
+  reg(
     'add_field',
     {
       title: 'Add field',
@@ -801,7 +887,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
     ),
   );
 
-  server.registerTool(
+  reg(
     'update_field',
     {
       title: 'Update field',
@@ -842,7 +928,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
     ),
   );
 
-  server.registerTool(
+  reg(
     'delete_field',
     {
       title: 'Delete field',
@@ -879,7 +965,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
     return config;
   }
 
-  server.registerTool(
+  reg(
     'create_view',
     {
       title: 'Create view',
@@ -915,7 +1001,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
     ),
   );
 
-  server.registerTool(
+  reg(
     'update_view',
     {
       title: 'Update view',
@@ -956,7 +1042,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
     ),
   );
 
-  server.registerTool(
+  reg(
     'delete_view',
     {
       title: 'Delete view',
@@ -979,7 +1065,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
 
   // ============ Relations (MN-146 fast-follow): link databases ============
 
-  server.registerTool(
+  reg(
     'create_relation',
     {
       title: 'Create relation',
@@ -1016,7 +1102,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
     ),
   );
 
-  server.registerTool(
+  reg(
     'delete_relation',
     {
       title: 'Delete relation',
@@ -1037,7 +1123,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
 
   // ============ Spaces + database/field management (backlog #1,2,4,5,9,10,11) ============
 
-  server.registerTool(
+  reg(
     'list_spaces',
     {
       title: 'List spaces',
@@ -1053,7 +1139,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
     }),
   );
 
-  server.registerTool(
+  reg(
     'create_space',
     {
       title: 'Create space',
@@ -1077,7 +1163,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
     }),
   );
 
-  server.registerTool(
+  reg(
     'delete_database',
     {
       title: 'Delete database',
@@ -1104,7 +1190,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
     ),
   );
 
-  server.registerTool(
+  reg(
     'update_database',
     {
       title: 'Update database',
@@ -1136,7 +1222,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
     ),
   );
 
-  server.registerTool(
+  reg(
     'change_field_type',
     {
       title: 'Change field type',
@@ -1184,7 +1270,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
     return getDetail(wsId, dbId);
   };
 
-  server.registerTool(
+  reg(
     'reorder_fields',
     {
       title: 'Reorder fields',
@@ -1199,7 +1285,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
     }),
   );
 
-  server.registerTool(
+  reg(
     'reorder_views',
     {
       title: 'Reorder views',

@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { createViewSchema, updateViewSchema } from '@storyos/schemas';
 import { AuthGuard } from '../auth/auth.guard';
+import { RequiresScope } from '../auth/token-scope.guard';
 import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { DatabasesService } from '../databases/databases.service';
@@ -15,6 +16,7 @@ class UpdateViewDto extends createZodDto(updateViewSchema) {}
 @ApiBearerAuth()
 @Controller('workspaces/:ws/databases/:db/views')
 @UseGuards(AuthGuard, WorkspaceAccessGuard)
+@RequiresScope('admin')
 export class ViewsController {
   constructor(
     private readonly viewsService: ViewsService,

@@ -3,6 +3,7 @@ import { and, desc, eq, isNull } from 'drizzle-orm';
 import { createHash, randomBytes } from 'node:crypto';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
+import type { TokenScope } from '@storyos/schemas';
 import { apiTokens, memberships } from '../db/schema';
 
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -12,7 +13,13 @@ const sha256 = (value: string) => createHash('sha256').update(value).digest('hex
 export class TokensService {
   constructor(@Inject(DB) private readonly db: Db) {}
 
-  async create(userId: string, workspaceId: string, name: string) {
+  async create(
+    userId: string,
+    workspaceId: string,
+    name: string,
+    scope: TokenScope = 'admin',
+    allowRunButton = true,
+  ) {
     // MN-122: a token is only meaningful for a workspace you're actually in.
     // Without this you could mint one for any uuid — it would grant nothing
     // (membership is still checked per request), but it's junk state and it
@@ -36,10 +43,13 @@ export class TokensService {
         name,
         tokenHash: sha256(token),
         tokenPrefix: `mn_pat_${secret.slice(0, 4)}…${secret.slice(-4)}`,
+        scope,
+        // run_button lives in write scope but can be withheld even there (MN-134).
+        allowRunButton: scope === 'read' ? false : allowRunButton,
       })
       .returning();
     // Plaintext returned exactly once (E1).
-    return { id: row!.id, name: row!.name, token, token_prefix: row!.tokenPrefix };
+    return { id: row!.id, name: row!.name, token, token_prefix: row!.tokenPrefix, scope: row!.scope };
   }
 
   async list(userId: string) {
@@ -53,6 +63,8 @@ export class TokensService {
         name: t.name,
         token_prefix: t.tokenPrefix,
         workspace_id: t.workspaceId,
+        scope: t.scope,
+        allow_run_button: t.allowRunButton,
         last_used_at: t.lastUsedAt,
         created_at: t.createdAt,
       })),
@@ -70,7 +82,9 @@ export class TokensService {
   }
 
   /** Guard-side resolution: hash lookup, live check, throttled last_used stamp. */
-  async resolve(token: string): Promise<{ userId: string; workspaceId: string } | null> {
+  async resolve(
+    token: string,
+  ): Promise<{ userId: string; workspaceId: string; scope: TokenScope; allowRunButton: boolean } | null> {
     const row = await this.db.query.apiTokens.findFirst({
       where: and(eq(apiTokens.tokenHash, sha256(token)), isNull(apiTokens.revokedAt)),
     });
@@ -82,6 +96,6 @@ export class TokensService {
         .set({ lastUsedAt: new Date() })
         .where(eq(apiTokens.id, row.id));
     }
-    return { userId: row.userId, workspaceId: row.workspaceId };
+    return { userId: row.userId, workspaceId: row.workspaceId, scope: row.scope, allowRunButton: row.allowRunButton };
   }
 }

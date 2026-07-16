@@ -20,6 +20,7 @@ import {
   updateOptionSchema,
 } from '@storyos/schemas';
 import { AuthGuard } from '../auth/auth.guard';
+import { RequiresScope } from '../auth/token-scope.guard';
 import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { DatabasesService } from '../databases/databases.service';
@@ -36,6 +37,7 @@ class DeleteOptionDto extends createZodDto(deleteOptionSchema) {}
 @ApiBearerAuth()
 @Controller('workspaces/:ws/databases/:db/fields')
 @UseGuards(AuthGuard, WorkspaceAccessGuard)
+@RequiresScope('admin')
 export class FieldsController {
   constructor(
     private readonly fieldsService: FieldsService,

@@ -9,7 +9,7 @@ import { buildServer } from './server.js';
  * Logs go to stderr only — stdout is the MCP protocol channel.
  */
 async function main() {
-  const server = buildServer();
+  const server = await buildServer();
   const transport = new StdioServerTransport();
   await server.connect(transport);
   process.stderr.write('storyos-mcp: connected over stdio\n');

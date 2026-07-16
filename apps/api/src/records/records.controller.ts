@@ -24,6 +24,7 @@ import {
   updateRecordSchema,
 } from '@storyos/schemas';
 import { AuthGuard } from '../auth/auth.guard';
+import { RequiresScope } from '../auth/token-scope.guard';
 import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { DatabasesService } from '../databases/databases.service';
@@ -90,6 +91,7 @@ export class RecordsController {
     );
   }
 
+  @RequiresScope('read')
   @Post('query')
   @ApiOperation({ summary: 'Query records: filter AST + sorts + q + keyset cursor (the workhorse)' })
   async query(

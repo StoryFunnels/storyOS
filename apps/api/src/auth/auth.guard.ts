@@ -1,13 +1,22 @@
-import { Injectable, Inject, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  Inject,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import type { CanActivate, ExecutionContext } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import type { FastifyRequest } from 'fastify';
 import { eq } from 'drizzle-orm';
+import { scopeSatisfies, type TokenScope } from '@storyos/schemas';
 import { AUTH } from './auth.tokens';
 import type { Auth } from './auth';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { user } from '../db/schema';
 import { TokensService } from '../tokens/tokens.service';
+import { RUN_BUTTON_KEY, SCOPE_KEY } from './token-scope.guard';
 
 export interface AuthedUser {
   id: string;
@@ -25,6 +34,10 @@ export interface AuthContext {
   via: 'session' | 'token' | 'oauth';
   /** Only set for `via: 'token'` — the workspace the PAT was minted for. */
   workspaceId?: string;
+  /** Only set for `via: 'token'` — the token's power ceiling (MN-134). */
+  tokenScope?: TokenScope;
+  /** Only set for `via: 'token'` — whether run_button is allowed within write scope. */
+  allowRunButton?: boolean;
 }
 
 export type AuthedRequest = FastifyRequest & { user: AuthedUser; auth: AuthContext };
@@ -49,7 +62,38 @@ export class AuthGuard implements CanActivate {
     @Inject(AUTH) private readonly auth: Auth,
     private readonly tokens: TokensService,
     @Inject(DB) private readonly db: Db,
+    private readonly reflector: Reflector,
   ) {}
+
+  /**
+   * MN-134: a scoped PAT is refused any endpoint above its ceiling — here, in the
+   * one guard that runs on every authenticated route, so it holds even if a
+   * controller forgets a guard or an agent hand-crafts a call to an unadvertised
+   * tool. Required scope: @RequiresScope override, else GET → read / else write.
+   */
+  private enforceTokenScope(context: ExecutionContext, resolved: {
+    scope: TokenScope;
+    allowRunButton: boolean;
+  }): void {
+    const request = context.switchToHttp().getRequest<FastifyRequest>();
+    const explicit = this.reflector.getAllAndOverride<TokenScope>(SCOPE_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    const required: TokenScope = explicit ?? (request.method === 'GET' ? 'read' : 'write');
+    if (!scopeSatisfies(resolved.scope, required)) {
+      throw new ForbiddenException(
+        `This token is ${resolved.scope}-scoped; ${required} access is required here.`,
+      );
+    }
+    const isRunButton = this.reflector.getAllAndOverride<boolean>(RUN_BUTTON_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (isRunButton && !resolved.allowRunButton) {
+      throw new ForbiddenException('This token is not allowed to run buttons.');
+    }
+  }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<FastifyRequest>();
@@ -60,6 +104,7 @@ export class AuthGuard implements CanActivate {
       if (!resolved) throw new UnauthorizedException('Invalid or revoked token');
       const account = await this.db.query.user.findFirst({ where: eq(user.id, resolved.userId) });
       if (!account) throw new UnauthorizedException('Token owner no longer exists');
+      this.enforceTokenScope(context, resolved);
 
       /**
        * MN-122: a PAT is minted FOR a workspace, so it must only work there.
@@ -83,7 +128,12 @@ export class AuthGuard implements CanActivate {
         image: account.image,
         emailVerified: account.emailVerified,
       };
-      (request as AuthedRequest).auth = { via: 'token', workspaceId: resolved.workspaceId };
+      (request as AuthedRequest).auth = {
+        via: 'token',
+        workspaceId: resolved.workspaceId,
+        tokenScope: resolved.scope,
+        allowRunButton: resolved.allowRunButton,
+      };
       return true;
     }
 
