@@ -463,13 +463,63 @@ export function registerTools(server: McpServer, ctx: Ctx) {
     {
       title: 'Link records',
       description:
-        'Add links from a record through a relation field to target records (by uuid or public number). Get target ids from search / query_records first.',
+        'Link a record through a relation field to target records (by uuid or public number). Default ADDS links. Use replace:true to set the link set to exactly `targets` — that is how you re-point or clear a one-to-many link (adding a second target without replace returns a 409). Get target ids from search / query_records first.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
         record: z.string(),
         relation_field: z.string().describe('The relation field on this database (api_name, name, or id).'),
-        targets: z.array(z.string()).describe('Target record uuids or public numbers.'),
+        targets: z.array(z.string()).describe('Target record uuids or public numbers. With replace:true, an empty array clears all links.'),
+        replace: z
+          .boolean()
+          .optional()
+          .describe('Replace the whole link set with `targets` instead of adding to it — required to change a one-to-many link (#81).'),
+      },
+    },
+    handle<{ workspace: string; database: string; record: string; relation_field: string; targets: string[]; replace?: boolean }>(
+      async ({ workspace, database, record, relation_field, targets, replace }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const detail = await getDetail(ws.id, db.id);
+        const fieldId = resolveFieldId(detail, relation_field, ['relation'], 'relation');
+        const rec = await resolveRecordId(ws.id, db.id, record);
+        const relField = detail.fields.find((f) => f.id === fieldId);
+        const targetDbId = relField?.relation?.target_database_id ?? db.id;
+        const targetIds = await Promise.all(targets.map((t) => resolveRecordId(ws.id, targetDbId, t)));
+        const path = { ws: ws.id, db: db.id, rec, field: fieldId };
+        // PUT replaces the link set; POST adds. The API has always supported both —
+        // only `add` was exposed, so "Use replace instead" was unreachable (#81).
+        await unwrap(
+          replace
+            ? client.PUT('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/links/{field}', {
+                params: { path } as never,
+                body: { record_ids: targetIds } as never,
+              })
+            : client.POST('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/links/{field}', {
+                params: { path } as never,
+                body: { record_ids: targetIds } as never,
+              }),
+        );
+        const row = await unwrap<RecordRow>(
+          client.GET('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}', { params: { path: { ws: ws.id, db: db.id, rec } } }),
+        );
+        return text(row);
+      },
+    ),
+  );
+
+  server.registerTool(
+    'unlink_records',
+    {
+      title: 'Unlink records',
+      description:
+        'Remove specific links from a record\'s relation field, leaving the relation and every other link intact. Use this (or link_records with replace) to fix a mis-link — never delete_relation, which drops the relation everywhere (#81).',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        record: z.string(),
+        relation_field: z.string().describe('The relation field on this database (api_name, name, or id).'),
+        targets: z.array(z.string()).describe('Target record uuids or public numbers to unlink.'),
       },
     },
     handle<{ workspace: string; database: string; record: string; relation_field: string; targets: string[] }>(
@@ -483,7 +533,7 @@ export function registerTools(server: McpServer, ctx: Ctx) {
         const targetDbId = relField?.relation?.target_database_id ?? db.id;
         const targetIds = await Promise.all(targets.map((t) => resolveRecordId(ws.id, targetDbId, t)));
         await unwrap(
-          client.POST('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/links/{field}', {
+          client.DELETE('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/links/{field}', {
             params: { path: { ws: ws.id, db: db.id, rec, field: fieldId } } as never,
             body: { record_ids: targetIds } as never,
           }),
