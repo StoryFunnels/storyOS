@@ -7,7 +7,7 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { api } from '@/lib/api';
+import { api, apiErrorMessage } from '@/lib/api';
 
 export interface SelectOption {
   id: string;
@@ -152,11 +152,13 @@ export function useRecordMutations(ws: string, db: string) {
       });
       return { previous };
     },
-    onError: (_err, _vars, context) => {
+    onError: (err, _vars, context) => {
       for (const [k, v] of (context?.previous ?? []) as Array<[unknown, unknown]>) {
         qc.setQueryData(k as never, v as never);
       }
-      toast.error('Could not save — value rejected');
+      // Surface what the API actually said — a rejected person now comes back
+      // naming the candidates, which is useless if we swallow it (MN-119).
+      toast.error(apiErrorMessage(err, 'Could not save — value rejected'));
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: key });

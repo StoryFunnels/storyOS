@@ -28,6 +28,7 @@ import {
   useDeleteField,
   useFieldMutations,
 } from './field-dialogs';
+import { PASTE_WRONG_TARGET, coercePaste } from './paste';
 import { RelationEditor } from './relation-cell';
 import {
   useDatabase,
@@ -246,43 +247,6 @@ export function TableView({
     toast.success('Copied');
   }
 
-  function coercePaste(target: Field, text: string): unknown {
-    const copied = copiedRef.current;
-    const optId = (label: string) =>
-      target.options?.find((o) => o.label.toLowerCase() === label.trim().toLowerCase())?.id;
-    // Same-type internal paste is exact for scalars; selects go through labels so
-    // ids resolve to the target field's own options.
-    if (copied && copied.field.type === target.type && !['select', 'multi_select', 'relation', 'user'].includes(target.type)) {
-      return copied.value;
-    }
-    const t = (copied ? cellToText(copied.field, copied.value) : text).trim();
-    switch (target.type) {
-      case 'number':
-      case 'currency':
-      case 'percent': {
-        if (t === '') return null;
-        const n = Number(t.replace(/[,$%\s]/g, ''));
-        return Number.isNaN(n) ? undefined : n;
-      }
-      case 'checkbox':
-        return /^(true|1|yes|✓|checked|done)$/i.test(t);
-      case 'select':
-        return t === '' ? null : (optId(t) ?? undefined);
-      case 'multi_select':
-        return t
-          .split(',')
-          .map((s) => optId(s))
-          .filter((x): x is string => Boolean(x));
-      case 'rich_text':
-        return t === '' ? null : [{ type: 'paragraph', content: [{ type: 'text', text: t }] }];
-      case 'relation':
-      case 'user':
-        return undefined; // not safely pasteable
-      default:
-        return t; // text, title, url, email, date
-    }
-  }
-
   async function pasteCell() {
     if (!cursor || readOnly) return;
     const row = rows[cursor.row];
@@ -298,7 +262,15 @@ export function TableView({
     } catch {
       /* clipboard read blocked — fall back to the in-app copied value */
     }
-    const value = coercePaste(target, text);
+    const value = coercePaste(target, text, copiedRef.current);
+    if (value === PASTE_WRONG_TARGET) {
+      toast.error(
+        target.type === 'relation'
+          ? 'Paste into a relation only from a relation pointing at the same database'
+          : `Can't paste into a ${target.displayName}`,
+      );
+      return;
+    }
     if (value === undefined) {
       toast.error(`Can't paste into a ${target.type} field`);
       return;
