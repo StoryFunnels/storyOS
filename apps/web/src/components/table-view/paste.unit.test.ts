@@ -1,0 +1,81 @@
+import { describe, expect, it } from 'vitest';
+import { PASTE_WRONG_TARGET, coercePaste, type CopiedCell } from './paste';
+import type { Field } from './use-table-data';
+
+/**
+ * MN-119 paste rules, now unit-testable (MN-135). These were buried in a 700-line
+ * component and could only be eyeballed; the logic lives in a pure module now.
+ */
+
+const field = (over: Partial<Field> & { type: string; id?: string }): Field =>
+  ({ id: over.id ?? `f_${over.type}`, apiName: over.type, displayName: over.type, ...over }) as Field;
+
+const copied = (f: Field, value: unknown): CopiedCell => ({ field: f, value });
+
+describe('same-field paste — exact for every type', () => {
+  it('pastes the copied value verbatim when the target IS the source field', () => {
+    const sel = field({ type: 'select', id: 'state' });
+    expect(coercePaste(sel, '', copied(sel, 'opt-1'))).toBe('opt-1');
+
+    const user = field({ type: 'user', id: 'assignee' });
+    expect(coercePaste(user, '', copied(user, 'usr-1'))).toBe('usr-1');
+  });
+});
+
+describe('user → user across different fields', () => {
+  const single = field({ type: 'user', id: 'a', config: {} });
+  const multi = field({ type: 'user', id: 'b', config: { multi: true } });
+
+  it('copies a person into a single-user field', () => {
+    expect(coercePaste(single, '', copied(multi, ['usr-1', 'usr-2']))).toBe('usr-1');
+  });
+
+  it('reshapes into a multi-user field as an array', () => {
+    expect(coercePaste(multi, '', copied(single, 'usr-9'))).toEqual(['usr-9']);
+  });
+
+  it('an empty single-user paste clears to null', () => {
+    expect(coercePaste(single, '', copied(multi, []))).toBeNull();
+  });
+});
+
+describe('relation → relation only within the same target database', () => {
+  const fromField = field({ type: 'relation', id: 'r1', relation: { target_database_id: 'db-A' } as never });
+  const sameDb = field({ type: 'relation', id: 'r2', relation: { target_database_id: 'db-A' } as never });
+  const otherDb = field({ type: 'relation', id: 'r3', relation: { target_database_id: 'db-B' } as never });
+
+  it('pastes the target ids when both point at the same database', () => {
+    expect(coercePaste(sameDb, '', copied(fromField, [{ id: 'rec-1' }, { id: 'rec-2' }]))).toEqual([
+      'rec-1',
+      'rec-2',
+    ]);
+  });
+
+  it('refuses a paste across different databases', () => {
+    expect(coercePaste(otherDb, '', copied(fromField, [{ id: 'rec-1' }]))).toBe(PASTE_WRONG_TARGET);
+  });
+});
+
+describe('external text', () => {
+  it('into a user field is passed through for server-side resolution (MN-118)', () => {
+    // The API resolves a name/email or names the candidates — better than guessing here.
+    expect(coercePaste(field({ type: 'user', id: 'x' }), 'Maya Rodriguez', null)).toBe('Maya Rodriguez');
+    expect(coercePaste(field({ type: 'user', id: 'x' }), '', null)).toBeNull();
+  });
+
+  it('into a relation field is refused — a title cannot become a record id client-side', () => {
+    expect(coercePaste(field({ type: 'relation', id: 'x' }), 'Some Title', null)).toBe(PASTE_WRONG_TARGET);
+  });
+
+  it('coerces scalars', () => {
+    expect(coercePaste(field({ type: 'number', id: 'n' }), '1,234', null)).toBe(1234);
+    expect(coercePaste(field({ type: 'checkbox', id: 'c' }), 'yes', null)).toBe(true);
+    expect(coercePaste(field({ type: 'text', id: 't' }), 'hello', null)).toBe('hello');
+  });
+
+  it('resolves a select label to the target field option id', () => {
+    const sel = field({ type: 'select', id: 's', options: [{ id: 'o1', label: 'Done', color: 'green' }] as never });
+    expect(coercePaste(sel, 'done', null)).toBe('o1');
+    expect(coercePaste(sel, 'Nonexistent', null)).toBeUndefined();
+  });
+});

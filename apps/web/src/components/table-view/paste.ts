@@ -1,5 +1,5 @@
 import type { Field } from './use-table-data';
-import { cellToText } from './cells';
+import { cellToText } from './cell-text';
 
 /**
  * Cell paste coercion (MN-015, fixed by MN-119) — pure, so the rules are readable
