@@ -865,6 +865,30 @@ export class RecordsService {
         recipients: [...addedUsers],
       });
     }
+
+    // MN-073: a status/priority (any select) change pings the record's assignees —
+    // the people carried on its user fields — so triage state is pushed, not polled.
+    const changedSelects = defs.filter((d) => d.type === 'select' && d.id in diff);
+    if (changedSelects.length > 0) {
+      const assignees = new Set<string>();
+      for (const def of defs) {
+        if (def.type !== 'user') continue;
+        ([] as string[]).concat((merged[def.id] as never) ?? []).forEach((id) => {
+          if (id) assignees.add(id);
+        });
+      }
+      if (assignees.size > 0) {
+        await this.notificationsService.notify({
+          workspaceId,
+          databaseId,
+          recordId,
+          actorId,
+          type: 'state_changed',
+          recipients: [...assignees],
+          snippet: `${changedSelects.map((d) => d.api_name).join(', ')} changed`,
+        });
+      }
+    }
     return this.project(updated, defs);
   }
 

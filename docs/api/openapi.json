@@ -2759,6 +2759,22 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "type",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "archived",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -2766,7 +2782,7 @@
             "description": ""
           }
         },
-        "summary": "My notifications, newest first",
+        "summary": "My notifications, newest first (filter by type; archived view)",
         "tags": [
           "notifications"
         ]
@@ -2821,6 +2837,54 @@
           }
         },
         "summary": "Mark everything read",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/notifications/{id}/archive": {
+      "post": {
+        "operationId": "NotificationsController_archive",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Archive one notification (MN-073)",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/notifications/{id}/unarchive": {
+      "post": {
+        "operationId": "NotificationsController_unarchive",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Restore an archived notification to the inbox",
         "tags": [
           "notifications"
         ]

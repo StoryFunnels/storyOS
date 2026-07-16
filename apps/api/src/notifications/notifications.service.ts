@@ -1,11 +1,11 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { and, desc, eq, gt, inArray, isNull, lt, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { comments, databases, notifications, records, user, userPreferences } from '../db/schema';
 import { mergePreferences } from '../users/preferences.constants';
 
-export type NotificationType = 'assigned' | 'mentioned' | 'commented';
+export type NotificationType = 'assigned' | 'mentioned' | 'commented' | 'state_changed';
 
 interface NotifyInput {
   workspaceId: string;
@@ -96,12 +96,21 @@ export class NotificationsService {
     return [...out];
   }
 
-  async list(workspaceId: string, userId: string, unreadOnly: boolean, cursor?: string) {
+  async list(
+    workspaceId: string,
+    userId: string,
+    unreadOnly: boolean,
+    cursor?: string,
+    opts?: { type?: NotificationType; archived?: boolean },
+  ) {
     const rows = await this.db.query.notifications.findMany({
       where: and(
         eq(notifications.workspaceId, workspaceId),
         eq(notifications.userId, userId),
         unreadOnly ? isNull(notifications.readAt) : undefined,
+        // Archived notifications only show in the archived view (MN-073).
+        opts?.archived ? isNotNull(notifications.archivedAt) : isNull(notifications.archivedAt),
+        opts?.type ? eq(notifications.type, opts.type) : undefined,
         cursor ? lt(notifications.createdAt, new Date(cursor)) : undefined,
       ),
       orderBy: [desc(notifications.createdAt)],
@@ -153,6 +162,7 @@ export class NotificationsService {
           eq(notifications.workspaceId, workspaceId),
           eq(notifications.userId, userId),
           isNull(notifications.readAt),
+          isNull(notifications.archivedAt),
         ),
       );
     return row?.count ?? 0;
@@ -164,6 +174,15 @@ export class NotificationsService {
       .set({ readAt: new Date() })
       .where(and(eq(notifications.id, notificationId), eq(notifications.userId, userId)));
     return { read: true };
+  }
+
+  /** Archive (or restore) a notification — moves it out of the default inbox (MN-073). */
+  async setArchived(userId: string, notificationId: string, archived: boolean) {
+    await this.db
+      .update(notifications)
+      .set({ archivedAt: archived ? new Date() : null })
+      .where(and(eq(notifications.id, notificationId), eq(notifications.userId, userId)));
+    return { archived };
   }
 
   async markAllRead(workspaceId: string, userId: string) {

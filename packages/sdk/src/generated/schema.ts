@@ -890,7 +890,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** My notifications, newest first */
+        /** My notifications, newest first (filter by type; archived view) */
         get: operations["NotificationsController_list"];
         put?: never;
         post?: never;
@@ -945,6 +945,40 @@ export interface paths {
         put?: never;
         /** Mark everything read */
         post: operations["NotificationsController_markAllRead"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/notifications/{id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Archive one notification (MN-073) */
+        post: operations["NotificationsController_archive"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/notifications/{id}/unarchive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore an archived notification to the inbox */
+        post: operations["NotificationsController_unarchive"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3823,6 +3857,8 @@ export interface operations {
             query: {
                 unread_only: string;
                 cursor: string;
+                type: string;
+                archived: string;
             };
             header?: never;
             path?: never;
@@ -3879,6 +3915,44 @@ export interface operations {
             query?: never;
             header?: never;
             path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    NotificationsController_archive: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    NotificationsController_unarchive: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
             cookie?: never;
         };
         requestBody?: never;

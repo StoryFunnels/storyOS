@@ -3,14 +3,15 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Inbox as InboxIcon, X } from 'lucide-react';
+import { Inbox as InboxIcon, Maximize2, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Avatar } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
 
-interface NotificationRow {
+export type NotificationType = 'assigned' | 'mentioned' | 'commented' | 'state_changed';
+export interface NotificationRow {
   id: string;
-  type: 'assigned' | 'mentioned' | 'commented';
+  type: NotificationType;
   count: number;
   snippet: string | null;
   read_at: string | null;
@@ -23,11 +24,13 @@ interface NotificationsPage {
   next_cursor: string | null;
 }
 
-const VERBS: Record<NotificationRow['type'], string> = {
+export const NOTIFICATION_VERBS: Record<NotificationType, string> = {
   assigned: 'assigned you',
   mentioned: 'mentioned you',
   commented: 'commented',
+  state_changed: 'updated status on',
 };
+const VERBS = NOTIFICATION_VERBS;
 
 function relativeTime(iso: string): string {
   const seconds = (Date.now() - new Date(iso).getTime()) / 1000;
@@ -125,6 +128,16 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
           <span className="flex items-center gap-2">
             <button className="text-[12px] text-muted hover:text-ink" onClick={() => markAll.mutate()}>
               Mark all read
+            </button>
+            <button
+              className="rounded p-1 text-muted hover:bg-hover"
+              title="Open full inbox"
+              onClick={() => {
+                onClose();
+                router.push(`/w/${ws}/inbox`);
+              }}
+            >
+              <Maximize2 className="h-3.5 w-3.5" />
             </button>
             <button className="rounded p-1 text-muted hover:bg-hover" onClick={onClose}>
               <X className="h-4 w-4" />
