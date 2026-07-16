@@ -20,6 +20,7 @@ import {
 } from '@/components/views/use-view-state';
 import type { ViewConfig } from '@/components/views/use-view-state';
 import { useDatabase, useMembers } from '@/components/table-view/use-table-data';
+import type { Field } from '@/components/table-view/use-table-data';
 import { atLeast } from '@/lib/access';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/components/ui/dialog';
@@ -176,7 +177,7 @@ function NewViewDialog({
   fields,
   onCreate,
 }: {
-  fields: Array<{ id: string; displayName: string; type: string }>;
+  fields: Field[];
   onCreate: (name: string, type: ViewKind, configPatch?: Partial<ViewConfig>) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -187,6 +188,16 @@ function NewViewDialog({
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const selectFields = fields.filter((f) => f.type === 'select');
+  // MN-079: a board column per value needs a single-valued field — select, a single
+  // user, or the single side of a one-to-many relation. The API enforces the same rule.
+  const boardGroupFields = fields.filter(
+    (f) =>
+      f.type === 'select' ||
+      (f.type === 'user' && f.config?.['multi'] !== true) ||
+      (f.type === 'relation' &&
+        f.relation?.cardinality === 'one_to_many' &&
+        f.relation?.side === 'a'),
+  );
   const [groupBy, setGroupBy] = useState('');
 
   return (
@@ -203,7 +214,7 @@ function NewViewDialog({
             e.preventDefault();
             if (!name.trim()) return;
             const patch: Partial<ViewConfig> = {};
-            if (type === 'board') patch.group_by_field_id = groupBy || selectFields[0]?.id;
+            if (type === 'board') patch.group_by_field_id = groupBy || boardGroupFields[0]?.id;
             if (type === 'list' && groupBy) patch.group_by_field_id = groupBy;
             if (type === 'calendar') patch.date_field_id = dateField || dateFields[0]?.id;
             if (type === 'timeline') {
@@ -225,7 +236,7 @@ function NewViewDialog({
               {(
                 [
                   { kind: 'table', label: 'Table', Icon: Table2 },
-                  { kind: 'board', label: 'Board', Icon: Kanban, need: selectFields.length === 0 ? 'Needs a select field' : null },
+                  { kind: 'board', label: 'Board', Icon: Kanban, need: boardGroupFields.length === 0 ? 'Needs a select, user, or one-to-many relation field' : null },
                   { kind: 'calendar', label: 'Calendar', Icon: CalendarDays, need: dateFields.length === 0 ? 'Needs a date field' : null },
                   { kind: 'gallery', label: 'Gallery', Icon: LayoutGrid },
                   { kind: 'list', label: 'List', Icon: ListIcon },
@@ -301,17 +312,17 @@ function NewViewDialog({
               </select>
             </div>
           )}
-          {(type === 'board' || type === 'list') && selectFields.length > 0 && (
+          {((type === 'board' && boardGroupFields.length > 0) || (type === 'list' && selectFields.length > 0)) && (
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="group-by">Group by{type === 'list' ? ' (optional)' : ''}</Label>
               <select
                 id="group-by"
                 className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-sm text-ink"
-                value={type === 'board' ? groupBy || selectFields[0]?.id || '' : groupBy}
+                value={type === 'board' ? groupBy || boardGroupFields[0]?.id || '' : groupBy}
                 onChange={(e) => setGroupBy(e.target.value)}
               >
                 {type === 'list' && <option value="">None</option>}
-                {selectFields.map((f) => (
+                {(type === 'board' ? boardGroupFields : selectFields).map((f) => (
                   <option key={f.id} value={f.id}>
                     {f.displayName}
                   </option>

@@ -9,7 +9,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import type { ViewConfig, ViewType } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { fields, views } from '../db/schema';
+import { fields, relations, views } from '../db/schema';
 
 type FieldRow = typeof fields.$inferSelect;
 
@@ -65,6 +65,38 @@ export function cleanViewConfig(
   };
 }
 
+/**
+ * Which fields a board can group by (MN-079). A column per value only makes sense
+ * when a record has exactly one value: select, single user, and the single side of
+ * a one-to-many relation. Multi-valued fields (multi_select, multi user, the many
+ * side, many-to-many) would put one card in several columns, so a drag between
+ * columns has no single meaning — they stay unsupported.
+ *
+ * `relation` is the row from the relations table for a relation field; null for
+ * every other type. Returns an error message, or null when groupable.
+ */
+export function boardGroupError(
+  field: { type: string; config: unknown } | undefined,
+  relation: { cardinality: string } | null,
+): string | null {
+  if (!field) return 'board views require group_by_field_id';
+  const config = (field.config ?? {}) as Record<string, unknown>;
+  if (field.type === 'select') return null;
+  if (field.type === 'user') {
+    return config['multi'] === true
+      ? 'board views cannot group by a multi-user field — a card would land in several columns'
+      : null;
+  }
+  if (field.type === 'relation') {
+    if (!relation) return 'the group-by relation no longer exists';
+    const single = relation.cardinality === 'one_to_many' && config['side'] === 'a';
+    return single
+      ? null
+      : 'board views can only group by the single side of a one-to-many relation — a many-to-many or the many side would put a card in several columns';
+  }
+  return `board views cannot group by a "${field.type}" field — use a select, a single user, or a one-to-many relation`;
+}
+
 @Injectable()
 export class ViewsService {
   constructor(@Inject(DB) private readonly db: Db) {}
@@ -118,9 +150,17 @@ export class ViewsService {
         throw new UnprocessableEntityException('board views require group_by_field_id');
       }
       const groupField = byId.get(config.group_by_field_id);
-      if (groupField?.type !== 'select') {
-        throw new UnprocessableEntityException('board views must group by a single-select field (v1)');
+      let relation: { cardinality: string } | null = null;
+      if (groupField?.type === 'relation') {
+        const relationId = (groupField.config as Record<string, unknown>)['relation_id'];
+        if (typeof relationId === 'string') {
+          relation =
+            (await this.db.query.relations.findFirst({ where: eq(relations.id, relationId) })) ??
+            null;
+        }
       }
+      const error = boardGroupError(groupField, relation);
+      if (error) throw new UnprocessableEntityException(error);
     }
   }
 

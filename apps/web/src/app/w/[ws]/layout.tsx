@@ -24,13 +24,16 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="flex min-h-screen">
+    // h-screen (not min-h-screen): main must be the scroll container, or every
+    // view's h-full/overflow-auto and sticky header attach to a scroller that
+    // never scrolls and the chrome scrolls away with the document (MN-117).
+    <div className="flex h-screen overflow-hidden">
       <Sidebar />
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <header className="flex h-12 shrink-0 items-center justify-between border-b border-border-default bg-card px-4">
           <AccountMenu />
         </header>
-        <main className="min-w-0 flex-1 overflow-auto">{children}</main>
+        <main className="min-h-0 min-w-0 flex-1 overflow-auto">{children}</main>
       </div>
       <CommandPalette />
       <ShortcutsOverlay />
