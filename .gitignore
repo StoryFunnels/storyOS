@@ -23,5 +23,8 @@ docker/tls.d/*.caddy
 *.log
 *.tsbuildinfo
 
+# Generated SBOM (produced by scripts/license-check.mjs in CI)
+sbom.cdx.json
+
 # Claude Code local settings
 .claude/settings.local.json
