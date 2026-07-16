@@ -260,6 +260,13 @@
       "when": 1784199739997,
       "tag": "0036_boring_ricochet",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1784205909436,
+      "tag": "0037_pink_sunspot",
+      "breakpoints": true
     }
   ]
 }

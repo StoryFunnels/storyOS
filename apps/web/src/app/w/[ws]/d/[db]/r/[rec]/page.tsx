@@ -67,7 +67,7 @@ import type { LinkChip } from '@/components/table-view/relation-cell';
 import { useDatabase, useMembers, useRecordMutations } from '@/components/table-view/use-table-data';
 import type { Field, RecordRow } from '@/components/table-view/use-table-data';
 import { DescriptionEditor } from '@/components/entity/description-editor';
-import { ActivityPanel, AttachmentsStrip, CommentsPanel } from '@/components/entity/panels';
+import { ActivityPanel, AttachmentsStrip, CommentsPanel, MentionedIn } from '@/components/entity/panels';
 import { useFavorites } from '@/components/sidebar';
 import { parseRecordParam, recordHref } from '@/lib/records';
 import { uploadEditorImage } from '@/lib/editor-upload';
@@ -319,6 +319,8 @@ export default function EntityPage() {
           <div className="mb-6 mt-5">
             <AttachmentsStrip ws={ws} db={db} rec={recordId} readOnly={readOnly} />
           </div>
+
+          <MentionedIn ws={ws} db={db} rec={recordId} />
 
           <div className="mt-8 border-t border-border-default pt-4">
             <div className="mb-4 flex gap-1">

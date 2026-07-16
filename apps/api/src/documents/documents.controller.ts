@@ -59,6 +59,7 @@ export class DocumentsController {
     await this.assertRecord(req, databaseId, recordId, 'editor');
     return this.documentsService.put(
       req.membership.workspaceId,
+      databaseId,
       recordId,
       body.content,
       body.expected_version,

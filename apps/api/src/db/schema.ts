@@ -326,6 +326,35 @@ export const recordLinks = pgTable(
   ],
 );
 
+/**
+ * Record → record mentions (MN-205): a #mention written inside a record's document.
+ * The backlink store — "which records mention this one" — indexed on the target so
+ * the "Mentioned in" panel is a cheap reverse lookup. Distinct from record_links
+ * (explicit relation fields); a mention is an ambient reference, not a schema edge.
+ */
+export const recordMentions = pgTable(
+  'record_mentions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    /** The record whose document contains the mention. */
+    sourceRecordId: uuid('source_record_id')
+      .notNull()
+      .references(() => records.id, { onDelete: 'cascade' }),
+    /** The mentioned record. */
+    targetRecordId: uuid('target_record_id')
+      .notNull()
+      .references(() => records.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('record_mentions_uq').on(t.sourceRecordId, t.targetRecordId),
+    index('record_mentions_target_idx').on(t.targetRecordId),
+  ],
+);
+
 export const documents = pgTable('documents', {
   id: uuid('id').primaryKey().defaultRandom(),
   recordId: uuid('record_id')

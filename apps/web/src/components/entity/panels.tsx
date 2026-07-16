@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useDateFormat } from '@/lib/preferences';
 import { Paperclip, Send, Trash2 } from 'lucide-react';
@@ -265,6 +266,57 @@ export function ActivityPanel({ ws, db, rec }: { ws: string; db: string; rec: st
         </div>
       ))}
       {(activity.data ?? []).length === 0 && <p className="text-[13px] text-muted">No activity yet.</p>}
+    </div>
+  );
+}
+
+interface Backlink {
+  id: string;
+  title: string;
+  number: number | null;
+  database_id: string;
+  database_name: string;
+}
+
+/**
+ * "Mentioned in" (MN-205): the records whose document #-mentions this one. A one-way
+ * mention is half a relation — this is the other half, so you can traverse back. The
+ * list is permission-scoped server-side (a title you can't open never appears here).
+ */
+export function MentionedIn({ ws, db, rec }: { ws: string; db: string; rec: string }) {
+  const backlinks = useQuery({
+    queryKey: ['backlinks', ws, db, rec],
+    queryFn: async () => {
+      const { data, error } = await api.GET(
+        '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/backlinks',
+        { params: { path: { ws, db, rec } } },
+      );
+      if (error) throw error;
+      return (data as unknown as { data: Backlink[] }).data;
+    },
+  });
+
+  const items = backlinks.data ?? [];
+  if (items.length === 0) return null;
+
+  return (
+    <div className="mt-6">
+      <h2 className="mb-2 text-[12px] font-medium uppercase tracking-wider text-faint">
+        Mentioned in
+      </h2>
+      <ul className="flex flex-col gap-1">
+        {items.map((b) => (
+          <li key={b.id}>
+            <Link
+              href={`/w/${ws}/d/${b.database_id}/r/${b.id}`}
+              className="flex items-baseline gap-2 rounded px-2 py-1 text-[13px] hover:bg-hover"
+            >
+              <span className="truncate text-ink">{b.title || 'Untitled'}</span>
+              <span className="shrink-0 text-[11px] text-faint">{b.database_name}</span>
+            </Link>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
