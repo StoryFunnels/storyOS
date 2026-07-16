@@ -28,3 +28,7 @@ Decisions we don't relitigate. If you want to change one, open a new ADR that su
 - [ADR-0004 — No webhooks in v1](ADR-0004-no-webhooks-v1.md)
 - [ADR-0005 — Record ordering: one fractional index per database](ADR-0005-record-ordering.md)
 - [ADR-0006 — Spaces as the guest-scoping unit](ADR-0006-spaces.md)
+- [ADR-0007 — Access grants](ADR-0007-access-grants.md)
+- [ADR-0008 — Outgoing webhooks](ADR-0008-outgoing-webhooks.md)
+- [ADR-0009 — The `contributor` rung](ADR-0009-contributor-rung.md)
+- [ADR-0010 — The agentic execution engine](ADR-0010-agentic-os-engine.md)
