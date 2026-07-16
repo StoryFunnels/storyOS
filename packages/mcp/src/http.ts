@@ -99,7 +99,7 @@ const server = createServer(async (req, res) => {
 
   const body = req.method === 'POST' ? await readBody(req) : undefined;
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-  const mcp = buildServer(makeClientFor(token));
+  const mcp = await buildServer(makeClientFor(token));
   res.on('close', () => {
     void transport.close();
     void mcp.close();

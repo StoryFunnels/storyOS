@@ -17,6 +17,7 @@ import {
   updateDatabaseSchema,
 } from '@storyos/schemas';
 import { AuthGuard } from '../auth/auth.guard';
+import { RequiresScope } from '../auth/token-scope.guard';
 import { MinRole, WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { DatabasesService } from './databases.service';
@@ -38,6 +39,7 @@ export class DatabasesController {
     return this.databases.list(req.membership);
   }
 
+  @RequiresScope('admin')
   @Post()
   @MinRole('member')
   @ApiOperation({ summary: 'Create a database (auto: title field, system fields, default view)' })
@@ -51,6 +53,7 @@ export class DatabasesController {
     return this.databases.get(req.membership, databaseId);
   }
 
+  @RequiresScope('admin')
   @Patch(':db')
   @ApiOperation({ summary: 'Rename / re-icon (creator); moving between spaces stays member+' })
   async update(
@@ -72,6 +75,7 @@ export class DatabasesController {
   // only a typed-name confirm — that is UX friction, not authorization. Note it
   // now matches rename (:67), which already required creator: destroying can no
   // longer be easier than renaming.
+  @RequiresScope('admin')
   @Delete(':db')
   @ApiOperation({ summary: 'Hard delete (creator on this database, or admin) — body.confirm must equal the name' })
   async remove(

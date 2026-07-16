@@ -8,6 +8,7 @@ import type { Db } from '../db/client';
 import { activityEvents, fields } from '../db/schema';
 import { AuthGuard } from '../auth/auth.guard';
 import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
+import { RunButtonRoute } from '../auth/token-scope.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { DatabasesService } from '../databases/databases.service';
 import { RecordsService } from '../records/records.service';
@@ -25,6 +26,7 @@ export class ButtonsController {
     private readonly actions: AutomationActionsService,
   ) {}
 
+  @RunButtonRoute()
   @Post('press')
   @Throttle({ default: { limit: 10, ttl: 10_000 } })
   @ApiOperation({ summary: 'Press a button field (editor+); actions run as the presser' })

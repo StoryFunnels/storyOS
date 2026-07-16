@@ -68,6 +68,40 @@ interface Envelope {
   error?: { code?: string; message?: string; details?: Array<{ path?: string; message: string }> };
 }
 
+/** A token's power ceiling, as advertised by GET /me (MN-134). */
+export type ToolScope = 'read' | 'write' | 'admin';
+export interface EffectiveScope {
+  scope: ToolScope;
+  allowRunButton: boolean;
+}
+
+/**
+ * Ask the API what this credential can actually do (MN-134), so the MCP can advertise
+ * only the tools the token permits instead of listing 30-odd tools that then 403.
+ *
+ * A session or OAuth login has no token scope — it's full — so `token_scope: null`
+ * means admin. We fetch with a raw call (the /me route isn't in the generated SDK)
+ * and fail OPEN to full access: the API enforces scope on every call regardless, so
+ * a /me hiccup must never silently downgrade a legitimately-admin token to read-only.
+ */
+export async function fetchEffectiveScope(ctx: Ctx): Promise<EffectiveScope> {
+  const full: EffectiveScope = { scope: 'admin', allowRunButton: true };
+  try {
+    const res = await fetch(`${ctx.baseUrl}/api/v1/me`, {
+      headers: { Authorization: `Bearer ${ctx.token}` },
+    });
+    if (!res.ok) return full;
+    const body = (await res.json().catch(() => undefined)) as
+      | { auth?: { token_scope?: ToolScope | null; allow_run_button?: boolean } }
+      | undefined;
+    const scope = body?.auth?.token_scope;
+    if (scope !== 'read' && scope !== 'write' && scope !== 'admin') return full;
+    return { scope, allowRunButton: body?.auth?.allow_run_button ?? true };
+  } catch {
+    return full;
+  }
+}
+
 /**
  * Unwrap an openapi-fetch result, turning the API's typed error envelope into a
  * readable message. Surfacing the server's validation verbatim is the whole

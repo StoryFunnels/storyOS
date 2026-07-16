@@ -18,6 +18,7 @@ import {
   replaceLinksSchema,
 } from '@storyos/schemas';
 import { AuthGuard } from '../auth/auth.guard';
+import { RequiresScope } from '../auth/token-scope.guard';
 import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { DatabasesService } from '../databases/databases.service';
@@ -32,6 +33,7 @@ class ReplaceLinksDto extends createZodDto(replaceLinksSchema) {}
 @ApiBearerAuth()
 @Controller('workspaces/:ws/relations')
 @UseGuards(AuthGuard, WorkspaceAccessGuard)
+@RequiresScope('admin')
 export class RelationsController {
   constructor(
     private readonly relationsService: RelationsService,

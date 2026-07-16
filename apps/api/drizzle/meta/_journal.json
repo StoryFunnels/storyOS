@@ -246,6 +246,13 @@
       "when": 1784171257910,
       "tag": "0034_strong_amphibian",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1784197982507,
+      "tag": "0035_hot_stark_industries",
+      "breakpoints": true
     }
   ]
 }

@@ -380,6 +380,14 @@ export const comments = pgTable(
   (t) => [index('comments_record_created_idx').on(t.recordId, t.createdAt)],
 );
 
+/**
+ * MN-134: a token's power ceiling. read = look only; write = read + create/update/
+ * delete records, links, comments, attachments, run buttons; admin = + schema
+ * (databases, fields, relations, views) and everything else. Enforced server-side
+ * on every request, so it holds even against a hand-crafted call.
+ */
+export const tokenScope = pgEnum('token_scope', ['read', 'write', 'admin']);
+
 export const apiTokens = pgTable('api_tokens', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: text('user_id').notNull(),
@@ -390,6 +398,10 @@ export const apiTokens = pgTable('api_tokens', {
   tokenHash: text('token_hash').notNull().unique(),
   /** mn_pat_ + first 4 chars — the only recoverable fragment (E1). */
   tokenPrefix: text('token_prefix').notNull(),
+  /** Power ceiling (MN-134). Existing tokens default to admin, keeping their reach. */
+  scope: tokenScope('scope').notNull().default('admin'),
+  /** run_button is gateable separately within write scope (MN-134). */
+  allowRunButton: boolean('allow_run_button').notNull().default(true),
   lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
   revokedAt: timestamp('revoked_at', { withTimezone: true }),
   ...timestamps,

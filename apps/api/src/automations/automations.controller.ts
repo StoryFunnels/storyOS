@@ -4,6 +4,7 @@ import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 import { createAutomationSchema, updateAutomationSchema } from '@storyos/schemas';
 import { AuthGuard } from '../auth/auth.guard';
+import { RequiresScope } from '../auth/token-scope.guard';
 import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { DatabasesService } from '../databases/databases.service';
@@ -17,6 +18,7 @@ class TestAutomationDto extends createZodDto(z.object({ record_id: z.uuid() })) 
 @ApiTags('automations')
 @UseGuards(AuthGuard, WorkspaceAccessGuard)
 @Controller('workspaces/:ws/databases/:db/automations')
+@RequiresScope('admin')
 export class AutomationsController {
   constructor(
     private readonly automationsService: AutomationsService,

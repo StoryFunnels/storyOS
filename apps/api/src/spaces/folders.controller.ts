@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 import { AuthGuard } from '../auth/auth.guard';
+import { RequiresScope } from '../auth/token-scope.guard';
 import { MinRole } from '../workspaces/workspace-access.guard';
 import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
@@ -22,6 +23,7 @@ class UpdateFolderDto extends createZodDto(updateSchema) {}
 @ApiBearerAuth()
 @Controller('workspaces/:ws')
 @UseGuards(AuthGuard, WorkspaceAccessGuard)
+@RequiresScope('admin')
 export class FoldersController {
   constructor(private readonly folders: FoldersService) {}
 

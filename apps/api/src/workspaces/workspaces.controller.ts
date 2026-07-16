@@ -13,6 +13,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '../auth/auth.guard';
 import type { AuthedRequest } from '../auth/auth.guard';
 import { MinRole, WorkspaceAccessGuard } from './workspace-access.guard';
+import { RequiresScope } from '../auth/token-scope.guard';
 import type { WorkspaceRequest } from './workspace-access.guard';
 import {
   AcceptInviteDto,
@@ -85,6 +86,7 @@ export class WorkspaceController {
     return this.spaces.list(req.membership);
   }
 
+  @RequiresScope('admin')
   @Post('spaces')
   @MinRole('member')
   @ApiOperation({ summary: 'Create a space' })
@@ -92,6 +94,7 @@ export class WorkspaceController {
     return this.spaces.create(req.membership.workspaceId, body);
   }
 
+  @RequiresScope('admin')
   @Patch('spaces/:space')
   @MinRole('member')
   @ApiOperation({ summary: 'Rename/reorder a space' })
@@ -103,6 +106,7 @@ export class WorkspaceController {
     return this.spaces.update(req.membership.workspaceId, spaceId, body);
   }
 
+  @RequiresScope('admin')
   @Delete('spaces/:space')
   // MN-124: deleting a space cascades every database and grant inside it. That
   // needs creator ON THIS SPACE (or admin) — `@MinRole('member')` asked nothing
