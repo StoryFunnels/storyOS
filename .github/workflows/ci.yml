@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Merge-queue runs: GitHub tests the queued merge result before landing it.
+  merge_group:
 
 concurrency:
   group: ci-${{ github.ref }}
