@@ -9,6 +9,7 @@ const EVENTS: { key: keyof UserPreferences['notifications']; label: string; desc
   { key: 'assigned', label: 'Assigned to me', description: 'A record is assigned to you.' },
   { key: 'mentioned', label: 'Mentions', description: 'Someone @mentions you in a comment.' },
   { key: 'commented', label: 'Comments', description: 'A new comment on a record you follow.' },
+  { key: 'state_changed', label: 'Status changes', description: 'A status/priority change on a record you’re assigned to.' },
 ];
 
 export default function NotificationsPage() {

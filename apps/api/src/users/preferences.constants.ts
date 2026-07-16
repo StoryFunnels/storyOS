@@ -13,6 +13,8 @@ export interface UserPreferences {
     assigned: boolean;
     mentioned: boolean;
     commented: boolean;
+    /** A select field (status/priority/…) changed on a record I'm assigned to (MN-073). */
+    state_changed: boolean;
   };
   /** How dates/times render across the app. 'system' = the browser locale (default,
    * so nothing changes until the user picks). */
@@ -24,7 +26,7 @@ export interface UserPreferences {
 }
 
 export const DEFAULT_PREFERENCES: UserPreferences = {
-  notifications: { assigned: true, mentioned: true, commented: true },
+  notifications: { assigned: true, mentioned: true, commented: true, state_changed: true },
   regional: { dateFormat: 'system', timeFormat: 'system', firstDayOfWeek: 'system' },
 };
 

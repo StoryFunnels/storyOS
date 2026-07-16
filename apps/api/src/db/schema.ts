@@ -608,6 +608,8 @@ export const notifications = pgTable(
     snippet: text('snippet'),
     count: integer('count').notNull().default(1),
     readAt: timestamp('read_at', { withTimezone: true }),
+    /** Archived out of the inbox (MN-073) — hidden from the default list, kept for history. */
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('notifications_user_idx').on(t.userId, t.workspaceId, t.readAt, t.createdAt)],

@@ -11,6 +11,7 @@ export interface UserPreferences {
     assigned: boolean;
     mentioned: boolean;
     commented: boolean;
+    state_changed: boolean;
   };
   regional: {
     dateFormat: 'system' | 'MDY' | 'DMY' | 'YMD';
