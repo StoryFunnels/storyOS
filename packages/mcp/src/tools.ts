@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Ctx } from './client.js';
 import { unwrap, uploadAttachment } from './client.js';
-import { blocksToMarkdown, markdownToBlocks } from './markdown.js';
+import { blocksToMarkdown, markdownToBlocks } from '@storyos/schemas';
 import { listDatabases, listWorkspaces, resolveDatabase, resolveWorkspace } from './resolve.js';
 
 /** MCP text result. */

@@ -2095,6 +2095,43 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/databases/{db}/export/csv": {
+      "get": {
+        "operationId": "ExportController_csv",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "view",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Download the database (or a view) as CSV",
+        "tags": [
+          "export"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/webhooks": {
       "get": {
         "operationId": "WebhooksController_list",

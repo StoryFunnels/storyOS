@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ArrowUpDown, Check, EyeOff, GripVertical, ListFilter, Palette, Plus, X } from 'lucide-react';
+import { ArrowUpDown, Check, Download, EyeOff, GripVertical, ListFilter, Palette, Plus, X } from 'lucide-react';
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
@@ -11,6 +11,7 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { API_URL } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import type { Field } from '../table-view/use-table-data';
 import type { FilterCondition, SortSpec, ViewConfig } from './use-view-state';
@@ -91,12 +92,19 @@ export function ViewToolbar({
   members,
   viewType = 'table',
   onPatch,
+  ws,
+  db,
+  viewId,
 }: {
   fields: Field[];
   config: ViewConfig;
   members: Array<{ id: string; name: string }>;
   viewType?: string;
   onPatch: (updates: Partial<ViewConfig>) => void;
+  /** MN-075: identifies what to export. */
+  ws?: string;
+  db?: string;
+  viewId?: string;
 }) {
   const filterable = fields.filter((f) => OPS_BY_TYPE[f.type]);
   const conditions = config.filters?.and ?? [];
@@ -172,7 +180,28 @@ export function ViewToolbar({
           onChange={(color_by_field_id) => onPatch({ color_by_field_id })}
         />
       )}
+
+      {/* MN-075: the way out — this view's rows, exactly as shown. */}
+      {ws && db && <ExportCsvButton ws={ws} db={db} viewId={viewId} />}
     </div>
+  );
+}
+
+/**
+ * A plain link, not a fetch: the browser handles the download, so we don't buffer
+ * a large CSV into memory just to re-emit it as a blob. Credentials ride the
+ * cookie the app already uses.
+ */
+export function ExportCsvButton({ ws, db, viewId }: { ws: string; db: string; viewId?: string }) {
+  const href = `${API_URL}/api/v1/workspaces/${ws}/databases/${db}/export/csv${viewId ? `?view=${viewId}` : ''}`;
+  return (
+    <a
+      href={href}
+      className="ml-auto flex items-center gap-1 rounded px-1.5 py-0.5 text-[12px] text-muted hover:bg-hover hover:text-ink"
+      title={viewId ? "Download this view's rows as CSV" : 'Download every record as CSV'}
+    >
+      <Download className="h-3.5 w-3.5" /> CSV
+    </a>
   );
 }
 

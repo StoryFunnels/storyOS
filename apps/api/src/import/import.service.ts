@@ -3,7 +3,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { parse } from 'csv-parse/sync';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { fields, records } from '../db/schema';
+import { fields, records, selectOptions } from '../db/schema';
 import { FieldsService } from '../fields/fields.service';
 import { RecordsService } from '../records/records.service';
 import { RelationsService } from '../relations/relations.service';
@@ -29,6 +29,19 @@ const INFERABLE_DATE = /^(\d{4}-\d{2}-\d{2}|\d{1,2}[./]\d{1,2}[./]\d{4})/;
 const BOOLS = new Set(['true', 'false', 'yes', 'no', '1', '0']);
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const URL_RE = /^https?:\/\/\S+$/i;
+
+/**
+ * A relation cell may name several targets, comma-separated — the shape CSV
+ * export writes (MN-075), so import must read it back that way or the round-trip
+ * silently drops every target but the first. A title containing a comma survives
+ * because the CSV parser already unquoted the cell; we only split the top level.
+ */
+export function splitTargets(raw: string): string[] {
+  return raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
 
 /** CSV import (MN-052): parse → infer → map → dry-run → chunked commit. */
 @Injectable()
@@ -173,10 +186,12 @@ export class ImportService {
           const raw = (row[i] ?? '').trim();
           if (!raw) return;
           if (to.kind === 'relation') {
-            const hit = relationMaps.get(to.field_id)!.get(raw.toLowerCase());
-            if (hit === undefined) warnings.push({ row: rowIndex + 2, column, message: `no record titled "${raw}"` });
-            else if (hit === null) warnings.push({ row: rowIndex + 2, column, message: `"${raw}" is ambiguous` });
-            else if (sample.length < 5) preview[column] = raw;
+            for (const title of splitTargets(raw)) {
+              const hit = relationMaps.get(to.field_id)!.get(title.toLowerCase());
+              if (hit === undefined) warnings.push({ row: rowIndex + 2, column, message: `no record titled "${title}"` });
+              else if (hit === null) warnings.push({ row: rowIndex + 2, column, message: `"${title}" is ambiguous` });
+            }
+            if (sample.length < 5) preview[column] = raw;
             return;
           }
           const type = to.kind === 'new' ? to.type : fieldById.get(to.field_id)!.type;
@@ -196,6 +211,16 @@ export class ImportService {
       if (m.to.kind === 'existing') {
         const f = fieldById.get(m.to.field_id)!;
         columnField.set(m.column, { apiName: f.apiName, type: f.type, id: f.id });
+        // An EXISTING select needs its label→option map too. Without this the
+        // lookup below always missed, so every value imported into an existing
+        // select was silently dropped as "not a known option" — which also broke
+        // the export→import round-trip (MN-075).
+        if (f.type === 'select' || f.type === 'multi_select') {
+          const options = await this.db.query.selectOptions.findMany({
+            where: eq(selectOptions.fieldId, f.id),
+          });
+          selectLabelMaps.set(m.column, new Map(options.map((o) => [o.label.toLowerCase(), o.id])));
+        }
       } else if (m.to.kind === 'new') {
         // New select columns: options = distinct values (≤100), imported by label.
         const columnIndex = headers.indexOf(m.column);
@@ -234,11 +259,15 @@ export class ImportService {
         const raw = (row[i] ?? '').trim();
         if (!raw) return;
         if (to.kind === 'relation') {
-          const hit = relationMaps.get(to.field_id)!.get(raw.toLowerCase());
-          if (hit === undefined || hit === null) {
-            warnings.push({ row: rowIndex + 2, column, message: hit === null ? `"${raw}" is ambiguous` : `no record titled "${raw}"` });
-          } else {
-            pendingLinks.push({ recordIndex: payloads.length, fieldId: to.field_id, targetId: hit });
+          // A cell can name several targets — that's how export writes a
+          // many-to-many, so import must read it back the same way (MN-075).
+          for (const title of splitTargets(raw)) {
+            const hit = relationMaps.get(to.field_id)!.get(title.toLowerCase());
+            if (hit === undefined || hit === null) {
+              warnings.push({ row: rowIndex + 2, column, message: hit === null ? `"${title}" is ambiguous` : `no record titled "${title}"` });
+            } else {
+              pendingLinks.push({ recordIndex: payloads.length, fieldId: to.field_id, targetId: hit });
+            }
           }
           return;
         }
