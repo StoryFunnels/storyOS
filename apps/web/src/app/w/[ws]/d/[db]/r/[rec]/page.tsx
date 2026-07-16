@@ -24,6 +24,7 @@ import {
   Copy,
   CopyPlus,
   GripVertical,
+  List,
   MoreHorizontal,
   Palette,
   Pin,
@@ -579,7 +580,21 @@ interface CollectionView {
   filters?: { and: FilterCondition[] };
   sorts?: SortSpec[];
   color_by?: string; // target select field api_name
+  /** Target-field api_names shown inline as columns per linked record (MN-206). */
+  fields?: string[];
 }
+
+/** Field types worth showing inline in a relation section (MN-206). */
+const INLINE_COLUMN_TYPES = new Set([
+  'select',
+  'multi_select',
+  'user',
+  'date',
+  'checkbox',
+  'number',
+  'url',
+  'email',
+]);
 
 /**
  * A to-many relation rendered as a working list in the body (MN-071), now with
@@ -587,7 +602,7 @@ interface CollectionView {
  * TARGET database via the query engine — filtered to "linked to this record"
  * through the inverse relation field — so we get full values to sort/filter/color.
  */
-function CollectionSection({ field, schemaEditable, onToggleZone, readOnly, ws, db, rec, record, members }: VP & { field: Field }) {
+function CollectionSection({ field, schemaEditable, onToggleZone, readOnly, ws, db, rec, record, members, memberNames, memberImages }: VP & { field: Field }) {
   const [adding, setAdding] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const collapsed = field.config?.['entity_collapsed'] === true;
@@ -637,6 +652,19 @@ function CollectionSection({ field, schemaEditable, onToggleZone, readOnly, ws, 
   const conditions = cv.filters?.and ?? [];
   const setConditions = (next: FilterCondition[]) => setCv({ filters: next.length ? { and: next } : undefined });
 
+  // Inline columns (MN-206): the linked records' own fields shown per row. Explicit
+  // choice via the Fields picker, else a sensible default (first status + assignee).
+  const columnCandidates = targetFields.filter((f) => INLINE_COLUMN_TYPES.has(f.type));
+  const defaultColumns = useMemo(() => {
+    const status = columnCandidates.find((f) => f.type === 'select');
+    const person = columnCandidates.find((f) => f.type === 'user');
+    return [status, person].filter((f): f is Field => Boolean(f)).map((f) => f.apiName);
+  }, [columnCandidates]);
+  const columnApiNames = cv.fields ?? defaultColumns;
+  const columns = columnApiNames
+    .map((name) => targetFields.find((f) => f.apiName === name))
+    .filter((f): f is Field => f !== undefined && INLINE_COLUMN_TYPES.has(f.type));
+
   return (
     <div className="group mb-5">
       <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
@@ -676,6 +704,16 @@ function CollectionSection({ field, schemaEditable, onToggleZone, readOnly, ws, 
               value={cv.color_by}
               onChange={(color_by) => setCv({ color_by })}
             />
+            <FieldsButton
+              fields={columnCandidates}
+              selected={columnApiNames}
+              onToggle={(apiName) => {
+                const set = new Set(columnApiNames);
+                if (set.has(apiName)) set.delete(apiName);
+                else set.add(apiName);
+                setCv({ fields: [...set] });
+              }}
+            />
           </span>
         )}
       </div>
@@ -696,7 +734,19 @@ function CollectionSection({ field, schemaEditable, onToggleZone, readOnly, ws, 
                   className="flex items-center gap-2 border-b border-border-default px-3 py-2 text-[13px] text-ink last:border-b-0 hover:bg-hover"
                 >
                   {color && <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />}
-                  <span className="truncate">{row.title || 'Untitled'}</span>
+                  <span className="min-w-0 flex-1 truncate">{row.title || 'Untitled'}</span>
+                  {columns.map((col) =>
+                    row.values[col.apiName] != null ? (
+                      <span key={col.id} className="flex max-w-[9rem] shrink-0 items-center text-[12px]">
+                        <CellDisplay
+                          field={col}
+                          value={row.values[col.apiName]}
+                          memberNames={memberNames}
+                          memberImages={memberImages}
+                        />
+                      </span>
+                    ) : null,
+                  )}
                 </Link>
               );
             })}
@@ -726,6 +776,42 @@ function CollectionSection({ field, schemaEditable, onToggleZone, readOnly, ws, 
         </>
       )}
     </div>
+  );
+}
+
+/** "Fields" picker for a collection — choose which target fields render inline as columns (MN-206). */
+function FieldsButton({
+  fields,
+  selected,
+  onToggle,
+}: {
+  fields: Field[];
+  selected: string[];
+  onToggle: (apiName: string) => void;
+}) {
+  if (fields.length === 0) return null;
+  const selectedSet = new Set(selected);
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          className={cn(
+            'flex items-center gap-1 rounded px-1.5 py-1 text-[12px] hover:bg-hover hover:text-ink',
+            selected.length ? 'text-ink' : 'text-muted',
+          )}
+        >
+          <List className="h-3.5 w-3.5" /> Fields
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        {fields.map((f) => (
+          <DropdownMenuItem key={f.id} onSelect={(e) => { e.preventDefault(); onToggle(f.apiName); }}>
+            {selectedSet.has(f.apiName) ? '✓ ' : '  '}
+            {f.displayName}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
