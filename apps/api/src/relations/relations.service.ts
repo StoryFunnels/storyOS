@@ -76,6 +76,21 @@ export class RelationsService {
 
     const selfRelation = dbA.id === dbB.id;
 
+    // MN-211: a self-relation puts BOTH fields on one card — identical side names
+    // would render two indistinguishable fields. Name them differently, e.g.
+    // "Blocks" / "Blocked by". (The uniqueness guard below would catch it too, but
+    // with a generic message; this one says what to actually do.)
+    if (
+      selfRelation &&
+      input.field_a_name &&
+      input.field_b_name &&
+      input.field_a_name.trim().toLowerCase() === input.field_b_name.trim().toLowerCase()
+    ) {
+      throw new UnprocessableEntityException(
+        'The two sides of a self-relation need different names — e.g. "Blocks" and "Blocked by"',
+      );
+    }
+
     /**
      * MN-212: display names must be unique per database. A USER-TYPED name that
      * collides is refused outright (never silently suffixed); an auto-generated
@@ -110,14 +125,24 @@ export class RelationsService {
       }
     };
 
+    // MN-211: self-relations are almost always hierarchy or dependency, so the
+    // unnamed defaults say so — "Parent"/"Sub-items" for one_to_many (side A is
+    // the many side: each record has at most one parent), "Related"/"Related to"
+    // for many_to_many — instead of the old "<db>"/"<db> (inverse)" twins.
+    const defaultA = selfRelation
+      ? (input.cardinality === 'one_to_many' ? 'Parent' : 'Related')
+      : dbB.name;
+    const defaultB = selfRelation
+      ? (input.cardinality === 'one_to_many' ? 'Sub-items' : 'Related to')
+      : dbA.name;
     const fieldAName = await resolveDisplayName(
       dbA.id,
-      input.field_a_name ?? dbB.name,
+      input.field_a_name ?? defaultA,
       input.field_a_name !== undefined,
     );
     const fieldBName = await resolveDisplayName(
       dbB.id,
-      input.field_b_name ?? (selfRelation ? `${dbA.name} (inverse)` : dbA.name),
+      input.field_b_name ?? defaultB,
       input.field_b_name !== undefined,
       selfRelation ? [fieldAName] : [],
     );

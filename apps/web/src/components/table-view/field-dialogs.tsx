@@ -532,7 +532,11 @@ export function AddFieldDialog({
                 onChange={(e) => {
                   setTargetDb(e.target.value);
                   // Default the paired field's name to this database (#84) — it's required.
-                  if (!inverseName.trim() && currentDb.data?.name) setInverseName(currentDb.data.name);
+                  // For a SELF-relation both fields land here, so that default would
+                  // collide with the main name; leave it for the presets instead (MN-211).
+                  if (e.target.value !== db && !inverseName.trim() && currentDb.data?.name) {
+                    setInverseName(currentDb.data.name);
+                  }
                 }}
               >
                 <option value="" disabled>
@@ -545,6 +549,38 @@ export function AddFieldDialog({
                 ))}
               </select>
             </div>
+            {targetDb === db && (
+              <div className="flex flex-col gap-1.5">
+                <Label>Common pairs</Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {(
+                    [
+                      ['Blocks', 'Blocked by'],
+                      ['Depends on', 'Dependency of'],
+                      ['Parent', 'Sub-items'],
+                    ] as const
+                  ).map(([a, b]) => (
+                    <button
+                      key={a}
+                      type="button"
+                      className="rounded-full border border-border-default px-2.5 py-1 text-[12px] text-ink hover:bg-hover"
+                      onClick={() => {
+                        setName(a);
+                        setInverseName(b);
+                        // "Parent" means each record has ONE parent (one-to-many); the
+                        // dependency pairs are naturally many-to-many.
+                        setSingleTarget(a === 'Parent');
+                      }}
+                    >
+                      {a} / {b}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[12px] text-faint">
+                  A self-relation puts both fields on this database — name each direction clearly.
+                </p>
+              </div>
+            )}
             <div className="flex flex-col gap-1.5">
               <Label>Each record here links to…</Label>
               <label className="flex items-center gap-2 text-[13px] text-ink">
@@ -561,10 +597,19 @@ export function AddFieldDialog({
               <Input
                 id="inverse-name"
                 required
-                placeholder={currentDb.data?.name ?? "this database's name"}
+                placeholder={
+                  targetDb === db ? 'e.g. Blocked by' : (currentDb.data?.name ?? "this database's name")
+                }
                 value={inverseName}
                 onChange={(e) => setInverseName(e.target.value)}
               />
+              {targetDb === db &&
+                name.trim() &&
+                name.trim().toLowerCase() === inverseName.trim().toLowerCase() && (
+                  <p className="text-[12px] text-error">
+                    The two sides of a self-relation need different names.
+                  </p>
+                )}
             </div>
           </>
         )}
@@ -581,6 +626,9 @@ export function AddFieldDialog({
               create.isPending ||
               duplicateName ||
               (type === 'relation' && !targetDb) ||
+              (type === 'relation' &&
+                targetDb === db &&
+                name.trim().toLowerCase() === inverseName.trim().toLowerCase()) ||
               (type === 'button' && buttonActions.length === 0) ||
               (type === 'formula' && !expression.trim()) ||
               (type === 'lookup' && (!lookupRelationId || !lookupTargetApi)) ||
