@@ -1,4 +1,7 @@
 # StoryOS self-host: `docker compose up -d` → app at http://localhost (port 80)
+# Every long-lived service is `restart: unless-stopped` (MN-127): a crash, an OOM
+# or a host reboot must not need a human. `unless-stopped`, not `always`, so a
+# deliberate `docker compose stop` stays stopped.
 # caddy serves web + API on ONE origin; /api/* routes to the api container.
 # Full env matrix: docs/self-hosting.md
 # S3-compatible attachment storage: `docker compose --profile minio up -d`
@@ -7,6 +10,7 @@ name: storyos
 services:
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: storyos
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-storyos}
@@ -24,6 +28,7 @@ services:
       context: .
       dockerfile: docker/api.Dockerfile
     image: storyos-api:latest
+    restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
@@ -61,6 +66,7 @@ services:
         # and caddy routes it. Set an absolute URL only for split-origin setups.
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
     image: storyos-web:latest
+    restart: unless-stopped
     depends_on:
       - api
 
@@ -72,6 +78,7 @@ services:
       context: .
       dockerfile: docker/mcp.Dockerfile
     image: storyos-mcp:latest
+    restart: unless-stopped
     depends_on:
       - api
     environment:
@@ -84,6 +91,14 @@ services:
 
   caddy:
     image: caddy:2-alpine
+    restart: unless-stopped
+    healthcheck:
+      # A crashed proxy is caught by `restart`; a HUNG one is only caught here.
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:80/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     depends_on:
       - web
       - api
@@ -99,6 +114,7 @@ services:
   minio:
     image: minio/minio:latest
     profiles: [minio]
+    restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${S3_ACCESS_KEY:-storyos}
