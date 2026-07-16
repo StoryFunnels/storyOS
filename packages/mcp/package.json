@@ -41,6 +41,7 @@
   },
   "devDependencies": {
     "@storyos/config": "workspace:*",
+    "@storyos/schemas": "workspace:*",
     "@storyos/sdk": "workspace:*",
     "@types/node": "^22.10.0",
     "esbuild": "^0.24.0",
@@ -49,7 +50,6 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@storyos/schemas": "workspace:*",
     "zod": "^4.4.3"
   }
 }

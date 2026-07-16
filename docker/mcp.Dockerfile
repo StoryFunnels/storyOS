@@ -1,6 +1,7 @@
 # StoryOS hosted MCP — Streamable HTTP endpoint (MN-105/MN-143).
 # Serves the same @storyos/mcp tools over HTTP with per-request PAT auth.
-# Dependency chain is just config → sdk → mcp (no schemas).
+# Dependency chain: config → sdk → schemas → mcp. schemas is imported by tools.ts
+# (markdown round-trip) and inlined by esbuild, so it must be BUILT here, not stubbed.
 FROM node:22-bookworm-slim AS base
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
@@ -10,18 +11,20 @@ WORKDIR /app
 FROM base AS build
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json turbo.json ./
 # package.json stubs so pnpm can resolve the workspace graph (not built)
-COPY packages/schemas/package.json ./packages/schemas/package.json
 COPY apps/api/package.json ./apps/api/package.json
 COPY apps/web/package.json ./apps/web/package.json
 # packages we actually build
 COPY packages/config ./packages/config
+COPY packages/schemas ./packages/schemas
 COPY packages/sdk ./packages/sdk
 COPY packages/mcp ./packages/mcp
 RUN pnpm install --frozen-lockfile --filter @storyos/mcp... --filter @storyos/sdk --filter @storyos/config
 # Bundle (esbuild) so the runtime image is self-contained — inlines @storyos/sdk, which is a
 # devDependency and therefore excluded by the --prod install below. Only @modelcontextprotocol/sdk
 # + zod stay external, and those are prod deps. (Fixes the 502 from a missing @storyos/sdk.)
-RUN pnpm --filter @storyos/sdk build && pnpm --filter @storyos/mcp bundle
+RUN pnpm --filter @storyos/schemas build \
+  && pnpm --filter @storyos/sdk build \
+  && pnpm --filter @storyos/mcp bundle
 
 FROM base AS runtime
 ENV NODE_ENV=production
