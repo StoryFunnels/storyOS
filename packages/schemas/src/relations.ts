@@ -23,6 +23,30 @@ export const deleteRelationSchema = z.object({
   confirm: z.literal(true),
 });
 
+/**
+ * Auto-link rules (MN-085): link an A record to a B record when field-to-field
+ * conditions all match — e.g. this.customer_email == target.email AND this.region
+ * == target.region. Fields are named by api_name or id; the server resolves and
+ * validates them (must be comparable scalar fields on the right side). Comparison
+ * is case-insensitive by default; empty values on either side never match.
+ */
+export const autoLinkConditionSchema = z.object({
+  /** A field on database A (api_name or id). */
+  field_a: z.string().trim().min(1),
+  /** A field on database B (api_name or id). */
+  field_b: z.string().trim().min(1),
+});
+export const autoLinkRulesSchema = z.object({
+  conditions: z.array(autoLinkConditionSchema).min(1).max(5),
+  case_sensitive: z.boolean().default(false),
+});
+export type AutoLinkRules = z.infer<typeof autoLinkRulesSchema>;
+
+/** PATCH a relation: set (or clear, with null) its auto-link rules. */
+export const updateRelationSchema = z.object({
+  auto_link: autoLinkRulesSchema.nullable(),
+});
+
 export const linkRecordsSchema = z.object({
   record_ids: z.array(z.uuid()).min(1).max(100),
 });

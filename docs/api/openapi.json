@@ -1732,6 +1732,70 @@
       }
     },
     "/api/v1/workspaces/{ws}/relations/{rel}": {
+      "get": {
+        "operationId": "RelationsController_detail",
+        "parameters": [
+          {
+            "name": "rel",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Relation config + comparable fields for the auto-link editor",
+        "tags": [
+          "relations"
+        ]
+      },
+      "patch": {
+        "operationId": "RelationsController_update",
+        "parameters": [
+          {
+            "name": "rel",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateRelationDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Set or clear a relation’s auto-link rules (MN-085)",
+        "tags": [
+          "relations"
+        ]
+      },
       "delete": {
         "operationId": "RelationsController_remove",
         "parameters": [
@@ -1765,6 +1829,35 @@
           }
         ],
         "summary": "Delete a relation, both its fields, and all links (confirm: true)",
+        "tags": [
+          "relations"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/relations/{rel}/auto-link": {
+      "post": {
+        "operationId": "RelationsController_runAutoLink",
+        "parameters": [
+          {
+            "name": "rel",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Run auto-link now across existing records — returns a summary (MN-085)",
         "tags": [
           "relations"
         ]
@@ -4748,6 +4841,49 @@
           "database_a_id",
           "database_b_id",
           "cardinality"
+        ]
+      },
+      "UpdateRelationDto": {
+        "type": "object",
+        "properties": {
+          "auto_link": {
+            "type": "object",
+            "properties": {
+              "conditions": {
+                "minItems": 1,
+                "maxItems": 5,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "field_a": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "field_b": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "field_a",
+                    "field_b"
+                  ]
+                }
+              },
+              "case_sensitive": {
+                "default": false,
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "conditions"
+            ],
+            "nullable": true
+          }
+        },
+        "required": [
+          "auto_link"
         ]
       },
       "DeleteRelationDto": {

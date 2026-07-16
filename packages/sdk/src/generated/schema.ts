@@ -622,11 +622,30 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** Relation config + comparable fields for the auto-link editor */
+        get: operations["RelationsController_detail"];
         put?: never;
         post?: never;
         /** Delete a relation, both its fields, and all links (confirm: true) */
         delete: operations["RelationsController_remove"];
+        options?: never;
+        head?: never;
+        /** Set or clear a relation’s auto-link rules (MN-085) */
+        patch: operations["RelationsController_update"];
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/relations/{rel}/auto-link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run auto-link now across existing records — returns a summary (MN-085) */
+        post: operations["RelationsController_runAutoLink"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1698,6 +1717,16 @@ export interface components {
             cardinality: "one_to_many" | "many_to_many";
             field_a_name?: string;
             field_b_name?: string;
+        };
+        UpdateRelationDto: {
+            auto_link: {
+                conditions: {
+                    field_a: string;
+                    field_b: string;
+                }[];
+                /** @default false */
+                case_sensitive: boolean;
+            } | null;
         };
         DeleteRelationDto: {
             /** @enum {boolean} */
@@ -3177,6 +3206,25 @@ export interface operations {
             };
         };
     };
+    RelationsController_detail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rel: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     RelationsController_remove: {
         parameters: {
             query?: never;
@@ -3193,6 +3241,48 @@ export interface operations {
         };
         responses: {
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RelationsController_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rel: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateRelationDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RelationsController_runAutoLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rel: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
