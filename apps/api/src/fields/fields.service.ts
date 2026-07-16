@@ -89,6 +89,28 @@ export class FieldsService {
     return row?.count ?? 0;
   }
 
+  /**
+   * MN-212: display-name uniqueness within a database (case-insensitive, trimmed).
+   * apiName was always unique; the display NAME wasn't, so two fields could render
+   * the same label on a card. A user-typed name is hard-blocked — never silently
+   * suffixed. Soft-deleted fields don't count (their label is gone from the UI).
+   */
+  async assertUniqueDisplayName(databaseId: string, displayName: string, excludeFieldId?: string) {
+    const existing = await this.db.query.fields.findMany({
+      where: and(eq(fields.databaseId, databaseId), isNull(fields.deletedAt)),
+      columns: { id: true, displayName: true },
+    });
+    const wanted = displayName.trim().toLowerCase();
+    const clash = existing.find(
+      (f) => f.id !== excludeFieldId && f.displayName.trim().toLowerCase() === wanted,
+    );
+    if (clash) {
+      throw new UnprocessableEntityException(
+        `A field named "${displayName.trim()}" already exists in this database`,
+      );
+    }
+  }
+
   async create(
     databaseId: string,
     input: {
@@ -98,6 +120,7 @@ export class FieldsService {
       options?: Array<{ label: string; color?: string }>;
     },
   ) {
+    await this.assertUniqueDisplayName(databaseId, input.display_name);
     if (input.type === 'lookup') await this.assertLookupConfig(databaseId, input.config ?? {});
     if (input.type === 'rollup') await this.assertRollupConfig(databaseId, input.config ?? {});
     if (input.type === 'formula') {
@@ -315,6 +338,9 @@ export class FieldsService {
       return this.withOptions(this.db, updated!);
     }
 
+    if (patch.display_name !== undefined) {
+      await this.assertUniqueDisplayName(databaseId, patch.display_name, fieldId);
+    }
     const [updated] = await this.db
       .update(fields)
       .set({

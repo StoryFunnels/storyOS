@@ -75,8 +75,52 @@ export class RelationsService {
     if (!dbA || !dbB) throw new NotFoundException('Database not found');
 
     const selfRelation = dbA.id === dbB.id;
-    const fieldAName = input.field_a_name ?? dbB.name;
-    const fieldBName = input.field_b_name ?? (selfRelation ? `${dbA.name} (inverse)` : dbA.name);
+
+    /**
+     * MN-212: display names must be unique per database. A USER-TYPED name that
+     * collides is refused outright (never silently suffixed); an auto-generated
+     * default (from the database names) suffixes itself to " 2", " 3", … instead.
+     * `alsoTaken` carries side A's freshly-chosen name for the self-relation case,
+     * where both new fields land on the same database.
+     */
+    const resolveDisplayName = async (
+      databaseId: string,
+      base: string,
+      userTyped: boolean,
+      alsoTaken: string[] = [],
+    ): Promise<string> => {
+      const existing = await this.db.query.fields.findMany({
+        where: and(eq(fields.databaseId, databaseId), isNull(fields.deletedAt)),
+        columns: { displayName: true },
+      });
+      const taken = new Set([
+        ...existing.map((f) => f.displayName.trim().toLowerCase()),
+        ...alsoTaken.map((n) => n.trim().toLowerCase()),
+      ]);
+      const wanted = base.trim();
+      if (!taken.has(wanted.toLowerCase())) return wanted;
+      if (userTyped) {
+        throw new UnprocessableEntityException(
+          `A field named "${wanted}" already exists in this database`,
+        );
+      }
+      for (let i = 2; ; i++) {
+        const candidate = `${wanted} ${i}`;
+        if (!taken.has(candidate.toLowerCase())) return candidate;
+      }
+    };
+
+    const fieldAName = await resolveDisplayName(
+      dbA.id,
+      input.field_a_name ?? dbB.name,
+      input.field_a_name !== undefined,
+    );
+    const fieldBName = await resolveDisplayName(
+      dbB.id,
+      input.field_b_name ?? (selfRelation ? `${dbA.name} (inverse)` : dbA.name),
+      input.field_b_name !== undefined,
+      selfRelation ? [fieldAName] : [],
+    );
 
     const relationId = randomUUID();
     const fieldAId = randomUUID();

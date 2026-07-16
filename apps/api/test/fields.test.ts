@@ -75,11 +75,14 @@ describe('fields CRUD (MN-010)', () => {
     expect(res.json().error.details.some((d: { path: string }) => d.path.includes('config'))).toBe(true);
   });
 
-  it('generates unique api_names and keeps them stable across display renames', async () => {
+  it('keeps api_names stable across display renames, and refuses duplicate display names (MN-212)', async () => {
     const first = await createField({ display_name: 'Status', type: 'select', options: [{ label: 'Open' }] });
-    const second = await createField({ display_name: 'Status', type: 'text' });
     expect(first.json().apiName).toBe('status');
-    expect(second.json().apiName).toBe('status_2');
+
+    // MN-212: a second live field with the same display name is refused outright —
+    // no more silent status_2 twin rendering an identical label on the card.
+    const second = await createField({ display_name: 'Status', type: 'text' });
+    expect(second.statusCode).toBe(422);
 
     const renamed = await app.inject({
       method: 'PATCH',
@@ -89,6 +92,12 @@ describe('fields CRUD (MN-010)', () => {
     });
     expect(renamed.json().displayName).toBe('Workflow state');
     expect(renamed.json().apiName).toBe('status');
+
+    // apiName uniqueness (incl. soft-deleted names) still suffixes: "Status" is free
+    // again as a DISPLAY name, but the api slug "status" is taken forever.
+    const third = await createField({ display_name: 'Status', type: 'text' });
+    expect(third.statusCode).toBe(201);
+    expect(third.json().apiName).toBe('status_2');
   });
 
   it('protects title and system fields from edit/delete', async () => {
