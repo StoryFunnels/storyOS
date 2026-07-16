@@ -5,6 +5,7 @@ import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { databases, fields, relations } from '../db/schema';
 import { CommentsService } from '../comments/comments.service';
+import { WebhooksService } from '../webhooks/webhooks.service';
 import { SlackService } from '../integrations/slack.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { RecordsService } from '../records/records.service';
@@ -27,6 +28,27 @@ export interface ActionEffect {
 }
 
 /**
+ * MN-088: escape a value for the inside of a JSON string literal — JSON.stringify
+ * then drop its outer quotes. Without this, a title with a `"` in it breaks the
+ * body a user templated by hand.
+ */
+export function jsonEscape(value: string): string {
+  const encoded = JSON.stringify(value);
+  return encoded.slice(1, -1);
+}
+
+/** MN-088: a JSON body_template should reach the receiver as an object, not a string. */
+export function parseTemplateBody(raw: string): unknown {
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return { body: raw };
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return { body: raw };
+  }
+}
+
+/**
  * The shared action executor (MN-046 buttons, MN-047 automations): declarative
  * primitives only. Tokens: @me / @now / @today in values; {Field Name}
  * interpolation in comment templates.
@@ -40,6 +62,7 @@ export class AutomationActionsService {
     private readonly commentsService: CommentsService,
     private readonly notificationsService: NotificationsService,
     private readonly slackService: SlackService,
+    private readonly webhooksService: WebhooksService,
   ) {}
 
   /** The related database + this record's linked ids through a relation field. */
@@ -120,14 +143,27 @@ export class AutomationActionsService {
     return out;
   }
 
-  private interpolate(template: string, ctx: ActionContext, displayToApi: Map<string, string>): string {
-    return template.replace(/\{([^}]+)\}/g, (_, name: string) => {
+  /**
+   * `escape` lets a caller make each substituted value safe for its surrounding
+   * syntax — MN-088's JSON bodies need it, plain comment text does not.
+   *
+   * The token class excludes `{` as well as `}`: with `[^}]+` the regex ran
+   * straight across a JSON template's own braces, so `{"task":"{Name}"}` matched
+   * `{"task":"{Name}` as one token and mangled the body (MN-088).
+   */
+  private interpolate(
+    template: string,
+    ctx: ActionContext,
+    displayToApi: Map<string, string>,
+    escape: (value: string) => string = (v) => v,
+  ): string {
+    return template.replace(/\{([^{}]+)\}/g, (_, name: string) => {
       const apiName = displayToApi.get(name.trim()) ?? name.trim();
-      if (apiName === 'name' || name.trim().toLowerCase() === 'title') return ctx.record.title;
+      if (apiName === 'name' || name.trim().toLowerCase() === 'title') return escape(ctx.record.title);
       const value = ctx.record.values[apiName];
-      if (value === undefined || value === null) return '—';
-      if (Array.isArray(value)) return value.map((v) => (typeof v === 'object' && v ? (v as { title?: string }).title ?? '' : String(v))).join(', ');
-      return String(value);
+      if (value === undefined || value === null) return escape('—');
+      if (Array.isArray(value)) return escape(value.map((v) => (typeof v === 'object' && v ? (v as { title?: string }).title ?? '' : String(v))).join(', '));
+      return escape(String(value));
     });
   }
 
@@ -203,6 +239,48 @@ export class AutomationActionsService {
           });
         } else {
           effects.push({ type: 'update_linked', summary: 'No linked records to update' });
+        }
+      } else if (action.type === 'send_webhook') {
+        // MN-088: queue through the shared outbox first, so a failure is retried by
+        // MN-032's backoff rather than lost — then send once now to report a real
+        // status code back to the presser.
+        const url = this.interpolate(action.url, ctx, displayToApi, encodeURIComponent);
+        const payload = action.body_template
+          ? // A template is usually JSON; parse it so the receiver gets an object
+            // rather than a double-encoded string. Non-JSON is sent as {body}.
+            // Values are JSON-escaped as they go in, so a title containing a quote
+            // can't break out of the string it lands in.
+            parseTemplateBody(
+              this.interpolate(action.body_template, ctx, displayToApi, jsonEscape),
+            )
+          : {
+              event: 'button.pressed',
+              occurred_at: new Date().toISOString(),
+              actor_id: ctx.actorId,
+              workspace: { id: ctx.workspaceId },
+              record: { id: ctx.record.id, title: ctx.record.title, values: ctx.record.values },
+            };
+        try {
+          const delivery = await this.webhooksService.enqueueDirect({
+            workspaceId: ctx.workspaceId,
+            url,
+            eventType: 'button.pressed',
+            payload,
+          });
+          const result = await this.webhooksService.sendNow(delivery.id, action.headers);
+          effects.push({
+            type: 'send_webhook',
+            record_id: ctx.record.id,
+            summary: result.ok
+              ? `Webhook delivered (HTTP ${result.statusCode})`
+              : `Webhook failed (${result.error ?? 'unknown error'}) — will retry`,
+          });
+        } catch (err) {
+          effects.push({
+            type: 'send_webhook',
+            record_id: ctx.record.id,
+            summary: `Webhook failed: ${err instanceof Error ? err.message : 'unknown error'}`,
+          });
         }
       } else if (action.type === 'send_slack_message') {
         const text = this.interpolate(action.text, ctx, displayToApi);

@@ -427,6 +427,83 @@ export const automationRuns = pgTable(
   (t) => [index('automation_runs_rule_idx').on(t.automationId, t.createdAt)],
 );
 
+/**
+ * MN-032: outgoing webhooks. ADR-0004 planned exactly this shape — subscriptions
+ * plus a dispatcher over the `activity_events` outbox — so no schema rework was
+ * needed: every mutation already writes a contract-named event in its own
+ * transaction, and the dispatcher just reads them.
+ */
+export const webhookSubscriptions = pgTable(
+  'webhook_subscriptions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    /** null = every database in the workspace. */
+    databaseId: uuid('database_id').references(() => databases.id, { onDelete: 'cascade' }),
+    url: text('url').notNull(),
+    /** activity_events.type names to deliver, e.g. ["record.created"]. */
+    events: jsonb('events').notNull().default([]),
+    /** HMAC-SHA256 key for the X-StoryOS-Signature header. Never returned to a client. */
+    secret: text('secret').notNull(),
+    enabled: boolean('enabled').notNull().default(true),
+    /**
+     * Only events after this are delivered, so a new subscription never replays
+     * history. Advances as the dispatcher scans.
+     */
+    cursorAt: timestamp('cursor_at', { withTimezone: true }).notNull().defaultNow(),
+    /** Last-delivery status, denormalized for the settings list (AC: visible status). */
+    lastStatus: text('last_status'), // ok | failed
+    lastStatusCode: integer('last_status_code'),
+    lastError: text('last_error'),
+    lastDeliveredAt: timestamp('last_delivered_at', { withTimezone: true }),
+    createdBy: text('created_by'),
+    ...timestamps,
+  },
+  (t) => [index('webhook_subs_workspace_idx').on(t.workspaceId, t.enabled)],
+);
+
+/** One row per (subscription, event) attempt-set — the retry queue and the audit trail. */
+export const webhookDeliveries = pgTable(
+  'webhook_deliveries',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    /** null for a button's send_webhook action (MN-088) — it has a URL, not a subscription. */
+    subscriptionId: uuid('subscription_id').references(() => webhookSubscriptions.id, {
+      onDelete: 'cascade',
+    }),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    /** Resolved target, kept on the row so the audit trail survives a URL edit. */
+    url: text('url').notNull(),
+    /** No FK: a delivery outlives its event, and button presses have no event row. */
+    eventId: uuid('event_id'),
+    eventType: text('event_type').notNull(),
+    payload: jsonb('payload').notNull(),
+    status: text('status').notNull().default('pending'), // pending | ok | failed
+    attempts: integer('attempts').notNull().default(0),
+    statusCode: integer('status_code'),
+    error: text('error'),
+    /** Backoff schedule; null once the delivery is settled. */
+    nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }),
+    deliveredAt: timestamp('delivered_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('webhook_deliveries_sub_idx').on(t.subscriptionId, t.createdAt),
+    index('webhook_deliveries_due_idx').on(t.status, t.nextAttemptAt),
+    /**
+     * At-most-once per (subscription, event), enforced by the db rather than by
+     * cursor arithmetic: a rescan, a crash mid-pass, or two replicas scanning at
+     * the same time must never double-deliver. NULL event_id (button webhooks)
+     * is exempt — Postgres allows repeated NULLs in a unique index.
+     */
+    uniqueIndex('webhook_deliveries_sub_event_uq').on(t.subscriptionId, t.eventId),
+  ],
+);
+
 /** MN-049: per-user notification stream (assigned / mentioned / commented). */
 export const notifications = pgTable(
   'notifications',

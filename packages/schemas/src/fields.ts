@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { webhookUrlSchema } from './webhooks';
 
 /** Field types a user can create. title/system/relation types are managed elsewhere. */
 export const creatableFieldTypeSchema = z.enum([
@@ -76,6 +77,17 @@ export const actionSchema = z.discriminatedUnion('type', [
     text: z.string().min(1).max(3000),
     // channel id/name; falls back to the workspace's default Slack channel
     channel: z.string().min(1).max(200).optional(),
+  }),
+  /**
+   * MN-088: a one-click manual trigger — the counterpart to MN-032's automatic
+   * record-change webhooks. Shares that sender, signing secret and retry path.
+   */
+  z.object({
+    type: z.literal('send_webhook'),
+    url: webhookUrlSchema,
+    // {Field Name} tokens are interpolated; omit for the standard record payload
+    body_template: z.string().max(10_000).optional(),
+    headers: z.record(z.string().max(100), z.string().max(1000)).optional(),
   }),
 ]);
 export type AutomationAction = z.infer<typeof actionSchema>;
