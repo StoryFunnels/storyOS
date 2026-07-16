@@ -3,7 +3,7 @@ import { and, desc, eq, isNull } from 'drizzle-orm';
 import { createHash, randomBytes } from 'node:crypto';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { apiTokens } from '../db/schema';
+import { apiTokens, memberships } from '../db/schema';
 
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
 
@@ -13,6 +13,19 @@ export class TokensService {
   constructor(@Inject(DB) private readonly db: Db) {}
 
   async create(userId: string, workspaceId: string, name: string) {
+    // MN-122: a token is only meaningful for a workspace you're actually in.
+    // Without this you could mint one for any uuid — it would grant nothing
+    // (membership is still checked per request), but it's junk state and it
+    // muddies what a token means. 404 keeps the no-leak convention.
+    const membership = await this.db.query.memberships.findFirst({
+      where: and(
+        eq(memberships.workspaceId, workspaceId),
+        eq(memberships.userId, userId),
+        eq(memberships.status, 'active'),
+      ),
+    });
+    if (!membership) throw new NotFoundException('Workspace not found');
+
     const secret = randomBytes(24).toString('base64url');
     const token = `mn_pat_${secret}`;
     const [row] = await this.db

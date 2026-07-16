@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, ForbiddenException, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
@@ -11,6 +11,19 @@ const createTokenSchema = z.object({
   workspace_id: z.uuid(),
 });
 class CreateTokenDto extends createZodDto(createTokenSchema) {}
+
+/**
+ * MN-122: token management is session-only.
+ *
+ * Scoping a PAT to one workspace is worthless if that PAT can mint another one:
+ * a leaked workspace-A token would just call this endpoint for workspace B and
+ * walk around the scope. Minting and revoking credentials requires a real login.
+ */
+function assertSession(req: AuthedRequest, action: string): void {
+  if (req.auth?.via !== 'session') {
+    throw new ForbiddenException(`Sign in to ${action} — an API token cannot manage tokens`);
+  }
+}
 
 @ApiTags('tokens')
 @ApiBearerAuth()
@@ -28,12 +41,14 @@ export class TokensController {
   @Post()
   @ApiOperation({ summary: 'Create a PAT — the token is shown ONCE in this response' })
   create(@Req() req: AuthedRequest, @Body() body: CreateTokenDto) {
+    assertSession(req, 'create a token');
     return this.tokens.create(req.user.id, body.workspace_id, body.name);
   }
 
   @Delete(':token')
   @ApiOperation({ summary: 'Revoke a token (immediate)' })
   revoke(@Req() req: AuthedRequest, @Param('token') tokenId: string) {
+    assertSession(req, 'revoke a token');
     return this.tokens.revoke(req.user.id, tokenId);
   }
 }
