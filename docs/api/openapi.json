@@ -4210,6 +4210,64 @@
           "favorites"
         ]
       }
+    },
+    "/api/v1/workspaces/{ws}/members/{member}/gdpr/export": {
+      "get": {
+        "operationId": "GdprController_export",
+        "parameters": [
+          {
+            "name": "member",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Export everything held about this member (machine-readable JSON)",
+        "tags": [
+          "gdpr"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/members/{member}/gdpr/anonymize": {
+      "post": {
+        "operationId": "GdprController_anonymize",
+        "parameters": [
+          {
+            "name": "member",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Erase/anonymize this member: wipe identity to a tombstone, destroy credentials, and remove workspace access. Comments and history are kept.",
+        "tags": [
+          "gdpr"
+        ]
+      }
     }
   },
   "info": {

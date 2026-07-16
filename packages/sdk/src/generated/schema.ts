@@ -1592,6 +1592,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/members/{member}/gdpr/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Export everything held about this member (machine-readable JSON) */
+        get: operations["GdprController_export"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/members/{member}/gdpr/anonymize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Erase/anonymize this member: wipe identity to a tombstone, destroy credentials, and remove workspace access. Comments and history are kept. */
+        post: operations["GdprController_anonymize"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -4898,6 +4932,44 @@ export interface operations {
             path: {
                 type: string;
                 id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    GdprController_export: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                member: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    GdprController_anonymize: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                member: string;
             };
             cookie?: never;
         };

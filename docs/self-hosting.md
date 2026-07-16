@@ -37,6 +37,11 @@ Set in `.env` next to `docker-compose.yml`. Only `BETTER_AUTH_SECRET` is require
 | `ATTACHMENT_MAX_BYTES` | 20971520 (20 MB) | per-file upload cap |
 | `RATE_LIMIT_PER_MINUTE` | 300 | per token/session |
 
+## Data protection & GDPR
+
+StoryOS includes admin tooling to export or erase a user's data for GDPR
+data-subject requests — see [Data-subject requests](security/data-subject-requests.md).
+
 **Web build note:** the web bundle calls the API with same-origin relative URLs by default — no rebuild needed when your domain changes. Only split-origin setups (API on a different host) need `NEXT_PUBLIC_API_URL=https://api.example.com` set at build time.
 
 ## Attachments with MinIO (optional)
