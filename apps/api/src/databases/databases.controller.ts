@@ -2,7 +2,6 @@ import {
   Body,
   Controller,
   Delete,
-  ForbiddenException,
   Get,
   Param,
   Patch,
@@ -59,23 +58,28 @@ export class DatabasesController {
     @Param('db') databaseId: string,
     @Body() body: UpdateDatabaseDto,
   ) {
+    // Moving a database between spaces is a workspace-structure change, not a
+    // database-content one — a guest with a creator grant on this database still
+    // must not re-parent it into a space they can't see.
     if (body.space_id !== undefined || body.position !== undefined) {
-      if (req.membership.role === 'guest') {
-        throw new ForbiddenException('Moving databases requires membership');
-      }
+      await this.databases.assertCanMove(req.membership, body.space_id);
     }
     await this.databases.assertAccess(req.membership, databaseId, 'creator');
     return this.databases.update(req.membership, databaseId, body);
   }
 
+  // MN-124: creator ON THIS DATABASE, or admin. It was `@MinRole('member')` with
+  // only a typed-name confirm — that is UX friction, not authorization. Note it
+  // now matches rename (:67), which already required creator: destroying can no
+  // longer be easier than renaming.
   @Delete(':db')
-  @MinRole('member')
-  @ApiOperation({ summary: 'Hard delete — body.confirm must equal the database name' })
-  remove(
+  @ApiOperation({ summary: 'Hard delete (creator on this database, or admin) — body.confirm must equal the name' })
+  async remove(
     @Req() req: WorkspaceRequest,
     @Param('db') databaseId: string,
     @Body() body: DeleteDatabaseDto,
   ) {
+    await this.databases.assertAccess(req.membership, databaseId, 'creator');
     return this.databases.remove(req.membership, databaseId, body.confirm, body.sever_relations);
   }
 }

@@ -25,18 +25,18 @@ export class FavoritesController {
   @Get()
   @ApiOperation({ summary: "Current user's favorites in this workspace (resolved titles)" })
   list(@Req() req: WorkspaceRequest) {
-    return this.favorites.list(req.membership.workspaceId, req.user.id);
+    return this.favorites.list(req.membership);
   }
 
   @Post()
   @ApiOperation({ summary: 'Star a record or database' })
   add(@Req() req: WorkspaceRequest, @Body() body: FavoriteDto) {
-    return this.favorites.add(req.membership.workspaceId, req.user.id, body.target_type, body.target_id);
+    return this.favorites.add(req.membership, body.target_type, body.target_id);
   }
 
   @Delete(':type/:id')
   @ApiOperation({ summary: 'Unstar' })
   remove(@Req() req: WorkspaceRequest, @Param('type') type: FavoriteTarget, @Param('id') id: string) {
-    return this.favorites.remove(req.user.id, type, id);
+    return this.favorites.remove(req.membership, type, id);
   }
 }

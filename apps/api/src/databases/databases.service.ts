@@ -1,9 +1,4 @@
-import {
-  ConflictException,
-  Inject,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, eq, inArray, isNull, or } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
@@ -47,6 +42,22 @@ export class DatabasesService {
     const effective = await this.access.effectiveForDatabase(membership, database);
     this.access.assertRank(effective, min, 'Database');
     return { database, my_access: effective! };
+  }
+
+  /**
+   * MN-124: moving a database between spaces is a workspace-structure change.
+   * This was a hand-rolled `if (role === 'guest')` in the controller — the only
+   * role-string check outside the guards. It lives here so there is one place
+   * that decides, and so the destination space is checked too: a guest with a
+   * creator grant on a database must not re-parent it into a space they cannot see.
+   */
+  async assertCanMove(membership: Membership, destinationSpaceId?: string): Promise<void> {
+    if (membership.role === 'guest') {
+      throw new ForbiddenException('Moving databases requires membership');
+    }
+    if (destinationSpaceId) {
+      await this.access.assertSpace(membership, destinationSpaceId, 'creator');
+    }
   }
 
   /** Make `root` unique within a SPACE (MN-153), suffixing `_N` on collision. */

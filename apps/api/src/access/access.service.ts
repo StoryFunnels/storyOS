@@ -5,7 +5,7 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { accessGrants, databases, memberships, spaces } from '../db/schema';
@@ -78,6 +78,38 @@ export class AccessService {
       }
     }
     return best;
+  }
+
+  /**
+   * Effective role for a SPACE (MN-124). null = no access (render as 404).
+   *
+   * Space delete had no per-scope check at all — only `@MinRole('member')` — so
+   * there was nothing to ask. Mirrors effectiveForDatabase: admin → admin,
+   * member → creator (a recorded decision: members are workspace-wide creators,
+   * ADR-0009), guest → their grant on this space.
+   */
+  async effectiveForSpace(membership: Membership, spaceId: string): Promise<EffectiveRole | null> {
+    if (membership.role === 'admin') return 'admin';
+    if (membership.role === 'member') return 'creator';
+    const grants = await this.guestGrants(membership);
+    let best: EffectiveRole | null = null;
+    for (const grant of grants) {
+      if (grant.spaceId === spaceId && (!best || ACCESS_RANK[grant.role] > ACCESS_RANK[best])) {
+        best = grant.role;
+      }
+    }
+    return best;
+  }
+
+  /** Asserts a space role, 404-ing rather than leaking existence (MN-124). */
+  async assertSpace(membership: Membership, spaceId: string, min: EffectiveRole) {
+    const space = await this.db.query.spaces.findFirst({
+      where: and(eq(spaces.id, spaceId), eq(spaces.workspaceId, membership.workspaceId)),
+    });
+    if (!space) throw new NotFoundException('Space not found');
+    const effective = await this.effectiveForSpace(membership, spaceId);
+    this.assertRank(effective, min, 'Space');
+    return space;
   }
 
   /** For list filtering. null = sees everything (admin/member). */
@@ -199,26 +231,13 @@ export class AccessService {
     });
     if (!target) throw new NotFoundException('That person is not in this workspace');
 
-    const existing = await this.db.query.accessGrants.findMany({
-      where: and(
-        eq(accessGrants.workspaceId, workspaceId),
-        eq(accessGrants.userId, input.user_id),
-      ),
-    });
-    const duplicate = existing.find(
-      (g) =>
-        (input.space_id && g.spaceId === input.space_id) ||
-        (input.database_id && g.databaseId === input.database_id),
-    );
-    if (duplicate) {
-      const [updated] = await this.db
-        .update(accessGrants)
-        .set({ role: input.role })
-        .where(eq(accessGrants.id, duplicate.id))
-        .returning();
-      return updated!;
-    }
-    const [created] = await this.db
+    /**
+     * MN-125: a real atomic upsert. This was read-then-write with no unique index
+     * behind it, so two concurrent grants on the same scope produced duplicate
+     * rows — reads took a max and failed safe, but revoke then removed only one
+     * of them and reported success while access silently persisted.
+     */
+    const [row] = await this.db
       .insert(accessGrants)
       .values({
         workspaceId,
@@ -228,8 +247,17 @@ export class AccessService {
         role: input.role,
         createdBy,
       })
+      .onConflictDoUpdate({
+        target: input.space_id
+          ? [accessGrants.userId, accessGrants.spaceId]
+          : [accessGrants.userId, accessGrants.databaseId],
+        targetWhere: input.space_id
+          ? sql`${accessGrants.spaceId} IS NOT NULL`
+          : sql`${accessGrants.databaseId} IS NOT NULL`,
+        set: { role: input.role, updatedAt: new Date() },
+      })
       .returning();
-    return created!;
+    return row!;
   }
 
   async createGrants(workspaceId: string, userId: string, grants: GrantInput[], createdBy: string) {
@@ -238,12 +266,31 @@ export class AccessService {
     }
   }
 
+  /**
+   * MN-125: revoke means revoke. Deleting by id alone left any duplicate row for
+   * the same (user, scope) in place, so access survived a "successful" revoke.
+   * The unique indexes make duplicates impossible going forward; this clears any
+   * that predate them, so the fix is not conditional on the migration having run.
+   */
   async deleteGrant(workspaceId: string, grantId: string) {
-    const [gone] = await this.db
+    const grant = await this.db.query.accessGrants.findFirst({
+      where: and(eq(accessGrants.id, grantId), eq(accessGrants.workspaceId, workspaceId)),
+    });
+    if (!grant) throw new NotFoundException('Grant not found');
+
+    const sameScope = grant.spaceId
+      ? eq(accessGrants.spaceId, grant.spaceId)
+      : eq(accessGrants.databaseId, grant.databaseId!);
+    const gone = await this.db
       .delete(accessGrants)
-      .where(and(eq(accessGrants.id, grantId), eq(accessGrants.workspaceId, workspaceId)))
-      .returning();
-    if (!gone) throw new NotFoundException('Grant not found');
-    return { deleted: true };
+      .where(
+        and(
+          eq(accessGrants.workspaceId, workspaceId),
+          eq(accessGrants.userId, grant.userId),
+          sameScope,
+        ),
+      )
+      .returning({ id: accessGrants.id });
+    return { deleted: true, removed: gone.length };
   }
 }

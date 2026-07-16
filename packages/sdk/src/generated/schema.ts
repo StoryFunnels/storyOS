@@ -135,7 +135,7 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Delete a space */
+        /** Delete a space (creator on this space, or admin) */
         delete: operations["WorkspaceController_deleteSpace"];
         options?: never;
         head?: never;
@@ -295,7 +295,7 @@ export interface paths {
         get: operations["DatabasesController_get"];
         put?: never;
         post?: never;
-        /** Hard delete — body.confirm must equal the database name */
+        /** Hard delete (creator on this database, or admin) — body.confirm must equal the name */
         delete: operations["DatabasesController_remove"];
         options?: never;
         head?: never;
