@@ -4162,6 +4162,7 @@
                   "enum": [
                     "viewer",
                     "commenter",
+                    "contributor",
                     "editor",
                     "creator"
                   ]
@@ -6188,6 +6189,7 @@
             "enum": [
               "viewer",
               "commenter",
+              "contributor",
               "editor",
               "creator"
             ]

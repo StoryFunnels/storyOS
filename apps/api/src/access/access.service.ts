@@ -12,15 +12,36 @@ import { accessGrants, databases, memberships, spaces } from '../db/schema';
 import type { Membership } from '../workspaces/workspace-access.guard';
 
 /** ADR-0007: graded access. admin/member are workspace-wide fast paths. */
-export type EffectiveRole = 'viewer' | 'commenter' | 'editor' | 'creator' | 'admin';
-export type GrantRole = 'viewer' | 'commenter' | 'editor' | 'creator';
+export type EffectiveRole =
+  | 'viewer'
+  | 'commenter'
+  | 'contributor'
+  | 'editor'
+  | 'creator'
+  | 'admin';
+export type GrantRole = 'viewer' | 'commenter' | 'contributor' | 'editor' | 'creator';
 
+/**
+ * One graded ladder, not a matrix of capabilities (MN-121 — do NOT invent a second
+ * mechanism). Each rung is a superset of the one below:
+ *
+ *   viewer      read
+ *   commenter   + comment
+ *   contributor + create/update records          ← no delete, no schema, no views
+ *   editor      + delete records, views, links, buttons
+ *   creator     + schema (fields, automations, rename)
+ *   admin       everything, workspace-wide
+ *
+ * `contributor` exists so a client team can add work without being able to destroy
+ * it, which was impossible while delete was welded to edit.
+ */
 export const ACCESS_RANK: Record<EffectiveRole, number> = {
   viewer: 0,
   commenter: 1,
-  editor: 2,
-  creator: 3,
-  admin: 4,
+  contributor: 2,
+  editor: 3,
+  creator: 4,
+  admin: 5,
 };
 
 export interface GrantInput {
@@ -92,6 +113,40 @@ export class AccessService {
     if (ACCESS_RANK[effective] < ACCESS_RANK[min]) {
       throw new ForbiddenException(`Requires ${min} access`);
     }
+  }
+
+  // --- Billing boundary (MN-121) ---
+
+  /**
+   * The ladder IS the billing boundary — no second concept (MN-121).
+   *
+   * Billable = can create anything: a member/admin (workspace-wide creators), or a
+   * guest holding any grant at >= contributor on any scope. viewer/commenter-only
+   * guests are free, which is what makes "viewers and guests are always free"
+   * true rather than aspirational.
+   *
+   * Feeds MN-190 (seats), which cannot define a seat without this.
+   */
+  async isBillable(membership: Membership): Promise<boolean> {
+    if (membership.role === 'admin' || membership.role === 'member') return true;
+    const grants = await this.guestGrants(membership);
+    return grants.some((g) => ACCESS_RANK[g.role] >= ACCESS_RANK.contributor);
+  }
+
+  /** Seat count for a workspace — the same predicate, evaluated in one pass. */
+  async billableUserIds(workspaceId: string): Promise<string[]> {
+    const members = await this.db.query.memberships.findMany({
+      where: and(eq(memberships.workspaceId, workspaceId), eq(memberships.status, 'active')),
+    });
+    const grants = await this.db.query.accessGrants.findMany({
+      where: eq(accessGrants.workspaceId, workspaceId),
+    });
+    const canCreate = new Set(
+      grants.filter((g) => ACCESS_RANK[g.role] >= ACCESS_RANK.contributor).map((g) => g.userId),
+    );
+    return members
+      .filter((m) => m.role === 'admin' || m.role === 'member' || canCreate.has(m.userId))
+      .map((m) => m.userId);
   }
 
   // --- Grants management (admin) ---

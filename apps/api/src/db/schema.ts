@@ -26,7 +26,18 @@ export const membershipRole = pgEnum('membership_role', ['admin', 'member', 'gue
 export const membershipStatus = pgEnum('membership_status', ['pending', 'active']);
 
 /** Graded scope access for guests (ADR-0007, connected-data model). */
-export const accessRole = pgEnum('access_role', ['viewer', 'commenter', 'editor', 'creator']);
+/**
+ * The graded scope ladder (ADR-0007, extended by MN-121). `contributor` sits
+ * between commenter and editor: read + create + update records, but NO delete.
+ * It is also the billing boundary — see AccessService.isBillable.
+ */
+export const accessRole = pgEnum('access_role', [
+  'viewer',
+  'commenter',
+  'contributor',
+  'editor',
+  'creator',
+]);
 
 export const fieldType = pgEnum('field_type', [
   'id',

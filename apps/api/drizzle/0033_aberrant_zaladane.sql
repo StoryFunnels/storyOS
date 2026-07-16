@@ -1,0 +1,1 @@
+ALTER TYPE "public"."access_role" ADD VALUE 'contributor' BEFORE 'editor';

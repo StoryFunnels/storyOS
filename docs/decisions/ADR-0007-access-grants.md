@@ -1,6 +1,6 @@
 # ADR-0007: Access grants — work-OS-style roles at space and database level
 
-- **Status:** accepted
+- **Status:** superseded by [ADR-0009](ADR-0009-contributor-rung.md) (2026-07-16) — the ladder gains a `contributor` rung; everything else here stands
 - **Date:** 2026-07-08
 - **Supersedes:** the guest model in ADR-0006 (spaces remain the default sharing unit; the binary read+comment guest becomes the weakest grant, not the only one)
 
