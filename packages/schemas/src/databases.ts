@@ -1,9 +1,12 @@
 import { z } from 'zod';
 
+/** An emoji, or a curated-set reference `set:<name>` (MN-208). */
+const iconValueSchema = z.string().max(48);
+
 export const createDatabaseSchema = z.object({
   space_id: z.uuid(),
   name: z.string().trim().min(1).max(100),
-  icon: z.string().max(16).optional(),
+  icon: iconValueSchema.optional(),
 });
 
 export const databaseColorSchema = z.enum([
@@ -12,7 +15,7 @@ export const databaseColorSchema = z.enum([
 
 export const updateDatabaseSchema = z.object({
   name: z.string().trim().min(1).max(100).optional(),
-  icon: z.string().max(16).nullable().optional(),
+  icon: iconValueSchema.nullable().optional(),
   color: databaseColorSchema.nullable().optional(),
   space_id: z.uuid().optional(),
   /** Sidebar folder (MN-096); null moves the database to the space root. */

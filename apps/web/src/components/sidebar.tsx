@@ -519,7 +519,7 @@ function SpaceSection({
             <ChevronRight
               className={cn('h-3 w-3 shrink-0 transition-transform', !collapsed && 'rotate-90')}
             />
-            {space.icon && <span className="text-[13px] leading-none">{space.icon}</span>}
+            {space.icon && <EntityIcon icon={space.icon} color={space.color} fallback={null} className="text-[13px]" />}
             <span className="truncate">{space.name}</span>
             {collapsed && databases.length > 0 && (
               <span className="ml-1 text-faint/70">{databases.length}</span>
@@ -650,7 +650,7 @@ function SpaceSection({
                   pathname === `/w/${ws}/doc/${d.id}` ? 'bg-active font-medium text-ink' : 'text-ink-secondary',
                 )}
               >
-                {d.icon ? <span className="text-[13px] leading-none">{d.icon}</span> : <FileText className="h-3.5 w-3.5 shrink-0 text-muted" />}
+                <EntityIcon icon={d.icon} color={null} fallback={<FileText className="h-3.5 w-3.5 shrink-0 text-muted" />} className="text-[13px]" />
                 <span className="truncate">{d.title || 'Untitled'}</span>
               </Link>
               <DropdownMenu>
@@ -781,7 +781,7 @@ function FolderSection({
         className="flex w-full items-center gap-1 rounded px-2 py-[3px] text-[13px] text-ink-secondary hover:bg-hover"
       >
         <ChevronRight className={cn('h-3 w-3 shrink-0 text-faint transition-transform', !collapsed && 'rotate-90')} />
-        {folder.icon ? <span className="text-[13px] leading-none">{folder.icon}</span> : <FolderIcon className="h-3.5 w-3.5 shrink-0 text-muted" />}
+        <EntityIcon icon={folder.icon} color={null} fallback={<FolderIcon className="h-3.5 w-3.5 shrink-0 text-muted" />} className="text-[13px]" />
         <span className="truncate">{folder.name}</span>
         {databases.length > 0 && <span className="ml-auto text-[11px] text-faint">{databases.length}</span>}
       </button>

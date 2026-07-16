@@ -11,6 +11,7 @@ import { FeedView } from '@/components/views/feed-view';
 import { TimelineView } from '@/components/views/timeline-view';
 import { FormView } from '@/components/views/form-view';
 import { TableView } from '@/components/table-view/table-view';
+import { EntityIconChip } from '@/components/ui/icon-picker';
 import { ViewToolbar } from '@/components/views/view-toolbar';
 import {
   EMPTY_CONFIG,
@@ -56,7 +57,15 @@ function DatabasePageInner() {
       {/* View tabs */}
       <div className="flex h-11 items-center gap-1 border-b border-border-default px-3">
         <h1 className="mr-3 flex items-center gap-1.5 text-sm font-semibold text-ink">
-          {database.data?.icon && <span className="text-[15px] leading-none">{database.data.icon}</span>}
+          {database.data?.icon && (
+            <EntityIconChip
+              icon={database.data.icon}
+              color={database.data.color ?? null}
+              size={15}
+              fallback={null}
+              className={database.data.color ? 'h-6 w-6' : undefined}
+            />
+          )}
           {database.data?.name}
         </h1>
         {views.map((view) => (

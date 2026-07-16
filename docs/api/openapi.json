@@ -4324,7 +4324,7 @@
           },
           "icon": {
             "type": "string",
-            "maxLength": 16
+            "maxLength": 48
           },
           "color": {
             "type": "string",
@@ -4356,7 +4356,7 @@
           },
           "icon": {
             "type": "string",
-            "maxLength": 16,
+            "maxLength": 48,
             "nullable": true
           },
           "color": {
@@ -4515,7 +4515,7 @@
           },
           "icon": {
             "type": "string",
-            "maxLength": 16
+            "maxLength": 48
           }
         },
         "required": [
@@ -4533,7 +4533,7 @@
           },
           "icon": {
             "type": "string",
-            "maxLength": 16,
+            "maxLength": 48,
             "nullable": true
           },
           "color": {
