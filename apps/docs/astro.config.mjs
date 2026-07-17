@@ -53,6 +53,12 @@ export default defineConfig({
           ],
         },
         {
+          label: 'Guides',
+          items: [
+            { label: 'Share a portal with a client', slug: 'guides/client-portals' },
+          ],
+        },
+        {
           label: 'Self-hosting',
           items: [
             { label: 'Overview', slug: 'self-hosting/overview' },
