@@ -281,6 +281,7 @@ export class DatabasesService {
         type: 'table',
         config: {},
         position: 0,
+        isDefault: true,
       });
 
       return {

@@ -248,6 +248,8 @@ export const views = pgTable('views', {
   type: viewType('type').notNull(),
   config: jsonb('config').notNull().default({}),
   position: integer('position').notNull().default(0),
+  /** The view a database opens with; at most one true per database (MN-241). */
+  isDefault: boolean('is_default').notNull().default(false),
   createdBy: text('created_by'),
   ...timestamps,
 });
