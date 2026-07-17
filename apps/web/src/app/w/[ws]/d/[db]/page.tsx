@@ -162,6 +162,8 @@ function DatabasePageInner() {
             queryBody={queryBody}
             hiddenFieldIds={config.hidden_field_ids}
             columnWidths={config.column_widths}
+            config={config}
+            onPatch={patch}
             onColumnResize={(fieldId, width) =>
               // Round at the source: a drag yields fractional px, which the saved
               // config rejects — and auto-save would then retry it forever (#78).
