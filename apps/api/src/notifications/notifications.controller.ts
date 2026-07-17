@@ -21,7 +21,14 @@ export class NotificationsController {
     @Query('type') type?: string,
     @Query('archived') archived?: string,
   ) {
-    const allowed = new Set(['assigned', 'mentioned', 'commented', 'state_changed']);
+    const allowed = new Set([
+      'assigned',
+      'mentioned',
+      'commented',
+      'state_changed',
+      // #210: filterable like any other type, though it is never opt-out-able.
+      'approval_requested',
+    ]);
     return this.notifications.list(req.membership.workspaceId, req.user.id, unreadOnly === 'true', cursor, {
       type: type && allowed.has(type) ? (type as NotificationType) : undefined,
       archived: archived === 'true',

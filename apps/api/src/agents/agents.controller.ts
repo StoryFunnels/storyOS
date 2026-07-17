@@ -75,4 +75,32 @@ export class AgentsController {
   run(@Req() req: WorkspaceRequest, @Param('agent') agent: string) {
     return this.agents.run(req.membership, agent);
   }
+
+  /**
+   * Approve a parked run (#210, ADR-0010 §4) — the gate pass.
+   *
+   * This is where the staged action finally happens: it was proposed as data and
+   * has been sitting in the Run's `Pending action` untouched. 422 unless the run
+   * is actually Waiting approval, so a verdict can't be applied twice or to a run
+   * that never asked.
+   */
+  @Post('runs/:run/approve')
+  @ApiParam({ name: 'run', description: "The run record's uuid or public number" })
+  @ApiOperation({ summary: 'Approve a run waiting for approval: apply the staged action' })
+  approveRun(@Req() req: WorkspaceRequest, @Param('run') run: string) {
+    return this.agents.approveRun(req.membership, run);
+  }
+
+  /**
+   * Reject a parked run (#210, ADR-0010 §4).
+   *
+   * Applies nothing — and needs to undo nothing, because staging means the action
+   * was never performed in the first place. The run cancels with no side effects.
+   */
+  @Post('runs/:run/reject')
+  @ApiParam({ name: 'run', description: "The run record's uuid or public number" })
+  @ApiOperation({ summary: 'Reject a run waiting for approval: apply nothing, cancel it' })
+  rejectRun(@Req() req: WorkspaceRequest, @Param('run') run: string) {
+    return this.agents.rejectRun(req.membership, run);
+  }
 }
