@@ -2,8 +2,9 @@
 
 import { Plus, Trash2 } from 'lucide-react';
 import { useDatabases } from '@/lib/queries';
+import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
-import { useDatabase } from './use-table-data';
+import { useDatabase, useMembers } from './use-table-data';
 import type { Field } from './use-table-data';
 
 export type ButtonAction =
@@ -13,6 +14,8 @@ export type ButtonAction =
   | { type: 'notify_user'; user: string; message: string }
   | { type: 'update_linked'; relation_field_id: string; values: Record<string, unknown> }
   | { type: 'send_webhook'; url: string; body_template?: string; headers?: Record<string, string> };
+
+type Member = { id: string; name: string };
 
 /** Compact declarative action builder: set fields / create linked record / comment. */
 export function ButtonActionsEditor({
@@ -29,6 +32,8 @@ export function ButtonActionsEditor({
   onChange: (actions: ButtonAction[]) => void;
 }) {
   const databases = useDatabases(ws);
+  const membersQuery = useMembers(ws, true);
+  const members = (membersQuery.data ?? []).map((m) => ({ id: m.user.id, name: m.user.name }));
   const settable = dbFields.filter(
     (f) => !f.isSystem && !['title', 'relation', 'lookup', 'rollup', 'button', 'rich_text', 'created_at', 'updated_at', 'created_by'].includes(f.type),
   );
@@ -70,41 +75,13 @@ export function ButtonActionsEditor({
           </div>
 
           {action.type === 'set_values' && (
-            <div className="flex flex-col gap-1">
-              {Object.entries(action.values).map(([key, value]) => (
-                <div key={key} className="flex items-center gap-1.5 text-[12px] text-ink">
-                  <span className="w-28 truncate text-muted">{settable.find((f) => f.apiName === key)?.displayName ?? key}</span>
-                  <Input
-                    className="h-7"
-                    value={String(value ?? '')}
-                    onChange={(e) => patch(i, { ...action, values: { ...action.values, [key]: coerceActionValue(settable.find((f) => f.apiName === key), e.target.value) } })}
-                  />
-                  <button type="button" className="p-0.5 text-faint hover:text-error" onClick={() => {
-                    const next = { ...action.values };
-                    delete next[key];
-                    patch(i, { ...action, values: next });
-                  }}>
-                    <Trash2 className="h-3 w-3" />
-                  </button>
-                </div>
-              ))}
-              <select
-                className="h-7 self-start rounded border border-border-default bg-card px-1 text-[12px] text-muted"
-                value=""
-                onChange={(e) => {
-                  const f = settable.find((x) => x.apiName === e.target.value);
-                  if (!f) return;
-                  const initial = f.type === 'user' ? '@me' : f.type === 'date' ? '@today' : f.type === 'checkbox' ? true : '';
-                  patch(i, { ...action, values: { ...action.values, [f.apiName]: initial } });
-                }}
-              >
-                <option value="">＋ field to set…</option>
-                {settable.filter((f) => !(f.apiName in action.values)).map((f) => (
-                  <option key={f.id} value={f.apiName}>{f.displayName}</option>
-                ))}
-              </select>
-              <p className="text-[11px] text-faint">Tokens: @me · @today · @now. Selects take the option id or label via the API.</p>
-            </div>
+            <FieldValuesEditor
+              settable={settable}
+              members={members}
+              values={action.values}
+              addLabel="＋ field to set…"
+              onChange={(values) => patch(i, { ...action, values })}
+            />
           )}
 
           {action.type === 'create_record' && (
@@ -183,6 +160,7 @@ export function ButtonActionsEditor({
             <UpdateLinkedEditor
               ws={ws}
               relationFields={relationFields}
+              members={members}
               action={action}
               onChange={(next) => patch(i, next)}
             />
@@ -200,14 +178,192 @@ export function ButtonActionsEditor({
   );
 }
 
-function coerceActionValue(field: Field | undefined, raw: string): unknown {
-  if (!field) return raw;
-  if (field.type === 'number') return raw === '' ? null : Number(raw);
-  if (field.type === 'checkbox') return raw === 'true';
-  if (field.type === 'select') {
-    return field.options?.find((o) => o.label === raw)?.id ?? raw;
+/** Sensible starting value when a field is added to a "set fields" action. */
+function initialSetValue(field: Field): unknown {
+  switch (field.type) {
+    case 'user':
+      return '@me';
+    case 'date':
+      return '@today';
+    case 'checkbox':
+      return true;
+    case 'multi_select':
+      return [];
+    default:
+      return '';
   }
-  return raw;
+}
+
+/**
+ * Shared "set these fields to these values" editor, used by both `set_values` and
+ * `update_linked`. The field selector comes first; each chosen field then gets a
+ * typed value editor below it (MN-230) — never a raw option UUID.
+ */
+function FieldValuesEditor({
+  settable,
+  members,
+  values,
+  addLabel,
+  onChange,
+}: {
+  settable: Field[];
+  members: Member[];
+  values: Record<string, unknown>;
+  addLabel: string;
+  onChange: (values: Record<string, unknown>) => void;
+}) {
+  const remaining = settable.filter((f) => !(f.apiName in values));
+  return (
+    <div className="flex flex-col gap-1">
+      <select
+        className="h-7 self-start rounded border border-border-default bg-card px-1 text-[12px] text-muted"
+        value=""
+        onChange={(e) => {
+          const f = settable.find((x) => x.apiName === e.target.value);
+          if (!f) return;
+          onChange({ ...values, [f.apiName]: initialSetValue(f) });
+        }}
+      >
+        <option value="">{addLabel}</option>
+        {remaining.map((f) => (
+          <option key={f.id} value={f.apiName}>{f.displayName}</option>
+        ))}
+      </select>
+      {Object.entries(values).map(([key, value]) => {
+        const field = settable.find((f) => f.apiName === key);
+        return (
+          <div key={key} className="flex items-center gap-1.5 text-[12px] text-ink">
+            <span className="w-28 shrink-0 truncate text-muted">{field?.displayName ?? key}</span>
+            <SetValueEditor field={field} members={members} value={value} onChange={(v) => onChange({ ...values, [key]: v })} />
+            <button
+              type="button"
+              className="p-0.5 text-faint hover:text-error"
+              onClick={() => {
+                const next = { ...values };
+                delete next[key];
+                onChange(next);
+              }}
+            >
+              <Trash2 className="h-3 w-3" />
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Typed value editor for one "set field" row — mirrors the grid cell editors so a
+ * select shows its option labels (while the stored value stays the option id), a
+ * user field shows a person picker, dates get a date input, etc. The @me / @today /
+ * @now tokens stay reachable on user and date fields.
+ */
+function SetValueEditor({
+  field,
+  members,
+  value,
+  onChange,
+}: {
+  field: Field | undefined;
+  members: Member[];
+  value: unknown;
+  onChange: (value: unknown) => void;
+}) {
+  const controlCls = 'h-7 min-w-0 flex-1 rounded border border-border-default bg-card px-1 text-[12px] text-ink';
+  if (!field) {
+    return <Input className="h-7" value={String(value ?? '')} onChange={(e) => onChange(e.target.value)} />;
+  }
+  switch (field.type) {
+    case 'select':
+      return (
+        <select className={controlCls} value={typeof value === 'string' ? value : ''} onChange={(e) => onChange(e.target.value || null)}>
+          <option value="">— none —</option>
+          {(field.options ?? []).map((o) => (
+            <option key={o.id} value={o.id}>{o.label}</option>
+          ))}
+        </select>
+      );
+    case 'multi_select': {
+      const ids = Array.isArray(value) ? (value as string[]) : [];
+      const options = field.options ?? [];
+      if (options.length === 0) return <span className="flex-1 text-[11px] text-faint">No options</span>;
+      return (
+        <div className="flex flex-1 flex-wrap items-center gap-1">
+          {options.map((o) => {
+            const on = ids.includes(o.id);
+            return (
+              <button
+                key={o.id}
+                type="button"
+                onClick={() => onChange(on ? ids.filter((x) => x !== o.id) : [...ids, o.id])}
+                className={cn(
+                  'rounded-full border px-2 py-0.5 text-[11px]',
+                  on ? 'border-[var(--accent)] bg-active text-ink' : 'border-border-default text-muted',
+                )}
+              >
+                {o.label}
+              </button>
+            );
+          })}
+        </div>
+      );
+    }
+    case 'user':
+      return (
+        <select className={controlCls} value={typeof value === 'string' ? value : '@me'} onChange={(e) => onChange(e.target.value)}>
+          <option value="@me">Me (whoever runs it)</option>
+          {members.map((m) => (
+            <option key={m.id} value={m.id}>{m.name}</option>
+          ))}
+        </select>
+      );
+    case 'date':
+      return <DateValueEditor value={value} onChange={onChange} />;
+    case 'checkbox':
+      return (
+        <label className="flex flex-1 items-center gap-1.5 text-[12px] text-muted">
+          <input type="checkbox" checked={value === true} onChange={(e) => onChange(e.target.checked)} />
+          {value === true ? 'Checked' : 'Unchecked'}
+        </label>
+      );
+    case 'number':
+      return (
+        <Input
+          className="h-7"
+          type="number"
+          value={value == null ? '' : String(value)}
+          onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))}
+        />
+      );
+    default:
+      return <Input className="h-7" value={String(value ?? '')} onChange={(e) => onChange(e.target.value)} />;
+  }
+}
+
+/** Date value: the @today / @now tokens stay available alongside a concrete date picker. */
+function DateValueEditor({ value, onChange }: { value: unknown; onChange: (value: unknown) => void }) {
+  const v = typeof value === 'string' ? value : '';
+  const isToken = v === '@today' || v === '@now';
+  return (
+    <div className="flex min-w-0 flex-1 items-center gap-1">
+      <select
+        className="h-7 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+        value={isToken ? v : 'date'}
+        onChange={(e) => {
+          const next = e.target.value;
+          onChange(next === '@today' || next === '@now' ? next : '');
+        }}
+      >
+        <option value="@today">Today (@today)</option>
+        <option value="@now">Now (@now)</option>
+        <option value="date">Specific date…</option>
+      </select>
+      {!isToken && (
+        <Input className="h-7 min-w-0 flex-1" type="date" value={v} onChange={(e) => onChange(e.target.value || '')} />
+      )}
+    </div>
+  );
 }
 
 /** Relations on the target database that point back at the source. */
@@ -247,11 +403,13 @@ function LinkBackPicker({
 function UpdateLinkedEditor({
   ws,
   relationFields,
+  members,
   action,
   onChange,
 }: {
   ws: string;
   relationFields: Field[];
+  members: Member[];
   action: { type: 'update_linked'; relation_field_id: string; values: Record<string, unknown> };
   onChange: (next: ButtonAction) => void;
 }) {
@@ -275,42 +433,13 @@ function UpdateLinkedEditor({
           <option key={f.id} value={f.id}>Through "{f.displayName}"</option>
         ))}
       </select>
-      {Object.entries(action.values).map(([key, value]) => (
-        <div key={key} className="flex items-center gap-1.5 text-[12px] text-ink">
-          <span className="w-28 truncate text-muted">{settable.find((f) => f.apiName === key)?.displayName ?? key}</span>
-          <Input
-            className="h-7"
-            value={String(value ?? '')}
-            onChange={(e) => onChange({ ...action, values: { ...action.values, [key]: coerceActionValue(settable.find((f) => f.apiName === key), e.target.value) } })}
-          />
-          <button
-            type="button"
-            className="p-0.5 text-faint hover:text-error"
-            onClick={() => {
-              const next = { ...action.values };
-              delete next[key];
-              onChange({ ...action, values: next });
-            }}
-          >
-            <Trash2 className="h-3 w-3" />
-          </button>
-        </div>
-      ))}
-      <select
-        className="h-7 self-start rounded border border-border-default bg-card px-1 text-[12px] text-muted"
-        value=""
-        onChange={(e) => {
-          const f = settable.find((x) => x.apiName === e.target.value);
-          if (!f) return;
-          const initial = f.type === 'user' ? '@me' : f.type === 'date' ? '@today' : f.type === 'checkbox' ? true : '';
-          onChange({ ...action, values: { ...action.values, [f.apiName]: initial } });
-        }}
-      >
-        <option value="">＋ field to set on linked…</option>
-        {settable.filter((f) => !(f.apiName in action.values)).map((f) => (
-          <option key={f.id} value={f.apiName}>{f.displayName}</option>
-        ))}
-      </select>
+      <FieldValuesEditor
+        settable={settable}
+        members={members}
+        values={action.values}
+        addLabel="＋ field to set on linked…"
+        onChange={(values) => onChange({ ...action, values })}
+      />
     </div>
   );
 }
