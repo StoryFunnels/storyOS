@@ -168,13 +168,23 @@ export class GithubOAuthController {
     const verified = this.githubApp.verifyState(state);
     if (!verified) throw new BadRequestException('Invalid or expired OAuth state');
 
-    const instId = Number(installationId);
+    // GitHub's user-auth flow returns a `code`, not an `installation_id` (only the
+    // separate install flow sends that). Accept an explicit installation_id when
+    // present, otherwise resolve it from the code by asking which installations of
+    // this App the authorizing user can reach.
+    let instId = Number(installationId);
     if (!Number.isInteger(instId) || instId <= 0) {
-      throw new BadRequestException('Missing or invalid installation id');
+      const resolved = code
+        ? await this.githubApp.resolveInstallationFromCode(code).catch(() => null)
+        : null;
+      if (!resolved) {
+        throw new BadRequestException(
+          'Connected, but the StoryOS GitHub App is not installed on any account yet. ' +
+            'Install it on your repositories, then click Connect again.',
+        );
+      }
+      instId = resolved;
     }
-    // Best-effort: confirms the user authorized. The App runs on the installation
-    // token, so a failed exchange must never block capturing installation_id.
-    if (code) await this.githubApp.exchangeCode(code).catch(() => false);
 
     await this.github.saveInstallationId(verified.workspaceId, instId);
     redirect(

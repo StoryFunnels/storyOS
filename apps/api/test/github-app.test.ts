@@ -198,6 +198,42 @@ describe('GithubAppService (unit)', () => {
       expect(repos.at(-1)).toEqual({ full_name: 'acme/last', private: true });
     });
   });
+
+  describe('resolve installation from OAuth code', () => {
+    // The bug this pins: login/oauth/authorize returns a `code`, never an
+    // installation_id — so the callback must resolve the installation via the code.
+    it('exchanges the code and returns the first installation of this App', async () => {
+      const svc = new GithubAppService();
+      const seen: string[] = [];
+      svc.fetcher = async (url, init) => {
+        seen.push(url);
+        if (url.includes('/login/oauth/access_token')) return okResponse({ access_token: 'ghu_user' });
+        if (url.includes('/user/installations')) {
+          expect(init.headers.authorization).toBe('Bearer ghu_user');
+          return okResponse({ total_count: 1, installations: [{ id: 4242 }] });
+        }
+        throw new Error(`unexpected ${url}`);
+      };
+      expect(await svc.resolveInstallationFromCode('cd17dc')).toBe(4242);
+      expect(seen.some((u) => u.includes('/user/installations'))).toBe(true);
+    });
+
+    it('returns null when the user authorized but installed nothing', async () => {
+      const svc = new GithubAppService();
+      svc.fetcher = async (url) => {
+        if (url.includes('/login/oauth/access_token')) return okResponse({ access_token: 'ghu_user' });
+        if (url.includes('/user/installations')) return okResponse({ total_count: 0, installations: [] });
+        throw new Error(`unexpected ${url}`);
+      };
+      expect(await svc.resolveInstallationFromCode('cd17dc')).toBeNull();
+    });
+
+    it('returns null when the code exchange fails', async () => {
+      const svc = new GithubAppService();
+      svc.fetcher = async () => okResponse({ error: 'bad_verification_code' }, 200);
+      expect(await svc.resolveInstallationFromCode('nope')).toBeNull();
+    });
+  });
 });
 
 // ══ INTEGRATION: connect / callback / repos / backlink over the real app ══════

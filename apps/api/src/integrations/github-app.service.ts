@@ -330,15 +330,52 @@ export class GithubAppService {
    * token, not this one — so a failure here never blocks capturing `installation_id`.
    */
   async exchangeCode(code: string): Promise<boolean> {
+    return (await this.exchangeCodeForToken(code)) !== null;
+  }
+
+  /** Exchange the OAuth `code` for a user-to-server access token, or null. */
+  async exchangeCodeForToken(code: string): Promise<string | null> {
     const creds = this.requireConfigured();
     const res = await this.fetcher(OAUTH_TOKEN, {
       method: 'POST',
       headers: { accept: 'application/json', 'content-type': 'application/json', 'user-agent': 'storyos' },
       body: JSON.stringify({ client_id: creds.clientId, client_secret: creds.clientSecret, code }),
     });
-    if (res.status < 200 || res.status >= 300) return false;
-    const json = (await res.json()) as { access_token?: string; error?: string };
-    return Boolean(json.access_token);
+    if (res.status < 200 || res.status >= 300) return null;
+    const json = (await res.json()) as { access_token?: string };
+    return json.access_token ?? null;
+  }
+
+  /**
+   * Installation ids of THIS App that the authorizing user can access
+   * (`GET /user/installations` — automatically scoped to our App by the token).
+   */
+  async listUserInstallations(userToken: string): Promise<number[]> {
+    const res = await this.fetcher(`${GITHUB_API}/user/installations?per_page=100`, {
+      method: 'GET',
+      headers: {
+        authorization: `Bearer ${userToken}`,
+        accept: 'application/vnd.github+json',
+        'user-agent': 'storyos',
+      },
+    });
+    if (res.status < 200 || res.status >= 300) return [];
+    const json = (await res.json()) as { installations?: Array<{ id: number }> };
+    return (json.installations ?? []).map((i) => i.id).filter((id) => Number.isInteger(id) && id > 0);
+  }
+
+  /**
+   * Resolve the installation to link from an OAuth `code`. GitHub's user-auth flow
+   * (`login/oauth/authorize`) returns a `code`, NOT an `installation_id` — only the
+   * separate installation flow does — so we exchange the code for a user token and
+   * ask which installations of this App that user can reach. Returns the first, or
+   * null if the user authorized but has not installed the App on any account yet.
+   */
+  async resolveInstallationFromCode(code: string): Promise<number | null> {
+    const token = await this.exchangeCodeForToken(code);
+    if (!token) return null;
+    const ids = await this.listUserInstallations(token);
+    return ids[0] ?? null;
   }
 
   private jwtHeaders(jwt: string): Record<string, string> {
