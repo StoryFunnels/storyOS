@@ -4009,7 +4009,7 @@
             "description": ""
           }
         },
-        "summary": "Save GitHub token and/or repo list",
+        "summary": "Save GitHub token, repos, webhook secret and/or state automation",
         "tags": [
           "integrations"
         ]
@@ -4025,6 +4025,38 @@
           }
         },
         "summary": "Import/refresh Issues + PRs; auto-links PRs to issues by #N / branch refs",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
+    "/api/v1/integrations/github/webhook": {
+      "post": {
+        "operationId": "GithubWebhookController_receive",
+        "parameters": [
+          {
+            "name": "x-hub-signature-256",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-github-event",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "GitHub webhook receiver — HMAC-verified, unauthenticated by design",
         "tags": [
           "integrations"
         ]
@@ -6885,6 +6917,69 @@
             "items": {
               "type": "string",
               "pattern": "^[\\w.-]+\\/[\\w.-]+$"
+            }
+          },
+          "webhook_secret": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 255
+          },
+          "link_database_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "state_automation": {
+            "type": "object",
+            "properties": {
+              "opened": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100,
+                "nullable": true
+              },
+              "reopened": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100,
+                "nullable": true
+              },
+              "review_requested": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100,
+                "nullable": true
+              },
+              "review_approved": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100,
+                "nullable": true
+              },
+              "review_changes_requested": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100,
+                "nullable": true
+              },
+              "merged": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100,
+                "nullable": true
+              },
+              "closed": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100,
+                "nullable": true
+              },
+              "pushed": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100,
+                "nullable": true
+              }
             }
           }
         }

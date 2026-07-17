@@ -1445,7 +1445,7 @@ export interface paths {
         /** GitHub config (token presence + repos) */
         get: operations["IntegrationsController_getConfig"];
         put?: never;
-        /** Save GitHub token and/or repo list */
+        /** Save GitHub token, repos, webhook secret and/or state automation */
         post: operations["IntegrationsController_saveConfig"];
         delete?: never;
         options?: never;
@@ -1464,6 +1464,23 @@ export interface paths {
         put?: never;
         /** Import/refresh Issues + PRs; auto-links PRs to issues by #N / branch refs */
         post: operations["IntegrationsController_sync"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integrations/github/webhook": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** GitHub webhook receiver — HMAC-verified, unauthenticated by design */
+        post: operations["GithubWebhookController_receive"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2418,6 +2435,19 @@ export interface components {
         GithubConfigDto: {
             token?: string;
             repos?: string[];
+            webhook_secret?: string;
+            /** Format: uuid */
+            link_database_id?: string;
+            state_automation?: {
+                opened?: string | null;
+                reopened?: string | null;
+                review_requested?: string | null;
+                review_approved?: string | null;
+                review_changes_requested?: string | null;
+                merged?: string | null;
+                closed?: string | null;
+                pushed?: string | null;
+            };
         };
         LinearConfigDto: {
             api_key?: string;
@@ -4995,6 +5025,26 @@ export interface operations {
         requestBody?: never;
         responses: {
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    GithubWebhookController_receive: {
+        parameters: {
+            query?: never;
+            header: {
+                "x-hub-signature-256": string;
+                "x-github-event": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };

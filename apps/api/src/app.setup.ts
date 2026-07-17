@@ -1,10 +1,25 @@
 import multipart from '@fastify/multipart';
-import type { NestFastifyApplication } from '@nestjs/platform-fastify';
-import type { FastifyReply } from 'fastify';
+import type { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
+import type { FastifyReply, FastifyRequest } from 'fastify';
 import { AUTH } from './auth/auth.tokens';
 import type { Auth } from './auth/auth';
 import { toWebHeaders } from './auth/auth.guard';
 import { env } from './config/env';
+import { GITHUB_WEBHOOK_PATH } from './integrations/github-webhook.service';
+
+/**
+ * Routes that need the untouched request bytes, because a signature was
+ * computed over *those* bytes and JSON.parse → JSON.stringify does not
+ * round-trip (key order, unicode escapes, whitespace, number formatting).
+ *
+ * Deliberately a tiny allowlist: retaining a second copy of every request body
+ * for every route would be a memory and blast-radius mistake, so raw bytes are
+ * kept only where an HMAC is actually verified.
+ */
+const RAW_BODY_PATHS = new Set<string>([GITHUB_WEBHOOK_PATH]);
+
+/** A request whose raw bytes were retained because its path is on the allowlist. */
+export type RawBodyRequest = FastifyRequest & { rawBody?: Buffer };
 
 /**
  * Shared app configuration — called by main.ts AND the integration-test
@@ -12,6 +27,7 @@ import { env } from './config/env';
  */
 export function configureApp(app: NestFastifyApplication) {
   app.setGlobalPrefix('api/v1', { exclude: ['/', 'healthz', 'api/docs'] });
+  registerRawBodyJsonParser(app);
   void app
     .getHttpAdapter()
     .getInstance()
@@ -22,6 +38,49 @@ export function configureApp(app: NestFastifyApplication) {
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
   });
   mountAuthHandler(app);
+}
+
+/**
+ * JSON parsing with raw-byte retention for the signature-verifying routes only.
+ *
+ * Fastify parses `application/json` into an object and drops the bytes, which
+ * destroys any HMAC computed over the wire body. We take the parser over so we
+ * see the buffer, stash it **only for RAW_BODY_PATHS**, then hand those exact
+ * bytes to Fastify's own default parser — parse semantics (proto poisoning,
+ * empty-body and syntax errors) stay identical for every route in the app.
+ *
+ * Nest's `rawBody: true` app option would have been the one-liner, but it keeps
+ * a second copy of *every* body on *every* route. One HMAC-verified endpoint is
+ * not a reason to double the memory footprint of every upload in the system.
+ *
+ * The dance with `registerParserMiddleware` is deliberate: Nest registers its
+ * own json + urlencoded parsers during `app.init()` and throws if json is
+ * already taken. Calling it here first (exactly as init would) registers both
+ * and flips Nest's `_isParserRegistered` flag, so init's call no-ops — which
+ * lets us swap json alone while urlencoded stays byte-for-byte Nest's.
+ */
+function registerRawBodyJsonParser(app: NestFastifyApplication) {
+  const adapter = app.getHttpAdapter() as FastifyAdapter;
+  adapter.registerParserMiddleware('api/v1', false);
+
+  const fastify = adapter.getInstance();
+  const { bodyLimit, onProtoPoisoning, onConstructorPoisoning } = fastify.initialConfig;
+  const defaultJsonParser = fastify.getDefaultJsonParser(
+    onProtoPoisoning ?? 'error',
+    onConstructorPoisoning ?? 'error',
+  );
+
+  fastify.removeContentTypeParser('application/json');
+  fastify.addContentTypeParser<Buffer>(
+    'application/json',
+    { parseAs: 'buffer', bodyLimit },
+    (request, body, done) => {
+      // request.url carries the query string; the allowlist is path-only.
+      const path = request.url.split('?')[0] ?? '';
+      if (RAW_BODY_PATHS.has(path)) (request as RawBodyRequest).rawBody = body;
+      defaultJsonParser(request, body.toString('utf8'), done);
+    },
+  );
 }
 
 /** Bridges Fastify to better-auth's WHATWG Request/Response handler. */
