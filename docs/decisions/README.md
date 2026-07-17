@@ -34,3 +34,4 @@ Decisions we don't relitigate. If you want to change one, open a new ADR that su
 - [ADR-0010 — The agentic execution engine](ADR-0010-agentic-os-engine.md)
 - [ADR-0011 — Workflow state field: select + shared category layer](ADR-0011-workflow-state-field.md)
 - [ADR-0012 — Converting a text/select field into a relation](ADR-0012-field-to-relation-conversion.md)
+- [ADR-0013 — Migration framework + external-id primitive](ADR-0013-migration-framework.md)
