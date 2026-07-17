@@ -29,6 +29,7 @@ import { EventsModule } from './events/events.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { AgentsModule } from './agents/agents.module';
 import { TemplatesModule } from './templates/templates.module';
+import { PacksModule } from './packs/packs.module';
 import { AccessModule } from './access/access.module';
 import { FavoritesModule } from './favorites/favorites.module';
 import { MentionsModule } from './mentions/mentions.module';
@@ -77,6 +78,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     IntegrationsModule,
     AgentsModule,
     TemplatesModule,
+    PacksModule,
     AccessModule,
     FavoritesModule,
     MentionsModule,

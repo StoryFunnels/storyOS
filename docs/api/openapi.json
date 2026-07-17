@@ -4427,6 +4427,56 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/packs/export": {
+      "post": {
+        "operationId": "PacksController_exportPack",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Export a workspace slice as a pack manifest; creates nothing",
+        "tags": [
+          "packs"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/packs/install": {
+      "post": {
+        "operationId": "PacksController_install",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstallDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Install a pack manifest; idempotent",
+        "tags": [
+          "packs"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/favorites": {
       "get": {
         "operationId": "FavoritesController_list",
@@ -7095,6 +7145,91 @@
             "default": true,
             "type": "boolean"
           }
+        }
+      },
+      "ExportDto": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "pattern": "^[a-z0-9-]+$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "version": {
+            "default": "1.0.0",
+            "type": "string",
+            "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z-.]+)?(?:\\+[0-9A-Za-z-.]+)?$"
+          },
+          "summary": {
+            "default": "Exported workspace slice",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "upgrade_notes": {
+            "type": "string",
+            "maxLength": 5000
+          },
+          "space": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "database_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          "include_sample_records": {
+            "default": false,
+            "type": "boolean"
+          },
+          "sample_limit": {
+            "default": 5,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          },
+          "ai": {
+            "type": "string",
+            "enum": [
+              "none",
+              "byo",
+              "storyos"
+            ]
+          },
+          "connections": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "slack",
+                "github",
+                "linear",
+                "email"
+              ]
+            }
+          }
+        },
+        "required": [
+          "slug",
+          "name"
+        ]
+      },
+      "InstallDto": {
+        "type": "object",
+        "properties": {
+          "manifest": {}
         }
       },
       "FavoriteDto": {
