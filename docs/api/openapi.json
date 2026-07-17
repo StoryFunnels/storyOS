@@ -4136,6 +4136,36 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/agents": {
+      "get": {
+        "operationId": "AgentsController_getPack",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Agents database summary, or { exists: false } if not provisioned",
+        "tags": [
+          "agents"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/agents/ensure": {
+      "post": {
+        "operationId": "AgentsController_ensure",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Provision the Agentic OS space + Agents database (idempotent)",
+        "tags": [
+          "agents"
+        ]
+      }
+    },
     "/api/v1/templates": {
       "get": {
         "operationId": "TemplatesController_list",

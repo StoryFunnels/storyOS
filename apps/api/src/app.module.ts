@@ -27,6 +27,7 @@ import { ImportModule } from './import/import.module';
 import { AutomationsModule } from './automations/automations.module';
 import { EventsModule } from './events/events.module';
 import { IntegrationsModule } from './integrations/integrations.module';
+import { AgentsModule } from './agents/agents.module';
 import { TemplatesModule } from './templates/templates.module';
 import { AccessModule } from './access/access.module';
 import { FavoritesModule } from './favorites/favorites.module';
@@ -74,6 +75,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     AutomationsModule,
     EventsModule,
     IntegrationsModule,
+    AgentsModule,
     TemplatesModule,
     AccessModule,
     FavoritesModule,
