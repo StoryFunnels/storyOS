@@ -1626,6 +1626,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/public/forms/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Public form definition (link/public access only) */
+        get: operations["PublicFormsController_get"];
+        put?: never;
+        /** Submit a public form → creates a record (anonymous) */
+        post: operations["PublicFormsController_submit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/members/{member}/gdpr/export": {
         parameters: {
             query?: never;
@@ -1937,6 +1955,14 @@ export interface components {
                         help?: string;
                     }[];
                     public_token?: string;
+                    /**
+                     * @default members
+                     * @enum {string}
+                     */
+                    access: "members" | "link" | "public";
+                    success_message?: string;
+                    /** Format: uri */
+                    redirect_url?: string;
                 };
                 column_widths?: {
                     [key: string]: number;
@@ -1995,6 +2021,14 @@ export interface components {
                         help?: string;
                     }[];
                     public_token?: string;
+                    /**
+                     * @default members
+                     * @enum {string}
+                     */
+                    access: "members" | "link" | "public";
+                    success_message?: string;
+                    /** Format: uri */
+                    redirect_url?: string;
                 };
                 column_widths?: {
                     [key: string]: number;
@@ -2271,6 +2305,13 @@ export interface components {
             target_type: "record" | "database";
             /** Format: uuid */
             target_id: string;
+        };
+        PublicSubmitDto: {
+            /** @default {} */
+            values: {
+                [key: string]: unknown;
+            };
+            hp?: string;
         };
     };
     responses: never;
@@ -5026,6 +5067,48 @@ export interface operations {
         requestBody?: never;
         responses: {
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PublicFormsController_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PublicFormsController_submit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublicSubmitDto"];
+            };
+        };
+        responses: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -46,6 +46,12 @@ export const viewConfigSchema = z.object({
         )
         .default([]),
       public_token: z.string().max(64).optional(),
+      /** Who may open/submit the form (MN-101). members = signed-in only;
+       * link = anyone with the token; public = same, advertised as open. */
+      access: z.enum(['members', 'link', 'public']).default('members'),
+      /** Shown after a successful submit; optional redirect instead. */
+      success_message: z.string().max(500).optional(),
+      redirect_url: z.string().url().max(500).optional(),
     })
     .optional(),
   /**

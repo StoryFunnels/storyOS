@@ -132,7 +132,7 @@ function DatabasePageInner() {
         ) : activeView?.type === 'timeline' ? (
           <TimelineView ws={ws} db={db} config={config} readOnly={readOnly} />
         ) : activeView?.type === 'form' ? (
-          <FormView ws={ws} db={db} config={config} readOnly={readOnly} />
+          <FormView ws={ws} db={db} config={config} readOnly={readOnly} onPatch={patch} viewId={activeView?.id} />
         ) : (
           <TableView
             ws={ws}

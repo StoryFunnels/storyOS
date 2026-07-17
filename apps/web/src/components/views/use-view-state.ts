@@ -32,13 +32,17 @@ export interface ViewConfig {
   /** Timeline (MN-092). */
   start_date_field_id?: string;
   end_date_field_id?: string;
-  /** Form (MN-094). */
+  /** Form (MN-094, MN-101). */
   form?: {
     title?: string;
     description?: string;
     submit_text?: string;
     fields: Array<{ field_id: string; required?: boolean; label?: string; help?: string }>;
     public_token?: string;
+    /** Who may open/submit the shared form. */
+    access?: 'members' | 'link' | 'public';
+    success_message?: string;
+    redirect_url?: string;
   };
   column_widths: Record<string, number>;
 }

@@ -31,6 +31,7 @@ import { TemplatesModule } from './templates/templates.module';
 import { AccessModule } from './access/access.module';
 import { FavoritesModule } from './favorites/favorites.module';
 import { MentionsModule } from './mentions/mentions.module';
+import { FormsModule } from './forms/forms.module';
 import { GdprModule } from './gdpr/gdpr.module';
 import { env } from './config/env';
 import { ApiThrottlerGuard } from './common/throttler.guard';
@@ -77,6 +78,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     AccessModule,
     FavoritesModule,
     MentionsModule,
+    FormsModule,
     GdprModule,
     ThrottlerModule.forRoot({
       throttlers: [{ ttl: 60_000, limit: env().RATE_LIMIT_PER_MINUTE }],

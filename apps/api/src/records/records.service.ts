@@ -533,7 +533,7 @@ export class RecordsService {
   private async writeLinks(
     tx: Db,
     workspaceId: string,
-    actorId: string,
+    actorId: string | null,
     record: { id: string; title: string },
     plans: LinkPlan[],
     replace: boolean,
@@ -592,7 +592,7 @@ export class RecordsService {
     workspaceId: string,
     databaseId: string,
     input: Record<string, unknown>,
-    actorId: string,
+    actorId: string | null,
     depth = 0,
   ): Promise<ProjectedRecord> {
     const [created] = await this.createBatch(workspaceId, databaseId, [input], actorId, depth);
@@ -673,7 +673,7 @@ export class RecordsService {
     workspaceId: string,
     databaseId: string,
     inputs: Array<Record<string, unknown>>,
-    actorId: string,
+    actorId: string | null,
     depth = 0,
     options: { suppressAutomations?: boolean } = {},
   ): Promise<ProjectedRecord[]> {
