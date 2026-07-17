@@ -211,7 +211,10 @@ export class ArchitectService {
     const created = (await this.fields.create(databaseId, {
       display_name: field.name,
       type: field.type,
-      config: {},
+      // A plan may carry type config (precision, include_time). The proposer
+      // never emits any, but a pack manifest — which is an ArchitectPlan — does,
+      // and hardcoding `{}` here silently dropped it.
+      config: field.config ?? {},
       options: field.options,
     })) as unknown as LiveField;
     result.fields.push({ name: label, action: 'created', id: created.id });

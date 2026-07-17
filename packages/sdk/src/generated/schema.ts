@@ -1744,6 +1744,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/packs/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Export a workspace slice as a pack manifest; creates nothing */
+        post: operations["PacksController_exportPack"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/packs/install": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Install a pack manifest; idempotent */
+        post: operations["PacksController_install"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/favorites": {
         parameters: {
             query?: never;
@@ -2482,6 +2516,28 @@ export interface components {
             space_name?: string;
             /** @default true */
             include_samples: boolean;
+        };
+        ExportDto: {
+            slug: string;
+            name: string;
+            /** @default 1.0.0 */
+            version: string;
+            /** @default Exported workspace slice */
+            summary: string;
+            upgrade_notes?: string;
+            space?: string;
+            database_ids?: string[];
+            /** @default false */
+            include_sample_records: boolean;
+            /** @default 5 */
+            sample_limit: number;
+            /** @enum {string} */
+            ai?: "none" | "byo" | "storyos";
+            /** @default [] */
+            connections: ("slack" | "github" | "linear" | "email")[];
+        };
+        InstallDto: {
+            manifest?: unknown;
         };
         FavoriteDto: {
             /** @enum {string} */
@@ -5369,6 +5425,48 @@ export interface operations {
         requestBody?: never;
         responses: {
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PacksController_exportPack: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExportDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PacksController_install: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstallDto"];
+            };
+        };
+        responses: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };

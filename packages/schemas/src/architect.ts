@@ -34,6 +34,22 @@ export const planFieldSchema = z.object({
   options: z
     .array(z.object({ label: nameSchema, color: z.enum(OPTION_COLORS).optional() }))
     .optional(),
+  /**
+   * The field's type config — number precision, `include_time`, `multiline`.
+   *
+   * Validated per type by `validateFieldConfig` when the field is created, not
+   * here, so this stays a passthrough rather than a copy of `fieldConfigSchemas`
+   * that would drift from it.
+   *
+   * Added for Business Packs (MN-218): an export that dropped it would round-trip
+   * a currency column back as a plain number. The proposer never sets it, so the
+   * Architect is unaffected — it simply stops discarding config it was handed.
+   *
+   * Fields whose config references *other fields* (lookup, rollup, button) are
+   * not expressible here: they must be created after the relations they point
+   * at, which is why a pack carries them separately (`derived_fields`).
+   */
+  config: z.record(z.string(), z.unknown()).optional(),
 });
 export type PlanField = z.infer<typeof planFieldSchema>;
 
