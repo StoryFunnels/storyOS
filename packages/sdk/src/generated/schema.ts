@@ -1566,8 +1566,25 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Provision the Agentic OS space + Agents database (idempotent) */
+        /** Provision the Agentic OS space + Agents/Runs databases (idempotent) */
         post: operations["AgentsController_ensure"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/agents/{agent}/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run an agent manually; returns the Run record */
+        post: operations["AgentsController_run"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5015,6 +5032,26 @@ export interface operations {
             query?: never;
             header?: never;
             path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AgentsController_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The agent record's uuid or public number */
+                agent: string;
+            };
             cookie?: never;
         };
         requestBody?: never;

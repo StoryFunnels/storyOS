@@ -4160,7 +4160,32 @@
             "description": ""
           }
         },
-        "summary": "Provision the Agentic OS space + Agents database (idempotent)",
+        "summary": "Provision the Agentic OS space + Agents/Runs databases (idempotent)",
+        "tags": [
+          "agents"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/agents/{agent}/run": {
+      "post": {
+        "operationId": "AgentsController_run",
+        "parameters": [
+          {
+            "name": "agent",
+            "required": true,
+            "in": "path",
+            "description": "The agent record's uuid or public number",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Run an agent manually; returns the Run record",
         "tags": [
           "agents"
         ]
