@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { ArrowUpDown, Check, Download, EyeOff, GripVertical, ListFilter, Palette, Plus, X } from 'lucide-react';
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
@@ -11,13 +12,13 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { API_URL } from '@/lib/api';
+import { API_URL, api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import type { Field } from '../table-view/use-table-data';
 import type { FilterCondition, SortSpec, ViewConfig } from './use-view-state';
 
 /** Op menu per field type — mirrors the API op×type matrix. */
-export const OPS_BY_TYPE: Record<string, Array<{ op: string; label: string; input: 'text' | 'number' | 'date' | 'options' | 'relative' | 'boolean' | 'none' }>> = {
+export const OPS_BY_TYPE: Record<string, Array<{ op: string; label: string; input: 'text' | 'number' | 'date' | 'options' | 'relative' | 'boolean' | 'records' | 'none' }>> = {
   title: [
     { op: 'contains', label: 'contains', input: 'text' },
     { op: 'eq', label: 'is', input: 'text' },
@@ -71,6 +72,8 @@ export const OPS_BY_TYPE: Record<string, Array<{ op: string; label: string; inpu
   relation: [
     { op: 'not_empty', label: 'is linked', input: 'none' },
     { op: 'is_empty', label: 'is not linked', input: 'none' },
+    { op: 'has', label: 'is any of', input: 'records' },
+    { op: 'has_none', label: 'is none of', input: 'records' },
   ],
 };
 
@@ -122,6 +125,7 @@ export function ViewToolbar({
           fields={filterable}
           members={members}
           condition={condition}
+          ws={ws}
           onChange={(next) => setConditions(conditions.map((c, j) => (j === i ? next : c)))}
           onRemove={() => setConditions(conditions.filter((_, j) => j !== i))}
         />
@@ -246,7 +250,7 @@ export function ColorByButton({
 }
 
 function defaultValueFor(input: string): unknown {
-  if (input === 'options') return [];
+  if (input === 'options' || input === 'records') return [];
   if (input === 'boolean') return true;
   if (input === 'relative') return 'next_7_days';
   if (input === 'number') return 0;
@@ -280,12 +284,15 @@ export function FilterChip({
   fields,
   members,
   condition,
+  ws,
   onChange,
   onRemove,
 }: {
   fields: Field[];
   members: Array<{ id: string; name: string }>;
   condition: FilterCondition;
+  /** Needed by the relation record picker (`has`/`has_none`) to search the target DB. */
+  ws?: string;
   onChange: (condition: FilterCondition) => void;
   onRemove: () => void;
 }) {
@@ -370,6 +377,17 @@ export function FilterChip({
           onChange={(ids) => onChange({ ...condition, value: ids })}
         />
       )}
+      {activeOp.input === 'records' &&
+        (ws && field.relation ? (
+          <RecordPicker
+            ws={ws}
+            field={field}
+            selected={Array.isArray(condition.value) ? (condition.value as string[]) : []}
+            onChange={(ids) => onChange({ ...condition, value: ids })}
+          />
+        ) : (
+          <span className="text-faint">unavailable</span>
+        ))}
 
       <button onClick={onRemove} className="text-faint hover:text-error">
         <X className="h-3 w-3" />
@@ -422,6 +440,148 @@ function OptionMultiPick({
         ))}
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+/**
+ * Relation filter picker (MN-223): search the relation's target database and
+ * multi-select records. The condition `value` is an array of record ids; the
+ * selected ids render as removable title chips. Titles come from the live search
+ * results plus a per-id lookup that resolves ids restored from a saved filter.
+ */
+function RecordPicker({
+  ws,
+  field,
+  selected,
+  onChange,
+}: {
+  ws: string;
+  field: Field;
+  selected: string[];
+  onChange: (ids: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [titles, setTitles] = useState<Record<string, string>>({});
+  const ref = useRef<HTMLSpanElement>(null);
+  const targetDb = field.relation?.target_database_id ?? '';
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  const results = useQuery({
+    queryKey: ['relation-filter-picker', ws, targetDb, search],
+    enabled: open && Boolean(targetDb),
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/databases/{db}/records', {
+        params: { path: { ws, db: targetDb }, query: { q: search || undefined, limit: 20 } },
+      });
+      if (error) throw error;
+      return (data as unknown as { data: Array<{ id: string; title: string }> }).data;
+    },
+  });
+
+  // Cache titles from search results so removing the search text keeps chip labels.
+  useEffect(() => {
+    if (!results.data) return;
+    setTitles((prev) => {
+      const next = { ...prev };
+      for (const r of results.data!) next[r.id] = r.title;
+      return next;
+    });
+  }, [results.data]);
+
+  // Resolve titles for selected ids we haven't seen yet (e.g. a restored filter).
+  const unresolved = selected.filter((id) => !(id in titles));
+  useQuery({
+    queryKey: ['relation-filter-titles', ws, targetDb, unresolved],
+    enabled: Boolean(targetDb) && unresolved.length > 0,
+    queryFn: async () => {
+      const fetched = await Promise.all(
+        unresolved.map(async (id) => {
+          const { data } = await api.GET(
+            '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}',
+            { params: { path: { ws, db: targetDb, rec: id } } },
+          );
+          return data as unknown as { id: string; title: string } | undefined;
+        }),
+      );
+      setTitles((prev) => {
+        const next = { ...prev };
+        for (const r of fetched) if (r?.id) next[r.id] = r.title;
+        return next;
+      });
+      return null;
+    },
+  });
+
+  const titleFor = (id: string) => titles[id] || 'Untitled';
+  const label = selected.length === 0 ? 'pick…' : selected.map(titleFor).join(', ');
+
+  function toggle(id: string) {
+    onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
+  }
+
+  return (
+    <span ref={ref} className="relative">
+      <button
+        type="button"
+        className={cn('max-w-40 truncate text-left', selected.length ? 'text-ink' : 'text-faint')}
+        onClick={() => setOpen((o) => !o)}
+      >
+        {label}
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full z-30 mt-1 w-64 rounded-[var(--radius-card)] border border-border-default bg-card shadow-[0_4px_12px_rgba(15,23,41,0.08)]">
+          {selected.length > 0 && (
+            <div className="flex flex-wrap gap-1 border-b border-border-default p-2">
+              {selected.map((id) => (
+                <span
+                  key={id}
+                  className="inline-flex items-center gap-1 rounded border border-border-default bg-hover px-1.5 py-0.5 text-[12px] text-ink"
+                >
+                  <span className="max-w-32 truncate">{titleFor(id)}</span>
+                  <button onClick={() => toggle(id)} className="text-faint hover:text-error">
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          <input
+            autoFocus
+            placeholder={`Search ${field.relation?.target_database_name ?? 'records'}…`}
+            className="w-full border-b border-border-default bg-card px-3 py-2 text-[13px] text-ink outline-none placeholder:text-faint"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <div className="max-h-56 overflow-y-auto p-1">
+            {(results.data ?? []).map((row) => (
+              <button
+                key={row.id}
+                className={cn(
+                  'flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-[13px] text-ink hover:bg-hover',
+                  selected.includes(row.id) && 'bg-hover',
+                )}
+                onClick={() => toggle(row.id)}
+              >
+                <span className="truncate">{row.title || 'Untitled'}</span>
+                {selected.includes(row.id) && <Check className="h-3.5 w-3.5 text-accent" />}
+              </button>
+            ))}
+            {results.data?.length === 0 && (
+              <p className="px-2 py-1.5 text-[12px] text-faint">No matches.</p>
+            )}
+          </div>
+        </div>
+      )}
+    </span>
   );
 }
 
