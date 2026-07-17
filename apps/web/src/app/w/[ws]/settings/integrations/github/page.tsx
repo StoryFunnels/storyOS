@@ -6,12 +6,24 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, GitBranch } from 'lucide-react';
 import { toast } from 'sonner';
-import { api } from '@/lib/api';
+import { api, API_URL } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
-/** GitHub integration setup (MN-099) — its own page under the integrations directory. */
+interface GithubConfig {
+  repos: string[];
+  has_token: boolean;
+  connected: boolean;
+  installation_id: number | null;
+}
+
+interface InstallRepo {
+  full_name: string;
+  private: boolean;
+}
+
+/** GitHub integration setup (MN-099 / #247) — token import + App connect + repo picker. */
 export default function GitHubIntegrationPage() {
   const { ws } = useParams<{ ws: string }>();
   const router = useRouter();
@@ -27,9 +39,25 @@ export default function GitHubIntegrationPage() {
         params: { path: { ws } },
       } as never);
       if (error) throw error;
-      const cfg = data as unknown as { repos: string[]; has_token: boolean };
+      const cfg = data as unknown as GithubConfig;
       setRepos((prev) => prev || cfg.repos.join('\n'));
       return cfg;
+    },
+  });
+
+  const connected = Boolean(config.data?.connected);
+
+  // #247 repo picker: the installation's repos, only once connected.
+  const installRepos = useQuery({
+    queryKey: ['github-install-repos', ws],
+    enabled: connected,
+    queryFn: async () => {
+      const { data, error } = await api.GET(
+        '/api/v1/workspaces/{ws}/integrations/github/repos',
+        { params: { path: { ws } } } as never,
+      );
+      if (error) throw error;
+      return data as unknown as { repos: InstallRepo[]; selected: string[] };
     },
   });
 
@@ -51,6 +79,23 @@ export default function GitHubIntegrationPage() {
     onError: () => toast.error('Could not save (check repo format: owner/name)'),
   });
 
+  // Persist the chosen subset from the repo picker.
+  const saveSelection = useMutation({
+    mutationFn: async (selected: string[]) => {
+      const { error } = await api.POST('/api/v1/workspaces/{ws}/integrations/github', {
+        params: { path: { ws } },
+        body: { repos: selected } as never,
+      } as never);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success('Watched repositories updated');
+      void qc.invalidateQueries({ queryKey: ['github-config', ws] });
+      void qc.invalidateQueries({ queryKey: ['github-install-repos', ws] });
+    },
+    onError: () => toast.error('Could not update repositories'),
+  });
+
   const sync = useMutation({
     mutationFn: async () => {
       const { data, error } = await api.POST('/api/v1/workspaces/{ws}/integrations/github/sync', {
@@ -67,6 +112,12 @@ export default function GitHubIntegrationPage() {
     onError: (error) => toast.error((error as { error?: { message?: string } })?.error?.message ?? 'Sync failed'),
   });
 
+  // Start the App connect: a top-level navigation so GitHub's install screen loads
+  // (the API 302s there). The session cookie authenticates the redirect.
+  function connect() {
+    window.location.href = `${API_URL}/api/v1/workspaces/${ws}/integrations/github/connect`;
+  }
+
   return (
     <div className="mx-auto max-w-2xl p-8">
       <Link href={`/w/${ws}/settings/integrations`} className="mb-4 inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-ink">
@@ -75,14 +126,52 @@ export default function GitHubIntegrationPage() {
       <div className="mb-3 flex items-center gap-2">
         <GitBranch className="h-6 w-6 text-ink" />
         <h1 className="text-lg font-semibold text-ink">GitHub</h1>
-        {config.data?.has_token && <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[11px] text-ink">connected</span>}
+        {connected ? (
+          <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[11px] text-ink">
+            connected · installation {config.data?.installation_id}
+          </span>
+        ) : (
+          config.data?.has_token && <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[11px] text-ink">token set</span>
+        )}
       </div>
       <p className="mb-5 text-[13px] text-muted">
         Imports Issues and Pull Requests into a GitHub space and keeps them fresh on every sync. PRs auto-link
         to issues referenced by <code className="text-ink">#number</code> in the title or the branch name.
       </p>
 
+      {/* GitHub App connect (#247) */}
+      <div className="mb-6 rounded-[var(--radius-control)] border border-border-default bg-card p-4">
+        <h2 className="mb-1 text-[14px] font-semibold text-ink">Connect the GitHub App</h2>
+        <p className="mb-3 text-[13px] text-muted">
+          Connect an installation to post a backlink comment on linked pull requests and to pick which
+          repositories StoryOS watches — no personal token required.
+        </p>
+        {connected ? (
+          <div className="flex flex-col gap-3">
+            <div className="text-[13px] text-ink-secondary">
+              Connected as installation <strong>{config.data?.installation_id}</strong>
+              {installRepos.data && <> · watching {config.data?.repos.length ?? 0} of {installRepos.data.repos.length} repos</>}
+            </div>
+            {installRepos.isLoading && <p className="text-[13px] text-muted">Loading repositories…</p>}
+            {installRepos.data && (
+              <RepoPicker
+                repos={installRepos.data.repos}
+                selected={config.data?.repos ?? []}
+                saving={saveSelection.isPending}
+                onSave={(sel) => saveSelection.mutate(sel)}
+              />
+            )}
+            <div>
+              <Button size="sm" variant="secondary" onClick={connect}>Reconnect / change installation</Button>
+            </div>
+          </div>
+        ) : (
+          <Button size="sm" onClick={connect}>Connect GitHub</Button>
+        )}
+      </div>
+
       <div className="flex flex-col gap-3">
+        <h2 className="text-[14px] font-semibold text-ink">Or use a personal access token</h2>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="gh-token">Personal access token {config.data?.has_token && '(saved — enter to replace)'}</Label>
           <Input id="gh-token" type="password" placeholder="ghp_… (repo read scope)" value={token} onChange={(e) => setToken(e.target.value)} />
@@ -113,6 +202,47 @@ export default function GitHubIntegrationPage() {
             </Link>
           </p>
         )}
+      </div>
+    </div>
+  );
+}
+
+/** Checkbox list of installation repos; commits the chosen subset on Save. */
+function RepoPicker({
+  repos,
+  selected,
+  saving,
+  onSave,
+}: {
+  repos: InstallRepo[];
+  selected: string[];
+  saving: boolean;
+  onSave: (selected: string[]) => void;
+}) {
+  const [chosen, setChosen] = useState<Set<string>>(() => new Set(selected));
+  const toggle = (name: string) =>
+    setChosen((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="max-h-56 overflow-y-auto rounded-[var(--radius-control)] border border-border-default">
+        {repos.map((r) => (
+          <label key={r.full_name} className="flex cursor-pointer items-center gap-2 px-2 py-1.5 text-[13px] text-ink hover:bg-accent-soft">
+            <input type="checkbox" checked={chosen.has(r.full_name)} onChange={() => toggle(r.full_name)} />
+            <span className="font-mono">{r.full_name}</span>
+            {r.private && <span className="rounded bg-surface px-1 text-[10px] text-muted">private</span>}
+          </label>
+        ))}
+      </div>
+      <div>
+        <Button size="sm" variant="secondary" disabled={saving} onClick={() => onSave([...chosen])}>
+          {saving ? 'Saving…' : 'Save watched repositories'}
+        </Button>
       </div>
     </div>
   );

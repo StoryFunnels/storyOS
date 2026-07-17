@@ -1,15 +1,36 @@
-import { Body, Controller, Get, Headers, HttpCode, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Headers,
+  HttpCode,
+  NotFoundException,
+  Post,
+  Query,
+  Req,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import type { FastifyReply } from 'fastify';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 import { AuthGuard } from '../auth/auth.guard';
 import type { RawBodyRequest } from '../app.setup';
+import { env } from '../config/env';
 import { MinRole, WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
+import { GithubAppService } from './github-app.service';
 import { GithubService } from './github.service';
 import { GithubWebhookService } from './github-webhook.service';
 import { LinearService } from './linear.service';
 import { SlackService } from './slack.service';
+
+/** 302 redirect via the raw Fastify reply (Nest passthrough is off under @Res). */
+function redirect(reply: FastifyReply, url: string): void {
+  void reply.header('location', url).code(302).send();
+}
 
 /** A state-automation entry: a state-option label, or null to disable the event. */
 const stateLabel = z.string().min(1).max(100).nullable().optional();
@@ -57,10 +78,13 @@ class SlackConfigDto extends createZodDto(
 @MinRole('admin')
 @Controller('workspaces/:ws/integrations/github')
 export class IntegrationsController {
-  constructor(private readonly github: GithubService) {}
+  constructor(
+    private readonly github: GithubService,
+    private readonly githubApp: GithubAppService,
+  ) {}
 
   @Get()
-  @ApiOperation({ summary: 'GitHub config (token presence + repos)' })
+  @ApiOperation({ summary: 'GitHub config (token presence + repos + App connect state)' })
   getConfig(@Req() req: WorkspaceRequest) {
     return this.github.getConfig(req.membership.workspaceId);
   }
@@ -72,10 +96,91 @@ export class IntegrationsController {
     return this.github.saveConfig(req.membership.workspaceId, body, req.user.id);
   }
 
+  /**
+   * #247 AC 1: start the GitHub App connect. Signs a CSRF `state` carrying this
+   * workspace id and 302s the admin to GitHub's install/authorize screen. 404s
+   * cleanly when the server has no GitHub App configured (feature unavailable) —
+   * the manual webhook_secret + PAT path is unaffected.
+   */
+  @Get('connect')
+  @ApiOperation({ summary: 'Begin GitHub App OAuth connect (redirects to GitHub)' })
+  connect(@Req() req: WorkspaceRequest, @Res() reply: FastifyReply) {
+    this.requireAppConfigured();
+    const state = this.githubApp.signState(req.membership.workspaceId);
+    redirect(reply, this.githubApp.authorizeUrl(state));
+  }
+
+  /**
+   * #247 repo picker: list the connected installation's repos so an admin can
+   * choose which ones StoryOS watches. The chosen subset is stored via the
+   * ordinary POST above (`repos`).
+   */
+  @Get('repos')
+  @ApiOperation({ summary: "List the connected installation's repositories" })
+  async repos(@Req() req: WorkspaceRequest) {
+    this.requireAppConfigured();
+    const config = await this.github.readConfig(req.membership.workspaceId);
+    if (config.installation_id === undefined || config.installation_id === null) {
+      throw new BadRequestException('Connect the GitHub App before listing repositories');
+    }
+    const available = await this.githubApp.listRepos(config.installation_id);
+    return { repos: available, selected: config.repos ?? [] };
+  }
+
   @Post('sync')
   @ApiOperation({ summary: 'Import/refresh Issues + PRs; auto-links PRs to issues by #N / branch refs' })
   sync(@Req() req: WorkspaceRequest) {
     return this.github.sync(req.membership, req.user.id);
+  }
+
+  private requireAppConfigured(): void {
+    if (!this.githubApp.isConfigured()) {
+      throw new NotFoundException('GitHub App connect is not configured on this server');
+    }
+  }
+}
+
+/**
+ * #247 AC 1: the OAuth return leg. **Unauthenticated** — GitHub redirects the
+ * browser here — so a signed `state` (not any request-supplied ws id) is what
+ * proves which workspace the admin started from. A callback whose state doesn't
+ * verify is rejected (CSRF).
+ */
+@ApiTags('integrations')
+@Controller('integrations/github')
+export class GithubOAuthController {
+  constructor(
+    private readonly github: GithubService,
+    private readonly githubApp: GithubAppService,
+  ) {}
+
+  @Get('oauth/callback')
+  @ApiOperation({ summary: 'GitHub App OAuth callback — verifies state, captures installation id' })
+  async callback(
+    @Res() reply: FastifyReply,
+    @Query('state') state?: string,
+    @Query('installation_id') installationId?: string,
+    @Query('code') code?: string,
+  ) {
+    if (!this.githubApp.isConfigured()) {
+      throw new NotFoundException('GitHub App connect is not configured on this server');
+    }
+    const verified = this.githubApp.verifyState(state);
+    if (!verified) throw new BadRequestException('Invalid or expired OAuth state');
+
+    const instId = Number(installationId);
+    if (!Number.isInteger(instId) || instId <= 0) {
+      throw new BadRequestException('Missing or invalid installation id');
+    }
+    // Best-effort: confirms the user authorized. The App runs on the installation
+    // token, so a failed exchange must never block capturing installation_id.
+    if (code) await this.githubApp.exchangeCode(code).catch(() => false);
+
+    await this.github.saveInstallationId(verified.workspaceId, instId);
+    redirect(
+      reply,
+      `${env().WEB_URL}/w/${verified.workspaceId}/settings/integrations/github?connected=1`,
+    );
   }
 }
 

@@ -5,9 +5,11 @@ import { FieldsModule } from '../fields/fields.module';
 import { RecordsModule } from '../records/records.module';
 import { RelationsModule } from '../relations/relations.module';
 import { WorkspacesModule } from '../workspaces/workspaces.module';
+import { GithubAppService } from './github-app.service';
 import { GithubService } from './github.service';
 import { GithubWebhookService } from './github-webhook.service';
 import {
+  GithubOAuthController,
   GithubWebhookController,
   IntegrationsController,
   LinearIntegrationsController,
@@ -21,10 +23,11 @@ import { SlackService } from './slack.service';
   controllers: [
     IntegrationsController,
     GithubWebhookController,
+    GithubOAuthController,
     LinearIntegrationsController,
     SlackIntegrationsController,
   ],
-  providers: [GithubService, GithubWebhookService, LinearService, SlackService],
-  exports: [GithubService, GithubWebhookService, LinearService, SlackService],
+  providers: [GithubAppService, GithubService, GithubWebhookService, LinearService, SlackService],
+  exports: [GithubAppService, GithubService, GithubWebhookService, LinearService, SlackService],
 })
 export class IntegrationsModule {}

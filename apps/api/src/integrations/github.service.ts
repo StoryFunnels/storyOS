@@ -67,6 +67,12 @@ export interface GithubConfig {
   /** PAT. Optional: only the checks lookup (AC 3) needs it — the webhook does not. */
   token?: string;
   repos?: string[];
+  /**
+   * The GitHub App installation this workspace connected via OAuth (#247). Not a
+   * secret — it names an installation, not a credential — so it is safe to return.
+   * The installation TOKEN is minted on demand and never stored here.
+   */
+  installation_id?: number;
   /** HMAC-SHA256 key for `x-hub-signature-256` on inbound deliveries (#42). Write-only. */
   webhook_secret?: string;
   /**
@@ -98,6 +104,20 @@ const CHECKS_FIELD: Parameters<FieldsService['create']>[1] = {
     { label: 'Unknown', color: 'gray' },
   ],
 };
+
+/**
+ * #247 AC 5: the id of the backlink comment this PR carries on GitHub. Stored as
+ * text (comment ids are int64 — beyond a JS number) and, crucially, it is the
+ * post-once guard: a set value means "already commented, PATCH don't POST", so a
+ * GitHub redelivery never creates a second comment.
+ */
+const BACKLINK_COMMENT_FIELD: Parameters<FieldsService['create']>[1] = {
+  display_name: 'Backlink Comment ID',
+  type: 'text',
+  config: {},
+};
+/** Its api_name (slugify('Backlink Comment ID')), used when reading/writing values. */
+export const BACKLINK_COMMENT_API = 'backlink_comment_id';
 
 const defaultFetcher: GithubFetcher = async (path, token) => {
   const res = await fetch(`https://api.github.com${path}`, {
@@ -156,6 +176,8 @@ export class GithubService {
     const github: GithubConfig = {
       token: config.token !== undefined ? config.token : existing.token,
       repos: config.repos !== undefined ? config.repos : (existing.repos ?? []),
+      // OAuth-owned; saveConfig never touches it (see saveInstallationId).
+      installation_id: existing.installation_id,
       webhook_secret:
         config.webhook_secret !== undefined ? config.webhook_secret : existing.webhook_secret,
       // Whoever set the secret owns what the hook does with it, so the actor
@@ -179,18 +201,41 @@ export class GithubService {
   }
 
   /**
+   * Persist the installation id captured on the OAuth callback (#247). Kept
+   * separate from `saveConfig` so the unauthenticated callback path writes only
+   * this one field and can never clobber a token/secret/repo set.
+   */
+  async saveInstallationId(workspaceId: string, installationId: number) {
+    const ws = await this.db.query.workspaces.findFirst({ where: eq(workspaces.id, workspaceId) });
+    const settings = (ws?.settings ?? {}) as Record<string, unknown>;
+    const existing = (settings.github as GithubConfig) ?? {};
+    const github: GithubConfig = { ...existing, installation_id: installationId };
+    await this.db
+      .update(workspaces)
+      .set({ settings: { ...settings, github } })
+      .where(eq(workspaces.id, workspaceId));
+    return this.present(github);
+  }
+
+  /**
    * Client-safe view (AC 6). The token and the webhook secret are write-only:
    * they are reported as presence booleans and never as values. Anything that
    * ever grows a new secret here must go through `redactSecrets` naming too —
    * the workspace `settings` blob is served by WorkspacesService, which redacts.
    */
   private present(github: GithubConfig) {
+    const repos = github.repos ?? [];
     return {
-      repos: github.repos ?? [],
+      repos,
       has_token: Boolean(github.token),
       has_webhook_secret: Boolean(github.webhook_secret),
       link_database_id: github.link_database_id ?? null,
       state_automation: { ...DEFAULT_STATE_AUTOMATION, ...(github.state_automation ?? {}) },
+      // App connect state (#247). The installation id is not a secret; the token
+      // it mints is, and never appears here. Lets the UI show
+      // "Connected as installation N, M repos" without exposing anything secret.
+      connected: github.installation_id !== undefined && github.installation_id !== null,
+      installation_id: github.installation_id ?? null,
     };
   }
 
@@ -201,9 +246,11 @@ export class GithubService {
     let issuesDb = all.find((d) => d.name === 'GitHub Issues');
     let pullsDb = all.find((d) => d.name === 'GitHub Pull Requests');
     if (issuesDb && pullsDb) {
-      // A pack provisioned before #42 predates the Checks field — grow it in
-      // place rather than making the webhook a second, divergent provisioner.
+      // A pack provisioned before #42 predates the Checks field, and one from
+      // before #247 predates the backlink-comment field — grow both in place
+      // rather than making the webhook a second, divergent provisioner.
       await this.ensureField(pullsDb.id, 'checks', CHECKS_FIELD);
+      await this.ensureField(pullsDb.id, BACKLINK_COMMENT_API, BACKLINK_COMMENT_FIELD);
       return { issuesDb, pullsDb, created: false };
     }
 
@@ -236,6 +283,7 @@ export class GithubService {
       { display_name: 'Author (login)', type: 'text', config: {} },
       { display_name: 'URL', type: 'url', config: {} },
       CHECKS_FIELD,
+      BACKLINK_COMMENT_FIELD,
     ];
     for (const f of pullFields) await this.fields.create(pullsDb!.id, f);
 
