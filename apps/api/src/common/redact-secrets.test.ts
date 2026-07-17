@@ -36,4 +36,95 @@ describe('redactSecrets', () => {
       apiKeyLabel: 'prod',
     });
   });
+
+  /**
+   * The regression that motivated the rewrite: `webhook_secret` was invisible to
+   * the old exact-name denylist. The point of these is that no entry was added
+   * for any of them — the tail pattern covers a prefix nobody has written yet.
+   */
+  it.each([
+    'webhook_secret',
+    'webhook_signing_secret',
+    'github_pat',
+    'refreshToken',
+    'client_secret',
+    'deploy_private_key',
+    'password2',
+  ])('covers an unforeseen prefix on a known secret tail: %s', (key) => {
+    expect(redactSecrets({ github: { [key]: 'shh' } })).toEqual({ github: { [key]: '[redacted]' } });
+  });
+
+  it('does not redact presence flags, identifiers or labels (a redaction bug hides real data)', () => {
+    const out = redactSecrets({
+      github: {
+        has_token: true,
+        has_webhook_secret: false,
+        token_prefix: 'mn_pat_ab12…cd34',
+        api_key_id: 'ak_9f2',
+        public_key: 'ssh-ed25519 AAAA…',
+        webhook_actor_id: 'usr_1',
+        repos: ['a/b'],
+      },
+    });
+    expect(out).toEqual({
+      github: {
+        has_token: true,
+        has_webhook_secret: false,
+        token_prefix: 'mn_pat_ab12…cd34',
+        api_key_id: 'ak_9f2',
+        public_key: 'ssh-ed25519 AAAA…',
+        webhook_actor_id: 'usr_1',
+        repos: ['a/b'],
+      },
+    });
+  });
+
+  it('redacts through arrays of nested objects', () => {
+    const out = redactSecrets({
+      actions: [
+        { type: 'send_slack_message', text: 'hi' },
+        { type: 'send_webhook', url: 'https://ci.example.com/hook', body_template: '{}' },
+      ],
+      creds: [{ private_key: 'MIIE…' }],
+    });
+    expect(out).toEqual({
+      actions: [
+        { type: 'send_slack_message', text: 'hi' },
+        { type: 'send_webhook', url: 'https://ci.example.com/hook', body_template: '{}' },
+      ],
+      creds: [{ private_key: '[redacted]' }],
+    });
+  });
+
+  /** A `send_webhook` header map is where `Authorization: Bearer …` actually lives. */
+  it('blanks every value in a headers map, keeping the header names', () => {
+    const out = redactSecrets({
+      type: 'send_webhook',
+      url: 'https://ci.example.com/hook',
+      headers: {
+        Authorization: 'Bearer ghp_realtoken',
+        'X-Circle-Auth': 'circle_abc',
+        'content-type': 'application/json',
+      },
+    });
+    expect(out).toEqual({
+      type: 'send_webhook',
+      url: 'https://ci.example.com/hook',
+      headers: {
+        Authorization: '[redacted]',
+        'X-Circle-Auth': '[redacted]',
+        'content-type': '[redacted]',
+      },
+    });
+  });
+
+  /** webhookUrlSchema accepts `https://user:pass@host` — the key `url` says nothing. */
+  it('strips userinfo out of a URL whose key looks innocent', () => {
+    expect(
+      redactSecrets({ url: 'https://deploy:s3cr3t@ci.example.com/hook?x=1', note: 'no creds here' }),
+    ).toEqual({
+      url: 'https://[redacted]@ci.example.com/hook?x=1',
+      note: 'no creds here',
+    });
+  });
 });

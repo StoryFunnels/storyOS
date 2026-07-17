@@ -25,6 +25,7 @@ import type {
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { workspaces } from '../db/schema';
+import { redactSecrets } from '../common/redact-secrets';
 import { AgentsService } from '../agents/agents.service';
 import { ArchitectService } from '../agents/architect.service';
 import { AutomationsService } from '../automations/automations.service';
@@ -202,8 +203,13 @@ export class PacksService {
             database: db.name,
             name: field.displayName,
             type: field.type as PackDerivedField['type'],
+            // A pack is a *shareable artifact* — it gets committed, emailed and
+            // published. A button's `send_webhook` action carries an arbitrary
+            // `headers` map (where an `Authorization: Bearer …` lives) and a URL
+            // that may embed userinfo, so the config is redacted on the way out.
+            // The installer re-prompts for credentials; a leaked pack cannot.
             config: refify(
-              field.config ?? {},
+              redactSecrets(field.config ?? {}),
               idToRef,
               `The ${field.type} field "${db.name}.${field.displayName}"`,
             ) as Record<string, unknown>,
@@ -290,7 +296,9 @@ export class PacksService {
 
   /** The plain (ref-free) part of a field's config, or undefined if empty. */
   private plainConfig(field: LiveField): Record<string, unknown> | undefined {
-    const config = field.config ?? {};
+    // Redacted for the same reason as the derived-field configs above: a pack
+    // leaves the workspace.
+    const config = redactSecrets(field.config ?? {});
     const entries = Object.entries(config).filter(([, v]) => v !== null && v !== undefined);
     return entries.length > 0 ? Object.fromEntries(entries) : undefined;
   }
@@ -544,8 +552,10 @@ export class PacksService {
           name: rule.name,
           trigger: refify(rule.trigger ?? {}, idToRef, where) as Record<string, unknown>,
           condition: rule.condition ? refify(rule.condition, idToRef, where) : undefined,
+          // Same as the button configs: a `send_webhook` action's headers/URL are
+          // credentials, and a pack is published.
           actions: ((rule.actions as unknown[]) ?? []).map(
-            (a) => refify(a, idToRef, where) as Record<string, unknown>,
+            (a) => refify(redactSecrets(a), idToRef, where) as Record<string, unknown>,
           ),
           enabled: rule.enabled,
         });

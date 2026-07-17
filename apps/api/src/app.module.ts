@@ -52,6 +52,26 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
         transport:
           env().NODE_ENV === 'development' ? { target: 'pino-pretty' } : undefined,
         autoLogging: { ignore: (req) => req.url === '/healthz' },
+        /**
+         * pino's default `req` serializer logs `headers` verbatim, so every single
+         * request was writing its `authorization: Bearer mn_pat_…` and its session
+         * cookie into the log at info level. A secret in a log file is the same
+         * leak as a secret in a response — logs get shipped, tailed and retained
+         * far more casually than an API payload.
+         *
+         * `censor` (not `remove`) so "was a token even sent?" stays answerable
+         * while debugging auth.
+         */
+        redact: {
+          paths: [
+            'req.headers.authorization',
+            'req.headers.cookie',
+            'req.headers["x-api-key"]',
+            'req.headers["x-hub-signature-256"]',
+            'res.headers["set-cookie"]',
+          ],
+          censor: '[redacted]',
+        },
       },
     }),
     DbModule,
