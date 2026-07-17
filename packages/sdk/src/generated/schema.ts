@@ -1442,11 +1442,45 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** GitHub config (token presence + repos) */
+        /** GitHub config (token presence + repos + App connect state) */
         get: operations["IntegrationsController_getConfig"];
         put?: never;
         /** Save GitHub token, repos, webhook secret and/or state automation */
         post: operations["IntegrationsController_saveConfig"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/integrations/github/connect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Begin GitHub App OAuth connect (redirects to GitHub) */
+        get: operations["IntegrationsController_connect"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/integrations/github/repos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the connected installation's repositories */
+        get: operations["IntegrationsController_repos"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1481,6 +1515,23 @@ export interface paths {
         put?: never;
         /** GitHub webhook receiver — HMAC-verified, unauthenticated by design */
         post: operations["GithubWebhookController_receive"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integrations/github/oauth/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GitHub App OAuth callback — verifies state, captures installation id */
+        get: operations["GithubOAuthController_callback"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -5071,6 +5122,40 @@ export interface operations {
             };
         };
     };
+    IntegrationsController_connect: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    IntegrationsController_repos: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     IntegrationsController_sync: {
         parameters: {
             query?: never;
@@ -5095,6 +5180,27 @@ export interface operations {
                 "x-hub-signature-256": string;
                 "x-github-event": string;
             };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    GithubOAuthController_callback: {
+        parameters: {
+            query: {
+                state: string;
+                installation_id: string;
+                code: string;
+            };
+            header?: never;
             path?: never;
             cookie?: never;
         };

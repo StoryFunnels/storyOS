@@ -11,10 +11,12 @@ import {
   selectOptions,
   workspaces,
 } from '../db/schema';
+import { env } from '../config/env';
 import { RecordsService } from '../records/records.service';
 import { RelationsService } from '../relations/relations.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
-import { DEFAULT_STATE_AUTOMATION, GithubService } from './github.service';
+import { GithubAppService } from './github-app.service';
+import { BACKLINK_COMMENT_API, DEFAULT_STATE_AUTOMATION, GithubService } from './github.service';
 import type { GithubConfig, GithubStateAutomation } from './github.service';
 
 /**
@@ -92,8 +94,11 @@ export interface WebhookOutcome {
  * RecordsService.update — which is what makes the agent triggers fire off a
  * webhook exactly as they do off a human edit.
  *
- * NOT built here (deferred, see the ticket): the OAuth App connect flow (AC 1)
- * and the GitHub-side backlink (AC 5) — both need a registered GitHub App.
+ * Tenant resolution is still per-workspace `webhook_secret` HMAC (unchanged from
+ * #42): the App connect flow (#247) is additive — it captures an installation id
+ * for the backlink and repo picker, it does not replace how a delivery proves
+ * which workspace it belongs to. See `maybeBacklink` for the GitHub-side backlink
+ * (AC 5), which posts as the connected App installation.
  */
 @Injectable()
 export class GithubWebhookService {
@@ -102,6 +107,7 @@ export class GithubWebhookService {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly github: GithubService,
+    private readonly githubApp: GithubAppService,
     private readonly recordsService: RecordsService,
     private readonly relationsService: RelationsService,
   ) {}
@@ -175,6 +181,13 @@ export class GithubWebhookService {
     const config = await this.github.readConfig(workspaceId);
     const repo = payload.repository?.full_name;
     if (!repo) return { ok: true, event, skipped: 'no_repository' };
+
+    // #247 repo picker: once an admin has narrowed the watched set, ignore events
+    // from repos outside it. An empty set means "not narrowed" → watch all, which
+    // keeps the pre-#247 manual-secret behaviour (and its tests) unchanged.
+    if ((config.repos?.length ?? 0) > 0 && !config.repos!.includes(repo)) {
+      return { ok: true, event, skipped: 'repo_not_selected' };
+    }
 
     const membership = await this.resolveActor(workspaceId, config);
     if (!membership) {
@@ -318,8 +331,57 @@ export class GithubWebhookService {
       await this.link(membership, pullsDb.id, id, linked).catch((error) =>
         this.logger.warn(`github webhook: linking PR ${repo}#${pr.number} failed: ${String(error)}`),
       );
+      await this.maybeBacklink(membership, config, pullsDb.id, id, repo, pr.number, linked);
     }
     return id;
+  }
+
+  /**
+   * AC 5: the moment a record links to a PR, put one backlink comment on the PR.
+   *
+   * Post-once is the whole game. GitHub redelivers events freely, so we guard on
+   * the comment id stored on the PR record: absent → POST and store the id;
+   * present → PATCH the existing comment. Either way exactly one comment ever
+   * exists. A failure (missing App, no installation, revoked perms, deleted PR)
+   * is logged and swallowed — a backlink must never break inbound processing.
+   */
+  private async maybeBacklink(
+    membership: Membership,
+    config: GithubConfig,
+    pullsDbId: string,
+    pullRecordId: string,
+    repo: string,
+    prNumber: number,
+    linked: { databaseId: string; recordId: string },
+  ): Promise<void> {
+    // Backlinks require the connected GitHub App (they post as the installation).
+    // Without it, connect isn't available and there's nothing to post with.
+    if (!this.githubApp.isConfigured() || config.installation_id === undefined || config.installation_id === null) {
+      return;
+    }
+    const installationId = config.installation_id;
+    try {
+      const record = await this.recordsService.get(linked.databaseId, linked.recordId);
+      const url = `${env().WEB_URL}/w/${membership.workspaceId}/d/${linked.databaseId}/r/${record.number ?? record.id}`;
+      const body = `🔗 Linked to StoryOS: **${record.title}**\n\n${url}`;
+
+      const prRecord = await this.recordsService.get(pullsDbId, pullRecordId);
+      const existing = prRecord.values[BACKLINK_COMMENT_API];
+      if (typeof existing === 'string' && existing.length > 0) {
+        await this.githubApp.updateComment(installationId, repo, existing, body);
+        return;
+      }
+      const commentId = await this.githubApp.postComment(installationId, repo, prNumber, body);
+      await this.recordsService.update(
+        membership.workspaceId,
+        pullsDbId,
+        pullRecordId,
+        { [BACKLINK_COMMENT_API]: commentId },
+        membership.userId,
+      );
+    } catch (error) {
+      this.logger.warn(`github backlink for ${repo}#${prNumber} failed: ${String(error)}`);
+    }
   }
 
   /**

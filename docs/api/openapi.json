@@ -3986,7 +3986,7 @@
             "description": ""
           }
         },
-        "summary": "GitHub config (token presence + repos)",
+        "summary": "GitHub config (token presence + repos + App connect state)",
         "tags": [
           "integrations"
         ]
@@ -4010,6 +4010,36 @@
           }
         },
         "summary": "Save GitHub token, repos, webhook secret and/or state automation",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/integrations/github/connect": {
+      "get": {
+        "operationId": "IntegrationsController_connect",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Begin GitHub App OAuth connect (redirects to GitHub)",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/integrations/github/repos": {
+      "get": {
+        "operationId": "IntegrationsController_repos",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "List the connected installation's repositories",
         "tags": [
           "integrations"
         ]
@@ -4057,6 +4087,46 @@
           }
         },
         "summary": "GitHub webhook receiver — HMAC-verified, unauthenticated by design",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
+    "/api/v1/integrations/github/oauth/callback": {
+      "get": {
+        "operationId": "GithubOAuthController_callback",
+        "parameters": [
+          {
+            "name": "state",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "installation_id",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "code",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "GitHub App OAuth callback — verifies state, captures installation id",
         "tags": [
           "integrations"
         ]
