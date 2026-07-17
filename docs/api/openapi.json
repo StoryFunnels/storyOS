@@ -4266,6 +4266,56 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/architect/propose": {
+      "post": {
+        "operationId": "ArchitectController_propose",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProposeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Propose a plan from a plain-language goal; creates nothing",
+        "tags": [
+          "agents"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/architect/build": {
+      "post": {
+        "operationId": "ArchitectController_build",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BuildDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Build an approved plan through the ordinary CRUD services",
+        "tags": [
+          "agents"
+        ]
+      }
+    },
     "/api/v1/templates": {
       "get": {
         "operationId": "TemplatesController_list",
@@ -6913,6 +6963,25 @@
           "state_field_id",
           "state_option_id"
         ]
+      },
+      "ProposeDto": {
+        "type": "object",
+        "properties": {
+          "goal": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "goal"
+        ]
+      },
+      "BuildDto": {
+        "type": "object",
+        "properties": {
+          "plan": {}
+        }
       },
       "ApplyTemplateDto": {
         "type": "object",
