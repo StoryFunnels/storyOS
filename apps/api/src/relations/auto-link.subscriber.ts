@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { DomainEventsService } from '../events/domain-events.service';
 import type { DomainEvent } from '../events/domain-events.service';
-import { RelationsService } from './relations.service';
+import { AutoLinkService } from './auto-link.service';
 
 /**
  * On-write auto-link (MN-085). Subscribes to the after-commit event bus and, when a
@@ -17,7 +17,7 @@ export class AutoLinkSubscriber implements OnModuleInit {
   private readonly logger = new Logger('AutoLink');
 
   constructor(
-    private readonly relations: RelationsService,
+    private readonly autoLink: AutoLinkService,
     private readonly domainEvents: DomainEventsService,
   ) {}
 
@@ -27,7 +27,7 @@ export class AutoLinkSubscriber implements OnModuleInit {
 
   private handle(event: DomainEvent): void {
     if (event.type !== 'record_created' && event.type !== 'record_updated') return;
-    void this.relations
+    void this.autoLink
       .autoLinkForRecord(event.databaseId, event.recordId, event.changedFieldIds, event.actorId)
       .catch((err: unknown) =>
         this.logger.warn(

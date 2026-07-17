@@ -25,6 +25,7 @@ import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { DatabasesService } from '../databases/databases.service';
 import { RelationsService } from './relations.service';
+import { AutoLinkService } from './auto-link.service';
 
 class CreateRelationDto extends createZodDto(createRelationSchema) {}
 class DeleteRelationDto extends createZodDto(deleteRelationSchema) {}
@@ -40,6 +41,7 @@ class ReplaceLinksDto extends createZodDto(replaceLinksSchema) {}
 export class RelationsController {
   constructor(
     private readonly relationsService: RelationsService,
+    private readonly autoLinkService: AutoLinkService,
     private readonly databases: DatabasesService,
   ) {}
 
@@ -79,7 +81,7 @@ export class RelationsController {
     const relation = await this.relationsService.getRelation(req.membership.workspaceId, relationId);
     await this.databases.assertAccess(req.membership, relation.databaseAId, 'editor');
     await this.databases.assertAccess(req.membership, relation.databaseBId, 'editor');
-    return this.relationsService.runAutoLink(req.membership.workspaceId, relationId, req.user.id);
+    return this.autoLinkService.runAutoLink(req.membership.workspaceId, relationId, req.user.id);
   }
 
   @Delete(':rel')
