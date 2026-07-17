@@ -23,6 +23,9 @@ export class PreferencesService {
     const next: UserPreferences = {
       notifications: { ...current.notifications, ...(patch.notifications ?? {}) },
       regional: { ...current.regional, ...(patch.regional ?? {}) },
+      // Merge per-database: a patch replaces the config for the databases it names.
+      // (Controller-validated values are full configs, never undefined.)
+      myWork: { ...current.myWork, ...(patch.myWork ?? {}) } as UserPreferences['myWork'],
     };
     await this.db
       .insert(userPreferences)

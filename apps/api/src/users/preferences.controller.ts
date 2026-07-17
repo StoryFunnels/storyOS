@@ -22,9 +22,22 @@ const regionalSchema = z
   })
   .partial();
 
+const myWorkDbConfigSchema = z.object({
+  group_by_field_id: z.string().optional(),
+  color_by_field_id: z.string().optional(),
+  hidden_field_ids: z.array(z.string()).optional(),
+  filters: z
+    .object({
+      and: z.array(z.object({ field: z.string(), op: z.string(), value: z.unknown().optional() })),
+    })
+    .optional(),
+});
+
 const preferencesPatchSchema = z.object({
   notifications: notificationTogglesSchema.optional(),
   regional: regionalSchema.optional(),
+  /** Per-database My Work config, keyed by database id (MN-072 part 2). */
+  myWork: z.record(z.string(), myWorkDbConfigSchema).optional(),
 });
 class PreferencesPatchDto extends createZodDto(preferencesPatchSchema) {}
 

@@ -7,6 +7,16 @@ export type DateFormat = 'system' | 'MDY' | 'DMY' | 'YMD';
 export type TimeFormat = 'system' | '12h' | '24h';
 export type FirstDayOfWeek = 'system' | 'sunday' | 'monday' | 'saturday';
 
+/** Per-database My Work view config (MN-072 part 2), a ViewConfig subset. */
+export interface MyWorkDbConfig {
+  group_by_field_id?: string;
+  color_by_field_id?: string;
+  /** Dense fields hidden from the row (by field id). */
+  hidden_field_ids?: string[];
+  /** Flat AND filter, applied to the returned records client-side. */
+  filters?: { and: Array<{ field: string; op: string; value?: unknown }> };
+}
+
 export interface UserPreferences {
   /** Which record events produce an inbox notification for me. */
   notifications: {
@@ -23,11 +33,14 @@ export interface UserPreferences {
     timeFormat: TimeFormat;
     firstDayOfWeek: FirstDayOfWeek;
   };
+  /** My Work per-database config, keyed by database id (MN-072 part 2). */
+  myWork: Record<string, MyWorkDbConfig>;
 }
 
 export const DEFAULT_PREFERENCES: UserPreferences = {
   notifications: { assigned: true, mentioned: true, commented: true, state_changed: true },
   regional: { dateFormat: 'system', timeFormat: 'system', firstDayOfWeek: 'system' },
+  myWork: {},
 };
 
 /** Merge a stored (possibly partial / legacy) blob over the defaults, so missing
@@ -36,9 +49,11 @@ export function mergePreferences(stored: unknown): UserPreferences {
   const s = (stored ?? {}) as {
     notifications?: Partial<UserPreferences['notifications']>;
     regional?: Partial<UserPreferences['regional']>;
+    myWork?: UserPreferences['myWork'];
   };
   return {
     notifications: { ...DEFAULT_PREFERENCES.notifications, ...(s.notifications ?? {}) },
     regional: { ...DEFAULT_PREFERENCES.regional, ...(s.regional ?? {}) },
+    myWork: { ...(s.myWork ?? {}) },
   };
 }
