@@ -1566,8 +1566,25 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Provision the Agentic OS space + Agents/Runs databases (idempotent) */
+        /** Provision the Agentic OS space + Agents/Runs/Agent Triggers databases (idempotent) */
         post: operations["AgentsController_ensure"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/agents/triggers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Bind an agent to a state on a database; returns the binding record */
+        post: operations["AgentsController_createTrigger"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2343,6 +2360,17 @@ export interface components {
             default_channel?: string;
             /** Format: uri */
             webhook_url?: string;
+        };
+        CreateAgentTriggerDto: {
+            agent: string;
+            /** Format: uuid */
+            database_id: string;
+            /** Format: uuid */
+            state_field_id: string;
+            /** Format: uuid */
+            state_option_id: string;
+            human_gate?: boolean;
+            enabled?: boolean;
         };
         ApplyTemplateDto: {
             /** Format: uuid */
@@ -5035,6 +5063,27 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AgentsController_createTrigger: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAgentTriggerDto"];
+            };
+        };
         responses: {
             201: {
                 headers: {

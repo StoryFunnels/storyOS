@@ -186,10 +186,13 @@ describe('Runs system database (#209, ADR-0010 §1)', () => {
       (f) => f.type === 'relation',
     );
     expect(runRelationFields).toHaveLength(1);
+    // Agents carries one relation per pack database that points at it: Runs
+    // (#209) and Triggers (#211). Named rather than counted, so this keeps
+    // catching a duplicated Runs relation as the pack grows.
     const agentRelationFields = [...(await fieldsOf(agentsDbId)).values()].filter(
       (f) => f.type === 'relation',
     );
-    expect(agentRelationFields).toHaveLength(1);
+    expect(agentRelationFields.map((f) => f.apiName).sort()).toEqual(['runs', 'triggers']);
   });
 
   it('GET reports both pack databases', async () => {
