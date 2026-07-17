@@ -76,12 +76,80 @@ describe('MN-123 — favorites must not leak titles', () => {
   });
 
   it('the title never comes back, even if a row already exists', async () => {
-    // Simulate the pre-fix state: the row is there, list must still filter it.
+    // The admin's own star on the secret record: needed by the last test in this
+    // block, and it must never surface in anyone else's list.
     await as(admin.token, 'POST', `/workspaces/${wsId}/favorites`, { target_type: 'record', target_id: secretRec });
+
+    /**
+     * The row has to be the GUEST's for this to test anything: `list` filters by
+     * userId first, so a guest reading their (empty) list past the admin's star
+     * passes whether or not the access filter exists at all — the mutation that
+     * deletes MN-123's filter outright leaves this file green. The honest way to
+     * reach the pre-fix state is to star it while allowed, then lose the grant:
+     * the row survives, the title must not.
+     */
+    const grant = await as(admin.token, 'POST', `/workspaces/${wsId}/grants`, {
+      user_id: guestId,
+      space_id: secretSpace,
+      role: 'viewer',
+    });
+    expect(grant.statusCode, grant.body).toBe(201);
+
+    const starred = await as(guest.token, 'POST', `/workspaces/${wsId}/favorites`, {
+      target_type: 'record',
+      target_id: secretRec,
+    });
+    expect(starred.statusCode, starred.body).toBe(201);
+
+    // Positive control: while the grant stands, the title IS resolvable for the
+    // guest. Without this, the assertion below cannot tell "filtered" from
+    // "never there" — which is exactly how the old version of this test lied.
+    const whileGranted = JSON.stringify((await as(guest.token, 'GET', `/workspaces/${wsId}/favorites`)).json());
+    expect(whileGranted, 'the guest must actually see it before we take the grant away').toMatch(/Falcon/);
+
+    // Take the grant away. The favorite row stays behind.
+    const grants = (await as(admin.token, 'GET', `/workspaces/${wsId}/grants?user_id=${guestId}`)).json();
+    const list = Array.isArray(grants) ? grants : grants.data;
+    const onSecret = list.filter((g: { space_id?: string; spaceId?: string }) => (g.space_id ?? g.spaceId) === secretSpace);
+    expect(onSecret, 'the grant we just made must be there to revoke').toHaveLength(1);
+    for (const g of onSecret) {
+      expect((await as(admin.token, 'DELETE', `/workspaces/${wsId}/grants/${g.id}`)).statusCode).toBeLessThan(300);
+    }
+
     const mine = (await as(guest.token, 'GET', `/workspaces/${wsId}/favorites`)).json();
     const titles = JSON.stringify(mine);
-    expect(titles).not.toMatch(/Falcon/);
+    // The row is still the guest's — only the access filter can hide it now.
+    expect(titles, 'a starred-then-revoked record must not keep leaking its title').not.toMatch(/Falcon/);
     expect(titles).not.toMatch(/Acquisition/);
+  });
+
+  it('a guest cannot star a database they cannot read — and a stale star stays hidden', async () => {
+    // Same shape as above for the database branch of `list`, which has its own
+    // filter and its own chance to leak a name.
+    const grant = await as(admin.token, 'POST', `/workspaces/${wsId}/grants`, {
+      user_id: guestId,
+      space_id: secretSpace,
+      role: 'viewer',
+    });
+    expect(grant.statusCode, grant.body).toBe(201);
+    expect(
+      (await as(guest.token, 'POST', `/workspaces/${wsId}/favorites`, { target_type: 'database', target_id: secretDb })).statusCode,
+    ).toBe(201);
+    expect(
+      JSON.stringify((await as(guest.token, 'GET', `/workspaces/${wsId}/favorites`)).json()),
+      'positive control: visible while granted',
+    ).toMatch(/Acquisition/);
+
+    const grants = (await as(admin.token, 'GET', `/workspaces/${wsId}/grants?user_id=${guestId}`)).json();
+    const list = Array.isArray(grants) ? grants : grants.data;
+    for (const g of list.filter((x: { space_id?: string; spaceId?: string }) => (x.space_id ?? x.spaceId) === secretSpace)) {
+      await as(admin.token, 'DELETE', `/workspaces/${wsId}/grants/${g.id}`);
+    }
+
+    expect(
+      JSON.stringify((await as(guest.token, 'GET', `/workspaces/${wsId}/favorites`)).json()),
+      'a starred-then-revoked database must not keep leaking its name',
+    ).not.toMatch(/Acquisition/);
   });
 
   it('a guest CAN star what they were granted', async () => {

@@ -87,6 +87,23 @@ async function getIssue(id: string) {
   ).json();
 }
 
+/**
+ * "The record survived" — proven by the only signal that carries it.
+ *
+ * This replaces `expect((await getIssue(id)).deleted ?? false).toBe(false)`, which
+ * could not fail: a projected record has no `deleted` key (records.service.ts
+ * `project()`), so the expression was `undefined ?? false` → `false` for a live
+ * record, for a destroyed one, and for the 404 error body a destroyed one returns.
+ * It was the sole check that a refused approval applied nothing. A read that 404s
+ * is the record being gone; the status is what has to be asserted.
+ */
+async function expectIssueAlive(id: string, why: string) {
+  const res = await as(admin.token, 'GET', `/workspaces/${wsId}/databases/${issuesDbId}/records/${id}`);
+  expect(res.statusCode, `${why} — the record must still be readable`).toBe(200);
+  expect(res.json().id).toBe(id);
+  return res.json();
+}
+
 async function getRun(id: string) {
   return (
     await as(admin.token, 'GET', `/workspaces/${wsId}/databases/${runsDbId}/records/${id}`)
@@ -205,9 +222,7 @@ describe('A gated action is staged, not executed (#210, ADR-0010 §4)', () => {
     });
 
     // THE POINT: the action did not happen. The record is untouched.
-    const stillThere = await getIssue(issue.id);
-    expect(stillThere.id).toBe(issue.id);
-    expect(stillThere.deleted ?? false).toBe(false);
+    await expectIssueAlive(issue.id, 'a staged delete must not apply before approval');
 
     // And the run halted AT the gate — steps before it are logged, the step the
     // runtime wanted to take after it never ran.
@@ -426,8 +441,7 @@ describe('Reject applies nothing (#210, ADR-0010 §4)', () => {
       (await as(admin.token, 'POST', `/workspaces/${wsId}/agents/runs/${run.id}/reject`)).statusCode,
     ).toBe(201);
 
-    const alive = await getIssue(issue.id);
-    expect(alive.deleted ?? false).toBe(false);
+    await expectIssueAlive(issue.id, 'a rejected delete must leave the record alone');
     const trash = (
       await as(admin.token, 'GET', `/workspaces/${wsId}/databases/${issuesDbId}/records/trash`)
     ).json();
@@ -626,7 +640,7 @@ describe('Gate endpoints guard their state and their caller (#210)', () => {
     }
     // Still parked, still unapplied — a 403 resolves nothing.
     expect((await getRun(run.id)).values.pending_action).toBeTruthy();
-    expect((await getIssue(issue.id)).deleted ?? false).toBe(false);
+    await expectIssueAlive(issue.id, 'a 403 on both verdicts must resolve nothing');
   });
 
   it('a malformed staged payload is a 422, not a 500 or a wild write', async () => {

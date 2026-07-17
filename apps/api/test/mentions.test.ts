@@ -87,9 +87,16 @@ describe('record mentions & backlinks (MN-205)', () => {
   it('notifies the @mentioned member', async () => {
     const notifs = await inject('GET', `/workspaces/${ws}/notifications`, undefined, member.token);
     expect(notifs.statusCode).toBe(200);
-    const list = notifs.json().data ?? notifs.json();
+    /**
+     * The callback used to declare `record_id` / `recordId` and check neither —
+     * and neither exists: a notification carries a nested `record: { id }`. So the
+     * scoping the shape implied never happened, and *any* 'mentioned' row from any
+     * record in this shared workspace satisfied it. Scope it to the source record.
+     */
+    const list = notifs.json().data as Array<{ type: string; record: { id: string } }>;
     expect(
-      list.some((n: { type: string; record_id?: string; recordId?: string }) => n.type === 'mentioned'),
+      list.some((n) => n.type === 'mentioned' && n.record.id === source),
+      'the mention on the source record must notify Casey',
     ).toBe(true);
   });
 

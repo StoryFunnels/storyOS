@@ -95,9 +95,61 @@ describe('record duplicate (MN-074)', () => {
     expect(doc.version).toBeGreaterThan(0);
   });
 
-  it('needs creator access', async () => {
-    // sanity: the endpoint exists and rejects a bogus record with 404
+  it('404s a bogus record id', async () => {
     const res = await inject('POST', `/workspaces/${wsId}/databases/${tasksDb}/records/00000000-0000-0000-0000-000000000000/duplicate`);
     expect(res.statusCode).toBe(404);
+  });
+
+  /**
+   * Duplicate is `@MinRole`-free but calls `assertDb(req, db, 'creator')` — a
+   * clone writes a whole new record plus its links, so it sits on the schema rung,
+   * not the editor one. This test used to carry that name while asserting only a
+   * 404 on a bogus id: dropping the requirement to 'viewer' left it green.
+   * An editor is the interesting rung — one below creator, and able to write
+   * records by every other route.
+   */
+  it('needs creator access — an editor cannot duplicate', async () => {
+    const guest = await signUpUser(app, 'DupeGuest');
+    const guestId = (
+      await app.inject({ method: 'GET', url: '/api/v1/me', headers: authed(guest.token) })
+    ).json().id;
+    const spaceId = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
+
+    const invite = await inject('POST', `/workspaces/${wsId}/invites`, {
+      email: guest.email,
+      role: 'guest',
+      grants: [{ space_id: spaceId, role: 'editor' }],
+    });
+    const token = new URL(invite.json().accept_url).searchParams.get('token')!;
+    const accepted = await app.inject({
+      method: 'POST',
+      url: '/api/v1/invites/accept',
+      headers: authed(guest.token),
+      payload: { token },
+    });
+    expect(accepted.statusCode, accepted.body).toBeLessThan(300);
+
+    const asGuest = (method: string, url: string, payload?: unknown) =>
+      app.inject({ method: method as never, url: `/api/v1${url}`, headers: authed(guest.token), payload: payload as never });
+
+    // Positive control: the editor really can write records here, so the refusal
+    // below is about the creator rung and not about reach.
+    expect(
+      (await asGuest('POST', `/workspaces/${wsId}/databases/${tasksDb}/records`, { values: { name: 'editor can create' } })).statusCode,
+      'an editor must be able to create ordinary records',
+    ).toBe(201);
+
+    const dup = await asGuest('POST', `/workspaces/${wsId}/databases/${tasksDb}/records/${source}/duplicate`);
+    expect(dup.statusCode, `an editor must not be able to duplicate: ${dup.body}`).toBe(403);
+
+    // Promote to creator: the same call now works — the rung is what gates it.
+    const grant = await inject('POST', `/workspaces/${wsId}/grants`, {
+      user_id: guestId,
+      space_id: spaceId,
+      role: 'creator',
+    });
+    expect(grant.statusCode, grant.body).toBe(201);
+    const asCreator = await asGuest('POST', `/workspaces/${wsId}/databases/${tasksDb}/records/${source}/duplicate`);
+    expect(asCreator.statusCode, `a creator must be able to duplicate: ${asCreator.body}`).toBe(201);
   });
 });
