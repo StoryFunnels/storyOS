@@ -4216,6 +4216,56 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/agents/runs/{run}/approve": {
+      "post": {
+        "operationId": "AgentsController_approveRun",
+        "parameters": [
+          {
+            "name": "run",
+            "required": true,
+            "in": "path",
+            "description": "The run record's uuid or public number",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Approve a run waiting for approval: apply the staged action",
+        "tags": [
+          "agents"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/agents/runs/{run}/reject": {
+      "post": {
+        "operationId": "AgentsController_rejectRun",
+        "parameters": [
+          {
+            "name": "run",
+            "required": true,
+            "in": "path",
+            "description": "The run record's uuid or public number",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Reject a run waiting for approval: apply nothing, cancel it",
+        "tags": [
+          "agents"
+        ]
+      }
+    },
     "/api/v1/templates": {
       "get": {
         "operationId": "TemplatesController_list",

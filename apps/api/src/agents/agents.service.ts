@@ -12,9 +12,16 @@ import type { ProjectedRecord } from '../records/records.service';
 import { RelationsService } from '../relations/relations.service';
 import { SpacesService } from '../workspaces/spaces.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
+import { AutomationActionsService } from '../automations/actions.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { deriveAgentPrincipal, scopeForRole } from './agent-principal';
-import { pickRuntime, RUN_CLASS_LABEL, stepsToMarkdown } from './agent-runtime';
-import type { AgentRuntime, AgentRunAgent, AgentStep } from './agent-runtime';
+import {
+  pickRuntime,
+  proposedActionPayloadSchema,
+  RUN_CLASS_LABEL,
+  stepsToMarkdown,
+} from './agent-runtime';
+import type { AgentRuntime, AgentRunAgent, AgentStep, ProposedAction } from './agent-runtime';
 
 type Database = typeof databasesTable.$inferSelect;
 
@@ -25,6 +32,31 @@ const DEFAULT_RETRY_DELAY_MS = 50;
 
 /** The Run record's "Trigger" select labels — how a run came to be. */
 export type RunTrigger = 'Manual' | 'State change' | 'Schedule';
+
+/**
+ * What the Run's `Pending action` holds while a run is Waiting approval (#210).
+ *
+ * The staged action, plus the steps that led to it. The steps ride along because
+ * approve/reject have to re-render the whole log with their verdict appended,
+ * and `Steps` is a rendered BlockNote document — parsing markdown back out of
+ * blocks to append one line would be a lossy round trip. This blob is the run's
+ * suspended state; `Steps` is its human-readable projection.
+ */
+interface StagedAction {
+  action: ProposedAction;
+  steps: AgentStep[];
+}
+
+/** Parse a Run's `Pending action` JSON, or null if it isn't staged/parseable. */
+function parseStaged(raw: unknown): StagedAction | null {
+  if (typeof raw !== 'string' || raw.trim() === '') return null;
+  try {
+    const parsed = JSON.parse(raw) as StagedAction;
+    return parsed && typeof parsed === 'object' && parsed.action ? parsed : null;
+  } catch {
+    return null;
+  }
+}
 
 /** Everything the shared run path needs, independent of how it was triggered. */
 export interface DispatchRunInput {
@@ -74,6 +106,10 @@ export class AgentsService {
     private readonly fields: FieldsService,
     private readonly recordsService: RecordsService,
     private readonly relationsService: RelationsService,
+    /** #210: applies an approved action — the executor buttons/automations use. */
+    private readonly actions: AutomationActionsService,
+    /** #210: asks the owner, through the Inbox they already watch. */
+    private readonly notifications: NotificationsService,
   ) {}
 
   /**
@@ -90,6 +126,18 @@ export class AgentsService {
       runsDb: all.find((d) => d.name === 'Runs'),
       triggersDb: all.find((d) => d.name === 'Agent Triggers'),
     };
+  }
+
+  /** Add a field to a pack database if it isn't there yet, found by api_name. */
+  private async ensureField(
+    databaseId: string,
+    apiName: string,
+    spec: Parameters<FieldsService['create']>[1],
+  ): Promise<void> {
+    const existing = await this.db.query.fields.findFirst({
+      where: and(eq(fieldsTable.databaseId, databaseId), eq(fieldsTable.apiName, apiName)),
+    });
+    if (!existing) await this.fields.create(databaseId, spec);
   }
 
   /** label → option id for a select/multi_select field, for writing values. */
@@ -245,6 +293,12 @@ export class AgentsService {
         { display_name: 'Started at', type: 'date', config: { include_time: true } },
         { display_name: 'Finished at', type: 'date', config: { include_time: true } },
         { display_name: 'Steps', type: 'rich_text', config: {} },
+        // #210 / ADR-0010 §4: the staged action, as DATA. Text holding JSON, not
+        // rich_text — this is machine state read back by approve/reject, and a
+        // BlockNote document would mangle a payload on the round trip. Cleared
+        // the moment the gate is resolved either way, so a non-empty value means
+        // exactly "this run is blocked on a human".
+        { display_name: 'Pending action', type: 'text', config: {} },
       ];
       for (const f of runFields) await this.fields.create(runsDb.id, f);
 
@@ -259,6 +313,17 @@ export class AgentsService {
         field_b_name: 'Runs',
       });
     }
+
+    // #210 ships after Runs (#209), so a Runs database provisioned by the
+    // previous release has every field above except "Pending action". Back-fill
+    // it rather than only creating it with the database: without somewhere to
+    // stage, the gate would have to either fail the run or — far worse — let the
+    // action through. Idempotent, and a no-op on a database just created above.
+    await this.ensureField(runsDb.id, 'pending_action', {
+      display_name: 'Pending action',
+      type: 'text',
+      config: {},
+    });
 
     let triggersDb = existing.triggersDb;
     if (!triggersDb) {
@@ -358,6 +423,16 @@ export class AgentsService {
       .map((id) => scopeLabels.get(id))
       .filter((label): label is string => Boolean(label));
 
+    // #210 / ADR-0010 §4: the owner's gate list, read off the agent record.
+    // multi_select stores option ids, so it is resolved to labels the same way
+    // scopes are — the policy is compared against a step's `action.kind`.
+    const policyLabels = await this.optionLabelsById(agentsDb.id, 'approval_policy');
+    const approvalPolicy = new Set(
+      ((agentRecord.values['approval_policy'] as string[] | undefined) ?? [])
+        .map((id) => policyLabels.get(id))
+        .filter((label): label is string => Boolean(label)),
+    );
+
     // #207 / ADR-0010 §2: the run acts as its owner, capped by what the agent declares.
     const principal = deriveAgentPrincipal(owner.userId, owner.scope, declaredScopes);
 
@@ -412,6 +487,7 @@ export class AgentsService {
     const attempts = (input.retries ?? 0) + 1;
     const steps: AgentStep[] = [];
     let failure: string | null = null;
+    let staged: ProposedAction | null = null;
     let backoffMs = input.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
 
     for (let attempt = 1; attempt <= attempts; attempt++) {
@@ -425,6 +501,29 @@ export class AgentsService {
           inputRecordId: input.inputRecordId,
         })) {
           attemptSteps.push(step);
+
+          // ── The gate (ADR-0010 §4) ──────────────────────────────────────────
+          // The one place a proposal becomes a fact. A step carrying an action
+          // whose kind the owner gated is STAGED — written down, never run — and
+          // the run stops dead here. Everything else the trust layer promises is
+          // downstream of this: reject can guarantee "no side effects" only
+          // because nothing was ever applied, and undo is possible only because
+          // the apply happens later, under a human's say-so.
+          if (!step.action) continue;
+          if (approvalPolicy.has(step.action.kind)) {
+            staged = step.action;
+            // `break` inside for-await calls the generator's .return(), so the
+            // runtime is disposed and its remaining steps never execute. Halting
+            // has to be real: a gated action that the run "asks about" and then
+            // carries on past would be theatre, not a seatbelt.
+            break;
+          }
+          // Ungated: the owner did not ask to be consulted about this class, so
+          // it applies inline and the run continues. A failure here is a run
+          // failure like any other — it falls through to the catch below.
+          attemptSteps.push(
+            await this.applyProposedAction(workspaceId, step.action, owner.userId, input.depth ?? 0),
+          );
         }
         steps.push(...attemptSteps);
         break;
@@ -441,6 +540,42 @@ export class AgentsService {
           backoffMs *= 2; // exponential backoff (ADR-0010 §5)
         }
       }
+    }
+
+    // ── Staged: park the run and ask ──────────────────────────────────────────
+    // The action is persisted as data, the run parks in Waiting approval, and
+    // the owner is asked in the Inbox with the exact proposal in front of them.
+    // Nothing has been applied — approve/reject decides whether it ever is.
+    if (staged) {
+      const waiting = await this.recordsService.update(
+        workspaceId,
+        runsDb.id,
+        run.id,
+        {
+          status: statusIds.get('Waiting approval') ?? null,
+          steps: markdownToBlocks(stepsToMarkdown(steps)),
+          pending_action: JSON.stringify({ action: staged, steps } satisfies StagedAction),
+          // Deliberately no `finished_at`: the run isn't finished, it's blocked.
+        },
+        actorId,
+      );
+
+      await this.notifications.notify({
+        workspaceId,
+        databaseId: runsDb.id,
+        recordId: run.id,
+        actorId,
+        type: 'approval_requested',
+        recipients: [owner.userId],
+        // The EXACT proposed action (ADR-0010 §4) — an approval you can't read
+        // is not an approval. The kind is spelled out too, so the owner can see
+        // which of their gates caught this.
+        snippet: `${agent.name} wants to ${staged.summary} — approve or reject (${staged.kind})`,
+        // The run acts as the agent, not as the person who pressed Run, so the
+        // owner must be asked even when they are that person (#210).
+        allowSelf: true,
+      });
+      return waiting;
     }
 
     const log = failure
@@ -490,6 +625,156 @@ export class AgentsService {
       // the answer they asked for. Retry belongs to unattended dispatch (#212).
       retries: 0,
     });
+  }
+
+  // ── Approval gates (#210, ADR-0010 §4) ──────────────────────────────────────
+
+  /**
+   * Apply a proposed action for real, and describe what happened as a step.
+   *
+   * The ONLY place a ProposedAction stops being data. Both callers route through
+   * it — the ungated inline path and approve — so "applied" means exactly one
+   * thing regardless of whether a human was consulted.
+   *
+   * It executes nothing itself: `automation_action` hands off to the shared
+   * AutomationActionsService (MN-046/MN-047 — the same executor buttons and
+   * automations use, so agents inherit its validation, token resolution and
+   * loop-guard depth), and `record_delete` is the records service's soft delete.
+   */
+  private async applyProposedAction(
+    workspaceId: string,
+    action: ProposedAction,
+    actorId: string,
+    depth: number,
+  ): Promise<AgentStep> {
+    // The payload crosses two untyped boundaries — an arbitrary runtime made it,
+    // and it may have been round-tripped through `Pending action` JSON — so it is
+    // validated here, at the apply boundary, rather than trusted at either end.
+    const parsed = proposedActionPayloadSchema.safeParse(action.payload);
+    if (!parsed.success) {
+      throw new UnprocessableEntityException(
+        `Cannot apply this ${action.kind} action — its payload is malformed: ${parsed.error.issues
+          .map((i) => `${i.path.join('.')} ${i.message}`)
+          .join('; ')}`,
+      );
+    }
+    const payload = parsed.data;
+
+    if (payload.apply === 'record_delete') {
+      await this.recordsService.softDelete(
+        workspaceId,
+        payload.database_id,
+        payload.record_id,
+        actorId,
+      );
+      return {
+        tool: 'action.applied',
+        summary: `Applied (${action.kind}): ${action.summary}`,
+        // Undo (ADR-0010 §4): the delete is soft (ADR-0009), so this is
+        // recoverable — but only if the run view knows WHICH record to offer
+        // back. The id is the whole undo affordance, so it goes in the log.
+        detail:
+          `Soft-deleted record ${payload.record_id} in database ${payload.database_id}. ` +
+          `Undo: POST /workspaces/{ws}/databases/${payload.database_id}/records/${payload.record_id}/restore`,
+      };
+    }
+
+    const record = await this.recordsService.get(payload.database_id, payload.record_id);
+    const effects = await this.actions.execute([payload.action], {
+      workspaceId,
+      databaseId: payload.database_id,
+      record,
+      actorId,
+      depth,
+    });
+    return {
+      tool: 'action.applied',
+      summary: `Applied (${action.kind}): ${action.summary}`,
+      detail: effects.map((e) => e.summary).join('; ') || undefined,
+    };
+  }
+
+  /** Resolve a Run record by uuid or public number, like resolveAgent. */
+  private async resolveRun(runsDbId: string, ref: string): Promise<ProjectedRecord> {
+    if (UUID_RE.test(ref)) return this.recordsService.get(runsDbId, ref);
+    const number = Number(ref);
+    if (!Number.isInteger(number) || number <= 0) throw new NotFoundException('Run not found');
+    return this.recordsService.getByNumber(runsDbId, number);
+  }
+
+  /**
+   * The shared half of approve/reject: both resolve the same run, insist on the
+   * same state, close the gate the same way, and differ only in whether they
+   * apply. Forking that would be how the two verdicts drift out of sync.
+   */
+  private async resolveGate(
+    membership: Membership,
+    runRef: string,
+    verdict: 'approve' | 'reject',
+  ): Promise<ProjectedRecord> {
+    const { runsDb } = await this.ensurePack(membership);
+    const run = await this.resolveRun(runsDb.id, runRef);
+
+    const statusIds = await this.optionIdsByLabel(runsDb.id, 'status');
+    const waitingId = statusIds.get('Waiting approval');
+    // Only a parked run has a gate to resolve. Approving a Succeeded run would
+    // re-apply its action; approving a Failed one would apply an action its run
+    // never reached. Both are 422, not 404 — the run exists, its state is wrong.
+    if (!waitingId || run.values['status'] !== waitingId) {
+      throw new UnprocessableEntityException('This run is not waiting for approval');
+    }
+
+    const staged = parseStaged(run.values['pending_action']);
+    if (!staged) {
+      throw new UnprocessableEntityException(
+        'This run is waiting for approval but has no staged action to resolve',
+      );
+    }
+
+    const actorId = membership.userId;
+    const steps = [...staged.steps];
+
+    if (verdict === 'approve') {
+      // NOW the action happens — the first and only time. If applying throws, the
+      // run stays parked and the gate stays open: the caller gets the error and
+      // can retry, rather than the run being marked Succeeded over a no-op.
+      steps.push(await this.applyProposedAction(membership.workspaceId, staged.action, actorId, 0));
+    } else {
+      // Reject applies NOTHING. There is no rollback here and there is nothing to
+      // roll back — the action never left the `Pending action` blob. That is the
+      // whole payoff of staging (ADR-0010 §4).
+      steps.push({
+        tool: 'action.rejected',
+        summary: `Rejected (${staged.action.kind}): ${staged.action.summary}`,
+        detail: 'The proposed action was not applied. The run was canceled with no side effects.',
+      });
+    }
+
+    return this.recordsService.update(
+      membership.workspaceId,
+      runsDb.id,
+      run.id,
+      {
+        status: statusIds.get(verdict === 'approve' ? 'Succeeded' : 'Canceled') ?? null,
+        finished_at: new Date().toISOString(),
+        steps: markdownToBlocks(stepsToMarkdown(steps)),
+        // The gate is closed. Clearing this is what stops a second approve from
+        // applying the action twice — the state check above then reads Succeeded,
+        // and there is no payload left to replay either way.
+        pending_action: null,
+      },
+      actorId,
+    );
+  }
+
+  /** Approve a parked run: apply the staged action, then Succeed it (#210). */
+  async approveRun(membership: Membership, runRef: string): Promise<ProjectedRecord> {
+    return this.resolveGate(membership, runRef, 'approve');
+  }
+
+  /** Reject a parked run: apply nothing, Cancel it (#210). */
+  async rejectRun(membership: Membership, runRef: string): Promise<ProjectedRecord> {
+    return this.resolveGate(membership, runRef, 'reject');
   }
 
   // ── Trigger bindings (#211, ADR-0010 §5) ────────────────────────────────────

@@ -1608,6 +1608,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/agents/runs/{run}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve a run waiting for approval: apply the staged action */
+        post: operations["AgentsController_approveRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/agents/runs/{run}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reject a run waiting for approval: apply nothing, cancel it */
+        post: operations["AgentsController_rejectRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/templates": {
         parameters: {
             query?: never;
@@ -5100,6 +5134,46 @@ export interface operations {
             path: {
                 /** @description The agent record's uuid or public number */
                 agent: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AgentsController_approveRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The run record's uuid or public number */
+                run: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AgentsController_rejectRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The run record's uuid or public number */
+                run: string;
             };
             cookie?: never;
         };

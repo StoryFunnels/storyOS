@@ -1,3 +1,5 @@
+import { z } from 'zod';
+import { actionSchema } from '@storyos/schemas';
 import type { AgentPrincipal } from './agent-principal';
 
 /**
@@ -9,11 +11,92 @@ import type { AgentPrincipal } from './agent-principal';
  * structural rather than a billing rule bolted on later.
  */
 
+/**
+ * The action classes an owner can gate — the labels of the agent record's
+ * "Approval policy" multi_select (ADR-0010 §4).
+ *
+ * This is the *policy* vocabulary: what a step would do, in the terms the owner
+ * ticked a box in. It is deliberately not the executor's vocabulary — an
+ * `outward` proposal and a `webhook` proposal can both apply through the same
+ * `send_webhook` action, and the owner must be able to gate them apart.
+ */
+export const APPROVAL_POLICY_KINDS = [
+  'delete',
+  'webhook',
+  'email',
+  'run_button',
+  'outward',
+] as const;
+
+/**
+ * What a proposed step would do. The policy classes above, plus the ungated
+ * everyday classes a runtime proposes — those simply execute inline unless the
+ * owner has listed them.
+ */
+export type ProposedActionKind =
+  | (typeof APPROVAL_POLICY_KINDS)[number]
+  | 'set_values'
+  | 'create_record'
+  | 'add_comment'
+  | 'notify_user'
+  | 'update_linked';
+
+/**
+ * How a proposed action is *applied*, once (and only once) a gate passes.
+ *
+ * Everything reuses machinery that already exists: `automation_action` hands the
+ * payload straight to the shared AutomationActionsService (MN-046/MN-047), and
+ * `record_delete` goes through the records service's soft delete — which is what
+ * keeps an applied destructive step undoable (ADR-0009, ADR-0010 §4).
+ */
+export const proposedActionPayloadSchema = z.discriminatedUnion('apply', [
+  z.object({
+    apply: z.literal('record_delete'),
+    database_id: z.uuid(),
+    record_id: z.uuid(),
+  }),
+  z.object({
+    apply: z.literal('automation_action'),
+    /** The database the action's context record lives in. */
+    database_id: z.uuid(),
+    /** The record the action runs against — ActionsService's `ctx.record`. */
+    record_id: z.uuid(),
+    action: actionSchema,
+  }),
+]);
+export type ProposedActionPayload = z.infer<typeof proposedActionPayloadSchema>;
+
+/**
+ * An action a step wants to take, expressed as DATA rather than performed.
+ *
+ * ADR-0010 §4, the load-bearing idea of the whole trust layer: "propose the
+ * action as data, apply it only on a gate pass." Approval, reject-with-no-side-
+ * effects and undo all fall out of this one shape — a rejected action leaves no
+ * trace because it was never anything but a value.
+ *
+ * `payload` is `unknown` on purpose. A proposal made by a runtime and a proposal
+ * read back out of the Run record's `Pending action` JSON are the same thing to
+ * the applier, so both go through `proposedActionPayloadSchema` at the one apply
+ * boundary rather than being trusted at the type level.
+ */
+export interface ProposedAction {
+  kind: ProposedActionKind;
+  /** Shown verbatim to the owner in the Inbox — this IS the approval prompt. */
+  summary: string;
+  payload: unknown;
+}
+
 /** One tool call in a run's step log. */
 export interface AgentStep {
   tool: string;
   summary: string;
   detail?: string;
+  /**
+   * Set when this step would DO something rather than just observe. If its kind
+   * is in the agent's approval policy the run stages it and halts; otherwise it
+   * applies inline and the run continues (ADR-0010 §4).
+   */
+  action?: ProposedAction;
 }
 
 /**

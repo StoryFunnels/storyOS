@@ -3,9 +3,34 @@ import { and, desc, eq, gt, inArray, isNotNull, isNull, lt, sql } from 'drizzle-
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { comments, databases, notifications, records, user, userPreferences } from '../db/schema';
-import { mergePreferences } from '../users/preferences.constants';
+import { DEFAULT_PREFERENCES, mergePreferences } from '../users/preferences.constants';
+import type { UserPreferences } from '../users/preferences.constants';
 
-export type NotificationType = 'assigned' | 'mentioned' | 'commented' | 'state_changed';
+export type NotificationType =
+  | 'assigned'
+  | 'mentioned'
+  | 'commented'
+  | 'state_changed'
+  /**
+   * An agent run staged a gated action and is waiting on its owner (#210,
+   * ADR-0010 §4). Not an opt-out ping — see OPT_OUT_TYPES.
+   */
+  | 'approval_requested';
+
+/**
+ * The types a user can switch off (#31). `notifications.type` is a plain text
+ * column, so this set — not the column — is what decides whether a type is
+ * gated on a preference toggle.
+ *
+ * Anything NOT listed here is delivered unconditionally. That is what makes an
+ * approval request (#210) reliable: it is a gate the run is blocked on, not a
+ * notification about something that already happened, so there is no toggle to
+ * honour and silently dropping it would strand the run forever. Deriving the set
+ * from DEFAULT_PREFERENCES means adding a toggle opts a type in deliberately,
+ * and a type with no toggle can never be dropped by a lookup returning
+ * `undefined`.
+ */
+const OPT_OUT_TYPES = new Set<string>(Object.keys(DEFAULT_PREFERENCES.notifications));
 
 interface NotifyInput {
   workspaceId: string;
@@ -15,6 +40,13 @@ interface NotifyInput {
   type: NotificationType;
   recipients: string[];
   snippet?: string;
+  /**
+   * Deliver to the actor themselves. Off by default — you don't want an inbox
+   * item for your own comment. An approval request needs it on: the run acts as
+   * the *agent*, so its owner must be asked even when they are the person who
+   * started the run (#210).
+   */
+  allowSelf?: boolean;
 }
 
 /**
@@ -28,7 +60,9 @@ export class NotificationsService {
   constructor(@Inject(DB) private readonly db: Db) {}
 
   async notify(input: NotifyInput): Promise<void> {
-    let recipients = [...new Set(input.recipients)].filter((r) => r !== input.actorId).slice(0, 20);
+    let recipients = [...new Set(input.recipients)]
+      .filter((r) => input.allowSelf || r !== input.actorId)
+      .slice(0, 20);
     if (recipients.length === 0) return;
     recipients = await this.filterByPreference(recipients, input.type);
     if (recipients.length === 0) return;
@@ -70,13 +104,20 @@ export class NotificationsService {
   /** Drop recipients who've turned this notification type off (#31). Defaults to on,
    * so a user with no saved preferences still gets everything. Best-effort. */
   private async filterByPreference(recipients: string[], type: NotificationType): Promise<string[]> {
+    // A type with no toggle isn't opt-out-able — deliver it (#210). Without this
+    // the lookup below would return `undefined` for it and drop every recipient
+    // who has ever saved a preference.
+    if (!OPT_OUT_TYPES.has(type)) return recipients;
     try {
       const rows = await this.db.query.userPreferences.findMany({
         where: inArray(userPreferences.userId, recipients),
       });
       const stored = new Map(rows.map((r) => [r.userId, r.preferences]));
+      // Safe: OPT_OUT_TYPES is exactly the keys of the toggle map, and anything
+      // outside it returned above.
+      const toggle = type as keyof UserPreferences['notifications'];
       return recipients.filter((id) =>
-        stored.has(id) ? mergePreferences(stored.get(id)).notifications[type] : true,
+        stored.has(id) ? mergePreferences(stored.get(id)).notifications[toggle] : true,
       );
     } catch (error) {
       this.logger.warn(`preference read failed, delivering anyway: ${String(error)}`);
