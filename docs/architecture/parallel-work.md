@@ -52,9 +52,14 @@ interacts with these lanes.
    pnpm --filter @storyos/schemas build && pnpm sdk:generate
    ```
    Commit the result. Never resolve these hunks by hand.
-3. **One branch per hotspot.** Only one in-flight branch may touch a hotspot
-   file at a time. Check open PRs before starting work that edits one. (The
-   long-term fix is decomposing them into focused modules.)
+3. **One branch per hotspot.** ~~Only one in-flight branch may touch a hotspot
+   file at a time.~~ **Relaxed (#197, 2026-07-17):** the four hotspots were
+   decomposed into focused modules — the record page into
+   `components/entity/*`, `field-dialogs.tsx` into ten per-dialog files,
+   `table-view.tsx`'s `BatchBar`/`HeaderCell` into siblings, and relation
+   auto-link into `auto-link.service.ts`. Work now lands in a small module, so
+   branches no longer collide on one giant file. Still check open PRs before a
+   change to `table-view.tsx` itself (the remaining ~600-line `TableView` core).
 
 ## Session mechanics
 
