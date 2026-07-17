@@ -54,8 +54,21 @@ services:
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       # OAuth for hosted-MCP connectors (MN-154). Off unless set true; needs oidc tables migrated.
       MCP_OAUTH: ${MCP_OAUTH:-}
+      # GitHub App (#247). All optional — absent means the Connect flow is simply
+      # unavailable and the app boots fine. Prefer the inline PEM (\n-escaped) in
+      # GITHUB_APP_PRIVATE_KEY; the container can't read a host file path unless you
+      # also mount it, so GITHUB_APP_PRIVATE_KEY_FILE must point at a path INSIDE the
+      # container (see the commented volume below).
+      GITHUB_APP_ID: ${GITHUB_APP_ID:-}
+      GITHUB_APP_CLIENT_ID: ${GITHUB_APP_CLIENT_ID:-}
+      GITHUB_APP_CLIENT_SECRET: ${GITHUB_APP_CLIENT_SECRET:-}
+      GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY:-}
+      GITHUB_APP_PRIVATE_KEY_FILE: ${GITHUB_APP_PRIVATE_KEY_FILE:-}
     volumes:
       - storyos_attachments:/data/attachments
+      # To use GITHUB_APP_PRIVATE_KEY_FILE instead of the inline key, mount the PEM
+      # read-only and set GITHUB_APP_PRIVATE_KEY_FILE=/run/secrets/github-app.pem :
+      # - ./github-app.pem:/run/secrets/github-app.pem:ro
 
   web:
     build:
