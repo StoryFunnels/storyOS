@@ -249,7 +249,7 @@ export function ColorByButton({
   );
 }
 
-function defaultValueFor(input: string): unknown {
+export function defaultValueFor(input: string): unknown {
   if (input === 'options' || input === 'records') return [];
   if (input === 'boolean') return true;
   if (input === 'relative') return 'next_7_days';

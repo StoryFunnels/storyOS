@@ -26,6 +26,7 @@ import {
   useRecordsInfinite,
 } from './use-table-data';
 import type { Field, RecordRow } from './use-table-data';
+import type { ViewConfig } from '../views/use-view-state';
 import { recordHref } from '@/lib/records';
 import { atLeast } from '@/lib/access';
 import { cn } from '@/lib/utils';
@@ -53,6 +54,8 @@ export function TableView({
   hiddenFieldIds,
   columnWidths,
   onColumnResize,
+  config,
+  onPatch,
 }: {
   ws: string;
   db: string;
@@ -62,6 +65,9 @@ export function TableView({
   hiddenFieldIds?: string[];
   columnWidths?: Record<string, number>;
   onColumnResize?: (fieldId: string, width: number) => void;
+  /** View config + patch, so column headers can filter/sort by their field (MN-225). */
+  config?: ViewConfig;
+  onPatch?: (updates: Partial<ViewConfig>) => void;
 }) {
   const database = useDatabase(ws, db);
   const records = useRecordsInfinite(ws, db, queryBody);
@@ -363,6 +369,8 @@ export function TableView({
                 isFirst={i === 0}
                 pinned={pinned}
                 onTogglePin={i === 0 ? togglePinned : undefined}
+                config={config}
+                onPatch={onPatch}
                 onResize={(w) => {
                   setWidths((prev) => ({ ...prev, [field.id]: w }));
                   onColumnResize?.(field.id, w);
@@ -380,6 +388,8 @@ export function TableView({
                     width={widthOf(field)}
                     readOnly={!schemaEditable}
                     reorderable={schemaEditable}
+                    config={config}
+                    onPatch={onPatch}
                     onAddLookup={(id) => setAddingField({ type: 'lookup', relationId: id })}
                     onResize={(w) => {
                       setWidths((prev) => ({ ...prev, [field.id]: w }));
