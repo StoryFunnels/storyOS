@@ -7,7 +7,8 @@ export interface DomainEvent {
   recordId: string;
   changedFieldIds?: string[];
   relationFieldId?: string;
-  actorId: string;
+  /** null for anonymous public-form submissions (MN-101). */
+  actorId: string | null;
   depth: number;
 }
 

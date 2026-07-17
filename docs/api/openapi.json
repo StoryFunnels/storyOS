@@ -4285,6 +4285,62 @@
         ]
       }
     },
+    "/api/v1/public/forms/{token}": {
+      "get": {
+        "operationId": "PublicFormsController_get",
+        "parameters": [
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Public form definition (link/public access only)",
+        "tags": [
+          "public"
+        ]
+      },
+      "post": {
+        "operationId": "PublicFormsController_submit",
+        "parameters": [
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublicSubmitDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Submit a public form → creates a record (anonymous)",
+        "tags": [
+          "public"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/members/{member}/gdpr/export": {
       "get": {
         "operationId": "GdprController_export",
@@ -5437,6 +5493,24 @@
                   "public_token": {
                     "type": "string",
                     "maxLength": 64
+                  },
+                  "access": {
+                    "default": "members",
+                    "type": "string",
+                    "enum": [
+                      "members",
+                      "link",
+                      "public"
+                    ]
+                  },
+                  "success_message": {
+                    "type": "string",
+                    "maxLength": 500
+                  },
+                  "redirect_url": {
+                    "type": "string",
+                    "maxLength": 500,
+                    "format": "uri"
                   }
                 }
               },
@@ -5657,6 +5731,24 @@
                   "public_token": {
                     "type": "string",
                     "maxLength": 64
+                  },
+                  "access": {
+                    "default": "members",
+                    "type": "string",
+                    "enum": [
+                      "members",
+                      "link",
+                      "public"
+                    ]
+                  },
+                  "success_message": {
+                    "type": "string",
+                    "maxLength": 500
+                  },
+                  "redirect_url": {
+                    "type": "string",
+                    "maxLength": 500,
+                    "format": "uri"
                   }
                 }
               },
@@ -6648,6 +6740,19 @@
           "target_type",
           "target_id"
         ]
+      },
+      "PublicSubmitDto": {
+        "type": "object",
+        "properties": {
+          "values": {
+            "default": {},
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "hp": {
+            "type": "string"
+          }
+        }
       }
     }
   }

@@ -390,7 +390,7 @@ export class RelationsService {
     workspaceId: string,
     relation: Relation,
     links: PlannedLink[],
-    actorId: string,
+    actorId: string | null,
   ): Promise<number> {
     if (!links.length) return 0;
     const titleByPair = new Map(links.map((l) => [`${l.fromId} ${l.toId}`, l]));
@@ -474,7 +474,7 @@ export class RelationsService {
     databaseId: string,
     recordId: string,
     changedFieldIds: string[] | undefined,
-    actorId: string,
+    actorId: string | null,
   ): Promise<void> {
     const rels = await this.db.query.relations.findMany({
       where: and(
