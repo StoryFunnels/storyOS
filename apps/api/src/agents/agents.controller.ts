@@ -1,5 +1,5 @@
-import { Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '../auth/auth.guard';
 import { MinRole, WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
@@ -25,8 +25,20 @@ export class AgentsController {
   }
 
   @Post('ensure')
-  @ApiOperation({ summary: 'Provision the Agentic OS space + Agents database (idempotent)' })
+  @ApiOperation({ summary: 'Provision the Agentic OS space + Agents/Runs databases (idempotent)' })
   ensure(@Req() req: WorkspaceRequest) {
     return this.agents.ensurePack(req.membership);
+  }
+
+  /**
+   * Run an agent by hand (#208, ADR-0010 §3). Works with no LLM: the run class
+   * is stamped at dispatch and the step log is written to the Run record. A
+   * runtime error lands as a Failed run, never as a 500.
+   */
+  @Post(':agent/run')
+  @ApiParam({ name: 'agent', description: "The agent record's uuid or public number" })
+  @ApiOperation({ summary: 'Run an agent manually; returns the Run record' })
+  run(@Req() req: WorkspaceRequest, @Param('agent') agent: string) {
+    return this.agents.run(req.membership, agent);
   }
 }
