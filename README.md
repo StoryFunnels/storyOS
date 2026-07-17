@@ -111,4 +111,6 @@ TypeScript monorepo (pnpm + Turborepo) · NestJS 11 on Fastify · Next.js 16 · 
 
 ## License
 
-[AGPL-3.0](LICENSE). Free for everyone, forever. If you host it as a service, share your changes back.
+**Dual-licensed.** [AGPL-3.0-or-later](LICENSE) for everyone — free forever; if you host it as a service, share your changes back. A separate **commercial license** is available for organizations that cannot accept the AGPL — same code, different legal terms. See [docs/licensing.md](docs/licensing.md).
+
+Contributions require agreeing to the [Contributor License Agreement](CLA.md) — see [CONTRIBUTING.md](CONTRIBUTING.md).

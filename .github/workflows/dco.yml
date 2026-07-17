@@ -1,0 +1,44 @@
+# Developer Certificate of Origin check (MN-237).
+#
+# Every external contributor's commit must carry a `Signed-off-by:` trailer
+# (git commit -s). Per CLA.md, that sign-off is also their acceptance of the
+# Contributor License Agreement, so this is the active CLA gate even before the
+# richer cla-assistant flow (cla.yml) is activated with a token.
+#
+# Maintainers and bots are allow-listed so internal PRs are never blocked.
+name: DCO
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  dco:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Check Signed-off-by on every commit
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # Maintainers/bots don't need a sign-off; external contributors do.
+          ALLOW="ikrasovytskyi dependabot[bot] github-actions[bot]"
+          fail=0
+          for sha in $(git rev-list "$BASE..$HEAD"); do
+            author=$(git show -s --format='%an' "$sha")
+            case " $ALLOW " in *" $author "*) continue ;; esac
+            if git show -s --format='%B' "$sha" | grep -qiE '^Signed-off-by: .+ <.+@.+>'; then
+              continue
+            fi
+            echo "::error::commit $sha by '$author' has no Signed-off-by trailer."
+            echo "  Fix: git commit --amend -s   (or git rebase --signoff). See CONTRIBUTING.md / CLA.md."
+            fail=1
+          done
+          if [ "$fail" -eq 0 ]; then echo "DCO OK — all commits signed off or allow-listed."; else exit 1; fi

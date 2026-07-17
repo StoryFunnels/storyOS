@@ -1,0 +1,44 @@
+# Contributor License Agreement gate (MN-237).
+#
+# Requires every contributor to sign the CLA (CLA.md) once before their PR can be
+# merged, storing signatures in a `cla-signatures` branch. Uses the maintained
+# cla-assistant-lite action.
+#
+# DORMANT UNTIL ACTIVATED: the job is guarded on a PERSONAL_ACCESS_TOKEN secret,
+# so until a maintainer adds it the job is simply skipped (never a red X). To
+# activate: create a classic PAT with `repo` scope, add it as the repo secret
+# PERSONAL_ACCESS_TOKEN, and this gate goes live on the next PR. Contributors
+# then comment "I have read the CLA Document and I hereby sign the CLA" once.
+#
+# Note: sign-off (git commit -s, checked by dco.yml) also constitutes acceptance
+# of the CLA per CLA.md, so external contribution is gated even while this is off.
+name: CLA
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_target:
+    types: [opened, closed, synchronize]
+
+permissions:
+  actions: write
+  contents: read
+  pull-requests: write
+  statuses: write
+
+jobs:
+  cla:
+    if: ${{ secrets.PERSONAL_ACCESS_TOKEN != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: CLA assistant
+        if: (github.event.comment.body == 'recheck' || github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA') || github.event_name == 'pull_request_target'
+        uses: contributor-assistant/github-action@v2.6.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PERSONAL_ACCESS_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+        with:
+          path-to-signatures: 'signatures/cla.json'
+          path-to-document: 'https://github.com/StoryFunnels/storyOS/blob/main/CLA.md'
+          branch: 'cla-signatures'
+          allowlist: 'dependabot[bot]'

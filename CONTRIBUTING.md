@@ -14,6 +14,21 @@ Whether you're a human or an AI agent: **read the docs before writing code.** Th
 - One ticket = one commit/PR, message prefixed `MN-###:`. Flip the ticket's `status:` frontmatter to `done` in the same commit.
 - Meet every acceptance criterion or say explicitly in the PR which one you didn't and why.
 
+## Licensing & the CLA (required before your first contribution)
+
+StoryOS is [dual-licensed](docs/licensing.md): **AGPL-3.0-or-later for everyone**,
+with a separate commercial license for organizations that cannot accept the AGPL.
+To keep that option open, every contribution must carry a copyright grant.
+
+- **Agree to the [Contributor License Agreement](CLA.md)** (individual or, if
+  you're contributing on behalf of a company, as that entity). You keep
+  ownership of your work — the CLA grants the Project the right to also license
+  it commercially. Do not open a PR until you've read it.
+- **Sign off every commit** under the Developer Certificate of Origin: commit
+  with `git commit -s`, which appends `Signed-off-by: Your Name <you@example>`.
+  Your sign-off is your acceptance of the CLA for that contribution, and CI
+  checks for it.
+
 ## Rules that get PRs bounced
 
 - **API-first:** the web app talks to the API only through `@storyos/sdk`. No server-side DB access from `apps/web`, no private endpoints.
