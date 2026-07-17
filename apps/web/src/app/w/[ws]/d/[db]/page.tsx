@@ -2,6 +2,9 @@
 
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useMemo, useState } from 'react';
+import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
+import type { DragEndEvent } from '@dnd-kit/core';
+import { SortableContext, arrayMove, horizontalListSortingStrategy } from '@dnd-kit/sortable';
 import { CalendarDays, FormInput, GanttChart, Kanban, LayoutGrid, List as ListIcon, Newspaper, Plus, Table2 } from 'lucide-react';
 import { BoardView } from '@/components/views/board-view';
 import { CalendarView } from '@/components/views/calendar-view';
@@ -51,6 +54,19 @@ function DatabasePageInner() {
 
   const queryBody = useMemo(() => queryBodyFromConfig(config), [config]);
 
+  const viewSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  function onViewDragEnd(e: DragEndEvent) {
+    if (readOnly || !e.over || e.active.id === e.over.id) return;
+    const from = views.findIndex((v) => v.id === e.active.id);
+    const to = views.findIndex((v) => v.id === e.over!.id);
+    if (from < 0 || to < 0) return;
+    // Persist only the views whose index actually changed (the run between from/to).
+    const moves = arrayMove(views, from, to)
+      .map((v, i) => ({ id: v.id, position: i }))
+      .filter(({ id }, i) => views[i]?.id !== id);
+    if (moves.length) viewMutations.reorderViews.mutate(moves);
+  }
+
   if (database.isLoading) return <p className="p-6 text-sm text-muted">Loading…</p>;
 
   return (
@@ -69,31 +85,35 @@ function DatabasePageInner() {
           )}
           {database.data?.name}
         </h1>
-        {views.map((view) => (
-          <ViewTab
-            key={view.id}
-            view={view}
-            isActive={view.id === activeView?.id}
-            canManage={!readOnly}
-            canDelete={!readOnly && views.length > 1}
-            mutations={viewMutations}
-            onNavigate={() => router.replace(`/w/${ws}/d/${db}?view=${view.id}`)}
-            onDuplicated={(id) => router.replace(`/w/${ws}/d/${db}?view=${id}`)}
-            onDelete={async () => {
-              if (
-                !(await confirm({
-                  title: `Delete view "${view.name}"?`,
-                  message: 'The view is removed. Records are not affected.',
-                  confirmLabel: 'Delete',
-                  danger: true,
-                }))
-              )
-                return;
-              viewMutations.deleteView.mutate(view.id);
-              router.replace(`/w/${ws}/d/${db}`);
-            }}
-          />
-        ))}
+        <DndContext sensors={viewSensors} collisionDetection={closestCenter} onDragEnd={onViewDragEnd}>
+          <SortableContext items={views.map((v) => v.id)} strategy={horizontalListSortingStrategy}>
+            {views.map((view) => (
+              <ViewTab
+                key={view.id}
+                view={view}
+                isActive={view.id === activeView?.id}
+                canManage={!readOnly}
+                canDelete={!readOnly && views.length > 1}
+                mutations={viewMutations}
+                onNavigate={() => router.replace(`/w/${ws}/d/${db}?view=${view.id}`)}
+                onDuplicated={(id) => router.replace(`/w/${ws}/d/${db}?view=${id}`)}
+                onDelete={async () => {
+                  if (
+                    !(await confirm({
+                      title: `Delete view "${view.name}"?`,
+                      message: 'The view is removed. Records are not affected.',
+                      confirmLabel: 'Delete',
+                      danger: true,
+                    }))
+                  )
+                    return;
+                  viewMutations.deleteView.mutate(view.id);
+                  router.replace(`/w/${ws}/d/${db}`);
+                }}
+              />
+            ))}
+          </SortableContext>
+        </DndContext>
         {!readOnly && database.data && (
           <NewViewDialog
             fields={database.data.fields}
@@ -161,6 +181,18 @@ function DatabasePageInner() {
 
 type ViewKind = 'table' | 'board' | 'calendar' | 'gallery' | 'list' | 'feed' | 'timeline' | 'form';
 
+const VIEW_KIND_LABEL: Record<ViewKind, string> = {
+  table: 'Table',
+  board: 'Board',
+  calendar: 'Calendar',
+  gallery: 'Gallery',
+  list: 'List',
+  feed: 'Feed',
+  timeline: 'Timeline',
+  form: 'Form',
+};
+const VIEW_KIND_LABELS = Object.values(VIEW_KIND_LABEL);
+
 function NewViewDialog({
   fields,
   onCreate,
@@ -169,8 +201,15 @@ function NewViewDialog({
   onCreate: (name: string, type: ViewKind, configPatch?: Partial<ViewConfig>) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [name, setName] = useState('');
+  const [name, setName] = useState(VIEW_KIND_LABEL.table);
   const [type, setType] = useState<ViewKind>('table');
+
+  // MN-222: prefill the name from the picked type, but never clobber a name the
+  // user typed — only overwrite when the field is empty or still holds a type default.
+  function selectType(kind: ViewKind) {
+    setName((prev) => (prev.trim() === '' || VIEW_KIND_LABELS.includes(prev.trim()) ? VIEW_KIND_LABEL[kind] : prev));
+    setType(kind);
+  }
   const dateFields = fields.filter((f) => f.type === 'date' || f.type === 'created_at' || f.type === 'updated_at');
   const [dateField, setDateField] = useState('');
   const [startDate, setStartDate] = useState('');
@@ -200,7 +239,8 @@ function NewViewDialog({
           className="flex flex-col gap-4"
           onSubmit={(e) => {
             e.preventDefault();
-            if (!name.trim()) return;
+            // Empty is never sent — fall back to the type's label (MN-222).
+            const finalName = name.trim() || VIEW_KIND_LABEL[type];
             const patch: Partial<ViewConfig> = {};
             if (type === 'board') patch.group_by_field_id = groupBy || boardGroupFields[0]?.id;
             if (type === 'list' && groupBy) patch.group_by_field_id = groupBy;
@@ -209,14 +249,14 @@ function NewViewDialog({
               patch.start_date_field_id = startDate || dateFields[0]?.id;
               if (endDate) patch.end_date_field_id = endDate;
             }
-            onCreate(name.trim(), type, patch);
+            onCreate(finalName, type, patch);
             setOpen(false);
-            setName('');
+            setName(VIEW_KIND_LABEL[type]);
           }}
         >
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="view-name">Name</Label>
-            <Input id="view-name" autoFocus required value={name} onChange={(e) => setName(e.target.value)} />
+            <Input id="view-name" autoFocus value={name} onChange={(e) => setName(e.target.value)} />
           </div>
           <div className="flex flex-col gap-1.5">
             <Label>Type</Label>
@@ -238,7 +278,7 @@ function NewViewDialog({
                   type="button"
                   disabled={Boolean(need)}
                   title={need ?? undefined}
-                  onClick={() => setType(kind)}
+                  onClick={() => selectType(kind)}
                   className={cn(
                     'flex h-16 flex-col items-center justify-center gap-1 rounded-[var(--radius-control)] border text-[13px]',
                     type === kind ? 'border-[var(--accent)] bg-accent-soft text-ink' : 'border-border-default text-muted',

@@ -17,6 +17,8 @@ import {
   Table2,
   Trash2,
 } from 'lucide-react';
+import { useSortable } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -66,6 +68,8 @@ export function ViewTab({
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(view.name);
   const Icon = VIEW_ICON[view.type] ?? Table2;
+  // Only editors may reorder; renaming (inline input) also suspends the drag.
+  const sortable = useSortable({ id: view.id, disabled: !canManage || renaming });
 
   function commitRename() {
     const name = draft.trim();
@@ -76,12 +80,20 @@ export function ViewTab({
 
   return (
     <div
+      ref={sortable.setNodeRef}
+      style={{ transform: CSS.Transform.toString(sortable.transform), transition: sortable.transition }}
       className={cn(
         'group/tab flex items-center gap-1 rounded px-2 py-1 text-[13px]',
         isActive ? 'bg-active font-medium text-ink' : 'text-muted hover:bg-hover hover:text-ink',
+        sortable.isDragging && 'z-10 opacity-70',
       )}
     >
-      <button className="flex items-center gap-1.5" onClick={onNavigate} type="button">
+      <button
+        className={cn('flex items-center gap-1.5', canManage && !renaming && 'touch-none')}
+        onClick={onNavigate}
+        type="button"
+        {...(canManage && !renaming ? { ...sortable.attributes, ...sortable.listeners } : {})}
+      >
         <Icon className="h-3.5 w-3.5" />
         {renaming ? (
           <Input

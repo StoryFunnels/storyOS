@@ -204,6 +204,22 @@ export function useViewMutations(ws: string, db: string) {
       onSuccess: invalidate,
       onError: () => toast.error('Could not set the default view'),
     }),
+    // Drag-to-reorder the view tabs → writes each moved view's position (MN-221).
+    // The DB page renders views in position order, so persisting the new indexes
+    // is enough for the order to stick after refetch.
+    reorderViews: useMutation({
+      mutationFn: async (moves: Array<{ id: string; position: number }>) => {
+        for (const m of moves) {
+          const { error } = await api.PATCH('/api/v1/workspaces/{ws}/databases/{db}/views/{view}', {
+            params: { path: { ws, db, view: m.id } },
+            body: { position: m.position },
+          });
+          if (error) throw error;
+        }
+      },
+      onSettled: invalidate,
+      onError: () => toast.error('Could not reorder the views'),
+    }),
   };
 }
 
