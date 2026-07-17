@@ -1,7 +1,7 @@
 {
   "name": "@storyos/mcp",
   "version": "0.1.0",
-  "description": "StoryOS Model Context Protocol server \u2014 expose your StoryOS workspace to AI agents (stdio + hosted HTTP).",
+  "description": "StoryOS Model Context Protocol server — expose your StoryOS workspace to AI agents (stdio + hosted HTTP).",
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "bin": {
@@ -37,7 +37,8 @@
     "dev": "tsx src/index.ts",
     "dev:http": "tsx src/http.ts",
     "lint": "eslint src",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "devDependencies": {
     "@storyos/config": "workspace:*",
@@ -46,7 +47,8 @@
     "@types/node": "^22.10.0",
     "esbuild": "^0.24.0",
     "tsx": "^4.19.2",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

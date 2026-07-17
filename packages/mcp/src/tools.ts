@@ -61,7 +61,9 @@ validates and returns a typed error naming any mismatch):
   user           : has, has_none                        (value = ["@me"] or user ids)
   relation       : has, has_none                        (value = [record ids])
   checkbox       : eq                                    (value = true | false)
-Dates accept ISO strings or relative tokens; user filters accept "@me".`;
+Dates accept ISO strings or relative tokens; user filters accept "@me".
+eq/neq on a select or person are accepted and mapped to has/has_none for you.
+Example: { "and": [{ "field": "priority", "op": "eq", "value": "Urgent" }] }`;
 
 function describeFields(db: DatabaseDetail) {
   return db.fields
@@ -86,6 +88,14 @@ function describeFields(db: DatabaseDetail) {
  * the valid options instead of failing at the API.
  */
 export function mapFilterValues(detail: DatabaseDetail, node: unknown): unknown {
+  // Tolerate a stringified filter (a common LLM mistake) — parse it once up front.
+  if (typeof node === 'string') {
+    try {
+      node = JSON.parse(node);
+    } catch {
+      return node;
+    }
+  }
   if (!node || typeof node !== 'object') return node;
   for (const key of ['and', 'or'] as const) {
     const children = (node as Record<string, unknown>)[key];
@@ -96,17 +106,37 @@ export function mapFilterValues(detail: DatabaseDetail, node: unknown): unknown 
   const cond = node as { field?: string; op?: string; value?: unknown };
   if (typeof cond.field !== 'string') return node;
   const f = detail.fields.find((x) => x.apiName === cond.field);
-  if (!f || (f.type !== 'select' && f.type !== 'multi_select') || !f.options?.length) return node;
+  if (!f) return node;
+
+  const isChoice = f.type === 'select' || f.type === 'multi_select';
+  const isMembership = isChoice || f.type === 'user';
+  if (!isMembership) return node;
+
+  // Agents naturally write eq/neq on a select or person; the API models those as
+  // has/has_none over an id ARRAY. Translate so the intuitive filter Just Works,
+  // instead of a "op eq not valid for select" 422 (#204).
+  let op = cond.op;
+  let value = cond.value;
+  if (op === 'eq' || op === 'neq') {
+    op = op === 'eq' ? 'has' : 'has_none';
+    value = Array.isArray(value) ? value : [value];
+  }
 
   const toId = (v: unknown): unknown => {
     if (typeof v !== 'string') return v;
-    const opt = f.options!.find((o) => o.id === v || o.label.toLowerCase() === v.toLowerCase());
-    if (opt) return opt.id;
-    throw new Error(
-      `No option "${v}" on field "${f.apiName}". Available: ${f.options!.map((o) => o.label).join(', ')}.`,
-    );
+    // The current-user sentinel: get_started advertises "@me".
+    if (f.type === 'user' && (v === '@me' || v === 'me')) return 'me';
+    if (isChoice && f.options?.length) {
+      const opt = f.options.find((o) => o.id === v || o.label.toLowerCase() === v.toLowerCase());
+      if (opt) return opt.id;
+      throw new Error(
+        `No option "${v}" on field "${f.apiName}". Available: ${f.options.map((o) => o.label).join(', ')}.`,
+      );
+    }
+    return v;
   };
-  return { ...cond, value: Array.isArray(cond.value) ? cond.value.map(toId) : toId(cond.value) };
+  value = Array.isArray(value) ? value.map(toId) : toId(value);
+  return { ...cond, op, value };
 }
 
 /**
