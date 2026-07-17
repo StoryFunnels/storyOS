@@ -51,6 +51,28 @@ export class ViewsController {
     return this.viewsService.update(databaseId, viewId, body);
   }
 
+  @Post(':view/duplicate')
+  @ApiOperation({ summary: 'Duplicate a view with its full config, placed next to the original' })
+  async duplicate(
+    @Req() req: WorkspaceRequest,
+    @Param('db') databaseId: string,
+    @Param('view') viewId: string,
+  ) {
+    await this.assertDb(req, databaseId);
+    return this.viewsService.duplicate(databaseId, viewId);
+  }
+
+  @Post(':view/default')
+  @ApiOperation({ summary: "Set this view as the database's default (one default per database)" })
+  async setDefault(
+    @Req() req: WorkspaceRequest,
+    @Param('db') databaseId: string,
+    @Param('view') viewId: string,
+  ) {
+    await this.assertDb(req, databaseId);
+    return this.viewsService.setDefault(databaseId, viewId);
+  }
+
   @Delete(':view')
   @ApiOperation({ summary: 'Delete a view (409 on the last one)' })
   async remove(

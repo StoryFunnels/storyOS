@@ -2,7 +2,7 @@
 
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useMemo, useState } from 'react';
-import { CalendarDays, FormInput, GanttChart, Kanban, LayoutGrid, List as ListIcon, Newspaper, Plus, Table2, X } from 'lucide-react';
+import { CalendarDays, FormInput, GanttChart, Kanban, LayoutGrid, List as ListIcon, Newspaper, Plus, Table2 } from 'lucide-react';
 import { BoardView } from '@/components/views/board-view';
 import { CalendarView } from '@/components/views/calendar-view';
 import { GalleryView } from '@/components/views/gallery-view';
@@ -13,6 +13,7 @@ import { FormView } from '@/components/views/form-view';
 import { TableView } from '@/components/table-view/table-view';
 import { EntityIconChip } from '@/components/ui/icon-picker';
 import { ViewToolbar } from '@/components/views/view-toolbar';
+import { ViewTab } from '@/components/views/view-tab';
 import {
   EMPTY_CONFIG,
   queryBodyFromConfig,
@@ -69,54 +70,29 @@ function DatabasePageInner() {
           {database.data?.name}
         </h1>
         {views.map((view) => (
-          <button
+          <ViewTab
             key={view.id}
-            className={cn(
-              'group/tab flex items-center gap-1.5 rounded px-2 py-1 text-[13px]',
-              view.id === activeView?.id
-                ? 'bg-active font-medium text-ink'
-                : 'text-muted hover:bg-hover hover:text-ink',
-            )}
-            onClick={() => router.replace(`/w/${ws}/d/${db}?view=${view.id}`)}
-          >
-            {view.type === 'board' ? (
-              <Kanban className="h-3.5 w-3.5" />
-            ) : view.type === 'calendar' ? (
-              <CalendarDays className="h-3.5 w-3.5" />
-            ) : view.type === 'gallery' ? (
-              <LayoutGrid className="h-3.5 w-3.5" />
-            ) : view.type === 'list' ? (
-              <ListIcon className="h-3.5 w-3.5" />
-            ) : view.type === 'feed' ? (
-              <Newspaper className="h-3.5 w-3.5" />
-            ) : view.type === 'timeline' ? (
-              <GanttChart className="h-3.5 w-3.5" />
-            ) : view.type === 'form' ? (
-              <FormInput className="h-3.5 w-3.5" />
-            ) : (
-              <Table2 className="h-3.5 w-3.5" />
-            )}
-            {view.name}
-            {!readOnly && views.length > 1 && view.id === activeView?.id && (
-              <X
-                className="h-3 w-3 text-faint opacity-0 hover:text-error group-hover/tab:opacity-100"
-                onClick={async (e) => {
-                  e.stopPropagation();
-                  if (
-                    !(await confirm({
-                      title: `Delete view "${view.name}"?`,
-                      message: 'The view is removed. Records are not affected.',
-                      confirmLabel: 'Delete',
-                      danger: true,
-                    }))
-                  )
-                    return;
-                  viewMutations.deleteView.mutate(view.id);
-                  router.replace(`/w/${ws}/d/${db}`);
-                }}
-              />
-            )}
-          </button>
+            view={view}
+            isActive={view.id === activeView?.id}
+            canManage={!readOnly}
+            canDelete={!readOnly && views.length > 1}
+            mutations={viewMutations}
+            onNavigate={() => router.replace(`/w/${ws}/d/${db}?view=${view.id}`)}
+            onDuplicated={(id) => router.replace(`/w/${ws}/d/${db}?view=${id}`)}
+            onDelete={async () => {
+              if (
+                !(await confirm({
+                  title: `Delete view "${view.name}"?`,
+                  message: 'The view is removed. Records are not affected.',
+                  confirmLabel: 'Delete',
+                  danger: true,
+                }))
+              )
+                return;
+              viewMutations.deleteView.mutate(view.id);
+              router.replace(`/w/${ws}/d/${db}`);
+            }}
+          />
         ))}
         {!readOnly && database.data && (
           <NewViewDialog

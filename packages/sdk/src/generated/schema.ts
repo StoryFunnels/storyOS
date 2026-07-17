@@ -877,6 +877,40 @@ export interface paths {
         patch: operations["ViewsController_update"];
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/databases/{db}/views/{view}/duplicate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Duplicate a view with its full config, placed next to the original */
+        post: operations["ViewsController_duplicate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/views/{view}/default": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Set this view as the database's default (one default per database) */
+        post: operations["ViewsController_setDefault"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/databases/{db}/export/csv": {
         parameters: {
             query?: never;
@@ -3764,6 +3798,46 @@ export interface operations {
         };
         responses: {
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ViewsController_duplicate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                view: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ViewsController_setDefault: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                view: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };

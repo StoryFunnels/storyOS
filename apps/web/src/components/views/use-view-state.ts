@@ -48,6 +48,8 @@ export interface ViewSummary {
   name: string;
   type: 'table' | 'board' | 'calendar' | 'gallery' | 'list' | 'feed' | 'timeline' | 'form';
   config: ViewConfig;
+  isDefault?: boolean;
+  position?: number;
 }
 
 export const EMPTY_CONFIG: ViewConfig = {
@@ -84,7 +86,9 @@ export function useViewState(
     () => (database?.views ?? []).map((v) => ({ ...v, config: normalize(v.config as Partial<ViewConfig>) }) as ViewSummary),
     [database?.views],
   );
-  const activeView = views.find((v) => v.id === viewId) ?? views[0];
+  // No explicit ?view= → open the database's default view (MN-241), else the first.
+  const activeView =
+    views.find((v) => v.id === viewId) ?? views.find((v) => v.isDefault) ?? views[0];
 
   const [draft, setDraft] = useState<ViewConfig | null>(null);
   useEffect(() => setDraft(null), [activeView?.id]);
@@ -172,6 +176,29 @@ export function useViewMutations(ws: string, db: string) {
       },
       onSuccess: invalidate,
       onError: () => toast.error('A database keeps at least one view'),
+    }),
+    duplicateView: useMutation({
+      mutationFn: async (id: string) => {
+        const { data, error } = await api.POST(
+          '/api/v1/workspaces/{ws}/databases/{db}/views/{view}/duplicate',
+          { params: { path: { ws, db, view: id } } },
+        );
+        if (error) throw error;
+        return data as unknown as { id: string };
+      },
+      onSuccess: invalidate,
+      onError: () => toast.error('Could not duplicate the view'),
+    }),
+    setDefaultView: useMutation({
+      mutationFn: async (id: string) => {
+        const { error } = await api.POST(
+          '/api/v1/workspaces/{ws}/databases/{db}/views/{view}/default',
+          { params: { path: { ws, db, view: id } } },
+        );
+        if (error) throw error;
+      },
+      onSuccess: invalidate,
+      onError: () => toast.error('Could not set the default view'),
     }),
   };
 }

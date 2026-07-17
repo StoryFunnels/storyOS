@@ -2481,6 +2481,80 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/databases/{db}/views/{view}/duplicate": {
+      "post": {
+        "operationId": "ViewsController_duplicate",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "view",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Duplicate a view with its full config, placed next to the original",
+        "tags": [
+          "views"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/views/{view}/default": {
+      "post": {
+        "operationId": "ViewsController_setDefault",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "view",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Set this view as the database's default (one default per database)",
+        "tags": [
+          "views"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/databases/{db}/export/csv": {
       "get": {
         "operationId": "ExportController_csv",

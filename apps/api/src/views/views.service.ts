@@ -207,12 +207,77 @@ export class ViewsService {
     return updated!;
   }
 
+  /** Clone a view with its full config, named "<name> copy", next to the original (MN-241). */
+  async duplicate(databaseId: string, viewId: string) {
+    const source = await this.db.query.views.findFirst({
+      where: and(eq(views.id, viewId), eq(views.databaseId, databaseId)),
+    });
+    if (!source) throw new NotFoundException('View not found');
+
+    // Place right after the source; shift later siblings down to make room.
+    const siblings = await this.db.query.views.findMany({
+      where: eq(views.databaseId, databaseId),
+      columns: { id: true, position: true },
+    });
+    const target = source.position + 1;
+    await Promise.all(
+      siblings
+        .filter((v) => v.position >= target)
+        .map((v) =>
+          this.db.update(views).set({ position: v.position + 1 }).where(eq(views.id, v.id)),
+        ),
+    );
+
+    const [copy] = await this.db
+      .insert(views)
+      .values({
+        databaseId,
+        name: `${source.name} copy`,
+        type: source.type,
+        config: source.config,
+        position: target,
+        isDefault: false, // a copy is never the default
+        createdBy: source.createdBy,
+      })
+      .returning();
+    return copy!;
+  }
+
+  /** Make a view the database's default; exactly one default per database (MN-241). */
+  async setDefault(databaseId: string, viewId: string) {
+    const view = await this.db.query.views.findFirst({
+      where: and(eq(views.id, viewId), eq(views.databaseId, databaseId)),
+    });
+    if (!view) throw new NotFoundException('View not found');
+
+    return this.db.transaction(async (tx) => {
+      await tx
+        .update(views)
+        .set({ isDefault: false })
+        .where(and(eq(views.databaseId, databaseId), eq(views.isDefault, true)));
+      const [updated] = await tx
+        .update(views)
+        .set({ isDefault: true })
+        .where(eq(views.id, viewId))
+        .returning();
+      return updated!;
+    });
+  }
+
   /** Every database keeps ≥1 view (C7). */
   async remove(databaseId: string, viewId: string) {
     const all = await this.db.query.views.findMany({ where: eq(views.databaseId, databaseId) });
-    if (!all.some((v) => v.id === viewId)) throw new NotFoundException('View not found');
+    const removed = all.find((v) => v.id === viewId);
+    if (!removed) throw new NotFoundException('View not found');
     if (all.length <= 1) throw new ConflictException('A database must keep at least one view');
     await this.db.delete(views).where(eq(views.id, viewId));
+    // Keep exactly one default: if we removed the default, promote the first remaining view.
+    if (removed.isDefault) {
+      const next = all
+        .filter((v) => v.id !== viewId)
+        .sort((a, b) => a.position - b.position)[0]!;
+      await this.db.update(views).set({ isDefault: true }).where(eq(views.id, next.id));
+    }
     return { deleted: true };
   }
 }

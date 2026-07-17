@@ -147,3 +147,69 @@ describe('views backend (MN-020)', () => {
     expect(res.statusCode).toBe(403);
   });
 });
+
+describe('view rename / duplicate / default (MN-241)', () => {
+  // Own database so earlier tests' field deletions can't affect this block.
+  let vdb: string;
+  const EMPTY = { sorts: [], hidden_field_ids: [], card_field_ids: [], column_widths: {} };
+  const views = async () =>
+    (await inject('GET', `/workspaces/${wsId}/databases/${vdb}`)).json().views as Array<{
+      id: string;
+      name: string;
+      position: number;
+      isDefault: boolean;
+      config: { hidden_field_ids?: string[] };
+    }>;
+  const addView = async (name: string) =>
+    (await inject('POST', `/workspaces/${wsId}/databases/${vdb}/views`, { name, type: 'table', config: EMPTY })).json();
+
+  beforeAll(async () => {
+    const spaceId = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
+    vdb = (await inject('POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name: 'ViewOps' })).json().id;
+  });
+
+  it('the auto-created view is the default', async () => {
+    const defaults = (await views()).filter((v) => v.isDefault);
+    expect(defaults).toHaveLength(1);
+    expect(defaults[0]!.name).toBe('All records');
+  });
+
+  it('duplicates a view with its full config, next to the original', async () => {
+    const source = await addView('Filtered');
+    const res = await inject('POST', `/workspaces/${wsId}/databases/${vdb}/views/${source.id}/duplicate`);
+    expect(res.statusCode, res.body).toBe(201);
+    const copy = res.json();
+    expect(copy.name).toBe('Filtered copy');
+    expect(copy.isDefault).toBe(false);
+    expect(copy.type).toBe('table');
+    expect(copy.position).toBe(source.position + 1);
+  });
+
+  it('sets a new default and clears the old — exactly one default', async () => {
+    const target = await addView('New default');
+    expect(target.isDefault).toBe(false);
+    const res = await inject('POST', `/workspaces/${wsId}/databases/${vdb}/views/${target.id}/default`);
+    expect(res.statusCode, res.body).toBe(201);
+
+    const defaults = (await views()).filter((v) => v.isDefault);
+    expect(defaults).toHaveLength(1);
+    expect(defaults[0]!.id).toBe(target.id);
+  });
+
+  it('promotes another view to default when the default is deleted', async () => {
+    const currentDefault = (await views()).find((v) => v.isDefault)!;
+    const del = await inject('DELETE', `/workspaces/${wsId}/databases/${vdb}/views/${currentDefault.id}`);
+    expect(del.statusCode).toBe(200);
+
+    const after = await views();
+    expect(after.some((v) => v.id === currentDefault.id)).toBe(false);
+    expect(after.filter((v) => v.isDefault)).toHaveLength(1);
+  });
+
+  it('rename goes through the existing PATCH', async () => {
+    const view = (await views())[0]!;
+    const res = await inject('PATCH', `/workspaces/${wsId}/databases/${vdb}/views/${view.id}`, { name: 'Renamed' });
+    expect(res.statusCode).toBe(200);
+    expect((await views()).find((v) => v.id === view.id)!.name).toBe('Renamed');
+  });
+});
