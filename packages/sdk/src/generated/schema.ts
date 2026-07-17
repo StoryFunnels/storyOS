@@ -2041,6 +2041,20 @@ export interface components {
                 /** @enum {string} */
                 firstDayOfWeek?: "system" | "sunday" | "monday" | "saturday";
             };
+            myWork?: {
+                [key: string]: {
+                    group_by_field_id?: string;
+                    color_by_field_id?: string;
+                    hidden_field_ids?: string[];
+                    filters?: {
+                        and: {
+                            field: string;
+                            op: string;
+                            value?: unknown;
+                        }[];
+                    };
+                };
+            };
         };
         CreateAutomationDto: {
             name: string;
