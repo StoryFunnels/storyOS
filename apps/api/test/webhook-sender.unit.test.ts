@@ -33,6 +33,41 @@ describe('signing (MN-032)', () => {
   it('does not throw on a length-mismatched signature', () => {
     expect(verifySignature(SECRET, 'x', 1, 'short')).toBe(false);
   });
+
+  /**
+   * The raw-bytes pin (the #42 lesson, applied here).
+   *
+   * A tamper test alone does NOT prove the HMAC covers the bytes it was given: a
+   * verifier that canonicalised via `JSON.stringify(JSON.parse(body))` still
+   * rejects a tampered body, because the tampered payload re-serialises to a
+   * *different* canonical form and fails anyway. Only a body that is valid JSON
+   * whose exact bytes do not survive a parse → stringify round-trip can tell the
+   * two apart.
+   *
+   * `signPayload` takes the body as a string and never re-parses it, so this is
+   * currently true by construction — this test exists to keep it that way. Both
+   * halves matter: the raw bytes must verify, AND the canonical-form signature
+   * must be rejected for those same bytes.
+   */
+  it('signs the exact bytes it is given, not a re-serialized body', () => {
+    const canonical = JSON.stringify({ zen: 'raw bytes matter' });
+    const raw = `{  "zen"  :  "raw bytes matter"  }`;
+    expect(raw).not.toBe(canonical);
+    expect(JSON.parse(raw)).toEqual(JSON.parse(canonical));
+
+    const ts = 1_700_000_000;
+    const rawSig = signPayload(SECRET, raw, ts);
+    const canonicalSig = signPayload(SECRET, canonical, ts);
+    // Sanity: the two forms genuinely digest differently, so the assertions below
+    // are not vacuously true.
+    expect(rawSig).not.toBe(canonicalSig);
+
+    // The bytes that were signed verify…
+    expect(verifySignature(SECRET, raw, ts, rawSig)).toBe(true);
+    // …and a signature over the canonical form is NOT accepted for those bytes.
+    // This flips to `true` the moment either function canonicalises.
+    expect(verifySignature(SECRET, raw, ts, canonicalSig)).toBe(false);
+  });
 });
 
 describe('backoff (MN-032)', () => {
