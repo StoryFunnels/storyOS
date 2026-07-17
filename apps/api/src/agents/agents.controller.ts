@@ -1,9 +1,27 @@
-import { Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
+import { createZodDto } from 'nestjs-zod';
+import { z } from 'zod';
 import { AuthGuard } from '../auth/auth.guard';
 import { MinRole, WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { AgentsService } from './agents.service';
+
+/** A `(database, state, agent)` binding (#211, ADR-0010 §5). */
+const createTriggerSchema = z.object({
+  /** The agent record's uuid or public number. */
+  agent: z.string().min(1),
+  database_id: z.uuid(),
+  /** The select field on that database whose options are the states. */
+  state_field_id: z.uuid(),
+  /** The option that fires the agent when a record enters it. */
+  state_option_id: z.uuid(),
+  /** A gated state never auto-fires an agent out of it — humans only. */
+  human_gate: z.boolean().optional(),
+  enabled: z.boolean().optional(),
+});
+
+class CreateAgentTriggerDto extends createZodDto(createTriggerSchema) {}
 
 /**
  * Agents system database (MN-214a, ADR-0010). Admin-only, mirroring the
@@ -25,9 +43,25 @@ export class AgentsController {
   }
 
   @Post('ensure')
-  @ApiOperation({ summary: 'Provision the Agentic OS space + Agents/Runs databases (idempotent)' })
+  @ApiOperation({
+    summary: 'Provision the Agentic OS space + Agents/Runs/Agent Triggers databases (idempotent)',
+  })
   ensure(@Req() req: WorkspaceRequest) {
     return this.agents.ensurePack(req.membership);
+  }
+
+  /**
+   * Create a state-transition binding (#211, ADR-0010 §5).
+   *
+   * The only bespoke write on the Agent Triggers database, and only because the
+   * binding's ids need validating against live schema (422 if the state field
+   * isn't a select, or the option isn't its own). Listing, editing and removing
+   * bindings go through the normal records API on that database.
+   */
+  @Post('triggers')
+  @ApiOperation({ summary: 'Bind an agent to a state on a database; returns the binding record' })
+  createTrigger(@Req() req: WorkspaceRequest, @Body() body: CreateAgentTriggerDto) {
+    return this.agents.createBinding(req.membership, body);
   }
 
   /**
