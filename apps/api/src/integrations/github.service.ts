@@ -32,7 +32,72 @@ interface GithubPull {
   draft?: boolean;
 }
 
+/**
+ * Which PR event moves the linked record where. Values are state-option
+ * **labels** (not ids): a label survives a workspace re-provisioning the option,
+ * and it is what an admin actually types. An explicit `null` means "this event
+ * moves nothing" — that is how you switch a default off (see DEFAULT_STATE_AUTOMATION).
+ */
+export interface GithubStateAutomation {
+  opened?: string | null;
+  reopened?: string | null;
+  review_requested?: string | null;
+  review_approved?: string | null;
+  review_changes_requested?: string | null;
+  merged?: string | null;
+  closed?: string | null;
+  pushed?: string | null;
+}
+
+/** AC 4's defaults — opened → In Progress, review_requested → In Review, merged → Done. */
+export const DEFAULT_STATE_AUTOMATION: GithubStateAutomation = {
+  opened: 'In Progress',
+  reopened: 'In Progress',
+  review_requested: 'In Review',
+  review_approved: null,
+  review_changes_requested: null,
+  merged: 'Done',
+  // A PR closed *without* merging is an abandoned attempt, not a finished one —
+  // moving the record anywhere on it would be a guess, so it defaults to off.
+  closed: null,
+  pushed: null,
+};
+
+export interface GithubConfig {
+  /** PAT. Optional: only the checks lookup (AC 3) needs it — the webhook does not. */
+  token?: string;
+  repos?: string[];
+  /** HMAC-SHA256 key for `x-hub-signature-256` on inbound deliveries (#42). Write-only. */
+  webhook_secret?: string;
+  /**
+   * The identity webhook-driven writes act as. There is no caller on an inbound
+   * delivery, so writes are attributed to the admin who configured the hook —
+   * never to a synthetic superuser.
+   */
+  webhook_actor_id?: string;
+  /** Which database `story-<n>` branch numbers resolve against (numbers are per-database). */
+  link_database_id?: string;
+  state_automation?: GithubStateAutomation;
+}
+
 export type GithubFetcher = (path: string, token: string) => Promise<unknown>;
+
+/**
+ * AC 3's "+ checks". `Unknown` is a first-class value, not a gap: without a PAT
+ * there is no checks endpoint to ask, and saying so beats an empty cell that
+ * reads as "no checks ran".
+ */
+const CHECKS_FIELD: Parameters<FieldsService['create']>[1] = {
+  display_name: 'Checks',
+  type: 'select',
+  config: {},
+  options: [
+    { label: 'Success', color: 'green' },
+    { label: 'Pending', color: 'yellow' },
+    { label: 'Failure', color: 'red' },
+    { label: 'Unknown', color: 'gray' },
+  ],
+};
 
 const defaultFetcher: GithubFetcher = async (path, token) => {
   const res = await fetch(`https://api.github.com${path}`, {
@@ -68,36 +133,79 @@ export class GithubService {
     private readonly relationsService: RelationsService,
   ) {}
 
-  async saveConfig(workspaceId: string, config: { token?: string; repos?: string[] }) {
+  /** The full config, secrets included. Server-side only — never hand this to a client. */
+  async readConfig(workspaceId: string): Promise<GithubConfig> {
+    const ws = await this.db.query.workspaces.findFirst({ where: eq(workspaces.id, workspaceId) });
+    return (((ws?.settings ?? {}) as Record<string, unknown>).github as GithubConfig | undefined) ?? {};
+  }
+
+  async saveConfig(
+    workspaceId: string,
+    config: {
+      token?: string;
+      repos?: string[];
+      webhook_secret?: string;
+      link_database_id?: string;
+      state_automation?: GithubStateAutomation;
+    },
+    actorId?: string,
+  ) {
     const ws = await this.db.query.workspaces.findFirst({ where: eq(workspaces.id, workspaceId) });
     const settings = (ws?.settings ?? {}) as Record<string, unknown>;
-    const existing = (settings.github as { token?: string; repos?: string[] }) ?? {};
-    const github = {
+    const existing = (settings.github as GithubConfig) ?? {};
+    const github: GithubConfig = {
       token: config.token !== undefined ? config.token : existing.token,
       repos: config.repos !== undefined ? config.repos : (existing.repos ?? []),
+      webhook_secret:
+        config.webhook_secret !== undefined ? config.webhook_secret : existing.webhook_secret,
+      // Whoever set the secret owns what the hook does with it, so the actor
+      // follows the secret. Existing actor is kept when the secret isn't touched.
+      webhook_actor_id:
+        config.webhook_secret !== undefined && actorId ? actorId : existing.webhook_actor_id,
+      link_database_id:
+        config.link_database_id !== undefined ? config.link_database_id : existing.link_database_id,
+      state_automation:
+        config.state_automation !== undefined ? config.state_automation : existing.state_automation,
     };
     await this.db
       .update(workspaces)
       .set({ settings: { ...settings, github } })
       .where(eq(workspaces.id, workspaceId));
-    return { repos: github.repos, has_token: Boolean(github.token) };
+    return this.present(github);
   }
 
   async getConfig(workspaceId: string) {
-    const ws = await this.db.query.workspaces.findFirst({ where: eq(workspaces.id, workspaceId) });
-    const github = ((ws?.settings ?? {}) as Record<string, unknown>).github as
-      | { token?: string; repos?: string[] }
-      | undefined;
-    return { repos: github?.repos ?? [], has_token: Boolean(github?.token) };
+    return this.present(await this.readConfig(workspaceId));
   }
 
-  private async ensurePack(membership: Membership) {
+  /**
+   * Client-safe view (AC 6). The token and the webhook secret are write-only:
+   * they are reported as presence booleans and never as values. Anything that
+   * ever grows a new secret here must go through `redactSecrets` naming too —
+   * the workspace `settings` blob is served by WorkspacesService, which redacts.
+   */
+  private present(github: GithubConfig) {
+    return {
+      repos: github.repos ?? [],
+      has_token: Boolean(github.token),
+      has_webhook_secret: Boolean(github.webhook_secret),
+      link_database_id: github.link_database_id ?? null,
+      state_automation: { ...DEFAULT_STATE_AUTOMATION, ...(github.state_automation ?? {}) },
+    };
+  }
+
+  async ensurePack(membership: Membership) {
     const all = await this.db.query.databases.findMany({
       where: eq(databasesTable.workspaceId, membership.workspaceId),
     });
     let issuesDb = all.find((d) => d.name === 'GitHub Issues');
     let pullsDb = all.find((d) => d.name === 'GitHub Pull Requests');
-    if (issuesDb && pullsDb) return { issuesDb, pullsDb, created: false };
+    if (issuesDb && pullsDb) {
+      // A pack provisioned before #42 predates the Checks field — grow it in
+      // place rather than making the webhook a second, divergent provisioner.
+      await this.ensureField(pullsDb.id, 'checks', CHECKS_FIELD);
+      return { issuesDb, pullsDb, created: false };
+    }
 
     const space = await this.spaces.create(membership.workspaceId, { name: 'GitHub', icon: '🐙' });
     issuesDb = (await this.databasesService.create(membership, {
@@ -127,6 +235,7 @@ export class GithubService {
       { display_name: 'Branch', type: 'text', config: {} },
       { display_name: 'Author (login)', type: 'text', config: {} },
       { display_name: 'URL', type: 'url', config: {} },
+      CHECKS_FIELD,
     ];
     for (const f of pullFields) await this.fields.create(pullsDb!.id, f);
 
@@ -140,7 +249,35 @@ export class GithubService {
     return { issuesDb: issuesDb!, pullsDb: pullsDb!, created: true };
   }
 
-  private async upsert(
+  /** Add a field to a pack database if it isn't there yet, found by api_name. */
+  private async ensureField(
+    databaseId: string,
+    apiName: string,
+    spec: Parameters<FieldsService['create']>[1],
+  ): Promise<void> {
+    const existing = await this.db.query.fields.findFirst({
+      where: and(eq(fieldsTable.databaseId, databaseId), eq(fieldsTable.apiName, apiName)),
+    });
+    if (!existing) await this.fields.create(databaseId, spec);
+  }
+
+  /** label → option id for a select field, for writing values. */
+  async optionIdsByLabel(databaseId: string, apiName: string): Promise<Map<string, string>> {
+    const field = await this.db.query.fields.findFirst({
+      where: and(eq(fieldsTable.databaseId, databaseId), eq(fieldsTable.apiName, apiName)),
+    });
+    const options = field
+      ? await this.db.query.selectOptions.findMany({ where: eq(selectOptions.fieldId, field.id) })
+      : [];
+    return new Map(options.map((o) => [o.label, o.id]));
+  }
+
+  /**
+   * Find-or-create a record keyed by (repo, number) — the identity GitHub gives
+   * us. Public because the webhook (#42) upserts the *same* PR rows this
+   * importer does: two writers, one row per PR, no duplicates either way.
+   */
+  async upsert(
     membership: Membership,
     databaseId: string,
     repo: string,

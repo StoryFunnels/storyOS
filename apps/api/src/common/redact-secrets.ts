@@ -25,6 +25,9 @@ const SECRET_KEYS = new Set([
   // Signs button webhooks (MN-088); lives in settings, so it needs naming here —
   // "secret" alone doesn't match once it's prefixed.
   'webhooksigningsecret',
+  // Verifies inbound GitHub deliveries (#42) — same story: prefixed, so it needs
+  // its own entry. Anyone holding it can forge a delivery that moves records.
+  'webhooksecret',
 ]);
 
 const REDACTED = '[redacted]';
