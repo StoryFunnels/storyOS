@@ -8,6 +8,8 @@ import { RelationsModule } from '../relations/relations.module';
 import { WorkspacesModule } from '../workspaces/workspaces.module';
 import { AgentsController } from './agents.controller';
 import { AgentsService } from './agents.service';
+import { ArchitectController } from './architect.controller';
+import { ArchitectService } from './architect.service';
 import { AgentTriggerSubscriber } from './trigger.subscriber';
 
 /**
@@ -24,6 +26,11 @@ import { AgentTriggerSubscriber } from './trigger.subscriber';
  * own: an approved action applies through AutomationsModule's shared action
  * service, and the owner is asked through the Inbox (#38). Staging is the only
  * new mechanism — the rest is plumbing that already exists.
+ *
+ * The Architect (#213/#214, ADR-0010 §6) adds no provider beyond itself and no
+ * imports at all: it is a *client* of the very same services listed above —
+ * "it needs no engine privilege the CRUD API does not already expose" — which is
+ * why it lives here rather than in a module of its own.
  */
 @Module({
   imports: [
@@ -35,8 +42,8 @@ import { AgentTriggerSubscriber } from './trigger.subscriber';
     RelationsModule,
     WorkspacesModule,
   ],
-  controllers: [AgentsController],
-  providers: [AgentsService, AgentTriggerSubscriber],
-  exports: [AgentsService],
+  controllers: [AgentsController, ArchitectController],
+  providers: [AgentsService, ArchitectService, AgentTriggerSubscriber],
+  exports: [AgentsService, ArchitectService],
 })
 export class AgentsModule {}
