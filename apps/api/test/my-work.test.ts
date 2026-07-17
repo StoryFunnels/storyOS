@@ -14,6 +14,8 @@ let ws: string;
 let db: string;
 let stateApi: string;
 let assigneeApi: string;
+/** The option the seeded record is actually set to — the only value `state` may hold. */
+let toDoOptionId: string;
 
 async function inject(method: string, url: string, payload?: unknown, token?: string) {
   return app.inject({
@@ -41,6 +43,7 @@ beforeAll(async () => {
   ).json();
   stateApi = stateField.apiName;
   const toDo = stateField.options.find((o: { label: string }) => o.label === 'To Do').id;
+  toDoOptionId = toDo;
   assigneeApi = (
     await inject('POST', `/workspaces/${ws}/databases/${db}/fields`, { display_name: 'Assignee', type: 'user' })
   ).json().apiName;
@@ -70,7 +73,10 @@ describe('My Work dense data (MN-072)', () => {
     // Per-record projected values — status + assignee, not just the title.
     const rec = group.records[0];
     expect(rec.title).toBe('My task');
-    expect(rec.values[stateApi]).toBeTruthy();
+    // The file's premise is "projected VALUES, not just the title". `toBeTruthy()`
+    // passed for the wrong option id, for `true`, or for a label instead of an id —
+    // every bug this line exists to catch. The seeded record is To Do; say so.
+    expect(rec.values[stateApi], 'the projected select value must be the To Do option id').toBe(toDoOptionId);
     expect(rec.values[assigneeApi]).toBe(ownerId);
   });
 });

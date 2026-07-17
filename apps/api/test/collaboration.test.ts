@@ -12,6 +12,8 @@ let memberId: string;
 let wsId: string;
 let dbId: string;
 let recId: string;
+/** The record created *through the PAT* — the one whose activity carries the actor claim. */
+let patRecId: string;
 let stateField: { id: string; apiName: string; options: Array<{ id: string; label: string }> };
 
 const H = (t: string) => authed(t);
@@ -76,6 +78,29 @@ describe('comments (MN-026)', () => {
     });
     expect(res.statusCode, res.body).toBe(201);
     commentId = res.json().id;
+
+    /**
+     * The test is named for the mention, and used to assert only the 201: a server
+     * that dropped every mention segment on the floor passed it. The extraction is
+     * the behaviour — pin the stored body and the resolved mention.
+     */
+    const body = res.json().body as Array<{ type: string; user_id?: string }>;
+    const mention = body.find((seg) => seg.type === 'mention');
+    expect(mention, 'the mention segment must survive the round trip').toBeTruthy();
+    expect(mention!.user_id, 'and must still point at the mentioned user').toBe(adminId);
+
+    // What the extraction is FOR: the mentioned user hears about it. The response
+    // does not echo the derived list, so the notification is the observable.
+    const notifs = await inject('GET', `/workspaces/${wsId}/notifications`, admin.token);
+    expect(notifs.statusCode).toBe(200);
+    const list = notifs.json().data as Array<{
+      type: string;
+      record: { id: string };
+      actor: { id: string };
+    }>;
+    const hit = list.find((n) => n.type === 'mentioned' && n.record.id === recId);
+    expect(hit, 'the @mentioned admin must be notified about THIS record').toBeTruthy();
+    expect(hit!.actor.id, 'attributed to the commenter').toBe(memberId);
   });
 
   it('guests can read and comment (the one guest write)', async () => {
@@ -166,6 +191,7 @@ describe('personal access tokens (MN-028)', () => {
       payload: { values: { name: 'Created by PAT' } },
     });
     expect(records.statusCode, records.body).toBe(201);
+    patRecId = records.json().id;
 
     // Member role — settings endpoints stay closed.
     const invites = await app.inject({
@@ -176,16 +202,34 @@ describe('personal access tokens (MN-028)', () => {
     expect(invites.statusCode).toBe(403);
   });
 
+  /**
+   * This used to fetch the activity of `recId` — a record the PAT never touched —
+   * assert only its 200, and then check `/me`. Nothing looked at an actor, so a
+   * PAT write recorded against a null or system actor passed. The record the PAT
+   * actually created is the one whose trail carries the claim.
+   */
   it('activity from a PAT resolves to the owning user', async () => {
-    const res = await inject('GET', `/workspaces/${wsId}/databases/${dbId}/records/${recId}/activity`, admin.token);
-    expect(res.statusCode).toBe(200);
-    // creator identity flows through — spot-check /me with the PAT
+    const res = await inject(
+      'GET',
+      `/workspaces/${wsId}/databases/${dbId}/records/${patRecId}/activity`,
+      admin.token,
+    );
+    expect(res.statusCode, res.body).toBe(200);
+
+    const created = (res.json().data as Array<{ type: string; actor?: { id: string; name: string } | null }>).find(
+      (e) => e.type === 'record.created',
+    );
+    expect(created, 'the PAT write must leave a record.created event').toBeTruthy();
+    expect(created!.actor?.id, 'a PAT acts AS its owner — not as nobody, not as the token').toBe(memberId);
+
+    // …and the owner is the member, not the admin who reads the trail.
     const me = await app.inject({
       method: 'GET',
       url: '/api/v1/me',
       headers: { authorization: `Bearer ${patPlaintext}` },
     });
     expect(me.json().id).toBe(memberId);
+    expect(created!.actor?.id).not.toBe(adminId);
   });
 
   it('revocation is immediate', async () => {

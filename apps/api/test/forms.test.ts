@@ -85,7 +85,27 @@ describe('public forms (MN-101)', () => {
     // The owner sees the new record; it has no author (anonymous).
     const list = await as('POST', `/workspaces/${wsId}/databases/${dbId}/records/query`, { limit: 50 });
     const rows = list.json().data as Array<{ values: Record<string, unknown>; created_by?: string | null }>;
-    expect(rows.some((r) => r.values.message === 'Hello from the outside')).toBe(true);
+    const row = rows.find((r) => r.values.message === 'Hello from the outside');
+    expect(row, 'the anonymous submit must have created a record').toBeTruthy();
+
+    /**
+     * The half this test used to only claim in a comment: `created_by` was typed
+     * on the row and never asserted, so attributing a public submit to the form's
+     * owner — someone who never made it — passed. A stranger on the internet must
+     * not be stamped as a member of this workspace.
+     */
+    expect(row!.created_by ?? null, 'an anonymous submit must have no author').toBeNull();
+  });
+
+  it('an authenticated create DOES get stamped — the control for the line above', async () => {
+    // Without this, `created_by == null` cannot tell "correctly anonymous" from
+    // "created_by is never populated by anything".
+    const mine = await as('POST', `/workspaces/${wsId}/databases/${dbId}/records`, {
+      values: { name: 'Owner', message: 'made while signed in' },
+    });
+    expect(mine.statusCode, mine.body).toBe(201);
+    const meId = (await as('GET', '/me')).json().id;
+    expect(mine.json().created_by, 'a signed-in create must carry its author').toBe(meId);
   });
 
   it('enforces the form required flags (422)', async () => {

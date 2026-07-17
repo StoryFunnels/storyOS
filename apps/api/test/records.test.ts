@@ -11,6 +11,7 @@ let admin: { token: string; email: string };
 let wsId: string;
 let dbId: string;
 let stateFieldOptions: Array<{ id: string; label: string }>;
+let adminUserId: string;
 const { db, pool } = connectTestDb();
 
 const base = () => `/api/v1/workspaces/${wsId}/databases/${dbId}/records`;
@@ -18,6 +19,9 @@ const base = () => `/api/v1/workspaces/${wsId}/databases/${dbId}/records`;
 beforeAll(async () => {
   app = await createTestApp();
   admin = await signUpUser(app, 'Recorder');
+  adminUserId = (
+    await app.inject({ method: 'GET', url: '/api/v1/me', headers: authed(admin.token) })
+  ).json().id;
   const ws = await app.inject({
     method: 'POST',
     url: '/api/v1/workspaces',
@@ -80,7 +84,10 @@ describe('records CRUD (MN-011)', () => {
     recId = rec.id;
     expect(rec.title).toBe('Ship v1');
     expect(rec.values).toEqual({ state: stateFieldOptions[0]!.id, estimate: 8 });
-    expect(rec.created_by).toBeTruthy();
+    // "Stamps created_by" means stamps it with the CALLER. `toBeTruthy()` passed
+    // for any non-empty value — including another user's id or a system constant,
+    // which is the only bug this line exists to catch.
+    expect(rec.created_by, 'the author must be the caller, not merely present').toBe(adminUserId);
     expect(rec.position).toBeTruthy();
   });
 

@@ -33,6 +33,13 @@ beforeAll(async () => {
   const spaceId = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
   dbId = (await inject('POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name: 'Tasks' })).json().id;
 
+  // The non-admin has to actually BE in the workspace, or "rejects a non-admin"
+  // only ever proves that strangers get a 404 — see the test below.
+  const invite = await inject('POST', `/workspaces/${wsId}/invites`, { email: member.email, role: 'member' });
+  const inviteToken = new URL(invite.json().accept_url).searchParams.get('token')!;
+  const accepted = await inject('POST', '/invites/accept', { token: inviteToken }, member.token);
+  if (accepted.statusCode >= 300) throw new Error(`member invite failed: ${accepted.body}`);
+
   webhooks = app.get(WebhooksService);
   // example.com is public, so assertPublicHost resolves it — but nothing leaves
   // the process: the fetcher is swapped for a recorder.
@@ -62,14 +69,33 @@ describe('webhook subscriptions (MN-032)', () => {
     await inject('DELETE', `/workspaces/${wsId}/webhooks/${created.json().id}`);
   });
 
+  /**
+   * A webhook holds a signing secret and makes the server send record data
+   * outbound, so `@MinRole('admin')` is the thing under test — not workspace
+   * scoping. This used to accept `[403, 404]` from a user who had never been
+   * invited: the 404 came from the scoping guard, the admin guard never ran, and
+   * downgrading the controller to `@MinRole('member')` left the file green.
+   * The member is now really a member, so only the admin guard can produce a 403.
+   */
   it('rejects a non-admin', async () => {
-    const res = await inject(
+    const create = await inject(
       'POST',
       `/workspaces/${wsId}/webhooks`,
       { url: 'https://example.com/hook', events: ['record.created'] },
       member.token,
     );
-    expect([403, 404]).toContain(res.statusCode);
+    expect(create.statusCode, `a member must be refused, not 404'd: ${create.body}`).toBe(403);
+
+    // Reading the list leaks which endpoints a workspace calls — admin-only too.
+    const list = await inject('GET', `/workspaces/${wsId}/webhooks`, undefined, member.token);
+    expect(list.statusCode, `listing must be admin-only: ${list.body}`).toBe(403);
+  });
+
+  it('the member IS in the workspace — otherwise the test above proves nothing', async () => {
+    // The positive control for the 403s: this member reaches ordinary member
+    // routes in this exact workspace, so the refusals above are about the admin
+    // rung, not about membership.
+    expect((await inject('GET', `/workspaces/${wsId}/databases`, undefined, member.token)).statusCode).toBe(200);
   });
 
   it('rejects http, loopback and private hosts (SSRF)', async () => {

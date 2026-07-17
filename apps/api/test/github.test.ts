@@ -62,11 +62,31 @@ describe('GitHub integration v1 (MN-065)', () => {
     const dbs = (await inject('GET', `/workspaces/${wsId}/databases`)).json();
     const pullsDb = dbs.find((d: { name: string }) => d.name === 'GitHub Pull Requests');
     const list = (await inject('GET', `/workspaces/${wsId}/databases/${pullsDb.id}/records?limit=50`)).json();
+    /**
+     * PR state is a four-way map (`merged_at ? Merged : draft ? Draft : open ?
+     * Open : Closed`). `expect(pr10.values.state).toBeTruthy()` passed for every
+     * branch of it — including the one that matters: PR 11 is `state: 'closed'`
+     * WITH `merged_at` set, so a mapping that ignored `merged_at` and filed it as
+     * Closed was indistinguishable from a correct one. Resolve the option ids and
+     * name the expected label, the way the issues test below already does.
+     */
+    const pullDetail = (await inject('GET', `/workspaces/${wsId}/databases/${pullsDb.id}`)).json();
+    const pullState = pullDetail.fields.find((f: { apiName: string }) => f.apiName === 'state');
+    const optionId = (label: string) => {
+      const found = pullState.options.find((o: { label: string }) => o.label === label);
+      expect(found, `the State field must offer "${label}"`).toBeTruthy();
+      return found.id;
+    };
+
     const pr10 = list.data.find((r: { title: string }) => r.title.includes('Fix overflow'));
-    expect(pr10.values.state).toBeTruthy();
+    expect(pr10.values.state, 'open + not merged → Open').toBe(optionId('Open'));
     expect(pr10.values.closes_issues?.[0]?.title).toBe('Fix header overflow');
+
     const pr11 = list.data.find((r: { title: string }) => r.title.includes('Refactor'));
     expect(pr11.values.branch).toBe('chore/styles');
+    // The load-bearing one: closed BUT merged is Merged, not Closed.
+    expect(pr11.values.state, 'closed + merged_at → Merged, not Closed').toBe(optionId('Merged'));
+    expect(pr11.values.state).not.toBe(optionId('Closed'));
   });
 
   it('re-sync is idempotent and picks up state changes', async () => {
