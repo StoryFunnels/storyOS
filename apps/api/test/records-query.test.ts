@@ -155,7 +155,7 @@ describe('records query engine (MN-012)', () => {
     expect(await titles({ filter: { field: 'assignee', op: 'has', value: ['me'] } })).toEqual(['Beta']);
   });
 
-  it('and/or nesting', async () => {
+  it('and/or nesting: OR of a scalar condition and an AND group', async () => {
     const result = await titles({
       filter: {
         or: [
@@ -170,6 +170,42 @@ describe('records query engine (MN-012)', () => {
       },
     });
     expect(result.sort()).toEqual(['Delta', 'Gamma']);
+  });
+
+  /**
+   * MN-258: this is the load-bearing correctness claim of the whole ticket —
+   * `A AND (B OR C)` must NOT compile to the flat `A AND B OR C`. These two are
+   * NOT equivalent in SQL: `AND` binds tighter than `OR`, so a flat/unparenthesized
+   * `A AND B OR C` parses as `(A AND B) OR C`, which admits any row matching C
+   * regardless of A. `compileFilter`'s `joinNodes` wraps every and/or group in its
+   * own parens (query-compiler.ts) specifically to prevent this — but the ABOVE
+   * "and/or nesting" test (`OR of a condition and an AND group`) does not actually
+   * prove that: `A OR (B AND C)` and the flat `A OR B AND C` compile to the SAME
+   * result under normal SQL precedence (AND already binds tighter than OR), so that
+   * test would keep passing even with the parens removed entirely — confirmed by
+   * temporarily stripping `joinNodes`'s parens and re-running it (still green).
+   * THIS test uses the opposite nesting — `A AND (B OR C)` — which precedence does
+   * NOT rescue, so it fails loudly if parenthesization ever regresses:
+   *   correct   A AND (B OR C):  state=Doing AND (tags has urgent OR estimate=13)
+   *             → {Beta, Gamma} (both have the urgent tag; Delta isn't state=Doing)
+   *   mis-parenthesized (A AND B) OR C: adds Delta (estimate=13) regardless of state
+   */
+  it('and/or nesting: AND of a scalar condition and an OR group is NOT the same as a flat AND/OR chain', async () => {
+    const result = await titles({
+      filter: {
+        and: [
+          { field: 'state', op: 'has', value: [opts['Doing']] },
+          {
+            or: [
+              { field: 'tags', op: 'has', value: [opts['urgent']] },
+              { field: 'estimate', op: 'eq', value: 13 }, // only Delta — NOT state=Doing
+            ],
+          },
+        ],
+      },
+    });
+    expect(result.sort()).toEqual(['Beta', 'Gamma']);
+    expect(result).not.toContain('Delta'); // the flat/mis-parenthesized reading would wrongly include it
   });
 
   it('multi-key sort with NULLS LAST', async () => {
