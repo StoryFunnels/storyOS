@@ -620,6 +620,186 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/billing": {
+      "get": {
+        "operationId": "BillingController_status",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Plan, status, usage vs limits, and whether billing is configured",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/billing/checkout": {
+      "post": {
+        "operationId": "BillingController_checkout",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckoutDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Create a Stripe Checkout session for a plan; returns a redirect URL",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/billing/portal": {
+      "post": {
+        "operationId": "BillingController_portal",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Create a Stripe Customer Portal session; returns a redirect URL",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/billing/trial": {
+      "post": {
+        "operationId": "BillingController_startTrial",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Start the 30-day Pro trial (no card, no Stripe subscription yet)",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/api/v1/billing/webhook": {
+      "post": {
+        "operationId": "BillingWebhookController_receive",
+        "parameters": [
+          {
+            "name": "stripe-signature",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Stripe webhook receiver — signature-verified, unauthenticated by design",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/grants": {
+      "get": {
+        "operationId": "GrantsController_list",
+        "parameters": [
+          {
+            "name": "user_id",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List access grants (optionally for one user)",
+        "tags": [
+          "access"
+        ]
+      },
+      "post": {
+        "operationId": "GrantsController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateGrantDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Grant a role on a space or database (upserts per scope)",
+        "tags": [
+          "access"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/grants/{grant}": {
+      "delete": {
+        "operationId": "GrantsController_remove",
+        "parameters": [
+          {
+            "name": "grant",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Revoke a grant",
+        "tags": [
+          "access"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/databases": {
       "get": {
         "operationId": "DatabasesController_list",
@@ -1755,92 +1935,6 @@
         "summary": "Records whose document mentions this one (\"Mentioned in\") — MN-205",
         "tags": [
           "mentions"
-        ]
-      }
-    },
-    "/api/v1/workspaces/{ws}/grants": {
-      "get": {
-        "operationId": "GrantsController_list",
-        "parameters": [
-          {
-            "name": "user_id",
-            "required": true,
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "List access grants (optionally for one user)",
-        "tags": [
-          "access"
-        ]
-      },
-      "post": {
-        "operationId": "GrantsController_create",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateGrantDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Grant a role on a space or database (upserts per scope)",
-        "tags": [
-          "access"
-        ]
-      }
-    },
-    "/api/v1/workspaces/{ws}/grants/{grant}": {
-      "delete": {
-        "operationId": "GrantsController_remove",
-        "parameters": [
-          {
-            "name": "grant",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Revoke a grant",
-        "tags": [
-          "access"
         ]
       }
     },
@@ -4238,100 +4332,6 @@
         ]
       }
     },
-    "/api/v1/workspaces/{ws}/billing": {
-      "get": {
-        "operationId": "BillingController_status",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "summary": "Plan, status, usage vs limits, and whether billing is configured",
-        "tags": [
-          "billing"
-        ]
-      }
-    },
-    "/api/v1/workspaces/{ws}/billing/checkout": {
-      "post": {
-        "operationId": "BillingController_checkout",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CheckoutDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "summary": "Create a Stripe Checkout session for a plan; returns a redirect URL",
-        "tags": [
-          "billing"
-        ]
-      }
-    },
-    "/api/v1/workspaces/{ws}/billing/portal": {
-      "post": {
-        "operationId": "BillingController_portal",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "summary": "Create a Stripe Customer Portal session; returns a redirect URL",
-        "tags": [
-          "billing"
-        ]
-      }
-    },
-    "/api/v1/workspaces/{ws}/billing/trial": {
-      "post": {
-        "operationId": "BillingController_startTrial",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "summary": "Start the 30-day Pro trial (no card, no Stripe subscription yet)",
-        "tags": [
-          "billing"
-        ]
-      }
-    },
-    "/api/v1/billing/webhook": {
-      "post": {
-        "operationId": "BillingWebhookController_receive",
-        "parameters": [
-          {
-            "name": "stripe-signature",
-            "required": true,
-            "in": "header",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "summary": "Stripe webhook receiver — signature-verified, unauthenticated by design",
-        "tags": [
-          "billing"
-        ]
-      }
-    },
     "/api/v1/workspaces/{ws}/agents": {
       "get": {
         "operationId": "AgentsController_getPack",
@@ -5056,6 +5056,54 @@
           }
         }
       },
+      "CheckoutDto": {
+        "type": "object",
+        "properties": {
+          "plan": {
+            "type": "string",
+            "enum": [
+              "pro",
+              "business"
+            ]
+          }
+        },
+        "required": [
+          "plan"
+        ]
+      },
+      "CreateGrantDto": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "space_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "database_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "viewer",
+              "commenter",
+              "contributor",
+              "editor",
+              "creator"
+            ]
+          }
+        },
+        "required": [
+          "user_id",
+          "role"
+        ]
+      },
       "CreateDatabaseDto": {
         "type": "object",
         "properties": {
@@ -5540,39 +5588,6 @@
             "additionalProperties": {}
           }
         }
-      },
-      "CreateGrantDto": {
-        "type": "object",
-        "properties": {
-          "user_id": {
-            "type": "string",
-            "minLength": 1
-          },
-          "space_id": {
-            "type": "string",
-            "format": "uuid",
-            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-          },
-          "database_id": {
-            "type": "string",
-            "format": "uuid",
-            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-          },
-          "role": {
-            "type": "string",
-            "enum": [
-              "viewer",
-              "commenter",
-              "contributor",
-              "editor",
-              "creator"
-            ]
-          }
-        },
-        "required": [
-          "user_id",
-          "role"
-        ]
       },
       "CreateRelationDto": {
         "type": "object",
@@ -7274,21 +7289,6 @@
             "format": "uri"
           }
         }
-      },
-      "CheckoutDto": {
-        "type": "object",
-        "properties": {
-          "plan": {
-            "type": "string",
-            "enum": [
-              "pro",
-              "business"
-            ]
-          }
-        },
-        "required": [
-          "plan"
-        ]
       },
       "CreateAgentTriggerDto": {
         "type": "object",

@@ -29,7 +29,7 @@ function currentPeriodStart(): Date {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
 }
 
-export type Capability = 'automation_run';
+export type Capability = 'automation_run' | 'add_seat';
 
 /**
  * MN-168 — the single entitlements read path the rest of the app calls.
@@ -80,8 +80,9 @@ export class EntitlementsService {
   }
 
   /**
-   * Capability check — the one thing automations/agents dispatch calls before
-   * running. Self-host short-circuits to true before any query.
+   * Capability check — the one thing automations/agents dispatch (and now
+   * MN-190's invite/role-change paths) call before acting. Self-host
+   * short-circuits to true before any query.
    */
   async can(workspaceId: string, capability: Capability): Promise<boolean> {
     if (!this.stripe.enabled) return true;
@@ -91,6 +92,17 @@ export class EntitlementsService {
         this.getUsage(workspaceId),
       ]);
       return usage.automationRunsThisMonth < limits.automationRunsPerMonth;
+    }
+    if (capability === 'add_seat') {
+      // MN-190: Free has no seat-overage price — it is the only real ceiling.
+      // Pro/Business always allow another seat; it just bills $12/mo more.
+      const status = await this.billing.getStatus(workspaceId);
+      if (status.plan !== 'free') return true;
+      const [limits, usage] = await Promise.all([
+        this.getLimits(workspaceId),
+        this.getUsage(workspaceId),
+      ]);
+      return usage.billableSeats < limits.includedSeats;
     }
     return true;
   }

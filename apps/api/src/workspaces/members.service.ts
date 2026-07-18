@@ -1,5 +1,7 @@
 import {
   ConflictException,
+  HttpException,
+  HttpStatus,
   Inject,
   Injectable,
   NotFoundException,
@@ -9,10 +11,19 @@ import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { memberships, user } from '../db/schema';
 import type { MembershipRole } from '@storyos/schemas';
+import { BillingService } from '../billing/billing.service';
+import { EntitlementsService } from '../billing/entitlements.service';
+
+/** admin/member are always billable; guest never is via role alone (grants decide — MN-121). */
+const BILLABLE_ROLES: MembershipRole[] = ['admin', 'member'];
 
 @Injectable()
 export class MembersService {
-  constructor(@Inject(DB) private readonly db: Db) {}
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    private readonly billing: BillingService,
+    private readonly entitlements: EntitlementsService,
+  ) {}
 
   async list(workspaceId: string) {
     const rows = await this.db.query.memberships.findMany({
@@ -66,11 +77,28 @@ export class MembersService {
       await this.assertNotLastAdmin(workspaceId, membershipId);
     }
 
+    // MN-190: a guest promoted to member/admin newly consumes a seat. A
+    // demotion (member/admin -> guest) never needs the check — it can only
+    // free a seat, not claim one — and role changes within the billable set
+    // (admin <-> member) don't change the count either.
+    const becomingBillable =
+      patch.role && !BILLABLE_ROLES.includes(target.role) && BILLABLE_ROLES.includes(patch.role);
+    if (becomingBillable && !(await this.entitlements.can(workspaceId, 'add_seat'))) {
+      throw new HttpException(
+        'Free plan is limited to 2 members — upgrade to Pro to promote another one.',
+        HttpStatus.PAYMENT_REQUIRED,
+      );
+    }
+
     const [updated] = await this.db
       .update(memberships)
       .set({ role: patch.role ?? target.role })
       .where(eq(memberships.id, membershipId))
       .returning();
+
+    if (patch.role && patch.role !== target.role) {
+      await this.billing.syncSeatQuantity(workspaceId).catch(() => undefined);
+    }
     return updated!;
   }
 
@@ -82,6 +110,9 @@ export class MembersService {
     if (target.role === 'admin') await this.assertNotLastAdmin(workspaceId, membershipId);
 
     await this.db.delete(memberships).where(eq(memberships.id, membershipId));
+    if (BILLABLE_ROLES.includes(target.role)) {
+      await this.billing.syncSeatQuantity(workspaceId).catch(() => undefined);
+    }
     return { deleted: true };
   }
 }
