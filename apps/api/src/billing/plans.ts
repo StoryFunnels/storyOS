@@ -28,6 +28,17 @@ export interface PlanDef {
 export const SEAT_PRICE_USD = 12;
 export const SEAT_LOOKUP_KEY = 'storyos_seat_v1';
 
+/**
+ * MN-189 — StoryOS AI prepaid credits. Markup is token cost × 10 (owner
+ * decision 2026-07-18, revised from an initial ×5 — a provisional
+ * placeholder, to be revisited once real consumption data exists; see
+ * MN-167/#58). $10 minimum top-up matches Linear's own model this is built
+ * on. The default per-workspace monthly spend cap protects both sides from a
+ * runaway agent, independent of the balance itself running out.
+ */
+export const AI_CREDIT_MARKUP_MULTIPLIER = 10;
+export const AI_CREDIT_MIN_TOPUP_USD = 10;
+
 export const PLANS: Record<PlanId, PlanDef> = {
   free: { id: 'free', name: 'Free', priceUsd: 0, includedSeats: 2, automationRuns: 100 },
   pro: {
