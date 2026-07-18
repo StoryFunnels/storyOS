@@ -13,6 +13,7 @@ import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { fields, records, relations, selectOptions } from '../db/schema';
 import { slugify } from '../databases/databases.service';
+import { presentFieldConfig, restoreFieldConfig } from '../common/webhook-headers';
 
 type Field = typeof fields.$inferSelect;
 
@@ -126,6 +127,9 @@ export class FieldsService {
     if (input.type === 'formula') {
       input.config = await this.compileFormulaConfig(databaseId, input.config ?? {});
     }
+    // No prior config to preserve against on create — this only strips any stray
+    // presence flags so a `{ __keep: true }` never lands in storage (#249).
+    const config = restoreFieldConfig(input.config ?? {}, {});
     const apiName = await this.uniqueApiName(databaseId, input.display_name);
     const siblings = await this.db.query.fields.findMany({
       where: and(eq(fields.databaseId, databaseId), eq(fields.isSystem, false)),
@@ -141,7 +145,7 @@ export class FieldsService {
           displayName: input.display_name,
           apiName,
           type: input.type,
-          config: input.config ?? {},
+          config,
           position,
         })
         .returning();
@@ -307,12 +311,14 @@ export class FieldsService {
   }
 
   private async withOptions(db: Db, field: Field) {
-    if (field.type !== 'select' && field.type !== 'multi_select') return field;
+    // Never let a stored secret webhook header value leave in a button's config (#249).
+    const presented = { ...field, config: presentFieldConfig(field.config) };
+    if (presented.type !== 'select' && presented.type !== 'multi_select') return presented;
     const options = await db.query.selectOptions.findMany({
-      where: eq(selectOptions.fieldId, field.id),
+      where: eq(selectOptions.fieldId, presented.id),
       orderBy: [asc(selectOptions.position)],
     });
-    return { ...field, options };
+    return { ...presented, options };
   }
 
   async update(
@@ -330,9 +336,12 @@ export class FieldsService {
         throw new UnprocessableEntityException('System fields cannot be renamed or reordered');
       }
       if (!patch.config) return this.withOptions(this.db, field);
+      // Resolve write-only header presence flags against the stored config so an
+      // unrelated edit can't clobber a secret webhook header to a sentinel (#249).
+      const restored = restoreFieldConfig(patch.config, field.config);
       const [updated] = await this.db
         .update(fields)
-        .set({ config: { ...(field.config as object), ...patch.config } })
+        .set({ config: { ...(field.config as object), ...restored } })
         .where(eq(fields.id, fieldId))
         .returning();
       return this.withOptions(this.db, updated!);
@@ -341,11 +350,12 @@ export class FieldsService {
     if (patch.display_name !== undefined) {
       await this.assertUniqueDisplayName(databaseId, patch.display_name, fieldId);
     }
+    const restored = patch.config ? restoreFieldConfig(patch.config, field.config) : undefined;
     const [updated] = await this.db
       .update(fields)
       .set({
         displayName: patch.display_name,
-        config: patch.config ? { ...(field.config as object), ...patch.config } : undefined,
+        config: restored ? { ...(field.config as object), ...restored } : undefined,
         position: patch.position,
       })
       .where(eq(fields.id, fieldId))

@@ -11,6 +11,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { RecordsService } from '../records/records.service';
 import type { ProjectedRecord } from '../records/records.service';
 import { RelationsService } from '../relations/relations.service';
+import { stringHeadersOnly } from '../common/webhook-headers';
 
 export interface ActionContext {
   workspaceId: string;
@@ -267,7 +268,9 @@ export class AutomationActionsService {
             eventType: 'button.pressed',
             payload,
           });
-          const result = await this.webhooksService.sendNow(delivery.id, action.headers);
+          // Persisted actions only ever hold string header values; coerce for the
+          // sender's string-map type (the header union is a read/write-shape concern).
+          const result = await this.webhooksService.sendNow(delivery.id, stringHeadersOnly(action.headers));
           effects.push({
             type: 'send_webhook',
             record_id: ctx.record.id,

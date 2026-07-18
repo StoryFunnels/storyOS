@@ -2517,7 +2517,10 @@ export interface components {
                 url: string;
                 body_template?: string;
                 headers?: {
-                    [key: string]: string;
+                    [key: string]: string | {
+                        /** @enum {boolean} */
+                        __keep: true;
+                    };
                 };
             })[];
             /** @default true */
@@ -2593,7 +2596,10 @@ export interface components {
                 url: string;
                 body_template?: string;
                 headers?: {
-                    [key: string]: string;
+                    [key: string]: string | {
+                        /** @enum {boolean} */
+                        __keep: true;
+                    };
                 };
             })[];
             enabled?: boolean;

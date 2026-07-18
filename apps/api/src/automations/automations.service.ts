@@ -12,6 +12,7 @@ import type { DomainEvent } from '../events/domain-events.service';
 import { EntitlementsService } from '../billing/entitlements.service';
 import { AutomationActionsService } from './actions.service';
 import { env } from '../config/env';
+import { presentActionHeaders, restoreActionHeaders } from '../common/webhook-headers';
 
 interface Trigger {
   type: string;
@@ -64,7 +65,13 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
       where: eq(automations.databaseId, databaseId),
       orderBy: [desc(automations.createdAt)],
     });
-    return { data: rules };
+    // Never surface a stored secret webhook header value in the rules list (#249).
+    return { data: rules.map((r) => this.present(r)) };
+  }
+
+  /** Read shape: secret send_webhook header values become the presence flag (#249). */
+  private present<R extends { actions: unknown }>(rule: R): R {
+    return { ...rule, actions: presentActionHeaders(rule.actions) };
   }
 
   async create(
@@ -73,7 +80,9 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
     input: { name: string; trigger: Trigger; condition?: unknown; actions: AutomationAction[]; enabled?: boolean },
     actorId: string,
   ) {
-    await this.actions.validate(databaseId, workspaceId, input.actions);
+    // No prior actions to preserve against — this strips any stray presence flags.
+    const actions = restoreActionHeaders(input.actions, []);
+    await this.actions.validate(databaseId, workspaceId, actions);
     if (input.condition) await this.assertConditionCompiles(databaseId, input.condition, actorId);
     const [rule] = await this.db
       .insert(automations)
@@ -82,13 +91,13 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         name: input.name,
         trigger: input.trigger,
         condition: input.condition ?? null,
-        actions: input.actions,
+        actions,
         enabled: input.enabled ?? true,
         createdBy: actorId,
         nextDueAt: input.trigger.type === 'schedule' ? this.nextDue(input.trigger) : null,
       })
       .returning();
-    return rule!;
+    return this.present(rule!);
   }
 
   async update(
@@ -99,7 +108,12 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
     actorId: string,
   ) {
     const rule = await this.getRule(databaseId, ruleId);
-    if (patch.actions) await this.actions.validate(databaseId, workspaceId, patch.actions);
+    // Resolve write-only header presence flags against the stored actions so editing
+    // an unrelated part of the rule can't clobber a secret webhook header (#249).
+    const actions = patch.actions
+      ? restoreActionHeaders(patch.actions, rule.actions)
+      : undefined;
+    if (actions) await this.actions.validate(databaseId, workspaceId, actions);
     if (patch.condition) await this.assertConditionCompiles(databaseId, patch.condition, actorId);
     const trigger = (patch.trigger ?? rule.trigger) as Trigger;
     const [updated] = await this.db
@@ -108,7 +122,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         name: patch.name,
         trigger: patch.trigger,
         condition: patch.condition === undefined ? undefined : patch.condition,
-        actions: patch.actions,
+        actions,
         enabled: patch.enabled,
         // Re-enabling or editing resets the failure streak and reschedules.
         failureStreak: patch.enabled === true || patch.actions ? 0 : undefined,
@@ -116,7 +130,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
       })
       .where(eq(automations.id, ruleId))
       .returning();
-    return updated!;
+    return this.present(updated!);
   }
 
   async remove(databaseId: string, ruleId: string) {

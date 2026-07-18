@@ -6790,8 +6790,27 @@
                     "headers": {
                       "type": "object",
                       "additionalProperties": {
-                        "type": "string",
-                        "maxLength": 1000
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "maxLength": 1000
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "__keep": {
+                                "type": "boolean",
+                                "enum": [
+                                  true
+                                ]
+                              }
+                            },
+                            "required": [
+                              "__keep"
+                            ],
+                            "additionalProperties": false
+                          }
+                        ]
                       }
                     }
                   },
@@ -7086,8 +7105,27 @@
                     "headers": {
                       "type": "object",
                       "additionalProperties": {
-                        "type": "string",
-                        "maxLength": 1000
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "maxLength": 1000
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "__keep": {
+                                "type": "boolean",
+                                "enum": [
+                                  true
+                                ]
+                              }
+                            },
+                            "required": [
+                              "__keep"
+                            ],
+                            "additionalProperties": false
+                          }
+                        ]
                       }
                     }
                   },
