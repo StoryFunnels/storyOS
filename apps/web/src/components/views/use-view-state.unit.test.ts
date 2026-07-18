@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EMPTY_CONFIG, queryBodyFromConfig } from './use-view-state';
+import { EMPTY_CONFIG, queryBodyFromConfig, sortsBodyFromConfig } from './use-view-state';
 import type { ViewConfig } from './use-view-state';
 
 /**
@@ -69,5 +69,50 @@ describe('queryBodyFromConfig — disabled clauses are skipped', () => {
 
   it('omits filter when there are no conditions at all', () => {
     expect(queryBodyFromConfig(EMPTY_CONFIG).filter).toBeUndefined();
+  });
+});
+
+/**
+ * MN-252: the empty-values placement wire format. `sorts_nulls` only ever
+ * appears on the wire as `nulls: 'first'` — the API's default (omitted) is
+ * 'last', so a config that hasn't touched the toggle (or explicitly picked
+ * "Bottom") must not send anything, to keep old saved views byte-identical
+ * on the wire and never regress the pre-MN-252 NULLS LAST behavior.
+ */
+describe('queryBodyFromConfig / sortsBodyFromConfig — empty-values placement (nulls)', () => {
+  function withSorts(sorts: ViewConfig['sorts'], sorts_nulls?: ViewConfig['sorts_nulls']): ViewConfig {
+    return { ...EMPTY_CONFIG, sorts, sorts_nulls };
+  }
+
+  it('sends nulls: "first" alongside sorts when placement is Top', () => {
+    const config = withSorts([{ field: 'due', direction: 'asc' }], 'first');
+    expect(queryBodyFromConfig(config).nulls).toBe('first');
+    expect(sortsBodyFromConfig(config)).toEqual({ sorts: [{ field: 'due', direction: 'asc' }], nulls: 'first' });
+  });
+
+  it('omits nulls entirely when placement is Bottom (the default) — no wire divergence for old views', () => {
+    const config = withSorts([{ field: 'due', direction: 'asc' }], 'last');
+    expect(queryBodyFromConfig(config).nulls).toBeUndefined();
+    expect(sortsBodyFromConfig(config)).toEqual({ sorts: [{ field: 'due', direction: 'asc' }] });
+  });
+
+  it('omits nulls when the field was never set (a pre-MN-252 saved view)', () => {
+    const config = withSorts([{ field: 'due', direction: 'asc' }]);
+    expect(queryBodyFromConfig(config).nulls).toBeUndefined();
+  });
+
+  it('sortsBodyFromConfig is empty when there are no sorts, regardless of the nulls setting', () => {
+    expect(sortsBodyFromConfig(withSorts([], 'first'))).toEqual({});
+  });
+
+  it('multi-key sorts round-trip through the body in precedence order', () => {
+    const config = withSorts([
+      { field: 'due', direction: 'asc' },
+      { field: 'priority', direction: 'desc' },
+    ]);
+    expect(queryBodyFromConfig(config).sorts).toEqual([
+      { field: 'due', direction: 'asc' },
+      { field: 'priority', direction: 'desc' },
+    ]);
   });
 });

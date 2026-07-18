@@ -20,6 +20,12 @@ export interface MyWorkFilterCondition {
   icon?: string;
 }
 
+/** A My Work sort key — mirrors packages/schemas' sortSchema (MN-252). */
+export interface MyWorkSortSpec {
+  field: string;
+  direction: 'asc' | 'desc';
+}
+
 /** Per-database My Work view config (MN-072 part 2), a ViewConfig subset. */
 export interface MyWorkDbConfig {
   group_by_field_id?: string;
@@ -28,6 +34,11 @@ export interface MyWorkDbConfig {
   hidden_field_ids?: string[];
   /** Flat filter (and/or, MN-253 UI), applied to the returned records client-side. */
   filters?: { and: MyWorkFilterCondition[] } | { or: MyWorkFilterCondition[] };
+  /** Sort precedence (MN-252), applied client-side to the already-fetched records —
+   * same builder + spec as saved views, reusing the same "and/or is flat" pattern. */
+  sorts?: MyWorkSortSpec[];
+  /** Whole-sort empty-values placement (MN-252); undefined = trailing. */
+  sorts_nulls?: 'first' | 'last';
 }
 
 export interface UserPreferences {

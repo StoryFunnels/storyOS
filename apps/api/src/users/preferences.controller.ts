@@ -34,6 +34,14 @@ const myWorkConditionSchema = z.object({
   icon: z.string().max(40).optional(),
 });
 
+// MN-252: My Work uses the same sort spec shape as saved views (packages/schemas'
+// sortSchema), applied client-side to the already-fetched rows (group-config.tsx
+// sortMyWorkRecords) rather than at the DB layer.
+const myWorkSortSchema = z.object({
+  field: z.string(),
+  direction: z.enum(['asc', 'desc']),
+});
+
 const myWorkDbConfigSchema = z.object({
   group_by_field_id: z.string().optional(),
   color_by_field_id: z.string().optional(),
@@ -44,6 +52,9 @@ const myWorkDbConfigSchema = z.object({
       z.object({ or: z.array(myWorkConditionSchema) }),
     ])
     .optional(),
+  sorts: z.array(myWorkSortSchema).max(3).optional(),
+  /** Whole-sort empty-values placement (MN-252); omitted = trailing, matching views. */
+  sorts_nulls: z.enum(['first', 'last']).optional(),
 });
 
 const preferencesPatchSchema = z.object({

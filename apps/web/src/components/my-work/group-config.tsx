@@ -6,12 +6,19 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { ColorByButton, FiltersSection } from '@/components/views/view-toolbar';
+import { ColorByButton, FiltersSection, SortButton } from '@/components/views/view-toolbar';
 import { filterConditions } from '@/components/views/filter-config';
 import type { FilterCondition, FilterGroup } from '@/components/views/filter-config';
+import type { NullsPlacement, SortSpec } from '@/components/views/sort-config';
 import { OPTION_COLORS } from '@/components/table-view/cells';
 import type { Field } from '@/components/table-view/use-table-data';
 import { cn } from '@/lib/utils';
+// MN-252: sortMyWorkRecords lives in a plain .ts sibling module (not here), so
+// the *.unit.test.ts harness (JSX-free, see apps/web/vitest.config.ts) can
+// import it without pulling this file's JSX into the test's module graph.
+import { sortMyWorkRecords } from './sort-my-work';
+
+export { sortMyWorkRecords };
 
 export interface DenseField {
   id: string;
@@ -23,12 +30,16 @@ export interface DenseField {
 export type { FilterCondition };
 /** Per-database My Work config (mirrors the API's MyWorkDbConfig). Uses the SAME
  * filter builder + persisted shape as saved views (MN-253): a flat And/Or list with
- * non-destructive disable/pin/label/icon, applied client-side to the returned rows. */
+ * non-destructive disable/pin/label/icon, applied client-side to the returned rows.
+ * MN-252 adds the same sort spec, also applied client-side (sortMyWorkRecords below) —
+ * My Work is a bounded, already-fetched set, so there's no query layer to delegate to. */
 export interface MyWorkDbConfig {
   group_by_field_id?: string;
   color_by_field_id?: string;
   hidden_field_ids?: string[];
   filters?: FilterGroup;
+  sorts?: SortSpec[];
+  sorts_nulls?: NullsPlacement;
 }
 
 export const EMPTY_MYWORK: MyWorkDbConfig = {};
@@ -182,7 +193,8 @@ export function rowColor(
   return opt ? OPTION_COLORS[opt.color] ?? null : null;
 }
 
-/** The per-group toolbar: group-by, visible fields, color-by, and filters. */
+/** The per-group toolbar: group-by, visible fields, color-by, filters, and sort
+ * (MN-252 — the same SortButton saved views use, applied client-side here). */
 export function MyWorkGroupToolbar({
   fields,
   config,
@@ -260,6 +272,16 @@ export function MyWorkGroupToolbar({
         members={members}
         filters={config.filters}
         onChange={(filters) => onChange({ ...config, filters })}
+      />
+
+      {/* Sort (MN-252): the same builder as saved views; applied client-side via
+          sortMyWorkRecords since My Work has no per-group query round trip. */}
+      <SortButton
+        fields={adapted}
+        sorts={config.sorts ?? []}
+        nulls={config.sorts_nulls}
+        onChange={(sorts) => onChange({ ...config, sorts })}
+        onNullsChange={(sorts_nulls) => onChange({ ...config, sorts_nulls })}
       />
     </div>
   );

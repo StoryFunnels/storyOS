@@ -5578,6 +5578,13 @@
               ]
             }
           },
+          "nulls": {
+            "type": "string",
+            "enum": [
+              "first",
+              "last"
+            ]
+          },
           "q": {
             "type": "string",
             "maxLength": 200
@@ -6714,6 +6721,36 @@
                         "or"
                       ]
                     }
+                  ]
+                },
+                "sorts": {
+                  "maxItems": 3,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "field": {
+                        "type": "string"
+                      },
+                      "direction": {
+                        "type": "string",
+                        "enum": [
+                          "asc",
+                          "desc"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "field",
+                      "direction"
+                    ]
+                  }
+                },
+                "sorts_nulls": {
+                  "type": "string",
+                  "enum": [
+                    "first",
+                    "last"
                   ]
                 }
               }

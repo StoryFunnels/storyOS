@@ -20,6 +20,7 @@ import type { Field } from './use-table-data';
 import { OPS_BY_TYPE, SORTABLE, defaultValueFor } from '../views/view-toolbar';
 import type { ViewConfig } from '../views/use-view-state';
 import { buildFilterGroup, filterConditions, filterConnector } from '../views/filter-config';
+import { MAX_SORTS } from '../views/sort-config';
 
 export function HeaderCell({
   ws,
@@ -79,7 +80,9 @@ export function HeaderCell({
     });
   }
 
-  // Header ⋯ menu: cycle this field's sort asc → desc → none, capped at 3 sorts (MN-225).
+  // Header ⋯ menu: cycle this field's sort asc → desc → none, capped at MAX_SORTS
+  // (MN-225; the cap and the seeded default now live in sort-config.ts, MN-252,
+  // shared with the toolbar's sort builder rather than duplicated here).
   const canSort = Boolean(config && onPatch && SORTABLE.has(field.type));
   const currentSort = config?.sorts.find((s) => s.field === field.apiName);
   const sortLabel = !currentSort
@@ -91,8 +94,8 @@ export function HeaderCell({
     if (!config || !onPatch) return;
     const sorts = config.sorts;
     if (!currentSort) {
-      if (sorts.length >= 3) {
-        toast.error('A view can sort by at most 3 fields');
+      if (sorts.length >= MAX_SORTS) {
+        toast.error(`A view can sort by at most ${MAX_SORTS} fields`);
         return;
       }
       onPatch({ sorts: [...sorts, { field: field.apiName, direction: 'asc' }] });

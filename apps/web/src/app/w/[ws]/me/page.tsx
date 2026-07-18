@@ -18,6 +18,7 @@ import {
   groupRecords,
   matchesFilters,
   rowColor,
+  sortMyWorkRecords,
   toField,
   visibleFields,
 } from '@/components/my-work/group-config';
@@ -169,7 +170,10 @@ export default function MyWorkPage() {
           const config = myWork[group.database.id] ?? EMPTY_MYWORK;
           const chips = visibleFields(fields, config);
           const filtered = group.records.filter((r) => matchesFilters(r.values, config));
-          const subGroups = groupRecords(filtered, fields, config, memberNames);
+          // MN-252: apply the same persisted sort spec before grouping, so precedence
+          // holds within each sub-group (groupRecords preserves input order per bucket).
+          const sorted = sortMyWorkRecords(filtered, fields, config);
+          const subGroups = groupRecords(sorted, fields, config, memberNames);
           return (
             <div key={group.database.id} className="mb-6 max-w-4xl">
               <div className="mb-2 flex items-center gap-1.5 text-[12px] font-medium uppercase tracking-wider text-faint">

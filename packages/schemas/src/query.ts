@@ -120,9 +120,19 @@ export const sortSchema = z.object({
   direction: z.enum(['asc', 'desc']).default('asc'),
 });
 
+/**
+ * Whole-query control (MN-252 UI) for where NULL sort values land — applies
+ * uniformly across every key in `sorts`, not per key (the UI exposes it as a
+ * single "Empty values: Top / Bottom" toggle, not a per-row setting).
+ * Omitted = 'last', unchanged from the pre-MN-252 hardcoded NULLS LAST behavior.
+ */
+export const nullsPlacementSchema = z.enum(['first', 'last']);
+export type NullsPlacement = z.infer<typeof nullsPlacementSchema>;
+
 export const queryRecordsSchema = z.object({
   filter: filterSchema.optional(),
   sorts: z.array(sortSchema).max(3).default([]),
+  nulls: nullsPlacementSchema.optional(),
   q: z.string().max(200).optional(),
   limit: z.number().int().min(1).max(200).default(50),
   cursor: z.string().optional(),

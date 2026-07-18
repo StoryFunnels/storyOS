@@ -51,6 +51,8 @@ import {
   reorderConditions,
 } from './filter-config';
 import type { FilterConnector, FilterGroup } from './filter-config';
+import { MAX_SORTS, directionLabel, nextSortField, reorderSorts } from './sort-config';
+import type { NullsPlacement } from './sort-config';
 
 /** Op menu per field type — mirrors the API op×type matrix. */
 export const OPS_BY_TYPE: Record<string, Array<{ op: string; label: string; input: 'text' | 'number' | 'date' | 'options' | 'relative' | 'boolean' | 'records' | 'none' }>> = {
@@ -158,8 +160,15 @@ export function ViewToolbar({
         onChange={(filters) => onPatch({ filters })}
       />
 
-      {/* Sorts */}
-      <SortButton fields={fields.filter((f) => SORTABLE.has(f.type))} sorts={config.sorts} onChange={(sorts) => onPatch({ sorts })} />
+      {/* Sorts (MN-252): the builder is field-type-aware and self-filters to what
+          the query layer can actually order by — see fieldTypeIcon/SORTABLE below. */}
+      <SortButton
+        fields={fields}
+        sorts={config.sorts}
+        nulls={config.sorts_nulls}
+        onChange={(sorts) => onPatch({ sorts })}
+        onNullsChange={(sorts_nulls) => onPatch({ sorts_nulls })}
+      />
 
       {/* Field visibility: tables hide columns, boards pick card fields */}
       {viewType === 'board' || viewType === 'calendar' || viewType === 'gallery' || viewType === 'list' || viewType === 'feed' || viewType === 'form' ? (
@@ -1162,67 +1171,270 @@ function RecordPicker({
   );
 }
 
+/**
+ * The sort builder (MN-252): multi-key precedence, drag-reorder, and a whole-sort
+ * empty-values placement toggle. Rebuilt on #253's filter-builder conventions — a
+ * hand-rolled popover (not DropdownMenu) with a full-screen backdrop instead of a
+ * contains()-based outside-click listener, since dnd-kit's drag sensor doesn't play
+ * well inside a Radix menu (see FiltersSection's comment for the same reasoning).
+ *
+ * `fields` is the view's FULL field list, not pre-filtered — the builder narrows to
+ * SORTABLE itself (mirroring the query layer's SORTABLE set in records.service.ts)
+ * so it can also surface the formula/rollup gap (MN-252 spike — see the field-type
+ * icon + hint below) instead of silently omitting those fields from view.
+ */
 export function SortButton({
   fields,
   sorts,
+  nulls,
   onChange,
+  onNullsChange,
 }: {
   fields: Field[];
   sorts: SortSpec[];
+  nulls?: NullsPlacement;
   onChange: (sorts: SortSpec[]) => void;
+  onNullsChange: (nulls: NullsPlacement | undefined) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const sortableFields = fields.filter((f) => SORTABLE.has(f.type));
+  // MN-252 spike (see records.service.ts SORTABLE + attachFormulas/attachRollups):
+  // formula/rollup are computed AFTER the SQL page is fetched, so the query layer
+  // can't ORDER BY them — surfaced here rather than silently dropped from the picker.
+  const hasComputedFields = fields.some((f) => f.type === 'formula' || f.type === 'rollup');
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
+  function updateAt(i: number, next: SortSpec) {
+    onChange(sorts.map((s, j) => (j === i ? next : s)));
+  }
+  function removeAt(i: number) {
+    onChange(sorts.filter((_, j) => j !== i));
+  }
+  function addSort() {
+    const field = nextSortField(sorts, sortableFields);
+    if (!field) return;
+    onChange([...sorts, { field: field.apiName, direction: 'asc' }]);
+  }
+  function onDragEnd(e: DragEndEvent) {
+    const { active, over } = e;
+    if (!over || active.id === over.id) return;
+    onChange(reorderSorts(sorts, Number(active.id), Number(over.id)));
+  }
+  const canAddMore = sorts.length < MAX_SORTS && nextSortField(sorts, sortableFields) !== undefined;
+
+  return (
+    <span className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className={cn(
+          'flex items-center gap-1 rounded px-1.5 py-1 text-[12px] hover:bg-hover',
+          sorts.length ? 'text-ink' : 'text-muted',
+        )}
+      >
+        <ArrowUpDown className="h-3.5 w-3.5" />
+        {sorts.length ? `Sorted by ${sorts.length}` : 'Sort'}
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute left-0 top-full z-50 mt-1 w-72 max-w-[calc(100vw-2rem)] rounded-[var(--radius-card)] border border-border-default bg-card shadow-[0_4px_12px_rgba(15,23,41,0.08)]">
+            <div className="flex items-center justify-between border-b border-border-default px-3 py-2">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-faint">Sort</span>
+              <a
+                href="https://docs.storyos.dev/concepts/views/#filters--sorts"
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-1 text-faint hover:text-ink"
+                title="How sorting works on views"
+              >
+                <CircleHelp className="h-3.5 w-3.5" />
+              </a>
+            </div>
+
+            {hasComputedFields && (
+              <p className="border-b border-border-default px-3 py-1.5 text-[11px] text-faint">
+                Formula and rollup fields aren't sortable yet.
+              </p>
+            )}
+
+            {sorts.length === 0 ? (
+              <div className="px-3 py-6 text-center">
+                <p className="mb-2 text-[12px] text-faint">No sort yet — records show in manual order.</p>
+                <button
+                  type="button"
+                  onClick={addSort}
+                  disabled={sortableFields.length === 0}
+                  className="mx-auto flex items-center gap-1 rounded px-1.5 py-1 text-[12px] text-muted hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Plus className="h-3.5 w-3.5" /> Add your first sort
+                </button>
+              </div>
+            ) : (
+              <div className="max-h-64 overflow-y-auto p-1">
+                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+                  <SortableContext items={sorts.map((_, i) => String(i))} strategy={verticalListSortingStrategy}>
+                    {sorts.map((sort, i) => (
+                      <SortRow
+                        key={i}
+                        index={i}
+                        sort={sort}
+                        sorts={sorts}
+                        fields={sortableFields}
+                        onChange={(next) => updateAt(i, next)}
+                        onRemove={() => removeAt(i)}
+                      />
+                    ))}
+                  </SortableContext>
+                </DndContext>
+              </div>
+            )}
+
+            {sorts.length > 0 && (
+              <div className="border-t border-border-default p-2">
+                <div className="mb-1.5 flex items-center justify-between px-1">
+                  <span className="text-[11px] text-faint">Empty values</span>
+                  <EmptyPlacementToggle
+                    value={nulls ?? 'last'}
+                    onChange={(v) => onNullsChange(v === 'last' ? undefined : v)}
+                  />
+                </div>
+                {canAddMore && (
+                  <button
+                    type="button"
+                    onClick={addSort}
+                    className="flex items-center gap-1 rounded px-1 py-1 text-[12px] text-muted hover:text-ink"
+                  >
+                    <Plus className="h-3 w-3" /> Add sort
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </span>
+  );
+}
+
+/** Whole-sort empty-values placement (MN-252) — a two-button segmented toggle,
+ * reusing ConnectorToggle's exact visual pattern (border/rounded/uppercase pill). */
+function EmptyPlacementToggle({
+  value,
+  onChange,
+}: {
+  value: NullsPlacement;
+  onChange: (v: NullsPlacement) => void;
 }) {
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
+    <span className="inline-flex overflow-hidden rounded border border-border-default text-[10px] font-semibold uppercase leading-none">
+      {(
+        [
+          ['last', 'Bottom'],
+          ['first', 'Top'],
+        ] as const
+      ).map(([v, label]) => (
         <button
-          className={cn(
-            'flex items-center gap-1 rounded px-1.5 py-1 text-[12px] hover:bg-hover',
-            sorts.length ? 'text-ink' : 'text-muted',
-          )}
+          key={v}
+          type="button"
+          onClick={() => onChange(v)}
+          className={cn('px-1.5 py-0.5', value === v ? 'bg-accent-soft text-ink' : 'text-faint hover:text-ink')}
         >
-          <ArrowUpDown className="h-3.5 w-3.5" />
-          {sorts.length ? `Sorted by ${sorts.length}` : 'Sort'}
+          {label}
         </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent className="w-64 p-2">
-        {sorts.map((sort, i) => (
-          <div key={i} className="mb-1.5 flex items-center gap-1.5">
+      ))}
+    </span>
+  );
+}
+
+/** One draggable sort key: precedence label ("Sort by" / "Then by" — the sort
+ * analog of ConditionRow's "Where" / And-Or toggle), field-type icon, field +
+ * direction pickers, and a single remove (×) — sort rows have exactly one
+ * secondary action, so (unlike ConditionRow) there's no "…" menu to reuse here. */
+function SortRow({
+  index,
+  sort,
+  sorts,
+  fields,
+  onChange,
+  onRemove,
+}: {
+  index: number;
+  sort: SortSpec;
+  sorts: SortSpec[];
+  fields: Field[];
+  onChange: (next: SortSpec) => void;
+  onRemove: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: String(index),
+  });
+  const field = fields.find((f) => f.apiName === sort.field);
+  const Icon = fieldTypeIcon(field?.type ?? 'text');
+  // A field already used by another key doesn't show up here — sorting twice by
+  // the same field is a no-op precedence-wise and just confuses "explicit precedence".
+  const usedElsewhere = new Set(sorts.filter((_, j) => j !== index).map((s) => s.field));
+  const options = fields.filter((f) => f.apiName === sort.field || !usedElsewhere.has(f.apiName));
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={cn(
+        'group relative rounded px-1 py-1.5',
+        isDragging && 'z-40 bg-card opacity-90 shadow-[0_4px_12px_rgba(15,23,41,0.12)]',
+      )}
+    >
+      <div className="flex items-start gap-1.5">
+        <button
+          {...attributes}
+          {...listeners}
+          className="mt-1.5 shrink-0 cursor-grab text-faint opacity-0 hover:text-muted group-hover:opacity-100"
+          title="Drag to reorder precedence"
+        >
+          <GripVertical className="h-3.5 w-3.5" />
+        </button>
+
+        <div className="min-w-0 flex-1">
+          <div className="mb-1">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-faint">
+              {index === 0 ? 'Sort by' : 'Then by'}
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-1">
+            <Icon className="h-3.5 w-3.5 shrink-0 text-faint" />
             <select
-              className="h-7 flex-1 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+              className="max-w-28 flex-1 truncate rounded border border-border-default bg-card px-1 py-0.5 text-[12px] text-ink"
               value={sort.field}
-              onChange={(e) => onChange(sorts.map((s, j) => (j === i ? { ...s, field: e.target.value } : s)))}
+              onChange={(e) => onChange({ ...sort, field: e.target.value })}
             >
-              {fields.map((f) => (
+              {options.map((f) => (
                 <option key={f.id} value={f.apiName}>
                   {f.displayName}
                 </option>
               ))}
             </select>
             <select
-              className="h-7 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+              className="rounded border border-border-default bg-card px-1 py-0.5 text-[12px] text-muted"
               value={sort.direction}
-              onChange={(e) =>
-                onChange(sorts.map((s, j) => (j === i ? { ...s, direction: e.target.value as 'asc' | 'desc' } : s)))
-              }
+              onChange={(e) => onChange({ ...sort, direction: e.target.value as 'asc' | 'desc' })}
             >
-              <option value="asc">↑ asc</option>
-              <option value="desc">↓ desc</option>
+              <option value="asc">{directionLabel(field?.type ?? 'text', 'asc')}</option>
+              <option value="desc">{directionLabel(field?.type ?? 'text', 'desc')}</option>
             </select>
-            <button onClick={() => onChange(sorts.filter((_, j) => j !== i))} className="text-faint hover:text-error">
-              <X className="h-3 w-3" />
-            </button>
           </div>
-        ))}
-        {sorts.length < 3 && fields.length > 0 && (
-          <button
-            className="flex items-center gap-1 rounded px-1 py-1 text-[12px] text-muted hover:text-ink"
-            onClick={() => onChange([...sorts, { field: fields[0]!.apiName, direction: 'asc' }])}
-          >
-            <Plus className="h-3 w-3" /> Add sort
-          </button>
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
+        </div>
+
+        <button
+          type="button"
+          onClick={onRemove}
+          className="mt-1 shrink-0 rounded p-0.5 text-faint hover:bg-active hover:text-ink"
+          title="Remove sort"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    </div>
   );
 }
 

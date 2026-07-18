@@ -14,7 +14,6 @@ import {
   AddFilterButton,
   FilterChip,
   OPS_BY_TYPE,
-  SORTABLE,
   SortButton,
 } from '@/components/views/view-toolbar';
 import type { FilterCondition } from '@/components/views/use-view-state';
@@ -127,9 +126,11 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
           (c.value !== undefined && c.value !== '' && !(Array.isArray(c.value) && c.value.length === 0)),
       );
       const filter = { and: [{ field: inverseApi!, op: 'has', value: [rec] }, ...usable] };
+      // MN-252: same nulls-only-when-diverging-from-default rule as sortsBodyFromConfig.
+      const nulls = cv.sorts?.length && cv.sorts_nulls === 'first' ? 'first' : undefined;
       const { data, error } = await api.POST('/api/v1/workspaces/{ws}/databases/{db}/records/query', {
         params: { path: { ws, db: targetDbId } },
-        body: { filter, sorts: cv.sorts ?? [], limit: 200 } as never,
+        body: { filter, sorts: cv.sorts ?? [], nulls, limit: 200 } as never,
       });
       if (error) throw error;
       return (data as unknown as { data: RecordRow[] }).data;
@@ -193,9 +194,11 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
               }}
             />
             <SortButton
-              fields={targetFields.filter((f) => SORTABLE.has(f.type))}
+              fields={targetFields}
               sorts={cv.sorts ?? []}
+              nulls={cv.sorts_nulls}
               onChange={(sorts) => setCv({ sorts: sorts.length ? sorts : undefined })}
+              onNullsChange={(sorts_nulls) => setCv({ sorts_nulls })}
             />
             <ColorByButton
               fields={targetFields.filter((f) => f.type === 'select')}
