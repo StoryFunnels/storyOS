@@ -316,6 +316,13 @@
       "when": 1784371608772,
       "tag": "0044_blue_zarda",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1784372631839,
+      "tag": "0045_faithful_zaladane",
+      "breakpoints": true
     }
   ]
 }

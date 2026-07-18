@@ -61,7 +61,15 @@ export const PLANS: Record<PlanId, PlanDef> = {
     id: 'enterprise',
     name: 'Enterprise',
     priceUsd: 0,
-    includedSeats: 0,
+    /**
+     * MN-196 — was 0 (unshipped placeholder): a workspace flipped to
+     * 'enterprise' with no override set would have had zero included seats,
+     * actively broken rather than merely unconfigured. Enterprise is
+     * "requirement-driven, not numbers" (MN-107) — unlimited is the only
+     * safe default until a real negotiated number is set via
+     * workspace_entitlement_overrides.
+     */
+    includedSeats: Number.POSITIVE_INFINITY,
     automationRuns: Number.POSITIVE_INFINITY,
   },
 };

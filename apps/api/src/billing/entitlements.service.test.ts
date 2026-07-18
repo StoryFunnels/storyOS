@@ -7,8 +7,15 @@ import { EntitlementsService } from './entitlements.service';
 import { PLANS } from './plans';
 
 /** A fake Db that captures usage_counters upserts. Only the exact chain used. */
-function makeDb(opts: { existingCount?: number; ownedWorkspaces?: unknown[] }) {
+function makeDb(opts: {
+  existingCount?: number;
+  ownedWorkspaces?: unknown[];
+  override?: Record<string, unknown> | null;
+  overridesByWorkspace?: Record<string, unknown>[];
+}) {
   const upserts: Record<string, unknown>[] = [];
+  const overrideWrites: { action: 'upsert' | 'delete'; values: Record<string, unknown> }[] = [];
+  const auditEvents: Record<string, unknown>[] = [];
   const db = {
     query: {
       usageCounters: {
@@ -18,6 +25,10 @@ function makeDb(opts: { existingCount?: number; ownedWorkspaces?: unknown[] }) {
       },
       memberships: {
         findMany: vi.fn().mockResolvedValue(opts.ownedWorkspaces ?? []),
+      },
+      workspaceEntitlementOverrides: {
+        findFirst: vi.fn().mockResolvedValue(opts.override ?? undefined),
+        findMany: vi.fn().mockResolvedValue(opts.overridesByWorkspace ?? []),
       },
     },
     insert: () => {
@@ -33,8 +44,39 @@ function makeDb(opts: { existingCount?: number; ownedWorkspaces?: unknown[] }) {
         },
       };
     },
+    transaction: async (cb: (tx: unknown) => Promise<unknown>) => {
+      const tx = {
+        insert: () => {
+          let vals: Record<string, unknown> = {};
+          return {
+            values(v: Record<string, unknown>) {
+              vals = v;
+              return this;
+            },
+            onConflictDoUpdate() {
+              overrideWrites.push({ action: 'upsert', values: vals });
+              return { returning: async () => [vals] };
+            },
+            then(resolve: (v: unknown) => unknown) {
+              // plain `await tx.insert(...).values(...)` for the audit event
+              auditEvents.push(vals);
+              return resolve(undefined);
+            },
+          };
+        },
+        delete: () => ({
+          where() {
+            return {
+              returning: async () =>
+                opts.override === null || opts.override === undefined ? [] : [opts.override],
+            };
+          },
+        }),
+      };
+      return cb(tx);
+    },
   } as unknown as Db;
-  return { db, upserts };
+  return { db, upserts, overrideWrites, auditEvents };
 }
 
 function stripeStub(enabled: boolean): StripeService {
@@ -78,6 +120,108 @@ describe('EntitlementsService.getLimits', () => {
     expect(limits.automationRunsPerMonth).toBe(Infinity);
     expect(limits.includedSeats).toBe(Infinity);
     expect(billing.getStatus).not.toHaveBeenCalled();
+  });
+});
+
+describe('EntitlementsService.getLimits — MN-196 entitlement overrides', () => {
+  it('an active override wins over the plan default, field by field', async () => {
+    const { db } = makeDb({
+      override: { includedSeats: 50, automationRunsPerMonth: null, expiresAt: null },
+    });
+    const svc = new EntitlementsService(db, stripeStub(true), billingStub('pro'), accessStub([]));
+
+    const limits = await svc.getLimits('ws1');
+
+    expect(limits.includedSeats).toBe(50); // overridden
+    expect(limits.automationRunsPerMonth).toBe(1000); // null override field falls through to plan
+  });
+
+  it('an expired override is ignored — falls back to plan defaults', async () => {
+    const { db } = makeDb({
+      override: { includedSeats: 999, automationRunsPerMonth: 999, expiresAt: new Date(Date.now() - 1000) },
+    });
+    const svc = new EntitlementsService(db, stripeStub(true), billingStub('pro'), accessStub([]));
+
+    const limits = await svc.getLimits('ws1');
+
+    expect(limits).toEqual({ automationRunsPerMonth: 1000, includedSeats: 3 });
+  });
+
+  it('a future expiry still applies', async () => {
+    const { db } = makeDb({
+      override: { includedSeats: 50, automationRunsPerMonth: null, expiresAt: new Date(Date.now() + 1_000_000) },
+    });
+    const svc = new EntitlementsService(db, stripeStub(true), billingStub('pro'), accessStub([]));
+
+    expect((await svc.getLimits('ws1')).includedSeats).toBe(50);
+  });
+
+  it('no override row at all — plan defaults apply, no crash', async () => {
+    const { db } = makeDb({ override: undefined });
+    const svc = new EntitlementsService(db, stripeStub(true), billingStub('free'), accessStub([]));
+
+    expect(await svc.getLimits('ws1')).toEqual({ automationRunsPerMonth: 100, includedSeats: 2 });
+  });
+
+  it('fixes the Enterprise zero-seat placeholder — unlimited by default until overridden', async () => {
+    const { db } = makeDb({ override: undefined });
+    const svc = new EntitlementsService(db, stripeStub(true), billingStub('enterprise'), accessStub([]));
+
+    const limits = await svc.getLimits('ws1');
+
+    expect(limits.includedSeats).toBe(Infinity);
+    expect(limits.automationRunsPerMonth).toBe(Infinity);
+  });
+});
+
+describe('EntitlementsService.setOverride / clearOverride (MN-196)', () => {
+  it('setOverride upserts the row and writes a "set" audit event', async () => {
+    const { db, overrideWrites, auditEvents } = makeDb({});
+    const svc = new EntitlementsService(db, stripeStub(true), billingStub('enterprise'), accessStub([]));
+
+    const expiresAt = new Date('2027-01-01T00:00:00Z');
+    await svc.setOverride('ws1', 'admin-user', { includedSeats: 25 }, 'negotiated Enterprise contract', expiresAt);
+
+    expect(overrideWrites).toHaveLength(1);
+    expect(overrideWrites[0]?.values).toMatchObject({
+      workspaceId: 'ws1',
+      includedSeats: 25,
+      reason: 'negotiated Enterprise contract',
+      createdBy: 'admin-user',
+    });
+    expect(auditEvents).toHaveLength(1);
+    expect(auditEvents[0]).toMatchObject({
+      workspaceId: 'ws1',
+      actorUserId: 'admin-user',
+      action: 'set',
+      reason: 'negotiated Enterprise contract',
+    });
+  });
+
+  it('clearOverride deletes the row and writes a "clear" audit event with the prior snapshot', async () => {
+    const priorRow = { workspaceId: 'ws1', includedSeats: 25, reason: 'old reason' };
+    const { db, auditEvents } = makeDb({ override: priorRow });
+    const svc = new EntitlementsService(db, stripeStub(true), billingStub('enterprise'), accessStub([]));
+
+    await svc.clearOverride('ws1', 'admin-user', 'contract ended');
+
+    expect(auditEvents).toHaveLength(1);
+    expect(auditEvents[0]).toMatchObject({
+      workspaceId: 'ws1',
+      actorUserId: 'admin-user',
+      action: 'clear',
+      reason: 'contract ended',
+      snapshot: priorRow,
+    });
+  });
+
+  it('clearOverride on a workspace with no override is a no-op — no audit event written', async () => {
+    const { db, auditEvents } = makeDb({ override: null });
+    const svc = new EntitlementsService(db, stripeStub(true), billingStub('free'), accessStub([]));
+
+    await svc.clearOverride('ws1', 'admin-user', 'nothing to clear');
+
+    expect(auditEvents).toHaveLength(0);
   });
 });
 
@@ -178,6 +322,30 @@ describe('EntitlementsService.canCreateWorkspace (MN-191)', () => {
     const svc = new EntitlementsService(db, stripeStub(false), billingStub('free'), accessStub([]));
     expect(await svc.canCreateWorkspace('user1')).toBe(true);
     expect(db.query.memberships.findMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('EntitlementsService.canCreateWorkspace — MN-196 maxWorkspaces override', () => {
+  it('a maxWorkspaces override on an owned workspace raises the cap past the flat self-serve limit', async () => {
+    const { db } = makeDb({
+      ownedWorkspaces: [{ workspaceId: 'ws1' }],
+      overridesByWorkspace: [{ workspaceId: 'ws1', maxWorkspaces: 5, expiresAt: null }],
+    });
+    const svc = new EntitlementsService(db, stripeStub(true), billingStub('enterprise'), accessStub([]));
+
+    expect(await svc.canCreateWorkspace('user1')).toBe(true); // 1 owned < 5
+  });
+
+  it('an expired maxWorkspaces override does not count — falls back to the flat cap', async () => {
+    const { db } = makeDb({
+      ownedWorkspaces: [{ workspaceId: 'ws1' }],
+      overridesByWorkspace: [
+        { workspaceId: 'ws1', maxWorkspaces: 5, expiresAt: new Date(Date.now() - 1000) },
+      ],
+    });
+    const svc = new EntitlementsService(db, stripeStub(true), billingStub('enterprise'), accessStub([]));
+
+    expect(await svc.canCreateWorkspace('user1')).toBe(false); // 1 owned, flat cap is 1
   });
 });
 
