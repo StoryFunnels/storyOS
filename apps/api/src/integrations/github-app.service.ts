@@ -114,6 +114,18 @@ export class GithubAppService {
   }
 
   /**
+   * The App's ONE webhook secret (whsec_…), set at App registration and shared by
+   * every delivery — GitHub signs `x-hub-signature-256` with it. Read live from
+   * `process.env` and **optional**, exactly like the other App creds: absent must
+   * never fail boot, and its presence is what flips the inbound verifier onto the
+   * App-native path (see GithubWebhookService). It is a secret: never logged,
+   * never stored in a workspace's settings, never returned by any response.
+   */
+  webhookSecret(): string | null {
+    return process.env.GITHUB_APP_WEBHOOK_SECRET?.trim() || null;
+  }
+
+  /**
    * Resolve the signing PEM. Order: an explicit `_FILE`, then a
    * `GITHUB_APP_PRIVATE_KEY` that happens to be a path to a real file, then the
    * inline value with literal `\n` expanded. Any read/parse trouble yields `null`

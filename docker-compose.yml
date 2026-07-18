@@ -64,6 +64,11 @@ services:
       GITHUB_APP_CLIENT_SECRET: ${GITHUB_APP_CLIENT_SECRET:-}
       GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY:-}
       GITHUB_APP_PRIVATE_KEY_FILE: ${GITHUB_APP_PRIVATE_KEY_FILE:-}
+      # The App's ONE webhook secret (whsec_…), set once at App registration.
+      # When set, inbound deliveries verify against it and resolve the workspace by
+      # the payload's installation.id — no per-workspace secret. Absent → the
+      # legacy per-workspace webhook_secret path stays in effect.
+      GITHUB_APP_WEBHOOK_SECRET: ${GITHUB_APP_WEBHOOK_SECRET:-}
     volumes:
       - storyos_attachments:/data/attachments
       # To use GITHUB_APP_PRIVATE_KEY_FILE instead of the inline key, mount the PEM
