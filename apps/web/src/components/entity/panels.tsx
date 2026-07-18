@@ -130,6 +130,154 @@ function RecordMentionButton({
   );
 }
 
+/**
+ * The comment composer (@ mentions, # record mentions, submit) — factored out of
+ * CommentsPanel (#76) so the feed view's inline per-card composer reuses the exact
+ * same posting logic/UI instead of a second one-off implementation. `compact`
+ * collapses the @/# toolbar until the input is focused or already has a draft in
+ * it (expand-on-focus), for a footer-sized inline composer.
+ */
+export function CommentComposer({
+  ws,
+  db,
+  rec,
+  members,
+  compact = false,
+  onPosted,
+}: {
+  ws: string;
+  db: string;
+  rec: string;
+  members: Array<{ id: string; name: string }>;
+  compact?: boolean;
+  onPosted?: () => void;
+}) {
+  const qc = useQueryClient();
+  const key = ['comments', ws, db, rec];
+  const memberNames = useMemo(() => new Map(members.map((m) => [m.id, m.name])), [members]);
+  const [segments, setSegments] = useState<Segment[]>([]);
+  const [text, setText] = useState('');
+  const [focused, setFocused] = useState(false);
+
+  const post = useMutation({
+    mutationFn: async (body: Segment[]) => {
+      const { error } = await api.POST(
+        '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/comments',
+        { params: { path: { ws, db, rec } }, body: { body: body as never } },
+      );
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      setSegments([]);
+      setText('');
+      setFocused(false);
+      void qc.invalidateQueries({ queryKey: key });
+      void qc.invalidateQueries({ queryKey: ['activity', ws, db, rec] });
+      onPosted?.();
+    },
+    onError: () => toast.error('Could not post the comment'),
+  });
+
+  function submit() {
+    const body: Segment[] = [...segments];
+    if (text.trim()) body.push({ type: 'text', text: text.trim() });
+    if (body.length === 0) return;
+    post.mutate(body);
+  }
+
+  // A compact composer only shows the @/# toolbar and send button once there's
+  // something to act on — focused, or a draft already started.
+  const toolbarShown = !compact || focused || segments.length > 0 || text.trim().length > 0;
+
+  return (
+    <div className="flex items-start gap-2">
+      <div
+        className={cn(
+          'flex-1 rounded-[var(--radius-control)] border border-border-default bg-card px-2',
+          compact ? 'py-1' : 'py-1.5',
+        )}
+      >
+        {segments.length > 0 && (
+          <span className="mr-1">
+            {segments.map((segment, i) =>
+              segment.type === 'mention' ? (
+                <span key={i} className="mr-1 rounded bg-accent-soft px-1 text-[12px] font-medium text-ink">
+                  @{memberNames.get(segment.user_id)}
+                </span>
+              ) : segment.type === 'record' ? (
+                <span key={i} className="mr-1 rounded bg-accent-soft px-1 text-[12px] font-medium text-ink">
+                  <CommentRecordChip ws={ws} segment={segment} />
+                </span>
+              ) : (
+                <span key={i} className="mr-1 text-[13px]">{segment.text}</span>
+              ),
+            )}
+          </span>
+        )}
+        <input
+          className="w-full bg-card text-[13px] text-ink outline-none placeholder:text-faint"
+          placeholder="Write a comment… (@ people, # records)"
+          value={text}
+          onFocus={() => setFocused(true)}
+          onBlur={() => {
+            if (!text.trim() && segments.length === 0) setFocused(false);
+          }}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              submit();
+            }
+            if (e.key === 'Escape' && compact) (e.target as HTMLInputElement).blur();
+          }}
+        />
+      </div>
+      {toolbarShown && (
+        <>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="secondary" size="sm" title="Mention someone">
+                @
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              {members.map((member) => (
+                <DropdownMenuItem
+                  key={member.id}
+                  onSelect={() => {
+                    setSegments((prev) => [
+                      ...prev,
+                      ...(text.trim() ? [{ type: 'text', text: `${text.trim()} ` } as Segment] : []),
+                      { type: 'mention', user_id: member.id },
+                    ]);
+                    setText('');
+                  }}
+                >
+                  {member.name}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <RecordMentionButton
+            ws={ws}
+            onPick={(record_id, database_id) => {
+              setSegments((prev) => [
+                ...prev,
+                ...(text.trim() ? [{ type: 'text', text: `${text.trim()} ` } as Segment] : []),
+                { type: 'record', record_id, database_id },
+              ]);
+              setText('');
+            }}
+          />
+          <Button size="sm" onClick={submit} disabled={post.isPending}>
+            <Send className="h-3.5 w-3.5" />
+          </Button>
+        </>
+      )}
+    </div>
+  );
+}
+
 export function CommentsPanel({
   ws,
   db,
@@ -162,26 +310,6 @@ export function CommentsPanel({
     },
   });
 
-  const [segments, setSegments] = useState<Segment[]>([]);
-  const [text, setText] = useState('');
-
-  const post = useMutation({
-    mutationFn: async (body: Segment[]) => {
-      const { error } = await api.POST(
-        '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/comments',
-        { params: { path: { ws, db, rec } }, body: { body: body as never } },
-      );
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      setSegments([]);
-      setText('');
-      void qc.invalidateQueries({ queryKey: key });
-      void qc.invalidateQueries({ queryKey: ['activity', ws, db, rec] });
-    },
-    onError: () => toast.error('Could not post the comment'),
-  });
-
   const remove = useMutation({
     mutationFn: async (id: string) => {
       const { error } = await api.DELETE(
@@ -192,13 +320,6 @@ export function CommentsPanel({
     },
     onSuccess: () => void qc.invalidateQueries({ queryKey: key }),
   });
-
-  function submit() {
-    const body: Segment[] = [...segments];
-    if (text.trim()) body.push({ type: 'text', text: text.trim() });
-    if (body.length === 0) return;
-    post.mutate(body);
-  }
 
   return (
     <div className="flex flex-col gap-3">
@@ -237,77 +358,7 @@ export function CommentsPanel({
         </div>
       ))}
 
-      <div className="flex items-start gap-2">
-        <div className="flex-1 rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1.5">
-          {segments.length > 0 && (
-            <span className="mr-1">
-              {segments.map((segment, i) =>
-                segment.type === 'mention' ? (
-                  <span key={i} className="mr-1 rounded bg-accent-soft px-1 text-[12px] font-medium text-ink">
-                    @{memberNames.get(segment.user_id)}
-                  </span>
-                ) : segment.type === 'record' ? (
-                  <span key={i} className="mr-1 rounded bg-accent-soft px-1 text-[12px] font-medium text-ink">
-                    <CommentRecordChip ws={ws} segment={segment} />
-                  </span>
-                ) : (
-                  <span key={i} className="mr-1 text-[13px]">{segment.text}</span>
-                ),
-              )}
-            </span>
-          )}
-          <input
-            className="w-full bg-card text-[13px] text-ink outline-none placeholder:text-faint"
-            placeholder="Write a comment… (@ people, # records)"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                submit();
-              }
-            }}
-          />
-        </div>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="secondary" size="sm" title="Mention someone">
-              @
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent>
-            {members.map((member) => (
-              <DropdownMenuItem
-                key={member.id}
-                onSelect={() => {
-                  setSegments((prev) => [
-                    ...prev,
-                    ...(text.trim() ? [{ type: 'text', text: `${text.trim()} ` } as Segment] : []),
-                    { type: 'mention', user_id: member.id },
-                  ]);
-                  setText('');
-                }}
-              >
-                {member.name}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <RecordMentionButton
-          ws={ws}
-          onPick={(record_id, database_id) => {
-            setSegments((prev) => [
-              ...prev,
-              ...(text.trim() ? [{ type: 'text', text: `${text.trim()} ` } as Segment] : []),
-              { type: 'record', record_id, database_id },
-            ]);
-            setText('');
-          }}
-        />
-        <Button size="sm" onClick={submit} disabled={post.isPending}>
-          <Send className="h-3.5 w-3.5" />
-        </Button>
-      </div>
+      <CommentComposer ws={ws} db={db} rec={rec} members={members} />
     </div>
   );
 }
