@@ -792,3 +792,55 @@ export const usageCounters = pgTable(
     uniqueIndex('usage_counters_uq').on(t.workspaceId, t.periodStart, t.metric),
   ],
 );
+
+/**
+ * MN-189 — StoryOS AI prepaid credits. Modeled as a balance (this table) plus
+ * an append-only ledger (aiCreditTransactions) — NOT a subscription line
+ * (ADR-0014's per-workspace subscription is the plan; this is orthogonal and
+ * exists independent of plan/cancellation, matching "the AI add-on is
+ * available on any plan"). All money here is in CENTS, matching Stripe.
+ */
+export const aiCreditBalances = pgTable('ai_credit_balances', {
+  workspaceId: uuid('workspace_id')
+    .primaryKey()
+    .references(() => workspaces.id, { onDelete: 'cascade' }),
+  balanceCents: integer('balance_cents').notNull().default(0),
+  autoReloadEnabled: boolean('auto_reload_enabled').notNull().default(false),
+  /** Trigger a reload when balance drops to/below this. */
+  autoReloadThresholdCents: integer('auto_reload_threshold_cents'),
+  /** How much to add when auto-reload fires. */
+  autoReloadAmountCents: integer('auto_reload_amount_cents'),
+  ...timestamps,
+});
+
+export const aiCreditTransactionType = pgEnum('ai_credit_transaction_type', [
+  'top_up',
+  'usage',
+  'refund',
+  'adjustment',
+]);
+
+/**
+ * One row per balance-changing event — top-ups are positive, usage is
+ * negative. `tokensIn`/`tokensOut`/`ourCostCents` are only set on `usage`
+ * rows (per-run cost attribution, MN-188's other half); `stripePaymentIntentId`
+ * only on `top_up` (idempotency key — see AiCreditsService.applyTopUp).
+ */
+export const aiCreditTransactions = pgTable(
+  'ai_credit_transactions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    type: aiCreditTransactionType('type').notNull(),
+    /** Signed: positive credits the balance, negative debits it. */
+    amountCents: integer('amount_cents').notNull(),
+    tokensIn: integer('tokens_in'),
+    tokensOut: integer('tokens_out'),
+    ourCostCents: integer('our_cost_cents'),
+    stripePaymentIntentId: text('stripe_payment_intent_id').unique(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('ai_credit_transactions_workspace_idx').on(t.workspaceId, t.createdAt)],
+);

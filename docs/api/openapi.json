@@ -714,6 +714,71 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/billing/ai-credits": {
+      "get": {
+        "operationId": "AiCreditsController_status",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Current AI credit balance, auto-reload config, and card-on-file status",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/billing/ai-credits/top-up": {
+      "post": {
+        "operationId": "AiCreditsController_topUp",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TopUpDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Create a one-time Checkout session to add credits; returns a redirect URL",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/billing/ai-credits/auto-reload": {
+      "post": {
+        "operationId": "AiCreditsController_autoReload",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AutoReloadDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Configure (or disable) auto-reload",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/grants": {
       "get": {
         "operationId": "GrantsController_list",
@@ -5234,6 +5299,38 @@
         },
         "required": [
           "plan"
+        ]
+      },
+      "TopUpDto": {
+        "type": "object",
+        "properties": {
+          "amount_usd": {
+            "type": "number",
+            "minimum": 10
+          }
+        },
+        "required": [
+          "amount_usd"
+        ]
+      },
+      "AutoReloadDto": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "threshold_usd": {
+            "type": "number",
+            "exclusiveMinimum": true,
+            "minimum": 0
+          },
+          "amount_usd": {
+            "type": "number",
+            "minimum": 10
+          }
+        },
+        "required": [
+          "enabled"
         ]
       },
       "CreateGrantDto": {

@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AccessModule } from '../access/access.module';
+import { AiCreditsController } from './ai-credits.controller';
+import { AiCreditsService } from './ai-credits.service';
 import { BillingController, BillingWebhookController } from './billing.controller';
 import { BillingService } from './billing.service';
 import { EntitlementsService } from './entitlements.service';
@@ -22,8 +24,8 @@ import { StripeService } from './stripe.service';
  */
 @Module({
   imports: [AccessModule],
-  controllers: [BillingController, BillingWebhookController],
-  providers: [StripeService, BillingService, EntitlementsService],
-  exports: [BillingService, EntitlementsService],
+  controllers: [BillingController, BillingWebhookController, AiCreditsController],
+  providers: [StripeService, BillingService, EntitlementsService, AiCreditsService],
+  exports: [BillingService, EntitlementsService, AiCreditsService],
 })
 export class BillingModule {}

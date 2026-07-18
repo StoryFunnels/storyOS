@@ -11,6 +11,7 @@ import {
 } from '../db/schema';
 import { env } from '../config/env';
 import { AccessService } from '../access/access.service';
+import { AiCreditsService } from './ai-credits.service';
 import { StripeService } from './stripe.service';
 import {
   basePriceId,
@@ -47,6 +48,7 @@ export class BillingService {
     @Inject(DB) private readonly db: Db,
     private readonly stripe: StripeService,
     private readonly access: AccessService,
+    private readonly aiCredits: AiCreditsService,
   ) {}
 
   private settingsUrl(query: string): string {
@@ -361,6 +363,20 @@ export class BillingService {
         // MN-192 sends the heads-up email; nothing to project here.
         this.logger.log(`Trial ending soon for subscription ${event.data.object.id}.`);
         break;
+      case 'checkout.session.completed': {
+        // MN-189: a ONE-TIME payment credits the AI balance; a subscription
+        // checkout ALSO fires this event, but that plan state is already
+        // driven by customer.subscription.* — only mode 'payment' with our
+        // own metadata tag is ours to act on here.
+        const session = event.data.object;
+        const workspaceId = session.metadata?.['workspaceId'];
+        const paymentIntentId =
+          typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id;
+        if (session.mode === 'payment' && session.metadata?.['kind'] === 'ai_credit_topup' && workspaceId && paymentIntentId) {
+          await this.aiCredits.applyTopUp(workspaceId, session.amount_total ?? 0, paymentIntentId);
+        }
+        break;
+      }
       default:
         this.logger.debug(`Unhandled webhook type ${event.type}.`);
     }
