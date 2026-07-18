@@ -59,6 +59,36 @@ export class BillingService {
       where: eq(billingSubscriptions.workspaceId, workspaceId),
     });
     if (!row) return FREE_STATUS;
+
+    // MN-192: our own no-card trial (started by startTrial(), no real Stripe
+    // subscription attached) is never touched by a webhook, so nothing else
+    // ever notices it elapsed. Detect and downgrade it here, lazily, on the
+    // very next read — no cron, no timing gap, no multi-replica coordination.
+    // A REAL Stripe-backed trialing subscription is deliberately excluded:
+    // Stripe owns that transition and will webhook reconcileSubscription()
+    // when it ends, so overwriting it here would race that update.
+    if (
+      !row.stripeSubscriptionId &&
+      row.status === 'trialing' &&
+      row.trialEndsAt &&
+      row.trialEndsAt.getTime() <= Date.now()
+    ) {
+      await this.db
+        .update(billingSubscriptions)
+        .set({ plan: 'free', status: null })
+        .where(eq(billingSubscriptions.workspaceId, workspaceId));
+      return {
+        plan: 'free',
+        status: null,
+        seats: row.seats,
+        cancelAtPeriodEnd: row.cancelAtPeriodEnd,
+        currentPeriodEnd: row.currentPeriodEnd,
+        // Kept, not cleared: startTrial()'s one-trial-per-workspace guard
+        // reads this to know a trial already happened.
+        trialEndsAt: row.trialEndsAt,
+      };
+    }
+
     return {
       plan: row.plan,
       status: row.status,
