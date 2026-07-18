@@ -1,8 +1,9 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './helpers/app';
 import { authed, signUpUser } from './helpers/users';
 import { AgentsService } from '../src/agents/agents.service';
+import { EntitlementsService } from '../src/billing/entitlements.service';
 import { ManagedAiRuntime, NonAiRuntime, pickRuntime } from '../src/agents/agent-runtime';
 import type { AgentRuntime } from '../src/agents/agent-runtime';
 
@@ -388,6 +389,132 @@ describe('Run classification at dispatch (#205, ADR-0010 §3)', () => {
       expect(steps).toContain('then it broke');
     } finally {
       service.runtimeFor = original;
+    }
+  });
+});
+
+describe('MN-168 — entitlements wiring at dispatch', () => {
+  /**
+   * Stripe is unset in the test env, so EntitlementsService.can()/recordNonAiRun
+   * are real no-ops (self-host mode) — proving nothing. These tests spy on the
+   * singleton's methods directly, the same technique agents.runtimeFor already
+   * uses, so the assertion is about WHICH code path calls the entitlements
+   * service, not about a live Stripe-backed counter (that's entitlements.
+   * service.test.ts's job).
+   */
+  function spyEntitlements() {
+    const service = app.get(EntitlementsService);
+    const originalCan = service.can.bind(service);
+    const originalRecord = service.recordNonAiRun.bind(service);
+    const canSpy = vi.fn(originalCan);
+    const recordSpy = vi.fn(originalRecord);
+    service.can = canSpy;
+    service.recordNonAiRun = recordSpy;
+    return {
+      canSpy,
+      recordSpy,
+      restore: () => {
+        service.can = originalCan;
+        service.recordNonAiRun = originalRecord;
+      },
+    };
+  }
+
+  it('a non-AI run counts toward the automation-run allowance', async () => {
+    const agent = await createAgent('Counted bot', { enabled: true, scopes: ['read'] });
+    const service = app.get(AgentsService);
+    const originalRuntime = service.runtimeFor;
+    service.runtimeFor = () => new NonAiRuntime();
+    const { recordSpy, restore } = spyEntitlements();
+    try {
+      const res = await as(admin.token, 'POST', `/workspaces/${wsId}/agents/${agent.id}/run`);
+      expect(res.statusCode, res.body).toBe(201);
+      expect(recordSpy).toHaveBeenCalledExactlyOnceWith(wsId);
+    } finally {
+      service.runtimeFor = originalRuntime;
+      restore();
+    }
+  });
+
+  it('a your-own-AI run never reaches the entitlements counter — MN-188 structural guarantee', async () => {
+    const agent = await createAgent('BYO counted bot', { enabled: true, scopes: ['read'] });
+    const service = app.get(AgentsService);
+    const originalRuntime = service.runtimeFor;
+    const byo: AgentRuntime = {
+      runClass: 'your_own_ai',
+      async *execute() {
+        yield { tool: 'byo.step', summary: 'drove a tool over MCP' };
+      },
+    };
+    service.runtimeFor = () => byo;
+    const { canSpy, recordSpy, restore } = spyEntitlements();
+    try {
+      const res = await as(admin.token, 'POST', `/workspaces/${wsId}/agents/${agent.id}/run`);
+      expect(res.statusCode, res.body).toBe(201);
+      // Not merely "unmetered" — no code path calls EITHER method at all.
+      expect(canSpy).not.toHaveBeenCalled();
+      expect(recordSpy).not.toHaveBeenCalled();
+    } finally {
+      service.runtimeFor = originalRuntime;
+      restore();
+    }
+  });
+
+  it('a StoryOS-AI run never decrements the non-AI automation allowance', async () => {
+    const agent = await createAgent('Managed-AI bot', { enabled: true, scopes: ['read'] });
+    const service = app.get(AgentsService);
+    const originalRuntime = service.runtimeFor;
+    const managed: AgentRuntime = {
+      runClass: 'storyos_ai',
+      async *execute() {
+        yield { tool: 'managed.step', summary: 'called the managed model' };
+      },
+    };
+    service.runtimeFor = () => managed;
+    const { canSpy, recordSpy, restore } = spyEntitlements();
+    try {
+      const res = await as(admin.token, 'POST', `/workspaces/${wsId}/agents/${agent.id}/run`);
+      expect(res.statusCode, res.body).toBe(201);
+      // The two ledgers must never be conflated: a StoryOS-AI run draws
+      // prepaid credits (MN-189), never the automation-run allowance.
+      expect(canSpy).not.toHaveBeenCalled();
+      expect(recordSpy).not.toHaveBeenCalled();
+    } finally {
+      service.runtimeFor = originalRuntime;
+      restore();
+    }
+  });
+
+  it('blocks a non-AI run over its allowance BEFORE any step executes — graceful, not a 500', async () => {
+    const agent = await createAgent('Over-quota bot', { enabled: true, scopes: ['read'] });
+    const service = app.get(AgentsService);
+    const originalRuntime = service.runtimeFor;
+    let executed = false;
+    service.runtimeFor = () => ({
+      runClass: 'non_ai',
+      async *execute() {
+        executed = true; // must never flip — the run is blocked before dispatch
+        yield { tool: 'should.never.run', summary: 'unreachable' };
+      },
+    });
+    const entitlements = app.get(EntitlementsService);
+    const originalCan = entitlements.can.bind(entitlements);
+    entitlements.can = vi.fn(async (workspaceId: string, capability) =>
+      workspaceId === wsId ? false : originalCan(workspaceId, capability),
+    );
+    try {
+      const res = await as(admin.token, 'POST', `/workspaces/${wsId}/agents/${agent.id}/run`);
+      expect(res.statusCode, res.body).toBe(201); // a real, visible Run — not a request failure
+
+      const fields = await fieldsOf(runsDbId);
+      const run = res.json();
+      expect(run.values.status).toBe(optionId(fields.get('status'), 'Failed'));
+      expect(run.values.finished_at).toBeTruthy();
+      expect(plainText(run.values.steps)).toMatch(/allowance/i);
+      expect(executed).toBe(false);
+    } finally {
+      service.runtimeFor = originalRuntime;
+      entitlements.can = originalCan;
     }
   });
 });

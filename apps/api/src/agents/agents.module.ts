@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AutomationsModule } from '../automations/automations.module';
+import { BillingModule } from '../billing/billing.module';
 import { DatabasesModule } from '../databases/databases.module';
 import { FieldsModule } from '../fields/fields.module';
 import { NotificationsModule } from '../notifications/notifications.module';
@@ -35,6 +36,7 @@ import { AgentTriggerSubscriber } from './trigger.subscriber';
 @Module({
   imports: [
     AutomationsModule,
+    BillingModule,
     DatabasesModule,
     FieldsModule,
     NotificationsModule,

@@ -506,6 +506,15 @@ export const automationRuns = pgTable(
     automationId: uuid('automation_id')
       .notNull()
       .references(() => automations.id, { onDelete: 'cascade' }),
+    /**
+     * MN-168: denormalized off automations->databases so the monthly-allowance
+     * counter (usage_counters) never needs a 3-way join. Same pattern as
+     * notifications/favorites/activity_events, which all carry workspace_id
+     * directly for the same reason.
+     */
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
     triggerRecordId: uuid('trigger_record_id'),
     status: text('status').notNull(), // ok | error | skipped
     error: text('error'),
@@ -514,7 +523,10 @@ export const automationRuns = pgTable(
     durationMs: integer('duration_ms'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('automation_runs_rule_idx').on(t.automationId, t.createdAt)],
+  (t) => [
+    index('automation_runs_rule_idx').on(t.automationId, t.createdAt),
+    index('automation_runs_workspace_idx').on(t.workspaceId, t.createdAt),
+  ],
 );
 
 /**
@@ -746,3 +758,31 @@ export const billingEvents = pgTable('billing_events', {
   type: text('type').notNull(),
   receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * MN-168 — durable, increment-on-write metering. One row per
+ * (workspace, calendar month, metric); `count` only ever goes up via an
+ * atomic upsert. Deliberately NOT a live COUNT over automation_runs / agent
+ * Runs: increment-on-write means the "your-own-AI is never metered" guarantee
+ * is structural — the only call sites that increment this table are gated on
+ * `runClass === 'non_ai'`, so a your-own-AI or StoryOS-AI run has literally no
+ * code path that reaches it (EntitlementsService.recordNonAiRun).
+ *
+ * `metric` stays a free-form key (only 'automation_runs' is written today) so
+ * a future metered line reuses this table rather than growing a sibling one.
+ */
+export const usageCounters = pgTable(
+  'usage_counters',
+  {
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    /** First-of-month, UTC — the natural monthly reset with no cron needed. */
+    periodStart: timestamp('period_start', { withTimezone: true }).notNull(),
+    metric: text('metric').notNull(),
+    count: integer('count').notNull().default(0),
+  },
+  (t) => [
+    uniqueIndex('usage_counters_uq').on(t.workspaceId, t.periodStart, t.metric),
+  ],
+);

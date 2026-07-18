@@ -9,6 +9,7 @@ import type { FilterNode } from '@storyos/schemas';
 import { RecordsService } from '../records/records.service';
 import { DomainEventsService } from '../events/domain-events.service';
 import type { DomainEvent } from '../events/domain-events.service';
+import { EntitlementsService } from '../billing/entitlements.service';
 import { AutomationActionsService } from './actions.service';
 import { env } from '../config/env';
 
@@ -42,6 +43,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
     private readonly recordsService: RecordsService,
     private readonly actions: AutomationActionsService,
     private readonly domainEvents: DomainEventsService,
+    private readonly entitlements: EntitlementsService,
   ) {}
 
   onModuleInit() {
@@ -213,7 +215,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
       if (trigger.type === 'record_linked' && trigger.relation_field_id !== event.relationFieldId) continue;
 
       if (event.depth >= MAX_DEPTH) {
-        await this.logRun(rule.id, event.recordId, 'skipped', `depth ${event.depth} — loop guard`, null, event.depth, 0);
+        await this.logRun(rule.id, event.workspaceId, event.recordId, 'skipped', `depth ${event.depth} — loop guard`, null, event.depth, 0);
         continue;
       }
       await this.runRule(rule.id, event.workspaceId, event.databaseId, event.recordId, event.depth);
@@ -233,9 +235,29 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
       }
       const record = await this.recordsService.get(databaseId, recordId).catch(() => null);
       if (!record) {
-        await this.logRun(ruleId, recordId, 'skipped', 'record gone', null, depth, Date.now() - started);
+        await this.logRun(ruleId, workspaceId, recordId, 'skipped', 'record gone', null, depth, Date.now() - started);
         return;
       }
+
+      // MN-168: this engine only ever runs deterministic, non-AI actions —
+      // there is no LLM anywhere in this path — so every completed run here
+      // is gated against, and counts toward, the plan's non-AI allowance.
+      // Graceful degradation, never destructive: a workspace over its
+      // allowance gets a clearly-reasoned 'skipped' row, not a crash.
+      if (!(await this.entitlements.can(workspaceId, 'automation_run'))) {
+        await this.logRun(
+          ruleId,
+          workspaceId,
+          recordId,
+          'skipped',
+          'plan automation-run allowance reached for this month',
+          null,
+          depth,
+          Date.now() - started,
+        );
+        return;
+      }
+
       const effects = await this.actions.execute(rule.actions as AutomationAction[], {
         workspaceId,
         databaseId,
@@ -243,11 +265,12 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         actorId: rule.createdBy ?? 'automation',
         depth: depth + 1,
       });
-      await this.logRun(ruleId, recordId, 'ok', null, effects, depth, Date.now() - started);
+      await this.logRun(ruleId, workspaceId, recordId, 'ok', null, effects, depth, Date.now() - started);
+      await this.entitlements.recordNonAiRun(workspaceId);
       await this.db.update(automations).set({ failureStreak: 0 }).where(eq(automations.id, ruleId));
     } catch (error) {
       const streak = rule.failureStreak + 1;
-      await this.logRun(ruleId, recordId, 'error', (error as Error).message?.slice(0, 500) ?? 'failed', null, depth, Date.now() - started);
+      await this.logRun(ruleId, workspaceId, recordId, 'error', (error as Error).message?.slice(0, 500) ?? 'failed', null, depth, Date.now() - started);
       await this.db
         .update(automations)
         .set({ failureStreak: streak, enabled: streak >= MAX_FAILURES ? false : undefined })
@@ -258,6 +281,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
 
   private async logRun(
     automationId: string,
+    workspaceId: string,
     recordId: string | null,
     status: string,
     error: string | null,
@@ -267,6 +291,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
   ) {
     await this.db.insert(automationRuns).values({
       automationId,
+      workspaceId,
       triggerRecordId: recordId,
       status,
       error,
