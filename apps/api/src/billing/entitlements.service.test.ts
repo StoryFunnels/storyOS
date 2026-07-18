@@ -7,7 +7,7 @@ import { EntitlementsService } from './entitlements.service';
 import { PLANS } from './plans';
 
 /** A fake Db that captures usage_counters upserts. Only the exact chain used. */
-function makeDb(opts: { existingCount?: number }) {
+function makeDb(opts: { existingCount?: number; ownedWorkspaces?: unknown[] }) {
   const upserts: Record<string, unknown>[] = [];
   const db = {
     query: {
@@ -15,6 +15,9 @@ function makeDb(opts: { existingCount?: number }) {
         findFirst: vi.fn().mockResolvedValue(
           opts.existingCount === undefined ? undefined : { count: opts.existingCount },
         ),
+      },
+      memberships: {
+        findMany: vi.fn().mockResolvedValue(opts.ownedWorkspaces ?? []),
       },
     },
     insert: () => {
@@ -154,6 +157,27 @@ describe('EntitlementsService.can — add_seat (MN-190)', () => {
     const svc = new EntitlementsService(db, stripeStub(false), billing, accessStub(['a', 'b']));
     expect(await svc.can('ws1', 'add_seat')).toBe(true);
     expect(billing.getStatus).not.toHaveBeenCalled();
+  });
+});
+
+describe('EntitlementsService.canCreateWorkspace (MN-191)', () => {
+  it('allows the first workspace — a brand new admin owns none yet', async () => {
+    const { db } = makeDb({ ownedWorkspaces: [] });
+    const svc = new EntitlementsService(db, stripeStub(true), billingStub('free'), accessStub([]));
+    expect(await svc.canCreateWorkspace('user1')).toBe(true);
+  });
+
+  it('blocks a 2nd workspace — multi-workspace is Enterprise-only, no plan unlocks it self-serve', async () => {
+    const { db } = makeDb({ ownedWorkspaces: [{ workspaceId: 'ws1' }] });
+    const svc = new EntitlementsService(db, stripeStub(true), billingStub('free'), accessStub([]));
+    expect(await svc.canCreateWorkspace('user1')).toBe(false);
+  });
+
+  it('self-host: unlimited, never queries memberships', async () => {
+    const { db } = makeDb({ ownedWorkspaces: [{ workspaceId: 'ws1' }] });
+    const svc = new EntitlementsService(db, stripeStub(false), billingStub('free'), accessStub([]));
+    expect(await svc.canCreateWorkspace('user1')).toBe(true);
+    expect(db.query.memberships.findMany).not.toHaveBeenCalled();
   });
 });
 
