@@ -17,13 +17,15 @@ import type { StripeService } from './stripe.service';
 function makeDb(opts: {
   customerRow?: { workspaceId: string };
   eventClaim?: Array<{ id: string }>;
+  subscriptionRow?: Record<string, unknown>;
 }) {
   const upserts: Record<string, unknown>[] = [];
+  const updates: Record<string, unknown>[] = [];
   const eventClaim = opts.eventClaim ?? [{ id: 'evt_1' }];
   const db = {
     query: {
       billingCustomers: { findFirst: vi.fn().mockResolvedValue(opts.customerRow) },
-      billingSubscriptions: { findFirst: vi.fn().mockResolvedValue(undefined) },
+      billingSubscriptions: { findFirst: vi.fn().mockResolvedValue(opts.subscriptionRow) },
       workspaces: { findFirst: vi.fn().mockResolvedValue({ id: 'ws1', name: 'W', slug: 'w' }) },
     },
     insert: () => {
@@ -42,8 +44,21 @@ function makeDb(opts: {
         },
       };
     },
+    update: () => {
+      let vals: Record<string, unknown> = {};
+      return {
+        set(v: Record<string, unknown>) {
+          vals = v;
+          return this;
+        },
+        where() {
+          updates.push(vals);
+          return Promise.resolve();
+        },
+      };
+    },
   } as unknown as Db;
-  return { db, upserts };
+  return { db, upserts, updates };
 }
 
 const stripeStub = { client: {} } as unknown as StripeService;
@@ -138,5 +153,98 @@ describe('BillingService.applyEvent idempotency', () => {
     await svc.applyEvent(event);
 
     expect(upserts).toHaveLength(0);
+  });
+});
+
+describe('BillingService.getStatus — MN-192 lazy trial-expiry sweep', () => {
+  const past = new Date(Date.now() - 1000);
+  const future = new Date(Date.now() + 1000 * 60 * 60 * 24);
+
+  it('downgrades our own no-card trial to Free the moment it is read past expiry', async () => {
+    const { db, updates } = makeDb({
+      subscriptionRow: {
+        plan: 'pro',
+        status: 'trialing',
+        stripeSubscriptionId: null,
+        seats: 0,
+        cancelAtPeriodEnd: false,
+        currentPeriodEnd: null,
+        trialEndsAt: past,
+      },
+    });
+    const svc = new BillingService(db, stripeStub, accessStub);
+
+    const status = await svc.getStatus('ws1');
+
+    expect(status.plan).toBe('free');
+    expect(status.status).toBeNull();
+    // The trial date itself is preserved — it's the one-trial-per-workspace signal.
+    expect(status.trialEndsAt).toBe(past);
+    expect(updates).toHaveLength(1);
+    expect(updates[0]).toEqual({ plan: 'free', status: null });
+  });
+
+  it('leaves an active (not yet expired) trial alone', async () => {
+    const { db, updates } = makeDb({
+      subscriptionRow: {
+        plan: 'pro',
+        status: 'trialing',
+        stripeSubscriptionId: null,
+        seats: 0,
+        cancelAtPeriodEnd: false,
+        currentPeriodEnd: null,
+        trialEndsAt: future,
+      },
+    });
+    const svc = new BillingService(db, stripeStub, accessStub);
+
+    const status = await svc.getStatus('ws1');
+
+    expect(status.plan).toBe('pro');
+    expect(status.status).toBe('trialing');
+    expect(updates).toHaveLength(0);
+  });
+
+  it('never touches a REAL Stripe-backed trialing subscription — Stripe owns that transition', async () => {
+    const { db, updates } = makeDb({
+      subscriptionRow: {
+        plan: 'pro',
+        status: 'trialing',
+        stripeSubscriptionId: 'sub_real', // a live Stripe subscription IS attached
+        seats: 0,
+        cancelAtPeriodEnd: false,
+        currentPeriodEnd: null,
+        trialEndsAt: past, // even though Stripe's own trial_end has elapsed
+      },
+    });
+    const svc = new BillingService(db, stripeStub, accessStub);
+
+    const status = await svc.getStatus('ws1');
+
+    // Untouched: reconcileSubscription() via webhook is the only thing
+    // allowed to change a Stripe-backed subscription's status.
+    expect(status.plan).toBe('pro');
+    expect(status.status).toBe('trialing');
+    expect(updates).toHaveLength(0);
+  });
+
+  it('a non-trialing row is never swept, regardless of trialEndsAt', async () => {
+    const { db, updates } = makeDb({
+      subscriptionRow: {
+        plan: 'business',
+        status: 'active',
+        stripeSubscriptionId: 'sub_real',
+        seats: 0,
+        cancelAtPeriodEnd: false,
+        currentPeriodEnd: null,
+        trialEndsAt: past,
+      },
+    });
+    const svc = new BillingService(db, stripeStub, accessStub);
+
+    const status = await svc.getStatus('ws1');
+
+    expect(status.plan).toBe('business');
+    expect(updates).toHaveLength(0);
   });
 });
