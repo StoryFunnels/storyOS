@@ -14,6 +14,7 @@ import { SpacesService } from '../workspaces/spaces.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { AutomationActionsService } from '../automations/actions.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { EntitlementsService } from '../billing/entitlements.service';
 import { deriveAgentPrincipal, scopeForRole } from './agent-principal';
 import {
   pickRuntime,
@@ -110,6 +111,8 @@ export class AgentsService {
     private readonly actions: AutomationActionsService,
     /** #210: asks the owner, through the Inbox they already watch. */
     private readonly notifications: NotificationsService,
+    /** MN-168: the non-AI allowance a run_class='non_ai' run is checked and counted against. */
+    private readonly entitlements: EntitlementsService,
   ) {}
 
   /**
@@ -457,15 +460,31 @@ export class AgentsService {
     const runClassIds = await this.optionIdsByLabel(runsDb.id, 'run_class');
     const actorId = owner.userId;
 
+    // MN-168: gate BEFORE execution, same moment as classification. Only
+    // non_ai runs are ever checked or counted — your_own_ai/storyos_ai have no
+    // call site into EntitlementsService at all (MN-188's structural proof).
+    // A blocked run still becomes a real, visible Run record (graceful
+    // degradation, never a silent no-op) — it just never invokes the runtime.
+    const overAllowance =
+      runtime.runClass === 'non_ai' && !(await this.entitlements.can(workspaceId, 'automation_run'));
+
     let run = await this.recordsService.create(
       workspaceId,
       runsDb.id,
       {
         name: `${agent.name} — ${trigger}`,
         trigger: triggerIds.get(trigger) ?? null,
-        status: statusIds.get('Running') ?? null,
+        status: statusIds.get(overAllowance ? 'Failed' : 'Running') ?? null,
         run_class: runClassIds.get(runClassLabel) ?? null,
         started_at: new Date().toISOString(),
+        ...(overAllowance
+          ? {
+              finished_at: new Date().toISOString(),
+              steps: markdownToBlocks(
+                '- **entitlements.blocked** — Plan automation-run allowance reached for this month',
+              ),
+            }
+          : {}),
         // The record that triggered the run — the agent's context (ADR-0010 §5).
         // Text, not a relation: the input record can live in any database.
         input_record: input.inputRecordId ?? null,
@@ -478,6 +497,7 @@ export class AgentsService {
       // so a write-back that re-triggers is bounded by the max-depth counter.
       input.depth ?? 0,
     );
+    if (overAllowance) return run;
 
     // ── Execute ───────────────────────────────────────────────────────────────
     // A runtime failure is a *run* outcome, not a request failure: it lands in
@@ -593,6 +613,10 @@ export class AgentsService {
       },
       actorId,
     );
+    // MN-168: count only a run that actually succeeded and was classified
+    // non_ai — mirrors automations.service.ts's choice not to charge the
+    // allowance for a run that errored out before doing anything useful.
+    if (!failure && runtime.runClass === 'non_ai') await this.entitlements.recordNonAiRun(workspaceId);
     return run;
   }
 
@@ -750,7 +774,7 @@ export class AgentsService {
       });
     }
 
-    return this.recordsService.update(
+    const resolved = await this.recordsService.update(
       membership.workspaceId,
       runsDb.id,
       run.id,
@@ -765,6 +789,18 @@ export class AgentsService {
       },
       actorId,
     );
+
+    // MN-168: an approved run only truly succeeds now, so this is where a
+    // staged non_ai run counts — not at staging time. run_class was already
+    // stamped at dispatch (before this gate ever existed), so this only reads
+    // it back; it never re-classifies.
+    if (verdict === 'approve') {
+      const runClassIds = await this.optionIdsByLabel(runsDb.id, 'run_class');
+      if (run.values['run_class'] === runClassIds.get('Non-AI')) {
+        await this.entitlements.recordNonAiRun(membership.workspaceId);
+      }
+    }
+    return resolved;
   }
 
   /** Approve a parked run: apply the staged action, then Succeed it (#210). */

@@ -288,6 +288,13 @@
       "when": 1784331590621,
       "tag": "0040_giant_quasar",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1784341230947,
+      "tag": "0041_spooky_sunfire",
+      "breakpoints": true
     }
   ]
 }

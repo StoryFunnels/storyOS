@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { WebhooksModule } from '../webhooks/webhooks.module';
+import { BillingModule } from '../billing/billing.module';
 import { CollaborationModule } from '../comments/collaboration.module';
 import { DatabasesModule } from '../databases/databases.module';
 import { IntegrationsModule } from '../integrations/integrations.module';
@@ -12,7 +13,16 @@ import { AutomationsController } from './automations.controller';
 import { AutomationsService } from './automations.service';
 
 @Module({
-  imports: [WebhooksModule, DatabasesModule, RecordsModule, RelationsModule, CollaborationModule, NotificationsModule, IntegrationsModule],
+  imports: [
+    WebhooksModule,
+    DatabasesModule,
+    RecordsModule,
+    RelationsModule,
+    CollaborationModule,
+    NotificationsModule,
+    IntegrationsModule,
+    BillingModule,
+  ],
   controllers: [ButtonsController, AutomationsController],
   providers: [AutomationActionsService, AutomationsService],
   exports: [AutomationActionsService, AutomationsService],

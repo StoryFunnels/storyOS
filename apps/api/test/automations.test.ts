@@ -1,8 +1,9 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './helpers/app';
 import { authed, signUpUser } from './helpers/users';
 import { AutomationsService } from '../src/automations/automations.service';
+import { EntitlementsService } from '../src/billing/entitlements.service';
 
 let app: NestFastifyApplication;
 let engine: AutomationsService;
@@ -185,5 +186,79 @@ describe('automations (MN-047)', () => {
     const updated = rules.data.find((r: { id: string }) => r.id === rule.id);
     expect(updated.enabled).toBe(false);
     expect(updated.failureStreak).toBeGreaterThanOrEqual(10);
+  });
+});
+
+describe('MN-168 — entitlements wiring for the automations engine', () => {
+  /** Stripe is unset in tests (self-host mode) — spy on the real method, same
+   *  technique as agent-runs.test.ts, to prove which code path calls it. */
+  function spyEntitlements() {
+    const service = app.get(EntitlementsService);
+    const originalCan = service.can.bind(service);
+    const originalRecord = service.recordNonAiRun.bind(service);
+    const canSpy = vi.fn(originalCan);
+    const recordSpy = vi.fn(originalRecord);
+    service.can = canSpy;
+    service.recordNonAiRun = recordSpy;
+    return {
+      canSpy,
+      recordSpy,
+      restore: () => {
+        service.can = originalCan;
+        service.recordNonAiRun = originalRecord;
+      },
+    };
+  }
+
+  it('a successful run checks the allowance and then counts against it', async () => {
+    const rule = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/automations`, {
+      name: 'Metered rule',
+      trigger: { type: 'record_created' },
+      actions: [{ type: 'add_comment', body_template: 'noted' }],
+    })).json();
+    const { canSpy, recordSpy, restore } = spyEntitlements();
+    try {
+      const rec = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records`, {
+        values: { name: 'Meter me' },
+      })).json();
+      await engine.settle(rec.id);
+      await wait(30);
+
+      expect(canSpy).toHaveBeenCalledWith(wsId, 'automation_run');
+      expect(recordSpy).toHaveBeenCalledExactlyOnceWith(wsId);
+    } finally {
+      restore();
+      await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}`, { enabled: false });
+    }
+  });
+
+  it('a run over its allowance is skipped BEFORE any action executes — never a crash', async () => {
+    const rule = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/automations`, {
+      name: 'Over-quota rule',
+      trigger: { type: 'record_created' },
+      actions: [{ type: 'add_comment', body_template: 'should never post' }],
+    })).json();
+    const entitlements = app.get(EntitlementsService);
+    const originalCan = entitlements.can.bind(entitlements);
+    entitlements.can = vi.fn(async (workspaceId: string, capability) =>
+      workspaceId === wsId ? false : originalCan(workspaceId, capability),
+    );
+    try {
+      const rec = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records`, {
+        values: { name: 'Blocked' },
+      })).json();
+      await engine.settle(rec.id);
+      await wait(30);
+
+      const comments = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/records/${rec.id}/comments`)).json();
+      expect(comments.data).toHaveLength(0); // the gated action never ran
+
+      const runs = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}/runs`)).json();
+      const blocked = runs.data.find((r: { status: string; error?: string }) => r.status === 'skipped' && /allowance/i.test(r.error ?? ''));
+      expect(blocked, JSON.stringify(runs.data)).toBeTruthy();
+    } finally {
+      entitlements.can = originalCan;
+      await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}`, { enabled: false });
+    }
   });
 });
