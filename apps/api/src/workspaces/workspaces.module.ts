@@ -23,6 +23,6 @@ import { WorkspacesService } from './workspaces.service';
     FoldersService,
     WorkspaceAccessGuard,
   ],
-  exports: [WorkspaceAccessGuard, SpacesService],
+  exports: [WorkspaceAccessGuard, SpacesService, WorkspacesService],
 })
 export class WorkspacesModule {}

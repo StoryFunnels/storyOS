@@ -61,12 +61,28 @@ export class WorkspacesService {
     return wss.map((w) => ({ ...serialize(w), role: roleByWs.get(w.id) }));
   }
 
-  async update(id: string, patch: { name?: string }) {
+  async update(id: string, patch: { name?: string; private_attachments?: boolean }) {
+    const { private_attachments, ...rest } = patch;
+    const set: { name?: string; settings?: Record<string, unknown> } = { ...rest };
+    // Same read-modify-write as the integration settings blobs (slack/github/linear
+    // services): `settings` is a shared jsonb bag, so a flag write must merge over
+    // the current value rather than clobber it.
+    if (private_attachments !== undefined) {
+      const current = await this.db.query.workspaces.findFirst({ where: eq(workspaces.id, id) });
+      set.settings = { ...((current?.settings as Record<string, unknown>) ?? {}), private_attachments };
+    }
     const [ws] = await this.db
       .update(workspaces)
-      .set(patch)
+      .set(set)
       .where(eq(workspaces.id, id))
       .returning();
     return serialize(ws!);
+  }
+
+  /** #201: is private-attachments mode on for this workspace? Defaults to off
+   * (current capability-URL behavior) when unset. */
+  async privateAttachmentsEnabled(workspaceId: string): Promise<boolean> {
+    const ws = await this.db.query.workspaces.findFirst({ where: eq(workspaces.id, workspaceId) });
+    return Boolean((ws?.settings as Record<string, unknown> | undefined)?.private_attachments);
   }
 }

@@ -13,6 +13,11 @@ export const createWorkspaceSchema = z.object({
 
 export const updateWorkspaceSchema = z.object({
   name: z.string().trim().min(1).max(100).optional(),
+  /** #201: when on, `GET /files/:id` (inline editor-image serve) also requires
+   * an authenticated, access-checked request instead of relying on the id being
+   * unguessable. Off by default — existing capability-URL behavior is
+   * unchanged. Mechanism only; no billing-tier gate is enforced here. */
+  private_attachments: z.boolean().optional(),
 });
 
 export const spaceColorSchema = z.enum([

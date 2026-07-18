@@ -1,11 +1,11 @@
 import { Module } from '@nestjs/common';
 import { WorkspacesModule } from '../workspaces/workspaces.module';
-import { FilesController, PublicFilesController } from './files.controller';
+import { FileDownloadController, FilesController, PublicFilesController } from './files.controller';
 import { FilesService } from './files.service';
 
 @Module({
   imports: [WorkspacesModule],
-  controllers: [FilesController, PublicFilesController],
+  controllers: [FilesController, PublicFilesController, FileDownloadController],
   providers: [FilesService],
 })
 export class FilesModule {}
