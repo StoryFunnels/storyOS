@@ -323,6 +323,13 @@
       "when": 1784372631839,
       "tag": "0045_faithful_zaladane",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1784373551619,
+      "tag": "0046_futuristic_gargoyle",
+      "breakpoints": true
     }
   ]
 }
