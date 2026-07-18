@@ -46,7 +46,7 @@ function DatabasePageInner() {
   const updateIcon = useUpdateDatabaseIcon(ws, db);
 
   const viewId = searchParams.get('view');
-  const { views, activeView, config, patch } = useViewState(ws, db, database.data, viewId, readOnly);
+  const { views, activeView, config, patch, personalFilter } = useViewState(ws, db, database.data, viewId, readOnly);
   const viewMutations = useViewMutations(ws, db);
   const members = useMembers(ws, !readOnly);
   const memberList = useMemo(
@@ -54,7 +54,7 @@ function DatabasePageInner() {
     [members.data],
   );
 
-  const queryBody = useMemo(() => queryBodyFromConfig(config), [config]);
+  const queryBody = useMemo(() => queryBodyFromConfig(config, personalFilter), [config, personalFilter]);
 
   const viewSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
   function onViewDragEnd(e: DragEndEvent) {
@@ -165,21 +165,22 @@ function DatabasePageInner() {
         ws={ws}
         db={db}
         viewId={activeView?.id}
+        personalFilter={personalFilter}
       />
 
       <div className="min-h-0 flex-1">
         {activeView?.type === 'board' ? (
-          <BoardView ws={ws} db={db} config={config} readOnly={readOnly} />
+          <BoardView ws={ws} db={db} config={config} readOnly={readOnly} personalFilter={personalFilter} />
         ) : activeView?.type === 'calendar' ? (
-          <CalendarView ws={ws} db={db} config={config} readOnly={readOnly} />
+          <CalendarView ws={ws} db={db} config={config} readOnly={readOnly} personalFilter={personalFilter} />
         ) : activeView?.type === 'gallery' ? (
-          <GalleryView ws={ws} db={db} config={config} readOnly={readOnly} />
+          <GalleryView ws={ws} db={db} config={config} readOnly={readOnly} personalFilter={personalFilter} />
         ) : activeView?.type === 'list' ? (
-          <ListView ws={ws} db={db} config={config} readOnly={readOnly} />
+          <ListView ws={ws} db={db} config={config} readOnly={readOnly} personalFilter={personalFilter} />
         ) : activeView?.type === 'feed' ? (
-          <FeedView ws={ws} db={db} config={config} readOnly={readOnly} />
+          <FeedView ws={ws} db={db} config={config} readOnly={readOnly} personalFilter={personalFilter} />
         ) : activeView?.type === 'timeline' ? (
-          <TimelineView ws={ws} db={db} config={config} readOnly={readOnly} onPatch={patch} />
+          <TimelineView ws={ws} db={db} config={config} readOnly={readOnly} onPatch={patch} personalFilter={personalFilter} />
         ) : activeView?.type === 'form' ? (
           <FormView ws={ws} db={db} config={config} readOnly={readOnly} onPatch={patch} viewId={activeView?.id} />
         ) : (

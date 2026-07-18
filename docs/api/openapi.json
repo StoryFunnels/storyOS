@@ -2714,6 +2714,223 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/databases/{db}/views/{view}/personal-filter": {
+      "get": {
+        "operationId": "PersonalFilterController_get",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "view",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "My personal filter override for this view (cleaned of dead field refs)",
+        "tags": [
+          "views"
+        ]
+      },
+      "put": {
+        "operationId": "PersonalFilterController_set",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "view",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetPersonalFilterDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Set (or replace) my personal filter override for this view",
+        "tags": [
+          "views"
+        ]
+      },
+      "delete": {
+        "operationId": "PersonalFilterController_clear",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "view",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Clear my personal filter override for this view",
+        "tags": [
+          "views"
+        ]
+      }
+    },
+    "/api/v1/users/me/avatar": {
+      "post": {
+        "operationId": "UsersController_upload",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Set my avatar (multipart field \"file\", png/jpeg/webp ≤1MB)",
+        "tags": [
+          "users"
+        ]
+      },
+      "delete": {
+        "operationId": "UsersController_remove",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Remove my avatar (falls back to initials)",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/users/{id}/avatar": {
+      "get": {
+        "operationId": "UsersController_serve",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Serve a user avatar (session required)",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/users/me/preferences": {
+      "get": {
+        "operationId": "PreferencesController_get",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "My preferences (defaults applied)",
+        "tags": [
+          "users"
+        ]
+      },
+      "patch": {
+        "operationId": "PreferencesController_update",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreferencesPatchDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update my preferences (deep-merged)",
+        "tags": [
+          "users"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/databases/{db}/export/csv": {
       "get": {
         "operationId": "ExportController_csv",
@@ -3786,106 +4003,6 @@
         "summary": "Download a file via a signed, expiring URL (#201)",
         "tags": [
           "files"
-        ]
-      }
-    },
-    "/api/v1/users/me/avatar": {
-      "post": {
-        "operationId": "UsersController_upload",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "summary": "Set my avatar (multipart field \"file\", png/jpeg/webp ≤1MB)",
-        "tags": [
-          "users"
-        ]
-      },
-      "delete": {
-        "operationId": "UsersController_remove",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "summary": "Remove my avatar (falls back to initials)",
-        "tags": [
-          "users"
-        ]
-      }
-    },
-    "/api/v1/users/{id}/avatar": {
-      "get": {
-        "operationId": "UsersController_serve",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "summary": "Serve a user avatar (session required)",
-        "tags": [
-          "users"
-        ]
-      }
-    },
-    "/api/v1/users/me/preferences": {
-      "get": {
-        "operationId": "PreferencesController_get",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "My preferences (defaults applied)",
-        "tags": [
-          "users"
-        ]
-      },
-      "patch": {
-        "operationId": "PreferencesController_update",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PreferencesPatchDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Update my preferences (deep-merged)",
-        "tags": [
-          "users"
         ]
       }
     },
@@ -6519,6 +6636,284 @@
           }
         }
       },
+      "SetPersonalFilterDto__schema0": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "field": {
+                "type": "string",
+                "minLength": 1
+              },
+              "op": {
+                "type": "string",
+                "enum": [
+                  "eq",
+                  "neq",
+                  "contains",
+                  "gt",
+                  "gte",
+                  "lt",
+                  "lte",
+                  "before",
+                  "after",
+                  "within",
+                  "has",
+                  "has_none",
+                  "is_empty",
+                  "not_empty"
+                ]
+              },
+              "value": {},
+              "disabled": {
+                "type": "boolean"
+              },
+              "pinned": {
+                "type": "boolean"
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 120
+              },
+              "icon": {
+                "type": "string",
+                "maxLength": 40
+              }
+            },
+            "required": [
+              "field",
+              "op"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "and": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SetPersonalFilterDto__schema0"
+                }
+              }
+            },
+            "required": [
+              "and"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "or": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SetPersonalFilterDto__schema0"
+                }
+              }
+            },
+            "required": [
+              "or"
+            ]
+          }
+        ]
+      },
+      "SetPersonalFilterDto": {
+        "type": "object",
+        "properties": {
+          "filter": {
+            "$ref": "#/components/schemas/SetPersonalFilterDto__schema0"
+          }
+        },
+        "required": [
+          "filter"
+        ]
+      },
+      "PreferencesPatchDto": {
+        "type": "object",
+        "properties": {
+          "notifications": {
+            "type": "object",
+            "properties": {
+              "assigned": {
+                "type": "boolean"
+              },
+              "mentioned": {
+                "type": "boolean"
+              },
+              "commented": {
+                "type": "boolean"
+              }
+            }
+          },
+          "regional": {
+            "type": "object",
+            "properties": {
+              "dateFormat": {
+                "type": "string",
+                "enum": [
+                  "system",
+                  "MDY",
+                  "DMY",
+                  "YMD"
+                ]
+              },
+              "timeFormat": {
+                "type": "string",
+                "enum": [
+                  "system",
+                  "12h",
+                  "24h"
+                ]
+              },
+              "firstDayOfWeek": {
+                "type": "string",
+                "enum": [
+                  "system",
+                  "sunday",
+                  "monday",
+                  "saturday"
+                ]
+              }
+            }
+          },
+          "myWork": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "group_by_field_id": {
+                  "type": "string"
+                },
+                "color_by_field_id": {
+                  "type": "string"
+                },
+                "hidden_field_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "filters": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "and": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "field": {
+                                "type": "string"
+                              },
+                              "op": {
+                                "type": "string"
+                              },
+                              "value": {},
+                              "disabled": {
+                                "type": "boolean"
+                              },
+                              "pinned": {
+                                "type": "boolean"
+                              },
+                              "label": {
+                                "type": "string",
+                                "maxLength": 120
+                              },
+                              "icon": {
+                                "type": "string",
+                                "maxLength": 40
+                              }
+                            },
+                            "required": [
+                              "field",
+                              "op"
+                            ]
+                          }
+                        }
+                      },
+                      "required": [
+                        "and"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "or": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "field": {
+                                "type": "string"
+                              },
+                              "op": {
+                                "type": "string"
+                              },
+                              "value": {},
+                              "disabled": {
+                                "type": "boolean"
+                              },
+                              "pinned": {
+                                "type": "boolean"
+                              },
+                              "label": {
+                                "type": "string",
+                                "maxLength": 120
+                              },
+                              "icon": {
+                                "type": "string",
+                                "maxLength": 40
+                              }
+                            },
+                            "required": [
+                              "field",
+                              "op"
+                            ]
+                          }
+                        }
+                      },
+                      "required": [
+                        "or"
+                      ]
+                    }
+                  ]
+                },
+                "sorts": {
+                  "maxItems": 3,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "field": {
+                        "type": "string"
+                      },
+                      "direction": {
+                        "type": "string",
+                        "enum": [
+                          "asc",
+                          "desc"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "field",
+                      "direction"
+                    ]
+                  }
+                },
+                "sorts_nulls": {
+                  "type": "string",
+                  "enum": [
+                    "first",
+                    "last"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
       "CreateWebhookDto": {
         "type": "object",
         "properties": {
@@ -6748,192 +7143,6 @@
         "required": [
           "body"
         ]
-      },
-      "PreferencesPatchDto": {
-        "type": "object",
-        "properties": {
-          "notifications": {
-            "type": "object",
-            "properties": {
-              "assigned": {
-                "type": "boolean"
-              },
-              "mentioned": {
-                "type": "boolean"
-              },
-              "commented": {
-                "type": "boolean"
-              }
-            }
-          },
-          "regional": {
-            "type": "object",
-            "properties": {
-              "dateFormat": {
-                "type": "string",
-                "enum": [
-                  "system",
-                  "MDY",
-                  "DMY",
-                  "YMD"
-                ]
-              },
-              "timeFormat": {
-                "type": "string",
-                "enum": [
-                  "system",
-                  "12h",
-                  "24h"
-                ]
-              },
-              "firstDayOfWeek": {
-                "type": "string",
-                "enum": [
-                  "system",
-                  "sunday",
-                  "monday",
-                  "saturday"
-                ]
-              }
-            }
-          },
-          "myWork": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "object",
-              "properties": {
-                "group_by_field_id": {
-                  "type": "string"
-                },
-                "color_by_field_id": {
-                  "type": "string"
-                },
-                "hidden_field_ids": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
-                "filters": {
-                  "anyOf": [
-                    {
-                      "type": "object",
-                      "properties": {
-                        "and": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "field": {
-                                "type": "string"
-                              },
-                              "op": {
-                                "type": "string"
-                              },
-                              "value": {},
-                              "disabled": {
-                                "type": "boolean"
-                              },
-                              "pinned": {
-                                "type": "boolean"
-                              },
-                              "label": {
-                                "type": "string",
-                                "maxLength": 120
-                              },
-                              "icon": {
-                                "type": "string",
-                                "maxLength": 40
-                              }
-                            },
-                            "required": [
-                              "field",
-                              "op"
-                            ]
-                          }
-                        }
-                      },
-                      "required": [
-                        "and"
-                      ]
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "or": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "field": {
-                                "type": "string"
-                              },
-                              "op": {
-                                "type": "string"
-                              },
-                              "value": {},
-                              "disabled": {
-                                "type": "boolean"
-                              },
-                              "pinned": {
-                                "type": "boolean"
-                              },
-                              "label": {
-                                "type": "string",
-                                "maxLength": 120
-                              },
-                              "icon": {
-                                "type": "string",
-                                "maxLength": 40
-                              }
-                            },
-                            "required": [
-                              "field",
-                              "op"
-                            ]
-                          }
-                        }
-                      },
-                      "required": [
-                        "or"
-                      ]
-                    }
-                  ]
-                },
-                "sorts": {
-                  "maxItems": 3,
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "field": {
-                        "type": "string"
-                      },
-                      "direction": {
-                        "type": "string",
-                        "enum": [
-                          "asc",
-                          "desc"
-                        ]
-                      }
-                    },
-                    "required": [
-                      "field",
-                      "direction"
-                    ]
-                  }
-                },
-                "sorts_nulls": {
-                  "type": "string",
-                  "enum": [
-                    "first",
-                    "last"
-                  ]
-                }
-              }
-            }
-          }
-        }
       },
       "CreateAutomationDto": {
         "type": "object",

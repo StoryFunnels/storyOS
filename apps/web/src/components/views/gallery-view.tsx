@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { recordHref } from '@/lib/records';
 import { useDatabase, useMembers, useRecordsInfinite } from '../table-view/use-table-data';
 import { Card } from './board-view';
-import type { ViewConfig } from './use-view-state';
+import type { FilterNode, ViewConfig } from './use-view-state';
 import { queryBodyFromConfig } from './use-view-state';
 
 /** Gallery view (MN-090): records as a responsive grid of cards — a board with no
@@ -15,15 +15,18 @@ export function GalleryView({
   db,
   config,
   readOnly,
+  personalFilter,
 }: {
   ws: string;
   db: string;
   config: ViewConfig;
   readOnly: boolean;
+  /** #259 — narrows this view's results for the current viewer only. */
+  personalFilter?: FilterNode;
 }) {
   const database = useDatabase(ws, db);
   const router = useRouter();
-  const queryBody = useMemo(() => queryBodyFromConfig(config), [config]);
+  const queryBody = useMemo(() => queryBodyFromConfig(config, personalFilter), [config, personalFilter]);
   const records = useRecordsInfinite(ws, db, queryBody);
 
   const memberQuery = useMembers(ws, !readOnly);

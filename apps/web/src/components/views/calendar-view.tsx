@@ -18,9 +18,9 @@ import { useDatabase, useMembers, useRecordMutations, useRecordsInfinite } from 
 import type { Field, RecordRow } from '../table-view/use-table-data';
 import { fmtDate, MONTH_NAMES, monthMatrix } from '@/lib/dates';
 import { cn } from '@/lib/utils';
-import type { ViewConfig } from './use-view-state';
+import type { FilterNode, ViewConfig } from './use-view-state';
 import { sortsBodyFromConfig } from './use-view-state';
-import { activeFilterNode } from './filter-config';
+import { activeFilterNode, andFilterNodes } from './filter-config';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -30,11 +30,14 @@ export function CalendarView({
   db,
   config,
   readOnly,
+  personalFilter,
 }: {
   ws: string;
   db: string;
   config: ViewConfig;
   readOnly: boolean;
+  /** #259 — narrows this view's results for the current viewer only. */
+  personalFilter?: FilterNode;
 }) {
   const database = useDatabase(ws, db);
   const router = useRouter();
@@ -54,12 +57,13 @@ export function CalendarView({
     ];
     // Skip disabled clauses (MN-253 UI) here too — this builds its own query filter
     // rather than going through queryBodyFromConfig, so it has to prune the same way.
-    // The active filter (possibly an {and:[...]}/{or:[...]} group) nests as one item
-    // alongside the two range conditions — the API's filter AST allows this.
-    const active = activeFilterNode(config.filters);
+    // The active filter (possibly an {and:[...]}/{or:[...]} group) AND the personal
+    // override (#259) each nest as one item alongside the two range conditions — the
+    // API's filter AST allows this, same top-level-AND-wrap queryBodyFromConfig uses.
+    const active = andFilterNodes(activeFilterNode(config.filters), personalFilter);
     const existing: unknown[] = active ? [active] : [];
     return { and: [...existing, ...range] };
-  }, [dateField, grid, config.filters]);
+  }, [dateField, grid, config.filters, personalFilter]);
 
   // MN-252: apply the same persisted sort spec here too (e.g. chips within a day
   // ordered by priority) — this view builds its own filter, so it borrows just the
