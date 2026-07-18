@@ -283,6 +283,126 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/billing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Plan, status, usage vs limits, and whether billing is configured */
+        get: operations["BillingController_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/billing/checkout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create a Stripe Checkout session for a plan; returns a redirect URL */
+        post: operations["BillingController_checkout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/billing/portal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create a Stripe Customer Portal session; returns a redirect URL */
+        post: operations["BillingController_portal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/billing/trial": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start the 30-day Pro trial (no card, no Stripe subscription yet) */
+        post: operations["BillingController_startTrial"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/billing/webhook": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stripe webhook receiver — signature-verified, unauthenticated by design */
+        post: operations["BillingWebhookController_receive"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/grants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List access grants (optionally for one user) */
+        get: operations["GrantsController_list"];
+        put?: never;
+        /** Grant a role on a space or database (upserts per scope) */
+        post: operations["GrantsController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/grants/{grant}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke a grant */
+        delete: operations["GrantsController_remove"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/databases": {
         parameters: {
             query?: never;
@@ -627,41 +747,6 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/grants": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List access grants (optionally for one user) */
-        get: operations["GrantsController_list"];
-        put?: never;
-        /** Grant a role on a space or database (upserts per scope) */
-        post: operations["GrantsController_create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/grants/{grant}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /** Revoke a grant */
-        delete: operations["GrantsController_remove"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1210,6 +1295,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/files/{id}/download-url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mint a signed, expiring download URL for a file (#201) */
+        post: operations["FilesController_mintDownloadUrl"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/files/{id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke a file — kills its capability URL and any signed download URLs (#201) */
+        post: operations["FilesController_revoke"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/files/{id}": {
         parameters: {
             query?: never;
@@ -1217,8 +1336,25 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Serve an uploaded editor image by id (capability URL) */
+        /** Serve an uploaded editor image by id (capability URL, or access-checked under private-attachments mode) */
         get: operations["PublicFilesController_serve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/files/{id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download a file via a signed, expiring URL (#201) */
+        get: operations["FileDownloadController_download"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1934,91 +2070,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/workspaces/{ws}/billing": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Current plan, status, seats and trial/period end */
-        get: operations["BillingController_status"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/billing/checkout": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Create a Stripe Checkout session for a plan; returns a redirect URL */
-        post: operations["BillingController_checkout"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/billing/portal": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Create a Stripe Customer Portal session; returns a redirect URL */
-        post: operations["BillingController_portal"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/billing/trial": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Start the 30-day Pro trial (no card, no Stripe subscription yet) */
-        post: operations["BillingController_startTrial"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/billing/webhook": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Stripe webhook receiver — signature-verified, unauthenticated by design */
-        post: operations["BillingWebhookController_receive"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2029,6 +2080,7 @@ export interface components {
         };
         UpdateWorkspaceDto: {
             name?: string;
+            private_attachments?: boolean;
         };
         CreateSpaceDto: {
             name: string;
@@ -2072,6 +2124,19 @@ export interface components {
             name?: string;
             icon?: string | null;
             position?: number;
+        };
+        CheckoutDto: {
+            /** @enum {string} */
+            plan: "pro" | "business";
+        };
+        CreateGrantDto: {
+            user_id: string;
+            /** Format: uuid */
+            space_id?: string;
+            /** Format: uuid */
+            database_id?: string;
+            /** @enum {string} */
+            role: "viewer" | "commenter" | "contributor" | "editor" | "creator";
         };
         CreateDatabaseDto: {
             /** Format: uuid */
@@ -2151,6 +2216,10 @@ export interface components {
             /** @enum {string} */
             op: "eq" | "neq" | "contains" | "gt" | "gte" | "lt" | "lte" | "before" | "after" | "within" | "has" | "has_none" | "is_empty" | "not_empty";
             value?: unknown;
+            disabled?: boolean;
+            pinned?: boolean;
+            label?: string;
+            icon?: string;
         } | {
             and: components["schemas"]["QueryRecordsDto__schema0"][];
         } | {
@@ -2205,15 +2274,6 @@ export interface components {
                 [key: string]: unknown;
             };
         };
-        CreateGrantDto: {
-            user_id: string;
-            /** Format: uuid */
-            space_id?: string;
-            /** Format: uuid */
-            database_id?: string;
-            /** @enum {string} */
-            role: "viewer" | "commenter" | "contributor" | "editor" | "creator";
-        };
         CreateRelationDto: {
             /** Format: uuid */
             database_a_id: string;
@@ -2249,6 +2309,10 @@ export interface components {
             /** @enum {string} */
             op: "eq" | "neq" | "contains" | "gt" | "gte" | "lt" | "lte" | "before" | "after" | "within" | "has" | "has_none" | "is_empty" | "not_empty";
             value?: unknown;
+            disabled?: boolean;
+            pinned?: boolean;
+            label?: string;
+            icon?: string;
         } | {
             and: components["schemas"]["CreateViewDto__schema0"][];
         } | {
@@ -2317,6 +2381,10 @@ export interface components {
             /** @enum {string} */
             op: "eq" | "neq" | "contains" | "gt" | "gte" | "lt" | "lte" | "before" | "after" | "within" | "has" | "has_none" | "is_empty" | "not_empty";
             value?: unknown;
+            disabled?: boolean;
+            pinned?: boolean;
+            label?: string;
+            icon?: string;
         } | {
             and: components["schemas"]["UpdateViewDto__schema0"][];
         } | {
@@ -2462,6 +2530,20 @@ export interface components {
                             field: string;
                             op: string;
                             value?: unknown;
+                            disabled?: boolean;
+                            pinned?: boolean;
+                            label?: string;
+                            icon?: string;
+                        }[];
+                    } | {
+                        or: {
+                            field: string;
+                            op: string;
+                            value?: unknown;
+                            disabled?: boolean;
+                            pinned?: boolean;
+                            label?: string;
+                            icon?: string;
                         }[];
                     };
                     sorts?: {
@@ -2544,7 +2626,10 @@ export interface components {
                 url: string;
                 body_template?: string;
                 headers?: {
-                    [key: string]: string;
+                    [key: string]: string | {
+                        /** @enum {boolean} */
+                        __keep: true;
+                    };
                 };
             })[];
             /** @default true */
@@ -2620,7 +2705,10 @@ export interface components {
                 url: string;
                 body_template?: string;
                 headers?: {
-                    [key: string]: string;
+                    [key: string]: string | {
+                        /** @enum {boolean} */
+                        __keep: true;
+                    };
                 };
             })[];
             enabled?: boolean;
@@ -2717,10 +2805,6 @@ export interface components {
         };
         CreateRelationTargetDto: {
             title: string;
-        };
-        CheckoutDto: {
-            /** @enum {string} */
-            plan: "pro" | "business";
         };
     };
     responses: never;
@@ -3181,6 +3265,156 @@ export interface operations {
             query?: never;
             header?: never;
             path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    BillingController_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    BillingController_checkout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CheckoutDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    BillingController_portal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    BillingController_startTrial: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    BillingWebhookController_receive: {
+        parameters: {
+            query?: never;
+            header: {
+                "stripe-signature": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    GrantsController_list: {
+        parameters: {
+            query: {
+                user_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    GrantsController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateGrantDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    GrantsController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                grant: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -3816,65 +4050,6 @@ export interface operations {
             path: {
                 db: string;
                 rec: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    GrantsController_list: {
-        parameters: {
-            query: {
-                user_id: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    GrantsController_create: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateGrantDto"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    GrantsController_remove: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                grant: string;
             };
             cookie?: never;
         };
@@ -4868,7 +5043,64 @@ export interface operations {
             };
         };
     };
+    FilesController_mintDownloadUrl: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    FilesController_revoke: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     PublicFilesController_serve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    FileDownloadController_download: {
         parameters: {
             query?: never;
             header?: never;
@@ -5871,97 +6103,6 @@ export interface operations {
             path: {
                 member: string;
             };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    BillingController_status: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    BillingController_checkout: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CheckoutDto"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    BillingController_portal: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    BillingController_startTrial: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    BillingWebhookController_receive: {
-        parameters: {
-            query?: never;
-            header: {
-                "stripe-signature": string;
-            };
-            path?: never;
             cookie?: never;
         };
         requestBody?: never;
