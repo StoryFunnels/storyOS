@@ -4660,6 +4660,100 @@
           "gdpr"
         ]
       }
+    },
+    "/api/v1/workspaces/{ws}/billing": {
+      "get": {
+        "operationId": "BillingController_status",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Current plan, status, seats and trial/period end",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/billing/checkout": {
+      "post": {
+        "operationId": "BillingController_checkout",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckoutDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Create a Stripe Checkout session for a plan; returns a redirect URL",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/billing/portal": {
+      "post": {
+        "operationId": "BillingController_portal",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Create a Stripe Customer Portal session; returns a redirect URL",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/billing/trial": {
+      "post": {
+        "operationId": "BillingController_startTrial",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Start the 30-day Pro trial (no card, no Stripe subscription yet)",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/api/v1/billing/webhook": {
+      "post": {
+        "operationId": "BillingWebhookController_receive",
+        "parameters": [
+          {
+            "name": "stripe-signature",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Stripe webhook receiver — signature-verified, unauthenticated by design",
+        "tags": [
+          "billing"
+        ]
+      }
     }
   },
   "info": {
@@ -7265,6 +7359,21 @@
             "type": "string"
           }
         }
+      },
+      "CheckoutDto": {
+        "type": "object",
+        "properties": {
+          "plan": {
+            "type": "string",
+            "enum": [
+              "pro",
+              "business"
+            ]
+          }
+        },
+        "required": [
+          "plan"
+        ]
       }
     }
   }

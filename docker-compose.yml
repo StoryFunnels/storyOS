@@ -52,6 +52,13 @@ services:
       MAIL_FROM: ${MAIL_FROM:-StoryOS <noreply@localhost>}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      # Billing (MN-165). All optional — unset = billing disabled, every workspace Free.
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      STRIPE_PRICE_PRO: ${STRIPE_PRICE_PRO:-}
+      STRIPE_PRICE_BUSINESS: ${STRIPE_PRICE_BUSINESS:-}
+      STRIPE_PRICE_SEAT: ${STRIPE_PRICE_SEAT:-}
+      STRIPE_TAX_ENABLED: ${STRIPE_TAX_ENABLED:-false}
       # OAuth for hosted-MCP connectors (MN-154). Off unless set true; needs oidc tables migrated.
       MCP_OAUTH: ${MCP_OAUTH:-}
     volumes:
