@@ -7,6 +7,7 @@ import type { Membership } from '../workspaces/workspace-access.guard';
 import { AccessService } from '../access/access.service';
 import type { EffectiveRole } from '../access/access.service';
 import { cleanViewConfig } from '../views/views.service';
+import { presentFieldConfig } from '../common/webhook-headers';
 import type { ViewConfig } from '@storyos/schemas';
 
 export function slugify(name: string): string {
@@ -198,7 +199,9 @@ export class DatabasesService {
       spaceSlug,
       qualifiedSlug: spaceSlug ? `${spaceSlug}/${database.apiSlug}` : database.apiSlug,
       my_access,
-      fields: fieldsWithOptions,
+      // A button field's config carries send_webhook headers; never surface a secret
+      // header value in the introspection payload (any viewer can read this) (#249).
+      fields: fieldsWithOptions.map((f) => ({ ...f, config: presentFieldConfig(f.config) })),
       views: cleanedViews,
     };
   }

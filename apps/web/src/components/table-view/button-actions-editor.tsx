@@ -13,7 +13,9 @@ export type ButtonAction =
   | { type: 'add_comment'; body_template: string }
   | { type: 'notify_user'; user: string; message: string }
   | { type: 'update_linked'; relation_field_id: string; values: Record<string, unknown> }
-  | { type: 'send_webhook'; url: string; body_template?: string; headers?: Record<string, string> };
+  // A secret header value is write-only (#249): reads return the `{ __keep: true }`
+  // presence flag in its place, and echoing it back on save keeps the stored value.
+  | { type: 'send_webhook'; url: string; body_template?: string; headers?: Record<string, string | { __keep: true }> };
 
 type Member = { id: string; name: string };
 

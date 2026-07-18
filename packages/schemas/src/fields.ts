@@ -87,7 +87,15 @@ export const actionSchema = z.discriminatedUnion('type', [
     url: webhookUrlSchema,
     // {Field Name} tokens are interpolated; omit for the standard record payload
     body_template: z.string().max(10_000).optional(),
-    headers: z.record(z.string().max(100), z.string().max(1000)).optional(),
+    // A header value is a string on write; secret header values are write-only, so
+    // reads return the presence flag `{ __keep: true }` in their place and a write
+    // may echo it back to keep the stored credential unchanged (#249).
+    headers: z
+      .record(
+        z.string().max(100),
+        z.union([z.string().max(1000), z.object({ __keep: z.literal(true) }).strict()]),
+      )
+      .optional(),
   }),
 ]);
 export type AutomationAction = z.infer<typeof actionSchema>;
