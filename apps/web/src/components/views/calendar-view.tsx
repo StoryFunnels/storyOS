@@ -19,6 +19,7 @@ import type { Field, RecordRow } from '../table-view/use-table-data';
 import { fmtDate, MONTH_NAMES, monthMatrix } from '@/lib/dates';
 import { cn } from '@/lib/utils';
 import type { ViewConfig } from './use-view-state';
+import { sortsBodyFromConfig } from './use-view-state';
 import { activeFilterNode } from './filter-config';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -60,11 +61,15 @@ export function CalendarView({
     return { and: [...existing, ...range] };
   }, [dateField, grid, config.filters]);
 
-  const records = useRecordsInfinite(
-    ws,
-    db,
-    windowFilter ? { filter: windowFilter, limit: 200 } : { limit: 200 },
-  );
+  // MN-252: apply the same persisted sort spec here too (e.g. chips within a day
+  // ordered by priority) — this view builds its own filter, so it borrows just the
+  // sorts/nulls slice of the shared query-body builder rather than forking a second
+  // sort-application path.
+  const records = useRecordsInfinite(ws, db, {
+    ...(windowFilter ? { filter: windowFilter } : {}),
+    ...sortsBodyFromConfig(config),
+    limit: 200,
+  });
   const { updateRecord, createRecord } = useRecordMutations(ws, db);
   const memberQuery = useMembers(ws, !readOnly);
   const memberNames = useMemo(

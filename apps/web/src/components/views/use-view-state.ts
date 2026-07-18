@@ -7,19 +7,19 @@ import { api } from '@/lib/api';
 import type { DatabaseDetail } from '../table-view/use-table-data';
 import { activeFilterNode, filterConditions } from './filter-config';
 import type { FilterGroup } from './filter-config';
+import type { NullsPlacement, SortSpec } from './sort-config';
 
 export type { FilterCondition, FilterConnector, FilterGroup } from './filter-config';
 export { buildFilterGroup, filterConditions, filterConnector, reorderConditions } from './filter-config';
-
-export interface SortSpec {
-  field: string; // api_name
-  direction: 'asc' | 'desc';
-}
+export type { NullsPlacement, SortSpec } from './sort-config';
+export { MAX_SORTS, directionLabel, nextSortField, reorderSorts } from './sort-config';
 
 /** v1 UI filter model (MN-253): a flat And/Or list — the API allows nesting; the UI stays flat. */
 export interface ViewConfig {
   filters?: FilterGroup;
   sorts: SortSpec[];
+  /** Whole-sort control (MN-252): where empty/null sort values land. Undefined = 'last'. */
+  sorts_nulls?: NullsPlacement;
   hidden_field_ids: string[];
   group_by_field_id?: string;
   /** Color rows/cards by a select field's option color (MN-102). */
@@ -220,6 +220,19 @@ export function useViewMutations(ws: string, db: string) {
 }
 
 /**
+ * The `sorts`/`nulls` slice of a /records/query body (MN-252) — shared by
+ * queryBodyFromConfig and any view that builds the rest of its query body
+ * itself (calendar-view.tsx composes its own date-window filter) but still
+ * needs the same sort spec applied, per the "one spec everywhere" AC.
+ * `nulls` only rides along when it diverges from the API's 'last' default,
+ * to keep the wire payload minimal.
+ */
+export function sortsBodyFromConfig(config: ViewConfig): Record<string, unknown> {
+  if (config.sorts.length === 0) return {};
+  return config.sorts_nulls === 'first' ? { sorts: config.sorts, nulls: 'first' } : { sorts: config.sorts };
+}
+
+/**
  * Builds the /records/query body from a view config (the server stays dumb).
  * Disabled clauses (MN-253 UI) and their UI-only fields never reach the query.
  */
@@ -227,6 +240,6 @@ export function queryBodyFromConfig(config: ViewConfig): Record<string, unknown>
   const body: Record<string, unknown> = { limit: 100 };
   const filter = activeFilterNode(config.filters);
   if (filter) body.filter = filter;
-  if (config.sorts.length > 0) body.sorts = config.sorts;
+  Object.assign(body, sortsBodyFromConfig(config));
   return body;
 }

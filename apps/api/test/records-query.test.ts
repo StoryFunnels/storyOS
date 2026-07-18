@@ -183,6 +183,64 @@ describe('records query engine (MN-012)', () => {
     expect(result).toEqual(['Delta', 'Beta', 'Gamma', 'Alpha', 'Epsilon']);
   });
 
+  // MN-252: the whole-sort empty-values placement toggle (`nulls: 'first'`). Alpha
+  // has no `due` but an estimate (1); Epsilon has neither — the second sort key
+  // (estimate desc) breaks the tie between them deterministically, same trick the
+  // NULLS LAST test above uses, so these don't depend on the DB's random UUID order.
+  it('nulls: "first" places empty sort values before non-null ones, primary key', async () => {
+    const result = await titles({
+      sorts: [
+        { field: 'due', direction: 'asc' },
+        { field: 'estimate', direction: 'desc' },
+      ],
+      nulls: 'first',
+    });
+    expect(result).toEqual(['Epsilon', 'Alpha', 'Delta', 'Beta', 'Gamma']);
+  });
+
+  it('nulls: "first" leads even on a DESC key (nulls aren\'t just "last, unless asc")', async () => {
+    const result = await titles({ sorts: [{ field: 'estimate', direction: 'desc' }], nulls: 'first' });
+    expect(result[0]).toBe('Epsilon'); // Epsilon has no estimate at all
+  });
+
+  it('omitting nulls keeps the pre-MN-252 NULLS LAST default', async () => {
+    const result = await titles({ sorts: [{ field: 'due', direction: 'asc' }, { field: 'estimate', direction: 'desc' }] });
+    expect(result.slice(-2)).toEqual(['Alpha', 'Epsilon']); // nulls still trail
+  });
+
+  it('keyset cursor pages stably with nulls: "first" across the null/non-null boundary', async () => {
+    const sorts = [
+      { field: 'due', direction: 'asc' as const },
+      { field: 'estimate', direction: 'desc' as const },
+    ];
+    const page1 = await query({ sorts, nulls: 'first', limit: 2 });
+    expect(page1.json().data.map((r: { title: string }) => r.title)).toEqual(['Epsilon', 'Alpha']);
+
+    const page2 = await query({ sorts, nulls: 'first', limit: 10, cursor: page1.json().next_cursor });
+    expect(page2.json().data.map((r: { title: string }) => r.title)).toEqual(['Delta', 'Beta', 'Gamma']);
+
+    const page1Ids = page1.json().data.map((r: { id: string }) => r.id);
+    const page2Ids = page2.json().data.map((r: { id: string }) => r.id);
+    expect(page1Ids.filter((id: string) => page2Ids.includes(id))).toHaveLength(0);
+    expect(page2.json().has_more).toBe(false);
+  });
+
+  // cursorCondition's nullsFirst branch has two cases: a NULL cursor value (the
+  // "keyset cursor pages... boundary" test above lands its cursor here, since the
+  // multi-key sort's page-1 boundary is a null `due`), and a NON-NULL cursor value
+  // on a DESC key. This is a single-key sort specifically so page 1 ends on a
+  // non-null value (Delta, estimate 13) — otherwise this second case is never
+  // exercised by any pagination test. A `>` vs `<` sign error here silently
+  // returns the wrong page (or an empty one), it doesn't throw.
+  it('keyset cursor pages stably past a NON-NULL cursor value on a nulls-first DESC key', async () => {
+    const sorts = [{ field: 'estimate', direction: 'desc' as const }];
+    const page1 = await query({ sorts, nulls: 'first', limit: 2 });
+    expect(page1.json().data.map((r: { title: string }) => r.title)).toEqual(['Epsilon', 'Delta']);
+
+    const page2 = await query({ sorts, nulls: 'first', limit: 10, cursor: page1.json().next_cursor });
+    expect(page2.json().data.map((r: { title: string }) => r.title)).toEqual(['Gamma', 'Beta', 'Alpha']);
+  });
+
   it('keyset cursor pages stably under concurrent inserts', async () => {
     const page1 = await query({ sorts: [{ field: 'estimate', direction: 'desc' }], limit: 2 });
     expect(page1.json().data).toHaveLength(2);

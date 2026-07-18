@@ -1094,12 +1094,14 @@ export class RecordsService {
 
   /**
    * The workhorse: POST /records/query (MN-012). Filter AST → SQL via the
-   * compiler; multi-key sorts with NULLS LAST; keyset cursors with id
-   * tiebreaker; no sorts = manual (position) order.
+   * compiler; multi-key sorts with NULLS FIRST/LAST (MN-252 — `input.nulls`,
+   * default 'last'); keyset cursors with id tiebreaker; no sorts = manual
+   * (position) order.
    */
   async query(databaseId: string, input: QueryRecordsInput, currentUserId: string) {
     const defs = await this.fieldDefs(databaseId);
     const byApiName = new Map(defs.map((d) => [d.api_name, d]));
+    const nullsFirst = input.nulls === 'first';
 
     const SORTABLE = new Set([
       'id', 'title', 'text', 'number', 'date', 'url', 'email', 'select',
@@ -1128,6 +1130,7 @@ export class RecordsService {
             sorts,
             (decoded.v ?? []).map((value, i) => reviveSortValue(value, sorts[i]!.def.type)),
             decoded.id,
+            nullsFirst,
           ),
         );
       } else {
@@ -1139,13 +1142,14 @@ export class RecordsService {
       }
     }
 
+    const nullsClause = nullsFirst ? sql`NULLS FIRST` : sql`NULLS LAST`;
     const orderBy =
       sorts.length > 0
         ? [
             ...sorts.map((s) =>
               s.direction === 'asc'
-                ? sql`${sortExpr(s.def)} ASC NULLS LAST`
-                : sql`${sortExpr(s.def)} DESC NULLS LAST`,
+                ? sql`${sortExpr(s.def)} ASC ${nullsClause}`
+                : sql`${sortExpr(s.def)} DESC ${nullsClause}`,
             ),
             asc(records.id),
           ]

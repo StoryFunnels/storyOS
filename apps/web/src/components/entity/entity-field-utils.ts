@@ -1,4 +1,4 @@
-import type { FilterCondition, SortSpec } from '@/components/views/use-view-state';
+import type { FilterCondition, NullsPlacement, SortSpec } from '@/components/views/use-view-state';
 import type { Field, RecordRow } from '@/components/table-view/use-table-data';
 
 // id renders in the header, title is the page heading — showing them again is
@@ -76,6 +76,8 @@ export interface VP {
 export interface CollectionView {
   filters?: { and: FilterCondition[] };
   sorts?: SortSpec[];
+  /** Whole-sort empty-values placement (MN-252) — same as ViewConfig.sorts_nulls. */
+  sorts_nulls?: NullsPlacement;
   color_by?: string; // target select field api_name
   /** Target-field api_names shown inline as columns per linked record (MN-206). */
   fields?: string[];

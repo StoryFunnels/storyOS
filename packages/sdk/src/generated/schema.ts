@@ -2218,6 +2218,8 @@ export interface components {
                  */
                 direction: "asc" | "desc";
             }[];
+            /** @enum {string} */
+            nulls?: "first" | "last";
             q?: string;
             /** @default 50 */
             limit: number;
@@ -2526,6 +2528,13 @@ export interface components {
                             icon?: string;
                         }[];
                     };
+                    sorts?: {
+                        field: string;
+                        /** @enum {string} */
+                        direction: "asc" | "desc";
+                    }[];
+                    /** @enum {string} */
+                    sorts_nulls?: "first" | "last";
                 };
             };
         };

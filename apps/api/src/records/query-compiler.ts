@@ -279,15 +279,25 @@ export function sortExpr(def: FieldDef): SQL {
 }
 
 /**
- * Keyset "after cursor" comparison for multi-key sorts with NULLS LAST:
+ * Keyset "after cursor" comparison for multi-key sorts:
  * (k1 after v1) OR (k1 == v1 AND k2 after v2) OR (... AND id > vid)
- * where "after" for asc is `> v OR IS NULL` (nulls sort last) and equality is
- * IS NOT DISTINCT FROM (null-safe).
+ * where equality is IS NOT DISTINCT FROM (null-safe) and "after" for each
+ * level depends on `nullsFirst` (MN-252 — the whole-query empty-values
+ * placement toggle; default false preserves the pre-MN-252 NULLS LAST shape):
+ *   - NULLS LAST (default): a non-null cursor value's "after" set is
+ *     `expr > v` (asc) plus `OR expr IS NULL` (nulls always trail); a NULL
+ *     cursor value has nothing after it at this level — everything else in
+ *     the null bucket is a tie, resolved by the next level/id.
+ *   - NULLS FIRST: mirrored — a NULL cursor value's "after" set is any
+ *     non-null row (`expr IS NOT NULL`); a non-null cursor value's "after"
+ *     set is the plain comparison with no `OR IS NULL` escape hatch, since
+ *     nulls already sorted before it.
  */
 export function cursorCondition(
   sorts: SortSpec[],
   sortValues: unknown[],
   afterId: string,
+  nullsFirst = false,
 ): SQL {
   const levels: SQL[] = [];
   const equalities: SQL[] = [];
@@ -297,8 +307,9 @@ export function cursorCondition(
     const value = sortValues[i] ?? null;
     let after: SQL;
     if (value === null) {
-      // Cursor row had NULL (sorts last): everything after it within nulls is id-ordered.
-      after = sql`FALSE`;
+      after = nullsFirst ? sql`(${expr} IS NOT NULL)` : sql`FALSE`;
+    } else if (nullsFirst) {
+      after = spec.direction === 'asc' ? sql`(${expr} > ${value})` : sql`(${expr} < ${value})`;
     } else {
       after =
         spec.direction === 'asc'
