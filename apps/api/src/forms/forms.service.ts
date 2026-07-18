@@ -7,10 +7,10 @@ import {
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { databases, fields, selectOptions, views } from '../db/schema';
+import { databases, fields, memberships, relations, selectOptions, user, views } from '../db/schema';
 import { RecordsService } from '../records/records.service';
 
-/** Field types a public form can render/accept (MN-101). */
+/** Field types a public form can render/accept (MN-101, MN-224: relation + user). */
 const SUPPORTED = new Set([
   'title',
   'text',
@@ -23,6 +23,7 @@ const SUPPORTED = new Set([
   'select',
   'multi_select',
   'user',
+  'relation',
 ]);
 
 interface FormFieldCfg {
@@ -83,12 +84,13 @@ export class FormsService {
 
     const formFields = form.fields ?? [];
     const cfgById = new Map(formFields.map((f) => [f.field_id, f]));
-    // Field order: the form's own list, else the view's card fields (back-compat).
+    // Field order: the form's own list, else the view's card fields (back-compat
+    // with forms saved before the drag-to-reorder sidebar builder shipped).
     const orderIds = formFields.length
       ? formFields.map((f) => f.field_id)
       : ((view.config as { card_field_ids?: string[] }).card_field_ids ?? []);
 
-    const chosen = orderIds
+    let chosen = orderIds
       .map((id) => byId.get(id))
       .filter((f): f is (typeof fieldRows)[number] => Boolean(f) && SUPPORTED.has(f!.type));
 
@@ -108,6 +110,61 @@ export class FormsService {
       optsByField.set(o.fieldId, list);
     }
 
+    // Relation fields (MN-224): resolve each field's target database so the
+    // public form can render a record picker for it. A relation whose config no
+    // longer resolves (e.g. the relation was deleted) is dropped from the form
+    // rather than rendered broken.
+    const relationFields = chosen.filter((f) => f.type === 'relation');
+    const relationIds = [
+      ...new Set(
+        relationFields
+          .map((f) => (f.config as { relation_id?: string }).relation_id)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    const relationRows = relationIds.length
+      ? await this.db.query.relations.findMany({ where: inArray(relations.id, relationIds) })
+      : [];
+    const relationById = new Map(relationRows.map((r) => [r.id, r]));
+    const relationInfoByField = new Map<
+      string,
+      { target_database_id: string; target_database_name: string | null; single: boolean }
+    >();
+    const targetDbIds = new Set<string>();
+    for (const f of relationFields) {
+      const cfg = f.config as { relation_id?: string; side?: 'a' | 'b' };
+      const rel = cfg.relation_id ? relationById.get(cfg.relation_id) : undefined;
+      if (!rel || !cfg.side) continue;
+      const targetDatabaseId = cfg.side === 'a' ? rel.databaseBId : rel.databaseAId;
+      targetDbIds.add(targetDatabaseId);
+      // Mirrors the in-app RelationEditor's single-vs-multi rule (relation-cell.tsx).
+      const single = rel.cardinality === 'one_to_many' && cfg.side === 'a';
+      relationInfoByField.set(f.id, { target_database_id: targetDatabaseId, target_database_name: null, single });
+    }
+    if (targetDbIds.size) {
+      const targetDbRows = await this.db.query.databases.findMany({
+        where: inArray(databases.id, [...targetDbIds]),
+        columns: { id: true, name: true },
+      });
+      const nameById = new Map(targetDbRows.map((d) => [d.id, d.name]));
+      for (const [fieldId, info] of relationInfoByField) {
+        relationInfoByField.set(fieldId, { ...info, target_database_name: nameById.get(info.target_database_id) ?? null });
+      }
+    }
+    // A relation field we couldn't resolve is unusable — drop it (back-compat safety).
+    chosen = chosen.filter((f) => f.type !== 'relation' || relationInfoByField.has(f.id));
+
+    // User fields (MN-224): expose the active-member roster so the form can render
+    // a people picker. Conservative — id + name only, no email/other PII.
+    const hasUserField = chosen.some((f) => f.type === 'user');
+    const workspaceMembers = hasUserField
+      ? await this.db
+          .select({ id: user.id, name: user.name })
+          .from(memberships)
+          .innerJoin(user, eq(user.id, memberships.userId))
+          .where(and(eq(memberships.workspaceId, database.workspaceId), eq(memberships.status, 'active')))
+      : [];
+
     return {
       title: form.title || database.name,
       description: form.description ?? null,
@@ -122,8 +179,51 @@ export class FormsService {
         help: cfgById.get(f.id)?.help ?? null,
         required: cfgById.get(f.id)?.required ?? false,
         options: optsByField.get(f.id),
+        relation: f.type === 'relation' ? relationInfoByField.get(f.id) : undefined,
+        members: f.type === 'user' ? workspaceMembers : undefined,
+        // Single- vs multi-pick (MN-224) — the public renderer must match this
+        // exactly: the record write path rejects an array for a non-multi user
+        // field (and vice versa), see coerce() in record-values.ts.
+        multi: f.type === 'user' ? (f.config as { multi?: boolean }).multi === true : undefined,
       })),
     };
+  }
+
+  /**
+   * Resolve a public form's own relation field → its target database, scoped
+   * strictly by the token + the field being one the form actually exposes.
+   * Backs the search/create-target endpoints (MN-224) — a public visitor can
+   * only reach a target database the form owner already chose to expose.
+   */
+  private async resolveRelationField(token: string, fieldId: string) {
+    const def = await this.getDefinition(token);
+    const field = def.fields.find((f) => f.field_id === fieldId && f.type === 'relation' && f.relation);
+    if (!field?.relation) throw new NotFoundException('Form field not found');
+    return field.relation;
+  }
+
+  /** Candidate records for a public form's relation field (title search, MN-224). */
+  async searchRelationCandidates(token: string, fieldId: string, q?: string) {
+    const { target_database_id } = await this.resolveRelationField(token, fieldId);
+    const page = await this.records.list(target_database_id, { limit: 20, q });
+    return page.data.map((r) => ({ id: r.id, title: r.title, number: r.number }));
+  }
+
+  /** Inline "create new" for a public form's relation field — title only (MN-224). */
+  async createRelationTarget(token: string, fieldId: string, title: string) {
+    const { target_database_id } = await this.resolveRelationField(token, fieldId);
+    const targetDatabase = await this.db.query.databases.findFirst({
+      where: eq(databases.id, target_database_id),
+    });
+    if (!targetDatabase) throw new NotFoundException('Target database not found');
+    // Anonymous author, title only — the same trust level as the main submit.
+    const created = await this.records.create(
+      targetDatabase.workspaceId,
+      target_database_id,
+      { name: title.slice(0, 500) },
+      null,
+    );
+    return { id: created.id, title: created.title, number: created.number };
   }
 
   /** Validate + create a record from a public submission (anonymous author). */

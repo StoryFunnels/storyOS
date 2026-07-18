@@ -170,8 +170,10 @@ export function ViewToolbar({
         onNullsChange={(sorts_nulls) => onPatch({ sorts_nulls })}
       />
 
-      {/* Field visibility: tables hide columns, boards pick card fields */}
-      {viewType === 'board' || viewType === 'calendar' || viewType === 'gallery' || viewType === 'list' || viewType === 'feed' || viewType === 'form' ? (
+      {/* Field visibility: tables hide columns, boards pick card fields. Forms
+          own their field membership/order via their own sidebar builder (#224)
+          — the generic Cards popover no longer applies to them. */}
+      {viewType === 'board' || viewType === 'calendar' || viewType === 'gallery' || viewType === 'list' || viewType === 'feed' ? (
         <CardFieldsButton
           fields={fields.filter((f) => !NON_TOGGLABLE.has(f.type))}
           shown={config.card_field_ids}
@@ -179,7 +181,7 @@ export function ViewToolbar({
           size={viewType === 'board' || viewType === 'gallery' ? config.card_size ?? 'medium' : undefined}
           onSizeChange={(card_size) => onPatch({ card_size })}
         />
-      ) : (
+      ) : viewType === 'form' ? null : (
         <HiddenFieldsButton
           fields={fields.filter((f) => !NON_TOGGLABLE.has(f.type))}
           hidden={config.hidden_field_ids}

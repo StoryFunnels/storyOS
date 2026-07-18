@@ -2,18 +2,30 @@
 
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Copy, Share2 } from 'lucide-react';
-import { useDatabase, useRecordMutations } from '../table-view/use-table-data';
+import { useQuery } from '@tanstack/react-query';
+import { Copy, GripVertical, ListChecks, Plus, Share2, X } from 'lucide-react';
+import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
+import type { DragEndEvent } from '@dnd-kit/core';
+import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { api } from '@/lib/api';
+import { useDatabase, useMembers, useRecordMutations } from '../table-view/use-table-data';
 import type { Field } from '../table-view/use-table-data';
 import type { ViewConfig } from './use-view-state';
+import {
+  FORM_FIELD_TYPES,
+  patchFieldConfig,
+  reorderFieldSelection,
+  resolveFormFieldIds,
+  toggleFieldSelection,
+} from './form-fields';
+import type { FormFieldCfg } from './form-fields';
 
-const SUPPORTED = new Set(['text', 'number', 'date', 'checkbox', 'url', 'email', 'select']);
-
-type FormFieldCfg = { field_id: string; required?: boolean; label?: string; help?: string };
-
-/** Form view (MN-101): renders the selected fields as inputs; submitting creates a
- * record. Editors get a builder + sharing panel; a public token exposes the form at
- * /f/:token (also embeddable), served by the unauthenticated public endpoint. */
+/** Form view (MN-101, #224): a drag-to-reorder sidebar owns which fields appear
+ * (config.form.fields) and their order — the generic Cards popover no longer
+ * decides form field membership. Submitting creates a record. Editors get the
+ * sidebar builder + a sharing panel; a public token exposes the form at /f/:token
+ * (also embeddable), served by the unauthenticated public endpoint. */
 export function FormView({
   ws,
   db,
@@ -33,15 +45,23 @@ export function FormView({
   const [values, setValues] = useState<Record<string, unknown>>({});
   const [name, setName] = useState('');
   const [justSubmitted, setJustSubmitted] = useState(false);
+  const [fieldsSidebarOpen, setFieldsSidebarOpen] = useState(false);
 
-  const fields = useMemo(
-    () =>
-      (database.data?.fields ?? []).filter(
-        (f) => config.card_field_ids.includes(f.id) && SUPPORTED.has(f.type),
-      ),
-    [database.data, config.card_field_ids],
-  );
+  const allFields = database.data?.fields ?? [];
+  const formCfgs = config.form?.fields ?? [];
+  const fields = useMemo(() => {
+    const byId = new Map(allFields.map((f) => [f.id, f]));
+    const ids = resolveFormFieldIds(config.form?.fields ?? [], config.card_field_ids);
+    return ids
+      .map((id) => byId.get(id))
+      .filter((f): f is Field => f !== undefined && FORM_FIELD_TYPES.has(f.type));
+  }, [allFields, config.form?.fields, config.card_field_ids]);
 
+  const hasUserField = fields.some((f) => f.type === 'user');
+  const members = useMembers(ws, hasUserField && !readOnly);
+  const memberList = (members.data ?? []).map((m) => ({ id: m.user.id, name: m.user.name }));
+
+  const hasTitleField = fields.some((f) => f.type === 'title');
   const heading = config.form?.title || database.data?.name || 'Form';
 
   const submit = () => {
@@ -66,7 +86,19 @@ export function FormView({
     <div className="h-full overflow-auto">
       <div className="mx-auto max-w-xl px-6 py-8">
         {!readOnly && onPatch && (
-          <FormBuilder config={config} fields={fields} onPatch={onPatch} />
+          <div className="mb-6 flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="flex items-center gap-1.5 rounded-[var(--radius-control)] border border-border-default bg-card px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-hover"
+                onClick={() => setFieldsSidebarOpen(true)}
+              >
+                <ListChecks className="h-3.5 w-3.5 text-muted" />
+                Fields {fields.length > 0 && <span className="text-muted">({fields.length})</span>}
+              </button>
+            </div>
+            <FormBuilder config={config} fields={fields} onPatch={onPatch} />
+          </div>
         )}
         <h1 className="text-2xl font-bold text-ink">{heading}</h1>
         {config.form?.description && <p className="mt-1 text-[13px] text-muted">{config.form.description}</p>}
@@ -78,24 +110,43 @@ export function FormView({
             if (!readOnly) submit();
           }}
         >
-          <Row label="Name" required>
-            <input
-              className="h-9 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2.5 text-sm text-ink outline-none focus:border-border-strong"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-            />
-          </Row>
-
-          {fields.map((field) => (
-            <Row key={field.id} label={field.displayName}>
-              <FieldInput field={field} value={values[field.apiName]} onChange={(v) => setValues((p) => ({ ...p, [field.apiName]: v }))} />
+          {!hasTitleField && (
+            <Row label="Name" required>
+              <input
+                className="h-9 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2.5 text-sm text-ink outline-none focus:border-border-strong"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+              />
             </Row>
-          ))}
+          )}
+
+          {fields.map((field) => {
+            const cfg = formCfgs.find((c) => c.field_id === field.id);
+            return (
+              <Row
+                key={field.id}
+                label={cfg?.label || field.displayName}
+                required={field.type === 'title' || (cfg?.required ?? false)}
+              >
+                <FieldInput
+                  ws={ws}
+                  field={field}
+                  value={values[field.apiName]}
+                  members={memberList}
+                  onChange={(v) => {
+                    if (field.type === 'title' && typeof v === 'string') setName(v);
+                    setValues((p) => ({ ...p, [field.apiName]: v }));
+                  }}
+                />
+                {cfg?.help && <span className="mt-0.5 text-[11px] text-faint">{cfg.help}</span>}
+              </Row>
+            );
+          })}
 
           {fields.length === 0 && (
             <p className="rounded-[var(--radius-card)] border border-dashed border-border-default px-3 py-2 text-[12px] text-faint">
-              Use “Cards” in the toolbar to choose which fields appear on this form.
+              Use the “Fields” panel to choose which fields appear on this form.
             </p>
           )}
 
@@ -111,6 +162,15 @@ export function FormView({
           </div>
         </form>
       </div>
+
+      {!readOnly && onPatch && fieldsSidebarOpen && (
+        <FormFieldsSidebar
+          allFields={allFields}
+          config={config}
+          onPatch={onPatch}
+          onClose={() => setFieldsSidebarOpen(false)}
+        />
+      )}
     </div>
   );
 }
@@ -127,7 +187,19 @@ function Row({ label, required, children }: { label: string; required?: boolean;
   );
 }
 
-function FieldInput({ field, value, onChange }: { field: Field; value: unknown; onChange: (v: unknown) => void }) {
+function FieldInput({
+  ws,
+  field,
+  value,
+  members,
+  onChange,
+}: {
+  ws: string;
+  field: Field;
+  value: unknown;
+  members: Array<{ id: string; name: string }>;
+  onChange: (v: unknown) => void;
+}) {
   const base =
     'h-9 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2.5 text-sm text-ink outline-none focus:border-border-strong';
   switch (field.type) {
@@ -149,13 +221,158 @@ function FieldInput({ field, value, onChange }: { field: Field; value: unknown; 
           ))}
         </select>
       );
+    case 'multi_select': {
+      const ids = (value as string[]) ?? [];
+      return (
+        <div className="flex flex-wrap gap-2">
+          {field.options?.map((o) => (
+            <label key={o.id} className="flex items-center gap-1.5 text-[13px] text-ink">
+              <input
+                type="checkbox"
+                checked={ids.includes(o.id)}
+                onChange={(e) =>
+                  onChange(e.target.checked ? [...ids, o.id] : ids.filter((id) => id !== o.id))
+                }
+              />
+              {o.label}
+            </label>
+          ))}
+        </div>
+      );
+    }
+    case 'user': {
+      const multi = field.config['multi'] === true;
+      const ids = multi ? ((value as string[]) ?? []) : value ? [value as string] : [];
+      return (
+        <div className="flex flex-col gap-1.5 rounded-[var(--radius-control)] border border-border-default bg-card p-2">
+          {members.length === 0 && <span className="text-[12px] text-faint">No members</span>}
+          {members.map((m) => (
+            <label key={m.id} className="flex items-center gap-1.5 text-[13px] text-ink">
+              <input
+                type={multi ? 'checkbox' : 'radio'}
+                name={field.id}
+                checked={ids.includes(m.id)}
+                onChange={() => {
+                  if (!multi) return onChange(m.id);
+                  onChange(ids.includes(m.id) ? ids.filter((id) => id !== m.id) : [...ids, m.id]);
+                }}
+              />
+              {m.name}
+            </label>
+          ))}
+        </div>
+      );
+    }
+    case 'relation':
+      return <RelationInput ws={ws} field={field} value={value} onChange={onChange} />;
+    case 'title':
+      return <input className={base} value={(value as string) ?? ''} onChange={(e) => onChange(e.target.value)} required />;
     default:
       return <input className={base} value={(value as string) ?? ''} onChange={(e) => onChange(e.target.value)} />;
   }
 }
 
-/** Editors-only: sharing (public link + embed + access mode), form meta, and
- * per-field required/label config (MN-101). Writes everything into config.form. */
+/** In-app relation input: search the target database, pick or create a target.
+ * Values are held locally as ids and written inline on submit — the record
+ * doesn't exist yet, so there's nothing to PUT /links against (unlike the
+ * table's RelationEditor, which edits an existing row). */
+function RelationInput({
+  ws,
+  field,
+  value,
+  onChange,
+}: {
+  ws: string;
+  field: Field;
+  value: unknown;
+  onChange: (v: unknown) => void;
+}) {
+  const relation = field.relation;
+  const targetDb = relation?.target_database_id;
+  const single = relation?.cardinality === 'one_to_many' && relation?.side === 'a';
+  const [search, setSearch] = useState('');
+  const [open, setOpen] = useState(false);
+  const selectedIds = (Array.isArray(value) ? (value as string[]) : value ? [String(value)] : []).filter(Boolean);
+
+  const results = useQuery({
+    queryKey: ['form-relation-picker', ws, targetDb, search],
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/databases/{db}/records', {
+        params: { path: { ws, db: targetDb! }, query: { q: search || undefined, limit: 20 } },
+      });
+      if (error) throw error;
+      return (data as unknown as { data: Array<{ id: string; title: string }> }).data;
+    },
+    enabled: Boolean(targetDb) && open,
+  });
+
+  const [titles, setTitles] = useState<Map<string, string>>(new Map());
+  const pick = (id: string, title: string) => {
+    setTitles((m) => new Map(m).set(id, title));
+    if (single) {
+      onChange([id]);
+      setOpen(false);
+      setSearch('');
+      return;
+    }
+    onChange(selectedIds.includes(id) ? selectedIds.filter((i) => i !== id) : [...selectedIds, id]);
+  };
+
+  if (!relation || !targetDb) {
+    return <span className="text-[12px] text-faint">Relation is not configured</span>;
+  }
+
+  return (
+    <div className="relative">
+      <div className="flex flex-wrap items-center gap-1.5 rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1.5">
+        {selectedIds.map((id) => (
+          <span key={id} className="flex items-center gap-1 rounded border border-border-default bg-hover px-1.5 py-0.5 text-[12px] text-ink">
+            {titles.get(id) ?? id}
+            <button
+              type="button"
+              className="text-faint hover:text-error"
+              onClick={() => onChange(selectedIds.filter((i) => i !== id))}
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </span>
+        ))}
+        <input
+          className="h-6 min-w-24 flex-1 border-0 bg-transparent text-[13px] text-ink outline-none placeholder:text-faint"
+          placeholder={`Search ${relation.target_database_name ?? 'records'}…`}
+          value={search}
+          onFocus={() => setOpen(true)}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+      </div>
+      {open && (
+        <div
+          className="absolute left-0 top-full z-20 mt-1 max-h-52 w-full overflow-y-auto rounded-[var(--radius-card)] border border-border-default bg-card p-1 shadow-[0_4px_12px_rgba(15,23,41,0.08)]"
+          onMouseLeave={() => setOpen(false)}
+        >
+          {(results.data ?? []).map((r) => (
+            <button
+              key={r.id}
+              type="button"
+              className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-[13px] text-ink hover:bg-hover"
+              onClick={() => pick(r.id, r.title)}
+            >
+              <span className="truncate">{r.title || 'Untitled'}</span>
+              {selectedIds.includes(r.id) && <span className="text-[11px] text-muted">selected</span>}
+            </button>
+          ))}
+          {results.data?.length === 0 && (
+            <p className="px-2 py-1.5 text-[12px] text-faint">No matches</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Editors-only: sharing (public link + embed + access mode) and form meta
+ * (title/description/submit/success text). Per-field required/label/help and
+ * membership/order now live in FormFieldsSidebar (#224). Writes into config.form. */
 function FormBuilder({
   config,
   fields,
@@ -179,8 +396,6 @@ function FormBuilder({
   );
   const patchForm = (updates: Partial<NonNullable<ViewConfig['form']>>) =>
     onPatch({ form: { ...form, fields: fieldCfgs, ...updates } });
-  const patchField = (fieldId: string, u: Partial<FormFieldCfg>) =>
-    patchForm({ fields: fieldCfgs.map((c) => (c.field_id === fieldId ? { ...c, ...u } : c)) });
 
   const copy = async (text: string, what: string) => {
     await navigator.clipboard.writeText(text);
@@ -188,7 +403,7 @@ function FormBuilder({
   };
 
   return (
-    <div className="mb-6 rounded-[var(--radius-card)] border border-border-default bg-card">
+    <div className="rounded-[var(--radius-card)] border border-border-default bg-card">
       <button
         type="button"
         className="flex w-full items-center gap-2 px-4 py-2.5 text-[13px] font-medium text-ink"
@@ -249,35 +464,165 @@ function FormBuilder({
             <MetaInput label="Submit button" value={form.submit_text ?? ''} placeholder="Submit" onChange={(v) => patchForm({ submit_text: v || undefined })} />
             <MetaInput label="Success message" value={form.success_message ?? ''} onChange={(v) => patchForm({ success_message: v || undefined })} />
           </section>
+        </div>
+      )}
+    </div>
+  );
+}
 
-          {/* Per-field */}
-          {fields.length > 0 && (
-            <section className="flex flex-col gap-2">
-              <p className="text-[11px] font-medium uppercase tracking-wider text-faint">Fields</p>
-              {fields.map((f) => {
-                const cfg = fieldCfgs.find((c) => c.field_id === f.id)!;
-                return (
-                  <div key={f.id} className="flex items-center gap-2">
-                    <input
-                      className="h-8 flex-1 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px]"
-                      value={cfg.label ?? ''}
-                      placeholder={f.displayName}
-                      onChange={(e) => patchField(f.id, { label: e.target.value || undefined })}
-                    />
-                    <label className="flex items-center gap-1 text-[12px] text-muted">
-                      <input
-                        type="checkbox"
-                        checked={cfg.required ?? false}
-                        onChange={(e) => patchField(f.id, { required: e.target.checked || undefined })}
-                      />
-                      Required
-                    </label>
-                  </div>
-                );
-              })}
-              <p className="text-[11px] text-faint">Use “Cards” in the toolbar to choose which fields appear.</p>
-            </section>
+/**
+ * Drag-to-reorder sidebar builder (#224): the SOLE source of "which fields are
+ * on the form" for form views, replacing the generic Cards popover for forms
+ * specifically. Picks fields from the database, orders them by drag, and edits
+ * each one's required/label/help. Writes directly into config.form.fields.
+ */
+function FormFieldsSidebar({
+  allFields,
+  config,
+  onPatch,
+  onClose,
+}: {
+  allFields: Field[];
+  config: ViewConfig;
+  onPatch: (updates: Partial<ViewConfig>) => void;
+  onClose: () => void;
+}) {
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  const selectable = allFields.filter((f) => FORM_FIELD_TYPES.has(f.type));
+  const formCfgs = config.form?.fields ?? [];
+  const selectedIds = resolveFormFieldIds(formCfgs, config.card_field_ids).filter((id) =>
+    selectable.some((f) => f.id === id),
+  );
+  const selected = selectedIds
+    .map((id) => selectable.find((f) => f.id === id))
+    .filter((f): f is Field => Boolean(f));
+  const available = selectable.filter((f) => !selectedIds.includes(f.id));
+  const cfgByField = new Map(formCfgs.map((c) => [c.field_id, c]));
+
+  const commit = (fieldsCfg: FormFieldCfg[]) =>
+    onPatch({ form: { ...(config.form ?? { fields: [] }), fields: fieldsCfg } });
+
+  const toggle = (fieldId: string) => commit(toggleFieldSelection(selectedIds, formCfgs, fieldId));
+  const patchField = (fieldId: string, u: Partial<Omit<FormFieldCfg, 'field_id'>>) =>
+    commit(patchFieldConfig(selectedIds, formCfgs, fieldId, u));
+
+  const onDragEnd = (e: DragEndEvent) => {
+    const { active, over } = e;
+    if (!over || active.id === over.id) return;
+    const from = selectedIds.indexOf(String(active.id));
+    const to = selectedIds.indexOf(String(over.id));
+    if (from < 0 || to < 0) return;
+    commit(reorderFieldSelection(selectedIds, formCfgs, from, to));
+  };
+
+  return (
+    <div className="fixed inset-0 z-40" role="dialog" aria-label="Form fields">
+      <div className="absolute inset-0 bg-[rgba(15,23,41,0.35)]" onClick={onClose} />
+      <div className="absolute right-0 top-0 flex h-full w-80 flex-col gap-4 overflow-y-auto border-l border-border-default bg-card p-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-[13px] font-semibold text-ink">Form fields</h2>
+          <button type="button" onClick={onClose} className="text-muted hover:text-ink" aria-label="Close">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <section className="flex flex-col gap-1.5">
+          <p className="text-[11px] font-medium uppercase tracking-wider text-faint">On this form · drag to reorder</p>
+          {selected.length === 0 && (
+            <p className="rounded-[var(--radius-card)] border border-dashed border-border-default px-2.5 py-2 text-[12px] text-faint">
+              No fields yet — add one below.
+            </p>
           )}
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+            <SortableContext items={selectedIds} strategy={verticalListSortingStrategy}>
+              <div className="flex flex-col gap-1.5">
+                {selected.map((field) => (
+                  <SortableFormField
+                    key={field.id}
+                    field={field}
+                    cfg={cfgByField.get(field.id) ?? { field_id: field.id }}
+                    onRemove={() => toggle(field.id)}
+                    onPatch={(u) => patchField(field.id, u)}
+                  />
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
+        </section>
+
+        {available.length > 0 && (
+          <section className="flex flex-col gap-1.5">
+            <p className="text-[11px] font-medium uppercase tracking-wider text-faint">Add a field</p>
+            {available.map((field) => (
+              <button
+                key={field.id}
+                type="button"
+                onClick={() => toggle(field.id)}
+                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[13px] text-muted hover:bg-hover hover:text-ink"
+              >
+                <Plus className="h-3.5 w-3.5" /> {field.displayName}
+              </button>
+            ))}
+          </section>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SortableFormField({
+  field,
+  cfg,
+  onRemove,
+  onPatch,
+}: {
+  field: Field;
+  cfg: FormFieldCfg;
+  onRemove: () => void;
+  onPatch: (u: Partial<Omit<FormFieldCfg, 'field_id'>>) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: field.id });
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className="rounded-[var(--radius-card)] border border-border-default bg-app"
+    >
+      <div className="flex items-center gap-1.5 px-2 py-1.5">
+        <button {...attributes} {...listeners} className="cursor-grab text-faint hover:text-muted" title="Drag to reorder">
+          <GripVertical className="h-3.5 w-3.5" />
+        </button>
+        <button type="button" onClick={() => setExpanded((v) => !v)} className="flex-1 truncate text-left text-[13px] text-ink">
+          {field.displayName}
+          <span className="ml-1 text-[11px] text-faint">· {field.type}</span>
+        </button>
+        <button type="button" onClick={onRemove} className="text-faint hover:text-error" title="Remove from form">
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      {expanded && (
+        <div className="flex flex-col gap-1.5 border-t border-border-default p-2">
+          <input
+            className="h-7 rounded border border-border-default bg-card px-2 text-[12px] text-ink"
+            value={cfg.label ?? ''}
+            placeholder={field.displayName}
+            onChange={(e) => onPatch({ label: e.target.value || undefined })}
+          />
+          <input
+            className="h-7 rounded border border-border-default bg-card px-2 text-[12px] text-ink"
+            value={cfg.help ?? ''}
+            placeholder="Help text (optional)"
+            onChange={(e) => onPatch({ help: e.target.value || undefined })}
+          />
+          <label className="flex items-center gap-1.5 text-[12px] text-muted">
+            <input
+              type="checkbox"
+              checked={cfg.required ?? false}
+              onChange={(e) => onPatch({ required: e.target.checked || undefined })}
+            />
+            Required
+          </label>
         </div>
       )}
     </div>
