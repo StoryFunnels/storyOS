@@ -1,15 +1,18 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { CalendarRange } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { recordHref } from '@/lib/records';
 import { CellDisplay, fieldValue, isDateField, optionColor } from '../table-view/cells';
-import { useDatabase, useMembers, useRecordsInfinite } from '../table-view/use-table-data';
+import { useDatabase, useMembers, useRecordMutations, useRecordsInfinite } from '../table-view/use-table-data';
 import type { Field, RecordRow } from '../table-view/use-table-data';
 import type { ViewConfig } from './use-view-state';
 import { queryBodyFromConfig } from './use-view-state';
+import type { DragKind } from './timeline-math';
+import { applyDrag, clampDragDelta, dependencyEdges, dragValuesToPersist, pxToDeltaDays } from './timeline-math';
 
 const DAY = 86_400_000;
 type Zoom = 'day' | 'week' | 'month' | 'quarter';
@@ -151,6 +154,7 @@ export function TimelineView({
 }) {
   const database = useDatabase(ws, db);
   const router = useRouter();
+  const { updateRecord } = useRecordMutations(ws, db);
   const queryBody = useMemo(() => ({ ...queryBodyFromConfig(config), limit: 200 }), [config]);
   const records = useRecordsInfinite(ws, db, queryBody);
   const rows = useMemo(() => (records.data?.pages ?? []).flatMap((p) => p.data), [records.data]);
@@ -232,6 +236,91 @@ export function TimelineView({
   }, [bars, zoom, today]);
 
   const axisWidth = (range.max - range.min + 1) * px;
+
+  // Dependency lines (#245): relation fields are user-configured, so these are
+  // looked up by api_name (== slugify(display name)) rather than assumed present.
+  const blockedByField = fields.find((f) => f.type === 'relation' && f.apiName === 'blocked_by');
+  const blockerForField = fields.find((f) => f.type === 'relation' && f.apiName === 'blocker_for');
+
+  // Drag-to-reschedule/resize (#245): only local visual state changes while a
+  // drag is in progress — the write happens once, on pointerup.
+  const [drag, setDrag] = useState<{ id: string; kind: DragKind; deltaDays: number } | null>(null);
+  const didDragRef = useRef(false);
+
+  const displayBars = useMemo(() => {
+    if (!drag) return bars;
+    return bars.map((b) => {
+      if (b.row.id !== drag.id) return b;
+      const { start, end } = applyDrag(b, drag.kind, drag.deltaDays);
+      return { ...b, start, end, milestone: end <= start };
+    });
+  }, [bars, drag]);
+
+  const canvasHeight = HEADER_H + bars.length * ROW_H;
+  const barGeom = useMemo(() => {
+    const map = new Map<string, { x1: number; x2: number; y: number }>();
+    displayBars.forEach((b, i) => {
+      const y = HEADER_H + i * ROW_H + ROW_H / 2;
+      const x = (b.start - range.min) * px;
+      if (b.milestone) {
+        const cx = x + px / 2;
+        map.set(b.row.id, { x1: cx, x2: cx, y });
+      } else {
+        const width = Math.max(px, (b.end - b.start + 1) * px);
+        map.set(b.row.id, { x1: x, x2: x + width, y });
+      }
+    });
+    return map;
+  }, [displayBars, range.min, px]);
+
+  const depEdges = useMemo(
+    () => dependencyEdges(bars.map((b) => b.row), blockedByField?.apiName, blockerForField?.apiName),
+    [bars, blockedByField, blockerForField],
+  );
+
+  /** Start a bar move/resize drag; commits once on release via updateRecord. */
+  function startBarPointer(
+    e: ReactPointerEvent,
+    bar: { row: RecordRow; start: number; end: number },
+    kind: DragKind,
+  ) {
+    if (readOnly || !startField) return;
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const threshold = 3;
+    let active = false;
+    let delta = 0;
+    const onMove = (ev: PointerEvent) => {
+      const dx = ev.clientX - startX;
+      if (!active) {
+        if (Math.abs(dx) < threshold && Math.abs(ev.clientY - startY) < threshold) return;
+        active = true;
+        didDragRef.current = true;
+      }
+      delta = clampDragDelta(kind, pxToDeltaDays(dx, px), bar.start, bar.end);
+      setDrag({ id: bar.row.id, kind, deltaDays: delta });
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      setDrag(null);
+      if (!active || delta === 0) return;
+      const startVal = fieldValue(bar.row, startField);
+      const endVal = endField ? fieldValue(bar.row, endField) : null;
+      const persisted = dragValuesToPersist(
+        kind,
+        delta,
+        typeof startVal === 'string' ? startVal : null,
+        typeof endVal === 'string' ? endVal : null,
+      );
+      const values: Record<string, unknown> = {};
+      if (persisted.start !== undefined) values[startField.apiName] = persisted.start;
+      if (persisted.end !== undefined && endField) values[endField.apiName] = persisted.end;
+      if (Object.keys(values).length > 0) updateRecord.mutate({ rec: bar.row.id, values });
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  }
 
   const primary = useMemo(
     () => (zoom === 'month' || zoom === 'quarter' ? yearSegs(range.min, range.max, px) : monthSegs(range.min, range.max, px, true)),
@@ -436,6 +525,48 @@ export function TimelineView({
               />
             )}
 
+            {/* Dependency lines (#245): blocker's bar-end -> blocked record's bar-start.
+                Placed before the bars in DOM order (both are z-auto) so the bars paint
+                on top of the connectors, not the other way around. */}
+            {depEdges.length > 0 && (
+              <svg
+                className="pointer-events-none absolute left-0 top-0"
+                width={axisWidth}
+                height={canvasHeight}
+                aria-hidden="true"
+              >
+                <defs>
+                  <marker
+                    id="timeline-dep-arrow"
+                    viewBox="0 0 8 8"
+                    refX="7"
+                    refY="4"
+                    markerWidth="6"
+                    markerHeight="6"
+                    orient="auto-start-reverse"
+                  >
+                    <path d="M0,0 L8,4 L0,8 Z" fill="var(--border-strong)" />
+                  </marker>
+                </defs>
+                {depEdges.map((edge) => {
+                  const from = barGeom.get(edge.blockerId);
+                  const to = barGeom.get(edge.blockedId);
+                  if (!from || !to) return null;
+                  const midX = (from.x2 + to.x1) / 2;
+                  return (
+                    <path
+                      key={`${edge.blockerId}-${edge.blockedId}`}
+                      d={`M ${from.x2} ${from.y} C ${midX} ${from.y}, ${midX} ${to.y}, ${to.x1} ${to.y}`}
+                      fill="none"
+                      stroke="var(--border-strong)"
+                      strokeWidth={1.5}
+                      markerEnd="url(#timeline-dep-arrow)"
+                    />
+                  );
+                })}
+              </svg>
+            )}
+
             {/* Two-tier axis header */}
             <div className="sticky top-0 z-10 bg-app" style={{ height: HEADER_H }}>
               <div className="relative border-b border-border-default" style={{ height: HEADER_H / 2 }}>
@@ -462,18 +593,30 @@ export function TimelineView({
               </div>
             </div>
 
-            {/* Bars */}
-            {bars.map(({ row, start, end, milestone }) => {
+            {/* Bars — draggable to reschedule (#245): dragging the body moves the
+                whole bar, dragging an edge resizes that end. A drag only updates
+                local visual state (`drag`); the record write happens once, on
+                pointerup, via startBarPointer. */}
+            {displayBars.map((bar) => {
+              const { row, start, end, milestone } = bar;
               const color = (colorField && optionColor(colorField, row.values[colorField.apiName])) || 'var(--accent)';
               const x = (start - range.min) * px;
+              const handleClick = () => {
+                if (didDragRef.current) {
+                  didDragRef.current = false;
+                  return;
+                }
+                router.push(recordHref(ws, db, row));
+              };
               if (milestone) {
                 const size = 14;
                 return (
                   <div key={row.id} className="relative border-b border-border-default" style={{ height: ROW_H }}>
                     <button
-                      onClick={() => router.push(recordHref(ws, db, row))}
+                      onClick={handleClick}
+                      onPointerDown={(e) => startBarPointer(e, bar, 'move')}
                       title={row.title || 'Untitled'}
-                      className="absolute rounded-[3px] shadow-sm hover:brightness-110"
+                      className={cn('absolute rounded-[3px] shadow-sm hover:brightness-110', !readOnly && 'cursor-grab active:cursor-grabbing')}
                       style={{
                         left: x + px / 2 - size / 2,
                         top: ROW_H / 2 - size / 2,
@@ -496,17 +639,35 @@ export function TimelineView({
               return (
                 <div key={row.id} className="relative border-b border-border-default" style={{ height: ROW_H }}>
                   <button
-                    onClick={() => router.push(recordHref(ws, db, row))}
+                    onClick={handleClick}
+                    onPointerDown={(e) => startBarPointer(e, bar, 'move')}
                     title={row.title || 'Untitled'}
-                    className="absolute flex items-center overflow-hidden rounded-md text-left text-[11px] text-[var(--text-on-dark)] shadow-sm hover:brightness-110"
+                    className={cn(
+                      'absolute flex items-center overflow-hidden rounded-md text-left text-[11px] text-[var(--text-on-dark)] shadow-sm hover:brightness-110',
+                      !readOnly && 'cursor-grab active:cursor-grabbing',
+                    )}
                     style={{ left: x, top: ROW_H / 2 - 11, width, height: 22, backgroundColor: color }}
                   >
                     <span className="truncate px-1.5">{row.title || 'Untitled'}</span>
                   </button>
+                  {!readOnly && endField && (
+                    <>
+                      <span
+                        onPointerDown={(e) => startBarPointer(e, bar, 'resize-start')}
+                        className="absolute cursor-ew-resize hover:bg-[var(--accent)]/40"
+                        style={{ left: x - 3, top: ROW_H / 2 - 11, width: 8, height: 22 }}
+                        title="Drag to resize"
+                      />
+                      <span
+                        onPointerDown={(e) => startBarPointer(e, bar, 'resize-end')}
+                        className="absolute cursor-ew-resize hover:bg-[var(--accent)]/40"
+                        style={{ left: x + width - 5, top: ROW_H / 2 - 11, width: 8, height: 22 }}
+                        title="Drag to resize"
+                      />
+                    </>
+                  )}
                 </div>
               );
-              // TODO(#220): OPTIONAL — dependency lines from blocked_by/blocker_for
-              // relations, and drag-to-reschedule/resize (persist to the date field).
             })}
           </div>
         </div>
