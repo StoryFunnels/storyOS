@@ -81,6 +81,25 @@ export class TokensService {
     return { revoked: true };
   }
 
+  /**
+   * Throttler-side identity (MN-248): the stable per-token key to rate-limit a
+   * caller by, or null if the token doesn't resolve to a live principal.
+   *
+   * Read-only on purpose — no last_used stamp. The throttler runs on every
+   * request and must stay cheap and side-effect free, and returning null for an
+   * unresolvable token is load-bearing: it tells the guard to bucket the request
+   * by IP rather than let a bogus token mint a fresh bucket of its own. The key
+   * is the sha256 the token is already indexed by, not a new secret.
+   */
+  async identify(token: string): Promise<string | null> {
+    const hash = sha256(token);
+    const row = await this.db.query.apiTokens.findFirst({
+      columns: { id: true },
+      where: and(eq(apiTokens.tokenHash, hash), isNull(apiTokens.revokedAt)),
+    });
+    return row ? hash : null;
+  }
+
   /** Guard-side resolution: hash lookup, live check, throttled last_used stamp. */
   async resolve(
     token: string,

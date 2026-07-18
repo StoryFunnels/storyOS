@@ -29,7 +29,13 @@ async function runMigrations() {
 
 async function bootstrap() {
   if (env().RUN_MIGRATIONS) await runMigrations();
-  const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter({ bodyLimit: 3 * 1024 * 1024, trustProxy: true }), {
+  // trustProxy is a NUMBER of hops, not `true` (MN-248). Caddy is the single
+  // front proxy (MN-068), so trust exactly one hop: request.ip becomes the
+  // address Caddy observed (the last entry Caddy appended to X-Forwarded-For).
+  // Blanket-trusting (`true`) would honor the whole client-supplied XFF chain,
+  // letting an attacker spoof their IP to scatter rate-limit buckets — the same
+  // bypass one layer up.
+  const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter({ bodyLimit: 3 * 1024 * 1024, trustProxy: 1 }), {
     bufferLogs: true,
   });
   app.useLogger(app.get(Logger));
