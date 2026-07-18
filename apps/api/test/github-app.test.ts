@@ -385,6 +385,28 @@ describe('GitHub App connect (integration)', () => {
     expect(res.body).not.toContain('ghs_');
   });
 
+  it('Sync runs off the installation token when connected — no PAT required', async () => {
+    // wsId is connected (installation 13572468) with repos ['acme/site'] and has
+    // NEVER had a PAT set. Sync must authenticate as the installation.
+    const github = app.get(GithubService);
+    const original = github.fetcher;
+    const seenTokens: string[] = [];
+    github.fetcher = async (path, token) => {
+      seenTokens.push(token);
+      if (path.includes('/issues') || path.includes('/pulls')) return [];
+      return { state: 'pending' };
+    };
+    try {
+      const res = await as('POST', `/workspaces/${wsId}/integrations/github/sync`);
+      expect(res.statusCode, res.body).toBe(201);
+      // Every GitHub read used the installation token from the App shim, not a PAT.
+      expect(seenTokens.length).toBeGreaterThan(0);
+      expect(seenTokens.every((t) => t === 'ghs_installation')).toBe(true);
+    } finally {
+      github.fetcher = original;
+    }
+  });
+
   describe('backlink (AC 5) — post exactly once', () => {
     it('posts one comment on first link, PATCHes (never re-POSTs) on redelivery', async () => {
       const ticket = (await as('POST', `/workspaces/${backWs}/databases/${ticketsDbId}/records`, { values: { name: 'Backlink me' } })).json();

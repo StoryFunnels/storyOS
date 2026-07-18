@@ -1,5 +1,5 @@
 import { createHmac } from 'node:crypto';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './helpers/app';
 import { authed, signUpUser } from './helpers/users';
@@ -585,6 +585,136 @@ describe('secret handling (AC 6)', () => {
     expect(res.statusCode, res.body).toBe(200);
     expect(res.body).not.toContain(SECRET);
     expect(res.json().settings.github.webhook_secret).toBe('[redacted]');
+  });
+});
+
+/**
+ * App-native tenant resolution (this change). With GITHUB_APP_WEBHOOK_SECRET set,
+ * the ONE App secret verifies every delivery and the workspace is resolved from
+ * the payload's installation.id — no per-workspace secret, no PAT. The env var is
+ * read live, so we toggle it per-test and the legacy suite above runs untouched.
+ */
+describe('App-native path (env GITHUB_APP_WEBHOOK_SECRET set)', () => {
+  const APP_SECRET = 'app-instance-webhook-secret-native-247';
+  const INSTALLATION_ID = 55501234;
+
+  function signApp(body: string, secret = APP_SECRET) {
+    return `sha256=${createHmac('sha256', secret).update(body).digest('hex')}`;
+  }
+
+  async function deliverApp(
+    event: string,
+    payload: unknown,
+    opts: { body?: string; signature?: string | null } = {},
+  ) {
+    const body = opts.body ?? JSON.stringify(payload);
+    const signature = opts.signature === undefined ? signApp(body) : opts.signature;
+    return app.inject({
+      method: 'POST',
+      url: '/api/v1/integrations/github/webhook',
+      headers: {
+        'content-type': 'application/json',
+        'x-github-event': event,
+        ...(signature ? { 'x-hub-signature-256': signature } : {}),
+      },
+      payload: body,
+    });
+  }
+
+  /** Attach the installation object GitHub App deliveries carry — the tenant key. */
+  function withInstallation(payload: Record<string, unknown>, id = INSTALLATION_ID) {
+    return { ...payload, installation: { id } };
+  }
+
+  beforeAll(async () => {
+    // This workspace has connected an installation; the App secret now verifies.
+    await app.get(GithubService).saveInstallationId(wsId, INSTALLATION_ID);
+  });
+  beforeEach(() => {
+    process.env.GITHUB_APP_WEBHOOK_SECRET = APP_SECRET;
+  });
+  afterEach(() => {
+    delete process.env.GITHUB_APP_WEBHOOK_SECRET;
+  });
+
+  it('verifies with the App secret AND resolves the workspace by installation.id', async () => {
+    const ticket = await createTicket('App native');
+    const res = await deliverApp(
+      'pull_request',
+      withInstallation(prPayload({ action: 'opened', number: 200, branch: `story-${ticket.number}` })),
+    );
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().linked_record_id).toBe(ticket.id);
+    expect(res.json().state_applied).toBe('In Progress');
+    expect((await getTicket(ticket.id)).values[stateApi]).toBe(inProgressId);
+  });
+
+  it('401s a delivery signed with the WRONG secret on the App path — nothing processed', async () => {
+    const ticket = await createTicket('Wrong app secret');
+    const body = JSON.stringify(
+      withInstallation(prPayload({ action: 'opened', number: 201, branch: `story-${ticket.number}` })),
+    );
+    const res = await deliverApp('pull_request', null, {
+      body,
+      signature: signApp(body, 'not-the-app-secret'),
+    });
+    expect(res.statusCode).toBe(401);
+    expect((await getTicket(ticket.id)).values[stateApi] ?? null).toBe(null);
+    expect((await pullRecords()).some((p) => p.values.number === 201)).toBe(false);
+  });
+
+  /**
+   * The #42 raw-body guard, now with the secret coming from env. Exact bytes that
+   * do NOT survive a JSON round-trip must verify; the canonical-form signature for
+   * those same bytes must be rejected. A `ping` needs no installation.
+   */
+  it('raw-body round-trip still holds with the env secret (exact bytes verify, canonical sig rejected)', async () => {
+    const canonical = JSON.stringify({ zen: 'raw bytes matter' });
+    const raw = `{  "zen"  :  "raw bytes matter"  }`;
+    expect(raw).not.toBe(canonical);
+    expect(signApp(raw)).not.toBe(signApp(canonical));
+
+    const ok = await deliverApp('ping', null, { body: raw, signature: signApp(raw) });
+    expect(ok.statusCode, ok.body).toBe(200);
+    expect(ok.json().pong).toBe(true);
+
+    const bad = await deliverApp('ping', null, { body: raw, signature: signApp(canonical) });
+    expect(bad.statusCode).toBe(401);
+  });
+
+  it('unknown installation.id → 200 no-op (not 500, not a wrong-workspace write)', async () => {
+    const ticket = await createTicket('Orphan installation');
+    const res = await deliverApp(
+      'pull_request',
+      withInstallation(
+        prPayload({ action: 'opened', number: 202, branch: `story-${ticket.number}` }),
+        99999999, // no workspace has connected this installation
+      ),
+    );
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().skipped).toBe('unknown_installation');
+    expect((await getTicket(ticket.id)).values[stateApi] ?? null).toBe(null);
+    expect((await pullRecords()).some((p) => p.values.number === 202)).toBe(false);
+  });
+
+  it('precedence: a delivery valid only under the legacy per-workspace secret is rejected on the App path', async () => {
+    const ticket = await createTicket('Legacy sig under app path');
+    const body = JSON.stringify(
+      withInstallation(prPayload({ action: 'opened', number: 203, branch: `story-${ticket.number}` })),
+    );
+    // `sign` (top of file) uses the per-workspace SECRET — valid on the legacy
+    // path, but the App path trusts only the env secret.
+    const res = await deliverApp('pull_request', null, { body, signature: sign(body) });
+    expect(res.statusCode).toBe(401);
+    expect((await getTicket(ticket.id)).values[stateApi] ?? null).toBe(null);
+  });
+
+  it('never leaks the env webhook secret through the config/settings responses', async () => {
+    const cfg = await as('GET', `/workspaces/${wsId}/integrations/github`);
+    expect(cfg.body).not.toContain(APP_SECRET);
+    expect(cfg.json().webhook_secret).toBeUndefined();
+    const settings = await as('GET', `/workspaces/${wsId}`);
+    expect(settings.body).not.toContain(APP_SECRET);
   });
 });
 

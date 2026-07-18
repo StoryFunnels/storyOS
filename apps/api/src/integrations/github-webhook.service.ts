@@ -66,6 +66,8 @@ interface WebhookPayload {
   review?: { state?: string };
   ref?: string;
   commits?: Array<{ message?: string }>;
+  /** Present on every GitHub App delivery — the App-native tenant key. */
+  installation?: { id?: number };
 }
 
 /** What a delivery did — the response body, and what the tests assert on. */
@@ -94,11 +96,24 @@ export interface WebhookOutcome {
  * RecordsService.update — which is what makes the agent triggers fire off a
  * webhook exactly as they do off a human edit.
  *
- * Tenant resolution is still per-workspace `webhook_secret` HMAC (unchanged from
- * #42): the App connect flow (#247) is additive — it captures an installation id
- * for the backlink and repo picker, it does not replace how a delivery proves
- * which workspace it belongs to. See `maybeBacklink` for the GitHub-side backlink
- * (AC 5), which posts as the connected App installation.
+ * Tenant resolution has two eras, and which one runs is decided by ONE thing:
+ * whether the instance-level `GITHUB_APP_WEBHOOK_SECRET` is set.
+ *
+ *  - **App-native (present):** a GitHub App issues one webhook secret (set at App
+ *    registration) and every delivery carries `installation.id`. So we verify the
+ *    signature against that single env secret and resolve the workspace by the
+ *    payload's `installation.id` → the workspace whose github settings
+ *    `installation_id` matches. No per-workspace secret, no PAT.
+ *  - **Legacy fallback (absent):** the pre-App #42 path — the matching
+ *    per-workspace `webhook_secret` both authenticates AND identifies the tenant.
+ *    Kept intact for non-App self-hosters.
+ *
+ * The precedence is unambiguous: env secret set → App path only (a delivery that
+ * would only pass some workspace's legacy secret is rejected); env secret unset →
+ * legacy path only. Either way, a delivery that fails the active path is a 401 and
+ * never processed; a well-signed delivery whose installation matches no workspace
+ * is a 200 no-op (a 4xx would teach GitHub to disable the hook). See
+ * `maybeBacklink` for the GitHub-side backlink (AC 5), posted as the installation.
  */
 @Injectable()
 export class GithubWebhookService {
@@ -122,18 +137,47 @@ export class GithubWebhookService {
     signature: string | undefined,
     event: string | undefined,
   ): Promise<WebhookOutcome> {
-    const workspaceId = await this.authenticate(rawBody, signature);
+    if (!rawBody || !signature) throw new UnauthorizedException('Missing signature');
 
-    // Only now — after the bytes proved they came from someone holding the
-    // secret — does the payload become something we're willing to read.
+    // Precedence: the instance-level App secret, if set, is the ONLY authority —
+    // App path. Absent → legacy per-workspace path. This decides both how the
+    // signature is verified and how the tenant is resolved.
+    const appSecret = this.githubApp.webhookSecret();
+    let workspaceId: string | null;
     let payload: WebhookPayload;
-    try {
-      payload = JSON.parse(rawBody!.toString('utf8')) as WebhookPayload;
-    } catch {
-      return { ok: true, event: event ?? 'unknown', skipped: 'unparseable_body' };
+
+    if (appSecret) {
+      // App-native: one env secret verifies every delivery; the raw-body HMAC is
+      // unchanged, only its secret source moved from per-workspace to env.
+      if (!verifySignature(rawBody, appSecret, signature)) {
+        throw new UnauthorizedException('Invalid signature');
+      }
+      const parsed = this.parse(rawBody);
+      if (!parsed) return { ok: true, event: event ?? 'unknown', skipped: 'unparseable_body' };
+      payload = parsed;
+      // ping is a connectivity check with nothing to route — ack it before we
+      // even look for an installation.
+      if (event === 'ping') return { ok: true, event, pong: true };
+      workspaceId = await this.resolveByInstallation(payload);
+      if (!workspaceId) {
+        // Well-signed, but names an installation no workspace has connected.
+        // 200 no-op (never 4xx → GitHub keeps the hook; never a cross-tenant
+        // write), logged so a mis-linked installation is diagnosable.
+        this.logger.log(
+          `github webhook ${event ?? 'unknown'}: no workspace for installation ${payload.installation?.id ?? 'none'}`,
+        );
+        return { ok: true, event: event ?? 'unknown', skipped: 'unknown_installation' };
+      }
+    } else {
+      // Legacy #42: the matching per-workspace secret authenticates AND names the
+      // tenant, in one HMAC sweep. Untouched.
+      workspaceId = await this.authenticate(rawBody, signature);
+      const parsed = this.parse(rawBody);
+      if (!parsed) return { ok: true, event: event ?? 'unknown', skipped: 'unparseable_body' };
+      payload = parsed;
+      if (event === 'ping') return { ok: true, event, pong: true };
     }
 
-    if (event === 'ping') return { ok: true, event, pong: true };
     if (event !== 'pull_request' && event !== 'pull_request_review' && event !== 'push') {
       return { ok: true, event: event ?? 'unknown', skipped: 'unhandled_event' };
     }
@@ -146,6 +190,39 @@ export class GithubWebhookService {
       this.logger.error(`github webhook ${event} failed: ${String(error)}`);
       return { ok: true, event, skipped: 'handler_error' };
     }
+  }
+
+  /** Parse the verified raw bytes, or null if they aren't JSON. */
+  private parse(rawBody: Buffer): WebhookPayload | null {
+    try {
+      return JSON.parse(rawBody.toString('utf8')) as WebhookPayload;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * App path tenant resolution: the workspace whose github settings
+   * `installation_id` matches the payload's `installation.id`.
+   *
+   * Two workspaces can legitimately share an installation (the same org connected
+   * from two workspaces). We resolve that deterministically to the
+   * earliest-created workspace — a stable, documented choice — rather than crash
+   * or pick at random. Comparison is on the JSON text so a malformed stored value
+   * can never throw a cast error and 500 the delivery.
+   */
+  private async resolveByInstallation(payload: WebhookPayload): Promise<string | null> {
+    const installationId = payload.installation?.id;
+    if (installationId === undefined || installationId === null) return null;
+    const rows = await this.db
+      .select({ id: workspaces.id })
+      .from(workspaces)
+      .where(
+        sql`${workspaces.settings}->'github'->>'installation_id' = ${String(installationId)}`,
+      )
+      .orderBy(workspaces.createdAt)
+      .limit(1);
+    return rows[0]?.id ?? null;
   }
 
   /**

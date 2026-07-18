@@ -189,7 +189,7 @@ export default function GitHubIntegrationPage() {
         </div>
         <div className="flex gap-2">
           <Button size="sm" variant="secondary" onClick={() => save.mutate()} disabled={save.isPending}>Save</Button>
-          <Button size="sm" onClick={() => sync.mutate()} disabled={sync.isPending || !config.data?.has_token}>
+          <Button size="sm" onClick={() => sync.mutate()} disabled={sync.isPending || (!config.data?.has_token && !connected)}>
             {sync.isPending ? 'Syncing…' : 'Sync now'}
           </Button>
         </div>

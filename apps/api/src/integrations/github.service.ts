@@ -9,6 +9,7 @@ import { RecordsService } from '../records/records.service';
 import { RelationsService } from '../relations/relations.service';
 import { SpacesService } from '../workspaces/spaces.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
+import { GithubAppService } from './github-app.service';
 
 interface GithubIssue {
   number: number;
@@ -151,6 +152,7 @@ export class GithubService {
     private readonly fields: FieldsService,
     private readonly recordsService: RecordsService,
     private readonly relationsService: RelationsService,
+    private readonly githubApp: GithubAppService,
   ) {}
 
   /** The full config, secrets included. Server-side only — never hand this to a client. */
@@ -353,11 +355,19 @@ export class GithubService {
   }
 
   async sync(membership: Membership, actorId: string) {
-    const config = await this.getConfig(membership.workspaceId);
-    const ws = await this.db.query.workspaces.findFirst({ where: eq(workspaces.id, membership.workspaceId) });
-    const token = (((ws?.settings ?? {}) as Record<string, unknown>).github as { token?: string })?.token;
-    if (!token || config.repos.length === 0) {
-      throw new UnprocessableEntityException('Configure a GitHub token and at least one repo first');
+    const config = await this.readConfig(membership.workspaceId);
+    const repos = config.repos ?? [];
+    if (repos.length === 0) {
+      throw new UnprocessableEntityException('Select at least one repository to sync first');
+    }
+    // App-native: a connected installation syncs off its installation token — no
+    // PAT required. PAT stays as the fallback when there's no installation (or its
+    // token mint fails). Either way `token` is a GitHub bearer the fetcher can use.
+    const token = await this.resolveSyncToken(config);
+    if (!token) {
+      throw new UnprocessableEntityException(
+        'Connect the GitHub App or add a personal access token before syncing',
+      );
     }
 
     const { issuesDb, pullsDb } = await this.ensurePack(membership);
@@ -372,11 +382,11 @@ export class GithubService {
     };
     const issueStates = await stateOptions(issuesDb.id);
     const pullStates = await stateOptions(pullsDb.id);
-    const summary = { issues: 0, pulls: 0, linked: 0, repos: config.repos };
+    const summary = { issues: 0, pulls: 0, linked: 0, repos };
     // number → record id per repo, for the linking pass
     const issueIds = new Map<string, string>();
 
-    for (const repo of config.repos) {
+    for (const repo of repos) {
       if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) {
         throw new UnprocessableEntityException(`Invalid repo "${repo}" — use owner/name`);
       }
@@ -425,5 +435,26 @@ export class GithubService {
     }
 
     return summary;
+  }
+
+  /**
+   * The bearer token the sync fetcher authenticates with. Prefers the connected
+   * GitHub App installation (mint on demand, no PAT needed); falls back to the
+   * stored PAT when there's no installation or its token can't be minted (revoked
+   * install, GitHub down). null → neither is available and sync can't run.
+   */
+  private async resolveSyncToken(config: GithubConfig): Promise<string | null> {
+    if (
+      config.installation_id !== undefined &&
+      config.installation_id !== null &&
+      this.githubApp.isConfigured()
+    ) {
+      try {
+        return await this.githubApp.installationToken(config.installation_id);
+      } catch {
+        // Fall through to the PAT — the App may be mid-revocation.
+      }
+    }
+    return config.token ?? null;
   }
 }
