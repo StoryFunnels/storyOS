@@ -39,6 +39,14 @@ export interface FilterCondition {
   field: string; // api_name
   op: FilterOp;
   value?: unknown;
+  /** Non-destructive toggle (MN-253 UI): stays in the view, excluded from queries. */
+  disabled?: boolean;
+  /** Shown as a standalone toolbar chip outside the filter builder (MN-253 UI). */
+  pinned?: boolean;
+  /** Custom display name for the condition / its pinned chip (MN-253 UI). */
+  label?: string;
+  /** Icon key for the condition / its pinned chip (MN-253 UI). */
+  icon?: string;
 }
 
 export type FilterNode = FilterCondition | { and: FilterNode[] } | { or: FilterNode[] };
@@ -47,6 +55,10 @@ const conditionSchema = z.object({
   field: z.string().min(1),
   op: filterOpSchema,
   value: z.unknown().optional(),
+  disabled: z.boolean().optional(),
+  pinned: z.boolean().optional(),
+  label: z.string().max(120).optional(),
+  icon: z.string().max(40).optional(),
 });
 
 const filterNodeSchema: z.ZodType<FilterNode> = z.lazy(() =>
@@ -77,6 +89,31 @@ export const filterSchema = filterNodeSchema.superRefine((node, ctx) => {
   if (depth > 3) ctx.addIssue({ code: 'custom', message: 'filter nesting exceeds 3 levels' });
   if (conditions > 50) ctx.addIssue({ code: 'custom', message: 'filter exceeds 50 conditions' });
 });
+
+/**
+ * Prunes a filter tree down to what should actually run: disabled conditions
+ * (MN-253 UI) drop out entirely, and UI-only fields (disabled/pinned/label/icon)
+ * are stripped from the survivors. A view's persisted `filters` keeps everything;
+ * this is what the query engine and CSV export should execute instead.
+ */
+export function activeFilter(node: FilterNode | undefined): FilterNode | undefined {
+  return node ? pruneFilterNode(node) : undefined;
+}
+
+function pruneFilterNode(node: FilterNode): FilterNode | undefined {
+  if ('and' in node) {
+    const children = node.and.map(pruneFilterNode).filter((n): n is FilterNode => n !== undefined);
+    if (children.length === 0) return undefined;
+    return children.length === 1 ? children[0] : { and: children };
+  }
+  if ('or' in node) {
+    const children = node.or.map(pruneFilterNode).filter((n): n is FilterNode => n !== undefined);
+    if (children.length === 0) return undefined;
+    return children.length === 1 ? children[0] : { or: children };
+  }
+  if (node.disabled) return undefined;
+  return { field: node.field, op: node.op, value: node.value };
+}
 
 export const sortSchema = z.object({
   field: z.string().min(1),

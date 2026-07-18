@@ -19,6 +19,7 @@ import { useDeleteField } from './field-dialog-shared';
 import type { Field } from './use-table-data';
 import { OPS_BY_TYPE, SORTABLE, defaultValueFor } from '../views/view-toolbar';
 import type { ViewConfig } from '../views/use-view-state';
+import { buildFilterGroup, filterConditions, filterConnector } from '../views/filter-config';
 
 export function HeaderCell({
   ws,
@@ -68,9 +69,13 @@ export function HeaderCell({
     if (!config || !onPatch) return;
     const first = OPS_BY_TYPE[field.type]?.[0];
     if (!first) return;
-    const existing = config.filters?.and ?? [];
+    const connector = filterConnector(config.filters);
+    const existing = filterConditions(config.filters);
     onPatch({
-      filters: { and: [...existing, { field: field.apiName, op: first.op, value: defaultValueFor(first.input) }] },
+      filters: buildFilterGroup(connector, [
+        ...existing,
+        { field: field.apiName, op: first.op, value: defaultValueFor(first.input) },
+      ]),
     });
   }
 

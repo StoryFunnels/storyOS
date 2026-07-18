@@ -5,21 +5,20 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import type { DatabaseDetail } from '../table-view/use-table-data';
+import { activeFilterNode, filterConditions } from './filter-config';
+import type { FilterGroup } from './filter-config';
+
+export type { FilterCondition, FilterConnector, FilterGroup } from './filter-config';
+export { buildFilterGroup, filterConditions, filterConnector, reorderConditions } from './filter-config';
 
 export interface SortSpec {
   field: string; // api_name
   direction: 'asc' | 'desc';
 }
 
-export interface FilterCondition {
-  field: string; // api_name
-  op: string;
-  value?: unknown;
-}
-
-/** v1 UI filter model: a flat AND list (the API allows nesting; the UI stays flat). */
+/** v1 UI filter model (MN-253): a flat And/Or list — the API allows nesting; the UI stays flat. */
 export interface ViewConfig {
-  filters?: { and: FilterCondition[] };
+  filters?: FilterGroup;
   sorts: SortSpec[];
   hidden_field_ids: string[];
   group_by_field_id?: string;
@@ -67,10 +66,7 @@ function normalize(config: Partial<ViewConfig> | undefined): ViewConfig {
   return {
     ...EMPTY_CONFIG,
     ...config,
-    filters:
-      config?.filters && 'and' in config.filters && config.filters.and.length > 0
-        ? (config.filters as { and: FilterCondition[] })
-        : undefined,
+    filters: filterConditions(config?.filters).length > 0 ? config?.filters : undefined,
   };
 }
 
@@ -223,12 +219,14 @@ export function useViewMutations(ws: string, db: string) {
   };
 }
 
-/** Builds the /records/query body from a view config (the server stays dumb). */
+/**
+ * Builds the /records/query body from a view config (the server stays dumb).
+ * Disabled clauses (MN-253 UI) and their UI-only fields never reach the query.
+ */
 export function queryBodyFromConfig(config: ViewConfig): Record<string, unknown> {
   const body: Record<string, unknown> = { limit: 100 };
-  if (config.filters && config.filters.and.length > 0) {
-    body.filter = config.filters.and.length === 1 ? config.filters.and[0] : config.filters;
-  }
+  const filter = activeFilterNode(config.filters);
+  if (filter) body.filter = filter;
   if (config.sorts.length > 0) body.sorts = config.sorts;
   return body;
 }

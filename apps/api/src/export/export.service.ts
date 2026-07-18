@@ -1,6 +1,6 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
-import type { ViewConfig } from '@storyos/schemas';
+import { activeFilter, type ViewConfig } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { databases, fields, selectOptions, views } from '../db/schema';
@@ -96,7 +96,10 @@ export class ExportService {
             databaseId,
             {
               // The query API calls it `filter`; a ViewConfig calls it `filters`.
-              filter: config?.filters,
+              // A view's filters may carry disabled clauses (MN-253 UI) — prune those
+              // and their UI-only fields before this hits the query engine, same as
+              // the web app's queryBodyFromConfig does for the on-screen query.
+              filter: activeFilter(config?.filters),
               sorts: config?.sorts ?? [],
               limit: PAGE,
               cursor,
