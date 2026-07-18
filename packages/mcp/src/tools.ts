@@ -2,10 +2,34 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Ctx, EffectiveScope, ToolScope } from './client.js';
 import { unwrap, uploadAttachment } from './client.js';
-// Subpath, not the barrel: markdown is zod-free, and pulling the whole schemas
-// index into this ESM bundle inlines a CJS require('zod') that throws at boot.
+// Subpath, not the barrel: markdown/icons are zod-free, and pulling the whole
+// schemas index into this ESM bundle inlines a CJS require('zod') that throws
+// at boot.
 import { blocksToMarkdown, markdownToBlocks } from '@storyos/schemas/markdown';
+import { ICON_CATEGORIES, ICON_SET_META, ICON_SET_PREFIX } from '@storyos/schemas/icons';
 import { listDatabases, listWorkspaces, resolveDatabase, resolveWorkspace } from './resolve.js';
+
+/** Icon param description shared by create_database/update_database/create_space
+ * (#251: emoji retired as the picker option in-app; the MCP surface keeps
+ * accepting it for back-compat but no longer advertises it as the default). */
+export const ICON_PARAM_DESCRIPTION =
+  'A curated icon ref, e.g. "set:rocket" — call list_icon_set for the full catalog. ' +
+  'A raw emoji (e.g. "📁") still works for backward compatibility with older data, but is not the preferred form.';
+
+/** Curated icon names grouped by category label, for the list_icon_set tool
+ * (#251). Exported standalone (like mapFilterValues below) so it's testable
+ * without registering a full McpServer. */
+export function buildIconCatalog(): { prefix: string; categories: Record<string, string[]> } {
+  const byCategory: Record<string, string[]> = {};
+  for (const cat of ICON_CATEGORIES) byCategory[cat.label] = [];
+  for (const icon of ICON_SET_META) {
+    for (const catId of icon.categories) {
+      const label = ICON_CATEGORIES.find((c) => c.id === catId)?.label ?? catId;
+      (byCategory[label] ??= []).push(icon.name);
+    }
+  }
+  return { prefix: ICON_SET_PREFIX, categories: byCategory };
+}
 
 /** MCP text result. */
 function text(value: unknown) {
@@ -157,6 +181,7 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   get_record: 'read',
   list_attachments: 'read',
   list_spaces: 'read',
+  list_icon_set: 'read',
   // write (record + content mutations)
   create_record: 'write',
   update_record: 'write',
@@ -854,6 +879,17 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
   };
 
   reg(
+    'list_icon_set',
+    {
+      title: 'List icon set',
+      description:
+        'List the curated StoryOS icon names, grouped by category, as the "set:<name>" refs accepted by the icon param on create_database, update_database, create_space and update_space (#251). Call this before setting an icon so you pick a real name.',
+      inputSchema: {},
+    },
+    handle<Record<string, never>>(async () => text(buildIconCatalog())),
+  );
+
+  reg(
     'create_database',
     {
       title: 'Create database',
@@ -863,7 +899,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         workspace: z.string(),
         space: z.string().describe('Space name or id the database belongs to.'),
         name: z.string().describe('Database name, e.g. "Clients".'),
-        icon: z.string().optional().describe('An emoji, e.g. "📁".'),
+        icon: z.string().optional().describe(ICON_PARAM_DESCRIPTION),
       },
     },
     handle<{ workspace: string; space: string; name: string; icon?: string }>(async ({ workspace, space, name, icon }) => {
@@ -1177,7 +1213,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       inputSchema: {
         workspace: z.string(),
         name: z.string().describe('Space name, e.g. "Client Work".'),
-        icon: z.string().optional().describe('An emoji.'),
+        icon: z.string().optional().describe(ICON_PARAM_DESCRIPTION),
         color: z.string().optional(),
       },
     },
@@ -1229,7 +1265,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         workspace: z.string(),
         database: z.string(),
         rename_to: z.string().optional(),
-        icon: z.string().optional(),
+        icon: z.string().optional().describe(ICON_PARAM_DESCRIPTION),
         move_to_space: z.string().optional().describe('Space name or slug to move the database into.'),
       },
     },

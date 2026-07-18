@@ -13,6 +13,10 @@
     "./markdown": {
       "types": "./dist/markdown.d.ts",
       "default": "./dist/markdown.js"
+    },
+    "./icons": {
+      "types": "./dist/icons.d.ts",
+      "default": "./dist/icons.js"
     }
   },
   "scripts": {
