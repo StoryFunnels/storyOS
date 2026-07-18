@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { and, eq, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { usageCounters } from '../db/schema';
+import { memberships, usageCounters } from '../db/schema';
 import { AccessService } from '../access/access.service';
 import { BillingService } from './billing.service';
 import { StripeService } from './stripe.service';
@@ -30,6 +30,16 @@ function currentPeriodStart(): Date {
 }
 
 export type Capability = 'automation_run' | 'add_seat';
+
+/**
+ * MN-191 — owner decision 2026-07-18: multiple workspaces is an
+ * ENTERPRISE-only capability for now (not Business, as MN-107 originally
+ * said) — there is no Account/Organization entity to group workspaces under
+ * one billing owner (ADR-0014), and building one is a real, deferred
+ * undertaking, not a quick add-on. So this is a flat cap, not a per-plan
+ * lookup: every self-serve plan caps at 1 workspace per admin.
+ */
+export const MAX_WORKSPACES_SELF_SERVE = 1;
 
 /**
  * MN-168 — the single entitlements read path the rest of the app calls.
@@ -105,6 +115,24 @@ export class EntitlementsService {
       return usage.billableSeats < limits.includedSeats;
     }
     return true;
+  }
+
+  /**
+   * MN-191 — a userId check, not a workspaceId one: the workspace being
+   * created doesn't exist yet, so there is nothing to look a plan up on.
+   * Self-host short-circuits to true (no cap) before any query, same as
+   * every other check here.
+   */
+  async canCreateWorkspace(userId: string): Promise<boolean> {
+    if (!this.stripe.enabled) return true;
+    const owned = await this.db.query.memberships.findMany({
+      where: and(
+        eq(memberships.userId, userId),
+        eq(memberships.role, 'admin'),
+        eq(memberships.status, 'active'),
+      ),
+    });
+    return owned.length < MAX_WORKSPACES_SELF_SERVE;
   }
 
   /**

@@ -1,9 +1,10 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { and, eq, inArray } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { memberships, spaces, workspaces } from '../db/schema';
 import { redactSecrets } from '../common/redact-secrets';
+import { EntitlementsService } from '../billing/entitlements.service';
 
 /** Strip integration secrets from `settings` before a workspace leaves the API (MN-144). */
 function serialize<T extends { settings?: unknown }>(w: T): T {
@@ -12,7 +13,10 @@ function serialize<T extends { settings?: unknown }>(w: T): T {
 
 @Injectable()
 export class WorkspacesService {
-  constructor(@Inject(DB) private readonly db: Db) {}
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    private readonly entitlements: EntitlementsService,
+  ) {}
 
   private async uniqueSlug(base: string): Promise<string> {
     const root =
@@ -30,8 +34,19 @@ export class WorkspacesService {
     }
   }
 
-  /** Creates workspace + default "General" space + admin membership, atomically. */
+  /**
+   * Creates workspace + default "General" space + admin membership,
+   * atomically. MN-191: multiple workspaces is Enterprise-only for now (no
+   * Account entity to group them under one billing owner — ADR-0014) — every
+   * self-serve plan caps an admin at 1. Self-host has no cap at all.
+   */
   async create(userId: string, input: { name: string; slug?: string }) {
+    if (!(await this.entitlements.canCreateWorkspace(userId))) {
+      throw new HttpException(
+        'You already have a workspace. Multiple workspaces are available on Enterprise — contact us to discuss.',
+        HttpStatus.PAYMENT_REQUIRED,
+      );
+    }
     const slug = input.slug ?? (await this.uniqueSlug(input.name));
     return this.db.transaction(async (tx) => {
       const [ws] = await tx
