@@ -19,6 +19,7 @@ import type { Field, RecordRow } from '../table-view/use-table-data';
 import { fmtDate, MONTH_NAMES, monthMatrix } from '@/lib/dates';
 import { cn } from '@/lib/utils';
 import type { ViewConfig } from './use-view-state';
+import { activeFilterNode } from './filter-config';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -50,7 +51,12 @@ export function CalendarView({
       { field: dateField.apiName, op: 'after', value: fmtDate(dayBefore) + 'T23:59:59' },
       { field: dateField.apiName, op: 'before', value: fmtDate(dayAfter) },
     ];
-    const existing = config.filters?.and ?? (config.filters ? [config.filters] : []);
+    // Skip disabled clauses (MN-253 UI) here too — this builds its own query filter
+    // rather than going through queryBodyFromConfig, so it has to prune the same way.
+    // The active filter (possibly an {and:[...]}/{or:[...]} group) nests as one item
+    // alongside the two range conditions — the API's filter AST allows this.
+    const active = activeFilterNode(config.filters);
+    const existing: unknown[] = active ? [active] : [];
     return { and: [...existing, ...range] };
   }, [dateField, grid, config.filters]);
 

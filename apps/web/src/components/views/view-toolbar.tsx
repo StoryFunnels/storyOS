@@ -2,7 +2,31 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowUpDown, Check, Download, EyeOff, GripVertical, ListFilter, Palette, Plus, X } from 'lucide-react';
+import {
+  ArrowUpDown,
+  Check,
+  CircleHelp,
+  Clock,
+  Copy,
+  Download,
+  Eye,
+  EyeOff,
+  Group,
+  GripVertical,
+  Hash,
+  ListFilter,
+  MoreHorizontal,
+  Palette,
+  PenLine,
+  Pin,
+  PinOff,
+  Plus,
+  Trash2,
+  Type,
+  UserRound,
+  X,
+} from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
@@ -10,12 +34,23 @@ import { CSS } from '@dnd-kit/utilities';
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { EntityIcon, IconColorPicker } from '@/components/ui/icon-picker';
 import { API_URL, api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import type { Field } from '../table-view/use-table-data';
+import { FIELD_TYPES } from '../table-view/field-dialog-shared';
 import type { FilterCondition, SortSpec, ViewConfig } from './use-view-state';
+import {
+  buildFilterGroup,
+  filterConditions,
+  filterConnector,
+  reorderConditions,
+} from './filter-config';
+import type { FilterConnector, FilterGroup } from './filter-config';
 
 /** Op menu per field type — mirrors the API op×type matrix. */
 export const OPS_BY_TYPE: Record<string, Array<{ op: string; label: string; input: 'text' | 'number' | 'date' | 'options' | 'relative' | 'boolean' | 'records' | 'none' }>> = {
@@ -110,35 +145,17 @@ export function ViewToolbar({
   viewId?: string;
 }) {
   const filterable = fields.filter((f) => OPS_BY_TYPE[f.type]);
-  const conditions = config.filters?.and ?? [];
-
-  function setConditions(next: FilterCondition[]) {
-    onPatch({ filters: next.length > 0 ? { and: next } : undefined });
-  }
 
   return (
     <div className="flex min-h-9 flex-wrap items-center gap-1.5 border-b border-border-default bg-app px-3 py-1">
-      {/* Filters */}
-      {conditions.map((condition, i) => (
-        <FilterChip
-          key={i}
-          fields={filterable}
-          members={members}
-          condition={condition}
-          ws={ws}
-          onChange={(next) => setConditions(conditions.map((c, j) => (j === i ? next : c)))}
-          onRemove={() => setConditions(conditions.filter((_, j) => j !== i))}
-        />
-      ))}
-      <AddFilterButton
+      {/* Filters (MN-253): the builder + pinned chips — one spec (ViewConfig.filters)
+          shared by every view type via this same component. */}
+      <FiltersSection
         fields={filterable}
-        onAdd={(field) => {
-          const first = OPS_BY_TYPE[field.type]![0]!;
-          setConditions([
-            ...conditions,
-            { field: field.apiName, op: first.op, value: defaultValueFor(first.input) },
-          ]);
-        }}
+        members={members}
+        ws={ws}
+        filters={config.filters}
+        onChange={(filters) => onPatch({ filters })}
       />
 
       {/* Sorts */}
@@ -257,29 +274,205 @@ export function defaultValueFor(input: string): unknown {
   return '';
 }
 
-export function AddFilterButton({ fields, onAdd }: { fields: Field[]; onAdd: (field: Field) => void }) {
+/** Field-type icon (mirrors the Add Field dialog's type list) — used on condition
+ * rows, the add-condition menu and pinned chips so a filter's field is recognizable
+ * at a glance (MN-253). Falls back for system types that aren't creatable fields. */
+const TYPE_ICON = new Map(FIELD_TYPES.map((t) => [t.value, t.icon]));
+const SYSTEM_TYPE_ICON: Record<string, LucideIcon> = {
+  title: Type,
+  id: Hash,
+  created_at: Clock,
+  updated_at: Clock,
+  created_by: UserRound,
+};
+export function fieldTypeIcon(type: string): LucideIcon {
+  return TYPE_ICON.get(type) ?? SYSTEM_TYPE_ICON[type] ?? ListFilter;
+}
+
+export function AddFilterButton({
+  fields,
+  onAdd,
+  label = 'Filter',
+}: {
+  fields: Field[];
+  onAdd: (field: Field) => void;
+  label?: string;
+}) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button className="flex items-center gap-1 rounded px-1.5 py-1 text-[12px] text-muted hover:bg-hover hover:text-ink">
-          <ListFilter className="h-3.5 w-3.5" /> Filter
+          <ListFilter className="h-3.5 w-3.5" /> {label}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent className="max-h-64 overflow-y-auto">
-        {fields.map((field) => (
-          <button
-            key={field.id}
-            className="flex w-full items-center rounded px-2 py-1.5 text-left text-[13px] text-ink hover:bg-hover"
-            onClick={() => onAdd(field)}
-          >
-            {field.displayName}
-          </button>
-        ))}
+        {fields.map((field) => {
+          const Icon = fieldTypeIcon(field.type);
+          return (
+            <button
+              key={field.id}
+              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[13px] text-ink hover:bg-hover"
+              onClick={() => onAdd(field)}
+            >
+              <Icon className="h-3.5 w-3.5 shrink-0 text-faint" />
+              {field.displayName}
+            </button>
+          );
+        })}
       </DropdownMenuContent>
     </DropdownMenu>
   );
 }
 
+/** The value editor for one condition — field-type-aware, shared by the compact
+ * legacy chip (collection sections) and the full builder's condition rows. */
+function FilterValueEditor({
+  field,
+  members,
+  ws,
+  activeOp,
+  condition,
+  onChange,
+  compact = false,
+}: {
+  field: Field;
+  members: Array<{ id: string; name: string }>;
+  ws?: string;
+  activeOp: { op: string; label: string; input: string };
+  condition: FilterCondition;
+  onChange: (condition: FilterCondition) => void;
+  /** The old inline-chip look uses the chip's own background/borderless inputs. */
+  compact?: boolean;
+}) {
+  const boxed = compact
+    ? 'bg-card text-ink outline-none'
+    : 'rounded border border-border-default bg-card px-1 py-0.5 text-[12px] text-ink outline-none';
+
+  const optionSource: Array<{ id: string; label: string }> =
+    field.type === 'user'
+      ? members.map((m) => ({ id: m.id, label: m.name }))
+      : (field.options ?? []).map((o) => ({ id: o.id, label: o.label }));
+
+  if (activeOp.input === 'text') {
+    return (
+      <input
+        className={cn(compact ? 'w-24' : 'w-24', boxed)}
+        value={String(condition.value ?? '')}
+        onChange={(e) => onChange({ ...condition, value: e.target.value })}
+      />
+    );
+  }
+  if (activeOp.input === 'number') {
+    return (
+      <input
+        className={cn('w-16', boxed)}
+        inputMode="decimal"
+        value={String(condition.value ?? '')}
+        onChange={(e) => onChange({ ...condition, value: Number(e.target.value) })}
+      />
+    );
+  }
+  if (activeOp.input === 'date') {
+    return (
+      <input
+        type="date"
+        className={boxed}
+        value={String(condition.value ?? '')}
+        onChange={(e) => onChange({ ...condition, value: e.target.value })}
+      />
+    );
+  }
+  if (activeOp.input === 'relative') {
+    return (
+      <select
+        className={boxed}
+        value={String(condition.value ?? 'next_7_days')}
+        onChange={(e) => onChange({ ...condition, value: e.target.value })}
+      >
+        {RELATIVE_RANGES.map((r) => (
+          <option key={r} value={r}>
+            {r.replaceAll('_', ' ')}
+          </option>
+        ))}
+      </select>
+    );
+  }
+  if (activeOp.input === 'boolean') {
+    return (
+      <select
+        className={boxed}
+        value={String(condition.value ?? 'true')}
+        onChange={(e) => onChange({ ...condition, value: e.target.value === 'true' })}
+      >
+        <option value="true">checked</option>
+        <option value="false">unchecked</option>
+      </select>
+    );
+  }
+  if (activeOp.input === 'options') {
+    return (
+      <OptionMultiPick
+        options={optionSource}
+        selected={Array.isArray(condition.value) ? (condition.value as string[]) : []}
+        onChange={(ids) => onChange({ ...condition, value: ids })}
+      />
+    );
+  }
+  if (activeOp.input === 'records') {
+    return ws && field.relation ? (
+      <RecordPicker
+        ws={ws}
+        field={field}
+        selected={Array.isArray(condition.value) ? (condition.value as string[]) : []}
+        onChange={(ids) => onChange({ ...condition, value: ids })}
+      />
+    ) : (
+      <span className="text-faint">unavailable</span>
+    );
+  }
+  return null;
+}
+
+/** Default, human-readable description of a condition — e.g. "State is none of
+ * Done" — used as the pinned-chip label and the "Edit name" placeholder until the
+ * user sets a custom one. Relation values aren't resolved here (that needs an
+ * async title lookup — RecordPicker does that); they render as a count instead. */
+function describeCondition(
+  field: Field,
+  condition: FilterCondition,
+  members: Array<{ id: string; name: string }>,
+): string {
+  const ops = OPS_BY_TYPE[field.type] ?? [];
+  const activeOp = ops.find((o) => o.op === condition.op) ?? ops[0];
+  if (!activeOp) return field.displayName;
+  if (activeOp.input === 'none') return `${field.displayName} ${activeOp.label}`;
+  if (activeOp.input === 'options') {
+    const ids = Array.isArray(condition.value) ? (condition.value as string[]) : [];
+    if (ids.length === 0) return `${field.displayName} ${activeOp.label}`;
+    const source =
+      field.type === 'user'
+        ? members.map((m) => ({ id: m.id, label: m.name }))
+        : (field.options ?? []).map((o) => ({ id: o.id, label: o.label }));
+    const labels = ids.map((id) => source.find((s) => s.id === id)?.label ?? id);
+    return `${field.displayName} ${activeOp.label} ${labels.join(', ')}`;
+  }
+  if (activeOp.input === 'records') {
+    const ids = Array.isArray(condition.value) ? (condition.value as string[]) : [];
+    if (ids.length === 0) return `${field.displayName} ${activeOp.label}`;
+    return `${field.displayName} ${activeOp.label} ${ids.length} record${ids.length > 1 ? 's' : ''}`;
+  }
+  if (activeOp.input === 'boolean') {
+    return `${field.displayName} ${activeOp.label} ${condition.value ? 'checked' : 'unchecked'}`;
+  }
+  if (activeOp.input === 'relative') {
+    return `${field.displayName} ${activeOp.label} ${String(condition.value ?? '').replaceAll('_', ' ')}`;
+  }
+  const v = String(condition.value ?? '').trim();
+  return v ? `${field.displayName} ${activeOp.label} ${v}` : `${field.displayName} ${activeOp.label}`;
+}
+
+/** Legacy compact chip: still used by embedded, smaller-scoped filter UIs
+ * (relation collection sections, MN-206) that don't need the full builder. */
 export function FilterChip({
   fields,
   members,
@@ -301,11 +494,6 @@ export function FilterChip({
   const ops = OPS_BY_TYPE[field.type] ?? [];
   const activeOp = ops.find((o) => o.op === condition.op) ?? ops[0]!;
 
-  const optionSource: Array<{ id: string; label: string }> =
-    field.type === 'user'
-      ? members.map((m) => ({ id: m.id, label: m.name }))
-      : (field.options ?? []).map((o) => ({ id: o.id, label: o.label }));
-
   return (
     <span className="flex items-center gap-1 rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 py-0.5 text-[12px]">
       <span className="font-medium text-ink">{field.displayName}</span>
@@ -324,75 +512,464 @@ export function FilterChip({
         ))}
       </select>
 
-      {activeOp.input === 'text' && (
-        <input
-          className="w-24 bg-card text-ink outline-none"
-          value={String(condition.value ?? '')}
-          onChange={(e) => onChange({ ...condition, value: e.target.value })}
-        />
-      )}
-      {activeOp.input === 'number' && (
-        <input
-          className="w-16 bg-card text-ink outline-none"
-          inputMode="decimal"
-          value={String(condition.value ?? '')}
-          onChange={(e) => onChange({ ...condition, value: Number(e.target.value) })}
-        />
-      )}
-      {activeOp.input === 'date' && (
-        <input
-          type="date"
-          className="bg-card text-ink outline-none"
-          value={String(condition.value ?? '')}
-          onChange={(e) => onChange({ ...condition, value: e.target.value })}
-        />
-      )}
-      {activeOp.input === 'relative' && (
-        <select
-          className="bg-card text-ink outline-none"
-          value={String(condition.value ?? 'next_7_days')}
-          onChange={(e) => onChange({ ...condition, value: e.target.value })}
-        >
-          {RELATIVE_RANGES.map((r) => (
-            <option key={r} value={r}>
-              {r.replaceAll('_', ' ')}
-            </option>
-          ))}
-        </select>
-      )}
-      {activeOp.input === 'boolean' && (
-        <select
-          className="bg-card text-ink outline-none"
-          value={String(condition.value ?? 'true')}
-          onChange={(e) => onChange({ ...condition, value: e.target.value === 'true' })}
-        >
-          <option value="true">checked</option>
-          <option value="false">unchecked</option>
-        </select>
-      )}
-      {activeOp.input === 'options' && (
-        <OptionMultiPick
-          options={optionSource}
-          selected={Array.isArray(condition.value) ? (condition.value as string[]) : []}
-          onChange={(ids) => onChange({ ...condition, value: ids })}
-        />
-      )}
-      {activeOp.input === 'records' &&
-        (ws && field.relation ? (
-          <RecordPicker
-            ws={ws}
-            field={field}
-            selected={Array.isArray(condition.value) ? (condition.value as string[]) : []}
-            onChange={(ids) => onChange({ ...condition, value: ids })}
-          />
-        ) : (
-          <span className="text-faint">unavailable</span>
-        ))}
+      <FilterValueEditor field={field} members={members} ws={ws} activeOp={activeOp} condition={condition} onChange={onChange} compact />
 
       <button onClick={onRemove} className="text-faint hover:text-error">
         <X className="h-3 w-3" />
       </button>
     </span>
+  );
+}
+
+/**
+ * Pinned filter chips + the "N filters" trigger that opens the builder popover
+ * (MN-253). One `FilterGroup` (persisted as `ViewConfig.filters`) drives both —
+ * pinning just formalizes what used to be "every active condition is a chip".
+ */
+export function FiltersSection({
+  fields,
+  members,
+  ws,
+  filters,
+  onChange,
+}: {
+  fields: Field[];
+  members: Array<{ id: string; name: string }>;
+  ws?: string;
+  filters: FilterGroup | undefined;
+  onChange: (filters: FilterGroup | undefined) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const connector = filterConnector(filters);
+  const conditions = filterConditions(filters);
+  const pinned = conditions.filter((c) => c.pinned);
+  const activeCount = conditions.filter((c) => !c.disabled).length;
+
+  function setConditions(next: FilterCondition[]) {
+    onChange(buildFilterGroup(connector, next));
+  }
+  function updateAt(i: number, next: FilterCondition) {
+    setConditions(conditions.map((c, j) => (j === i ? next : c)));
+  }
+
+  return (
+    <>
+      {pinned.map((condition) => {
+        const i = conditions.indexOf(condition);
+        const field = fields.find((f) => f.apiName === condition.field);
+        if (!field) return null;
+        return (
+          <PinnedFilterChip
+            key={i}
+            field={field}
+            condition={condition}
+            members={members}
+            onOpenBuilder={() => setOpen(true)}
+            onUnpin={() => updateAt(i, { ...condition, pinned: false })}
+          />
+        );
+      })}
+      <span className="relative">
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className={cn(
+            'flex items-center gap-1 rounded px-1.5 py-1 text-[12px] hover:bg-hover',
+            activeCount ? 'text-ink' : 'text-muted',
+          )}
+        >
+          <ListFilter className="h-3.5 w-3.5" />
+          {activeCount > 0 ? `${activeCount} filter${activeCount > 1 ? 's' : ''}` : 'Filter'}
+        </button>
+        {open && (
+          <>
+            {/* A full-screen backdrop, not a document click-outside listener: the
+                panel below nests Radix dropdowns (option pickers, the "…" menu)
+                that portal outside this subtree, so contains()-based outside-click
+                detection would misfire and close the builder mid-interaction. */}
+            <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+            <div className="absolute left-0 top-full z-50 mt-1 w-[26rem] max-w-[calc(100vw-2rem)] rounded-[var(--radius-card)] border border-border-default bg-card shadow-[0_4px_12px_rgba(15,23,41,0.08)]">
+              <FilterBuilderPanel
+                fields={fields}
+                members={members}
+                ws={ws}
+                connector={connector}
+                conditions={conditions}
+                onConditionsChange={setConditions}
+                onConnectorChange={(next) => onChange(buildFilterGroup(next, conditions))}
+              />
+            </div>
+          </>
+        )}
+      </span>
+    </>
+  );
+}
+
+function PinnedFilterChip({
+  field,
+  condition,
+  members,
+  onOpenBuilder,
+  onUnpin,
+}: {
+  field: Field;
+  condition: FilterCondition;
+  members: Array<{ id: string; name: string }>;
+  onOpenBuilder: () => void;
+  onUnpin: () => void;
+}) {
+  const label = condition.label || describeCondition(field, condition, members);
+  const Icon = fieldTypeIcon(field.type);
+  return (
+    <span
+      className={cn(
+        'flex items-center gap-1 rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 py-0.5 text-[12px]',
+        condition.disabled && 'opacity-50',
+      )}
+    >
+      <button
+        type="button"
+        onClick={onOpenBuilder}
+        className="flex items-center gap-1"
+        title={condition.disabled ? `${label} — disabled` : label}
+      >
+        <EntityIcon icon={condition.icon} color={null} size={12} fallback={<Icon className="h-3 w-3 text-faint" />} />
+        <span className="max-w-40 truncate text-ink">{label}</span>
+      </button>
+      <button type="button" onClick={onUnpin} className="text-faint hover:text-error" title="Unpin from toolbar">
+        <X className="h-3 w-3" />
+      </button>
+    </span>
+  );
+}
+
+/** The builder popover's body: "Where" + condition rows (draggable, And/Or
+ * between them), + add-condition, + an empty state and a help link (MN-253). */
+function FilterBuilderPanel({
+  fields,
+  members,
+  ws,
+  connector,
+  conditions,
+  onConditionsChange,
+  onConnectorChange,
+}: {
+  fields: Field[];
+  members: Array<{ id: string; name: string }>;
+  ws?: string;
+  connector: FilterConnector;
+  conditions: FilterCondition[];
+  onConditionsChange: (next: FilterCondition[]) => void;
+  onConnectorChange: (next: FilterConnector) => void;
+}) {
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
+  function updateAt(i: number, next: FilterCondition) {
+    onConditionsChange(conditions.map((c, j) => (j === i ? next : c)));
+  }
+  function removeAt(i: number) {
+    onConditionsChange(conditions.filter((_, j) => j !== i));
+  }
+  function duplicateAt(i: number) {
+    const copy = { ...conditions[i]!, pinned: false };
+    onConditionsChange([...conditions.slice(0, i + 1), copy, ...conditions.slice(i + 1)]);
+  }
+  function addCondition(field: Field) {
+    const first = OPS_BY_TYPE[field.type]![0]!;
+    onConditionsChange([
+      ...conditions,
+      { field: field.apiName, op: first.op, value: defaultValueFor(first.input) },
+    ]);
+  }
+
+  function onDragEnd(e: DragEndEvent) {
+    const { active, over } = e;
+    if (!over || active.id === over.id) return;
+    onConditionsChange(reorderConditions(conditions, Number(active.id), Number(over.id)));
+  }
+
+  return (
+    <div className="flex max-h-[70vh] flex-col">
+      <div className="flex items-center justify-between border-b border-border-default px-3 py-2">
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-faint">Filters</span>
+        <a
+          href="https://docs.storyos.dev/concepts/views/#filters--sorts"
+          target="_blank"
+          rel="noreferrer"
+          className="flex items-center gap-1 text-faint hover:text-ink"
+          title="How filters work on views"
+        >
+          <CircleHelp className="h-3.5 w-3.5" />
+        </a>
+      </div>
+
+      {conditions.length === 0 ? (
+        <div className="px-3 py-6 text-center">
+          <p className="mb-2 text-[12px] text-faint">No filters yet — narrow this view down to what matters.</p>
+          <div className="flex justify-center">
+            <AddFilterButton fields={fields} onAdd={addCondition} label="Add your first filter" />
+          </div>
+        </div>
+      ) : (
+        <div className="max-h-80 overflow-y-auto p-1">
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+            <SortableContext items={conditions.map((_, i) => String(i))} strategy={verticalListSortingStrategy}>
+              {conditions.map((condition, i) => (
+                <ConditionRow
+                  key={i}
+                  index={i}
+                  condition={condition}
+                  fields={fields}
+                  members={members}
+                  ws={ws}
+                  connector={connector}
+                  onConnectorChange={onConnectorChange}
+                  onChange={(next) => updateAt(i, next)}
+                  onDuplicate={() => duplicateAt(i)}
+                  onPin={() => updateAt(i, { ...condition, pinned: !condition.pinned })}
+                  onRemove={() => removeAt(i)}
+                />
+              ))}
+            </SortableContext>
+          </DndContext>
+        </div>
+      )}
+
+      {conditions.length > 0 && (
+        <div className="border-t border-border-default p-1">
+          <AddFilterButton fields={fields} onAdd={addCondition} label="Add condition" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ConnectorToggle({ value, onChange }: { value: FilterConnector; onChange: (v: FilterConnector) => void }) {
+  return (
+    <span className="inline-flex overflow-hidden rounded border border-border-default text-[10px] font-semibold uppercase leading-none">
+      {(['and', 'or'] as const).map((c) => (
+        <button
+          key={c}
+          type="button"
+          onClick={() => onChange(c)}
+          className={cn('px-1.5 py-0.5', value === c ? 'bg-accent-soft text-ink' : 'text-faint hover:text-ink')}
+        >
+          {c}
+        </button>
+      ))}
+    </span>
+  );
+}
+
+function ConditionRow({
+  index,
+  condition,
+  fields,
+  members,
+  ws,
+  connector,
+  onConnectorChange,
+  onChange,
+  onDuplicate,
+  onPin,
+  onRemove,
+}: {
+  index: number;
+  condition: FilterCondition;
+  fields: Field[];
+  members: Array<{ id: string; name: string }>;
+  ws?: string;
+  connector: FilterConnector;
+  onConnectorChange: (next: FilterConnector) => void;
+  onChange: (next: FilterCondition) => void;
+  onDuplicate: () => void;
+  onPin: () => void;
+  onRemove: () => void;
+}) {
+  const [editingLabel, setEditingLabel] = useState(false);
+  const [pickingIcon, setPickingIcon] = useState(false);
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: String(index),
+  });
+  const field = fields.find((f) => f.apiName === condition.field);
+  if (!field) return null;
+  const ops = OPS_BY_TYPE[field.type] ?? [];
+  const activeOp = ops.find((o) => o.op === condition.op) ?? ops[0]!;
+  const Icon = fieldTypeIcon(field.type);
+  const defaultLabel = describeCondition(field, condition, members);
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={cn(
+        'group relative rounded px-1 py-1.5',
+        isDragging && 'z-40 bg-card opacity-90 shadow-[0_4px_12px_rgba(15,23,41,0.12)]',
+      )}
+    >
+      <div className="flex items-start gap-1.5">
+        <button
+          {...attributes}
+          {...listeners}
+          className="mt-1.5 shrink-0 cursor-grab text-faint opacity-0 hover:text-muted group-hover:opacity-100"
+          title="Drag to reorder"
+        >
+          <GripVertical className="h-3.5 w-3.5" />
+        </button>
+
+        <div className="min-w-0 flex-1">
+          <div className="mb-1">
+            {index === 0 ? (
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-faint">Where</span>
+            ) : (
+              <ConnectorToggle value={connector} onChange={onConnectorChange} />
+            )}
+          </div>
+          <div className={cn('flex flex-wrap items-center gap-1', condition.disabled && 'opacity-50')}>
+            <EntityIcon icon={condition.icon} color={null} size={13} fallback={<Icon className="h-3.5 w-3.5 shrink-0 text-faint" />} />
+            <select
+              className="max-w-28 truncate rounded border border-border-default bg-card px-1 py-0.5 text-[12px] text-ink"
+              value={condition.field}
+              onChange={(e) => {
+                const nextField = fields.find((f) => f.apiName === e.target.value);
+                if (!nextField) return;
+                const first = (OPS_BY_TYPE[nextField.type] ?? [])[0];
+                onChange({
+                  ...condition,
+                  field: nextField.apiName,
+                  op: first?.op ?? condition.op,
+                  value: first ? defaultValueFor(first.input) : condition.value,
+                });
+              }}
+            >
+              {fields.map((f) => (
+                <option key={f.id} value={f.apiName}>
+                  {f.displayName}
+                </option>
+              ))}
+            </select>
+            <select
+              className="rounded border border-border-default bg-card px-1 py-0.5 text-[12px] text-muted"
+              value={condition.op}
+              onChange={(e) => {
+                const nextOp = ops.find((o) => o.op === e.target.value)!;
+                onChange({ ...condition, op: nextOp.op, value: defaultValueFor(nextOp.input) });
+              }}
+            >
+              {ops.map((o) => (
+                <option key={o.op} value={o.op}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+            <FilterValueEditor field={field} members={members} ws={ws} activeOp={activeOp} condition={condition} onChange={onChange} />
+          </div>
+
+          {editingLabel && (
+            <div className="mt-1.5 flex items-center gap-1.5 rounded border border-border-default bg-app p-1.5">
+              <button
+                type="button"
+                onClick={() => setPickingIcon((v) => !v)}
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-border-default hover:bg-hover"
+                title="Change icon"
+              >
+                <EntityIcon icon={condition.icon} color={null} size={13} fallback={<Icon className="h-3.5 w-3.5 text-faint" />} />
+              </button>
+              <input
+                autoFocus
+                className="h-6 flex-1 rounded border border-border-default bg-card px-1.5 text-[12px] text-ink outline-none"
+                placeholder={defaultLabel}
+                value={condition.label ?? ''}
+                onChange={(e) => onChange({ ...condition, label: e.target.value || undefined })}
+              />
+              <button
+                type="button"
+                className="text-[11px] text-muted hover:text-ink"
+                onClick={() => {
+                  setEditingLabel(false);
+                  setPickingIcon(false);
+                }}
+              >
+                Done
+              </button>
+              {pickingIcon && (
+                <div className="absolute left-0 top-full z-50 mt-1 rounded-[var(--radius-card)] border border-border-default bg-card p-2 shadow-[0_4px_12px_rgba(15,23,41,0.08)]">
+                  <IconColorPicker
+                    icon={condition.icon ?? null}
+                    color={null}
+                    onChange={(patch) => {
+                      if ('icon' in patch) onChange({ ...condition, icon: patch.icon ?? undefined });
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <ConditionMenu
+          condition={condition}
+          onDuplicate={onDuplicate}
+          onPin={onPin}
+          onEditNameIcon={() => setEditingLabel((v) => !v)}
+          onToggleDisabled={() => onChange({ ...condition, disabled: !condition.disabled })}
+          onRemove={onRemove}
+        />
+      </div>
+    </div>
+  );
+}
+
+/** Per-clause "…" menu (MN-253): duplicate, pin, rename/re-icon, non-destructive
+ * disable, remove. "Turn into group" is a deliberate no-op tonight — nested groups
+ * are a separate backend sub-ticket (see the MN-253 spike report). */
+function ConditionMenu({
+  condition,
+  onDuplicate,
+  onPin,
+  onEditNameIcon,
+  onToggleDisabled,
+  onRemove,
+}: {
+  condition: FilterCondition;
+  onDuplicate: () => void;
+  onPin: () => void;
+  onEditNameIcon: () => void;
+  onToggleDisabled: () => void;
+  onRemove: () => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button type="button" className="mt-1 shrink-0 rounded p-0.5 text-faint hover:bg-active hover:text-ink" title="More">
+          <MoreHorizontal className="h-3.5 w-3.5" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-48">
+        <DropdownMenuItem onSelect={onDuplicate}>
+          <Copy className="h-3.5 w-3.5" /> Duplicate
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={onPin}>
+          {condition.pinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}
+          {condition.pinned ? 'Unpin from toolbar' : 'Pin to toolbar'}
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={onEditNameIcon}>
+          <PenLine className="h-3.5 w-3.5" /> Edit name and icon
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={onToggleDisabled}>
+          {condition.disabled ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+          {condition.disabled ? 'Enable' : 'Disable'}
+        </DropdownMenuItem>
+        <DropdownMenuItem disabled className="opacity-50" title="Nested filter groups are coming in a future update">
+          <Group className="h-3.5 w-3.5" /> Turn into group
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem className="text-error" onSelect={onRemove}>
+          <Trash2 className="h-3.5 w-3.5" /> Remove
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

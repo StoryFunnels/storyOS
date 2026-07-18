@@ -6,7 +6,9 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { ColorByButton, AddFilterButton, FilterChip } from '@/components/views/view-toolbar';
+import { ColorByButton, FiltersSection } from '@/components/views/view-toolbar';
+import { filterConditions } from '@/components/views/filter-config';
+import type { FilterCondition, FilterGroup } from '@/components/views/filter-config';
 import { OPTION_COLORS } from '@/components/table-view/cells';
 import type { Field } from '@/components/table-view/use-table-data';
 import { cn } from '@/lib/utils';
@@ -18,17 +20,15 @@ export interface DenseField {
   type: string;
   options?: Array<{ id: string; label: string; color: string }>;
 }
-export interface FilterCondition {
-  field: string;
-  op: string;
-  value?: unknown;
-}
-/** Per-database My Work config (mirrors the API's MyWorkDbConfig). */
+export type { FilterCondition };
+/** Per-database My Work config (mirrors the API's MyWorkDbConfig). Uses the SAME
+ * filter builder + persisted shape as saved views (MN-253): a flat And/Or list with
+ * non-destructive disable/pin/label/icon, applied client-side to the returned rows. */
 export interface MyWorkDbConfig {
   group_by_field_id?: string;
   color_by_field_id?: string;
   hidden_field_ids?: string[];
-  filters?: { and: FilterCondition[] };
+  filters?: FilterGroup;
 }
 
 export const EMPTY_MYWORK: MyWorkDbConfig = {};
@@ -97,13 +97,17 @@ function matchOne(value: unknown, op: string, target: unknown): boolean {
       return true; // unknown op → don't filter anything out
   }
 }
-/** Client-side AND filter over the returned records (My Work is a bounded set). */
+/** Client-side And/Or filter over the returned records (My Work is a bounded set).
+ * Disabled clauses (MN-253 UI) are skipped, matching queryBodyFromConfig's rule for
+ * saved views — same builder, same "disable means don't apply" semantics. */
 export function matchesFilters(
   values: Record<string, unknown>,
   config: MyWorkDbConfig,
 ): boolean {
-  const conds = config.filters?.and ?? [];
-  return conds.every((c) => matchOne(values[c.field], c.op, c.value));
+  const conds = filterConditions(config.filters).filter((c) => !c.disabled);
+  if (conds.length === 0) return true;
+  const matches = conds.map((c) => matchOne(values[c.field], c.op, c.value));
+  return config.filters && 'or' in config.filters ? matches.some(Boolean) : matches.every(Boolean);
 }
 
 export interface RecordGroup<T> {
@@ -194,7 +198,6 @@ export function MyWorkGroupToolbar({
   const groupable = fields.filter((f) => f.type === 'select' || f.type === 'user');
   const colorable = adapted.filter((f) => f.type === 'select' || f.type === 'multi_select');
   const currentVisible = new Set(visibleFields(fields, config).map((f) => f.id));
-  const conditions = config.filters?.and ?? [];
 
   return (
     <div className="mb-1.5 flex flex-wrap items-center gap-1.5 text-[12px]">
@@ -251,32 +254,12 @@ export function MyWorkGroupToolbar({
         onChange={(fieldId) => onChange({ ...config, color_by_field_id: fieldId })}
       />
 
-      {/* Filters */}
-      {conditions.map((c, i) => (
-        <FilterChip
-          key={`${c.field}-${i}`}
-          fields={adapted}
-          members={members}
-          condition={c as never}
-          onChange={(next) =>
-            onChange({
-              ...config,
-              filters: { and: conditions.map((x, j) => (j === i ? next : x)) as FilterCondition[] },
-            })
-          }
-          onRemove={() =>
-            onChange({ ...config, filters: { and: conditions.filter((_, j) => j !== i) } })
-          }
-        />
-      ))}
-      <AddFilterButton
+      {/* Filters (MN-253): the same builder + persisted shape as saved views. */}
+      <FiltersSection
         fields={adapted}
-        onAdd={(field) =>
-          onChange({
-            ...config,
-            filters: { and: [...conditions, { field: field.apiName, op: 'eq' }] },
-          })
-        }
+        members={members}
+        filters={config.filters}
+        onChange={(filters) => onChange({ ...config, filters })}
       />
     </div>
   );

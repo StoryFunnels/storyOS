@@ -22,14 +22,27 @@ const regionalSchema = z
   })
   .partial();
 
+// Mirrors packages/schemas' conditionSchema (MN-253 UI): field/op/value plus the
+// non-destructive UI fields — My Work uses the same builder + config shape as views.
+const myWorkConditionSchema = z.object({
+  field: z.string(),
+  op: z.string(),
+  value: z.unknown().optional(),
+  disabled: z.boolean().optional(),
+  pinned: z.boolean().optional(),
+  label: z.string().max(120).optional(),
+  icon: z.string().max(40).optional(),
+});
+
 const myWorkDbConfigSchema = z.object({
   group_by_field_id: z.string().optional(),
   color_by_field_id: z.string().optional(),
   hidden_field_ids: z.array(z.string()).optional(),
   filters: z
-    .object({
-      and: z.array(z.object({ field: z.string(), op: z.string(), value: z.unknown().optional() })),
-    })
+    .union([
+      z.object({ and: z.array(myWorkConditionSchema) }),
+      z.object({ or: z.array(myWorkConditionSchema) }),
+    ])
     .optional(),
 });
 
