@@ -774,8 +774,10 @@ export const billingEvents = pgTable('billing_events', {
  * `runClass === 'non_ai'`, so a your-own-AI or StoryOS-AI run has literally no
  * code path that reaches it (EntitlementsService.recordNonAiRun).
  *
- * `metric` stays a free-form key (only 'automation_runs' is written today) so
- * a future metered line reuses this table rather than growing a sibling one.
+ * `metric` stays a free-form key so a new metered line (or, per MN-195, an
+ * unbilled abuse-detection counter on a different period granularity —
+ * `periodStart` is just "start of the current bucket", not necessarily a
+ * calendar month) reuses this table rather than growing a sibling one.
  */
 export const usageCounters = pgTable(
   'usage_counters',
@@ -783,7 +785,8 @@ export const usageCounters = pgTable(
     workspaceId: uuid('workspace_id')
       .notNull()
       .references(() => workspaces.id, { onDelete: 'cascade' }),
-    /** First-of-month, UTC — the natural monthly reset with no cron needed. */
+    /** Start of the counting bucket — first-of-month for billing metrics
+     * (MN-168), start-of-hour for abuse-detection ones (MN-195). */
     periodStart: timestamp('period_start', { withTimezone: true }).notNull(),
     metric: text('metric').notNull(),
     count: integer('count').notNull().default(0),
@@ -843,4 +846,31 @@ export const aiCreditTransactions = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('ai_credit_transactions_workspace_idx').on(t.workspaceId, t.createdAt)],
+);
+
+/**
+ * MN-195 — fair-use guard. NOT a cap, NOT a throttle: "no record limits,
+ * ever" is a headline promise, so this only ever FLAGS a workspace whose
+ * write rate looks like abuse (scraping, dump, free-database-backend use) for
+ * a human to review case-by-case — it never blocks or slows a single write.
+ * One row per (workspace, metric, hour) that crossed the threshold — the
+ * unique constraint is what makes flagging idempotent within an hour even if
+ * checked on every write in a burst.
+ */
+export const abuseFlags = pgTable(
+  'abuse_flags',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    metric: text('metric').notNull(),
+    windowStart: timestamp('window_start', { withTimezone: true }).notNull(),
+    /** The count that crossed the line, and the line itself — both logged so
+     * a human reviewing later sees exactly how far over it went. */
+    value: integer('value').notNull(),
+    threshold: integer('threshold').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('abuse_flags_workspace_metric_window_uq').on(t.workspaceId, t.metric, t.windowStart)],
 );
