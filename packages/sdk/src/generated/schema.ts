@@ -2133,6 +2133,10 @@ export interface components {
             /** @enum {string} */
             op: "eq" | "neq" | "contains" | "gt" | "gte" | "lt" | "lte" | "before" | "after" | "within" | "has" | "has_none" | "is_empty" | "not_empty";
             value?: unknown;
+            disabled?: boolean;
+            pinned?: boolean;
+            label?: string;
+            icon?: string;
         } | {
             and: components["schemas"]["QueryRecordsDto__schema0"][];
         } | {
@@ -2229,6 +2233,10 @@ export interface components {
             /** @enum {string} */
             op: "eq" | "neq" | "contains" | "gt" | "gte" | "lt" | "lte" | "before" | "after" | "within" | "has" | "has_none" | "is_empty" | "not_empty";
             value?: unknown;
+            disabled?: boolean;
+            pinned?: boolean;
+            label?: string;
+            icon?: string;
         } | {
             and: components["schemas"]["CreateViewDto__schema0"][];
         } | {
@@ -2297,6 +2305,10 @@ export interface components {
             /** @enum {string} */
             op: "eq" | "neq" | "contains" | "gt" | "gte" | "lt" | "lte" | "before" | "after" | "within" | "has" | "has_none" | "is_empty" | "not_empty";
             value?: unknown;
+            disabled?: boolean;
+            pinned?: boolean;
+            label?: string;
+            icon?: string;
         } | {
             and: components["schemas"]["UpdateViewDto__schema0"][];
         } | {
@@ -2442,6 +2454,20 @@ export interface components {
                             field: string;
                             op: string;
                             value?: unknown;
+                            disabled?: boolean;
+                            pinned?: boolean;
+                            label?: string;
+                            icon?: string;
+                        }[];
+                    } | {
+                        or: {
+                            field: string;
+                            op: string;
+                            value?: unknown;
+                            disabled?: boolean;
+                            pinned?: boolean;
+                            label?: string;
+                            icon?: string;
                         }[];
                     };
                 };
