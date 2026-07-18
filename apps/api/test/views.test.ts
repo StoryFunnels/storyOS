@@ -213,3 +213,96 @@ describe('view rename / duplicate / default (MN-241)', () => {
     expect((await views()).find((v) => v.id === view.id)!.name).toBe('Renamed');
   });
 });
+
+/**
+ * MN-258: nested and/or filter groups. #253's backend spike found `compileFilter`
+ * and `checkFilterNames`/`cleanViewConfig` already recurse correctly, but with
+ * ZERO test coverage — despite already shipping and being relied on by
+ * calendar-view.tsx's nested date-window filter in production. `checkFilterNames`
+ * lives as a private closure inside `ViewsService.validateConfig`, so it's only
+ * reachable through the real endpoint — own database, so earlier blocks'
+ * field/view churn can't affect these.
+ */
+describe('nested filter groups: checkFilterNames validates and/or recursively (MN-258)', () => {
+  let ndb: string;
+  let estimateId: string;
+  let priorityId: string;
+  let priorityOpts: Array<{ id: string; label: string }>;
+  const EMPTY = { sorts: [], hidden_field_ids: [], card_field_ids: [], column_widths: {} };
+
+  beforeAll(async () => {
+    const spaceId = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
+    ndb = (await inject('POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name: 'NestedFilters' })).json().id;
+    estimateId = (
+      await inject('POST', `/workspaces/${wsId}/databases/${ndb}/fields`, { display_name: 'Estimate', type: 'number' })
+    ).json().id;
+    const priority = (
+      await inject('POST', `/workspaces/${wsId}/databases/${ndb}/fields`, {
+        display_name: 'Priority',
+        type: 'select',
+        options: [{ label: 'Low' }, { label: 'High' }],
+      })
+    ).json();
+    priorityId = priority.id;
+    priorityOpts = priority.options;
+  });
+
+  it('rejects an unknown field 2 levels deep inside and/or nesting (checkFilterNames recurses)', async () => {
+    const res = await inject('POST', `/workspaces/${wsId}/databases/${ndb}/views`, {
+      name: 'Ghost nested',
+      type: 'table',
+      config: {
+        ...EMPTY,
+        filters: {
+          and: [
+            { field: 'estimate', op: 'gt', value: 0 },
+            { or: [{ field: 'priority', op: 'has', value: [priorityOpts[0]!.id] }, { field: 'ghost', op: 'eq', value: 1 }] },
+          ],
+        },
+      },
+    });
+    expect(res.statusCode).toBe(422);
+  });
+
+  it('accepts and round-trips a valid 3-level nested and/or filter unchanged', async () => {
+    const filters = {
+      and: [
+        { field: 'estimate', op: 'gt', value: 0 },
+        { or: [{ and: [{ field: 'priority', op: 'has', value: [priorityOpts[0]!.id] }] }, { field: 'priority', op: 'has', value: [priorityOpts[1]!.id] }] },
+      ],
+    };
+    const created = await inject('POST', `/workspaces/${wsId}/databases/${ndb}/views`, {
+      name: 'Valid nested',
+      type: 'table',
+      config: { ...EMPTY, filters },
+    });
+    expect(created.statusCode, created.body).toBe(201);
+
+    const detail = await inject('GET', `/workspaces/${wsId}/databases/${ndb}`);
+    const view = detail.json().views.find((v: { id: string }) => v.id === created.json().id);
+    expect(view.config.filters).toEqual(filters);
+  });
+
+  it('cleanViewConfig drops a deleted field from inside a nested group at read time, collapsing the emptied group', async () => {
+    const filters = {
+      and: [
+        { field: 'estimate', op: 'gt', value: 0 },
+        { or: [{ field: 'priority', op: 'has', value: [priorityOpts[0]!.id] }] },
+      ],
+    };
+    const created = await inject('POST', `/workspaces/${wsId}/databases/${ndb}/views`, {
+      name: 'To be pruned',
+      type: 'table',
+      config: { ...EMPTY, filters },
+    });
+    expect(created.statusCode, created.body).toBe(201);
+
+    await inject('DELETE', `/workspaces/${wsId}/databases/${ndb}/fields/${priorityId}`);
+
+    const detail = await inject('GET', `/workspaces/${wsId}/databases/${ndb}`);
+    const view = detail.json().views.find((v: { id: string }) => v.id === created.json().id);
+    // The {or:[...]} group's only child referenced the deleted field — the whole
+    // group disappears, leaving just the surviving top-level condition.
+    expect(view.config.filters).toEqual({ and: [{ field: 'estimate', op: 'gt', value: 0 }] });
+  });
+});

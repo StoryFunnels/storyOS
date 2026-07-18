@@ -7,8 +7,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ColorByButton, FiltersSection, SortButton } from '@/components/views/view-toolbar';
-import { filterConditions } from '@/components/views/filter-config';
-import type { FilterCondition, FilterGroup } from '@/components/views/filter-config';
+import { isFilterGroup, nodeChildren, nodeConnector } from '@/components/views/filter-config';
+import type { FilterCondition, FilterGroup, FilterNode } from '@/components/views/filter-config';
 import type { NullsPlacement, SortSpec } from '@/components/views/sort-config';
 import { OPTION_COLORS } from '@/components/table-view/cells';
 import type { Field } from '@/components/table-view/use-table-data';
@@ -108,17 +108,34 @@ function matchOne(value: unknown, op: string, target: unknown): boolean {
       return true; // unknown op → don't filter anything out
   }
 }
-/** Client-side And/Or filter over the returned records (My Work is a bounded set).
- * Disabled clauses (MN-253 UI) are skipped, matching queryBodyFromConfig's rule for
- * saved views — same builder, same "disable means don't apply" semantics. */
+/** Recursively evaluates one node of the filter tree against a record's values.
+ * Mirrors the API's compileFilter/activeFilter recursion (MN-258): a group's
+ * result is its children's results combined by its OWN connector; a disabled
+ * leaf (MN-253 UI) contributes no opinion (`undefined`), same as it dropping out
+ * of activeFilterNode for saved views. `undefined` propagates up through an empty
+ * group exactly like an empty filter — "no verdict" reads as "don't exclude". */
+function evaluateNode(node: FilterNode, values: Record<string, unknown>): boolean | undefined {
+  if (isFilterGroup(node)) {
+    const results = nodeChildren(node)
+      .map((child) => evaluateNode(child, values))
+      .filter((r): r is boolean => r !== undefined);
+    if (results.length === 0) return undefined;
+    return nodeConnector(node) === 'or' ? results.some(Boolean) : results.every(Boolean);
+  }
+  if (node.disabled) return undefined;
+  return matchOne(values[node.field], node.op, node.value);
+}
+
+/** Client-side And/Or filter over the returned records (My Work is a bounded set),
+ * now supporting nested groups (MN-258) — My Work shares the SAME `FiltersSection`
+ * builder + persisted `FilterGroup` shape as saved views, so a group built here
+ * must be evaluated with the same and/or nesting the server would apply. */
 export function matchesFilters(
   values: Record<string, unknown>,
   config: MyWorkDbConfig,
 ): boolean {
-  const conds = filterConditions(config.filters).filter((c) => !c.disabled);
-  if (conds.length === 0) return true;
-  const matches = conds.map((c) => matchOne(values[c.field], c.op, c.value));
-  return config.filters && 'or' in config.filters ? matches.some(Boolean) : matches.every(Boolean);
+  if (!config.filters) return true;
+  return evaluateNode(config.filters, values) ?? true;
 }
 
 export interface RecordGroup<T> {

@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import {
   ArrowUpDown,
   Check,
@@ -23,6 +24,7 @@ import {
   Plus,
   Trash2,
   Type,
+  Ungroup,
   UserRound,
   X,
 } from 'lucide-react';
@@ -46,11 +48,24 @@ import { FIELD_TYPES } from '../table-view/field-dialog-shared';
 import type { FilterCondition, SortSpec, ViewConfig } from './use-view-state';
 import {
   buildFilterGroup,
+  canMoveNodeTo,
+  canTurnIntoGroup,
+  duplicateNodeAt,
   filterConditions,
   filterConnector,
-  reorderConditions,
+  flattenFilterTree,
+  getNodeAt,
+  isFilterGroup,
+  moveNodeTo,
+  nodeChildren,
+  nodeConnector,
+  pathFromId,
+  removeNodeCascade,
+  turnIntoGroup,
+  ungroupNodeAt,
+  updateNodeAt,
 } from './filter-config';
-import type { FilterConnector, FilterGroup } from './filter-config';
+import type { FilterConnector, FilterGroup, FilterNode } from './filter-config';
 import { MAX_SORTS, directionLabel, nextSortField, reorderSorts } from './sort-config';
 import type { NullsPlacement } from './sort-config';
 
@@ -552,31 +567,36 @@ export function FiltersSection({
 }) {
   const [open, setOpen] = useState(false);
   const connector = filterConnector(filters);
-  const conditions = filterConditions(filters);
-  const pinned = conditions.filter((c) => c.pinned);
-  const activeCount = conditions.filter((c) => !c.disabled).length;
+  const nodes = filterConditions(filters);
+  // MN-258: pinned chips + the active count read every LEAF condition in the tree,
+  // not just the top level — a condition can be pinned from inside a nested group.
+  const leaves = useMemo(
+    () => flattenFilterTree(nodes).filter((f): f is typeof f & { node: FilterCondition } => !isFilterGroup(f.node)),
+    [nodes],
+  );
+  const pinned = leaves.filter((f) => f.node.pinned);
+  const activeCount = leaves.filter((f) => !f.node.disabled).length;
 
-  function setConditions(next: FilterCondition[]) {
+  function setNodes(next: FilterNode[]) {
     onChange(buildFilterGroup(connector, next));
   }
-  function updateAt(i: number, next: FilterCondition) {
-    setConditions(conditions.map((c, j) => (j === i ? next : c)));
+  function updateLeafAt(path: number[], next: FilterCondition) {
+    setNodes(updateNodeAt(nodes, path, () => next));
   }
 
   return (
     <>
-      {pinned.map((condition) => {
-        const i = conditions.indexOf(condition);
-        const field = fields.find((f) => f.apiName === condition.field);
+      {pinned.map((leaf) => {
+        const field = fields.find((f) => f.apiName === leaf.node.field);
         if (!field) return null;
         return (
           <PinnedFilterChip
-            key={i}
+            key={leaf.id}
             field={field}
-            condition={condition}
+            condition={leaf.node}
             members={members}
             onOpenBuilder={() => setOpen(true)}
-            onUnpin={() => updateAt(i, { ...condition, pinned: false })}
+            onUnpin={() => updateLeafAt(leaf.path, { ...leaf.node, pinned: false })}
           />
         );
       })}
@@ -605,9 +625,9 @@ export function FiltersSection({
                 members={members}
                 ws={ws}
                 connector={connector}
-                conditions={conditions}
-                onConditionsChange={setConditions}
-                onConnectorChange={(next) => onChange(buildFilterGroup(next, conditions))}
+                nodes={nodes}
+                onNodesChange={setNodes}
+                onConnectorChange={(next) => onChange(buildFilterGroup(next, nodes))}
               />
             </div>
           </>
@@ -655,49 +675,52 @@ function PinnedFilterChip({
   );
 }
 
-/** The builder popover's body: "Where" + condition rows (draggable, And/Or
- * between them), + add-condition, + an empty state and a help link (MN-253). */
+/** The builder popover's body: "Where" + condition/group rows (draggable, And/Or
+ * between them at every level), + add-condition, + an empty state and a help link
+ * (MN-253 flat; MN-258 nested groups). One `DndContext` and one flat
+ * `SortableContext` cover the WHOLE tree (path-addressed ids, e.g. "2.0.1") —
+ * reusing the exact dnd-kit setup MN-253 shipped rather than a second drag
+ * pattern per nesting level; `onDragEnd` resolves the drop into a tree op
+ * (`moveNodeTo`) instead of a flat array index swap. */
 function FilterBuilderPanel({
   fields,
   members,
   ws,
   connector,
-  conditions,
-  onConditionsChange,
+  nodes,
+  onNodesChange,
   onConnectorChange,
 }: {
   fields: Field[];
   members: Array<{ id: string; name: string }>;
   ws?: string;
   connector: FilterConnector;
-  conditions: FilterCondition[];
-  onConditionsChange: (next: FilterCondition[]) => void;
+  nodes: FilterNode[];
+  onNodesChange: (next: FilterNode[]) => void;
   onConnectorChange: (next: FilterConnector) => void;
 }) {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  const flat = useMemo(() => flattenFilterTree(nodes), [nodes]);
 
-  function updateAt(i: number, next: FilterCondition) {
-    onConditionsChange(conditions.map((c, j) => (j === i ? next : c)));
-  }
-  function removeAt(i: number) {
-    onConditionsChange(conditions.filter((_, j) => j !== i));
-  }
-  function duplicateAt(i: number) {
-    const copy = { ...conditions[i]!, pinned: false };
-    onConditionsChange([...conditions.slice(0, i + 1), copy, ...conditions.slice(i + 1)]);
-  }
   function addCondition(field: Field) {
     const first = OPS_BY_TYPE[field.type]![0]!;
-    onConditionsChange([
-      ...conditions,
-      { field: field.apiName, op: first.op, value: defaultValueFor(first.input) },
-    ]);
+    onNodesChange([...nodes, { field: field.apiName, op: first.op, value: defaultValueFor(first.input) }]);
   }
 
   function onDragEnd(e: DragEndEvent) {
     const { active, over } = e;
     if (!over || active.id === over.id) return;
-    onConditionsChange(reorderConditions(conditions, Number(active.id), Number(over.id)));
+    const from = pathFromId(String(active.id));
+    let to = pathFromId(String(over.id));
+    // Dropping ONTO a group's own header row nests the dragged node as that
+    // group's first child, rather than swapping places with the group itself.
+    const overNode = getNodeAt(nodes, to);
+    if (overNode && isFilterGroup(overNode)) to = [...to, 0];
+    if (!canMoveNodeTo(nodes, from, to)) {
+      toast.error('Filter groups can only nest 3 levels deep');
+      return;
+    }
+    onNodesChange(moveNodeTo(nodes, from, to));
   }
 
   return (
@@ -715,7 +738,7 @@ function FilterBuilderPanel({
         </a>
       </div>
 
-      {conditions.length === 0 ? (
+      {nodes.length === 0 ? (
         <div className="px-3 py-6 text-center">
           <p className="mb-2 text-[12px] text-faint">No filters yet — narrow this view down to what matters.</p>
           <div className="flex justify-center">
@@ -725,21 +748,20 @@ function FilterBuilderPanel({
       ) : (
         <div className="max-h-80 overflow-y-auto p-1">
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-            <SortableContext items={conditions.map((_, i) => String(i))} strategy={verticalListSortingStrategy}>
-              {conditions.map((condition, i) => (
-                <ConditionRow
+            <SortableContext items={flat.map((f) => f.id)} strategy={verticalListSortingStrategy}>
+              {nodes.map((node, i) => (
+                <FilterNodeRow
                   key={i}
-                  index={i}
-                  condition={condition}
+                  path={[i]}
+                  node={node}
                   fields={fields}
                   members={members}
                   ws={ws}
                   connector={connector}
+                  isFirst={i === 0}
                   onConnectorChange={onConnectorChange}
-                  onChange={(next) => updateAt(i, next)}
-                  onDuplicate={() => duplicateAt(i)}
-                  onPin={() => updateAt(i, { ...condition, pinned: !condition.pinned })}
-                  onRemove={() => removeAt(i)}
+                  rootNodes={nodes}
+                  onRootChange={onNodesChange}
                 />
               ))}
             </SortableContext>
@@ -747,7 +769,7 @@ function FilterBuilderPanel({
         </div>
       )}
 
-      {conditions.length > 0 && (
+      {nodes.length > 0 && (
         <div className="border-t border-border-default p-1">
           <AddFilterButton fields={fields} onAdd={addCondition} label="Add condition" />
         </div>
@@ -773,35 +795,196 @@ function ConnectorToggle({ value, onChange }: { value: FilterConnector; onChange
   );
 }
 
+/** Dispatches a tree node to its row renderer (MN-258): a leaf condition gets the
+ * MN-253 row, a nested group gets its own header + recursively rendered contents.
+ * Every op (duplicate/remove/turn-into-group/…) is expressed against `rootNodes` +
+ * `path` here, so both renderers share the exact same tree-mutation primitives. */
+function FilterNodeRow({
+  path,
+  node,
+  fields,
+  members,
+  ws,
+  connector,
+  isFirst,
+  onConnectorChange,
+  rootNodes,
+  onRootChange,
+}: {
+  path: number[];
+  node: FilterNode;
+  fields: Field[];
+  members: Array<{ id: string; name: string }>;
+  ws?: string;
+  connector: FilterConnector;
+  isFirst: boolean;
+  onConnectorChange: (next: FilterConnector) => void;
+  rootNodes: FilterNode[];
+  onRootChange: (next: FilterNode[]) => void;
+}) {
+  if (isFilterGroup(node)) {
+    return (
+      <GroupRow
+        path={path}
+        node={node}
+        fields={fields}
+        members={members}
+        ws={ws}
+        connector={connector}
+        isFirst={isFirst}
+        onConnectorChange={onConnectorChange}
+        rootNodes={rootNodes}
+        onRootChange={onRootChange}
+      />
+    );
+  }
+  return (
+    <ConditionRow
+      path={path}
+      condition={node}
+      fields={fields}
+      members={members}
+      ws={ws}
+      connector={connector}
+      isFirst={isFirst}
+      onConnectorChange={onConnectorChange}
+      onChange={(next) => onRootChange(updateNodeAt(rootNodes, path, () => next))}
+      onDuplicate={() => onRootChange(duplicateNodeAt(rootNodes, path))}
+      onPin={() => onRootChange(updateNodeAt(rootNodes, path, () => ({ ...node, pinned: !node.pinned })))}
+      onRemove={() => onRootChange(removeNodeCascade(rootNodes, path))}
+      canTurnIntoGroup={canTurnIntoGroup(rootNodes, path)}
+      onTurnIntoGroup={() => onRootChange(turnIntoGroup(rootNodes, path, 'and'))}
+    />
+  );
+}
+
+/** A nested group's row (MN-258): its own header (Where/connector, drag handle,
+ * "…" menu) plus its children rendered recursively inside an indented box, each
+ * with the group's OWN connector — "A and (B or C)" is a top-level `and` row and
+ * a nested `or` group in exactly this shape. */
+function GroupRow({
+  path,
+  node,
+  fields,
+  members,
+  ws,
+  connector,
+  isFirst,
+  onConnectorChange,
+  rootNodes,
+  onRootChange,
+}: {
+  path: number[];
+  node: FilterGroup;
+  fields: Field[];
+  members: Array<{ id: string; name: string }>;
+  ws?: string;
+  connector: FilterConnector;
+  isFirst: boolean;
+  onConnectorChange: (next: FilterConnector) => void;
+  rootNodes: FilterNode[];
+  onRootChange: (next: FilterNode[]) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: path.join('.'),
+  });
+  const children = nodeChildren(node);
+  const innerConnector = nodeConnector(node);
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={cn(
+        'group relative rounded px-1 py-1.5',
+        isDragging && 'z-40 bg-card opacity-90 shadow-[0_4px_12px_rgba(15,23,41,0.12)]',
+      )}
+    >
+      <div className="flex items-start gap-1.5">
+        <button
+          {...attributes}
+          {...listeners}
+          className="mt-1.5 shrink-0 cursor-grab text-faint opacity-0 hover:text-muted group-hover:opacity-100"
+          title="Drag to reorder"
+        >
+          <GripVertical className="h-3.5 w-3.5" />
+        </button>
+
+        <div className="min-w-0 flex-1">
+          <div className="mb-1">
+            {isFirst ? (
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-faint">Where</span>
+            ) : (
+              <ConnectorToggle value={connector} onChange={onConnectorChange} />
+            )}
+          </div>
+
+          <div className="rounded border border-dashed border-border-default py-1 pl-2 pr-1">
+            {children.map((child, j) => (
+              <FilterNodeRow
+                key={j}
+                path={[...path, j]}
+                node={child}
+                fields={fields}
+                members={members}
+                ws={ws}
+                connector={innerConnector}
+                isFirst={j === 0}
+                onConnectorChange={(next) =>
+                  onRootChange(updateNodeAt(rootNodes, path, () => buildFilterGroup(next, children)!))
+                }
+                rootNodes={rootNodes}
+                onRootChange={onRootChange}
+              />
+            ))}
+          </div>
+        </div>
+
+        <GroupMenu
+          onDuplicate={() => onRootChange(duplicateNodeAt(rootNodes, path))}
+          onUngroup={() => onRootChange(ungroupNodeAt(rootNodes, path))}
+          onRemove={() => onRootChange(removeNodeCascade(rootNodes, path))}
+        />
+      </div>
+    </div>
+  );
+}
+
 function ConditionRow({
-  index,
+  path,
   condition,
   fields,
   members,
   ws,
   connector,
+  isFirst,
   onConnectorChange,
   onChange,
   onDuplicate,
   onPin,
   onRemove,
+  canTurnIntoGroup,
+  onTurnIntoGroup,
 }: {
-  index: number;
+  path: number[];
   condition: FilterCondition;
   fields: Field[];
   members: Array<{ id: string; name: string }>;
   ws?: string;
   connector: FilterConnector;
+  isFirst: boolean;
   onConnectorChange: (next: FilterConnector) => void;
   onChange: (next: FilterCondition) => void;
   onDuplicate: () => void;
   onPin: () => void;
   onRemove: () => void;
+  canTurnIntoGroup: boolean;
+  onTurnIntoGroup: () => void;
 }) {
   const [editingLabel, setEditingLabel] = useState(false);
   const [pickingIcon, setPickingIcon] = useState(false);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: String(index),
+    id: path.join('.'),
   });
   const field = fields.find((f) => f.apiName === condition.field);
   if (!field) return null;
@@ -831,7 +1014,7 @@ function ConditionRow({
 
         <div className="min-w-0 flex-1">
           <div className="mb-1">
-            {index === 0 ? (
+            {isFirst ? (
               <span className="text-[11px] font-semibold uppercase tracking-wider text-faint">Where</span>
             ) : (
               <ConnectorToggle value={connector} onChange={onConnectorChange} />
@@ -926,15 +1109,18 @@ function ConditionRow({
           onEditNameIcon={() => setEditingLabel((v) => !v)}
           onToggleDisabled={() => onChange({ ...condition, disabled: !condition.disabled })}
           onRemove={onRemove}
+          canTurnIntoGroup={canTurnIntoGroup}
+          onTurnIntoGroup={onTurnIntoGroup}
         />
       </div>
     </div>
   );
 }
 
-/** Per-clause "…" menu (MN-253): duplicate, pin, rename/re-icon, non-destructive
- * disable, remove. "Turn into group" is a deliberate no-op tonight — nested groups
- * are a separate backend sub-ticket (see the MN-253 spike report). */
+/** Per-clause "…" menu (MN-253 base; MN-258 wires up "Turn into group" for real).
+ * Depth/condition caps (packages/schemas' filterSchema, mirrored in
+ * filter-config.ts) are enforced client-side via `canTurnIntoGroup` — disabled +
+ * tooltipped rather than a 422 on save once a clause is already 3 levels deep. */
 function ConditionMenu({
   condition,
   onDuplicate,
@@ -942,6 +1128,8 @@ function ConditionMenu({
   onEditNameIcon,
   onToggleDisabled,
   onRemove,
+  canTurnIntoGroup,
+  onTurnIntoGroup,
 }: {
   condition: FilterCondition;
   onDuplicate: () => void;
@@ -949,6 +1137,8 @@ function ConditionMenu({
   onEditNameIcon: () => void;
   onToggleDisabled: () => void;
   onRemove: () => void;
+  canTurnIntoGroup: boolean;
+  onTurnIntoGroup: () => void;
 }) {
   return (
     <DropdownMenu>
@@ -972,12 +1162,52 @@ function ConditionMenu({
           {condition.disabled ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
           {condition.disabled ? 'Enable' : 'Disable'}
         </DropdownMenuItem>
-        <DropdownMenuItem disabled className="opacity-50" title="Nested filter groups are coming in a future update">
+        <DropdownMenuItem
+          disabled={!canTurnIntoGroup}
+          className={cn(!canTurnIntoGroup && 'opacity-50')}
+          title={canTurnIntoGroup ? undefined : 'Filter groups can only nest 3 levels deep'}
+          onSelect={onTurnIntoGroup}
+        >
           <Group className="h-3.5 w-3.5" /> Turn into group
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem className="text-error" onSelect={onRemove}>
           <Trash2 className="h-3.5 w-3.5" /> Remove
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** A group's own "…" menu (MN-258): duplicate the whole group (deep copy),
+ * ungroup (flatten its children back into the parent level), or remove the
+ * group and everything inside it. */
+function GroupMenu({
+  onDuplicate,
+  onUngroup,
+  onRemove,
+}: {
+  onDuplicate: () => void;
+  onUngroup: () => void;
+  onRemove: () => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button type="button" className="mt-1 shrink-0 rounded p-0.5 text-faint hover:bg-active hover:text-ink" title="More">
+          <MoreHorizontal className="h-3.5 w-3.5" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-44">
+        <DropdownMenuItem onSelect={onDuplicate}>
+          <Copy className="h-3.5 w-3.5" /> Duplicate group
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={onUngroup}>
+          <Ungroup className="h-3.5 w-3.5" /> Ungroup
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem className="text-error" onSelect={onRemove}>
+          <Trash2 className="h-3.5 w-3.5" /> Remove group
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
