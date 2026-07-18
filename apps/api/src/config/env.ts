@@ -137,6 +137,14 @@ export const envSchema = z.object({
     .transform((v) => v === 'true' || v === '1'),
   /** 30 days per MN-107; overridable only to shorten dev cycles. */
   BILLING_TRIAL_DAYS: z.coerce.number().int().positive().default(30),
+  /**
+   * MN-104 — the instance operator. On boot, if a user with this email
+   * exists, they're granted platform_admin (idempotent). Unset = nobody is a
+   * platform admin and /admin is unreachable by anyone. Re-checked every
+   * boot, so setting this before the operator has signed up is safe — it
+   * just no-ops until they do, then takes effect on the next restart.
+   */
+  PLATFORM_ADMIN_EMAIL: z.string().optional(),
 });
 
 export type Env = Omit<z.infer<typeof envSchema>, 'BETTER_AUTH_SECRET'> & {
