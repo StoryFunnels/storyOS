@@ -3618,6 +3618,64 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/files/{id}/download-url": {
+      "post": {
+        "operationId": "FilesController_mintDownloadUrl",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Mint a signed, expiring download URL for a file (#201)",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/files/{id}/revoke": {
+      "post": {
+        "operationId": "FilesController_revoke",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Revoke a file — kills its capability URL and any signed download URLs (#201)",
+        "tags": [
+          "files"
+        ]
+      }
+    },
     "/api/v1/files/{id}": {
       "get": {
         "operationId": "PublicFilesController_serve",
@@ -3636,7 +3694,31 @@
             "description": ""
           }
         },
-        "summary": "Serve an uploaded editor image by id (capability URL)",
+        "summary": "Serve an uploaded editor image by id (capability URL, or access-checked under private-attachments mode)",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/v1/files/{id}/download": {
+      "get": {
+        "operationId": "FileDownloadController_download",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Download a file via a signed, expiring URL (#201)",
         "tags": [
           "files"
         ]
@@ -4867,6 +4949,9 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 100
+          },
+          "private_attachments": {
+            "type": "boolean"
           }
         }
       },

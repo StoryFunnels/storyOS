@@ -66,6 +66,12 @@ const DECLARED_SAFE: Record<string, string> = {
   team_keys: 'Linear team identifiers — the non-secret sibling of api_key',
   signature: 'an HMAC we compute per delivery; never stored in a settings blob',
   tokenHash: 'sha256 of an invite token — the plaintext never round-trips',
+  // #201: a workspace-level boolean feature flag ("gate files behind an access
+  // check"), not a credential — `private` here means "access-controlled", the
+  // same sense as a private repo or a private Slack channel. `isRedactable`
+  // already exempts booleans on principle (a bit is never a secret), so this
+  // entry documents intent rather than covering a real gap.
+  private_attachments: 'a workspace boolean flag (#201) — "private" describes access mode, not a credential',
   // NB `public_token` (a form's share token, MN-101) *is* matched by isSecretKey,
   // so it needs no exemption — but nothing redacts a view's config today, which is
   // deliberate: the admin UI reads it back to build the share link. If view config

@@ -464,7 +464,8 @@ export const attachments = pgTable(
 );
 
 /** Workspace-scoped uploads for rich-text editors (MN-097) — images embedded in
- * descriptions / documents. Served by unguessable id (capability URL). */
+ * descriptions / documents. Served by unguessable id (capability URL) for inline
+ * embeds; downloads go through a signed, expiring URL instead (#201). */
 export const workspaceFiles = pgTable('workspace_files', {
   id: uuid('id').primaryKey().defaultRandom(),
   workspaceId: uuid('workspace_id')
@@ -476,6 +477,11 @@ export const workspaceFiles = pgTable('workspace_files', {
   storageKey: text('storage_key').notNull(),
   uploadedBy: text('uploaded_by'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  /** #201: an operator/owner revoke. Set (not cleared) — once revoked, both the
+   * capability URL and any previously-minted signed download URL stop working;
+   * there is no un-revoke. Checked on every read path (inline serve + signed
+   * download), independent of signature/expiry validity. */
+  revokedAt: timestamp('revoked_at', { withTimezone: true }),
 });
 
 /** MN-047: automation rules + run log. */

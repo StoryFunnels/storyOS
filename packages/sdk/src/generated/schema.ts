@@ -1295,6 +1295,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/files/{id}/download-url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mint a signed, expiring download URL for a file (#201) */
+        post: operations["FilesController_mintDownloadUrl"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/files/{id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke a file — kills its capability URL and any signed download URLs (#201) */
+        post: operations["FilesController_revoke"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/files/{id}": {
         parameters: {
             query?: never;
@@ -1302,8 +1336,25 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Serve an uploaded editor image by id (capability URL) */
+        /** Serve an uploaded editor image by id (capability URL, or access-checked under private-attachments mode) */
         get: operations["PublicFilesController_serve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/files/{id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download a file via a signed, expiring URL (#201) */
+        get: operations["FileDownloadController_download"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2011,6 +2062,7 @@ export interface components {
         };
         UpdateWorkspaceDto: {
             name?: string;
+            private_attachments?: boolean;
         };
         CreateSpaceDto: {
             name: string;
@@ -4935,7 +4987,64 @@ export interface operations {
             };
         };
     };
+    FilesController_mintDownloadUrl: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    FilesController_revoke: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     PublicFilesController_serve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    FileDownloadController_download: {
         parameters: {
             query?: never;
             header?: never;
