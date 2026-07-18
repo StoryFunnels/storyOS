@@ -1,0 +1,420 @@
+/**
+ * Curated StoryOS icon set — shared metadata (#133, #251).
+ *
+ * Zod-free on purpose, same reason as ./markdown: the MCP package imports this
+ * by subpath so it doesn't inline a CJS `require('zod')` into its ESM bundle.
+ *
+ * This module is the *data* source of truth (name/category/keywords + the
+ * `set:<name>` storage convention). apps/web's icon-set.tsx pairs each name
+ * with its lucide-react component; apps/api and packages/mcp use this module
+ * directly for the emoji migration backfill (#251) and MCP tool schemas —
+ * neither of those runs React, so they never need the icon components.
+ */
+
+export type IconCategory =
+  | 'work'
+  | 'tasks'
+  | 'people'
+  | 'content'
+  | 'data'
+  | 'comms'
+  | 'objects'
+  | 'nature'
+  | 'status';
+
+export const ICON_CATEGORIES: { id: IconCategory; label: string }[] = [
+  { id: 'work', label: 'Work' },
+  { id: 'tasks', label: 'Tasks' },
+  { id: 'people', label: 'People' },
+  { id: 'content', label: 'Content' },
+  { id: 'data', label: 'Data' },
+  { id: 'comms', label: 'Comms' },
+  { id: 'objects', label: 'Objects' },
+  { id: 'nature', label: 'Nature' },
+  { id: 'status', label: 'Status' },
+];
+
+export interface IconMeta {
+  name: string;
+  categories: IconCategory[];
+  keywords: string;
+}
+
+/** The 134 curated icon names. Keep in lockstep with apps/web's ICON_SET —
+ * that file imports `ICON_SET_META` from here and zips it with lucide-react
+ * components, so this array (not that one) is the source of truth for names,
+ * categories and keywords. */
+export const ICON_SET_META: IconMeta[] = [
+  { name: 'briefcase', categories: ['work'], keywords: 'briefcase job' },
+  { name: 'folder-kanban', categories: ['work'], keywords: 'project board kanban' },
+  { name: 'layout-dashboard', categories: ['work'], keywords: 'dashboard overview' },
+  { name: 'target', categories: ['work'], keywords: 'goal target objective' },
+  { name: 'rocket', categories: ['work'], keywords: 'launch release ship' },
+  { name: 'flag', categories: ['work', 'status'], keywords: 'flag milestone priority' },
+  { name: 'milestone', categories: ['work'], keywords: 'milestone marker' },
+  { name: 'trophy', categories: ['work'], keywords: 'win award trophy' },
+  { name: 'compass', categories: ['work'], keywords: 'strategy direction compass' },
+  { name: 'map', categories: ['work'], keywords: 'roadmap map plan' },
+  { name: 'building2', categories: ['work', 'people'], keywords: 'company office building' },
+  { name: 'goal', categories: ['work'], keywords: 'goal' },
+  { name: 'square-check', categories: ['tasks'], keywords: 'task done check complete' },
+  { name: 'check-square', categories: ['tasks'], keywords: 'task done check complete' },
+  { name: 'list-todo', categories: ['tasks'], keywords: 'todo list tasks' },
+  { name: 'list-checks', categories: ['tasks'], keywords: 'checklist tasks' },
+  { name: 'clock', categories: ['tasks'], keywords: 'time clock' },
+  { name: 'calendar-days', categories: ['tasks'], keywords: 'calendar date schedule' },
+  { name: 'calendar-clock', categories: ['tasks'], keywords: 'deadline schedule calendar' },
+  { name: 'alarm-clock', categories: ['tasks'], keywords: 'alarm reminder deadline' },
+  { name: 'hourglass', categories: ['tasks'], keywords: 'waiting pending' },
+  { name: 'timer', categories: ['tasks'], keywords: 'timer duration' },
+  { name: 'repeat', categories: ['tasks'], keywords: 'recurring repeat loop' },
+  { name: 'circle-dashed', categories: ['tasks', 'status'], keywords: 'backlog pending' },
+  { name: 'users', categories: ['people'], keywords: 'team members people' },
+  { name: 'user', categories: ['people'], keywords: 'person user' },
+  { name: 'user-round', categories: ['people'], keywords: 'person user' },
+  { name: 'users-round', categories: ['people'], keywords: 'team members' },
+  { name: 'contact', categories: ['people'], keywords: 'contact crm' },
+  { name: 'handshake', categories: ['people'], keywords: 'deal client partnership' },
+  { name: 'user-plus', categories: ['people'], keywords: 'invite add user' },
+  { name: 'crown', categories: ['people', 'status'], keywords: 'owner admin vip' },
+  { name: 'baby', categories: ['people'], keywords: 'lead new' },
+  { name: 'file-text', categories: ['content'], keywords: 'document note file' },
+  { name: 'files', categories: ['content'], keywords: 'documents files folders folder' },
+  { name: 'notebook', categories: ['content'], keywords: 'notebook notes' },
+  { name: 'notebook-pen', categories: ['content'], keywords: 'draft writing notes' },
+  { name: 'book-open', categories: ['content'], keywords: 'docs guide read education knowledge' },
+  { name: 'book', categories: ['content'], keywords: 'book manuscript' },
+  { name: 'newspaper', categories: ['content'], keywords: 'articles blog news press' },
+  { name: 'pen-tool', categories: ['content'], keywords: 'design pen draw author' },
+  { name: 'pencil', categories: ['content'], keywords: 'edit write draft' },
+  { name: 'feather', categories: ['content'], keywords: 'author writing light' },
+  { name: 'image', categories: ['content'], keywords: 'picture image' },
+  { name: 'camera', categories: ['content'], keywords: 'photo camera' },
+  { name: 'film', categories: ['content'], keywords: 'video film' },
+  { name: 'clapperboard', categories: ['content'], keywords: 'video production clapper' },
+  { name: 'mic', categories: ['content'], keywords: 'podcast audio record speaking voice' },
+  { name: 'music', categories: ['content'], keywords: 'music audio' },
+  { name: 'palette', categories: ['content'], keywords: 'design art color' },
+  { name: 'brush', categories: ['content'], keywords: 'paint design' },
+  { name: 'database', categories: ['data'], keywords: 'database records' },
+  { name: 'table', categories: ['data'], keywords: 'table grid data' },
+  { name: 'table2', categories: ['data'], keywords: 'table grid' },
+  { name: 'chart-bar', categories: ['data'], keywords: 'bar chart analytics' },
+  { name: 'chart-line', categories: ['data'], keywords: 'line chart trend growth' },
+  { name: 'chart-pie', categories: ['data'], keywords: 'pie chart share' },
+  { name: 'trending-up', categories: ['data'], keywords: 'growth trend up' },
+  { name: 'activity', categories: ['data'], keywords: 'activity pulse metrics' },
+  { name: 'boxes', categories: ['data'], keywords: 'inventory items' },
+  { name: 'package', categories: ['data'], keywords: 'package deliverable box' },
+  { name: 'archive', categories: ['data'], keywords: 'archive storage' },
+  { name: 'layers', categories: ['data'], keywords: 'layers stack foundation' },
+  { name: 'grid3x3', categories: ['data'], keywords: 'grid gallery' },
+  { name: 'filter', categories: ['data'], keywords: 'filter' },
+  { name: 'message-square', categories: ['comms'], keywords: 'comment chat message request' },
+  { name: 'message-circle', categories: ['comms'], keywords: 'chat message' },
+  { name: 'mail', categories: ['comms'], keywords: 'email mail envelope' },
+  { name: 'send', categories: ['comms'], keywords: 'send message' },
+  { name: 'bell', categories: ['comms', 'status'], keywords: 'notification alert' },
+  { name: 'megaphone', categories: ['comms'], keywords: 'marketing announce announcement platform' },
+  { name: 'phone', categories: ['comms'], keywords: 'call phone' },
+  { name: 'at-sign', categories: ['comms'], keywords: 'mention email' },
+  { name: 'hash', categories: ['comms'], keywords: 'tag channel hashtag' },
+  { name: 'wrench', categories: ['objects'], keywords: 'tools fix chore developer coding' },
+  { name: 'settings', categories: ['objects'], keywords: 'settings config gear' },
+  { name: 'cog', categories: ['objects'], keywords: 'gear settings' },
+  { name: 'hammer', categories: ['objects'], keywords: 'build hammer' },
+  { name: 'bug', categories: ['objects', 'status'], keywords: 'bug issue defect' },
+  { name: 'flask-conical', categories: ['objects'], keywords: 'experiment test lab' },
+  { name: 'test-tube', categories: ['objects'], keywords: 'test experiment' },
+  { name: 'link', categories: ['objects'], keywords: 'link relation url chain' },
+  { name: 'key', categories: ['objects'], keywords: 'key access secret' },
+  { name: 'lock', categories: ['objects'], keywords: 'lock secure private' },
+  { name: 'shield-check', categories: ['objects', 'status'], keywords: 'security verified safe' },
+  { name: 'zap', categories: ['objects'], keywords: 'automation fast energy lightning' },
+  { name: 'plug', categories: ['objects'], keywords: 'integration connect' },
+  { name: 'puzzle', categories: ['objects'], keywords: 'puzzle module addon' },
+  { name: 'wand', categories: ['objects'], keywords: 'magic wand auto' },
+  { name: 'sparkles', categories: ['objects', 'nature'], keywords: 'magic ai sparkle idea special unicorn' },
+  { name: 'gift', categories: ['objects'], keywords: 'gift bonus reward' },
+  { name: 'shopping-cart', categories: ['objects'], keywords: 'cart order shop' },
+  { name: 'credit-card', categories: ['objects'], keywords: 'payment billing card' },
+  { name: 'receipt', categories: ['objects'], keywords: 'invoice receipt proposal' },
+  { name: 'dollar-sign', categories: ['objects'], keywords: 'money sales revenue opportunity' },
+  { name: 'wallet', categories: ['objects'], keywords: 'wallet budget expense' },
+  { name: 'coins', categories: ['objects'], keywords: 'money coins' },
+  { name: 'tag', categories: ['objects'], keywords: 'tag label' },
+  { name: 'tags', categories: ['objects'], keywords: 'tags labels' },
+  { name: 'bookmark', categories: ['objects'], keywords: 'bookmark save' },
+  { name: 'paperclip', categories: ['objects'], keywords: 'attachment file' },
+  { name: 'pin', categories: ['objects'], keywords: 'pin fixed moment' },
+  { name: 'star', categories: ['objects', 'status'], keywords: 'favorite star' },
+  { name: 'heart', categories: ['objects', 'status'], keywords: 'health favorite care' },
+  { name: 'sprout', categories: ['nature'], keywords: 'growth seedling start' },
+  { name: 'leaf', categories: ['nature'], keywords: 'plant eco leaf herb clover' },
+  { name: 'tree-pine', categories: ['nature'], keywords: 'tree nature' },
+  { name: 'flower2', categories: ['nature'], keywords: 'flower bloom' },
+  { name: 'sun', categories: ['nature'], keywords: 'day sun light time-off vacation' },
+  { name: 'moon', categories: ['nature'], keywords: 'night moon' },
+  { name: 'cloud', categories: ['nature'], keywords: 'cloud weather' },
+  { name: 'waves', categories: ['nature'], keywords: 'ocean funnel flow wave' },
+  { name: 'flame', categories: ['nature', 'status'], keywords: 'hot fire priority' },
+  { name: 'droplet', categories: ['nature'], keywords: 'water drop' },
+  { name: 'mountain', categories: ['nature'], keywords: 'mountain peak goal' },
+  { name: 'snowflake', categories: ['nature'], keywords: 'cold freeze' },
+  { name: 'bird', categories: ['nature'], keywords: 'bird bee busy' },
+  { name: 'home', categories: ['nature'], keywords: 'home house' },
+  { name: 'plane', categories: ['nature'], keywords: 'travel plane' },
+  { name: 'globe', categories: ['nature'], keywords: 'world global web' },
+  { name: 'map-pin', categories: ['nature'], keywords: 'location place' },
+  { name: 'coffee', categories: ['nature'], keywords: 'coffee meeting break meetings' },
+  { name: 'circle-check', categories: ['status'], keywords: 'done complete success' },
+  { name: 'circle-alert', categories: ['status'], keywords: 'warning alert' },
+  { name: 'circle-x', categories: ['status'], keywords: 'error blocked cancel' },
+  { name: 'circle-dot', categories: ['status'], keywords: 'active in-progress' },
+  { name: 'circle', categories: ['status'], keywords: 'open empty' },
+  { name: 'triangle-alert', categories: ['status'], keywords: 'warning risk' },
+  { name: 'ban', categories: ['status'], keywords: 'blocked banned' },
+  { name: 'eye', categories: ['status'], keywords: 'watch review visible' },
+  { name: 'eye-off', categories: ['status'], keywords: 'hidden' },
+  { name: 'thumbs-up', categories: ['status'], keywords: 'approve like' },
+  { name: 'loader', categories: ['status'], keywords: 'loading progress' },
+  { name: 'pause', categories: ['status'], keywords: 'paused hold' },
+];
+
+export const ICON_NAMES: Set<string> = new Set(ICON_SET_META.map((d) => d.name));
+
+/** Stored-value convention: `set:<name>` is a curated icon; anything else is
+ * emoji/text (MN-208). */
+export const ICON_SET_PREFIX = 'set:';
+
+/** Extract the curated-set name from a stored icon value, or null if it's not
+ * a (recognized) curated ref. */
+export function setIconName(value?: string | null): string | null {
+  if (!value || !value.startsWith(ICON_SET_PREFIX)) return null;
+  const name = value.slice(ICON_SET_PREFIX.length);
+  return ICON_NAMES.has(name) ? name : null;
+}
+
+/** True for any `set:<name>` ref, recognized or not — used to skip already-
+ * migrated values during the emoji backfill (#251) without re-validating the
+ * name against the current set. */
+export function isSetIconRef(value?: string | null): boolean {
+  return Boolean(value && value.startsWith(ICON_SET_PREFIX));
+}
+
+/**
+ * True when `value` contains emoji-shaped content: pictographic characters,
+ * ZWJ sequences, variation selectors, or keycap combiners. Used to (a) detect
+ * legacy emoji during the migration backfill and (b) power the "zero emoji
+ * remain" post-migration scan (#251). A `set:` ref is never emoji-shaped.
+ */
+// Each of these codepoints (ZWJ, variation selector, keycap combiner) is
+// matched independently as its own emoji-ish signal, not as a specific
+// combined grapheme sequence \u2014 the lint below doesn't know that's intentional.
+// eslint-disable-next-line no-misleading-character-class
+const EMOJI_SHAPE_RE = /[\p{Extended_Pictographic}\u200d\ufe0f\u20e3]/u;
+export function isEmojiShaped(value?: string | null): boolean {
+  if (!value || isSetIconRef(value)) return false;
+  return EMOJI_SHAPE_RE.test(value);
+}
+
+/** The fixed background-colour palette (MN-044) — kept as a plain union here
+ * (not the zod enum in databases.ts/workspaces.ts) so this module stays
+ * zod-free for the MCP bundle. */
+export type IconColorToken =
+  | 'gray' | 'brown' | 'gold' | 'orange' | 'red' | 'pink' | 'purple' | 'blue' | 'teal' | 'green';
+
+const CATEGORY_COLOR: Record<IconCategory, IconColorToken> = {
+  work: 'blue',
+  tasks: 'purple',
+  people: 'teal',
+  content: 'brown',
+  data: 'gray',
+  comms: 'pink',
+  objects: 'orange',
+  nature: 'green',
+  status: 'gold',
+};
+
+/** The icon-set name used when nothing else matches — a neutral "generic
+ * record" glyph, consistent with the hardcoded `<Database>` fallback the
+ * sidebar has always shown for icon-less rows. */
+export const DEFAULT_ICON_NAME = 'database';
+
+function colorForIconName(name: string): IconColorToken {
+  const meta = ICON_SET_META.find((d) => d.name === name);
+  return meta ? CATEGORY_COLOR[meta.categories[0]!] : 'gray';
+}
+
+/**
+ * Name-inferred icon default (#251 AC): when a legacy emoji can't be resolved
+ * through EMOJI_ICON_MIGRATION, fall back to matching the *entity's name*
+ * against the icon-set keywords — e.g. "Clients" → the `handshake` icon
+ * (people category) because "client" is in its keyword list. Falls back to
+ * DEFAULT_ICON_NAME when no word matches anything.
+ */
+export function inferIconFromName(name: string): string {
+  const words = (name || '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean)
+    .map((w) => (w.length > 3 && w.endsWith('s') && !w.endsWith('ss') ? w.slice(0, -1) : w));
+
+  for (const w of words) {
+    const hit = ICON_SET_META.find((d) => d.keywords.split(' ').includes(w));
+    if (hit) return `${ICON_SET_PREFIX}${hit.name}`;
+  }
+  for (const w of words) {
+    if (w.length < 3) continue;
+    const hit = ICON_SET_META.find((d) => d.keywords.includes(w));
+    if (hit) return `${ICON_SET_PREFIX}${hit.name}`;
+  }
+  return `${ICON_SET_PREFIX}${DEFAULT_ICON_NAME}`;
+}
+
+/** Background color for a name-inferred icon (used only when the entity has
+ * no color set yet) — the same category→color mapping the migration table
+ * uses, so inferred icons look consistent with mapped ones. */
+export function inferColorForName(name: string): IconColorToken {
+  return colorForIconName(setIconName(inferIconFromName(name))!);
+}
+
+export interface EmojiMigrationEntry {
+  icon: string;
+  color: IconColorToken;
+}
+
+/**
+ * Emoji → curated-icon migration table (#251 backfill). Ground truth for
+ * "emoji actually plausible in use": every emoji used by a seed template pack
+ * default (apps/api/src/templates/definitions/*.ts) plus every emoji offered
+ * by the pre-#251 icon picker's emoji tab (apps/web/src/components/ui/icon-
+ * picker.tsx, EMOJI const — removed from the picker by #251 but kept here as
+ * the migration's input vocabulary).
+ *
+ * [emoji, icon-set name, optional color override] — color defaults to the
+ * icon's category color (see colorForIconName) unless overridden here for a
+ * clearer match (e.g. money icons get 'gold', not the category default).
+ */
+const MIGRATION_RULES: Array<[string, string, IconColorToken?]> = [
+  // Work / planning
+  ['📌', 'pin'],
+  ['📋', 'list-checks'],
+  ['✅', 'square-check'],
+  ['📝', 'file-text'],
+  ['📅', 'calendar-days'],
+  ['📊', 'chart-bar'],
+  ['📈', 'trending-up'],
+  ['🗂️', 'files'],
+  ['📁', 'files'],
+  ['🗃️', 'archive'],
+  ['💼', 'briefcase'],
+  ['🧭', 'compass'],
+  ['🎯', 'target'],
+  ['🚀', 'rocket'],
+  ['⚡', 'zap'],
+  ['🔥', 'flame', 'red'],
+  ['⭐', 'star'],
+  ['💡', 'sparkles'],
+  ['🔔', 'bell'],
+  ['🏆', 'trophy'],
+  ['🧱', 'layers'],
+  ['🏃', 'timer'],
+  ['🗓️', 'calendar-clock'],
+  ['👣', 'milestone'],
+  ['🎪', 'flag'],
+  // People & comms
+  ['🤝', 'handshake'],
+  ['👥', 'users'],
+  ['👤', 'user'],
+  ['🗣️', 'mic'],
+  ['💬', 'message-square'],
+  ['📣', 'megaphone'],
+  ['📢', 'megaphone'],
+  ['✉️', 'mail'],
+  ['📞', 'phone'],
+  ['🎓', 'book-open'],
+  ['🧑‍💻', 'wrench'],
+  ['🫶', 'heart'],
+  // Objects
+  ['📦', 'package'],
+  ['🔧', 'wrench'],
+  ['⚙️', 'settings'],
+  ['🔗', 'link'],
+  ['🔑', 'key'],
+  ['🔒', 'lock'],
+  ['🧲', 'user-plus'],
+  ['🧪', 'flask-conical'],
+  ['🐛', 'bug'],
+  ['🛠️', 'hammer'],
+  ['💰', 'dollar-sign', 'gold'],
+  ['💳', 'credit-card', 'gold'],
+  ['🧾', 'receipt', 'gold'],
+  ['🖼️', 'image'],
+  ['🎨', 'palette'],
+  ['📷', 'camera'],
+  ['🎬', 'clapperboard'],
+  ['🎥', 'film'],
+  ['🎙️', 'mic'],
+  ['📚', 'book-open'],
+  ['📖', 'book'],
+  ['📰', 'newspaper'],
+  ['🗞️', 'newspaper'],
+  ['✏️', 'pencil'],
+  ['🖋️', 'pen-tool'],
+  // Nature & misc
+  ['🌱', 'sprout'],
+  ['🌿', 'leaf'],
+  ['☀️', 'sun'],
+  ['🌙', 'moon'],
+  ['🌊', 'waves'],
+  ['🍀', 'leaf'],
+  ['🐝', 'bird'],
+  ['🦄', 'sparkles'],
+  ['☕', 'coffee'],
+  ['🍕', 'gift'],
+  ['🧊', 'circle-dashed'],
+  ['✈️', 'plane'],
+  ['🗺️', 'map'],
+  ['🏠', 'home'],
+  ['🏢', 'building2'],
+  ['⏰', 'alarm-clock'],
+  ['⏳', 'hourglass'],
+  ['♻️', 'repeat'],
+  ['❤️', 'heart'],
+  ['🟢', 'circle-dot', 'green'],
+  ['🟡', 'pause', 'gold'],
+  ['🔴', 'circle-x', 'red'],
+  ['🧠', 'book-open'],
+  ['👁️', 'eye'],
+  ['🪄', 'wand'],
+  ['🎁', 'gift'],
+  ['🥇', 'trophy', 'gold'],
+  ['🌴', 'sun'],
+];
+
+export const EMOJI_ICON_MIGRATION: Record<string, EmojiMigrationEntry> = Object.fromEntries(
+  MIGRATION_RULES.map(([emoji, iconName, colorOverride]) => {
+    if (!ICON_NAMES.has(iconName)) {
+      throw new Error(`EMOJI_ICON_MIGRATION: "${iconName}" is not in ICON_SET_META (typo?).`);
+    }
+    return [emoji, { icon: `${ICON_SET_PREFIX}${iconName}`, color: colorOverride ?? colorForIconName(iconName) }];
+  }),
+);
+
+/**
+ * Resolve the migrated {icon, color} for a legacy stored icon value. Returns
+ * the mapped SVG ref/color when the emoji is a known migration entry, the
+ * name-inferred default when it's emoji-shaped but unmapped, or null when
+ * `value` isn't emoji-shaped at all (already a `set:` ref, or empty/unset —
+ * nothing to migrate).
+ */
+export function resolveMigratedIcon(
+  value: string | null | undefined,
+  entityName: string,
+): { icon: string; color: IconColorToken } | null {
+  if (!isEmojiShaped(value)) return null;
+  const mapped = EMOJI_ICON_MIGRATION[value!];
+  if (mapped) return mapped;
+  return { icon: inferIconFromName(entityName), color: inferColorForName(entityName) };
+}

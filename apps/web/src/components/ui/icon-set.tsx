@@ -4,11 +4,24 @@
  * Curated StoryOS icon set (MN-208). Line icons that read as software at any
  * size — the alternative to vendor emoji whose rendering we don't control.
  *
- * Stored on a database/space as `set:<name>` in the existing `icon` column, so
- * emoji values keep working unchanged and no migration is needed. The name is a
- * stable slug decoupled from the underlying library, so the geometry can be
- * swapped for bespoke art later without touching stored data.
+ * Stored on a database/space as `set:<name>` in the existing `icon` column.
+ * As of #251 emoji are migrated away and no longer offered by the picker, but
+ * the renderer still tolerates a stray legacy emoji string.
+ *
+ * The name/category/keyword *data* lives in @storyos/schemas (zod-free, so
+ * apps/api and packages/mcp can use it for the emoji migration backfill and
+ * MCP tool schemas without pulling in React). This file pairs each shared
+ * name with its lucide-react component — the name is a stable slug decoupled
+ * from the underlying library, so the geometry can be swapped for bespoke art
+ * later without touching stored data.
  */
+import {
+  ICON_CATEGORIES,
+  ICON_SET_META,
+  ICON_SET_PREFIX,
+  setIconName,
+  type IconCategory,
+} from '@storyos/schemas';
 import {
   Briefcase,
   FolderKanban,
@@ -147,28 +160,8 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 
-export type IconCategory =
-  | 'work'
-  | 'tasks'
-  | 'people'
-  | 'content'
-  | 'data'
-  | 'comms'
-  | 'objects'
-  | 'nature'
-  | 'status';
-
-export const ICON_CATEGORIES: { id: IconCategory; label: string }[] = [
-  { id: 'work', label: 'Work' },
-  { id: 'tasks', label: 'Tasks' },
-  { id: 'people', label: 'People' },
-  { id: 'content', label: 'Content' },
-  { id: 'data', label: 'Data' },
-  { id: 'comms', label: 'Comms' },
-  { id: 'objects', label: 'Objects' },
-  { id: 'nature', label: 'Nature' },
-  { id: 'status', label: 'Status' },
-];
+export type { IconCategory };
+export { ICON_CATEGORIES, ICON_SET_PREFIX, setIconName };
 
 export interface IconDef {
   name: string;
@@ -177,153 +170,149 @@ export interface IconDef {
   keywords: string;
 }
 
-export const ICON_SET: IconDef[] = [
-  { name: 'briefcase', Icon: Briefcase, categories: ['work'], keywords: 'briefcase job' },
-  { name: 'folder-kanban', Icon: FolderKanban, categories: ['work'], keywords: 'project board kanban' },
-  { name: 'layout-dashboard', Icon: LayoutDashboard, categories: ['work'], keywords: 'dashboard overview' },
-  { name: 'target', Icon: Target, categories: ['work'], keywords: 'goal target objective' },
-  { name: 'rocket', Icon: Rocket, categories: ['work'], keywords: 'launch release ship' },
-  { name: 'flag', Icon: Flag, categories: ['work', 'status'], keywords: 'flag milestone priority' },
-  { name: 'milestone', Icon: Milestone, categories: ['work'], keywords: 'milestone marker' },
-  { name: 'trophy', Icon: Trophy, categories: ['work'], keywords: 'win award trophy' },
-  { name: 'compass', Icon: Compass, categories: ['work'], keywords: 'strategy direction compass' },
-  { name: 'map', Icon: Map, categories: ['work'], keywords: 'roadmap map plan' },
-  { name: 'building2', Icon: Building2, categories: ['work', 'people'], keywords: 'company office building' },
-  { name: 'goal', Icon: Goal, categories: ['work'], keywords: 'goal' },
-  { name: 'square-check', Icon: SquareCheck, categories: ['tasks'], keywords: 'task done check complete' },
-  { name: 'check-square', Icon: CheckSquare, categories: ['tasks'], keywords: 'task done check complete' },
-  { name: 'list-todo', Icon: ListTodo, categories: ['tasks'], keywords: 'todo list tasks' },
-  { name: 'list-checks', Icon: ListChecks, categories: ['tasks'], keywords: 'checklist tasks' },
-  { name: 'clock', Icon: Clock, categories: ['tasks'], keywords: 'time clock' },
-  { name: 'calendar-days', Icon: CalendarDays, categories: ['tasks'], keywords: 'calendar date schedule' },
-  { name: 'calendar-clock', Icon: CalendarClock, categories: ['tasks'], keywords: 'deadline schedule calendar' },
-  { name: 'alarm-clock', Icon: AlarmClock, categories: ['tasks'], keywords: 'alarm reminder deadline' },
-  { name: 'hourglass', Icon: Hourglass, categories: ['tasks'], keywords: 'waiting pending' },
-  { name: 'timer', Icon: Timer, categories: ['tasks'], keywords: 'timer duration' },
-  { name: 'repeat', Icon: Repeat, categories: ['tasks'], keywords: 'recurring repeat loop' },
-  { name: 'circle-dashed', Icon: CircleDashed, categories: ['tasks', 'status'], keywords: 'backlog pending' },
-  { name: 'users', Icon: Users, categories: ['people'], keywords: 'team members people' },
-  { name: 'user', Icon: User, categories: ['people'], keywords: 'person user' },
-  { name: 'user-round', Icon: UserRound, categories: ['people'], keywords: 'person user' },
-  { name: 'users-round', Icon: UsersRound, categories: ['people'], keywords: 'team members' },
-  { name: 'contact', Icon: Contact, categories: ['people'], keywords: 'contact crm' },
-  { name: 'handshake', Icon: Handshake, categories: ['people'], keywords: 'deal client partnership' },
-  { name: 'user-plus', Icon: UserPlus, categories: ['people'], keywords: 'invite add user' },
-  { name: 'crown', Icon: Crown, categories: ['people', 'status'], keywords: 'owner admin vip' },
-  { name: 'baby', Icon: Baby, categories: ['people'], keywords: 'lead new' },
-  { name: 'file-text', Icon: FileText, categories: ['content'], keywords: 'document note file' },
-  { name: 'files', Icon: Files, categories: ['content'], keywords: 'documents files' },
-  { name: 'notebook', Icon: Notebook, categories: ['content'], keywords: 'notebook notes' },
-  { name: 'notebook-pen', Icon: NotebookPen, categories: ['content'], keywords: 'draft writing notes' },
-  { name: 'book-open', Icon: BookOpen, categories: ['content'], keywords: 'docs guide read' },
-  { name: 'book', Icon: Book, categories: ['content'], keywords: 'book manuscript' },
-  { name: 'newspaper', Icon: Newspaper, categories: ['content'], keywords: 'articles blog news' },
-  { name: 'pen-tool', Icon: PenTool, categories: ['content'], keywords: 'design pen draw' },
-  { name: 'pencil', Icon: Pencil, categories: ['content'], keywords: 'edit write draft' },
-  { name: 'feather', Icon: Feather, categories: ['content'], keywords: 'author writing light' },
-  { name: 'image', Icon: Image, categories: ['content'], keywords: 'picture image' },
-  { name: 'camera', Icon: Camera, categories: ['content'], keywords: 'photo camera' },
-  { name: 'film', Icon: Film, categories: ['content'], keywords: 'video film' },
-  { name: 'clapperboard', Icon: Clapperboard, categories: ['content'], keywords: 'video production' },
-  { name: 'mic', Icon: Mic, categories: ['content'], keywords: 'podcast audio record' },
-  { name: 'music', Icon: Music, categories: ['content'], keywords: 'music audio' },
-  { name: 'palette', Icon: Palette, categories: ['content'], keywords: 'design art color' },
-  { name: 'brush', Icon: Brush, categories: ['content'], keywords: 'paint design' },
-  { name: 'database', Icon: Database, categories: ['data'], keywords: 'database records' },
-  { name: 'table', Icon: Table, categories: ['data'], keywords: 'table grid data' },
-  { name: 'table2', Icon: Table2, categories: ['data'], keywords: 'table grid' },
-  { name: 'chart-bar', Icon: ChartBar, categories: ['data'], keywords: 'bar chart analytics' },
-  { name: 'chart-line', Icon: ChartLine, categories: ['data'], keywords: 'line chart trend' },
-  { name: 'chart-pie', Icon: ChartPie, categories: ['data'], keywords: 'pie chart share' },
-  { name: 'trending-up', Icon: TrendingUp, categories: ['data'], keywords: 'growth trend up' },
-  { name: 'activity', Icon: Activity, categories: ['data'], keywords: 'activity pulse metrics' },
-  { name: 'boxes', Icon: Boxes, categories: ['data'], keywords: 'inventory items' },
-  { name: 'package', Icon: Package, categories: ['data'], keywords: 'package deliverable box' },
-  { name: 'archive', Icon: Archive, categories: ['data'], keywords: 'archive storage' },
-  { name: 'layers', Icon: Layers, categories: ['data'], keywords: 'layers stack' },
-  { name: 'grid3x3', Icon: Grid3x3, categories: ['data'], keywords: 'grid gallery' },
-  { name: 'filter', Icon: Filter, categories: ['data'], keywords: 'filter' },
-  { name: 'message-square', Icon: MessageSquare, categories: ['comms'], keywords: 'comment chat message' },
-  { name: 'message-circle', Icon: MessageCircle, categories: ['comms'], keywords: 'chat message' },
-  { name: 'mail', Icon: Mail, categories: ['comms'], keywords: 'email mail' },
-  { name: 'send', Icon: Send, categories: ['comms'], keywords: 'send message' },
-  { name: 'bell', Icon: Bell, categories: ['comms', 'status'], keywords: 'notification alert' },
-  { name: 'megaphone', Icon: Megaphone, categories: ['comms'], keywords: 'marketing announce' },
-  { name: 'phone', Icon: Phone, categories: ['comms'], keywords: 'call phone' },
-  { name: 'at-sign', Icon: AtSign, categories: ['comms'], keywords: 'mention email' },
-  { name: 'hash', Icon: Hash, categories: ['comms'], keywords: 'tag channel hashtag' },
-  { name: 'wrench', Icon: Wrench, categories: ['objects'], keywords: 'tools fix chore' },
-  { name: 'settings', Icon: Settings, categories: ['objects'], keywords: 'settings config gear' },
-  { name: 'cog', Icon: Cog, categories: ['objects'], keywords: 'gear settings' },
-  { name: 'hammer', Icon: Hammer, categories: ['objects'], keywords: 'build hammer' },
-  { name: 'bug', Icon: Bug, categories: ['objects', 'status'], keywords: 'bug issue defect' },
-  { name: 'flask-conical', Icon: FlaskConical, categories: ['objects'], keywords: 'experiment test lab' },
-  { name: 'test-tube', Icon: TestTube, categories: ['objects'], keywords: 'test experiment' },
-  { name: 'link', Icon: Link, categories: ['objects'], keywords: 'link relation url' },
-  { name: 'key', Icon: Key, categories: ['objects'], keywords: 'key access secret' },
-  { name: 'lock', Icon: Lock, categories: ['objects'], keywords: 'lock secure private' },
-  { name: 'shield-check', Icon: ShieldCheck, categories: ['objects', 'status'], keywords: 'security verified safe' },
-  { name: 'zap', Icon: Zap, categories: ['objects'], keywords: 'automation fast energy' },
-  { name: 'plug', Icon: Plug, categories: ['objects'], keywords: 'integration connect' },
-  { name: 'puzzle', Icon: Puzzle, categories: ['objects'], keywords: 'puzzle module addon' },
-  { name: 'wand', Icon: Wand, categories: ['objects'], keywords: 'magic wand auto' },
-  { name: 'sparkles', Icon: Sparkles, categories: ['objects', 'nature'], keywords: 'magic ai sparkle' },
-  { name: 'gift', Icon: Gift, categories: ['objects'], keywords: 'gift bonus reward' },
-  { name: 'shopping-cart', Icon: ShoppingCart, categories: ['objects'], keywords: 'cart order shop' },
-  { name: 'credit-card', Icon: CreditCard, categories: ['objects'], keywords: 'payment billing card' },
-  { name: 'receipt', Icon: Receipt, categories: ['objects'], keywords: 'invoice receipt' },
-  { name: 'dollar-sign', Icon: DollarSign, categories: ['objects'], keywords: 'money sales revenue' },
-  { name: 'wallet', Icon: Wallet, categories: ['objects'], keywords: 'wallet budget' },
-  { name: 'coins', Icon: Coins, categories: ['objects'], keywords: 'money coins' },
-  { name: 'tag', Icon: Tag, categories: ['objects'], keywords: 'tag label' },
-  { name: 'tags', Icon: Tags, categories: ['objects'], keywords: 'tags labels' },
-  { name: 'bookmark', Icon: Bookmark, categories: ['objects'], keywords: 'bookmark save' },
-  { name: 'paperclip', Icon: Paperclip, categories: ['objects'], keywords: 'attachment file' },
-  { name: 'pin', Icon: Pin, categories: ['objects'], keywords: 'pin fixed' },
-  { name: 'star', Icon: Star, categories: ['objects', 'status'], keywords: 'favorite star' },
-  { name: 'heart', Icon: Heart, categories: ['objects', 'status'], keywords: 'health favorite' },
-  { name: 'sprout', Icon: Sprout, categories: ['nature'], keywords: 'growth seedling start' },
-  { name: 'leaf', Icon: Leaf, categories: ['nature'], keywords: 'plant eco leaf' },
-  { name: 'tree-pine', Icon: TreePine, categories: ['nature'], keywords: 'tree nature' },
-  { name: 'flower2', Icon: Flower2, categories: ['nature'], keywords: 'flower bloom' },
-  { name: 'sun', Icon: Sun, categories: ['nature'], keywords: 'day sun light' },
-  { name: 'moon', Icon: Moon, categories: ['nature'], keywords: 'night moon' },
-  { name: 'cloud', Icon: Cloud, categories: ['nature'], keywords: 'cloud weather' },
-  { name: 'waves', Icon: Waves, categories: ['nature'], keywords: 'ocean funnel flow' },
-  { name: 'flame', Icon: Flame, categories: ['nature', 'status'], keywords: 'hot fire priority' },
-  { name: 'droplet', Icon: Droplet, categories: ['nature'], keywords: 'water drop' },
-  { name: 'mountain', Icon: Mountain, categories: ['nature'], keywords: 'mountain peak goal' },
-  { name: 'snowflake', Icon: Snowflake, categories: ['nature'], keywords: 'cold freeze' },
-  { name: 'bird', Icon: Bird, categories: ['nature'], keywords: 'bird' },
-  { name: 'home', Icon: Home, categories: ['nature'], keywords: 'home house' },
-  { name: 'plane', Icon: Plane, categories: ['nature'], keywords: 'travel plane' },
-  { name: 'globe', Icon: Globe, categories: ['nature'], keywords: 'world global web' },
-  { name: 'map-pin', Icon: MapPin, categories: ['nature'], keywords: 'location place' },
-  { name: 'coffee', Icon: Coffee, categories: ['nature'], keywords: 'coffee meeting break' },
-  { name: 'circle-check', Icon: CircleCheck, categories: ['status'], keywords: 'done complete success' },
-  { name: 'circle-alert', Icon: CircleAlert, categories: ['status'], keywords: 'warning alert' },
-  { name: 'circle-x', Icon: CircleX, categories: ['status'], keywords: 'error blocked cancel' },
-  { name: 'circle-dot', Icon: CircleDot, categories: ['status'], keywords: 'active in-progress' },
-  { name: 'circle', Icon: Circle, categories: ['status'], keywords: 'open empty' },
-  { name: 'triangle-alert', Icon: TriangleAlert, categories: ['status'], keywords: 'warning risk' },
-  { name: 'ban', Icon: Ban, categories: ['status'], keywords: 'blocked banned' },
-  { name: 'eye', Icon: Eye, categories: ['status'], keywords: 'watch review visible' },
-  { name: 'eye-off', Icon: EyeOff, categories: ['status'], keywords: 'hidden' },
-  { name: 'thumbs-up', Icon: ThumbsUp, categories: ['status'], keywords: 'approve like' },
-  { name: 'loader', Icon: Loader, categories: ['status'], keywords: 'loading progress' },
-  { name: 'pause', Icon: Pause, categories: ['status'], keywords: 'paused hold' },
-];
+/** Name → lucide-react component. The name/category/keyword data itself comes
+ * from ICON_SET_META (@storyos/schemas) — this is only the rendering half. */
+const ICON_COMPONENTS: Record<string, LucideIcon> = {
+  briefcase: Briefcase,
+  'folder-kanban': FolderKanban,
+  'layout-dashboard': LayoutDashboard,
+  target: Target,
+  rocket: Rocket,
+  flag: Flag,
+  milestone: Milestone,
+  trophy: Trophy,
+  compass: Compass,
+  map: Map,
+  building2: Building2,
+  goal: Goal,
+  'square-check': SquareCheck,
+  'check-square': CheckSquare,
+  'list-todo': ListTodo,
+  'list-checks': ListChecks,
+  clock: Clock,
+  'calendar-days': CalendarDays,
+  'calendar-clock': CalendarClock,
+  'alarm-clock': AlarmClock,
+  hourglass: Hourglass,
+  timer: Timer,
+  repeat: Repeat,
+  'circle-dashed': CircleDashed,
+  users: Users,
+  user: User,
+  'user-round': UserRound,
+  'users-round': UsersRound,
+  contact: Contact,
+  handshake: Handshake,
+  'user-plus': UserPlus,
+  crown: Crown,
+  baby: Baby,
+  'file-text': FileText,
+  files: Files,
+  notebook: Notebook,
+  'notebook-pen': NotebookPen,
+  'book-open': BookOpen,
+  book: Book,
+  newspaper: Newspaper,
+  'pen-tool': PenTool,
+  pencil: Pencil,
+  feather: Feather,
+  image: Image,
+  camera: Camera,
+  film: Film,
+  clapperboard: Clapperboard,
+  mic: Mic,
+  music: Music,
+  palette: Palette,
+  brush: Brush,
+  database: Database,
+  table: Table,
+  table2: Table2,
+  'chart-bar': ChartBar,
+  'chart-line': ChartLine,
+  'chart-pie': ChartPie,
+  'trending-up': TrendingUp,
+  activity: Activity,
+  boxes: Boxes,
+  package: Package,
+  archive: Archive,
+  layers: Layers,
+  grid3x3: Grid3x3,
+  filter: Filter,
+  'message-square': MessageSquare,
+  'message-circle': MessageCircle,
+  mail: Mail,
+  send: Send,
+  bell: Bell,
+  megaphone: Megaphone,
+  phone: Phone,
+  'at-sign': AtSign,
+  hash: Hash,
+  wrench: Wrench,
+  settings: Settings,
+  cog: Cog,
+  hammer: Hammer,
+  bug: Bug,
+  'flask-conical': FlaskConical,
+  'test-tube': TestTube,
+  link: Link,
+  key: Key,
+  lock: Lock,
+  'shield-check': ShieldCheck,
+  zap: Zap,
+  plug: Plug,
+  puzzle: Puzzle,
+  wand: Wand,
+  sparkles: Sparkles,
+  gift: Gift,
+  'shopping-cart': ShoppingCart,
+  'credit-card': CreditCard,
+  receipt: Receipt,
+  'dollar-sign': DollarSign,
+  wallet: Wallet,
+  coins: Coins,
+  tag: Tag,
+  tags: Tags,
+  bookmark: Bookmark,
+  paperclip: Paperclip,
+  pin: Pin,
+  star: Star,
+  heart: Heart,
+  sprout: Sprout,
+  leaf: Leaf,
+  'tree-pine': TreePine,
+  flower2: Flower2,
+  sun: Sun,
+  moon: Moon,
+  cloud: Cloud,
+  waves: Waves,
+  flame: Flame,
+  droplet: Droplet,
+  mountain: Mountain,
+  snowflake: Snowflake,
+  bird: Bird,
+  home: Home,
+  plane: Plane,
+  globe: Globe,
+  'map-pin': MapPin,
+  coffee: Coffee,
+  'circle-check': CircleCheck,
+  'circle-alert': CircleAlert,
+  'circle-x': CircleX,
+  'circle-dot': CircleDot,
+  circle: Circle,
+  'triangle-alert': TriangleAlert,
+  ban: Ban,
+  eye: Eye,
+  'eye-off': EyeOff,
+  'thumbs-up': ThumbsUp,
+  loader: Loader,
+  pause: Pause,
+};
 
-export const ICON_BY_NAME: Record<string, LucideIcon> = Object.fromEntries(
-  ICON_SET.map((d) => [d.name, d.Icon]),
-);
+export const ICON_SET: IconDef[] = ICON_SET_META.map((meta) => {
+  const Icon = ICON_COMPONENTS[meta.name];
+  if (!Icon) throw new Error(`icon-set.tsx: no lucide component registered for "${meta.name}".`);
+  return { ...meta, Icon };
+});
 
-/** Stored-value convention: `set:<name>` is a curated icon; anything else is emoji/text. */
-export const ICON_SET_PREFIX = 'set:';
-
-/** Extract the curated-set name from a stored icon value, or null if it's emoji. */
-export function setIconName(value?: string | null): string | null {
-  if (!value || !value.startsWith(ICON_SET_PREFIX)) return null;
-  const name = value.slice(ICON_SET_PREFIX.length);
-  return name in ICON_BY_NAME ? name : null;
-}
+export const ICON_BY_NAME: Record<string, LucideIcon> = ICON_COMPONENTS;

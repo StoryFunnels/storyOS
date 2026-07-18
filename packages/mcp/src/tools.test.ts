@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { mapFilterValues } from './tools.js';
+import { setIconName } from '@storyos/schemas/icons';
+import { buildIconCatalog, ICON_PARAM_DESCRIPTION, mapFilterValues } from './tools.js';
 
 // Minimal DatabaseDetail with a select and a person field.
 const detail = {
@@ -61,5 +62,42 @@ describe('mapFilterValues (#204)', () => {
     expect(() => mapFilterValues(detail, { field: 'priority', op: 'eq', value: 'Nope' })).toThrow(
       /No option "Nope".*Urgent, High/,
     );
+  });
+});
+
+describe('buildIconCatalog (list_icon_set, #251)', () => {
+  const catalog = buildIconCatalog();
+
+  it('advertises the set: prefix', () => {
+    expect(catalog.prefix).toBe('set:');
+  });
+
+  it('groups every curated icon name under at least one category', () => {
+    const allNames = Object.values(catalog.categories).flat();
+    // Every name returned resolves back through the real set — no drift
+    // between the catalog listing and what the icon param actually accepts.
+    for (const name of allNames) {
+      expect(setIconName(`set:${name}`)).toBe(name);
+    }
+    expect(allNames).toContain('rocket');
+    expect(allNames).toContain('handshake');
+  });
+
+  it('has no empty categories', () => {
+    for (const [label, names] of Object.entries(catalog.categories)) {
+      expect(names.length, `category "${label}" is empty`).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe('icon param description (create_database/update_database/create_space, #251)', () => {
+  it('advertises set: refs and points at list_icon_set', () => {
+    expect(ICON_PARAM_DESCRIPTION).toContain('set:');
+    expect(ICON_PARAM_DESCRIPTION).toContain('list_icon_set');
+  });
+
+  it('mentions emoji only as legacy-tolerated, not as the preferred form', () => {
+    expect(ICON_PARAM_DESCRIPTION).toMatch(/emoji/i);
+    expect(ICON_PARAM_DESCRIPTION).toMatch(/backward compat|legacy|not.*preferred/i);
   });
 });

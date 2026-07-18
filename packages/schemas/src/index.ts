@@ -26,3 +26,4 @@ export * from './markdown';
 export * from './token-scopes';
 export * from './architect';
 export * from './packs';
+export * from './icons';

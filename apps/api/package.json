@@ -13,6 +13,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "billing:seed": "nest build && node dist/billing/seed-stripe.js",
+    "icons:migrate": "nest build && node dist/icons/migrate-emoji-icons.js",
     "openapi:generate": "nest build && node dist/openapi.js"
   },
   "dependencies": {

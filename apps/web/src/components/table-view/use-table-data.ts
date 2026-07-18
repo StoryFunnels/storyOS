@@ -75,6 +75,32 @@ export function useDatabase(ws: string, db: string) {
   });
 }
 
+/**
+ * Icon & color patch for the click-to-change database header (#251). Merges
+ * the change straight into the `['database', ws, db]` cache so the header
+ * updates without waiting on a refetch, and invalidates the sidebar's
+ * `['databases', ws]` list so it reflects the same change immediately.
+ */
+export function useUpdateDatabaseIcon(ws: string, db: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (patch: { icon?: string | null; color?: string | null }) => {
+      const { data, error } = await api.PATCH('/api/v1/workspaces/{ws}/databases/{db}', {
+        params: { path: { ws, db } },
+        body: patch,
+      });
+      if (error) throw error;
+      return data as unknown as DatabaseDetail;
+    },
+    onSuccess: (data) => {
+      qc.setQueryData(['database', ws, db], (prev: DatabaseDetail | undefined) =>
+        prev ? { ...prev, icon: data.icon, color: data.color } : prev,
+      );
+      void qc.invalidateQueries({ queryKey: ['databases', ws] });
+    },
+  });
+}
+
 export function useMembers(ws: string, enabled: boolean) {
   return useQuery({
     queryKey: ['members', ws],

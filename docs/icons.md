@@ -1,19 +1,28 @@
 # Icons
 
 Databases and spaces carry an **icon** and an optional **background colour**.
-The `icon` value is one of:
+The `icon` value is a **curated icon** referenced as `set:<name>` (e.g.
+`set:database`) — a crisp line-icon set that renders identically on every
+platform (MN-208).
 
-- an **emoji** (e.g. `📊`), or
-- a **curated icon** referenced as `set:<name>` (e.g. `set:database`) — a crisp
-  line-icon set that renders identically on every platform (MN-208).
+Emoji icons were retired as of #251: every database/space that held an emoji
+was backfilled to the nearest curated icon (`apps/api/src/icons/migrate-
+emoji-icons.ts`), and the in-app picker no longer offers emoji at all. The
+renderer (`EntityIcon` in `apps/web/src/components/ui/icon-picker.tsx`) still
+tolerates a raw emoji string if one ever arrives again — e.g. from an older
+MCP client that hasn't updated — rendering it as-is rather than blanking the
+tile, but nothing in the product writes one anymore.
 
 Set an icon over the API or MCP by writing the `icon` field on a database or
 space, e.g. `{ "icon": "set:rocket", "color": "purple" }`. Colours are the fixed
-palette: gray, brown, gold, orange, red, pink, purple, blue, teal, green.
+palette: gray, brown, gold, orange, red, pink, purple, blue, teal, green. The
+MCP's `list_icon_set` tool returns the full catalog, grouped by category, so
+an agent can pick a real name rather than guessing.
 
-In the app, use the icon picker (sidebar → a database/space → **Icon & color**):
-search, browse by category, choose a background, and preview live. Existing
-emoji icons keep working — nothing is migrated.
+In the app, use the icon picker (sidebar → a database/space → **Icon & color**,
+or click the icon directly in a database's header): search, browse by
+category, choose a background, and preview live. The change applies
+immediately and shows in both the header and the sidebar.
 
 ## Available `set:` names
 
@@ -35,4 +44,8 @@ emoji icons keep working — nothing is migrated.
 
 **Status** — `circle-check`, `circle-alert`, `circle-x`, `circle-dot`, `circle`, `triangle-alert`, `ban`, `eye`, `eye-off`, `thumbs-up`, `loader`, `pause`
 
-_The set is curated in `apps/web/src/components/ui/icon-set.tsx`, which is the source of truth; this list is a snapshot._
+_The name/category/keyword data is curated in `packages/schemas/src/icons.ts`
+(the source of truth, shared by the web app, the migration backfill, and the
+MCP); `apps/web/src/components/ui/icon-set.tsx` pairs each name with its
+lucide-react component. This list is a snapshot — `list_icon_set` (MCP) is
+always current._

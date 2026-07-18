@@ -5,7 +5,7 @@ import { Suspense, useMemo, useState } from 'react';
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, arrayMove, horizontalListSortingStrategy } from '@dnd-kit/sortable';
-import { CalendarDays, FormInput, GanttChart, Kanban, LayoutGrid, List as ListIcon, Newspaper, Plus, Table2 } from 'lucide-react';
+import { CalendarDays, Database as DatabaseIcon, FormInput, GanttChart, Kanban, LayoutGrid, List as ListIcon, Newspaper, Plus, Table2 } from 'lucide-react';
 import { BoardView } from '@/components/views/board-view';
 import { CalendarView } from '@/components/views/calendar-view';
 import { GalleryView } from '@/components/views/gallery-view';
@@ -14,7 +14,7 @@ import { FeedView } from '@/components/views/feed-view';
 import { TimelineView } from '@/components/views/timeline-view';
 import { FormView } from '@/components/views/form-view';
 import { TableView } from '@/components/table-view/table-view';
-import { EntityIconChip } from '@/components/ui/icon-picker';
+import { EntityIconChip, IconColorPicker } from '@/components/ui/icon-picker';
 import { ViewToolbar } from '@/components/views/view-toolbar';
 import { ViewTab } from '@/components/views/view-tab';
 import {
@@ -24,11 +24,12 @@ import {
   useViewState,
 } from '@/components/views/use-view-state';
 import type { ViewConfig } from '@/components/views/use-view-state';
-import { useDatabase, useMembers } from '@/components/table-view/use-table-data';
+import { useDatabase, useMembers, useUpdateDatabaseIcon } from '@/components/table-view/use-table-data';
 import type { Field } from '@/components/table-view/use-table-data';
 import { atLeast } from '@/lib/access';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/components/ui/dialog';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -42,6 +43,7 @@ function DatabasePageInner() {
   const database = useDatabase(ws, db);
   const readOnly = !atLeast(database.data?.my_access, 'editor');
   const schemaEditable = atLeast(database.data?.my_access, 'creator');
+  const updateIcon = useUpdateDatabaseIcon(ws, db);
 
   const viewId = searchParams.get('view');
   const { views, activeView, config, patch } = useViewState(ws, db, database.data, viewId, readOnly);
@@ -74,14 +76,41 @@ function DatabasePageInner() {
       {/* View tabs */}
       <div className="flex h-11 items-center gap-1 border-b border-border-default px-3">
         <h1 className="mr-3 flex items-center gap-1.5 text-sm font-semibold text-ink">
-          {database.data?.icon && (
-            <EntityIconChip
-              icon={database.data.icon}
-              color={database.data.color ?? null}
-              size={15}
-              fallback={null}
-              className={database.data.color ? 'h-6 w-6' : undefined}
-            />
+          {readOnly ? (
+            database.data?.icon && (
+              <EntityIconChip
+                icon={database.data.icon}
+                color={database.data.color ?? null}
+                size={15}
+                fallback={null}
+                className={database.data.color ? 'h-6 w-6' : undefined}
+              />
+            )
+          ) : (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  title="Change icon & color"
+                  className="rounded-[6px] hover:bg-hover"
+                >
+                  <EntityIconChip
+                    icon={database.data?.icon}
+                    color={database.data?.color ?? null}
+                    size={15}
+                    fallback={<DatabaseIcon className="h-3.5 w-3.5 text-faint" />}
+                    className={cn('h-6 w-6', !database.data?.color && 'border border-transparent')}
+                  />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-auto p-2">
+                <IconColorPicker
+                  icon={database.data?.icon ?? null}
+                  color={database.data?.color ?? null}
+                  onChange={(patch) => updateIcon.mutate(patch)}
+                />
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
           {database.data?.name}
         </h1>
