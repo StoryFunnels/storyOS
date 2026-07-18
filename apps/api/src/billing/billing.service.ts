@@ -75,6 +75,60 @@ export class BillingService {
   }
 
   /**
+   * MN-190 — push the current billable-seat overage onto the workspace's live
+   * Stripe subscription as the $12/seat line's quantity. Called after any
+   * membership change (invite accepted, role changed, member removed) so the
+   * bill tracks reality without a human re-syncing it by hand.
+   *
+   * A no-op on Free (no subscription exists — Free's ceiling is enforced by
+   * EntitlementsService.can('add_seat') at invite time, not billed) and on
+   * self-host. `proration_behavior: 'create_prorations'` is Stripe's own
+   * default for a quantity change, but it's named explicitly here rather than
+   * relied on implicitly — a silent default change upstream would otherwise
+   * change our billing behavior without a line in our own diff.
+   */
+  async syncSeatQuantity(workspaceId: string): Promise<void> {
+    if (!this.stripe.enabled) return;
+    const seatPriceId = env().STRIPE_PRICE_SEAT;
+    if (!seatPriceId) return;
+
+    const row = await this.db.query.billingSubscriptions.findFirst({
+      where: eq(billingSubscriptions.workspaceId, workspaceId),
+    });
+    if (!row?.stripeSubscriptionId || row.plan === 'free') return;
+
+    const overage = seatOverage(row.plan, await this.billableSeatCount(workspaceId));
+    const subscription = await this.stripe.client.subscriptions.retrieve(row.stripeSubscriptionId);
+    const seatItem = subscription.items.data.find((item) => item.price.id === seatPriceId);
+
+    if (overage > 0) {
+      if (seatItem) {
+        if (seatItem.quantity !== overage) {
+          await this.stripe.client.subscriptionItems.update(seatItem.id, {
+            quantity: overage,
+            proration_behavior: 'create_prorations',
+          });
+        }
+      } else {
+        await this.stripe.client.subscriptionItems.create({
+          subscription: row.stripeSubscriptionId,
+          price: seatPriceId,
+          quantity: overage,
+          proration_behavior: 'create_prorations',
+        });
+      }
+    } else if (seatItem && (seatItem.quantity ?? 0) > 0) {
+      // Dropping to 0 rather than deleting the item — Stripe still prorates a
+      // credit for the unused portion, and the line reappears cleanly the
+      // next time a seat goes over instead of needing to be recreated.
+      await this.stripe.client.subscriptionItems.update(seatItem.id, {
+        quantity: 0,
+        proration_behavior: 'create_prorations',
+      });
+    }
+  }
+
+  /**
    * Find or create the workspace's Stripe customer and persist the mapping. The
    * mapping is the join between our world and Stripe's; it is written once and
    * reused, and carries the workspace id in metadata so a customer found in the

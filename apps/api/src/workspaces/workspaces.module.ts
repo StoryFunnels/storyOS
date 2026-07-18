@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { BillingModule } from '../billing/billing.module';
 import { FoldersController } from '../spaces/folders.controller';
 import { FoldersService } from '../spaces/folders.service';
 import { InvitesService } from './invites.service';
@@ -14,6 +15,7 @@ import {
 import { WorkspacesService } from './workspaces.service';
 
 @Module({
+  imports: [BillingModule],
   controllers: [WorkspacesController, WorkspaceController, InviteAcceptController, FoldersController, OnboardingController],
   providers: [
     WorkspacesService,

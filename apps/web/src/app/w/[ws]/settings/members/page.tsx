@@ -73,7 +73,14 @@ function MembersPageContent() {
       if (error) throw error;
     },
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['members', ws] }),
-    onError: () => toast.error('Could not change role (last admin?)'),
+    // MN-190: a promotion can 402 on a Free plan at its seat ceiling — that
+    // message ("upgrade to Pro...") is the useful one, not a generic guess.
+    onError: (err: unknown) => {
+      const message =
+        (err as { error?: { message?: string } })?.error?.message ??
+        'Could not change role (last admin?)';
+      toast.error(message);
+    },
   });
 
   const removeMember = useMutation({

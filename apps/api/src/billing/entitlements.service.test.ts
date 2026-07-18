@@ -123,6 +123,40 @@ describe('EntitlementsService.can', () => {
   });
 });
 
+describe('EntitlementsService.can — add_seat (MN-190)', () => {
+  it('Free: allows a 2nd billable member (at, not over, the included tier)', async () => {
+    const { db } = makeDb({});
+    const svc = new EntitlementsService(db, stripeStub(true), billingStub('free'), accessStub(['owner']));
+    expect(await svc.can('ws1', 'add_seat')).toBe(true); // 1 billable < 2 included
+  });
+
+  it('Free: blocks a 3rd billable member — the only real seat ceiling in the system', async () => {
+    const { db } = makeDb({});
+    const svc = new EntitlementsService(db, stripeStub(true), billingStub('free'), accessStub(['a', 'b']));
+    expect(await svc.can('ws1', 'add_seat')).toBe(false); // 2 billable == 2 included
+  });
+
+  it('Pro: always allows another seat — no ceiling, just +$12/mo', async () => {
+    const { db } = makeDb({});
+    const svc = new EntitlementsService(db, stripeStub(true), billingStub('pro'), accessStub(['a', 'b', 'c', 'd', 'e']));
+    expect(await svc.can('ws1', 'add_seat')).toBe(true);
+  });
+
+  it('Business: always allows another seat', async () => {
+    const { db } = makeDb({});
+    const svc = new EntitlementsService(db, stripeStub(true), billingStub('business'), accessStub(['a', 'b', 'c', 'd', 'e', 'f']));
+    expect(await svc.can('ws1', 'add_seat')).toBe(true);
+  });
+
+  it('self-host: always true, never reads billing status', async () => {
+    const { db } = makeDb({});
+    const billing = billingStub('free');
+    const svc = new EntitlementsService(db, stripeStub(false), billing, accessStub(['a', 'b']));
+    expect(await svc.can('ws1', 'add_seat')).toBe(true);
+    expect(billing.getStatus).not.toHaveBeenCalled();
+  });
+});
+
 describe('EntitlementsService.recordNonAiRun', () => {
   it('self-host: never writes to usage_counters (no phone-home)', async () => {
     const { db, upserts } = makeDb({});
