@@ -19,6 +19,7 @@ import { keyBetween, keysAfter } from './rank';
 import { NotificationsService } from '../notifications/notifications.service';
 import { DomainEventsService } from '../events/domain-events.service';
 import { MentionsService } from '../mentions/mentions.service';
+import { AbuseFlagsService } from '../abuse/abuse-flags.service';
 
 type RecordRow = typeof records.$inferSelect;
 
@@ -56,6 +57,7 @@ export class RecordsService {
     private readonly notificationsService: NotificationsService,
     private readonly domainEvents: DomainEventsService,
     private readonly mentions: MentionsService,
+    private readonly abuseFlags: AbuseFlagsService,
   ) {}
 
   /** Live field definitions + valid option ids, in validator shape. */
@@ -730,6 +732,10 @@ export class RecordsService {
       }
       return inserted;
     });
+    // MN-195: fire-and-forget, after the write already succeeded — never lets
+    // an abuse-detection failure turn into a failed write. Counts every
+    // create path (including bulk import), never blocks or slows any of them.
+    void this.abuseFlags.recordWrites(workspaceId, rows.length).catch(() => undefined);
     if (!options.suppressAutomations) {
       for (const row of rows) {
         this.domainEvents.emit({
