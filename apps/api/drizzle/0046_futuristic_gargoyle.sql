@@ -1,0 +1,2 @@
+ALTER TABLE "records" ADD COLUMN "computed_values" jsonb DEFAULT '{}'::jsonb NOT NULL;--> statement-breakpoint
+CREATE INDEX "records_computed_values_gin" ON "records" USING gin ("computed_values" jsonb_path_ops);

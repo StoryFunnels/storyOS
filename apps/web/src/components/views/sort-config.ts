@@ -1,4 +1,6 @@
 import { arrayMove } from '@dnd-kit/sortable';
+import { formulaRefs } from '@storyos/schemas';
+import type { FormulaNode } from '@storyos/schemas';
 
 /**
  * The sort-builder's pure logic (MN-252) — mirrors filter-config.ts's shape
@@ -11,6 +13,44 @@ import { arrayMove } from '@dnd-kit/sortable';
 export interface SortSpec {
   field: string; // api_name
   direction: 'asc' | 'desc';
+}
+
+interface SortableFieldLike {
+  apiName: string;
+  type: string;
+  config: Record<string, unknown>;
+}
+
+/**
+ * MN-260: a formula field is sortable only if its full dependency chain (through
+ * other formulas too) never reaches a lookup or rollup field — mirrors the API's
+ * formulaDependsOnlyOnOwnRecord (records.service.ts) exactly, same as SORTABLE
+ * below already mirrors records.service.ts's SORTABLE set. A lookup/rollup pulls
+ * from a RELATED record that isn't materialized for sorting (that's the rollup
+ * follow-up ticket, not this one), so a formula reaching into one would silently
+ * sort on a value computed as if the related field were always null — the picker
+ * excludes it instead of offering a sort that 422s or lies.
+ */
+export function isSortableFormula(field: SortableFieldLike, byApiName: Map<string, SortableFieldLike>): boolean {
+  if (field.type !== 'formula') return true;
+  const ast = field.config['ast'] as FormulaNode | undefined;
+  if (!ast) return false; // never compiled (e.g. save failed) — not sortable either
+  const visited = new Set<string>();
+  const walk = (node: FormulaNode): boolean => {
+    for (const apiName of formulaRefs(node)) {
+      if (visited.has(apiName)) continue;
+      visited.add(apiName);
+      const target = byApiName.get(apiName);
+      if (!target) continue; // dangling ref — not a cross-record concern
+      if (target.type === 'lookup' || target.type === 'rollup') return false;
+      if (target.type === 'formula') {
+        const targetAst = target.config['ast'] as FormulaNode | undefined;
+        if (targetAst && !walk(targetAst)) return false;
+      }
+    }
+    return true;
+  };
+  return walk(ast);
 }
 
 /**

@@ -361,6 +361,7 @@ export function TableView({
                 ws={ws}
                 db={db}
                 field={field}
+                fields={fields}
                 width={widthOf(field)}
                 readOnly={!schemaEditable}
                 sticky={pinned}
@@ -385,6 +386,7 @@ export function TableView({
                     ws={ws}
                     db={db}
                     field={field}
+                    fields={fields}
                     width={widthOf(field)}
                     readOnly={!schemaEditable}
                     reorderable={schemaEditable}

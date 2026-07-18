@@ -66,7 +66,7 @@ import {
   updateNodeAt,
 } from './filter-config';
 import type { FilterConnector, FilterGroup, FilterNode } from './filter-config';
-import { MAX_SORTS, directionLabel, nextSortField, reorderSorts } from './sort-config';
+import { MAX_SORTS, directionLabel, isSortableFormula, nextSortField, reorderSorts } from './sort-config';
 import type { NullsPlacement } from './sort-config';
 
 /** Op menu per field type — mirrors the API op×type matrix. */
@@ -139,7 +139,14 @@ const RELATIVE_RANGES = [
   'next_30_days',
 ];
 
-export const SORTABLE = new Set(['title', 'text', 'number', 'date', 'url', 'email', 'select', 'checkbox', 'created_at', 'updated_at']);
+export const SORTABLE = new Set([
+  'title', 'text', 'number', 'date', 'url', 'email', 'select', 'checkbox', 'created_at', 'updated_at',
+  // MN-260: formula is materialized server-side and reads through fieldExpr()
+  // like any stored field now — SortButton further narrows to same-record-only
+  // formulas via isSortableFormula (sort-config.ts). rollup stays excluded: no
+  // recompute-on-related-record-change plumbing exists yet (separate ticket).
+  'formula',
+]);
 
 export function ViewToolbar({
   fields,
@@ -1411,9 +1418,10 @@ function RecordPicker({
  * well inside a Radix menu (see FiltersSection's comment for the same reasoning).
  *
  * `fields` is the view's FULL field list, not pre-filtered — the builder narrows to
- * SORTABLE itself (mirroring the query layer's SORTABLE set in records.service.ts)
- * so it can also surface the formula/rollup gap (MN-252 spike — see the field-type
- * icon + hint below) instead of silently omitting those fields from view.
+ * SORTABLE itself (mirroring the query layer's SORTABLE set in records.service.ts),
+ * further narrowed for formula fields by isSortableFormula (MN-260 — a formula that
+ * reaches into a lookup/rollup isn't materialized, same cross-record gap rollup
+ * itself has) instead of silently omitting those fields from view.
  */
 export function SortButton({
   fields,
@@ -1429,11 +1437,15 @@ export function SortButton({
   onNullsChange: (nulls: NullsPlacement | undefined) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const sortableFields = fields.filter((f) => SORTABLE.has(f.type));
-  // MN-252 spike (see records.service.ts SORTABLE + attachFormulas/attachRollups):
-  // formula/rollup are computed AFTER the SQL page is fetched, so the query layer
-  // can't ORDER BY them — surfaced here rather than silently dropped from the picker.
-  const hasComputedFields = fields.some((f) => f.type === 'formula' || f.type === 'rollup');
+  const byApiName = new Map(fields.map((f) => [f.apiName, f]));
+  const sortableFields = fields.filter((f) => SORTABLE.has(f.type) && isSortableFormula(f, byApiName));
+  // MN-260: rollup has no recompute-on-related-record-change plumbing yet (tracked
+  // separately) so it's still fully excluded; a formula reaching into a lookup/
+  // rollup inherits that same cross-record staleness and is excluded too — see
+  // isSortableFormula above.
+  const hasUnsortableComputedFields = fields.some(
+    (f) => f.type === 'rollup' || (f.type === 'formula' && !isSortableFormula(f, byApiName)),
+  );
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   function updateAt(i: number, next: SortSpec) {
@@ -1484,9 +1496,9 @@ export function SortButton({
               </a>
             </div>
 
-            {hasComputedFields && (
+            {hasUnsortableComputedFields && (
               <p className="border-b border-border-default px-3 py-1.5 text-[11px] text-faint">
-                Formula and rollup fields aren't sortable yet.
+                Rollup fields, and formulas that reference a lookup or rollup, aren't sortable yet.
               </p>
             )}
 

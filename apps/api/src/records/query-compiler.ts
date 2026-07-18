@@ -43,6 +43,17 @@ function fieldExpr(def: FieldDef): SQL {
   if (def.type === 'created_by') return sql`${records.createdBy}`;
   if (def.type === 'number') return sql`((${records.values}->>${def.id})::numeric)`;
   if (def.type === 'checkbox') return sql`((${records.values}->>${def.id})::boolean)`;
+  // MN-260: formula fields have nothing in `values` (never client-writable) —
+  // their materialized sort value lives in the separate computed_values column,
+  // written by RecordsService.materializeFormulas on the record's own write.
+  // Cast by result_type same as a normal field of that type; text/date compare
+  // correctly as plain text (ISO dates sort lexicographically).
+  if (def.type === 'formula') {
+    const resultType = def.config['result_type'];
+    if (resultType === 'number') return sql`((${records.computedValues}->>${def.id})::numeric)`;
+    if (resultType === 'checkbox') return sql`((${records.computedValues}->>${def.id})::boolean)`;
+    return sql`(${records.computedValues}->>${def.id})`;
+  }
   return sql`(${records.values}->>${def.id})`;
 }
 

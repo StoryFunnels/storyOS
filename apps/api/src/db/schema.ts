@@ -267,6 +267,16 @@ export const records = pgTable(
     number: integer('number'),
     /** User-defined values keyed by field UUID — ADR-0002. Relations live in record_links. */
     values: jsonb('values').notNull().default({}),
+    /**
+     * MN-260: materialized computed-field values, keyed by field UUID like
+     * `values` but written only by the server (formula recompute-on-write) —
+     * never by client input, so it can't drift from what validateRecordValues
+     * allows. Exists so fieldExpr()/the keyset-cursor ORDER BY can sort by a
+     * formula the same way as any stored field, instead of the value only
+     * existing after attachFormulas() runs on an already-paginated page.
+     * Rollup is NOT materialized here yet — see docs/architecture/record-storage.md.
+     */
+    computedValues: jsonb('computed_values').notNull().default({}),
     /** Fractional-index rank, one per database (ADR-0005). */
     position: text('position').notNull().default('a0'),
     createdBy: text('created_by'),
@@ -276,6 +286,7 @@ export const records = pgTable(
   },
   (t) => [
     index('records_values_gin').using('gin', sql`${t.values} jsonb_path_ops`),
+    index('records_computed_values_gin').using('gin', sql`${t.computedValues} jsonb_path_ops`),
     index('records_db_position_idx').on(t.databaseId, t.position),
     index('records_db_created_idx').on(t.databaseId, t.createdAt, t.id),
     index('records_title_trgm').using('gin', sql`${t.title} gin_trgm_ops`),

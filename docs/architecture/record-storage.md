@@ -64,6 +64,59 @@ Range filters/sorts on JSONB casts seq-scan within the `database_id` slice — f
 - **Type change:** small compatibility matrix only — anything→text (stringify); text→number/date (batch best-effort parse, unparseable→null, single transaction); select↔multi_select. Everything else = "delete & create new" (explicit, honest). API returns a **dry-run count** of lossy conversions before applying.
 - **Select option delete:** dangling option ids resolve to null at read; optional "reassign to option X" parameter on delete.
 
+## Sorting by a computed field (MN-260)
+
+`values` never holds formula/rollup/lookup output — those are computed at read
+time by `attachFormulas`/`attachRollups`/`attachLookups`, **after** the SQL page
+(and its keyset-cursor `ORDER BY`) has already run. That makes them un-sortable
+by construction: the query layer can't `ORDER BY` a value that doesn't exist
+until after the page is fetched.
+
+**Decision:** materialize the sortable subset into a second JSONB column,
+`records.computed_values` (same key convention as `values` — field UUID), written
+by the server only, on the record's own write. `fieldExpr()`/the keyset cursor
+then read it exactly like a stored field — no second (offset) pagination mode,
+no branch in the cursor-comparison logic itself. `SORTABLE` (`records.service.ts`)
+gains `formula` on that basis.
+
+**Scope: formula only, and only the same-record-only subset.** The spike for
+this ticket found **no existing recompute-on-related-record-change plumbing for
+rollups** — `attachRollups` is a pure read-time, per-fetched-page computation;
+there is no rollup subscriber on `DomainEventsService`. Rollup materialization
+is real, separate work (dependency tracking across `record_links`, invalidation
+fan-out on the related record's write) — tracked in a follow-up ticket, not
+built here.
+
+A formula can reference a `lookup` or `rollup` field (`FieldsService.formulaTypeOf`
+allows it, and it's an exercised path — see "formulas reference rollups" in
+`rollups.test.ts`). Such a formula inherits the same cross-record staleness
+rollups have and would materialize a value computed as if the related field
+were always null. `formulaDependsOnlyOnOwnRecord` walks the formula's full
+dependency chain (through formula-over-formula too) and excludes it — from both
+materialization and `SORTABLE` — rather than persisting something silently
+wrong. The web sort builder mirrors this exclusion client-side
+(`isSortableFormula`, `sort-config.ts`) so the picker doesn't offer a sort that
+would 422.
+
+**Recompute path:** `RecordsService.materializeFormulas` runs after a record's
+own create/update transaction commits (awaited, not fire-and-forget, so a query
+issued immediately after a write already sees the fresh value) and after a
+formula field is first created (`materializeFormulaFieldForAllRecords` backfills
+every existing record — otherwise sorting by a brand-new formula field would
+show every pre-existing record as null until it happened to be touched again).
+Both paths are isolated: a materialization failure never fails the write the
+caller is waiting on, same posture as `DomainEventsService` listeners.
+
+**Staleness bound:** near-immediate, not "eventually" — the write that changes
+a formula's own inputs is the same write that recomputes it, awaited in the
+same request. The one gap: if the *isolated* recompute step itself throws (rare
+— it's pure evaluation over already-validated values), the materialized value
+is left stale until the record's next successful write; nothing retries it in
+the background. A formula field added to an existing database gets its backfill
+synchronously as part of the field-create response (so it may make that
+response slower on a large database — acceptable for now, a background job is
+the natural next step if that matters at scale).
+
 ## Migration path if JSONB hits limits
 
 Locked in ADR-0002 so contributors don't relitigate:

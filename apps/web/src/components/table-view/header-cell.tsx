@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { ArrowUpDown, GripVertical, ListFilter, MoreHorizontal, Pin, PinOff } from 'lucide-react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -20,12 +20,13 @@ import type { Field } from './use-table-data';
 import { OPS_BY_TYPE, SORTABLE, defaultValueFor } from '../views/view-toolbar';
 import type { ViewConfig } from '../views/use-view-state';
 import { buildFilterGroup, filterConditions, filterConnector } from '../views/filter-config';
-import { MAX_SORTS } from '../views/sort-config';
+import { MAX_SORTS, isSortableFormula } from '../views/sort-config';
 
 export function HeaderCell({
   ws,
   db,
   field,
+  fields,
   width,
   readOnly,
   onResize,
@@ -43,6 +44,10 @@ export function HeaderCell({
   ws: string;
   db: string;
   field: Field;
+  /** MN-260: the view's full field list, so a formula column's "Sort by this
+   * field" can be gated the same way the toolbar's sort builder gates it
+   * (isSortableFormula needs to see what the formula depends on). */
+  fields: Field[];
   width: number;
   readOnly: boolean;
   onResize: (width: number) => void;
@@ -83,7 +88,10 @@ export function HeaderCell({
   // Header ⋯ menu: cycle this field's sort asc → desc → none, capped at MAX_SORTS
   // (MN-225; the cap and the seeded default now live in sort-config.ts, MN-252,
   // shared with the toolbar's sort builder rather than duplicated here).
-  const canSort = Boolean(config && onPatch && SORTABLE.has(field.type));
+  const byApiName = useMemo(() => new Map(fields.map((f) => [f.apiName, f])), [fields]);
+  const canSort = Boolean(
+    config && onPatch && SORTABLE.has(field.type) && isSortableFormula(field, byApiName),
+  );
   const currentSort = config?.sorts.find((s) => s.field === field.apiName);
   const sortLabel = !currentSort
     ? 'Sort by this field'

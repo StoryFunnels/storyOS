@@ -6,7 +6,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, or, sql, SQL } from 'drizzle-orm';
-import { evaluateFormula, validateRecordValues } from '@storyos/schemas';
+import { evaluateFormula, formulaRefs, validateRecordValues } from '@storyos/schemas';
 import type { FormulaNode } from '@storyos/schemas';
 import type { FieldDef } from '@storyos/schemas';
 import { DB } from '../db/db.module';
@@ -256,27 +256,7 @@ export class RecordsService {
     }
 
     // Topological order so formula-over-formula chains resolve (save-time cap = 5).
-    const ordered: FieldDef[] = [];
-    const remaining = new Set(formulaDefs);
-    for (let pass = 0; pass < 6 && remaining.size > 0; pass++) {
-      for (const def of [...remaining]) {
-        const refs = new Set<string>();
-        const walk = (n: { kind: string; api_name?: string; operand?: unknown; left?: unknown; right?: unknown; args?: unknown[] }) => {
-          if (n.kind === 'ref' && n.api_name) refs.add(n.api_name);
-          if (n.operand) walk(n.operand as never);
-          if (n.left) walk(n.left as never);
-          if (n.right) walk(n.right as never);
-          (n.args as never[] | undefined)?.forEach((a) => walk(a));
-        };
-        walk(def.config['ast'] as never);
-        const blocked = [...remaining].some((other) => other !== def && refs.has(other.api_name));
-        if (!blocked) {
-          ordered.push(def);
-          remaining.delete(def);
-        }
-      }
-    }
-    ordered.push(...remaining); // defensive: cycles saved before the guard still evaluate (to null)
+    const ordered = orderFormulasByDependency(formulaDefs);
 
     for (const record of projected) {
       const bag: Record<string, unknown> = { name: record.title };
@@ -298,6 +278,96 @@ export class RecordsService {
       }
     }
     return projected;
+  }
+
+  /**
+   * MN-260: persists formula values into `computed_values` so fieldExpr()/the
+   * keyset-cursor ORDER BY can sort by them like any stored field, reusing
+   * that machinery unchanged instead of a second (offset) pagination mode.
+   *
+   * Deliberately narrower than attachFormulas(): only formulas that pass
+   * formulaDependsOnlyOnOwnRecord are computed here, straight off `row.values`
+   * — no lookup/rollup resolution, no related-record query. A formula that
+   * reaches into a lookup or rollup would freeze against a related record we
+   * don't have in hand at this record's own write time (the exact cross-record
+   * problem rollups have); it's simply not written here and stays excluded
+   * from SORTABLE, rather than materializing a value that's wrong from the start.
+   *
+   * Runs as a small follow-up transaction after the record's own write commits
+   * — the displayed value (attachFormulas, called on every read) is untouched
+   * and always fresh; this only feeds the persisted sort key.
+   */
+  private async materializeFormulas(defs: FieldDef[], rows: RecordRow[]): Promise<void> {
+    const byApiName = new Map(defs.map((d) => [d.api_name, d]));
+    const formulaDefs = defs.filter(
+      (d) => d.type === 'formula' && (d.config['ast'] as unknown) && formulaDependsOnlyOnOwnRecord(d, byApiName),
+    );
+    if (formulaDefs.length === 0 || rows.length === 0) return;
+
+    const selectDefs = defs.filter((d) => d.type === 'select');
+    const labelByOption = new Map<string, string>();
+    if (selectDefs.length > 0) {
+      const options = await this.db.query.selectOptions.findMany({
+        where: inArray(selectOptions.fieldId, selectDefs.map((d) => d.id)),
+      });
+      for (const option of options) labelByOption.set(option.id, option.label);
+    }
+
+    const ordered = orderFormulasByDependency(formulaDefs);
+
+    await this.db.transaction(async (tx) => {
+      for (const row of rows) {
+        const stored = row.values as Record<string, unknown>;
+        const bag: Record<string, unknown> = { name: row.title };
+        for (const def of defs) {
+          let value = stored[def.id];
+          if (def.type === 'select' && typeof value === 'string') {
+            value = labelByOption.get(value) ?? value;
+          }
+          bag[def.api_name] = value ?? null;
+        }
+        const patch: Record<string, unknown> = {};
+        for (const def of ordered) {
+          try {
+            const result = evaluateFormula(def.config['ast'] as FormulaNode, bag);
+            patch[def.id] = result ?? null;
+            bag[def.api_name] = result ?? null;
+          } catch {
+            patch[def.id] = null;
+          }
+        }
+        await tx.update(records).set({ computedValues: patch }).where(eq(records.id, row.id));
+      }
+    });
+  }
+
+  /**
+   * MN-260: backfill for a single just-created (or just-edited) formula field
+   * across every existing record in its database — without this, sorting by a
+   * brand-new formula field would leave every pre-existing record's sort value
+   * null until that record happened to be written again. Only runs when the
+   * field itself qualifies (formulaDependsOnlyOnOwnRecord); a no-op otherwise.
+   * Chunked to avoid holding thousands of rows in memory at once.
+   */
+  async materializeFormulaFieldForAllRecords(databaseId: string, fieldId: string): Promise<void> {
+    const defs = await this.fieldDefs(databaseId);
+    const def = defs.find((d) => d.id === fieldId);
+    if (!def || def.type !== 'formula') return;
+    const CHUNK = 500;
+    let cursor: string | null = null;
+    for (;;) {
+      const conditions = [eq(records.databaseId, databaseId), isNull(records.deletedAt)];
+      if (cursor) conditions.push(gt(records.id, cursor));
+      const chunk: RecordRow[] = await this.db.query.records.findMany({
+        where: and(...conditions),
+        orderBy: [asc(records.id)],
+        limit: CHUNK,
+      });
+      if (chunk.length === 0) break;
+      await this.materializeFormulas(defs, chunk);
+      cursor = chunk[chunk.length - 1]!.id;
+      if (chunk.length < CHUNK) break;
+    }
   }
 
   private async attachLookups(projected: ProjectedRecord[], defs: FieldDef[]): Promise<ProjectedRecord[]> {
@@ -736,6 +806,12 @@ export class RecordsService {
     // an abuse-detection failure turn into a failed write. Counts every
     // create path (including bulk import), never blocks or slows any of them.
     void this.abuseFlags.recordWrites(workspaceId, rows.length).catch(() => undefined);
+    // MN-260: materialize formula sort values off the freshly-written rows —
+    // best-effort/isolated the same way domain events are: a failure here must
+    // never fail the create the user is waiting on.
+    if (defs.some((d) => d.type === 'formula')) {
+      await this.materializeFormulas(defs, rows).catch(() => undefined);
+    }
     if (!options.suppressAutomations) {
       for (const row of rows) {
         this.domainEvents.emit({
@@ -842,6 +918,16 @@ export class RecordsService {
       }
       return next!;
     });
+
+    // MN-260: recompute this record's own formula sort values off the just-
+    // written row. Awaited (not fire-and-forget) so a query issued right after
+    // this update already sees the fresh materialized value — same "near-
+    // immediate" staleness bound the event bus gives everything else here.
+    // Isolated like the mentions re-sync below: a failure here must never fail
+    // the update the user is waiting on.
+    if (defs.some((d) => d.type === 'formula')) {
+      await this.materializeFormulas(defs, [updated]).catch(() => undefined);
+    }
 
     this.domainEvents.emit({
       type: 'record_updated',
@@ -1111,13 +1197,22 @@ export class RecordsService {
 
     const SORTABLE = new Set([
       'id', 'title', 'text', 'number', 'date', 'url', 'email', 'select',
-      'checkbox', 'created_at', 'updated_at', 'created_by', 'user',
+      'checkbox', 'created_at', 'updated_at', 'created_by', 'user', 'formula',
     ]);
     const sorts: SortSpec[] = input.sorts.map((s) => {
       const def = byApiName.get(s.field);
       if (!def) throw new UnprocessableEntityException(`unknown sort field "${s.field}"`);
       if (!SORTABLE.has(def.type) || (def.type === 'user' && def.config['multi'] === true)) {
         throw new UnprocessableEntityException(`cannot sort by ${def.type} field "${s.field}"`);
+      }
+      // MN-260: a formula is only sortable if its materialized value can be
+      // trusted — i.e. it never (transitively) reaches a lookup/rollup field.
+      // Rollup itself stays fully unsortable (see formulaDependsOnlyOnOwnRecord's
+      // doc comment for the spike finding behind that split).
+      if (def.type === 'formula' && !formulaDependsOnlyOnOwnRecord(def, byApiName)) {
+        throw new UnprocessableEntityException(
+          `cannot sort by formula field "${s.field}" — it depends on a related record (through a lookup or rollup), which isn't materialized yet`,
+        );
       }
       return { def, direction: s.direction };
     });
@@ -1223,12 +1318,82 @@ function stripNulls(values: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(values).filter(([, v]) => v !== null));
 }
 
+/**
+ * Topological order so formula-over-formula chains resolve (save-time cap = 5).
+ * Shared by attachFormulas (read-time, page-scoped) and materializeFormulas
+ * (write-time, persisted) — same ordering, two different destinations.
+ */
+function orderFormulasByDependency(formulaDefs: FieldDef[]): FieldDef[] {
+  const ordered: FieldDef[] = [];
+  const remaining = new Set(formulaDefs);
+  for (let pass = 0; pass < 6 && remaining.size > 0; pass++) {
+    for (const def of [...remaining]) {
+      const refs = new Set<string>();
+      const walk = (n: { kind: string; api_name?: string; operand?: unknown; left?: unknown; right?: unknown; args?: unknown[] }) => {
+        if (n.kind === 'ref' && n.api_name) refs.add(n.api_name);
+        if (n.operand) walk(n.operand as never);
+        if (n.left) walk(n.left as never);
+        if (n.right) walk(n.right as never);
+        (n.args as never[] | undefined)?.forEach((a) => walk(a));
+      };
+      walk(def.config['ast'] as never);
+      const blocked = [...remaining].some((other) => other !== def && refs.has(other.api_name));
+      if (!blocked) {
+        ordered.push(def);
+        remaining.delete(def);
+      }
+    }
+  }
+  ordered.push(...remaining); // defensive: cycles saved before the guard still evaluate (to null)
+  return ordered;
+}
+
+/**
+ * MN-260 spike finding: rollups have NO recompute-on-related-record-change
+ * plumbing today (attachRollups is purely a read-time, per-fetched-page
+ * computation — grep the codebase for a rollup subscriber on DomainEventsService
+ * and there isn't one), so rollups are NOT materialized/sortable in this ticket
+ * (tracked separately). Formulas were scoped in because they depend only on
+ * this record's own fields — EXCEPT a formula may reference a `lookup` or
+ * `rollup` field (FieldsService.formulaTypeOf allows it, and
+ * apps/api/test/rollups.test.ts's "formulas reference rollups" case proves it's
+ * a real, exercised path, not a hypothetical). Those transitively inherit the
+ * same cross-record staleness rollups have, so this walks the formula's full
+ * dependency chain (through other formulas too) and excludes it from
+ * materialization/SORTABLE if it ever reaches a lookup or rollup — rather than
+ * materializing a value that would be silently wrong (computed as if the
+ * related value were always null).
+ */
+function formulaDependsOnlyOnOwnRecord(def: FieldDef, byApiName: Map<string, FieldDef>): boolean {
+  const visited = new Set<string>();
+  const walk = (ast: FormulaNode): boolean => {
+    for (const apiName of formulaRefs(ast)) {
+      if (visited.has(apiName)) continue; // already cleared, or mid-cycle (cycles are save-time rejected anyway)
+      visited.add(apiName);
+      const target = byApiName.get(apiName);
+      if (!target) continue; // dangling ref resolves to null at eval time — not a cross-record concern
+      if (target.type === 'lookup' || target.type === 'rollup') return false;
+      if (target.type === 'formula') {
+        const targetAst = target.config['ast'] as FormulaNode | undefined;
+        if (targetAst && !walk(targetAst)) return false;
+      }
+    }
+    return true;
+  };
+  const ast = def.config['ast'] as FormulaNode | undefined;
+  return ast ? walk(ast) : true;
+}
+
 function extractSortValue(row: RecordRow, def: { id: string; type: string }): unknown {
   if (def.type === 'id') return row.number;
   if (def.type === 'title') return row.title;
   if (def.type === 'created_at') return row.createdAt.toISOString();
   if (def.type === 'updated_at') return row.updatedAt.toISOString();
   if (def.type === 'created_by') return row.createdBy;
+  if (def.type === 'formula') {
+    const raw = (row.computedValues as Record<string, unknown>)[def.id];
+    return raw === undefined ? null : raw;
+  }
   const raw = (row.values as Record<string, unknown>)[def.id];
   return raw === undefined ? null : raw;
 }
