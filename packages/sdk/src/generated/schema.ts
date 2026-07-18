@@ -1615,7 +1615,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Current plan, status, seats and trial/period end */
+        /** Plan, status, usage vs limits, and whether billing is configured */
         get: operations["BillingController_status"];
         put?: never;
         post?: never;

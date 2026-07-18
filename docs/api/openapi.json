@@ -4247,7 +4247,7 @@
             "description": ""
           }
         },
-        "summary": "Current plan, status, seats and trial/period end",
+        "summary": "Plan, status, usage vs limits, and whether billing is configured",
         "tags": [
           "billing"
         ]

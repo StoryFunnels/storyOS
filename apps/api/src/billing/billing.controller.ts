@@ -18,6 +18,7 @@ import type { RawBodyRequest } from '../app.setup';
 import { MinRole, WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { BillingService } from './billing.service';
+import { EntitlementsService } from './entitlements.service';
 import { PURCHASABLE_PLANS } from './plans';
 import { StripeService } from './stripe.service';
 
@@ -35,12 +36,28 @@ class CheckoutDto extends createZodDto(
 @MinRole('admin')
 @Controller('workspaces/:ws/billing')
 export class BillingController {
-  constructor(private readonly billing: BillingService) {}
+  constructor(
+    private readonly billing: BillingService,
+    private readonly entitlements: EntitlementsService,
+    private readonly stripe: StripeService,
+  ) {}
 
+  /**
+   * MN-166: one round-trip for the settings page. `enabled` reflects whether
+   * Stripe is configured on this instance at all (false on self-host, where
+   * getStatus() would otherwise indistinguishably also say "Free") — the
+   * frontend uses it to hide the whole billing section, not just show Free.
+   */
   @Get()
-  @ApiOperation({ summary: 'Current plan, status, seats and trial/period end' })
-  status(@Req() req: WorkspaceRequest) {
-    return this.billing.getStatus(req.membership.workspaceId);
+  @ApiOperation({ summary: 'Plan, status, usage vs limits, and whether billing is configured' })
+  async status(@Req() req: WorkspaceRequest) {
+    const workspaceId = req.membership.workspaceId;
+    const [status, usage, limits] = await Promise.all([
+      this.billing.getStatus(workspaceId),
+      this.entitlements.getUsage(workspaceId),
+      this.entitlements.getLimits(workspaceId),
+    ]);
+    return { ...status, enabled: this.stripe.enabled, usage, limits };
   }
 
   @Post('checkout')

@@ -26,6 +26,21 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
   const isAdmin = role === 'admin';
   const canEdit = role !== 'guest';
 
+  // MN-166: `enabled` is false on self-host (no STRIPE_SECRET_KEY) — the Billing
+  // link only makes sense on a cloud instance, so it's hidden rather than shown
+  // pointing at a section that would just 404/503 everything.
+  const billing = useQuery({
+    queryKey: ['billing-status', ws],
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/billing', {
+        params: { path: { ws } },
+      } as never);
+      if (error) throw error;
+      return data as unknown as { enabled: boolean };
+    },
+    enabled: isAdmin,
+  });
+
   const base = `/w/${ws}/settings`;
   const personal = [
     { href: `${base}/account`, label: 'Account' },
@@ -34,6 +49,7 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
   ];
   const workspaceLinks = [
     ...(isAdmin ? [{ href: `${base}/members`, label: 'Members' }] : []),
+    ...(isAdmin && billing.data?.enabled ? [{ href: `${base}/billing`, label: 'Billing' }] : []),
     ...(isAdmin ? [{ href: `${base}/integrations`, label: 'Integrations' }] : []),
     ...(canEdit ? [{ href: `${base}/api`, label: 'API tokens' }] : []),
   ];
