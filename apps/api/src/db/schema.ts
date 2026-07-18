@@ -874,3 +874,56 @@ export const abuseFlags = pgTable(
   },
   (t) => [uniqueIndex('abuse_flags_workspace_metric_window_uq').on(t.workspaceId, t.metric, t.windowStart)],
 );
+
+/**
+ * MN-196 — per-workspace entitlement overrides, the delivery mechanism for
+ * Enterprise contracts, comps, grandfathering, and temporary support grants.
+ * One row per workspace (upsert on set); each field is independently
+ * nullable — null means "no override, fall through to the plan default"
+ * (EntitlementsService.getLimits() / canCreateWorkspace()). MN-104's admin
+ * panel is the intended write surface; this ships the data model +
+ * resolution logic it will call into.
+ */
+export const workspaceEntitlementOverrides = pgTable('workspace_entitlement_overrides', {
+  workspaceId: uuid('workspace_id')
+    .primaryKey()
+    .references(() => workspaces.id, { onDelete: 'cascade' }),
+  includedSeats: integer('included_seats'),
+  automationRunsPerMonth: integer('automation_runs_per_month'),
+  maxWorkspaces: integer('max_workspaces'),
+  /** e.g. {"sso": true, "auditLog": true, "prioritySupport": true} — record-keeping today; nothing enforces individual flags yet. */
+  featureFlags: jsonb('feature_flags'),
+  reason: text('reason').notNull(),
+  /** null = never expires. Lazy check-on-read (same pattern as MN-192's trial sweep) ignores an expired override without deleting the row — the audit trail stays intact. */
+  expiresAt: timestamp('expires_at', { withTimezone: true }),
+  createdBy: text('created_by').notNull(),
+  ...timestamps,
+});
+
+export const entitlementOverrideEventAction = pgEnum('entitlement_override_event_action', [
+  'set',
+  'clear',
+]);
+
+/**
+ * Append-only audit trail — "every override change is audit-logged" (MN-196
+ * AC). Never updated or deleted; the override row above always reflects only
+ * the CURRENT state, this table is the history of how it got there.
+ */
+export const entitlementOverrideEvents = pgTable(
+  'entitlement_override_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    actorUserId: text('actor_user_id').notNull(),
+    action: entitlementOverrideEventAction('action').notNull(),
+    /** Full override field snapshot at the time of this event. */
+    snapshot: jsonb('snapshot').notNull(),
+    reason: text('reason').notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('entitlement_override_events_workspace_idx').on(t.workspaceId, t.createdAt)],
+);

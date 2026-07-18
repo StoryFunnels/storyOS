@@ -1,8 +1,13 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { memberships, usageCounters } from '../db/schema';
+import {
+  entitlementOverrideEvents,
+  memberships,
+  usageCounters,
+  workspaceEntitlementOverrides,
+} from '../db/schema';
 import { AccessService } from '../access/access.service';
 import { BillingService } from './billing.service';
 import { StripeService } from './stripe.service';
@@ -30,6 +35,13 @@ function currentPeriodStart(): Date {
 }
 
 export type Capability = 'automation_run' | 'add_seat';
+
+export interface EntitlementOverridePatch {
+  includedSeats?: number | null;
+  automationRunsPerMonth?: number | null;
+  maxWorkspaces?: number | null;
+  featureFlags?: Record<string, boolean> | null;
+}
 
 /**
  * MN-191 — owner decision 2026-07-18: multiple workspaces is an
@@ -62,12 +74,96 @@ export class EntitlementsService {
     private readonly access: AccessService,
   ) {}
 
-  /** Plan limits for a workspace. Self-host = unlimited, no DB read at all. */
+  /**
+   * Plan limits for a workspace, with any active entitlement override
+   * (MN-196) applied field-by-field on top. Precedence: an override field
+   * wins when set and not expired; otherwise the plan default. Self-host =
+   * unlimited, no DB read at all.
+   */
   async getLimits(workspaceId: string): Promise<PlanLimits> {
     if (!this.stripe.enabled) return UNLIMITED;
-    const status = await this.billing.getStatus(workspaceId);
+    const [status, override] = await Promise.all([
+      this.billing.getStatus(workspaceId),
+      this.getOverride(workspaceId),
+    ]);
     const plan = PLANS[status.plan];
-    return { automationRunsPerMonth: plan.automationRuns, includedSeats: plan.includedSeats };
+    return {
+      automationRunsPerMonth: override?.automationRunsPerMonth ?? plan.automationRuns,
+      includedSeats: override?.includedSeats ?? plan.includedSeats,
+    };
+  }
+
+  /**
+   * The workspace's active entitlement override row, or undefined if none
+   * exists or it has expired. Lazy check-on-read (same pattern as MN-192's
+   * trial-expiry sweep): an expired override is ignored here but never
+   * deleted — entitlement_override_events keeps the full history regardless.
+   */
+  async getOverride(workspaceId: string) {
+    const row = await this.db.query.workspaceEntitlementOverrides.findFirst({
+      where: eq(workspaceEntitlementOverrides.workspaceId, workspaceId),
+    });
+    if (!row) return undefined;
+    if (row.expiresAt && row.expiresAt.getTime() <= Date.now()) return undefined;
+    return row;
+  }
+
+  /**
+   * Set (or replace) a workspace's entitlement override — the delivery
+   * mechanism for Enterprise contracts, comps, grandfathering, and temporary
+   * support grants (MN-196). `reason` is required; every call is recorded in
+   * entitlement_override_events regardless of whether anything actually
+   * changed, so "who granted what, why, until when" is always answerable.
+   * MN-104's admin panel is the intended caller — this is the seam it uses.
+   */
+  async setOverride(
+    workspaceId: string,
+    actorUserId: string,
+    patch: EntitlementOverridePatch,
+    reason: string,
+    expiresAt: Date | null,
+  ): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      const [row] = await tx
+        .insert(workspaceEntitlementOverrides)
+        .values({ workspaceId, ...patch, reason, expiresAt, createdBy: actorUserId })
+        .onConflictDoUpdate({
+          target: workspaceEntitlementOverrides.workspaceId,
+          set: { ...patch, reason, expiresAt, createdBy: actorUserId, updatedAt: new Date() },
+        })
+        .returning();
+      await tx.insert(entitlementOverrideEvents).values({
+        workspaceId,
+        actorUserId,
+        action: 'set',
+        snapshot: row,
+        reason,
+        expiresAt,
+      });
+    });
+  }
+
+  /**
+   * Clear a workspace's override entirely — reverts to plan defaults. The
+   * row is deleted (not just expired) but the audit trail is preserved via
+   * entitlement_override_events, which snapshots what was cleared.
+   */
+  async clearOverride(workspaceId: string, actorUserId: string, reason: string): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      const [existing] = await tx
+        .delete(workspaceEntitlementOverrides)
+        .where(eq(workspaceEntitlementOverrides.workspaceId, workspaceId))
+        .returning();
+      if (!existing) return;
+      await tx.insert(entitlementOverrideEvents).values({
+        workspaceId,
+        actorUserId,
+        action: 'clear',
+        snapshot: existing,
+        reason,
+        expiresAt: null,
+      });
+    });
   }
 
   /**
@@ -122,6 +218,12 @@ export class EntitlementsService {
    * created doesn't exist yet, so there is nothing to look a plan up on.
    * Self-host short-circuits to true (no cap) before any query, same as
    * every other check here.
+   *
+   * MN-196: an Enterprise/comp'd account raises this via a `maxWorkspaces`
+   * override set on one of their EXISTING workspaces (there's always at
+   * least one — you can't override a workspace before it exists). The
+   * highest active override across their owned workspaces wins; with none,
+   * the flat self-serve cap applies.
    */
   async canCreateWorkspace(userId: string): Promise<boolean> {
     if (!this.stripe.enabled) return true;
@@ -132,7 +234,22 @@ export class EntitlementsService {
         eq(memberships.status, 'active'),
       ),
     });
-    return owned.length < MAX_WORKSPACES_SELF_SERVE;
+    if (owned.length === 0) return true;
+    const limit = await this.maxWorkspacesFor(owned.map((m) => m.workspaceId));
+    return owned.length < limit;
+  }
+
+  /** Highest active maxWorkspaces override across the given workspaces, or the flat self-serve cap if none apply. */
+  private async maxWorkspacesFor(workspaceIds: string[]): Promise<number> {
+    const overrides = await this.db.query.workspaceEntitlementOverrides.findMany({
+      where: inArray(workspaceEntitlementOverrides.workspaceId, workspaceIds),
+    });
+    const now = Date.now();
+    const active = overrides
+      .filter((o) => !o.expiresAt || o.expiresAt.getTime() > now)
+      .map((o) => o.maxWorkspaces)
+      .filter((v): v is number => v != null);
+    return active.length > 0 ? Math.max(...active) : MAX_WORKSPACES_SELF_SERVE;
   }
 
   /**
