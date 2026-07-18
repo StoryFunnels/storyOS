@@ -91,6 +91,33 @@ const envSchema = z.object({
   S3_FORCE_PATH_STYLE: z.coerce.boolean().default(true),
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
+  /**
+   * Billing (MN-165). All optional: with STRIPE_SECRET_KEY unset the billing
+   * module runs in "disabled" mode — every workspace is Free, checkout/portal
+   * endpoints 503, and the webhook no-ops. Self-hosters never touch Stripe.
+   * Price ids come from `pnpm --filter @storyos/api billing:seed` (test mode).
+   */
+  STRIPE_SECRET_KEY: z.string().optional(),
+  STRIPE_WEBHOOK_SECRET: z.string().optional(),
+  STRIPE_PRICE_PRO: z.string().optional(),
+  STRIPE_PRICE_BUSINESS: z.string().optional(),
+  /** The $12/member/mo licensed seat-overage price, shared by Pro and Business. */
+  STRIPE_PRICE_SEAT: z.string().optional(),
+  /**
+   * Stripe Tax is OFF by default (MN-165). It's a paid add-on that needs the Tax
+   * settings activated; enable only when you're ready to calculate/collect VAT or
+   * sales tax. With it off, Checkout neither computes nor collects tax.
+   *
+   * NOT z.coerce.boolean(): that wraps JS's Boolean(), and Boolean("false") is
+   * true — any non-empty string coerces to true, silently inverting an explicit
+   * "false" in .env/compose. Same trap MCP_OAUTH above already works around.
+   */
+  STRIPE_TAX_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  /** 30 days per MN-107; overridable only to shorten dev cycles. */
+  BILLING_TRIAL_DAYS: z.coerce.number().int().positive().default(30),
 });
 
 export type Env = Omit<z.infer<typeof envSchema>, 'BETTER_AUTH_SECRET'> & {

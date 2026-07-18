@@ -6,6 +6,7 @@ import type { Auth } from './auth/auth';
 import { toWebHeaders } from './auth/auth.guard';
 import { env } from './config/env';
 import { GITHUB_WEBHOOK_PATH } from './integrations/github-webhook.service';
+import { BILLING_WEBHOOK_PATH } from './billing/billing.controller';
 
 /**
  * Routes that need the untouched request bytes, because a signature was
@@ -16,7 +17,7 @@ import { GITHUB_WEBHOOK_PATH } from './integrations/github-webhook.service';
  * for every route would be a memory and blast-radius mistake, so raw bytes are
  * kept only where an HMAC is actually verified.
  */
-const RAW_BODY_PATHS = new Set<string>([GITHUB_WEBHOOK_PATH]);
+const RAW_BODY_PATHS = new Set<string>([GITHUB_WEBHOOK_PATH, BILLING_WEBHOOK_PATH]);
 
 /** A request whose raw bytes were retained because its path is on the allowlist. */
 export type RawBodyRequest = FastifyRequest & { rawBody?: Buffer };

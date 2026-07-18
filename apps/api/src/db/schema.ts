@@ -677,3 +677,72 @@ export const invites = pgTable('invites', {
   invitedBy: text('invited_by'),
   ...timestamps,
 });
+
+/**
+ * MN-165 — billing spine. Stripe is the source of truth for money; these tables
+ * are the local projection the app reads for entitlements (MN-168) so a hot path
+ * never blocks on a Stripe round-trip. Webhooks (verified, idempotent) keep them
+ * in sync; nothing here is authoritative over Stripe.
+ *
+ * Billing model (ADR-0014): ONE Stripe customer and ONE subscription per
+ * workspace (1:1:1). Business billed per workspace = one $99 subscription each;
+ * multi-workspace accounts simply have multiple customers. MN-191 may later
+ * consolidate to a single customer with many subscriptions — the projection
+ * below already tolerates that because the key is the workspace, not the customer.
+ */
+export const billingPlan = pgEnum('billing_plan', ['free', 'pro', 'business', 'enterprise']);
+
+/** Mirrors Stripe's subscription.status verbatim so reconcile is a straight copy. */
+export const subscriptionStatus = pgEnum('subscription_status', [
+  'trialing',
+  'active',
+  'past_due',
+  'canceled',
+  'incomplete',
+  'incomplete_expired',
+  'unpaid',
+  'paused',
+]);
+
+/** workspace → Stripe customer. One row per workspace that has ever touched billing. */
+export const billingCustomers = pgTable('billing_customers', {
+  workspaceId: uuid('workspace_id')
+    .primaryKey()
+    .references(() => workspaces.id, { onDelete: 'cascade' }),
+  stripeCustomerId: text('stripe_customer_id').notNull().unique(),
+  ...timestamps,
+});
+
+/**
+ * The workspace's current plan state — the row MN-168 reads to gate scale. A
+ * workspace with no row is Free by definition; a row exists once it trials or
+ * subscribes. `plan`/`status` are driven only by verified webhooks + reconcile.
+ */
+export const billingSubscriptions = pgTable('billing_subscriptions', {
+  workspaceId: uuid('workspace_id')
+    .primaryKey()
+    .references(() => workspaces.id, { onDelete: 'cascade' }),
+  plan: billingPlan('plan').notNull().default('free'),
+  /** null until a Stripe subscription exists (a no-card trial has none yet). */
+  status: subscriptionStatus('status'),
+  stripeSubscriptionId: text('stripe_subscription_id').unique(),
+  /** Billable seats charged as the $12 overage line — 0 while within the included tier. */
+  seats: integer('seats').notNull().default(0),
+  cancelAtPeriodEnd: boolean('cancel_at_period_end').notNull().default(false),
+  currentPeriodEnd: timestamp('current_period_end', { withTimezone: true }),
+  /** Set for the 30-day no-card Pro trial (MN-192); drives auto-downgrade to Free. */
+  trialEndsAt: timestamp('trial_ends_at', { withTimezone: true }),
+  ...timestamps,
+});
+
+/**
+ * Idempotency ledger for webhook delivery. Stripe re-sends events; a handler must
+ * run at most once per event id. We claim the id here in the same breath as
+ * applying the change — a duplicate delivery finds the row and no-ops.
+ */
+export const billingEvents = pgTable('billing_events', {
+  /** Stripe event id (evt_…) — the idempotency key. */
+  id: text('id').primaryKey(),
+  type: text('type').notNull(),
+  receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
+});

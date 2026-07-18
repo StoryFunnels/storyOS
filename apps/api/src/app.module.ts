@@ -35,6 +35,7 @@ import { FavoritesModule } from './favorites/favorites.module';
 import { MentionsModule } from './mentions/mentions.module';
 import { FormsModule } from './forms/forms.module';
 import { GdprModule } from './gdpr/gdpr.module';
+import { BillingModule } from './billing/billing.module';
 import { env } from './config/env';
 import { ApiThrottlerGuard } from './common/throttler.guard';
 import { DbModule } from './db/db.module';
@@ -104,6 +105,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     MentionsModule,
     FormsModule,
     GdprModule,
+    BillingModule,
     ThrottlerModule.forRoot({
       throttlers: [{ ttl: 60_000, limit: env().RATE_LIMIT_PER_MINUTE }],
     }),
