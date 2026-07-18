@@ -13,6 +13,13 @@ interface FormField {
   help: string | null;
   required: boolean;
   options?: Array<{ id: string; label: string }>;
+  /** Relation fields only (#224) — the record picker's target + cardinality. */
+  relation?: { target_database_id: string; target_database_name: string | null; single: boolean };
+  /** User fields only (#224) — the workspace roster, id + name only (no PII). */
+  members?: Array<{ id: string; name: string }>;
+  /** User fields only (#224) — must match the field's own single/multi config;
+   * the write path rejects an array for a non-multi field and vice versa. */
+  multi?: boolean;
 }
 interface FormDef {
   title: string;
@@ -26,7 +33,9 @@ interface FormDef {
 /**
  * Public, unauthenticated form (MN-101). Rendered with no app chrome so it can be
  * shared by link or embedded via `?embed=1`. Submits to the public endpoint,
- * which creates a record anonymously.
+ * which creates a record anonymously. Relation and user inputs (#224) call two
+ * extra token-scoped public endpoints — search/create for relations, and the
+ * roster embedded in the form definition for users.
  */
 export default function PublicFormPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params);
@@ -114,7 +123,12 @@ export default function PublicFormPage({ params }: { params: Promise<{ token: st
               {f.label}
               {f.required && <span className="ml-0.5 text-red-500">*</span>}
             </span>
-            <Input field={f} value={values[f.api_name]} onChange={(v) => setValues((p) => ({ ...p, [f.api_name]: v }))} />
+            <Input
+              token={token}
+              field={f}
+              value={values[f.api_name]}
+              onChange={(v) => setValues((p) => ({ ...p, [f.api_name]: v }))}
+            />
             {f.help && <span className="text-[12px] text-neutral-400">{f.help}</span>}
           </label>
         ))}
@@ -143,10 +157,12 @@ export default function PublicFormPage({ params }: { params: Promise<{ token: st
 }
 
 function Input({
+  token,
   field,
   value,
   onChange,
 }: {
+  token: string;
   field: FormField;
   value: unknown;
   onChange: (v: unknown) => void;
@@ -176,6 +192,33 @@ function Input({
       </select>
     );
   }
+  if (t === 'user') {
+    const members = field.members ?? [];
+    const multi = field.multi === true;
+    const ids = (Array.isArray(value) ? (value as string[]) : value ? [String(value)] : []).filter(Boolean);
+    return (
+      <div className="flex flex-col gap-1.5 rounded-lg border border-neutral-300 bg-white p-2.5">
+        {members.length === 0 && <span className="text-[12px] text-neutral-400">No one to pick from</span>}
+        {members.map((m) => (
+          <label key={m.id} className="flex items-center gap-1.5 text-[13px] text-neutral-900">
+            <input
+              type={multi ? 'checkbox' : 'radio'}
+              name={field.field_id}
+              checked={ids.includes(m.id)}
+              onChange={() => {
+                if (!multi) return onChange(m.id);
+                onChange(ids.includes(m.id) ? ids.filter((id) => id !== m.id) : [...ids, m.id]);
+              }}
+            />
+            {m.name}
+          </label>
+        ))}
+      </div>
+    );
+  }
+  if (t === 'relation') {
+    return <RelationInput token={token} field={field} value={value} onChange={onChange} />;
+  }
   if (t === 'rich_text') {
     return (
       <textarea
@@ -195,5 +238,136 @@ function Input({
       onChange={(e) => onChange(t === 'number' ? (e.target.value === '' ? undefined : Number(e.target.value)) : e.target.value)}
       required={field.required}
     />
+  );
+}
+
+/**
+ * Public relation input (#224): search the target database and pick a record,
+ * or create a new one inline. Both calls go through the token-scoped public
+ * endpoints (GET/POST /public/forms/:token/relations/:fieldId) — a guest can
+ * only reach the specific target database this form field already exposes.
+ */
+function RelationInput({
+  token,
+  field,
+  value,
+  onChange,
+}: {
+  token: string;
+  field: FormField;
+  value: unknown;
+  onChange: (v: unknown) => void;
+}) {
+  const relation = field.relation;
+  const [search, setSearch] = useState('');
+  const [open, setOpen] = useState(false);
+  const [results, setResults] = useState<Array<{ id: string; title: string }>>([]);
+  const [titles, setTitles] = useState<Record<string, string>>({});
+  const [creating, setCreating] = useState(false);
+  const selectedIds = (Array.isArray(value) ? (value as string[]) : value ? [String(value)] : []).filter(Boolean);
+
+  useEffect(() => {
+    if (!open) return;
+    const timer = setTimeout(() => {
+      const q = search.trim() ? `?q=${encodeURIComponent(search.trim())}` : '';
+      fetch(`${API}/api/v1/public/forms/${token}/relations/${field.field_id}${q}`, { credentials: 'omit' })
+        .then((r) => (r.ok ? r.json() : []))
+        .then((rows: Array<{ id: string; title: string }>) => setResults(rows))
+        .catch(() => setResults([]));
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [open, search, token, field.field_id]);
+
+  if (!relation) return <span className="text-[12px] text-neutral-400">This field isn&rsquo;t available</span>;
+
+  function pick(id: string, title: string) {
+    setTitles((m) => ({ ...m, [id]: title }));
+    if (relation!.single) {
+      onChange([id]);
+      setOpen(false);
+      setSearch('');
+      return;
+    }
+    onChange(selectedIds.includes(id) ? selectedIds.filter((i) => i !== id) : [...selectedIds, id]);
+  }
+
+  async function createNew() {
+    const title = search.trim();
+    if (!title || creating) return;
+    setCreating(true);
+    try {
+      const res = await fetch(`${API}/api/v1/public/forms/${token}/relations/${field.field_id}`, {
+        method: 'POST',
+        credentials: 'omit',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ title }),
+      });
+      if (!res.ok) return;
+      const created = (await res.json()) as { id: string; title: string };
+      pick(created.id, created.title);
+      setSearch('');
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  const exactMatch = results.some((r) => r.title.toLowerCase() === search.trim().toLowerCase());
+
+  return (
+    <div className="relative">
+      <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-neutral-300 bg-white px-2.5 py-1.5">
+        {selectedIds.map((id) => (
+          <span key={id} className="flex items-center gap-1 rounded border border-neutral-200 bg-neutral-50 px-1.5 py-0.5 text-[12px] text-neutral-900">
+            {titles[id] ?? id}
+            <button
+              type="button"
+              className="text-neutral-400 hover:text-red-600"
+              onClick={() => onChange(selectedIds.filter((i) => i !== id))}
+              aria-label="Remove"
+            >
+              ×
+            </button>
+          </span>
+        ))}
+        <input
+          className="h-6 min-w-24 flex-1 border-0 bg-transparent text-sm text-neutral-900 outline-none placeholder:text-neutral-400"
+          placeholder={`Search ${relation.target_database_name ?? 'records'}…`}
+          value={search}
+          onFocus={() => setOpen(true)}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+      </div>
+      {open && (
+        <div
+          className="absolute left-0 top-full z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-neutral-200 bg-white p-1 shadow-[0_4px_12px_rgba(15,23,41,0.1)]"
+          onMouseLeave={() => setOpen(false)}
+        >
+          {results.map((r) => (
+            <button
+              key={r.id}
+              type="button"
+              className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-[13px] text-neutral-900 hover:bg-neutral-50"
+              onClick={() => pick(r.id, r.title)}
+            >
+              <span className="truncate">{r.title || 'Untitled'}</span>
+              {selectedIds.includes(r.id) && <span className="text-[11px] text-neutral-400">selected</span>}
+            </button>
+          ))}
+          {search.trim() && !exactMatch && (
+            <button
+              type="button"
+              disabled={creating}
+              className="flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left text-[13px] text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
+              onClick={createNew}
+            >
+              + Create “{search.trim()}”
+            </button>
+          )}
+          {!search.trim() && results.length === 0 && (
+            <p className="px-2 py-1.5 text-[12px] text-neutral-400">Type to search…</p>
+          )}
+        </div>
+      )}
+    </div>
   );
 }

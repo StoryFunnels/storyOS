@@ -2018,6 +2018,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/public/forms/{token}/relations/{fieldId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Search candidate records for a public form relation field */
+        get: operations["PublicFormsController_searchRelation"];
+        put?: never;
+        /** Create a new linked record from a public form relation field */
+        post: operations["PublicFormsController_createRelationTarget"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/members/{member}/gdpr/export": {
         parameters: {
             query?: never;
@@ -2784,6 +2802,9 @@ export interface components {
                 [key: string]: unknown;
             };
             hp?: string;
+        };
+        CreateRelationTargetDto: {
+            title: string;
         };
     };
     responses: never;
@@ -5999,6 +6020,52 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["PublicSubmitDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PublicFormsController_searchRelation: {
+        parameters: {
+            query: {
+                q: string;
+            };
+            header?: never;
+            path: {
+                token: string;
+                fieldId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PublicFormsController_createRelationTarget: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+                fieldId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateRelationTargetDto"];
             };
         };
         responses: {

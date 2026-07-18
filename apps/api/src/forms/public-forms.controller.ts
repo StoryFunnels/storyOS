@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { createZodDto } from 'nestjs-zod';
@@ -11,6 +11,11 @@ const publicSubmitSchema = z.object({
   hp: z.string().optional(),
 });
 class PublicSubmitDto extends createZodDto(publicSubmitSchema) {}
+
+const createRelationTargetSchema = z.object({
+  title: z.string().trim().min(1).max(500),
+});
+class CreateRelationTargetDto extends createZodDto(createRelationTargetSchema) {}
 
 /**
  * Public form endpoints (MN-101) — deliberately NO AuthGuard. The `token` is the
@@ -33,5 +38,36 @@ export class PublicFormsController {
   @ApiOperation({ summary: 'Submit a public form → creates a record (anonymous)' })
   submit(@Param('token') token: string, @Body() body: PublicSubmitDto) {
     return this.forms.submit(token, body.values, body.hp);
+  }
+
+  /**
+   * Candidate records for a public form's relation field (MN-224). Read-only
+   * title search, scoped to a field the form actually exposes — see
+   * FormsService.resolveRelationField for the scoping.
+   */
+  @Get(':token/relations/:fieldId')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @ApiOperation({ summary: 'Search candidate records for a public form relation field' })
+  searchRelation(
+    @Param('token') token: string,
+    @Param('fieldId') fieldId: string,
+    @Query('q') q?: string,
+  ) {
+    return this.forms.searchRelationCandidates(token, fieldId, q);
+  }
+
+  /**
+   * Inline "create new" for a public form's relation field (MN-224). Minimal —
+   * title only, no other values — and throttled like the main submit.
+   */
+  @Post(':token/relations/:fieldId')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @ApiOperation({ summary: 'Create a new linked record from a public form relation field' })
+  createRelationTarget(
+    @Param('token') token: string,
+    @Param('fieldId') fieldId: string,
+    @Body() body: CreateRelationTargetDto,
+  ) {
+    return this.forms.createRelationTarget(token, fieldId, body.title);
   }
 }

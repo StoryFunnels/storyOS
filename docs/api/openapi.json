@@ -4849,6 +4849,86 @@
         ]
       }
     },
+    "/api/v1/public/forms/{token}/relations/{fieldId}": {
+      "get": {
+        "operationId": "PublicFormsController_searchRelation",
+        "parameters": [
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "fieldId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Search candidate records for a public form relation field",
+        "tags": [
+          "public"
+        ]
+      },
+      "post": {
+        "operationId": "PublicFormsController_createRelationTarget",
+        "parameters": [
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "fieldId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRelationTargetDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Create a new linked record from a public form relation field",
+        "tags": [
+          "public"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/members/{member}/gdpr/export": {
       "get": {
         "operationId": "GdprController_export",
@@ -7705,6 +7785,19 @@
             "type": "string"
           }
         }
+      },
+      "CreateRelationTargetDto": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "title"
+        ]
       }
     }
   }
