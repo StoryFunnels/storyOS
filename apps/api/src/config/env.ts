@@ -47,7 +47,7 @@ export function resolveAuthSecret(
   return value && value.length > 0 ? value : randomBytes(32).toString('hex');
 }
 
-const envSchema = z.object({
+export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(3001),
   DATABASE_URL: z
@@ -77,8 +77,18 @@ const envSchema = z.object({
     .int()
     .positive()
     .default(process.env.NODE_ENV === 'test' ? 1_000_000 : 300),
-  /** Containers run migrations on boot (MN-031); dev uses pnpm db:migrate. */
-  RUN_MIGRATIONS: z.coerce.boolean().default(false),
+  /**
+   * Containers run migrations on boot (MN-031); dev uses pnpm db:migrate.
+   *
+   * NOT z.coerce.boolean(): that wraps JS's Boolean(), and Boolean("false") is
+   * true — any non-empty string coerces to true, silently inverting an explicit
+   * "false" in .env/compose. Same trap MCP_OAUTH and STRIPE_TAX_ENABLED above
+   * already work around.
+   */
+  RUN_MIGRATIONS: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
   /** Attachment storage (MN-029): local disk by default, s3 for MinIO/S3. */
   STORAGE_DRIVER: z.enum(['local', 's3']).default('local'),
   ATTACHMENTS_DIR: z.string().default('./data/attachments'),
@@ -88,7 +98,16 @@ const envSchema = z.object({
   S3_BUCKET: z.string().default('storyos-attachments'),
   S3_ACCESS_KEY: z.string().optional(),
   S3_SECRET_KEY: z.string().optional(),
-  S3_FORCE_PATH_STYLE: z.coerce.boolean().default(true),
+  /**
+   * Path-style S3 addressing, needed for MinIO/most S3-compatible endpoints.
+   * Defaults to true (the common case for self-hosted S3). NOT z.coerce.boolean()
+   * — same silent-inversion trap as RUN_MIGRATIONS above; an explicit
+   * S3_FORCE_PATH_STYLE=false must actually disable it.
+   */
+  S3_FORCE_PATH_STYLE: z
+    .string()
+    .optional()
+    .transform((v) => (v === undefined ? true : v === 'true' || v === '1')),
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   /**

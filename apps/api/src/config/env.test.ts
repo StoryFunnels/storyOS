@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LEGACY_DEFAULT_AUTH_SECRET, resolveAuthSecret } from './env';
+import { LEGACY_DEFAULT_AUTH_SECRET, envSchema, resolveAuthSecret } from './env';
 
 describe('resolveAuthSecret', () => {
   describe('production', () => {
@@ -56,6 +56,53 @@ describe('resolveAuthSecret', () => {
 
     it('does not throw in test env even with no secret', () => {
       expect(() => resolveAuthSecret('test', undefined)).not.toThrow();
+    });
+  });
+});
+
+// Regression coverage for the z.coerce.boolean() footgun: Boolean("false") is
+// true in JS, so z.coerce.boolean() silently inverts an explicit "false" from
+// .env/compose. RUN_MIGRATIONS and S3_FORCE_PATH_STYLE were both bitten by
+// this; they must parse the literal strings "true"/"1" as true and everything
+// else — including "false" — as false.
+describe('envSchema boolean flags', () => {
+  describe('RUN_MIGRATIONS (default false)', () => {
+    it('defaults to false when unset', () => {
+      expect(envSchema.parse({}).RUN_MIGRATIONS).toBe(false);
+    });
+
+    it('is true for "true"', () => {
+      expect(envSchema.parse({ RUN_MIGRATIONS: 'true' }).RUN_MIGRATIONS).toBe(true);
+    });
+
+    it('is true for "1"', () => {
+      expect(envSchema.parse({ RUN_MIGRATIONS: '1' }).RUN_MIGRATIONS).toBe(true);
+    });
+
+    it('is false for the literal string "false" — the coerce.boolean() footgun', () => {
+      expect(envSchema.parse({ RUN_MIGRATIONS: 'false' }).RUN_MIGRATIONS).toBe(false);
+    });
+
+    it('is false for "0"', () => {
+      expect(envSchema.parse({ RUN_MIGRATIONS: '0' }).RUN_MIGRATIONS).toBe(false);
+    });
+  });
+
+  describe('S3_FORCE_PATH_STYLE (default true)', () => {
+    it('defaults to true when unset', () => {
+      expect(envSchema.parse({}).S3_FORCE_PATH_STYLE).toBe(true);
+    });
+
+    it('is true for "true"', () => {
+      expect(envSchema.parse({ S3_FORCE_PATH_STYLE: 'true' }).S3_FORCE_PATH_STYLE).toBe(true);
+    });
+
+    it('is false for the literal string "false" — the coerce.boolean() footgun', () => {
+      expect(envSchema.parse({ S3_FORCE_PATH_STYLE: 'false' }).S3_FORCE_PATH_STYLE).toBe(false);
+    });
+
+    it('is false for "0"', () => {
+      expect(envSchema.parse({ S3_FORCE_PATH_STYLE: '0' }).S3_FORCE_PATH_STYLE).toBe(false);
     });
   });
 });
