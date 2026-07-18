@@ -109,6 +109,28 @@ describe('BillingService.reconcileSubscription', () => {
     expect(upserts[0]).toMatchObject({ plan: 'free', status: 'canceled' });
   });
 
+  it('MN-193: a failed payment (past_due) keeps the plan intact — dunning is a grace period, not a punishment', async () => {
+    const { db, upserts } = makeDb({ customerRow: { workspaceId: 'ws1' } });
+    const svc = new BillingService(db, stripeStub, accessStub);
+
+    // Stripe marks a subscription past_due on the FIRST failed charge, well
+    // before its own retry schedule exhausts — the workspace keeps its plan,
+    // seats and allowances throughout. Only a terminal status (canceled /
+    // incomplete_expired) ever downgrades — see the test above.
+    await svc.reconcileSubscription(subscription({ status: 'past_due' }));
+
+    expect(upserts[0]).toMatchObject({ plan: 'pro', status: 'past_due', seats: 2 });
+  });
+
+  it('MN-193: incomplete_expired downgrades to Free exactly like canceled — both are terminal', async () => {
+    const { db, upserts } = makeDb({ customerRow: { workspaceId: 'ws1' } });
+    const svc = new BillingService(db, stripeStub, accessStub);
+
+    await svc.reconcileSubscription(subscription({ status: 'incomplete_expired' }));
+
+    expect(upserts[0]).toMatchObject({ plan: 'free', status: 'incomplete_expired' });
+  });
+
   it('skips a subscription for a customer that maps to no workspace', async () => {
     const { db, upserts } = makeDb({ customerRow: undefined });
     const svc = new BillingService(db, stripeStub, accessStub);
