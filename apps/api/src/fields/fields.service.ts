@@ -14,6 +14,7 @@ import type { Db } from '../db/client';
 import { fields, records, relations, selectOptions } from '../db/schema';
 import { slugify } from '../databases/databases.service';
 import { presentFieldConfig, restoreFieldConfig } from '../common/webhook-headers';
+import { RecordsService } from '../records/records.service';
 
 type Field = typeof fields.$inferSelect;
 
@@ -49,7 +50,10 @@ function richTextToPlain(blocks: unknown): string {
 
 @Injectable()
 export class FieldsService {
-  constructor(@Inject(DB) private readonly db: Db) {}
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    private readonly recordsService: RecordsService,
+  ) {}
 
   async getField(databaseId: string, fieldId: string): Promise<Field> {
     const field = await this.db.query.fields.findFirst({
@@ -137,7 +141,7 @@ export class FieldsService {
     });
     const position = Math.max(0, ...siblings.map((f) => f.position)) + 1;
 
-    return this.db.transaction(async (tx) => {
+    const created = await this.db.transaction(async (tx) => {
       const [field] = await tx
         .insert(fields)
         .values({
@@ -166,6 +170,23 @@ export class FieldsService {
       }
       return this.withOptions(tx as unknown as Db, field!);
     });
+    await this.backfillFormulaField(databaseId, created);
+    return created;
+  }
+
+  /**
+   * MN-260: a formula field is only useful for sorting once existing records
+   * carry a materialized value, not just ones written after the field existed
+   * — without this, "add a formula field, sort by it" would show every
+   * pre-existing record as an empty sort value until it was next touched.
+   * Best-effort/isolated: never fails the field-create response the caller is
+   * waiting on. No-ops for a field that isn't a same-record-only formula
+   * (materializeFormulaFieldForAllRecords checks the type; the sortability gate
+   * itself lives in RecordsService.query's SORTABLE check).
+   */
+  private async backfillFormulaField(databaseId: string, field: { id: string; type: string }): Promise<void> {
+    if (field.type !== 'formula') return;
+    await this.recordsService.materializeFormulaFieldForAllRecords(databaseId, field.id).catch(() => undefined);
   }
 
   /** Field types a formula may reference, mapped to formula types. */
