@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   activeFilterNode,
+  andFilterNodes,
   buildFilterGroup,
   canMoveNodeTo,
   canTurnIntoGroup,
@@ -118,6 +119,37 @@ describe('activeFilterNode — disabled clauses never reach the query', () => {
 
   it('returns undefined when there is no filter at all', () => {
     expect(activeFilterNode(undefined)).toBeUndefined();
+  });
+});
+
+/**
+ * #259: andFilterNodes composes a shared view's active filter with a personal
+ * override — the SAME top-level-AND-wrap collapsing rule activeFilterNode
+ * itself uses (bare for exactly one survivor, {and:[...]} for 2+), so a
+ * personal filter narrows on top rather than inventing a second shape.
+ */
+describe('andFilterNodes — composing a shared filter with a personal override (#259)', () => {
+  it('returns undefined when nothing is present', () => {
+    expect(andFilterNodes(undefined, undefined)).toBeUndefined();
+  });
+
+  it('returns the bare node when only one side is present', () => {
+    const shared = { field: 'state', op: 'eq', value: 'done' };
+    expect(andFilterNodes(shared, undefined)).toEqual(shared);
+    expect(andFilterNodes(undefined, shared)).toEqual(shared);
+  });
+
+  it('wraps both under one {and:[...]} — never a nested/double wrapper — when both are present', () => {
+    const shared = { field: 'state', op: 'eq', value: 'done' };
+    const personal = { field: 'assignee', op: 'has', value: ['me'] };
+    expect(andFilterNodes(shared, personal)).toEqual({ and: [shared, personal] });
+  });
+
+  it('composes with 3+ nodes the same way (not just the 2-node shared/personal case)', () => {
+    const a = { field: 'a', op: 'eq', value: 1 };
+    const b = { field: 'b', op: 'eq', value: 2 };
+    const c = { field: 'c', op: 'eq', value: 3 };
+    expect(andFilterNodes(a, b, c)).toEqual({ and: [a, b, c] });
   });
 });
 

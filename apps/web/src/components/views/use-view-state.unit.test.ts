@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { EMPTY_CONFIG, queryBodyFromConfig, sortsBodyFromConfig } from './use-view-state';
-import type { ViewConfig } from './use-view-state';
+import type { FilterNode, ViewConfig } from './use-view-state';
 
 /**
  * MN-253: queryBodyFromConfig is the seam between a saved/draft ViewConfig and the
@@ -69,6 +69,56 @@ describe('queryBodyFromConfig — disabled clauses are skipped', () => {
 
   it('omits filter when there are no conditions at all', () => {
     expect(queryBodyFromConfig(EMPTY_CONFIG).filter).toBeUndefined();
+  });
+});
+
+/**
+ * #259: a personal filter override ANDs on top of the shared view's active
+ * filter — mirroring #258/calendar-view.tsx's exact top-level-AND-wrap nesting
+ * pattern, never a second composition rule. Narrows only; never replaces or
+ * widens the shared view's own filter.
+ */
+describe('queryBodyFromConfig — personal filter override (#259) ANDs on top of the shared filter', () => {
+  const personal: FilterNode = { field: 'assignee', op: 'has', value: ['me'] };
+
+  it('sends just the personal filter when the shared view has none', () => {
+    const body = queryBodyFromConfig(EMPTY_CONFIG, personal);
+    expect(body.filter).toEqual(personal);
+  });
+
+  it('sends just the shared filter when there is no personal override', () => {
+    const config = withFilters({ and: [{ field: 'state', op: 'eq', value: 'done' }] });
+    const body = queryBodyFromConfig(config, undefined);
+    expect(body.filter).toEqual({ field: 'state', op: 'eq', value: 'done' });
+  });
+
+  it('wraps both under one {and:[...]} — shared first, personal second — when both are present', () => {
+    const config = withFilters({ and: [{ field: 'state', op: 'eq', value: 'done' }] });
+    const body = queryBodyFromConfig(config, personal);
+    expect(body.filter).toEqual({
+      and: [{ field: 'state', op: 'eq', value: 'done' }, personal],
+    });
+  });
+
+  it('still ANDs the personal filter in even when the shared filter is a multi-condition group', () => {
+    const config = withFilters({
+      and: [
+        { field: 'state', op: 'eq', value: 'done' },
+        { field: 'priority', op: 'eq', value: 'high' },
+      ],
+    });
+    const body = queryBodyFromConfig(config, personal);
+    expect(body.filter).toEqual({
+      and: [
+        { and: [{ field: 'state', op: 'eq', value: 'done' }, { field: 'priority', op: 'eq', value: 'high' }] },
+        personal,
+      ],
+    });
+  });
+
+  it('omits filter entirely when neither shared nor personal has anything active', () => {
+    const config = withFilters({ and: [{ field: 'state', op: 'eq', value: 'done', disabled: true }] });
+    expect(queryBodyFromConfig(config, undefined).filter).toBeUndefined();
   });
 });
 

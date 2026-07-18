@@ -9,7 +9,7 @@ import { recordHref } from '@/lib/records';
 import { CellDisplay, fieldValue, isDateField, optionColor } from '../table-view/cells';
 import { useDatabase, useMembers, useRecordMutations, useRecordsInfinite } from '../table-view/use-table-data';
 import type { Field, RecordRow } from '../table-view/use-table-data';
-import type { ViewConfig } from './use-view-state';
+import type { FilterNode, ViewConfig } from './use-view-state';
 import { queryBodyFromConfig } from './use-view-state';
 import type { DragKind } from './timeline-math';
 import { applyDrag, clampDragDelta, dependencyEdges, dragValuesToPersist, pxToDeltaDays } from './timeline-math';
@@ -145,17 +145,23 @@ export function TimelineView({
   config,
   readOnly,
   onPatch,
+  personalFilter,
 }: {
   ws: string;
   db: string;
   config: ViewConfig;
   readOnly: boolean;
   onPatch: (updates: Partial<ViewConfig>) => void;
+  /** #259 — narrows this view's results for the current viewer only. */
+  personalFilter?: FilterNode;
 }) {
   const database = useDatabase(ws, db);
   const router = useRouter();
   const { updateRecord } = useRecordMutations(ws, db);
-  const queryBody = useMemo(() => ({ ...queryBodyFromConfig(config), limit: 200 }), [config]);
+  const queryBody = useMemo(
+    () => ({ ...queryBodyFromConfig(config, personalFilter), limit: 200 }),
+    [config, personalFilter],
+  );
   const records = useRecordsInfinite(ws, db, queryBody);
   const rows = useMemo(() => (records.data?.pages ?? []).flatMap((p) => p.data), [records.data]);
 

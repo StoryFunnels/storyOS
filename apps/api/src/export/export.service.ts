@@ -1,10 +1,11 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
-import { activeFilter, type ViewConfig } from '@storyos/schemas';
+import { activeFilter, type FilterNode, type ViewConfig } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { databases, fields, selectOptions, views } from '../db/schema';
 import { RecordsService } from '../records/records.service';
+import { PreferencesService } from '../users/preferences.service';
 import {
   csvHeaderLine,
   csvRecordLine,
@@ -14,6 +15,20 @@ import {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PAGE = 500;
+
+/**
+ * ANDs the shared view's active filter with the exporting user's personal
+ * override (#259) — same top-level-AND-wrap composition #258 and
+ * calendar-view.tsx's date-window filter already use on the web side, ported
+ * here since the CSV export is the API-side counterpart of
+ * queryBodyFromConfig: a single item collapses to itself (no redundant
+ * wrapper), two items nest under one `{and:[...]}`.
+ */
+function andFilters(...nodes: Array<FilterNode | undefined>): FilterNode | undefined {
+  const present = nodes.filter((n): n is FilterNode => n !== undefined);
+  if (present.length === 0) return undefined;
+  return present.length === 1 ? present[0] : { and: present };
+}
 
 /**
  * CSV export (MN-075) — the way OUT, matching MN-052's way in.
@@ -31,6 +46,7 @@ export class ExportService {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly records: RecordsService,
+    private readonly preferences: PreferencesService,
   ) {}
 
   /** Resolve the database, optional view config, columns and label maps. */
@@ -82,6 +98,11 @@ export class ExportService {
       databaseId,
       viewId,
     );
+    // #259: the exporting user's own personal filter narrows the export too — an
+    // export is "this view, as I see it", and the on-screen table already applies
+    // the same override (queryBodyFromConfig). Only meaningful when exporting a
+    // specific view; a whole-database export (no viewId) has no view to override.
+    const personalFilter = viewId ? await this.preferences.getViewFilter(currentUserId, databaseId, viewId) : undefined;
     const cols = exportColumns(exportFields);
     const query = this.records.query.bind(this.records);
     const labelize = (v: Record<string, unknown>) => this.labelizeValues(v, labels);
@@ -99,7 +120,9 @@ export class ExportService {
               // A view's filters may carry disabled clauses (MN-253 UI) — prune those
               // and their UI-only fields before this hits the query engine, same as
               // the web app's queryBodyFromConfig does for the on-screen query.
-              filter: activeFilter(config?.filters),
+              // The personal override (#259) ANDs on top, narrowing further — never
+              // replacing — the shared view's filter.
+              filter: andFilters(activeFilter(config?.filters), personalFilter),
               sorts: config?.sorts ?? [],
               limit: PAGE,
               cursor,

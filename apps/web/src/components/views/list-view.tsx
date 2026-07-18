@@ -9,7 +9,7 @@ import { OPTION_COLORS, optionColor } from '../table-view/cells';
 import { useDatabase, useMembers, useRecordMutations, useRecordsInfinite } from '../table-view/use-table-data';
 import type { RecordRow } from '../table-view/use-table-data';
 import { CardFieldChip } from './board-view';
-import type { ViewConfig } from './use-view-state';
+import type { FilterNode, ViewConfig } from './use-view-state';
 import { queryBodyFromConfig } from './use-view-state';
 
 const NO_VALUE = '__none__';
@@ -21,16 +21,19 @@ export function ListView({
   db,
   config,
   readOnly,
+  personalFilter,
 }: {
   ws: string;
   db: string;
   config: ViewConfig;
   readOnly: boolean;
+  /** #259 — narrows this view's results for the current viewer only. */
+  personalFilter?: FilterNode;
 }) {
   const database = useDatabase(ws, db);
   const router = useRouter();
   const { createRecord } = useRecordMutations(ws, db);
-  const queryBody = useMemo(() => queryBodyFromConfig(config), [config]);
+  const queryBody = useMemo(() => queryBodyFromConfig(config, personalFilter), [config, personalFilter]);
   const records = useRecordsInfinite(ws, db, queryBody);
 
   const memberQuery = useMembers(ws, !readOnly);

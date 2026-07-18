@@ -46,6 +46,7 @@ import { cn } from '@/lib/utils';
 import type { Field } from '../table-view/use-table-data';
 import { FIELD_TYPES } from '../table-view/field-dialog-shared';
 import type { FilterCondition, SortSpec, ViewConfig } from './use-view-state';
+import { useClearPersonalFilter, useSetPersonalFilter } from './use-view-state';
 import {
   buildFilterGroup,
   canMoveNodeTo,
@@ -157,6 +158,7 @@ export function ViewToolbar({
   ws,
   db,
   viewId,
+  personalFilter,
 }: {
   fields: Field[];
   config: ViewConfig;
@@ -167,19 +169,25 @@ export function ViewToolbar({
   ws?: string;
   db?: string;
   viewId?: string;
+  /** #259 — current viewer's personal override for THIS view, if any. */
+  personalFilter?: FilterNode;
 }) {
   const filterable = fields.filter((f) => OPS_BY_TYPE[f.type]);
 
   return (
     <div className="flex min-h-9 flex-wrap items-center gap-1.5 border-b border-border-default bg-app px-3 py-1">
       {/* Filters (MN-253): the builder + pinned chips — one spec (ViewConfig.filters)
-          shared by every view type via this same component. */}
+          shared by every view type via this same component. Personal scope (#259)
+          rides along here too — same popover, a Global/Personal toggle inside it. */}
       <FiltersSection
         fields={filterable}
         members={members}
         ws={ws}
+        db={db}
+        viewId={viewId}
         filters={config.filters}
         onChange={(filters) => onPatch({ filters })}
+        personalFilter={personalFilter}
       />
 
       {/* Sorts (MN-252): the builder is field-type-aware and self-filters to what
@@ -563,16 +571,30 @@ export function FiltersSection({
   fields,
   members,
   ws,
+  db,
+  viewId,
   filters,
   onChange,
+  personalFilter,
 }: {
   fields: Field[];
   members: Array<{ id: string; name: string }>;
   ws?: string;
+  /** #259 — the Personal scope only exists once a real view is on the page. */
+  db?: string;
+  viewId?: string;
   filters: FilterGroup | undefined;
   onChange: (filters: FilterGroup | undefined) => void;
+  /** #259 — current viewer's personal override for THIS view, if any. */
+  personalFilter?: FilterNode;
 }) {
   const [open, setOpen] = useState(false);
+  // #259: which tree the panel is editing — defaults to Global, same as every
+  // view before this ticket. Resets to Global on every open so a stale Personal
+  // selection from a previous view/session never surprises the next edit.
+  const [scope, setScope] = useState<FilterScope>('global');
+  const canUsePersonalScope = Boolean(ws && db && viewId);
+
   const connector = filterConnector(filters);
   const nodes = filterConditions(filters);
   // MN-258: pinned chips + the active count read every LEAF condition in the tree,
@@ -583,12 +605,30 @@ export function FiltersSection({
   );
   const pinned = leaves.filter((f) => f.node.pinned);
   const activeCount = leaves.filter((f) => !f.node.disabled).length;
+  const hasPersonalFilter = Boolean(personalFilter);
 
   function setNodes(next: FilterNode[]) {
     onChange(buildFilterGroup(connector, next));
   }
   function updateLeafAt(path: number[], next: FilterCondition) {
     setNodes(updateNodeAt(nodes, path, () => next));
+  }
+
+  // #259: the personal tree — pinning/labels don't apply to a personal override
+  // (it never renders a toolbar chip; only the owner ever sees it), but it's the
+  // SAME FilterNode shape, so the same connector/nodes/builder machinery applies.
+  const personalGroup = personalFilter as FilterGroup | undefined;
+  const personalConnector = filterConnector(personalGroup);
+  const personalNodes = filterConditions(personalGroup);
+  const setPersonal = useSetPersonalFilter(ws ?? '', db ?? '');
+  const clearPersonal = useClearPersonalFilter(ws ?? '', db ?? '');
+  function persistPersonalGroup(group: FilterGroup | undefined) {
+    if (!viewId) return;
+    if (group) setPersonal.mutate({ viewId, filter: group as never });
+    else clearPersonal.mutate(viewId);
+  }
+  function setPersonalNodes(next: FilterNode[]) {
+    persistPersonalGroup(buildFilterGroup(personalConnector, next));
   }
 
   return (
@@ -607,10 +647,35 @@ export function FiltersSection({
           />
         );
       })}
+      {/* #259: a standing indicator so a narrower list is never a mystery — the
+          view's shared filter chip above says what everyone sees; this one says
+          "and I've ALSO narrowed it further, just for me". */}
+      {hasPersonalFilter && (
+        <button
+          type="button"
+          onClick={() => {
+            setScope('personal');
+            setOpen(true);
+          }}
+          title="A personal filter narrows this view for you only — teammates don't see it"
+          className="flex items-center gap-1 rounded-[var(--radius-control)] border border-[var(--accent)] bg-accent-soft px-1.5 py-0.5 text-[12px] text-ink"
+        >
+          <UserRound className="h-3 w-3" />
+          Personal filter
+        </button>
+      )}
       <span className="relative">
         <button
           type="button"
-          onClick={() => setOpen((o) => !o)}
+          onClick={() => {
+            // Opening via THIS button always lands on Global — only the
+            // "Personal filter" badge above opens straight into Personal.
+            if (open) setOpen(false);
+            else {
+              setScope('global');
+              setOpen(true);
+            }
+          }}
           className={cn(
             'flex items-center gap-1 rounded px-1.5 py-1 text-[12px] hover:bg-hover',
             activeCount ? 'text-ink' : 'text-muted',
@@ -627,20 +692,78 @@ export function FiltersSection({
                 detection would misfire and close the builder mid-interaction. */}
             <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
             <div className="absolute left-0 top-full z-50 mt-1 w-[26rem] max-w-[calc(100vw-2rem)] rounded-[var(--radius-card)] border border-border-default bg-card shadow-[0_4px_12px_rgba(15,23,41,0.08)]">
-              <FilterBuilderPanel
-                fields={fields}
-                members={members}
-                ws={ws}
-                connector={connector}
-                nodes={nodes}
-                onNodesChange={setNodes}
-                onConnectorChange={(next) => onChange(buildFilterGroup(next, nodes))}
-              />
+              {canUsePersonalScope && (
+                <FilterScopeToggle value={scope} onChange={setScope} personalActive={hasPersonalFilter} />
+              )}
+              {scope === 'global' || !canUsePersonalScope ? (
+                <FilterBuilderPanel
+                  fields={fields}
+                  members={members}
+                  ws={ws}
+                  connector={connector}
+                  nodes={nodes}
+                  onNodesChange={setNodes}
+                  onConnectorChange={(next) => onChange(buildFilterGroup(next, nodes))}
+                />
+              ) : (
+                <FilterBuilderPanel
+                  fields={fields}
+                  members={members}
+                  ws={ws}
+                  connector={personalConnector}
+                  nodes={personalNodes}
+                  onNodesChange={setPersonalNodes}
+                  onConnectorChange={(next) => persistPersonalGroup(buildFilterGroup(next, personalNodes))}
+                  personalScopeHint
+                />
+              )}
             </div>
           </>
         )}
       </span>
     </>
+  );
+}
+
+type FilterScope = 'global' | 'personal';
+
+/** Global/Personal mode switch for the filter builder (#259) — a natural
+ * extension of the existing pinned-chip / builder-popover surface, not a
+ * bolted-on control: it lives in the SAME popover, right above the SAME
+ * builder body, and just repoints which tree that body edits. */
+function FilterScopeToggle({
+  value,
+  onChange,
+  personalActive,
+}: {
+  value: FilterScope;
+  onChange: (v: FilterScope) => void;
+  personalActive: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-1 border-b border-border-default px-2 py-1.5">
+      {(
+        [
+          { key: 'global' as const, label: 'Global', hint: 'Everyone sees this' },
+          { key: 'personal' as const, label: 'Personal', hint: 'Only you see this' },
+        ]
+      ).map(({ key, label, hint }) => (
+        <button
+          key={key}
+          type="button"
+          onClick={() => onChange(key)}
+          title={hint}
+          className={cn(
+            'flex items-center gap-1 rounded-[var(--radius-control)] px-2 py-1 text-[11px] font-medium',
+            value === key ? 'bg-accent-soft text-ink' : 'text-faint hover:text-ink',
+          )}
+        >
+          {key === 'personal' && <UserRound className="h-3 w-3" />}
+          {label}
+          {key === 'personal' && personalActive && <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -697,6 +820,7 @@ function FilterBuilderPanel({
   nodes,
   onNodesChange,
   onConnectorChange,
+  personalScopeHint,
 }: {
   fields: Field[];
   members: Array<{ id: string; name: string }>;
@@ -705,6 +829,10 @@ function FilterBuilderPanel({
   nodes: FilterNode[];
   onNodesChange: (next: FilterNode[]) => void;
   onConnectorChange: (next: FilterConnector) => void;
+  /** #259 — true when this instance is editing the PERSONAL tree, not the
+   * shared view's. Swaps the copy so "no filters yet" doesn't read as if it's
+   * describing the (possibly non-empty) shared view. */
+  personalScopeHint?: boolean;
 }) {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const flat = useMemo(() => flattenFilterTree(nodes), [nodes]);
@@ -745,9 +873,19 @@ function FilterBuilderPanel({
         </a>
       </div>
 
+      {personalScopeHint && (
+        <p className="border-b border-border-default px-3 py-1.5 text-[11px] text-faint">
+          Narrows the shared view for you only — teammates keep seeing the Global filters above.
+        </p>
+      )}
+
       {nodes.length === 0 ? (
         <div className="px-3 py-6 text-center">
-          <p className="mb-2 text-[12px] text-faint">No filters yet — narrow this view down to what matters.</p>
+          <p className="mb-2 text-[12px] text-faint">
+            {personalScopeHint
+              ? 'No personal filter yet — narrow this view down further, just for you.'
+              : 'No filters yet — narrow this view down to what matters.'}
+          </p>
           <div className="flex justify-center">
             <AddFilterButton fields={fields} onAdd={addCondition} label="Add your first filter" />
           </div>

@@ -1,3 +1,5 @@
+import type { FilterNode } from '@storyos/schemas';
+
 /**
  * Shared user-preferences shape + defaults (#30/#31). Kept out of the service so
  * both the preferences API and NotificationsService (which gates delivery on the
@@ -59,12 +61,23 @@ export interface UserPreferences {
   };
   /** My Work per-database config, keyed by database id (MN-072 part 2). */
   myWork: Record<string, MyWorkDbConfig>;
+  /**
+   * Personal filter overrides (#259), keyed by view id. Narrows a shared view's
+   * results for THIS user only — layered on top of the view's own filters at
+   * query time (`{and:[shared, personal]}`, mirroring #258/calendar-view.tsx's
+   * date-window AND-wrap), never written back to the view's own ViewConfig.
+   * Reuses the SAME FilterNode AST a view's `filters` uses (packages/schemas'
+   * query.ts) rather than a forked shape — unlike `myWork.filters` above, which
+   * predates this and forked its own condition type.
+   */
+  viewFilters: Record<string, FilterNode>;
 }
 
 export const DEFAULT_PREFERENCES: UserPreferences = {
   notifications: { assigned: true, mentioned: true, commented: true, state_changed: true },
   regional: { dateFormat: 'system', timeFormat: 'system', firstDayOfWeek: 'system' },
   myWork: {},
+  viewFilters: {},
 };
 
 /** Merge a stored (possibly partial / legacy) blob over the defaults, so missing
@@ -74,10 +87,12 @@ export function mergePreferences(stored: unknown): UserPreferences {
     notifications?: Partial<UserPreferences['notifications']>;
     regional?: Partial<UserPreferences['regional']>;
     myWork?: UserPreferences['myWork'];
+    viewFilters?: UserPreferences['viewFilters'];
   };
   return {
     notifications: { ...DEFAULT_PREFERENCES.notifications, ...(s.notifications ?? {}) },
     regional: { ...DEFAULT_PREFERENCES.regional, ...(s.regional ?? {}) },
     myWork: { ...(s.myWork ?? {}) },
+    viewFilters: { ...(s.viewFilters ?? {}) },
   };
 }

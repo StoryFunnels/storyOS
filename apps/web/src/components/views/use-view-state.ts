@@ -1,16 +1,16 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import type { DatabaseDetail } from '../table-view/use-table-data';
-import { activeFilterNode, filterConditions } from './filter-config';
-import type { FilterGroup } from './filter-config';
+import { activeFilterNode, andFilterNodes, filterConditions } from './filter-config';
+import type { FilterGroup, FilterNode } from './filter-config';
 import type { NullsPlacement, SortSpec } from './sort-config';
 
-export type { FilterCondition, FilterConnector, FilterGroup } from './filter-config';
-export { buildFilterGroup, filterConditions, filterConnector, reorderConditions } from './filter-config';
+export type { FilterCondition, FilterConnector, FilterGroup, FilterNode } from './filter-config';
+export { andFilterNodes, buildFilterGroup, filterConditions, filterConnector, reorderConditions } from './filter-config';
 export type { NullsPlacement, SortSpec } from './sort-config';
 export { MAX_SORTS, directionLabel, nextSortField, reorderSorts } from './sort-config';
 
@@ -129,6 +129,11 @@ export function useViewState(
     return () => clearTimeout(timer);
   }, [draft, activeView, readOnly, saveMutate]);
 
+  // #259: the current viewer's personal filter override, layered on top of
+  // `config` at query time (queryBodyFromConfig) — kept OUT of `config`/`draft`
+  // above so it never rides the auto-save PATCH into the shared view.
+  const personalFilter = usePersonalFilter(ws, db, activeView?.id);
+
   return {
     views,
     activeView,
@@ -137,6 +142,7 @@ export function useViewState(
     patch,
     reset: () => setDraft(null),
     save: () => save.mutate(),
+    personalFilter: personalFilter.data,
   };
 }
 
@@ -235,11 +241,70 @@ export function sortsBodyFromConfig(config: ViewConfig): Record<string, unknown>
 /**
  * Builds the /records/query body from a view config (the server stays dumb).
  * Disabled clauses (MN-253 UI) and their UI-only fields never reach the query.
+ *
+ * `personalFilter` (#259) ANDs on top when present — the same top-level-AND-wrap
+ * nesting #258 and calendar-view.tsx's own date-window filter use — so a personal
+ * override narrows the shared view's results, never replaces or widens them.
  */
-export function queryBodyFromConfig(config: ViewConfig): Record<string, unknown> {
+export function queryBodyFromConfig(config: ViewConfig, personalFilter?: FilterNode): Record<string, unknown> {
   const body: Record<string, unknown> = { limit: 100 };
-  const filter = activeFilterNode(config.filters);
+  const filter = andFilterNodes(activeFilterNode(config.filters), personalFilter);
   if (filter) body.filter = filter;
   Object.assign(body, sortsBodyFromConfig(config));
   return body;
+}
+
+/**
+ * The current viewer's personal filter override for one view (#259) — a
+ * SEPARATE resource from the view's own config (a distinct endpoint, a distinct
+ * react-query cache entry), never touched by the view's own PATCH/auto-save.
+ * `undefined` viewId (e.g. no view resolved yet) short-circuits to disabled
+ * rather than firing a request with an empty path segment.
+ */
+export function usePersonalFilter(ws: string, db: string, viewId: string | undefined) {
+  return useQuery({
+    queryKey: ['personal-filter', ws, db, viewId],
+    queryFn: async () => {
+      const { data, error } = await api.GET(
+        '/api/v1/workspaces/{ws}/databases/{db}/views/{view}/personal-filter',
+        { params: { path: { ws, db, view: viewId! } } },
+      );
+      if (error) throw error;
+      return (data as unknown as { filter: FilterNode | null }).filter ?? undefined;
+    },
+    enabled: Boolean(viewId),
+  });
+}
+
+/** Sets (or replaces) the current viewer's personal filter override for one view. */
+export function useSetPersonalFilter(ws: string, db: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ viewId, filter }: { viewId: string; filter: FilterNode }) => {
+      const { data, error } = await api.PUT(
+        '/api/v1/workspaces/{ws}/databases/{db}/views/{view}/personal-filter',
+        { params: { path: { ws, db, view: viewId } }, body: { filter: filter as never } },
+      );
+      if (error) throw error;
+      return (data as unknown as { filter: FilterNode | null }).filter ?? undefined;
+    },
+    onSuccess: (filter, { viewId }) => qc.setQueryData(['personal-filter', ws, db, viewId], filter),
+    onError: () => toast.error('Could not save your personal filter'),
+  });
+}
+
+/** Clears the current viewer's personal filter override for one view. */
+export function useClearPersonalFilter(ws: string, db: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (viewId: string) => {
+      const { error } = await api.DELETE(
+        '/api/v1/workspaces/{ws}/databases/{db}/views/{view}/personal-filter',
+        { params: { path: { ws, db, view: viewId } } },
+      );
+      if (error) throw error;
+    },
+    onSuccess: (_void, viewId) => qc.setQueryData(['personal-filter', ws, db, viewId], undefined),
+    onError: () => toast.error('Could not clear your personal filter'),
+  });
 }

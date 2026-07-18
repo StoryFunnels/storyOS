@@ -14,7 +14,7 @@ import { CardFieldChip } from './board-view';
 import { CellEditor, OptionChip, richTextPreview, optionColor } from '../table-view/cells';
 import { useDatabase, useMembers, useRecordMutations, useRecordsInfinite } from '../table-view/use-table-data';
 import type { Field } from '../table-view/use-table-data';
-import type { ViewConfig } from './use-view-state';
+import type { FilterNode, ViewConfig } from './use-view-state';
 import { queryBodyFromConfig } from './use-view-state';
 import { feedActionFields } from './feed-actions';
 
@@ -26,16 +26,19 @@ export function FeedView({
   db,
   config,
   readOnly,
+  personalFilter,
 }: {
   ws: string;
   db: string;
   config: ViewConfig;
   readOnly: boolean;
+  /** #259 — narrows this view's results for the current viewer only. */
+  personalFilter?: FilterNode;
 }) {
   const database = useDatabase(ws, db);
   const router = useRouter();
   const fmt = useDateFormat();
-  const queryBody = useMemo(() => queryBodyFromConfig(config), [config]);
+  const queryBody = useMemo(() => queryBodyFromConfig(config, personalFilter), [config, personalFilter]);
   const records = useRecordsInfinite(ws, db, queryBody);
   const { updateRecord } = useRecordMutations(ws, db);
 

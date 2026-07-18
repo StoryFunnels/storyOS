@@ -101,6 +101,20 @@ export function activeFilterNode(filters: FilterGroup | undefined): unknown {
   return pruneNode(filters as FilterNode);
 }
 
+/**
+ * ANDs any number of already-active filter nodes into one, for composing a
+ * shared view's filter with a personal override (#259) — the exact
+ * top-level-AND-wrap pattern calendar-view.tsx's date-window filter already
+ * uses to nest an active filter alongside its own range conditions: a single
+ * surviving node is returned bare (no redundant wrapper), two or more nest
+ * under one `{and:[...]}`. Never invents a second composition rule.
+ */
+export function andFilterNodes(...nodes: Array<unknown | undefined>): unknown {
+  const present = nodes.filter((n) => n !== undefined);
+  if (present.length === 0) return undefined;
+  return present.length === 1 ? present[0] : { and: present };
+}
+
 function pruneNode(node: FilterNode): unknown {
   if (isFilterGroup(node)) {
     const connector = nodeConnector(node);

@@ -13,27 +13,55 @@ import { fields, relations, views } from '../db/schema';
 
 type FieldRow = typeof fields.$inferSelect;
 
+/**
+ * Recursively drops filter conditions referencing a field that no longer exists,
+ * collapsing empty groups. Pure / read-time — nothing gets written back, the same
+ * defensive-read shape every consumer of a stored filter tree has to apply. Shared
+ * by `cleanViewConfig` (a view's own filters) and the personal filter override
+ * store (#259's PreferencesService.getViewFilter) so both apply the identical rule
+ * rather than forking a second walk.
+ */
+export function cleanFilterNode(node: unknown, liveApiNames: Set<string>): unknown {
+  if (!node || typeof node !== 'object') return undefined;
+  if ('and' in (node as object) || 'or' in (node as object)) {
+    const key = 'and' in (node as object) ? 'and' : 'or';
+    const children = ((node as Record<string, unknown[]>)[key] ?? [])
+      .map((c) => cleanFilterNode(c, liveApiNames))
+      .filter(Boolean);
+    return children.length > 0 ? { [key]: children } : undefined;
+  }
+  const condition = node as { field?: string };
+  return condition.field && liveApiNames.has(condition.field) ? node : undefined;
+}
+
+/**
+ * Recursively 422s if any leaf condition references a field that isn't live.
+ * Shared by view-config validation (below) and the personal filter override
+ * store (#259), so both enforce the identical rule rather than forking a second
+ * walk.
+ */
+export function assertFilterFieldsLive(node: unknown, liveApiNames: Set<string>): void {
+  if (!node || typeof node !== 'object') return;
+  if ('and' in (node as object) || 'or' in (node as object)) {
+    const children =
+      ((node as Record<string, unknown[]>)['and'] ?? (node as Record<string, unknown[]>)['or']) ?? [];
+    children.forEach((c) => assertFilterFieldsLive(c, liveApiNames));
+    return;
+  }
+  const field = (node as { field?: string }).field;
+  if (field && !liveApiNames.has(field)) {
+    throw new UnprocessableEntityException(`unknown field "${field}" in filter`);
+  }
+}
+
 /** Drops references to fields that no longer exist (defensive read, C-series ACs). */
 export function cleanViewConfig(
   config: ViewConfig,
   liveFieldIds: Set<string>,
   liveApiNames: Set<string>,
 ): ViewConfig {
-  const cleanFilters = (node: unknown): unknown => {
-    if (!node || typeof node !== 'object') return undefined;
-    if ('and' in (node as object) || 'or' in (node as object)) {
-      const key = 'and' in (node as object) ? 'and' : 'or';
-      const children = ((node as Record<string, unknown[]>)[key] ?? [])
-        .map(cleanFilters)
-        .filter(Boolean);
-      return children.length > 0 ? { [key]: children } : undefined;
-    }
-    const condition = node as { field?: string };
-    return condition.field && liveApiNames.has(condition.field) ? node : undefined;
-  };
-
   return {
-    filters: config.filters ? (cleanFilters(config.filters) as ViewConfig['filters']) : undefined,
+    filters: config.filters ? (cleanFilterNode(config.filters, liveApiNames) as ViewConfig['filters']) : undefined,
     sorts: (config.sorts ?? []).filter((s) => liveApiNames.has(s.field)),
     hidden_field_ids: (config.hidden_field_ids ?? []).filter((id) => liveFieldIds.has(id)),
     group_by_field_id:
@@ -124,21 +152,7 @@ export class ViewsService {
       if (!byId.has(id)) throw new UnprocessableEntityException(`unknown field id "${id}" in view config`);
     }
 
-    const checkFilterNames = (node: unknown): void => {
-      if (!node || typeof node !== 'object') return;
-      if ('and' in (node as object) || 'or' in (node as object)) {
-        const children =
-          ((node as Record<string, unknown[]>)['and'] ??
-            (node as Record<string, unknown[]>)['or']) ?? [];
-        children.forEach(checkFilterNames);
-        return;
-      }
-      const field = (node as { field?: string }).field;
-      if (field && !apiNames.has(field)) {
-        throw new UnprocessableEntityException(`unknown field "${field}" in view filters`);
-      }
-    };
-    if (config.filters) checkFilterNames(config.filters);
+    if (config.filters) assertFilterFieldsLive(config.filters, apiNames);
     for (const sort of config.sorts ?? []) {
       if (!apiNames.has(sort.field)) {
         throw new UnprocessableEntityException(`unknown sort field "${sort.field}" in view config`);
