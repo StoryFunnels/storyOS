@@ -78,6 +78,26 @@ export const envSchema = z.object({
     .positive()
     .default(process.env.NODE_ENV === 'test' ? 1_000_000 : 300),
   /**
+   * MN-257 — better-auth's sign-in routes are mounted directly on the raw
+   * Fastify instance (see mountAuthHandler in app.setup.ts), bypassing Nest's
+   * guard chain entirely, including ApiThrottlerGuard. These two env vars
+   * bound the app-level backstop applied in src/auth/auth-rate-limit.ts.
+   * Test default is effectively unlimited, same convention as
+   * RATE_LIMIT_PER_MINUTE above — individual test files that need to actually
+   * reach the limit override it via process.env before the app module import
+   * (see test/helpers/auth-rate-limit.ts).
+   */
+  AUTH_SIGNIN_RATE_LIMIT_MAX: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(process.env.NODE_ENV === 'test' ? 1_000_000 : 10),
+  AUTH_SIGNIN_RATE_LIMIT_WINDOW_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(60_000),
+  /**
    * Containers run migrations on boot (MN-031); dev uses pnpm db:migrate.
    *
    * NOT z.coerce.boolean(): that wraps JS's Boolean(), and Boolean("false") is

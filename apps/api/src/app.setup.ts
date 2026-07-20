@@ -1,9 +1,11 @@
 import multipart from '@fastify/multipart';
 import type { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
+import { ThrottlerStorage } from '@nestjs/throttler';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { AUTH } from './auth/auth.tokens';
 import type { Auth } from './auth/auth';
 import { toWebHeaders } from './auth/auth.guard';
+import { checkSignInRateLimit, isSignInPath } from './auth/auth-rate-limit';
 import { env } from './config/env';
 import { GITHUB_WEBHOOK_PATH } from './integrations/github-webhook.service';
 import { BILLING_WEBHOOK_PATH } from './billing/billing.controller';
@@ -87,12 +89,31 @@ function registerRawBodyJsonParser(app: NestFastifyApplication) {
 /** Bridges Fastify to better-auth's WHATWG Request/Response handler. */
 function mountAuthHandler(app: NestFastifyApplication) {
   const auth = app.get<Auth>(AUTH);
+  const throttlerStorage = app.get<ThrottlerStorage>(ThrottlerStorage);
   const fastify = app.getHttpAdapter().getInstance();
 
   fastify.route({
     method: ['GET', 'POST'],
     url: '/api/v1/auth/*',
     handler: async (request, reply) => {
+      // MN-257: better-auth's routes bypass Nest's guard chain (ApiThrottlerGuard
+      // included), so sign-in gets its own rate-limit check here — see
+      // src/auth/auth-rate-limit.ts for the keying rationale.
+      const path = request.url.split('?')[0] ?? '';
+      if (isSignInPath(path)) {
+        const { allowed, retryAfterSeconds } = await checkSignInRateLimit(throttlerStorage, request);
+        if (!allowed) {
+          reply.header('retry-after', String(retryAfterSeconds));
+          return reply.status(429).send({
+            error: {
+              code: 'rate_limited',
+              message: 'Too many sign-in attempts. Please try again later.',
+              request_id: String(request.id ?? 'unknown'),
+            },
+          });
+        }
+      }
+
       const url = new URL(request.raw.url ?? '/', env().API_URL);
       const body =
         request.body && request.method !== 'GET' ? JSON.stringify(request.body) : undefined;
