@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { OPTION_COLORS } from '@/components/table-view/cells';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-import { ICON_BY_NAME, ICON_CATEGORIES, ICON_SET, ICON_SET_PREFIX, type IconCategory, setIconName } from './icon-set';
+import { ICON_BY_NAME, ICON_CATEGORIES, ICON_SET, ICON_SET_PREFIX, type IconCategory, isSetIconRef, setIconName } from './icon-set';
 
 export const COLOR_NAMES = Object.keys(OPTION_COLORS);
 
@@ -228,7 +228,10 @@ export function EntityIcon({
       </span>
     );
   }
-  if (icon) {
+  // A `set:` ref that failed to resolve above (a stale/unknown curated name —
+  // e.g. from data predating a set rename) is NOT a legacy emoji glyph and
+  // must never render as visible text; fall through to `fallback` instead.
+  if (icon && !isSetIconRef(icon)) {
     return (
       <span
         className={cn(
