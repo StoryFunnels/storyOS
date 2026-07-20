@@ -69,12 +69,13 @@ function callNotifyMentions(
   authorId: string,
   mentionIds: string[],
   body: CommentSegment[],
+  workspaceId = 'ws1', // MN-194 — notifyMentions now takes workspaceId (cost attribution)
 ): Promise<void> {
   return (
     service as unknown as {
-      notifyMentions: (r: string, a: string, m: string[], b: CommentSegment[]) => Promise<void>;
+      notifyMentions: (w: string, r: string, a: string, m: string[], b: CommentSegment[]) => Promise<void>;
     }
-  ).notifyMentions(recordId, authorId, mentionIds, body);
+  ).notifyMentions(workspaceId, recordId, authorId, mentionIds, body);
 }
 
 describe('CommentsService — mention email send point (MN-103)', () => {

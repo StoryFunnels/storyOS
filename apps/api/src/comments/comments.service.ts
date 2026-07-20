@@ -140,7 +140,7 @@ export class CommentsService {
       return comment!;
     });
 
-    if (mentions.length > 0) await this.notifyMentions(recordId, authorId, mentions, body);
+    if (mentions.length > 0) await this.notifyMentions(workspaceId, recordId, authorId, mentions, body);
 
     // MN-049: in-app notifications — mentions first, then the rest of the thread.
     const snippet = body
@@ -176,6 +176,7 @@ export class CommentsService {
   }
 
   private async notifyMentions(
+    workspaceId: string,
     recordId: string,
     authorId: string,
     mentionIds: string[],
@@ -197,14 +198,17 @@ export class CommentsService {
       // (NotificationsService.filterByPreference) doubles as the v1 email
       // opt-out — no separate unsubscribe flag/table needed for this ticket.
       if (prefs.get(target.id)?.mentioned === false) continue;
-      await this.emailService.send({
-        kind: 'mention',
-        to: target.email,
-        actorName: author?.name ?? 'Someone',
-        recordTitle: record?.title ?? 'a record',
-        excerpt,
-        url: `${env().WEB_URL}/r/${recordId}`,
-      });
+      await this.emailService.send(
+        {
+          kind: 'mention',
+          to: target.email,
+          actorName: author?.name ?? 'Someone',
+          recordTitle: record?.title ?? 'a record',
+          excerpt,
+          url: `${env().WEB_URL}/r/${recordId}`,
+        },
+        workspaceId, // MN-194 — attributes this send's cost to the mentioning workspace
+      );
     }
   }
 
