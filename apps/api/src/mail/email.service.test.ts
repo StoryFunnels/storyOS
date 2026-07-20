@@ -13,6 +13,8 @@ const mockEnv = vi.mocked(env);
 function envWith(overrides: Partial<Env>): Env {
   return {
     MAIL_FROM: 'StoryOS <noreply@storyos.dev>',
+    // MN-147: renderEmail's branded HTML shell links the wordmark/footer to WEB_URL.
+    WEB_URL: 'http://localhost:3000',
     SMTP_PORT: 1025,
     ...overrides,
   } as Env;
@@ -26,28 +28,28 @@ describe('EmailService — driver selection (MN-103)', () => {
   it('prefers the Resend HTTP driver when RESEND_API_KEY is set', () => {
     mockEnv.mockReturnValue(envWith({ RESEND_API_KEY: 're_test_key' }));
     const service = new EmailService();
-    void service.send({ kind: 'invite', to: 'a@b.com', role: 'member', acceptUrl: 'https://x/y' });
+    void service.send({ kind: 'invite', to: 'a@b.com', role: 'member', acceptUrl: 'https://x/y', workspaceName: 'Acme Co' });
     expect(service.driver).toBeInstanceOf(ResendMailDriver);
   });
 
   it('falls back to the existing SMTP transport when RESEND_API_KEY is unset', () => {
     mockEnv.mockReturnValue(envWith({ SMTP_HOST: 'localhost' }));
     const service = new EmailService();
-    void service.send({ kind: 'invite', to: 'a@b.com', role: 'member', acceptUrl: 'https://x/y' });
+    void service.send({ kind: 'invite', to: 'a@b.com', role: 'member', acceptUrl: 'https://x/y', workspaceName: 'Acme Co' });
     expect(service.driver).toBeInstanceOf(SmtpMailDriver);
   });
 
   it('falls back to logging — never crashes — with neither configured (dev default)', () => {
     mockEnv.mockReturnValue(envWith({}));
     const service = new EmailService();
-    void service.send({ kind: 'invite', to: 'a@b.com', role: 'member', acceptUrl: 'https://x/y' });
+    void service.send({ kind: 'invite', to: 'a@b.com', role: 'member', acceptUrl: 'https://x/y', workspaceName: 'Acme Co' });
     expect(service.driver).toBeInstanceOf(LogMailDriver);
   });
 
   it('picks Resend over SMTP when both are configured', () => {
     mockEnv.mockReturnValue(envWith({ RESEND_API_KEY: 're_test_key', SMTP_HOST: 'localhost' }));
     const service = new EmailService();
-    void service.send({ kind: 'invite', to: 'a@b.com', role: 'member', acceptUrl: 'https://x/y' });
+    void service.send({ kind: 'invite', to: 'a@b.com', role: 'member', acceptUrl: 'https://x/y', workspaceName: 'Acme Co' });
     expect(service.driver).toBeInstanceOf(ResendMailDriver);
   });
 });
@@ -71,7 +73,7 @@ describe('EmailService.send (MN-103)', () => {
     service.driver = stalledDriver;
 
     const started = Date.now();
-    await service.send({ kind: 'invite', to: 'a@b.com', role: 'member', acceptUrl: 'https://x/y' });
+    await service.send({ kind: 'invite', to: 'a@b.com', role: 'member', acceptUrl: 'https://x/y', workspaceName: 'Acme Co' });
     expect(Date.now() - started).toBeLessThan(50); // send() itself never awaited the stalled driver
 
     releaseDriver?.(); // avoid an unresolved-promise leak between tests
@@ -88,13 +90,13 @@ describe('EmailService.send (MN-103)', () => {
     const service = new EmailService();
     service.driver = driver;
 
-    await service.send({ kind: 'invite', to: 'new@example.com', role: 'admin', acceptUrl: 'https://x/invite' });
+    await service.send({ kind: 'invite', to: 'new@example.com', role: 'admin', acceptUrl: 'https://x/invite', workspaceName: 'Acme Co' });
     // fire-and-forget: give the microtask queue a turn so the (already-started) send lands
     await Promise.resolve();
 
     expect(calls).toHaveLength(1);
     expect(calls[0]!.to).toBe('new@example.com');
-    expect(calls[0]!.subject).toMatch(/invited to StoryOS/i);
+    expect(calls[0]!.subject).toMatch(/invited to Acme Co/i);
     expect(calls[0]!.text).toContain('https://x/invite');
   });
 
@@ -109,7 +111,7 @@ describe('EmailService.send (MN-103)', () => {
     service.driver = failingDriver;
 
     await expect(
-      service.send({ kind: 'invite', to: 'a@b.com', role: 'member', acceptUrl: 'https://x/y' }),
+      service.send({ kind: 'invite', to: 'a@b.com', role: 'member', acceptUrl: 'https://x/y', workspaceName: 'Acme Co' }),
     ).resolves.toBeUndefined();
     await Promise.resolve(); // let the rejected promise's .catch() run before the test ends
   });

@@ -11,7 +11,10 @@ import { InvitesService } from './invites.service';
  * insert or update, both `.returning()`-ing the created/updated row. */
 function makeDb(existingInvite?: { id: string; email: string; role: string }) {
   const db = {
-    query: { invites: { findFirst: vi.fn().mockResolvedValue(existingInvite) } },
+    query: {
+      invites: { findFirst: vi.fn().mockResolvedValue(existingInvite) },
+      workspaces: { findFirst: vi.fn().mockResolvedValue({ id: 'ws1', name: 'Acme Co' }) },
+    },
     insert: () => ({
       values: (v: Record<string, unknown>) => ({
         returning: async () => [{ id: 'inv1', email: v.email, role: v.role }],
@@ -49,6 +52,7 @@ describe('InvitesService.create — the invite email send point (MN-103)', () =>
       to: 'new@example.com',
       role: 'member',
       acceptUrl: result.accept_url,
+      workspaceName: 'Acme Co',
     });
     expect(result.accept_url).toMatch(/\/invite\?token=/);
   });
