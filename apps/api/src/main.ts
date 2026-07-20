@@ -6,6 +6,7 @@ import { AppModule } from './app.module';
 import { configureApp } from './app.setup';
 import { env } from './config/env';
 import { buildOpenApiDocument } from './openapi.setup';
+import { PlatformAdminService } from './admin/platform-admin.service';
 
 async function runMigrations() {
   const { Pool } = await import('pg');
@@ -41,6 +42,11 @@ async function bootstrap() {
   app.useLogger(app.get(Logger));
   configureApp(app);
   app.enableShutdownHooks();
+
+  const platformAdminEmail = env().PLATFORM_ADMIN_EMAIL;
+  if (platformAdminEmail) {
+    await app.get(PlatformAdminService).seedFromEnv(platformAdminEmail);
+  }
 
   const document = buildOpenApiDocument(app);
   app

@@ -938,3 +938,17 @@ export const entitlementOverrideEvents = pgTable(
   },
   (t) => [index('entitlement_override_events_workspace_idx').on(t.workspaceId, t.createdAt)],
 );
+
+/**
+ * MN-104 — the instance operator flag. NOT a column on `user`: better-auth
+ * owns that table (see auth-schema.ts's own comment) and app columns don't
+ * belong on it. Presence of a row = platform admin; this is a small,
+ * append-and-delete table, not a boolean anyone flips on a user record.
+ * `grantedBy` is null for the env-seeded first operator (nobody granted it —
+ * it came from PLATFORM_ADMIN_EMAIL at boot).
+ */
+export const platformAdmins = pgTable('platform_admins', {
+  userId: text('user_id').primaryKey(),
+  grantedBy: text('granted_by'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
