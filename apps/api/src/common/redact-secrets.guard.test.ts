@@ -77,6 +77,10 @@ const DECLARED_SAFE: Record<string, string> = {
   // deliberate: the admin UI reads it back to build the share link. If view config
   // ever starts flowing through redactSecrets, that link breaks and this comment is
   // the reason why.
+  tokensIn:
+    'apps/api/src/agents/agents.service.ts (MN-188) — a token *count* for StoryOS-AI run cost/credit metering, not a credential',
+  tokensOut:
+    'apps/api/src/agents/agents.service.ts (MN-188) — a token *count* for StoryOS-AI run cost/credit metering, not a credential',
 };
 
 function propertyNames(): Map<string, Set<string>> {
