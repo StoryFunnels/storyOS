@@ -5168,6 +5168,46 @@
           "gdpr"
         ]
       }
+    },
+    "/api/v1/admin/overview": {
+      "get": {
+        "operationId": "AdminController_getOverview",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Instance-wide counts: workspaces, users, records, plan mix, estimated MRR.",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/workspaces": {
+      "get": {
+        "operationId": "AdminController_listWorkspaces",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Every workspace on the instance: plan, seats, record count.",
+        "tags": [
+          "admin"
+        ]
+      }
     }
   },
   "info": {
