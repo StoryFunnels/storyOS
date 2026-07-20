@@ -64,6 +64,15 @@ export const envSchema = z.object({
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
   MAIL_FROM: z.string().default('StoryOS <noreply@storyos.local>'),
+  /**
+   * Transactional email via Resend's HTTP API (MN-103) — invitations, mention
+   * notifications, and better-auth's verification/reset mail. Preferred over
+   * SMTP_HOST when both are set. Unset (every self-host, and any dev box that
+   * hasn't wired Resend) falls back to SMTP_HOST if that's configured, else
+   * emails are logged instead of sent — same "never crash" degrade the mailer
+   * has always had.
+   */
+  RESEND_API_KEY: z.string().optional(),
   /** OAuth for the hosted MCP (MN-154). Off by default; requires the oidc tables migrated.
    * When on, better-auth acts as the OAuth authorization server for MCP connectors. PATs
    * keep working either way. */

@@ -30,7 +30,8 @@ Set in `.env` next to `docker-compose.yml`. Only `BETTER_AUTH_SECRET` is require
 | `POSTGRES_PASSWORD` | `storyos` | change for anything internet-facing |
 | `API_URL` / `WEB_URL` | `http://localhost:3001` / `:3000` | set BOTH to your public URL (same origin), e.g. `https://os.example.com` |
 | `HTTP_PORT` / `HTTPS_PORT` | `80` / `443` | host ports of the caddy proxy |
-| `SMTP_HOST/PORT/USER/PASS`, `MAIL_FROM` | unset | invites/mentions/resets email; without SMTP, invite links are copyable in the UI and other emails are logged. Any SMTP provider works (e.g. Resend: `smtp.resend.com`, user `resend`, pass `re_…`) |
+| `RESEND_API_KEY`, `MAIL_FROM` | unset | invites/mentions/notifications/auth verify+reset email via Resend's HTTP API (MN-103) — the preferred path. Without it (and without `SMTP_HOST` below), invite links are copyable in the UI and other emails are logged instead of sent. |
+| `SMTP_HOST/PORT/USER/PASS` | unset | fallback transport, used only when `RESEND_API_KEY` is unset. Any SMTP provider works (e.g. Resend's own relay: `smtp.resend.com`, user `resend`, pass `re_…`) |
 | `GOOGLE_CLIENT_ID/SECRET` | unset | enables "Continue with Google". Redirect URI: `{API_URL}/api/v1/auth/callback/google` |
 | `STORAGE_DRIVER` | `local` | `s3` for MinIO/S3/R2 |
 | `S3_ENDPOINT/BUCKET/ACCESS_KEY/SECRET_KEY` | MinIO defaults | with `--profile minio` the bundled MinIO works out of the box (create the bucket once via the console at :9001) |

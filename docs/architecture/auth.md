@@ -39,6 +39,10 @@ One Nest `AuthGuard` resolves identity from either (a) better-auth session cooki
 - Cross-space relation chips on visible records render **name-only and non-navigable** (small, accepted leak in exchange for coherent UX; revisit if a customer objects).
 - Guests are not mentionable in v1.
 
-## Email (SMTP)
+## Email (MN-103)
 
-Optional env config. When absent: invites fall back to copyable links; mention/invite emails are skipped and admins see a banner ("Email not configured"). A test-send button lives in workspace settings.
+`EmailService` (`apps/api/src/mail`) is the single send point for invitations, @mention notifications, and better-auth's own verification/reset hooks. A small render function per email kind (`mail/templates.ts`) sits behind an `EmailInput → {subject, html, text}` contract, so branded HTML (a later, separate ticket) can replace that layer without touching call sites.
+
+Driver selection, in order: `RESEND_API_KEY` (Resend's HTTP API) → `SMTP_HOST` (nodemailer, e.g. Resend's own SMTP relay) → log-only. All optional — with neither configured, invite links stay copyable in the UI and every other email is logged instead of sent, so self-hosting needs no mail provider to work. Sending is fire-and-forget: a delivery failure is caught and logged, never allowed to fail the request that triggered it.
+
+A recipient's existing "Mentions" notification toggle (personal preferences) also gates the mention email — turning it off silences both the in-app notification and the email.
