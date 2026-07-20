@@ -39,6 +39,18 @@ export const SEAT_LOOKUP_KEY = 'storyos_seat_v1';
 export const AI_CREDIT_MARKUP_MULTIPLIER = 10;
 export const AI_CREDIT_MIN_TOPUP_USD = 10;
 
+/**
+ * MN-188 ("StoryOS AI runs decrement prepaid credits") — a flat, honestly-
+ * labeled placeholder for what a completed StoryOS-AI run costs, charged via
+ * AiCreditsService.recordUsage until MN-214r's managed/BYO drivers exist and
+ * can report real token counts. Per-run cost attribution (the OTHER half of
+ * MN-188) is explicitly blocked on that real runtime — this constant is not an
+ * attempt to fake that precision, just the one honest number available today
+ * so the ledger isn't silently skipped. Revisit (delete) the moment
+ * ManagedAiRuntime yields real tokensIn/tokensOut.
+ */
+export const STORYOS_AI_RUN_PLACEHOLDER_COST_CENTS = 1;
+
 export const PLANS: Record<PlanId, PlanDef> = {
   free: { id: 'free', name: 'Free', priceUsd: 0, includedSeats: 2, automationRuns: 100 },
   pro: {

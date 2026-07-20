@@ -15,6 +15,8 @@ import type { Membership } from '../workspaces/workspace-access.guard';
 import { AutomationActionsService } from '../automations/actions.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { EntitlementsService } from '../billing/entitlements.service';
+import { AiCreditsService } from '../billing/ai-credits.service';
+import { AI_CREDIT_MARKUP_MULTIPLIER, STORYOS_AI_RUN_PLACEHOLDER_COST_CENTS } from '../billing/plans';
 import { deriveAgentPrincipal, scopeForRole } from './agent-principal';
 import {
   pickRuntime,
@@ -113,6 +115,8 @@ export class AgentsService {
     private readonly notifications: NotificationsService,
     /** MN-168: the non-AI allowance a run_class='non_ai' run is checked and counted against. */
     private readonly entitlements: EntitlementsService,
+    /** MN-188/MN-189: the prepaid-credit ledger a run_class='storyos_ai' run decrements. */
+    private readonly aiCredits: AiCreditsService,
   ) {}
 
   /**
@@ -397,6 +401,56 @@ export class AgentsService {
     };
   }
 
+  /**
+   * MN-188 — the other half of MN-189's ledger: decrement prepaid credits for
+   * a completed StoryOS-AI run, via AiCreditsService.recordUsage (never a
+   * parallel mechanism). Called from both places a run can reach a final,
+   * successful outcome: the immediate Succeeded path in dispatchRun, and the
+   * approve path in resolveGate (a storyos_ai run can stage a gated action
+   * exactly like a non_ai one can).
+   *
+   * Idempotent per run: guarded by the Run's own `cost` field. That field is
+   * set in the very same call that charges the ledger, so re-invoking this
+   * for a run that already has a `cost` is a no-op — mirrors how
+   * `pending_action` being cleared guards resolveGate's approve branch against
+   * a replay. This re-reads the run rather than trusting the caller's
+   * (possibly stale) copy, so calling it twice in a row for the same run id
+   * only ever decrements once.
+   *
+   * The cost charged is STORYOS_AI_RUN_PLACEHOLDER_COST_CENTS — a flat,
+   * honestly-labeled placeholder. ManagedAiRuntime (MN-214r) is still a stub
+   * with no real token counts to attribute, so tokensIn/tokensOut are
+   * recorded as 0 rather than invented. Swap this for real usage the moment a
+   * real managed/BYO-driven run reports it.
+   */
+  private async chargeStoryOsAiRun(
+    workspaceId: string,
+    runsDbId: string,
+    run: ProjectedRecord,
+    actorId: string,
+  ): Promise<ProjectedRecord> {
+    const current = await this.recordsService.get(runsDbId, run.id);
+    if (current.values['cost'] != null) return current; // already charged — idempotent no-op
+
+    const ourCostCents = STORYOS_AI_RUN_PLACEHOLDER_COST_CENTS;
+    const creditsChargedCents = ourCostCents * AI_CREDIT_MARKUP_MULTIPLIER;
+
+    await this.aiCredits.recordUsage(workspaceId, {
+      tokensIn: 0, // unknown until MN-214r's runtime reports real usage
+      tokensOut: 0,
+      ourCostCents,
+      creditsChargedCents,
+    });
+
+    return this.recordsService.update(
+      workspaceId,
+      runsDbId,
+      run.id,
+      { cost: creditsChargedCents },
+      actorId,
+    );
+  }
+
   /** Resolve an agent record by uuid or public number (MN-087 pretty handles). */
   private async resolveAgent(agentsDbId: string, ref: string): Promise<ProjectedRecord> {
     if (UUID_RE.test(ref)) return this.recordsService.get(agentsDbId, ref);
@@ -617,6 +671,11 @@ export class AgentsService {
     // non_ai — mirrors automations.service.ts's choice not to charge the
     // allowance for a run that errored out before doing anything useful.
     if (!failure && runtime.runClass === 'non_ai') await this.entitlements.recordNonAiRun(workspaceId);
+    // MN-188: the storyos_ai mirror of the above — only a run that actually
+    // succeeded is charged. A run that errored out cost nothing worth billing.
+    if (!failure && runtime.runClass === 'storyos_ai') {
+      run = await this.chargeStoryOsAiRun(workspaceId, runsDb.id, run, actorId);
+    }
     return run;
   }
 
@@ -774,7 +833,7 @@ export class AgentsService {
       });
     }
 
-    const resolved = await this.recordsService.update(
+    let resolved = await this.recordsService.update(
       membership.workspaceId,
       runsDb.id,
       run.id,
@@ -790,14 +849,16 @@ export class AgentsService {
       actorId,
     );
 
-    // MN-168: an approved run only truly succeeds now, so this is where a
-    // staged non_ai run counts — not at staging time. run_class was already
-    // stamped at dispatch (before this gate ever existed), so this only reads
-    // it back; it never re-classifies.
+    // MN-168/MN-188: an approved run only truly succeeds now, so this is where
+    // a staged non_ai run counts, or a staged storyos_ai run is charged — not
+    // at staging time. run_class was already stamped at dispatch (before this
+    // gate ever existed), so this only reads it back; it never re-classifies.
     if (verdict === 'approve') {
       const runClassIds = await this.optionIdsByLabel(runsDb.id, 'run_class');
       if (run.values['run_class'] === runClassIds.get('Non-AI')) {
         await this.entitlements.recordNonAiRun(membership.workspaceId);
+      } else if (run.values['run_class'] === runClassIds.get('StoryOS AI')) {
+        resolved = await this.chargeStoryOsAiRun(membership.workspaceId, runsDb.id, resolved, actorId);
       }
     }
     return resolved;
