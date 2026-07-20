@@ -11,7 +11,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { createHash, randomBytes } from 'node:crypto';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { invites, memberships } from '../db/schema';
+import { invites, memberships, workspaces } from '../db/schema';
 import { AccessService } from '../access/access.service';
 import type { GrantInput } from '../access/access.service';
 import { env } from '../config/env';
@@ -86,7 +86,16 @@ export class InvitesService {
           .returning();
 
     const acceptUrl = `${env().WEB_URL}/invite?token=${token}`;
-    await this.emailService.send({ kind: 'invite', to: email, role: input.role, acceptUrl });
+    // MN-147: the branded invite email's subject/heading name the workspace —
+    // a cheap extra lookup on the (uncommon, admin-triggered) invite path.
+    const workspace = await this.db.query.workspaces.findFirst({ where: eq(workspaces.id, workspaceId) });
+    await this.emailService.send({
+      kind: 'invite',
+      to: email,
+      role: input.role,
+      acceptUrl,
+      workspaceName: workspace?.name ?? 'StoryOS',
+    });
 
     // accept_url returned so admins can copy-share it when SMTP is absent (A2).
     return { id: invite!.id, email: invite!.email, role: invite!.role, accept_url: acceptUrl };

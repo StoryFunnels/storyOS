@@ -5,7 +5,7 @@
  * (branded HTML) can swap that layer out without touching any call site below.
  */
 export type EmailInput =
-  | { kind: 'invite'; to: string; role: string; acceptUrl: string }
+  | { kind: 'invite'; to: string; role: string; acceptUrl: string; workspaceName: string }
   | {
       kind: 'mention';
       to: string;

@@ -39,9 +39,9 @@ One Nest `AuthGuard` resolves identity from either (a) better-auth session cooki
 - Cross-space relation chips on visible records render **name-only and non-navigable** (small, accepted leak in exchange for coherent UX; revisit if a customer objects).
 - Guests are not mentionable in v1.
 
-## Email (MN-103)
+## Email (MN-103, MN-147)
 
-`EmailService` (`apps/api/src/mail`) is the single send point for invitations, @mention notifications, and better-auth's own verification/reset hooks. A small render function per email kind (`mail/templates.ts`) sits behind an `EmailInput → {subject, html, text}` contract, so branded HTML (a later, separate ticket) can replace that layer without touching call sites.
+`EmailService` (`apps/api/src/mail`) is the single send point for invitations, @mention notifications, and better-auth's own verification/reset hooks. A small render function per email kind (`mail/templates.ts`) sits behind an `EmailInput → {subject, html, text}` contract, so the branded HTML layer (MN-147) could replace the plain-text shell without touching call sites. Each rendered email is StoryOS's branded, table-based HTML shell — cream/navy palette, a text wordmark, a CTA button, a `prefers-color-scheme: dark` override, and a plain-text `multipart/alternative` fallback — plus a matching plain-text version for clients/deliverability checks that prefer it. Caller-supplied strings (workspace names, display names, record titles/excerpts) are HTML-escaped before they reach the template; StoryOS's own static copy/markup is not.
 
 Driver selection, in order: `RESEND_API_KEY` (Resend's HTTP API) → `SMTP_HOST` (nodemailer, e.g. Resend's own SMTP relay) → log-only. All optional — with neither configured, invite links stay copyable in the UI and every other email is logged instead of sent, so self-hosting needs no mail provider to work. Sending is fire-and-forget: a delivery failure is caught and logged, never allowed to fail the request that triggered it.
 
