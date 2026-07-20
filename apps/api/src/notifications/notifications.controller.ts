@@ -28,6 +28,9 @@ export class NotificationsController {
       'state_changed',
       // #210: filterable like any other type, though it is never opt-out-able.
       'approval_requested',
+      // #263: bare billing/system reminders, also never opt-out-able.
+      'trial_reminder_23',
+      'trial_reminder_29',
     ]);
     return this.notifications.list(req.membership.workspaceId, req.user.id, unreadOnly === 'true', cursor, {
       type: type && allowed.has(type) ? (type as NotificationType) : undefined,

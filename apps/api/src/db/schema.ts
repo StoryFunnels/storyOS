@@ -761,6 +761,17 @@ export const billingSubscriptions = pgTable('billing_subscriptions', {
   currentPeriodEnd: timestamp('current_period_end', { withTimezone: true }),
   /** Set for the 30-day no-card Pro trial (MN-192); drives auto-downgrade to Free. */
   trialEndsAt: timestamp('trial_ends_at', { withTimezone: true }),
+  /**
+   * Dedup markers for the day-23/day-29 proactive trial-expiry reminders
+   * (#263). One row per workspace already carries `trialEndsAt`, so a
+   * nullable timestamp per milestone here is the natural home for the
+   * claim — no separate log table needed. TrialRemindersService claims a
+   * milestone with an atomic `UPDATE ... WHERE <column> IS NULL RETURNING`
+   * before sending anything, the same claim-then-act shape `billingEvents`
+   * uses for webhook ids, so a duplicate/overlapping sweep tick is a no-op.
+   */
+  trialReminder23SentAt: timestamp('trial_reminder_23_sent_at', { withTimezone: true }),
+  trialReminder29SentAt: timestamp('trial_reminder_29_sent_at', { withTimezone: true }),
   ...timestamps,
 });
 

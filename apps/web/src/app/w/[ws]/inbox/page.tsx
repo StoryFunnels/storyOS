@@ -154,17 +154,20 @@ export default function InboxPage() {
               )}
               <span className="min-w-0 flex-1">
                 <span className="block text-[13px] text-ink">
-                  <span className="font-medium">{n.actor?.name ?? 'Someone'}</span> {NOTIFICATION_VERBS[n.type]}
+                  {/* Bare notifications (#263) have no actor — a person didn't do this, StoryOS did. */}
+                  <span className="font-medium">{n.actor?.name ?? (n.record ? 'Someone' : 'StoryOS')}</span>{' '}
+                  {NOTIFICATION_VERBS[n.type]}
                   {n.count > 1 ? ` · ${n.count}×` : ''}
                 </span>
-                <span
-                  className={cn(
-                    'block truncate text-[12px]',
-                    n.record?.deleted ? 'text-faint line-through' : 'text-muted',
-                  )}
-                >
-                  {n.record?.title || 'Untitled'} · {n.record?.database_name}
-                </span>
+                {n.record ? (
+                  <span
+                    className={cn('block truncate text-[12px]', n.record.deleted ? 'text-faint line-through' : 'text-muted')}
+                  >
+                    {n.record.title || 'Untitled'} · {n.record.database_name}
+                  </span>
+                ) : (
+                  n.snippet && <span className="block truncate text-[12px] text-muted">{n.snippet}</span>
+                )}
               </span>
               <span className="text-[11px] text-faint">{relativeTime(n.created_at)}</span>
             </button>
@@ -193,7 +196,9 @@ export default function InboxPage() {
                   )}
                   <div>
                     <p className="text-[14px] text-ink">
-                      <span className="font-medium">{selected.actor?.name ?? 'Someone'}</span>{' '}
+                      <span className="font-medium">
+                        {selected.actor?.name ?? (selected.record ? 'Someone' : 'StoryOS')}
+                      </span>{' '}
                       {NOTIFICATION_VERBS[selected.type]}
                     </p>
                     <p className="text-[12px] text-faint">{relativeTime(selected.created_at)} ago</p>
@@ -219,12 +224,19 @@ export default function InboxPage() {
               </div>
 
               <div className="rounded-[var(--radius-card)] border border-border-default bg-card p-4">
-                <p className="text-[13px] font-medium text-ink">
-                  {selected.record?.title || 'Untitled'}
-                </p>
-                <p className="text-[12px] text-muted">{selected.record?.database_name}</p>
+                {selected.record && (
+                  <>
+                    <p className="text-[13px] font-medium text-ink">{selected.record.title || 'Untitled'}</p>
+                    <p className="text-[12px] text-muted">{selected.record.database_name}</p>
+                  </>
+                )}
                 {selected.snippet && (
-                  <p className="mt-2 border-t border-border-default pt-2 text-[13px] text-ink-secondary">
+                  <p
+                    className={cn(
+                      'text-[13px] text-ink-secondary',
+                      selected.record && 'mt-2 border-t border-border-default pt-2',
+                    )}
+                  >
                     {selected.snippet}
                   </p>
                 )}

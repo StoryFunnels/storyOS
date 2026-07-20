@@ -1,0 +1,2 @@
+ALTER TABLE "billing_subscriptions" ADD COLUMN "trial_reminder_23_sent_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "billing_subscriptions" ADD COLUMN "trial_reminder_29_sent_at" timestamp with time zone;

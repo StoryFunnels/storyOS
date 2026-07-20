@@ -15,7 +15,15 @@ export type NotificationType =
    * An agent run staged a gated action and is waiting on its owner (#210,
    * ADR-0010 §4). Not an opt-out ping — see OPT_OUT_TYPES.
    */
-  | 'approval_requested';
+  | 'approval_requested'
+  /**
+   * Proactive day-23/day-29 trial-expiry heads-up (#263, TrialRemindersService).
+   * Bare — no record/database behind it, see NotifyInput.recordId — and, like
+   * approval_requested, not an opt-out ping: it warns a team before an
+   * automatic downgrade to Free, so there is no toggle to honour here either.
+   */
+  | 'trial_reminder_23'
+  | 'trial_reminder_29';
 
 /**
  * The types a user can switch off (#31). `notifications.type` is a plain text
@@ -35,7 +43,15 @@ const OPT_OUT_TYPES = new Set<string>(Object.keys(DEFAULT_PREFERENCES.notificati
 interface NotifyInput {
   workspaceId: string;
   databaseId?: string;
-  recordId: string;
+  /**
+   * Absent for a bare, no-record notification — a billing/system heads-up
+   * (e.g. trial_reminder_23/29) has no record or database behind it. Every
+   * other producer in this codebase passes one; the dedup query and insert
+   * below both treat "no recordId" as its own group (IS NULL), not a
+   * wildcard, so a bare notification only collapses/dedupes against other
+   * bare notifications of the same type.
+   */
+  recordId?: string;
   actorId: string;
   type: NotificationType;
   recipients: string[];
@@ -73,7 +89,7 @@ export class NotificationsService {
             eq(notifications.userId, userId),
             eq(notifications.workspaceId, input.workspaceId),
             eq(notifications.type, input.type),
-            eq(notifications.recordId, input.recordId),
+            input.recordId ? eq(notifications.recordId, input.recordId) : isNull(notifications.recordId),
             input.actorId ? eq(notifications.actorId, input.actorId) : undefined,
             isNull(notifications.readAt),
             gt(notifications.createdAt, new Date(Date.now() - 60_000)),
@@ -89,7 +105,7 @@ export class NotificationsService {
             userId,
             workspaceId: input.workspaceId,
             databaseId: input.databaseId,
-            recordId: input.recordId,
+            recordId: input.recordId ?? null,
             actorId: input.actorId,
             type: input.type,
             snippet: input.snippet,

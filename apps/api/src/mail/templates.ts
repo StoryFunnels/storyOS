@@ -257,6 +257,33 @@ function renderResetPassword(url: string): RenderedEmail {
   return { subject, text, html };
 }
 
+function renderTrialReminder(workspaceName: string, daysRemaining: number, billingUrl: string): RenderedEmail {
+  const safeWorkspace = escapeHtml(workspaceName);
+  const dayWord = daysRemaining === 1 ? 'day' : 'days';
+  const subject =
+    daysRemaining === 1
+      ? `Your ${workspaceName} trial ends tomorrow`
+      : `Your ${workspaceName} trial ends in ${daysRemaining} days`;
+  const text = [
+    `Your StoryOS Pro trial for ${workspaceName} ends in ${daysRemaining} ${dayWord}.`,
+    '',
+    `Review your plan: ${billingUrl}`,
+    '',
+    "If you don't add a plan before then, the workspace moves to Free automatically — no action needed if that's fine with you.",
+  ].join('\n');
+  const html = renderBrandedEmail({
+    heading: daysRemaining === 1 ? 'Your trial ends tomorrow' : `Your trial ends in ${daysRemaining} days`,
+    preheader: `Your StoryOS Pro trial for ${safeWorkspace} ends in ${daysRemaining} ${dayWord}.`,
+    bodyHtml: `
+      <p style="margin: 0 0 12px;">Hi there,</p>
+      <p style="margin: 0 0 12px;">Your StoryOS Pro trial for <strong>${safeWorkspace}</strong> ends in <strong>${daysRemaining} ${dayWord}</strong>.</p>
+      <p class="eo-muted" style="margin: 0; color: ${LIGHT.textMuted}; font-size: 13px;">If you don't add a plan before then, the workspace moves to Free automatically — no action needed if that's fine with you.</p>
+    `,
+    cta: { label: 'Review your plan', url: billingUrl },
+  });
+  return { subject, text, html };
+}
+
 /** One small render function per email kind (MN-103), each producing StoryOS's
  * branded HTML shell (MN-147) — the seam callers (invites/comments/auth) never
  * have to touch when the template changes. */
@@ -270,5 +297,7 @@ export function renderEmail(input: EmailInput): RenderedEmail {
       return renderVerifyEmail(input.url);
     case 'reset-password':
       return renderResetPassword(input.url);
+    case 'trial-reminder':
+      return renderTrialReminder(input.workspaceName, input.daysRemaining, input.billingUrl);
   }
 }

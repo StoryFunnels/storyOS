@@ -15,7 +15,15 @@ export type EmailInput =
       url: string;
     }
   | { kind: 'verify-email'; to: string; url: string }
-  | { kind: 'reset-password'; to: string; url: string };
+  | { kind: 'reset-password'; to: string; url: string }
+  | {
+      /** Day-23/day-29 proactive trial-expiry heads-up (#263). */
+      kind: 'trial-reminder';
+      to: string;
+      workspaceName: string;
+      daysRemaining: number;
+      billingUrl: string;
+    };
 
 export type EmailKind = EmailInput['kind'];
 
