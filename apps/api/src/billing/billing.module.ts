@@ -6,6 +6,7 @@ import { BillingController, BillingWebhookController } from './billing.controlle
 import { BillingService } from './billing.service';
 import { EntitlementsService } from './entitlements.service';
 import { StripeService } from './stripe.service';
+import { TrialRemindersService } from './trial-reminders.service';
 
 /**
  * MN-165/MN-168/MN-190 — billing spine + entitlements. Wires the Stripe
@@ -21,11 +22,16 @@ import { StripeService } from './stripe.service';
  * WorkspacesModule needs EntitlementsService/BillingService (seat checks on
  * invite/role-change), which would make WorkspacesModule -> BillingModule ->
  * WorkspacesModule circular if this import stayed.
+ *
+ * TrialRemindersService (#263) needs NotificationsService and EmailService,
+ * but both NotificationsModule and MailModule are `@Global()` (like DbModule)
+ * so they resolve without being listed here — same reason AccessModule is the
+ * only explicit import for BillingService's own dependency.
  */
 @Module({
   imports: [AccessModule],
   controllers: [BillingController, BillingWebhookController, AiCreditsController],
-  providers: [StripeService, BillingService, EntitlementsService, AiCreditsService],
+  providers: [StripeService, BillingService, EntitlementsService, AiCreditsService, TrialRemindersService],
   exports: [BillingService, EntitlementsService, AiCreditsService],
 })
 export class BillingModule {}

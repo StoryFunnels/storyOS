@@ -8,7 +8,14 @@ import { api } from '@/lib/api';
 import { Avatar } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
 
-export type NotificationType = 'assigned' | 'mentioned' | 'commented' | 'state_changed';
+export type NotificationType =
+  | 'assigned'
+  | 'mentioned'
+  | 'commented'
+  | 'state_changed'
+  // #263: bare — no record behind these, see NotificationRow.record being null.
+  | 'trial_reminder_23'
+  | 'trial_reminder_29';
 export interface NotificationRow {
   id: string;
   type: NotificationType;
@@ -29,6 +36,8 @@ export const NOTIFICATION_VERBS: Record<NotificationType, string> = {
   mentioned: 'mentioned you',
   commented: 'commented',
   state_changed: 'updated status on',
+  trial_reminder_23: 'sent a trial reminder',
+  trial_reminder_29: 'sent a final trial reminder',
 };
 const VERBS = NOTIFICATION_VERBS;
 
@@ -200,17 +209,21 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
                   )}
                   <span className="min-w-0 flex-1">
                     <span className="block text-[13px] text-ink">
-                      <span className="font-medium">{n.actor?.name ?? 'Someone'}</span> {VERBS[n.type]}
+                      {/* Bare notifications (#263) have no actor — a person didn't do this, StoryOS did. */}
+                      <span className="font-medium">{n.actor?.name ?? (n.record ? 'Someone' : 'StoryOS')}</span>{' '}
+                      {VERBS[n.type]}
                       {n.count > 1 ? ` · ${n.count}×` : ''}
                     </span>
-                    <span
-                      className={cn(
-                        'block truncate text-[12px]',
-                        n.record?.deleted ? 'text-faint line-through' : 'text-muted',
-                      )}
-                    >
-                      {n.record?.title || 'Untitled'} · {n.record?.database_name}
-                    </span>
+                    {n.record && (
+                      <span
+                        className={cn(
+                          'block truncate text-[12px]',
+                          n.record.deleted ? 'text-faint line-through' : 'text-muted',
+                        )}
+                      >
+                        {n.record.title || 'Untitled'} · {n.record.database_name}
+                      </span>
+                    )}
                     {n.snippet && <span className="block truncate text-[12px] text-faint">{n.snippet}</span>}
                   </span>
                   <span className="flex shrink-0 flex-col items-end gap-1">
