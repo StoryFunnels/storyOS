@@ -12,15 +12,16 @@ import {
   oauthAccessToken,
   oauthConsent,
 } from '../db/auth-schema';
-import { sendMail } from '../mail/mailer';
+import type { EmailService } from '../mail/email.service';
 
 /**
  * better-auth instance (docs/architecture/auth.md).
- * - email/password with verification + reset (emails degrade to logs without SMTP)
+ * - email/password with verification + reset, routed through EmailService
+ *   (MN-103 — Resend when configured, SMTP or a log line otherwise)
  * - Google OAuth only when env credentials exist (MN-007)
  * - bearer plugin: session token usable as `Authorization: Bearer` for curl/scripts
  */
-export function createAuth(db: Db) {
+export function createAuth(db: Db, emailService: EmailService) {
   const e = env();
   const googleEnabled = Boolean(e.GOOGLE_CLIENT_ID && e.GOOGLE_CLIENT_SECRET);
 
@@ -36,22 +37,14 @@ export function createAuth(db: Db) {
     emailAndPassword: {
       enabled: true,
       sendResetPassword: async ({ user: u, url }) => {
-        await sendMail({
-          to: u.email,
-          subject: 'Reset your StoryOS password',
-          text: `Reset your password: ${url}`,
-        });
+        await emailService.send({ kind: 'reset-password', to: u.email, url });
       },
     },
     emailVerification: {
       sendOnSignUp: true,
       autoSignInAfterVerification: true,
       sendVerificationEmail: async ({ user: u, url }) => {
-        await sendMail({
-          to: u.email,
-          subject: 'Verify your StoryOS email',
-          text: `Confirm your email: ${url}`,
-        });
+        await emailService.send({ kind: 'verify-email', to: u.email, url });
       },
     },
     socialProviders: googleEnabled

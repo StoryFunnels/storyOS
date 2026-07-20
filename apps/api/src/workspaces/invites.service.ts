@@ -15,7 +15,7 @@ import { invites, memberships } from '../db/schema';
 import { AccessService } from '../access/access.service';
 import type { GrantInput } from '../access/access.service';
 import { env } from '../config/env';
-import { sendMail } from '../mail/mailer';
+import { EmailService } from '../mail/email.service';
 import type { AuthedUser } from '../auth/auth.guard';
 import type { MembershipRole } from '@storyos/schemas';
 import { BillingService } from '../billing/billing.service';
@@ -39,6 +39,7 @@ export class InvitesService {
     private readonly access: AccessService,
     private readonly billing: BillingService,
     private readonly entitlements: EntitlementsService,
+    private readonly emailService: EmailService,
   ) {}
 
   async create(
@@ -85,11 +86,7 @@ export class InvitesService {
           .returning();
 
     const acceptUrl = `${env().WEB_URL}/invite?token=${token}`;
-    await sendMail({
-      to: email,
-      subject: `You're invited to StoryOS`,
-      text: `You've been invited to a StoryOS workspace as ${input.role}. Accept: ${acceptUrl}`,
-    });
+    await this.emailService.send({ kind: 'invite', to: email, role: input.role, acceptUrl });
 
     // accept_url returned so admins can copy-share it when SMTP is absent (A2).
     return { id: invite!.id, email: invite!.email, role: invite!.role, accept_url: acceptUrl };

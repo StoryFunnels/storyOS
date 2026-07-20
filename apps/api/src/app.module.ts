@@ -42,6 +42,7 @@ import { ApiThrottlerGuard } from './common/throttler.guard';
 import { DbModule } from './db/db.module';
 import { DocsController } from './docs/docs.controller';
 import { HealthController } from './health/health.controller';
+import { MailModule } from './mail/mail.module';
 import { WorkspacesModule } from './workspaces/workspaces.module';
 
 @Module({
@@ -77,6 +78,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
       },
     }),
     DbModule,
+    MailModule,
     AuthModule,
     WorkspacesModule,
     DatabasesModule,

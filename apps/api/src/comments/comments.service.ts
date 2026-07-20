@@ -10,9 +10,10 @@ import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { activityEvents, comments, databases, memberships, records, user } from '../db/schema';
 import { env } from '../config/env';
-import { sendMail } from '../mail/mailer';
+import { EmailService } from '../mail/email.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { MentionsService } from '../mentions/mentions.service';
+import { PreferencesService } from '../users/preferences.service';
 
 export type CommentSegment =
   | { type: 'text'; text: string }
@@ -26,6 +27,8 @@ export class CommentsService {
     @Inject(DB) private readonly db: Db,
     private readonly notificationsService: NotificationsService,
     private readonly mentionsService: MentionsService,
+    private readonly emailService: EmailService,
+    private readonly preferences: PreferencesService,
   ) {}
 
   /** Extracts mentions server-side and validates they are active members (D4). */
@@ -178,10 +181,11 @@ export class CommentsService {
     mentionIds: string[],
     body: CommentSegment[],
   ) {
-    const [record, author, mentioned] = await Promise.all([
+    const [record, author, mentioned, prefs] = await Promise.all([
       this.db.query.records.findFirst({ where: eq(records.id, recordId) }),
       this.db.query.user.findFirst({ where: eq(user.id, authorId) }),
       this.db.query.user.findMany({ where: inArray(user.id, mentionIds) }),
+      this.preferences.notificationPrefsFor(mentionIds),
     ]);
     const excerpt = body
       .map((s) => (s.type === 'text' ? s.text : '@…'))
@@ -189,10 +193,17 @@ export class CommentsService {
       .slice(0, 200);
     for (const target of mentioned) {
       if (target.id === authorId) continue;
-      await sendMail({
+      // MN-103: the same "Mentions" toggle that gates the in-app notification
+      // (NotificationsService.filterByPreference) doubles as the v1 email
+      // opt-out — no separate unsubscribe flag/table needed for this ticket.
+      if (prefs.get(target.id)?.mentioned === false) continue;
+      await this.emailService.send({
+        kind: 'mention',
         to: target.email,
-        subject: `${author?.name ?? 'Someone'} mentioned you on "${record?.title ?? 'a record'}"`,
-        text: `${excerpt}\n\nOpen: ${env().WEB_URL}/r/${recordId}`,
+        actorName: author?.name ?? 'Someone',
+        recordTitle: record?.title ?? 'a record',
+        excerpt,
+        url: `${env().WEB_URL}/r/${recordId}`,
       });
     }
   }
