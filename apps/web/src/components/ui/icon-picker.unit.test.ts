@@ -94,12 +94,21 @@ describe('EntityIcon (#251 back-compat: tolerate a legacy emoji string)', () => 
     expect(markup).toContain('FB');
   });
 
-  it('does not blank the tile for an unrecognized set: name — falls through to literal text', () => {
-    // Defense in depth: setIconName() rejects an unrecognized `set:` suffix,
-    // so this path renders the raw string rather than crashing or vanishing.
+  it('an unrecognized set: name renders the fallback, never the raw "set:name" string as text', () => {
+    // setIconName() rejects an unrecognized `set:` suffix (e.g. stale data
+    // referencing a curated name that was renamed/removed). That string was
+    // never meant to be human-visible — printing it literally (as this branch
+    // once did) put "set:video" next to "Videos" in the sidebar. isSetIconRef()
+    // distinguishes this case from a genuine legacy emoji glyph, which SHOULD
+    // still render literally (see the raw-emoji test above).
     const markup = renderToStaticMarkup(
-      createElement(EntityIcon, { icon: 'set:this-name-does-not-exist', color: null, fallback: null }),
+      createElement(EntityIcon, {
+        icon: 'set:this-name-does-not-exist',
+        color: null,
+        fallback: createElement('span', { className: 'the-fallback' }, 'FB'),
+      }),
     );
-    expect(markup.length).toBeGreaterThan(0);
+    expect(markup).not.toContain('set:this-name-does-not-exist');
+    expect(markup).toContain('the-fallback');
   });
 });

@@ -19,6 +19,7 @@ import {
   ICON_CATEGORIES,
   ICON_SET_META,
   ICON_SET_PREFIX,
+  isSetIconRef,
   setIconName,
   type IconCategory,
 } from '@storyos/schemas';
@@ -161,7 +162,7 @@ import {
 } from 'lucide-react';
 
 export type { IconCategory };
-export { ICON_CATEGORIES, ICON_SET_PREFIX, setIconName };
+export { ICON_CATEGORIES, ICON_SET_PREFIX, isSetIconRef, setIconName };
 
 export interface IconDef {
   name: string;
