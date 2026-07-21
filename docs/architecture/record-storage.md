@@ -184,18 +184,33 @@ as formula applies: the materialized value stays stale until the next
 qualifying change re-triggers the cascade; nothing retries it in the
 background.
 
-**Known gap, pre-existing and not closed by #267:** `AutoLinkService` and
-`RecordsService.duplicate()`'s link-copy step both write `record_links`
-directly, bypassing both `RecordsService.writeLinks()` and `RelationsService`'s
-add/replace/removeLinks — the two places `record_linked`/`record_updated` (with
-`linkedRelations`) get emitted from. `auto-link.subscriber.ts` already
-documented this exact gap for AutoLink before #267 ("creates record_links but
-emits no domain event, so there is no cascade to guard against"). A rollup
-depending on a relation populated by auto-link or record duplication will
-display correctly (`attachRollups` is still read-time and doesn't care how the
-link got there) but its *materialized* sort value won't refresh until the
-rollup-bearing record (or a record it's linked to) is next written through one
-of the two event-emitting paths above.
+**Gap closed (#287):** `AutoLinkService` and `RecordsService.duplicate()`'s
+link-copy step both write `record_links` directly, bypassing both
+`RecordsService.writeLinks()` and `RelationsService`'s add/replace/removeLinks
+— the two places `record_linked`/`record_updated` (with `linkedRelations`) got
+emitted from as of #267. `auto-link.subscriber.ts` documented this exact gap
+for AutoLink before #267 ("creates record_links but emits no domain event, so
+there is no cascade to guard against"), and #267 itself called out both paths
+as a known, deliberately out-of-scope follow-up.
+
+#287 closed it by having each path emit its own `record_linked` event,
+matching `RelationsService.addLinks`'s shape exactly:
+- `AutoLinkService.insertPlannedLinks` — the shared write path for both
+  on-write auto-link and the "run now" sweep — emits one `record_linked` event
+  per distinct side-A record touched in the batch, `linkedRelations` carrying
+  every side-B id it was just paired with. `RollupInvalidationSubscriber`'s
+  existing reverse-field walk covers the side-B records' rollups from that
+  same event, so a second event per pair isn't needed.
+- `RecordsService.duplicate()` emits one `record_linked` event per relation
+  field whose links it copied onto the new record (still via a raw insert —
+  the point is copying the link, not re-resolving it through `writeLinks()`).
+
+Both paths now feed `RollupInvalidationSubscriber` the same as the dedicated
+Links API: a rollup depending on a relation populated by auto-link or record
+duplication now recomputes its materialized sort value on the same
+fire-and-forget, chunked cascade documented above — no longer waiting for the
+rollup-bearing record (or a record it's linked to) to be written again through
+`writeLinks()`/the Links API before it refreshes.
 
 ## Migration path if JSONB hits limits
 
