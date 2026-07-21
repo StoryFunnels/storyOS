@@ -44,7 +44,7 @@ export default function ApiSettingsPage() {
   });
 
   return (
-    <div className="mx-auto max-w-3xl p-8">
+    <div className="mx-auto max-w-3xl p-4 sm:p-8">
       <div className="mb-2 flex items-center justify-between">
         <h1 className="text-lg font-semibold text-ink">API tokens</h1>
         <CreateTokenDialog ws={ws} />

@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { Popover, PopoverContent, PopoverParentAnchor } from '@/components/ui/popover';
 import type { Field } from './use-table-data';
 
 export interface LinkChip {
@@ -69,7 +70,6 @@ export function RelationEditor({
 
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<LinkChip[]>(current);
-  const ref = useRef<HTMLDivElement>(null);
 
   const results = useQuery({
     queryKey: ['record-picker', ws, targetDb, search],
@@ -128,91 +128,87 @@ export function RelationEditor({
     );
   }
 
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        if (single) onDone();
-        else save.mutate(selected.map((c) => c.id));
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [single, selected, onDone, save]);
+  // MN-230d: closing (outside click, Escape) resolves the same way the old
+  // mousedown-outside handler did — single-pick just cancels back to the
+  // last save, multi-pick commits whatever is currently checked.
+  function handleOpenChange(open: boolean) {
+    if (open) return;
+    if (single) onDone();
+    else save.mutate(selected.map((c) => c.id));
+  }
 
   const selectedIds = useMemo(() => new Set(selected.map((c) => c.id)), [selected]);
   const exactMatch = results.data?.some((r) => r.title.toLowerCase() === search.trim().toLowerCase());
 
   return (
-    <div
-      ref={ref}
-      className="absolute left-0 top-full z-30 mt-0.5 w-72 rounded-[var(--radius-card)] border border-border-default bg-card shadow-[0_4px_12px_rgba(15,23,41,0.08)]"
-      onClick={(e) => e.stopPropagation()}
-      onKeyDown={(e) => e.key === 'Escape' && onDone()}
-    >
-      {!single && selected.length > 0 && (
-        <div className="flex flex-wrap gap-1 border-b border-border-default p-2">
-          {selected.map((chip) => (
-            <span
-              key={chip.id}
-              className="inline-flex items-center gap-1 rounded border border-border-default bg-hover px-1.5 py-0.5 text-[12px] text-ink"
+    <Popover open onOpenChange={handleOpenChange}>
+      <PopoverParentAnchor />
+      <PopoverContent className="w-72" onClick={(e) => e.stopPropagation()}>
+        {!single && selected.length > 0 && (
+          <div className="flex flex-wrap gap-1 border-b border-border-default p-2">
+            {selected.map((chip) => (
+              <span
+                key={chip.id}
+                className="inline-flex items-center gap-1 rounded border border-border-default bg-hover px-1.5 py-0.5 text-[12px] text-ink"
+              >
+                {chip.title || 'Untitled'}
+                <button onClick={() => pick(chip)} className="text-faint hover:text-error">
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        <input
+          autoFocus
+          placeholder={`Search or create ${relation.target_database_name ?? 'records'}…`}
+          className="w-full border-b border-border-default bg-card px-3 py-2 text-[13px] text-ink outline-none placeholder:text-faint"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <div className="max-h-56 overflow-y-auto p-1">
+          {(results.data ?? []).map((row) => (
+            <button
+              key={row.id}
+              className={cn(
+                'flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-[13px] text-ink hover:bg-hover',
+                selectedIds.has(row.id) && 'bg-hover',
+              )}
+              onClick={() => pick(row)}
             >
-              {chip.title || 'Untitled'}
-              <button onClick={() => pick(chip)} className="text-faint hover:text-error">
-                <X className="h-3 w-3" />
-              </button>
-            </span>
+              <span className="truncate">{row.title || 'Untitled'}</span>
+              {!single && selectedIds.has(row.id) && <span className="text-[11px] text-muted">linked</span>}
+            </button>
           ))}
+          {search.trim() && !exactMatch ? (
+            <button
+              className="flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left text-[13px] text-info hover:bg-hover"
+              onClick={() => createTarget.mutate(search.trim())}
+            >
+              <Plus className="h-3.5 w-3.5" /> Create “{search.trim()}”
+            </button>
+          ) : (
+            !search.trim() && (
+              <p className="flex items-center gap-1.5 px-2 py-1.5 text-[12px] text-faint">
+                <Plus className="h-3.5 w-3.5" /> Type a name to create a new one
+              </p>
+            )
+          )}
         </div>
-      )}
-      <input
-        autoFocus
-        placeholder={`Search or create ${relation.target_database_name ?? 'records'}…`}
-        className="w-full border-b border-border-default bg-card px-3 py-2 text-[13px] text-ink outline-none placeholder:text-faint"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-      />
-      <div className="max-h-56 overflow-y-auto p-1">
-        {(results.data ?? []).map((row) => (
-          <button
-            key={row.id}
-            className={cn(
-              'flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-[13px] text-ink hover:bg-hover',
-              selectedIds.has(row.id) && 'bg-hover',
-            )}
-            onClick={() => pick(row)}
-          >
-            <span className="truncate">{row.title || 'Untitled'}</span>
-            {!single && selectedIds.has(row.id) && <span className="text-[11px] text-muted">linked</span>}
+        <div className="flex justify-between border-t border-border-default px-2 py-1.5">
+          <button className="text-[12px] text-muted hover:text-ink" onClick={() => save.mutate([])}>
+            Clear
           </button>
-        ))}
-        {search.trim() && !exactMatch ? (
-          <button
-            className="flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left text-[13px] text-info hover:bg-hover"
-            onClick={() => createTarget.mutate(search.trim())}
-          >
-            <Plus className="h-3.5 w-3.5" /> Create “{search.trim()}”
-          </button>
-        ) : (
-          !search.trim() && (
-            <p className="flex items-center gap-1.5 px-2 py-1.5 text-[12px] text-faint">
-              <Plus className="h-3.5 w-3.5" /> Type a name to create a new one
-            </p>
-          )
-        )}
-      </div>
-      <div className="flex justify-between border-t border-border-default px-2 py-1.5">
-        <button className="text-[12px] text-muted hover:text-ink" onClick={() => save.mutate([])}>
-          Clear
-        </button>
-        {!single && (
-          <button
-            className="text-[12px] text-ink underline"
-            onClick={() => save.mutate(selected.map((c) => c.id))}
-          >
-            Done
-          </button>
-        )}
-      </div>
-    </div>
+          {!single && (
+            <button
+              className="text-[12px] text-ink underline"
+              onClick={() => save.mutate(selected.map((c) => c.id))}
+            >
+              Done
+            </button>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }

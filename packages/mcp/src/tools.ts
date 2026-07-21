@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Ctx, EffectiveScope, ToolScope } from './client.js';
@@ -1026,7 +1027,23 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
   );
 
   const VIEW_TYPES = ['table', 'board', 'calendar', 'gallery', 'list', 'feed', 'timeline', 'form'] as const;
-  type ViewOpts = { group_by?: string; card_fields?: string[]; date_field?: string; start_date_field?: string; end_date_field?: string; filters?: unknown; sorts?: Array<{ field: string; direction?: string }> };
+  type FormFieldOpt = string | { field: string; required?: boolean; label?: string; help?: string };
+  type ViewOpts = {
+    group_by?: string;
+    card_fields?: string[];
+    date_field?: string;
+    start_date_field?: string;
+    end_date_field?: string;
+    filters?: unknown;
+    sorts?: Array<{ field: string; direction?: string }>;
+    form_title?: string;
+    form_description?: string;
+    form_submit_text?: string;
+    form_fields?: FormFieldOpt[];
+    form_access?: 'members' | 'link' | 'public';
+    form_success_message?: string;
+    form_redirect_url?: string;
+  };
   function buildViewConfig(detail: DatabaseDetail, type: string, o: ViewOpts): Record<string, unknown> {
     const config: Record<string, unknown> = { sorts: o.sorts ?? [], hidden_field_ids: [], card_field_ids: [], column_widths: {} };
     // Saved views take the same AST, so resolve select labels here too (#77).
@@ -1038,15 +1055,51 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       if (o.start_date_field) config.start_date_field_id = anyField(detail, o.start_date_field);
       if (o.end_date_field) config.end_date_field_id = anyField(detail, o.end_date_field);
     }
+    if (type === 'form') {
+      const access = o.form_access ?? 'members';
+      const fields = (o.form_fields ?? []).map((f) => {
+        const ref = typeof f === 'string' ? f : f.field;
+        const field_id = anyField(detail, ref);
+        if (typeof f === 'string') return { field_id };
+        return {
+          field_id,
+          ...(f.required !== undefined ? { required: f.required } : {}),
+          ...(f.label ? { label: f.label } : {}),
+          ...(f.help ? { help: f.help } : {}),
+        };
+      });
+      config.form = {
+        ...(o.form_title ? { title: o.form_title } : {}),
+        ...(o.form_description ? { description: o.form_description } : {}),
+        ...(o.form_submit_text ? { submit_text: o.form_submit_text } : {}),
+        fields,
+        // link/public is unreachable without a token — generate one (same shape
+        // as the web app's "Enable link" action) so the access level is usable
+        // right away instead of a silently dead public view.
+        ...(access !== 'members' ? { public_token: randomUUID().replace(/-/g, '') } : {}),
+        access,
+        ...(o.form_success_message ? { success_message: o.form_success_message } : {}),
+        ...(o.form_redirect_url ? { redirect_url: o.form_redirect_url } : {}),
+      };
+    }
     return config;
   }
+  const formFieldShape = z.union([
+    z.string(),
+    z.object({
+      field: z.string(),
+      required: z.boolean().optional(),
+      label: z.string().optional(),
+      help: z.string().optional(),
+    }),
+  ]);
 
   reg(
     'create_view',
     {
       title: 'Create view',
       description:
-        'Create a saved view. board needs group_by (a select, a single user, or a one-to-many relation field); calendar needs date_field; timeline needs start_date_field/end_date_field; board/gallery/list show card_fields (chips on calendar).',
+        'Create a saved view. board needs group_by (a select, a single user, or a one-to-many relation field); calendar needs date_field; timeline needs start_date_field/end_date_field; board/gallery/list show card_fields (chips on calendar); form takes form_* to build the actual public-facing form (title/fields/access) — a bare "form" type with no form_* params creates an unconfigured, members-only form.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -1059,6 +1112,13 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         end_date_field: z.string().optional().describe('timeline: end date field.'),
         filters: z.any().optional().describe('Filter AST by field api_name — same shape as query_records (see get_started).'),
         sorts: z.array(z.object({ field: z.string(), direction: z.enum(['asc', 'desc']).optional() })).optional().describe('Sort keys by field api_name.'),
+        form_title: z.string().max(200).optional().describe('form: heading shown to the visitor (defaults to the database name).'),
+        form_description: z.string().max(2000).optional().describe('form: helper text shown under the title.'),
+        form_submit_text: z.string().max(50).optional().describe('form: submit button label (default "Submit").'),
+        form_fields: z.array(formFieldShape).optional().describe('form: which fields to show, in order — a field ref, or {field, required, label, help} for per-field overrides. Omit to fall back to card_fields.'),
+        form_access: z.enum(['members', 'link', 'public']).optional().describe('form: who can open/submit it — members (signed-in only, default), link (anyone with the generated link), or public. link/public auto-generate a shareable token, returned in the result as config.form.public_token (the public URL is <web app>/f/<public_token>).'),
+        form_success_message: z.string().max(500).optional().describe('form: message shown after a successful submit.'),
+        form_redirect_url: z.string().url().max(500).optional().describe('form: redirect here instead of showing success_message.'),
       },
     },
     handle<{ workspace: string; database: string; name: string; type: string } & ViewOpts>(
@@ -1081,7 +1141,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'update_view',
     {
       title: 'Update view',
-      description: 'Rename a view or change its grouping / card fields / date fields. Only the parts you pass change.',
+      description:
+        'Rename a view or change its grouping / card fields / date fields / form config. Only the parts you pass change, but a form_* change rebuilds the whole form config from what you pass this call (it does not merge with the previous form config) — re-passing form_access on a form that already has a public/link token issues a NEW token, invalidating the old link.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -1094,6 +1155,13 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         end_date_field: z.string().optional(),
         filters: z.any().optional(),
         sorts: z.array(z.object({ field: z.string(), direction: z.enum(['asc', 'desc']).optional() })).optional(),
+        form_title: z.string().max(200).optional(),
+        form_description: z.string().max(2000).optional(),
+        form_submit_text: z.string().max(50).optional(),
+        form_fields: z.array(formFieldShape).optional(),
+        form_access: z.enum(['members', 'link', 'public']).optional(),
+        form_success_message: z.string().max(500).optional(),
+        form_redirect_url: z.string().url().max(500).optional(),
       },
     },
     handle<{ workspace: string; database: string; view: string; rename_to?: string } & ViewOpts>(
@@ -1104,7 +1172,12 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         const v = resolveView(detail, view);
         const patch: Record<string, unknown> = {};
         if (rename_to) patch.name = rename_to;
-        if ((['group_by', 'card_fields', 'date_field', 'start_date_field', 'end_date_field'] as const).some((k) => rest[k] !== undefined)) {
+        const CONFIG_KEYS = [
+          'group_by', 'card_fields', 'date_field', 'start_date_field', 'end_date_field',
+          'form_title', 'form_description', 'form_submit_text', 'form_fields', 'form_access',
+          'form_success_message', 'form_redirect_url',
+        ] as const;
+        if (CONFIG_KEYS.some((k) => rest[k] !== undefined)) {
           patch.config = buildViewConfig(detail, v.type, rest);
         }
         const updated = await unwrap<unknown>(

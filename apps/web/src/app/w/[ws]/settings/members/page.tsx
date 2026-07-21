@@ -129,7 +129,7 @@ function MembersPageContent() {
   const isAdmin = workspace.data?.role === 'admin';
 
   return (
-    <div className="mx-auto max-w-3xl p-8">
+    <div className="mx-auto max-w-3xl p-4 sm:p-8">
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-lg font-semibold text-ink">Members</h1>
         {isAdmin && (
@@ -148,7 +148,7 @@ function MembersPageContent() {
         {(members.data ?? []).map((member) => (
           <div
             key={member.id}
-            className="flex items-center justify-between border-b border-border-default px-4 py-3 last:border-b-0"
+            className="flex flex-col gap-3 border-b border-border-default px-4 py-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between"
           >
             <div className="flex min-w-0 items-center gap-3">
               <Avatar userId={member.user.id} name={member.user.name} image={member.user.image} size={32} />
@@ -157,7 +157,7 @@ function MembersPageContent() {
                 <p className="truncate text-[13px] text-muted">{member.user.email}</p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {isAdmin ? (
                 <>
                   <select

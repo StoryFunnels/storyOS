@@ -1,12 +1,13 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { DatePicker } from '@/components/ui/date-picker';
 import { Avatar } from '@/components/ui/avatar';
+import { Popover, PopoverContent, PopoverParentAnchor } from '@/components/ui/popover';
 import { RelationChips } from './relation-cell';
 import type { LinkChip } from './relation-cell';
 import type { Field, SelectOption } from './use-table-data';
@@ -47,50 +48,56 @@ function ColorEditor({
     onCancel();
   };
   return (
-    <div className="absolute left-0 top-0 z-30 flex w-56 flex-col gap-2 rounded-[var(--radius-card)] border border-border-default bg-card p-2 shadow-[0_8px_24px_rgba(15,23,41,0.15)]">
-      <div className="flex items-center gap-1.5">
-        <input
-          type="color"
-          value={valid ? hex : '#000000'}
-          onChange={(e) => setHex(e.target.value)}
-          className="h-7 w-8 cursor-pointer rounded border border-border-default bg-card p-0.5"
-        />
-        <input
-          autoFocus
-          value={hex}
-          placeholder="#4EA7FC"
-          onChange={(e) => setHex(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') commit();
-            if (e.key === 'Escape') onCancel();
-          }}
-          className="h-7 min-w-0 flex-1 rounded border border-border-default bg-card px-1.5 text-[13px] tabular-nums text-ink outline-none"
-        />
-      </div>
-      <div className="flex flex-wrap gap-1">
-        {Object.entries(OPTION_COLORS).map(([name, value]) => (
-          <button
-            key={name}
-            title={name}
-            onClick={() => onCommit(value.toLowerCase())}
-            className="h-4 w-4 rounded-[3px] border border-border-default"
-            style={{ backgroundColor: value }}
+    <Popover open onOpenChange={(open) => !open && onCancel()}>
+      <PopoverParentAnchor />
+      <PopoverContent
+        className="flex w-56 flex-col gap-2 p-2 shadow-[0_8px_24px_rgba(15,23,41,0.15)]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center gap-1.5">
+          <input
+            type="color"
+            value={valid ? hex : '#000000'}
+            onChange={(e) => setHex(e.target.value)}
+            className="h-7 w-8 cursor-pointer rounded border border-border-default bg-card p-0.5"
           />
-        ))}
-      </div>
-      <div className="flex justify-end gap-1.5 text-[12px]">
-        <button className="rounded px-1.5 py-0.5 text-muted hover:bg-hover" onClick={() => onCommit(null)}>
-          Clear
-        </button>
-        <button
-          className="rounded px-1.5 py-0.5 text-ink hover:bg-hover disabled:opacity-40"
-          disabled={hex.trim() !== '' && !valid}
-          onClick={commit}
-        >
-          Save
-        </button>
-      </div>
-    </div>
+          <input
+            autoFocus
+            value={hex}
+            placeholder="#4EA7FC"
+            onChange={(e) => setHex(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commit();
+              if (e.key === 'Escape') onCancel();
+            }}
+            className="h-7 min-w-0 flex-1 rounded border border-border-default bg-card px-1.5 text-[13px] tabular-nums text-ink outline-none"
+          />
+        </div>
+        <div className="flex flex-wrap gap-1">
+          {Object.entries(OPTION_COLORS).map(([name, value]) => (
+            <button
+              key={name}
+              title={name}
+              onClick={() => onCommit(value.toLowerCase())}
+              className="h-4 w-4 rounded-[3px] border border-border-default"
+              style={{ backgroundColor: value }}
+            />
+          ))}
+        </div>
+        <div className="flex justify-end gap-1.5 text-[12px]">
+          <button className="rounded px-1.5 py-0.5 text-muted hover:bg-hover" onClick={() => onCommit(null)}>
+            Clear
+          </button>
+          <button
+            className="rounded px-1.5 py-0.5 text-ink hover:bg-hover disabled:opacity-40"
+            disabled={hex.trim() !== '' && !valid}
+            onClick={commit}
+          >
+            Save
+          </button>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -493,71 +500,67 @@ function OptionList({
   onClear: () => void;
   onClose: () => void;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
   const [current, setCurrent] = useState<string[]>(selected);
 
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        if (multi) onToggle?.(current);
-        else onClose();
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [multi, current, onToggle, onClose]);
+  // MN-230d: closing (outside click, Escape) mirrors the old mousedown-outside
+  // handler — multi-select commits whatever is currently checked; single-select
+  // just closes (picking an option already commits directly).
+  function handleOpenChange(open: boolean) {
+    if (open) return;
+    if (multi) onToggle?.(current);
+    else onClose();
+  }
 
   return (
-    <div
-      ref={ref}
-      className="absolute left-0 top-full z-30 mt-0.5 max-h-64 w-56 overflow-y-auto rounded-[var(--radius-card)] border border-border-default bg-card p-1 shadow-[0_4px_12px_rgba(15,23,41,0.08)]"
-      onClick={(e) => e.stopPropagation()}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') onClose();
-      }}
-    >
-      {options.map((option) => {
-        const isSelected = current.includes(option.id);
-        return (
-          <button
-            key={option.id}
-            className={cn(
-              'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[13px] hover:bg-hover',
-              isSelected && 'bg-hover',
-            )}
-            onClick={() => {
-              if (multi) {
-                setCurrent((prev) =>
-                  prev.includes(option.id) ? prev.filter((x) => x !== option.id) : [...prev, option.id],
-                );
-              } else {
-                onPick?.(option.id);
-              }
-            }}
-          >
-            {multi && <input type="checkbox" readOnly checked={isSelected} />}
-            {option.image !== undefined ? (
-              <span className="flex items-center gap-1.5 text-[13px] text-ink">
-                <Avatar userId={option.id} name={option.label} image={option.image} size={16} />
-                {option.label}
-              </span>
-            ) : (
-              <OptionChip option={option} />
-            )}
+    <Popover open onOpenChange={handleOpenChange}>
+      <PopoverParentAnchor />
+      <PopoverContent
+        className="max-h-64 w-56 overflow-y-auto p-1"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {options.map((option) => {
+          const isSelected = current.includes(option.id);
+          return (
+            <button
+              key={option.id}
+              className={cn(
+                'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[13px] hover:bg-hover',
+                isSelected && 'bg-hover',
+              )}
+              onClick={() => {
+                if (multi) {
+                  setCurrent((prev) =>
+                    prev.includes(option.id) ? prev.filter((x) => x !== option.id) : [...prev, option.id],
+                  );
+                } else {
+                  onPick?.(option.id);
+                }
+              }}
+            >
+              {multi && <input type="checkbox" readOnly checked={isSelected} />}
+              {option.image !== undefined ? (
+                <span className="flex items-center gap-1.5 text-[13px] text-ink">
+                  <Avatar userId={option.id} name={option.label} image={option.image} size={16} />
+                  {option.label}
+                </span>
+              ) : (
+                <OptionChip option={option} />
+              )}
+            </button>
+          );
+        })}
+        <div className="mt-1 flex justify-between border-t border-border-default px-2 pt-1">
+          <button className="text-[12px] text-muted hover:text-ink" onClick={onClear}>
+            Clear
           </button>
-        );
-      })}
-      <div className="mt-1 flex justify-between border-t border-border-default px-2 pt-1">
-        <button className="text-[12px] text-muted hover:text-ink" onClick={onClear}>
-          Clear
-        </button>
-        {multi && (
-          <button className="text-[12px] text-ink underline" onClick={() => onToggle?.(current)}>
-            Done
-          </button>
-        )}
-      </div>
-    </div>
+          {multi && (
+            <button className="text-[12px] text-ink underline" onClick={() => onToggle?.(current)}>
+              Done
+            </button>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
