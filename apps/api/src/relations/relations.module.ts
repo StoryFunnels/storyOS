@@ -5,11 +5,12 @@ import { LinksController, RelationsController } from './relations.controller';
 import { RelationsService } from './relations.service';
 import { AutoLinkService } from './auto-link.service';
 import { AutoLinkSubscriber } from './auto-link.subscriber';
+import { SelectRelationDriftService } from './select-relation-drift.service';
 
 @Module({
   imports: [WorkspacesModule, DatabasesModule],
   controllers: [RelationsController, LinksController],
-  providers: [RelationsService, AutoLinkService, AutoLinkSubscriber],
-  exports: [RelationsService, AutoLinkService],
+  providers: [RelationsService, AutoLinkService, AutoLinkSubscriber, SelectRelationDriftService],
+  exports: [RelationsService, AutoLinkService, SelectRelationDriftService],
 })
 export class RelationsModule {}
