@@ -163,22 +163,22 @@ export default function EntityPage() {
   };
 
   return (
-    <div className="px-8 py-6">
-      <div className="mb-4 flex items-center justify-between">
-        <div className="flex items-center gap-2">
+    <div className="px-4 py-6 sm:px-8">
+      <div className="mb-4 flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
           <Link
             href={`/w/${ws}/d/${db}`}
-            className="inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-ink"
+            className="inline-flex min-w-0 items-center gap-1.5 text-[13px] text-muted hover:text-ink"
           >
-            <ArrowLeft className="h-3.5 w-3.5" /> {database.data?.name}
+            <ArrowLeft className="h-3.5 w-3.5 shrink-0" /> <span className="truncate">{database.data?.name}</span>
           </Link>
           {record.data.number !== null && (
-            <span className="rounded bg-hover px-1.5 py-0.5 text-[11px] tabular-nums text-faint" title="Public id">
+            <span className="shrink-0 rounded bg-hover px-1.5 py-0.5 text-[11px] tabular-nums text-faint" title="Public id">
               #{record.data.number}
             </span>
           )}
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex shrink-0 items-center gap-1">
           <StarButton ws={ws} rec={recordId} />
           {schemaEditable && <FieldsPopover ws={ws} db={db} fields={allFields} />}
           <RecordActions ws={ws} db={db} rec={recordId} readOnly={readOnly} canCreate={schemaEditable} />
