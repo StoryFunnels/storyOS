@@ -40,6 +40,41 @@ export const AI_CREDIT_MARKUP_MULTIPLIER = 10;
 export const AI_CREDIT_MIN_TOPUP_USD = 10;
 
 /**
+ * MN-189 follow-up (#265) — credit expiry decision: 12 months per MN-189's
+ * original proposal, implemented now rather than left perpetual. This is a
+ * greenfield ledger with no production balances yet, so there's no migration
+ * risk in enforcing it from day one; see AiCreditsService's lazy
+ * expiry check (getBalance/recordUsage) and aiCreditTransactions.expiresAt.
+ */
+export const AI_CREDIT_EXPIRY_MONTHS = 12;
+
+/**
+ * `from` + AI_CREDIT_EXPIRY_MONTHS, via Date#setUTCMonth rather than a fixed
+ * day count — calendar months vary in length, and setUTCMonth correctly
+ * rolls the year over (no dependency needed for that). UTC explicitly, not
+ * the local-time setMonth/getMonth: a billing expiry must land on the same
+ * instant regardless of which timezone the process happens to run in.
+ * Exported so tests can assert the exact expiry an applied top-up gets.
+ */
+export function creditExpiryDate(from: Date): Date {
+  const result = new Date(from.getTime());
+  result.setUTCMonth(result.getUTCMonth() + AI_CREDIT_EXPIRY_MONTHS);
+  return result;
+}
+
+/**
+ * MN-189 follow-up (#265) — off-session auto-reload retry policy. A failed
+ * charge (declined card, requires SCA, etc.) is retried with this backoff
+ * (1h, then 6h, then 24h); after AUTO_RELOAD_MAX_ATTEMPTS consecutive
+ * failures, auto-reload is disabled and the workspace is notified rather than
+ * retried forever. Lengths chosen so a transient decline (e.g. a bank's
+ * temporary hold) has room to clear before we give up; not configurable via
+ * env because the *count* is (AI_CREDIT_AUTO_RELOAD_MAX_ATTEMPTS) and that's
+ * the knob operators would actually want to turn.
+ */
+export const AI_CREDIT_AUTO_RELOAD_BACKOFF_MINUTES = [60, 360, 1440] as const;
+
+/**
  * MN-188 ("StoryOS AI runs decrement prepaid credits") — a flat, honestly-
  * labeled placeholder for what a completed StoryOS-AI run costs, charged via
  * AiCreditsService.recordUsage until MN-214r's managed/BYO drivers exist and

@@ -31,7 +31,14 @@ export type NotificationType =
    * approval_requested isn't — it's the thing that unblocks reconnecting, not
    * a "something already happened" ping the recipient might rather mute.
    */
-  | 'connection_error';
+  | 'connection_error'
+  /**
+   * MN-189 follow-up (#265) — an off-session auto-reload charge failed.
+   * Bare, like the trial reminders above. Not an opt-out ping for the same
+   * reason: it's a billing problem the workspace needs to act on (update the
+   * card), not an FYI about something already handled.
+   */
+  | 'auto_reload_failed';
 
 /**
  * The types a user can switch off (#31). `notifications.type` is a plain text
