@@ -285,12 +285,21 @@ export interface EmojiMigrationEntry {
 }
 
 /**
- * Emoji → curated-icon migration table (#251 backfill). Ground truth for
- * "emoji actually plausible in use": every emoji used by a seed template pack
- * default (apps/api/src/templates/definitions/*.ts) plus every emoji offered
- * by the pre-#251 icon picker's emoji tab (apps/web/src/components/ui/icon-
- * picker.tsx, EMOJI const — removed from the picker by #251 but kept here as
- * the migration's input vocabulary).
+ * Emoji → curated-icon migration table (#251 backfill, expanded #283).
+ * Ground truth for "emoji actually plausible in use": every emoji used by a
+ * seed template pack default (apps/api/src/templates/definitions/*.ts), every
+ * emoji offered by the pre-#251 icon picker's emoji tab (apps/web/src/
+ * components/ui/icon-picker.tsx, EMOJI const — removed from the picker by
+ * #251 but kept here as the migration's input vocabulary), every emoji
+ * hardcoded as an integration/agent default (apps/api/src/integrations/
+ * linear.service.ts, github.service.ts, apps/api/src/agents/agents.service.ts),
+ * plus (#283) a broad general set of common emoji so an entity whose name
+ * doesn't keyword-match anything still lands on a relevant icon instead of
+ * inferIconFromName()'s generic `set:database` fallback. General-set entries
+ * are added only where an existing curated icon is a genuinely reasonable
+ * match — emoji with no decent fit (most animals, food, faces) are
+ * deliberately left unmapped so they fall through to the name-inference
+ * fallback rather than being forced onto a misleading icon.
  *
  * [emoji, icon-set name, optional color override] — color defaults to the
  * icon's category color (see colorForIconName) unless overridden here for a
@@ -391,6 +400,155 @@ const MIGRATION_RULES: Array<[string, string, IconColorToken?]> = [
   ['🎁', 'gift'],
   ['🥇', 'trophy', 'gold'],
   ['🌴', 'sun'],
+  // Integration / agent defaults not covered above (github.service.ts,
+  // linear.service.ts, agents.service.ts)
+  ['🐙', 'plug'],
+  ['🔀', 'repeat'],
+  ['🏷️', 'tag'],
+  ['📐', 'compass'],
+  ['🤖', 'zap'],
+  ['▶️', 'activity'],
+
+  // --- General set (#283) — common emoji beyond templates/integrations ---
+
+  // Status & symbols
+  ['❌', 'circle-x', 'red'],
+  ['❓', 'circle-alert'],
+  ['❗', 'triangle-alert'],
+  ['‼️', 'triangle-alert', 'red'],
+  ['✔️', 'circle-check'],
+  ['☑️', 'square-check'],
+  ['✳️', 'sparkles'],
+  ['💯', 'trophy', 'gold'],
+  ['🆗', 'circle-check', 'green'],
+  ['🆕', 'sparkles', 'green'],
+  ['⏸️', 'pause'],
+  ['⏹️', 'circle-dot'],
+  ['⏺️', 'circle-dot', 'red'],
+  ['🔁', 'repeat'],
+  ['🔂', 'repeat'],
+  ['🚫', 'ban'],
+  ['⛔', 'ban', 'red'],
+  ['🚨', 'triangle-alert', 'red'],
+  ['⚠️', 'triangle-alert', 'gold'],
+  ['✖️', 'circle-x'],
+  ['🔘', 'circle-dot'],
+  ['⚪', 'circle'],
+  ['⚫', 'circle'],
+  ['🔵', 'circle-dot', 'blue'],
+  ['🟣', 'circle-dot', 'purple'],
+  ['🟠', 'circle-dot', 'orange'],
+  ['🟤', 'circle-dot', 'brown'],
+  ['⬜', 'circle'],
+  ['⬛', 'circle'],
+
+  // Tech & devices
+  ['📱', 'phone'],
+  ['💻', 'wrench'],
+  ['🖥️', 'wrench'],
+  ['⌨️', 'wrench'],
+  ['🖱️', 'wrench'],
+  ['🖨️', 'file-text'],
+  ['💾', 'archive'],
+  ['💿', 'archive'],
+  ['📀', 'archive'],
+  ['🔌', 'plug'],
+  ['🔋', 'zap'],
+  ['📡', 'globe'],
+  ['🔍', 'eye'],
+  ['🔎', 'eye'],
+  ['🕵️', 'eye'],
+
+  // Mail & comms
+  ['📧', 'mail'],
+  ['📨', 'send'],
+  ['📩', 'send'],
+  ['📤', 'send'],
+  ['📥', 'mail'],
+  ['📮', 'mail'],
+  ['📬', 'mail'],
+  ['📭', 'mail'],
+  ['📪', 'mail'],
+  ['📫', 'mail'],
+  ['📇', 'contact'],
+  ['☎️', 'phone'],
+  ['📟', 'phone'],
+  ['📠', 'send'],
+  ['🔊', 'megaphone'],
+  ['🔉', 'megaphone'],
+  ['🔈', 'megaphone'],
+  ['📯', 'megaphone'],
+  ['🎵', 'music'],
+  ['🎶', 'music'],
+
+  // Finance
+  ['💵', 'dollar-sign', 'gold'],
+  ['💶', 'dollar-sign', 'gold'],
+  ['💷', 'dollar-sign', 'gold'],
+  ['💴', 'dollar-sign', 'gold'],
+  ['🪙', 'coins', 'gold'],
+  ['📉', 'chart-line', 'red'],
+  ['🧮', 'table2'],
+  ['💹', 'trending-up', 'gold'],
+
+  // Weather & nature
+  ['⛅', 'cloud'],
+  ['🌤️', 'sun'],
+  ['🌦️', 'cloud'],
+  ['🌧️', 'droplet'],
+  ['⛈️', 'cloud'],
+  ['🌩️', 'zap'],
+  ['🌨️', 'snowflake'],
+  ['❄️', 'snowflake'],
+  ['🌪️', 'waves'],
+  ['🌫️', 'cloud'],
+  ['🌈', 'palette'],
+  ['☂️', 'droplet'],
+  ['☔', 'droplet'],
+  ['💧', 'droplet'],
+  ['🌡️', 'activity'],
+
+  // Documents
+  ['🗒️', 'notebook-pen'],
+  ['📄', 'file-text'],
+  ['📃', 'file-text'],
+  ['📑', 'files'],
+  ['📜', 'file-text'],
+  ['📔', 'notebook'],
+  ['📓', 'notebook'],
+  ['📒', 'notebook'],
+  ['📕', 'book'],
+  ['📗', 'book', 'green'],
+  ['📘', 'book', 'blue'],
+  ['📙', 'book', 'orange'],
+  ['🔖', 'bookmark'],
+  ['📛', 'tag'],
+  ['🪪', 'contact'],
+
+  // Celebration & reward
+  ['🎉', 'gift'],
+  ['🎊', 'gift'],
+  ['🥳', 'gift'],
+  ['👏', 'thumbs-up'],
+  ['🙌', 'thumbs-up'],
+  ['🏅', 'trophy', 'gold'],
+  ['🎖️', 'trophy', 'gold'],
+  ['🥈', 'trophy'],
+  ['🥉', 'trophy', 'gold'],
+
+  // Security
+  ['🛡️', 'shield-check'],
+  ['🔐', 'lock'],
+  ['🔏', 'lock'],
+
+  // People & work
+  ['👩‍💻', 'wrench'],
+  ['👨‍💻', 'wrench'],
+  ['🧑‍🎨', 'palette'],
+  ['🧑‍🔬', 'flask-conical'],
+  ['🧑‍🏫', 'book-open'],
+  ['🧑‍🚀', 'rocket'],
+  ['🕴️', 'briefcase'],
 ];
 
 export const EMOJI_ICON_MIGRATION: Record<string, EmojiMigrationEntry> = Object.fromEntries(
@@ -417,4 +575,31 @@ export function resolveMigratedIcon(
   const mapped = EMOJI_ICON_MIGRATION[value!];
   if (mapped) return mapped;
   return { icon: inferIconFromName(entityName), color: inferColorForName(entityName) };
+}
+
+/**
+ * Normalize an incoming icon value at write time (#283): close the raw-emoji
+ * write path by running every icon write through the same table the one-time
+ * backfill (#251) uses, instead of trusting callers to only ever send a
+ * `set:` ref. Pass through `null`/`undefined` (no icon supplied) and anything
+ * that isn't emoji-shaped (already a `set:` ref, or plain text) unchanged;
+ * resolve legacy emoji to a curated icon via {@link resolveMigratedIcon}.
+ *
+ * This is deliberately a *value* helper, not a zod `.transform()`, because
+ * the emoji-shaped fallback needs the entity's name for
+ * {@link inferIconFromName} — for updates that don't also change the name,
+ * only the caller (the service, which already has the current row loaded)
+ * knows it. Call this from every icon-accepting service method (spaces,
+ * databases, space_folders, space_documents), not just the HTTP-facing zod
+ * schemas — templates and integrations (linear.service.ts, github.service.ts,
+ * agents.service.ts) construct entities through those same services without
+ * going through a Nest DTO, so schema-only validation would miss them.
+ */
+export function normalizeIconInput(
+  icon: string | null | undefined,
+  entityName: string,
+): string | null | undefined {
+  if (icon === null || icon === undefined) return icon;
+  const resolved = resolveMigratedIcon(icon, entityName);
+  return resolved ? resolved.icon : icon;
 }

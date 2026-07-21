@@ -24,6 +24,17 @@ export const spaceColorSchema = z.enum([
   'gray', 'brown', 'gold', 'orange', 'red', 'pink', 'purple', 'blue', 'teal', 'green',
 ]);
 
+/**
+ * #283: this schema only bounds length — it doesn't reject raw emoji, because
+ * the actual invariant ("only `set:<name>` refs get persisted") is enforced
+ * one layer down, in SpacesService.create/update (via
+ * `normalizeIconInput` from `@storyos/schemas/icons`). That's deliberate: a
+ * zod `.transform()` here would only run for requests that go through this
+ * DTO, but templates and integrations (linear.service.ts, github.service.ts,
+ * agents.service.ts) construct spaces by calling SpacesService directly,
+ * bypassing this schema entirely. Normalizing in the service is the only
+ * choke point that covers every entry point.
+ */
 export const createSpaceSchema = z.object({
   name: z.string().trim().min(1).max(100),
   icon: z.string().max(48).optional(),

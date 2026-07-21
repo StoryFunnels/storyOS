@@ -1,5 +1,6 @@
 import { ConflictException, Inject, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import { and, asc, desc, eq, isNull } from 'drizzle-orm';
+import { normalizeIconInput } from '@storyos/schemas/icons';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { spaceDocuments, spaces } from '../db/schema';
@@ -60,13 +61,18 @@ export class SpaceDocumentsService {
       .where(eq(spaceDocuments.spaceId, spaceId))
       .orderBy(desc(spaceDocuments.position))
       .limit(1);
+    const title = input.title?.slice(0, 200) ?? 'Untitled';
+    // #283: normalize through the emoji migration table —
+    // space-documents.controller.ts only enforces z.string().max(48), no
+    // `set:` requirement.
+    const icon = normalizeIconInput(input.icon, title);
     const [row] = await this.db
       .insert(spaceDocuments)
       .values({
         workspaceId,
         spaceId,
-        title: input.title?.slice(0, 200) ?? 'Untitled',
-        icon: input.icon,
+        title,
+        icon,
         position: (last?.position ?? -1) + 1,
         createdBy: actorId,
       })
@@ -86,7 +92,10 @@ export class SpaceDocumentsService {
     const existing = await this.row(workspaceId, docId);
     const patch: Partial<typeof spaceDocuments.$inferInsert> = {};
     if (input.title !== undefined) patch.title = input.title.slice(0, 200);
-    if (input.icon !== undefined) patch.icon = input.icon;
+    if (input.icon !== undefined) {
+      patch.icon =
+        input.icon === null ? null : (normalizeIconInput(input.icon, patch.title ?? existing.title) ?? input.icon);
+    }
 
     if (input.content !== undefined) {
       const size = Buffer.byteLength(JSON.stringify(input.content ?? null));

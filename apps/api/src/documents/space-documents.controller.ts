@@ -7,12 +7,18 @@ import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { SpaceDocumentsService } from './space-documents.service';
 
-const createSchema = z.object({ title: z.string().max(200).optional(), icon: z.string().max(16).optional() });
+// #283: max(16) was too small even for existing `set:<name>` refs (e.g.
+// `set:layout-dashboard` is 20 chars) — bumped to match the max(48) convention
+// used by createSpaceSchema/createDatabaseSchema. The service
+// (SpaceDocumentsService) normalizes any raw emoji through the migration
+// table before it's persisted, so this bound only needs to fit a `set:` ref
+// or a short emoji.
+const createSchema = z.object({ title: z.string().max(200).optional(), icon: z.string().max(48).optional() });
 class CreateSpaceDocDto extends createZodDto(createSchema) {}
 
 const updateSchema = z.object({
   title: z.string().max(200).optional(),
-  icon: z.string().max(16).nullable().optional(),
+  icon: z.string().max(48).nullable().optional(),
   content: z.unknown().optional(),
   expected_version: z.number().int().min(0).optional(),
 });

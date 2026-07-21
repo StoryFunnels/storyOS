@@ -1,5 +1,6 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, desc, eq } from 'drizzle-orm';
+import { normalizeIconInput } from '@storyos/schemas/icons';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { spaceFolders, spaces } from '../db/schema';
@@ -41,18 +42,25 @@ export class FoldersService {
       .where(eq(spaceFolders.spaceId, spaceId))
       .orderBy(desc(spaceFolders.position))
       .limit(1);
+    // #283: normalize through the emoji migration table — folders.controller.ts
+    // only enforces z.string().max(16), no `set:` requirement.
+    const icon = normalizeIconInput(input.icon, input.name);
     const [row] = await this.db
       .insert(spaceFolders)
-      .values({ workspaceId, spaceId, name: input.name.slice(0, 100), icon: input.icon, position: (last?.position ?? -1) + 1 })
+      .values({ workspaceId, spaceId, name: input.name.slice(0, 100), icon, position: (last?.position ?? -1) + 1 })
       .returning();
     return { id: row!.id, space_id: row!.spaceId, name: row!.name, icon: row!.icon, position: row!.position };
   }
 
   async update(workspaceId: string, folderId: string, input: { name?: string; icon?: string | null; position?: number }) {
-    await this.row(workspaceId, folderId);
+    const existing = await this.row(workspaceId, folderId);
+    let icon = input.icon;
+    if (icon !== undefined && icon !== null) {
+      icon = normalizeIconInput(icon, input.name ?? existing.name) ?? icon;
+    }
     const [row] = await this.db
       .update(spaceFolders)
-      .set({ name: input.name?.slice(0, 100), icon: input.icon, position: input.position })
+      .set({ name: input.name?.slice(0, 100), icon, position: input.position })
       .where(eq(spaceFolders.id, folderId))
       .returning();
     return { id: row!.id, space_id: row!.spaceId, name: row!.name, icon: row!.icon, position: row!.position };
