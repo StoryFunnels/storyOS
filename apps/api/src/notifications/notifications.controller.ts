@@ -31,6 +31,8 @@ export class NotificationsController {
       // #263: bare billing/system reminders, also never opt-out-able.
       'trial_reminder_23',
       'trial_reminder_29',
+      // MN-252: a connection's refresh failure, also bare and never opt-out-able.
+      'connection_error',
     ]);
     return this.notifications.list(req.membership.workspaceId, req.user.id, unreadOnly === 'true', cursor, {
       type: type && allowed.has(type) ? (type as NotificationType) : undefined,

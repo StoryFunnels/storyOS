@@ -32,7 +32,8 @@ Set in `.env` next to `docker-compose.yml`. Only `BETTER_AUTH_SECRET` is require
 | `HTTP_PORT` / `HTTPS_PORT` | `80` / `443` | host ports of the caddy proxy |
 | `RESEND_API_KEY`, `MAIL_FROM` | unset | invites/mentions/notifications/auth verify+reset email via Resend's HTTP API (MN-103) — the preferred path. Without it (and without `SMTP_HOST` below), invite links are copyable in the UI and other emails are logged instead of sent. |
 | `SMTP_HOST/PORT/USER/PASS` | unset | fallback transport, used only when `RESEND_API_KEY` is unset. Any SMTP provider works (e.g. Resend's own relay: `smtp.resend.com`, user `resend`, pass `re_…`) |
-| `GOOGLE_CLIENT_ID/SECRET` | unset | enables "Continue with Google". Redirect URI: `{API_URL}/api/v1/auth/callback/google` |
+| `GOOGLE_CLIENT_ID/SECRET` | unset | enables "Continue with Google" **and** the Google connection under **Connections** (MN-252) — the same OAuth app covers both. Redirect URIs: `{API_URL}/api/v1/auth/callback/google` (login) and `{API_URL}/api/v1/connections/oauth/callback` (Connections) |
+| `CONNECTIONS_MASTER_KEY` | derived from `BETTER_AUTH_SECRET` | `openssl rand -hex 32`. Encrypts every credential in **Connections** (Apify/Resend keys, OAuth tokens) at rest. The API **refuses to boot in production** if this is unset or not a 64-char hex string. Self-host can leave it unset — the derived dev/test key still works, but pin it explicitly once you rely on Connections in production so a `BETTER_AUTH_SECRET` rotation can't also invalidate every saved connection. |
 | `STORAGE_DRIVER` | `local` | `s3` for MinIO/S3/R2 |
 | `S3_ENDPOINT/BUCKET/ACCESS_KEY/SECRET_KEY` | MinIO defaults | with `--profile minio` the bundled MinIO works out of the box (create the bucket once via the console at :9001) |
 | `ATTACHMENT_MAX_BYTES` | 20971520 (20 MB) | per-file upload cap |
@@ -41,6 +42,18 @@ Set in `.env` next to `docker-compose.yml`. Only `BETTER_AUTH_SECRET` is require
 | `STRIPE_WEBHOOK_SECRET` | unset | `whsec_…` from your Stripe webhook endpoint (`{API_URL}/api/v1/billing/webhook`). Required for plan changes to sync back. |
 | `STRIPE_PRICE_PRO/BUSINESS/SEAT` | unset | price ids from `pnpm --filter @storyos/api billing:seed` (run once per Stripe account/mode) |
 | `STRIPE_TAX_ENABLED` | `false` | `true` to calculate/collect VAT/sales tax via Stripe Tax (paid add-on; must be activated in the dashboard) |
+
+## Connections (MN-252)
+
+**Connections** (per-workspace, under **Settings → Connections**) is a registry of external-provider
+credentials shared by every automation action and source — Apify and Resend connect with an API key
+today; Google connects via OAuth2 reusing `GOOGLE_CLIENT_ID/SECRET` above. Each OAuth2 provider is a
+**bring-your-own-app**: register an OAuth app with that provider, then set its client id/secret as env
+vars named on the provider's own descriptor (`providers/index.ts` in `apps/api/src/connections`) — no
+provider is enabled until its env vars are set, and none of this is required for API-key providers.
+Follow-up integrations (LinkedIn, Meta, YouTube) register their own descriptor and document their own
+client id/secret vars here when they ship; YouTube is expected to reuse `GOOGLE_CLIENT_ID/SECRET` rather
+than add new ones.
 
 ## Data protection & GDPR
 
