@@ -1027,3 +1027,50 @@ export const platformAdmins = pgTable('platform_admins', {
   grantedBy: text('granted_by'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * MN-252 — the workspace credential registry. One row per connected external
+ * provider (Apify, Resend, and — once the follow-up tickets land their own
+ * descriptors — LinkedIn/Meta/YouTube via OAuth2). Replaces the ad-hoc
+ * plaintext `workspaces.settings.{slack,linear,github}` blobs for anything
+ * new; those three keep working as-is (migrating them is an explicit
+ * non-goal here).
+ *
+ * `authSealed` is the secretbox (apps/api/src/common/secretbox.ts) ciphertext
+ * of the provider's auth JSON (an API key, or an OAuth token pair) — the
+ * plaintext is never stored, logged, or returned by any endpoint.
+ * `errorStreak`/`breakerOpenUntil` are pre-provisioned columns for MN-253's
+ * circuit breaker; nothing writes `breakerOpenUntil` yet.
+ */
+export const connectionStatus = pgEnum('connection_status', [
+  'active',
+  'expired',
+  'revoked',
+  'error',
+]);
+
+export const connections = pgTable(
+  'connections',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    /** Provider descriptor id (providers/index.ts registry key) — e.g. "apify". */
+    provider: text('provider').notNull(),
+    /** Admin-chosen display name, distinguishing multiple connections to one provider. */
+    name: text('name').notNull(),
+    /** secretbox ciphertext of the auth JSON — never the plaintext. */
+    authSealed: text('auth_sealed').notNull(),
+    /** OAuth scopes actually granted; [] for api_key/smtp providers. */
+    scopes: jsonb('scopes').notNull().default([]),
+    status: connectionStatus('status').notNull().default('active'),
+    lastOkAt: timestamp('last_ok_at', { withTimezone: true }),
+    errorStreak: integer('error_streak').notNull().default(0),
+    /** Pre-provisioned for MN-253's circuit breaker — unused until then. */
+    breakerOpenUntil: timestamp('breaker_open_until', { withTimezone: true }),
+    createdBy: text('created_by'),
+    ...timestamps,
+  },
+  (t) => [index('connections_workspace_provider_idx').on(t.workspaceId, t.provider)],
+);

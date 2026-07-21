@@ -27,3 +27,4 @@ export * from './token-scopes';
 export * from './architect';
 export * from './packs';
 export * from './icons';
+export * from './connections';

@@ -89,6 +89,12 @@ const DECLARED_SAFE: Record<string, string> = {
     'apps/api/src/agents/agents.service.ts (MN-188) — a token *count* for StoryOS-AI run cost/credit metering, not a credential',
   tokensOut:
     'apps/api/src/agents/agents.service.ts (MN-188) — a token *count* for StoryOS-AI run cost/credit metering, not a credential',
+  // packages/schemas/src/connections.ts (MN-252) — a discriminator string
+  // ('oauth2' | 'api_key' | 'smtp'), not a credential. NB its sibling `auth` (the
+  // actual raw credential payload on the same schema) is NOT exempted here — it's
+  // real secret material and is covered by the `auth` tail in redact-secrets.ts
+  // instead, which gives it wholesale redaction.
+  auth_kind: "packages/schemas/src/connections.ts (MN-252) — the provider's auth-mechanism discriminator, not a credential",
 };
 
 function propertyNames(): Map<string, Set<string>> {

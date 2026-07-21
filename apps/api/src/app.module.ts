@@ -25,6 +25,7 @@ import { SearchModule } from './search/search.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { ImportModule } from './import/import.module';
 import { AutomationsModule } from './automations/automations.module';
+import { ConnectionsModule } from './connections/connections.module';
 import { EventsModule } from './events/events.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { AgentsModule } from './agents/agents.module';
@@ -98,6 +99,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     NotificationsModule,
     ImportModule,
     AutomationsModule,
+    ConnectionsModule,
     EventsModule,
     IntegrationsModule,
     AgentsModule,

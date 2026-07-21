@@ -15,7 +15,9 @@ export type NotificationType =
   | 'state_changed'
   // #263: bare — no record behind these, see NotificationRow.record being null.
   | 'trial_reminder_23'
-  | 'trial_reminder_29';
+  | 'trial_reminder_29'
+  // MN-252: also bare — a connection has no record behind it either.
+  | 'connection_error';
 export interface NotificationRow {
   id: string;
   type: NotificationType;
@@ -38,6 +40,7 @@ export const NOTIFICATION_VERBS: Record<NotificationType, string> = {
   state_changed: 'updated status on',
   trial_reminder_23: 'sent a trial reminder',
   trial_reminder_29: 'sent a final trial reminder',
+  connection_error: 'flagged a connection',
 };
 const VERBS = NOTIFICATION_VERBS;
 
