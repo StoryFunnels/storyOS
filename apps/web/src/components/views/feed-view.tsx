@@ -116,6 +116,8 @@ export function FeedView({
                   <div className="ml-auto flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                     {canAct && statusField && (
                       <StatusAction
+                        ws={ws}
+                        db={db}
                         field={statusField}
                         value={row.values[statusField.apiName]}
                         onCommit={(value) => updateRecord.mutate({ rec: row.id, values: { [statusField.apiName]: value } })}
@@ -130,6 +132,8 @@ export function FeedView({
                     )}
                     {canAct && userField && (
                       <AssignAction
+                        ws={ws}
+                        db={db}
                         field={userField}
                         value={row.values[userField.apiName]}
                         members={memberList}
@@ -176,10 +180,14 @@ export function FeedView({
  * the same select editor popover table view uses (CellEditor), reused rather than
  * rebuilt so the option list, colors, and clear behavior stay identical. */
 function StatusAction({
+  ws,
+  db,
   field,
   value,
   onCommit,
 }: {
+  ws: string;
+  db: string;
   field: Field;
   value: unknown;
   onCommit: (value: unknown) => void;
@@ -198,6 +206,8 @@ function StatusAction({
       </button>
       {editing && (
         <CellEditor
+          ws={ws}
+          db={db}
           field={field}
           value={value}
           members={[]}
@@ -241,6 +251,8 @@ function CheckboxAction({
 /** Inline assign action (#76): a person picker reusing CellEditor's user-type
  * editor (the same avatar-list popover table view uses for a `user` field). */
 function AssignAction({
+  ws,
+  db,
   field,
   value,
   members,
@@ -248,6 +260,8 @@ function AssignAction({
   memberImages,
   onCommit,
 }: {
+  ws: string;
+  db: string;
   field: Field;
   value: unknown;
   members: Array<{ id: string; name: string; image?: string | null }>;
@@ -278,6 +292,8 @@ function AssignAction({
       </button>
       {editing && (
         <CellEditor
+          ws={ws}
+          db={db}
           field={field}
           value={value}
           members={members}

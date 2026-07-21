@@ -66,6 +66,8 @@ function ScalarValue({ field, record, ws, db, rec, members, memberNames, memberI
     return (
       <div className="relative min-h-6">
         <CellEditor
+          ws={ws}
+          db={db}
           field={field}
           value={value}
           members={members}

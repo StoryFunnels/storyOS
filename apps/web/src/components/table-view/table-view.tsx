@@ -96,6 +96,9 @@ export function TableView({
 
   const [widths, setWidths] = useState<Record<string, number>>({});
   const [cursor, setCursor] = useState<Cursor | null>(null);
+  // MN-285: the far corner of a shift-click/shift-arrow cell range, anchored at
+  // `cursor`. Null means "just the one cell" — the pre-existing behavior.
+  const [rangeEnd, setRangeEnd] = useState<Cursor | null>(null);
   const [editing, setEditing] = useState(false);
   const [addingField, setAddingField] = useState<null | { type?: string; relationId?: string }>(null);
 
@@ -227,9 +230,26 @@ export function TableView({
     scrollRef.current?.focus();
   }
 
+  // The rectangular cell range spanning `cursor` (the anchor) to `rangeEnd` (the
+  // far corner), normalized to top-left/bottom-right. Null when there's no active
+  // range — i.e. every existing single-cell code path is unaffected (MN-285).
+  const rangeBounds = useMemo(() => {
+    if (!cursor || !rangeEnd) return null;
+    return {
+      r0: Math.min(cursor.row, rangeEnd.row),
+      r1: Math.max(cursor.row, rangeEnd.row),
+      c0: Math.min(cursor.col, rangeEnd.col),
+      c1: Math.max(cursor.col, rangeEnd.col),
+    };
+  }, [cursor, rangeEnd]);
+
   // Copy/paste a cell value between cells (MN-15). Keeps the raw copied value +
   // source field so same-type paste is exact; falls back to the clipboard text.
   const copiedRef = useRef<{ field: Field; value: unknown } | null>(null);
+  // MN-285: a rectangular multi-cell copy — a grid of the same {field,value}
+  // shape, kept separate from `copiedRef` so the original single-cell path
+  // above (and its exact error messaging) is untouched when there's no range.
+  const copiedRangeRef = useRef<Array<Array<{ field: Field; value: unknown }>> | null>(null);
   const READONLY_TYPES = ['id', 'created_at', 'updated_at', 'created_by', 'lookup', 'rollup', 'formula'];
 
   function copyCell() {
@@ -274,11 +294,104 @@ export function TableView({
     commitEdit(row, target, value);
   }
 
+  // MN-285: copy every cell in the selected range as a TSV block (system
+  // clipboard) + the raw {field,value} grid (in-app, for exact same-type paste).
+  function copyRange() {
+    if (!cursor || !rangeBounds) return;
+    const { r0, r1, c0, c1 } = rangeBounds;
+    const grid: Array<Array<{ field: Field; value: unknown }>> = [];
+    const textRows: string[] = [];
+    for (let r = r0; r <= r1; r++) {
+      const row = rows[r];
+      const gridRow: Array<{ field: Field; value: unknown }> = [];
+      const textCols: string[] = [];
+      for (let c = c0; c <= c1; c++) {
+        const field = fields[c];
+        if (!row || !field) continue;
+        const value = valueOf(row, field) ?? null;
+        gridRow.push({ field, value });
+        textCols.push(cellToText(field, value));
+      }
+      grid.push(gridRow);
+      textRows.push(textCols.join('\t'));
+    }
+    copiedRangeRef.current = grid;
+    void navigator.clipboard?.writeText(textRows.join('\n')).catch(() => {});
+    const count = grid.reduce((n, gr) => n + gr.length, 0);
+    toast.success(`Copied ${count} cell${count === 1 ? '' : 's'}`);
+  }
+
+  // MN-285: fill a destination range (explicit, or — pasting a multi-cell copy
+  // onto a single cursor cell — anchored at the cursor and sized to the copied
+  // block) by tiling the copied grid / pasted clipboard text with wraparound,
+  // the same "repeat the pattern" rule spreadsheets use for fill-paste. Cells
+  // the target field can't accept are skipped rather than blocking the batch —
+  // the single-cell path above is what still surfaces a precise per-field error.
+  async function pasteRange() {
+    if (!cursor || readOnly) return;
+    const inSession = copiedRangeRef.current;
+    let clipboardGrid: string[][] | null = null;
+    if (!inSession) {
+      let text = '';
+      try {
+        text = await navigator.clipboard.readText();
+      } catch {
+        /* clipboard read blocked — nothing to tile from */
+      }
+      if (text) clipboardGrid = text.replace(/\r/g, '').split('\n').map((line) => line.split('\t'));
+    }
+    const srcRows = inSession?.length ?? clipboardGrid?.length ?? 1;
+    const srcCols = inSession?.[0]?.length ?? clipboardGrid?.[0]?.length ?? 1;
+    const r0 = rangeBounds?.r0 ?? cursor.row;
+    const c0 = rangeBounds?.c0 ?? cursor.col;
+    const r1 = rangeBounds?.r1 ?? Math.min(rows.length - 1, cursor.row + srcRows - 1);
+    const c1 = rangeBounds?.c1 ?? Math.min(fields.length - 1, cursor.col + srcCols - 1);
+
+    let applied = 0;
+    for (let r = r0; r <= r1; r++) {
+      const row = rows[r];
+      if (!row) continue;
+      for (let c = c0; c <= c1; c++) {
+        const target = fields[c];
+        if (!target || READONLY_TYPES.includes(target.type)) continue;
+        const sr = (r - r0) % srcRows;
+        const sc = (c - c0) % srcCols;
+        const copiedCell = inSession?.[sr]?.[sc] ?? null;
+        const text = clipboardGrid ? clipboardGrid[sr]?.[sc] ?? '' : '';
+        const value = coercePaste(target, text, copiedCell);
+        if (value === PASTE_WRONG_TARGET || value === undefined) continue;
+        const current = valueOf(row, target) ?? null;
+        if (JSON.stringify(current) === JSON.stringify(value)) continue;
+        updateRecord.mutate({ rec: row.id, values: { [target.apiName]: value } });
+        applied++;
+      }
+    }
+    if (applied > 0) toast.success(`Pasted ${applied} cell${applied === 1 ? '' : 's'}`);
+    else toast.error('Nothing to paste there');
+    scrollRef.current?.focus();
+  }
+
   function onKeyDown(e: React.KeyboardEvent) {
     if (editing || rows.length === 0) return;
     const max: Cursor = { row: rows.length - 1, col: fields.length - 1 };
-    const move = (dr: number, dc: number) => {
+    // MN-285: plain arrow moves the single-cell cursor and drops any active range
+    // (matching a plain click); shift+arrow instead grows the range's far corner,
+    // anchored at the existing cursor.
+    const move = (dr: number, dc: number, extend: boolean) => {
       e.preventDefault();
+      if (extend && cursor) {
+        setRangeEnd((prev) => {
+          const anchor = prev ?? cursor;
+          const next = {
+            row: Math.min(max.row, Math.max(0, anchor.row + dr)),
+            col: Math.min(max.col, Math.max(0, anchor.col + dc)),
+          };
+          virtualizer.scrollToIndex(next.row);
+          return next;
+        });
+        return;
+      }
+      setRangeEnd(null);
       setCursor((prev) => {
         const base = prev ?? { row: 0, col: 0 };
         const next = {
@@ -289,18 +402,26 @@ export function TableView({
         return next;
       });
     };
+    // A multi-cell in-app copy that hasn't been consumed by a range paste yet —
+    // lets a single-cell Cmd+V still fill-paste a previously copied block,
+    // anchored at the cursor (see pasteRange's destination-sizing fallback).
+    const hasRangeCopy = (copiedRangeRef.current?.length ?? 0) > 1 || (copiedRangeRef.current?.[0]?.length ?? 0) > 1;
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'c' && cursor) {
       e.preventDefault();
-      copyCell();
+      if (rangeBounds) copyRange();
+      else copyCell();
     } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'v' && cursor && !readOnly) {
       e.preventDefault();
-      void pasteCell();
-    } else if (e.key === 'ArrowDown') move(1, 0);
-    else if (e.key === 'ArrowUp') move(-1, 0);
-    else if (e.key === 'ArrowRight' || e.key === 'Tab') move(0, 1);
-    else if (e.key === 'ArrowLeft') move(0, -1);
-    else if (e.key === 'Escape' && selected.size > 0) {
+      if (rangeBounds || hasRangeCopy) void pasteRange();
+      else void pasteCell();
+    } else if (e.key === 'ArrowDown') move(1, 0, e.shiftKey);
+    else if (e.key === 'ArrowUp') move(-1, 0, e.shiftKey);
+    else if (e.key === 'ArrowRight') move(0, 1, e.shiftKey);
+    else if (e.key === 'Tab') move(0, 1, false);
+    else if (e.key === 'ArrowLeft') move(0, -1, e.shiftKey);
+    else if (e.key === 'Escape' && (selected.size > 0 || rangeEnd)) {
       setSelected(new Set());
+      setRangeEnd(null);
     } else if (e.key.toLowerCase() === 'x' && cursor && !readOnly) {
       e.preventDefault();
       toggleSelect(cursor.row, e.shiftKey);
@@ -312,6 +433,7 @@ export function TableView({
       setSelected(new Set(rows.map((r) => r.id)));
     } else if (e.key === 'Enter' && cursor && !readOnly) {
       e.preventDefault();
+      setRangeEnd(null);
       const field = fields[cursor.col]!;
       if (field.type === 'checkbox') {
         const row = rows[cursor.row]!;
@@ -483,6 +605,15 @@ export function TableView({
                   {fields.map((field, colIndex) => {
                     const isCursor = cursor?.row === item.index && cursor?.col === colIndex;
                     const isEditing = isCursor && editing;
+                    // MN-285: cells inside the active shift-click/shift-arrow range
+                    // (including the anchor cell itself) get a lighter fill than the
+                    // single-cell cursor ring, like a spreadsheet selection.
+                    const inRange =
+                      rangeBounds !== null &&
+                      item.index >= rangeBounds.r0 &&
+                      item.index <= rangeBounds.r1 &&
+                      colIndex >= rangeBounds.c0 &&
+                      colIndex <= rangeBounds.c1;
                     return (
                       <div
                         key={field.id}
@@ -497,8 +628,17 @@ export function TableView({
                               colIndex === frozenCount - 1 && 'shadow-[2px_0_4px_-2px_rgba(15,23,41,0.12)]',
                               selected.has(row.id) ? 'bg-accent-soft' : 'bg-card group-hover:bg-hover',
                             ),
+                          // MN-285: applied last so twMerge lets the range fill win over
+                          // the frozen-column background above when both are present.
+                          inRange && !isCursor && 'z-10 bg-accent-soft/60',
                         )}
-                        onClick={() => {
+                        onClick={(e) => {
+                          if (e.shiftKey && cursor) {
+                            setRangeEnd({ row: item.index, col: colIndex });
+                            scrollRef.current?.focus();
+                            return;
+                          }
+                          setRangeEnd(null);
                           setCursor({ row: item.index, col: colIndex });
                           // Focus the keydown container so Cmd/Ctrl+C/V + arrows work (#15).
                           scrollRef.current?.focus();
@@ -513,6 +653,7 @@ export function TableView({
                           // Title edits on double-click; single click selects so the
                           // hover "Open" affordance stays reachable.
                           if (!readOnly && field.type === 'title') {
+                            setRangeEnd(null);
                             setCursor({ row: item.index, col: colIndex });
                             setEditing(true);
                           }
@@ -532,6 +673,8 @@ export function TableView({
                           />
                         ) : isEditing && !NO_EDITOR.has(field.type) ? (
                           <CellEditor
+                            ws={ws}
+                            db={db}
                             field={field}
                             value={valueOf(row, field)}
                             members={memberList}

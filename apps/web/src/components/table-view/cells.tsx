@@ -1,7 +1,8 @@
 'use client';
 
-import { useRef, useState } from 'react';
-import { ChevronDown, ChevronUp } from 'lucide-react';
+import { useMemo, useRef, useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { ChevronDown, ChevronUp, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -27,6 +28,15 @@ export const OPTION_COLORS: Record<string, string> = {
   teal: '#057160',
   green: '#2D7A4F',
 };
+
+/** First palette color not already in use, so inline-created options don't
+ * all land on gray (mirrors `nextColor` in field-dialog-shared.tsx — kept as
+ * a small local copy to avoid a cells.tsx <-> field-dialog-shared.tsx import
+ * cycle, since that module already imports OPTION_COLORS from here). */
+function nextOptionColor(used: string[]): string {
+  const names = Object.keys(OPTION_COLORS);
+  return names.find((c) => c !== 'gray' && !used.includes(c)) ?? names[used.length % names.length]!;
+}
 
 /** Color cell editor (#89): a native swatch picker + a hex input, with the brand
  * palette as presets. Commits a normalized #rrggbb; empty clears the value. */
@@ -298,6 +308,8 @@ export function fieldValue(row: ViewRow, field: { type: string; apiName: string 
 }
 
 interface EditorProps {
+  ws: string;
+  db: string;
   field: Field;
   value: unknown;
   members: Array<{ id: string; name: string; image?: string | null }>;
@@ -306,7 +318,7 @@ interface EditorProps {
 }
 
 /** Inline editor per field type. Enter commits, Esc cancels, blur commits. */
-export function CellEditor({ field, value, members, onCommit, onCancel }: EditorProps) {
+export function CellEditor({ ws, db, field, value, members, onCommit, onCancel }: EditorProps) {
   switch (field.type) {
     case 'title':
     case 'text':
@@ -331,6 +343,10 @@ export function CellEditor({ field, value, members, onCommit, onCancel }: Editor
     case 'select':
       return (
         <OptionList
+          ws={ws}
+          db={db}
+          field={field}
+          allowCreate
           options={field.options ?? []}
           selected={value == null ? [] : [String(value)]}
           onPick={(id) => onCommit(id)}
@@ -341,6 +357,10 @@ export function CellEditor({ field, value, members, onCommit, onCancel }: Editor
     case 'multi_select':
       return (
         <OptionList
+          ws={ws}
+          db={db}
+          field={field}
+          allowCreate
           multi
           options={field.options ?? []}
           selected={Array.isArray(value) ? (value as string[]) : []}
@@ -483,24 +503,56 @@ function NumberEditor({
   );
 }
 
+/**
+ * Select/multi_select/user cell picker (MN-285): type-to-filter over the
+ * option list, plus — for select and multi_select only, via `allowCreate` —
+ * an inline "+ Add new '<text>'" row that creates the option (POST
+ * .../fields/{field}/options) and applies it without leaving the cell
+ * editor. Arrow keys move a highlighted row across the filtered list + the
+ * create row; Enter picks whatever's highlighted; Escape closes via Radix's
+ * built-in dismiss (same as before — no local handling needed).
+ */
 function OptionList({
+  ws,
+  db,
+  field,
   options,
   selected,
   multi = false,
+  allowCreate = false,
   onPick,
   onToggle,
   onClear,
   onClose,
 }: {
+  ws?: string;
+  db?: string;
+  field?: Field;
   options: Array<SelectOption & { image?: string | null }>;
   selected: string[];
   multi?: boolean;
+  allowCreate?: boolean;
   onPick?: (id: string) => void;
   onToggle?: (ids: string[]) => void;
   onClear: () => void;
   onClose: () => void;
 }) {
+  const qc = useQueryClient();
   const [current, setCurrent] = useState<string[]>(selected);
+  const [query, setQuery] = useState('');
+  const [active, setActive] = useState(0);
+
+  const trimmed = query.trim();
+  const filtered = useMemo(
+    () =>
+      trimmed
+        ? options.filter((o) => o.label.toLowerCase().includes(trimmed.toLowerCase()))
+        : options,
+    [options, trimmed],
+  );
+  const exactMatch = options.some((o) => o.label.toLowerCase() === trimmed.toLowerCase());
+  const showCreate = allowCreate && trimmed !== '' && !exactMatch;
+  const itemCount = filtered.length + (showCreate ? 1 : 0);
 
   // MN-230d: closing (outside click, Escape) mirrors the old mousedown-outside
   // handler — multi-select commits whatever is currently checked; single-select
@@ -511,45 +563,124 @@ function OptionList({
     else onClose();
   }
 
+  const addOption = useMutation({
+    mutationFn: async (label: string) => {
+      const { data, error } = await api.POST(
+        '/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/options',
+        {
+          params: { path: { ws: ws!, db: db!, field: field!.id } },
+          body: { label, color: nextOptionColor(options.map((o) => o.color)) } as never,
+        },
+      );
+      if (error) throw error;
+      // The endpoint returns the inserted option row ({id, label, color, ...});
+      // the generated SDK types the 201 body as untyped, so cast it (matches
+      // the relation picker's createTarget cast below).
+      return data as unknown as { id: string; label: string; color: string };
+    },
+    onSuccess: (created) => {
+      void qc.invalidateQueries({ queryKey: ['database', ws, db] });
+      void qc.invalidateQueries({ queryKey: ['records', ws, db] });
+      setQuery('');
+      setActive(0);
+      if (multi) {
+        setCurrent((prev) => (prev.includes(created.id) ? prev : [...prev, created.id]));
+      } else {
+        onPick?.(created.id);
+      }
+    },
+    onError: () => toast.error('Could not add the option'),
+  });
+
+  function pickIndex(idx: number) {
+    if (idx < filtered.length) {
+      const option = filtered[idx]!;
+      if (multi) {
+        setCurrent((prev) =>
+          prev.includes(option.id) ? prev.filter((x) => x !== option.id) : [...prev, option.id],
+        );
+      } else {
+        onPick?.(option.id);
+      }
+    } else if (showCreate && trimmed) {
+      addOption.mutate(trimmed);
+    }
+  }
+
   return (
     <Popover open onOpenChange={handleOpenChange}>
       <PopoverParentAnchor />
       <PopoverContent
-        className="max-h-64 w-56 overflow-y-auto p-1"
+        className="flex max-h-80 w-56 flex-col gap-1 p-1"
         onClick={(e) => e.stopPropagation()}
       >
-        {options.map((option) => {
-          const isSelected = current.includes(option.id);
-          return (
+        <input
+          autoFocus
+          value={query}
+          placeholder="Search…"
+          className="w-full rounded border border-border-default bg-card px-2 py-1 text-[13px] text-ink outline-none placeholder:text-faint"
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setActive(0);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowDown') {
+              e.preventDefault();
+              setActive((i) => Math.min(itemCount - 1, i + 1));
+            } else if (e.key === 'ArrowUp') {
+              e.preventDefault();
+              setActive((i) => Math.max(0, i - 1));
+            } else if (e.key === 'Enter') {
+              e.preventDefault();
+              if (itemCount > 0) pickIndex(active);
+            }
+            e.stopPropagation();
+          }}
+        />
+        <div className="max-h-60 overflow-y-auto">
+          {filtered.map((option, idx) => {
+            const isSelected = current.includes(option.id);
+            return (
+              <button
+                key={option.id}
+                className={cn(
+                  'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[13px] hover:bg-hover',
+                  (isSelected || idx === active) && 'bg-hover',
+                )}
+                onMouseEnter={() => setActive(idx)}
+                onClick={() => pickIndex(idx)}
+              >
+                {multi && <input type="checkbox" readOnly checked={isSelected} />}
+                {option.image !== undefined ? (
+                  <span className="flex items-center gap-1.5 text-[13px] text-ink">
+                    <Avatar userId={option.id} name={option.label} image={option.image} size={16} />
+                    {option.label}
+                  </span>
+                ) : (
+                  <OptionChip option={option} />
+                )}
+              </button>
+            );
+          })}
+          {filtered.length === 0 && !showCreate && (
+            <p className="px-2 py-1.5 text-[12px] text-faint">No matches</p>
+          )}
+          {showCreate && (
             <button
-              key={option.id}
               className={cn(
-                'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[13px] hover:bg-hover',
-                isSelected && 'bg-hover',
+                'flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left text-[13px] text-info hover:bg-hover',
+                active === filtered.length && 'bg-hover',
               )}
-              onClick={() => {
-                if (multi) {
-                  setCurrent((prev) =>
-                    prev.includes(option.id) ? prev.filter((x) => x !== option.id) : [...prev, option.id],
-                  );
-                } else {
-                  onPick?.(option.id);
-                }
-              }}
+              onMouseEnter={() => setActive(filtered.length)}
+              onClick={() => pickIndex(filtered.length)}
+              disabled={addOption.isPending}
             >
-              {multi && <input type="checkbox" readOnly checked={isSelected} />}
-              {option.image !== undefined ? (
-                <span className="flex items-center gap-1.5 text-[13px] text-ink">
-                  <Avatar userId={option.id} name={option.label} image={option.image} size={16} />
-                  {option.label}
-                </span>
-              ) : (
-                <OptionChip option={option} />
-              )}
+              <Plus className="h-3.5 w-3.5" />
+              {addOption.isPending ? 'Adding…' : `Add new “${trimmed}”`}
             </button>
-          );
-        })}
-        <div className="mt-1 flex justify-between border-t border-border-default px-2 pt-1">
+          )}
+        </div>
+        <div className="flex justify-between border-t border-border-default px-2 pt-1">
           <button className="text-[12px] text-muted hover:text-ink" onClick={onClear}>
             Clear
           </button>

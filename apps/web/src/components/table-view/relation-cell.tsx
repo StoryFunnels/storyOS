@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
@@ -138,7 +138,24 @@ export function RelationEditor({
   }
 
   const selectedIds = useMemo(() => new Set(selected.map((c) => c.id)), [selected]);
-  const exactMatch = results.data?.some((r) => r.title.toLowerCase() === search.trim().toLowerCase());
+  const rows = results.data ?? [];
+  const trimmed = search.trim();
+  const exactMatch = rows.some((r) => r.title.toLowerCase() === trimmed.toLowerCase());
+  const showCreate = trimmed !== '' && !exactMatch;
+  const itemCount = rows.length + (showCreate ? 1 : 0);
+
+  // MN-285: arrow-key highlight across the fetched rows + the "create" row,
+  // reset whenever the query (and so the result set) changes.
+  const [active, setActive] = useState(0);
+  useEffect(() => setActive(0), [search]);
+
+  function pickIndex(idx: number) {
+    if (idx < rows.length) {
+      pick(rows[idx]!);
+    } else if (showCreate && trimmed) {
+      createTarget.mutate(trimmed);
+    }
+  }
 
   return (
     <Popover open onOpenChange={handleOpenChange}>
@@ -165,30 +182,49 @@ export function RelationEditor({
           className="w-full border-b border-border-default bg-card px-3 py-2 text-[13px] text-ink outline-none placeholder:text-faint"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowDown') {
+              e.preventDefault();
+              setActive((i) => Math.min(itemCount - 1, i + 1));
+            } else if (e.key === 'ArrowUp') {
+              e.preventDefault();
+              setActive((i) => Math.max(0, i - 1));
+            } else if (e.key === 'Enter') {
+              e.preventDefault();
+              if (itemCount > 0) pickIndex(active);
+            }
+            e.stopPropagation();
+          }}
         />
         <div className="max-h-56 overflow-y-auto p-1">
-          {(results.data ?? []).map((row) => (
+          {rows.map((row, idx) => (
             <button
               key={row.id}
               className={cn(
                 'flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-[13px] text-ink hover:bg-hover',
-                selectedIds.has(row.id) && 'bg-hover',
+                (selectedIds.has(row.id) || idx === active) && 'bg-hover',
               )}
+              onMouseEnter={() => setActive(idx)}
               onClick={() => pick(row)}
             >
               <span className="truncate">{row.title || 'Untitled'}</span>
               {!single && selectedIds.has(row.id) && <span className="text-[11px] text-muted">linked</span>}
             </button>
           ))}
-          {search.trim() && !exactMatch ? (
+          {showCreate ? (
             <button
-              className="flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left text-[13px] text-info hover:bg-hover"
-              onClick={() => createTarget.mutate(search.trim())}
+              className={cn(
+                'flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left text-[13px] text-info hover:bg-hover',
+                active === rows.length && 'bg-hover',
+              )}
+              onMouseEnter={() => setActive(rows.length)}
+              onClick={() => createTarget.mutate(trimmed)}
+              disabled={createTarget.isPending}
             >
-              <Plus className="h-3.5 w-3.5" /> Create “{search.trim()}”
+              <Plus className="h-3.5 w-3.5" /> {createTarget.isPending ? 'Creating…' : `Add new “${trimmed}”`}
             </button>
           ) : (
-            !search.trim() && (
+            !trimmed && (
               <p className="flex items-center gap-1.5 px-2 py-1.5 text-[12px] text-faint">
                 <Plus className="h-3.5 w-3.5" /> Type a name to create a new one
               </p>

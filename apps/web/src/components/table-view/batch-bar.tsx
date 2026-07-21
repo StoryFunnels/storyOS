@@ -279,6 +279,8 @@ export function BatchBar({
             )}
             <div className="relative min-h-8">
               <CellEditor
+                ws={ws}
+                db={db}
                 field={settingField}
                 value={null}
                 members={members}
