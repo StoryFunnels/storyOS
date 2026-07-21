@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '../auth/auth.guard';
 import { PlatformAdminGuard } from './platform-admin.guard';
 import { AdminOverviewService } from './admin-overview.service';
+import { CostAttributionService } from './cost-attribution.service';
 
 /**
  * MN-104 first cut: read-only, platform-admin-gated. No mutations here yet —
@@ -17,7 +18,10 @@ import { AdminOverviewService } from './admin-overview.service';
 @Controller('admin')
 @UseGuards(AuthGuard, PlatformAdminGuard)
 export class AdminController {
-  constructor(private readonly overview: AdminOverviewService) {}
+  constructor(
+    private readonly overview: AdminOverviewService,
+    private readonly costs: CostAttributionService,
+  ) {}
 
   @Get('overview')
   @ApiOperation({ summary: 'Instance-wide counts: workspaces, users, records, plan mix, estimated MRR.' })
@@ -29,5 +33,14 @@ export class AdminController {
   @ApiOperation({ summary: 'Every workspace on the instance: plan, seats, record count.' })
   async listWorkspaces() {
     return this.overview.listWorkspaces();
+  }
+
+  @Get('costs')
+  @ApiOperation({
+    summary:
+      'MN-194 — per-workspace cost and margin from real usage (hosted calls, storage, email; AI cost estimated pending MN-214r), plus blended margin per plan and the margin-floor flags.',
+  })
+  async getCosts() {
+    return this.costs.getCostOverview();
   }
 }

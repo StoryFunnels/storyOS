@@ -1,14 +1,26 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
+import { DB } from '../src/db/db.module';
+import type { Db } from '../src/db/client';
+import { billingSubscriptions } from '../src/db/schema';
 import { createTestApp } from './helpers/app';
 import { authed, signUpUser } from './helpers/users';
 
 let app: NestFastifyApplication;
+let db: Db;
 let token: string;
 let wsId: string;
 let dbId: string;
 let msgFieldId: string;
 let nameFieldId: string;
+
+/** Force `billing_subscriptions` into a plan directly — no real Stripe in tests. */
+async function setPlan(plan: 'free' | 'pro' | 'business' | 'enterprise') {
+  await db
+    .insert(billingSubscriptions)
+    .values({ workspaceId: wsId, plan, seats: 0 })
+    .onConflictDoUpdate({ target: billingSubscriptions.workspaceId, set: { plan } });
+}
 
 async function as(method: string, url: string, payload?: unknown) {
   return app.inject({ method: method as never, url: `/api/v1${url}`, headers: authed(token), payload: payload as never });
@@ -44,6 +56,7 @@ async function makeForm(access: 'members' | 'link' | 'public', token_: string) {
 
 beforeAll(async () => {
   app = await createTestApp();
+  db = app.get(DB);
   token = (await signUpUser(app, 'FormOwner')).token;
   wsId = (await as('POST', '/workspaces', { name: 'Forms WS' })).json().id;
   const spaceId = (await as('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
@@ -67,6 +80,19 @@ describe('public forms (MN-101)', () => {
     expect(def.fields).toHaveLength(2);
     expect(def.fields[0]).toMatchObject({ api_name: 'name', label: 'Your name', required: true });
     expect(def.fields[1]).toMatchObject({ api_name: 'message', help: 'What can we help with?' });
+  });
+
+  it('#269: "Powered by StoryOS" shows for a free workspace, off for a paid one', async () => {
+    // Free by default (no billing_subscriptions row) — attribution is present.
+    const free = await pub('GET', '/public/forms/tok-public');
+    expect(free.json().hide_branding).toBe(false);
+
+    // Paid plans get the standard freemium white-label removal.
+    await setPlan('pro');
+    const paid = await pub('GET', '/public/forms/tok-public');
+    expect(paid.json().hide_branding).toBe(true);
+
+    await setPlan('free'); // restore — other tests in this file share the workspace
   });
 
   it('a members-only form is not public (404)', async () => {

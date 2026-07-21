@@ -8,6 +8,7 @@ import { unwrap, uploadAttachment } from './client.js';
 import { blocksToMarkdown, markdownToBlocks } from '@storyos/schemas/markdown';
 import { ICON_CATEGORIES, ICON_SET_META, ICON_SET_PREFIX } from '@storyos/schemas/icons';
 import { listDatabases, listWorkspaces, resolveDatabase, resolveWorkspace } from './resolve.js';
+import { databaseUrl, recordUrl, viewUrl } from './links.js';
 
 /** Icon param description shared by create_database/update_database/create_space
  * (#251: emoji retired as the picker option in-app; the MCP surface keeps
@@ -179,6 +180,7 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   search: 'read',
   query_records: 'read',
   get_record: 'read',
+  get_links: 'read',
   list_attachments: 'read',
   list_spaces: 'read',
   list_icon_set: 'read',
@@ -269,6 +271,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         '',
         'Refs: address a database by its qualified "space/database" slug (from list_databases) — a bare name that exists in two spaces is rejected. Never invent ids; they come from search / list_* / a prior result. Names, slugs and select labels are resolved server-side.',
         'Values: select/multi_select take the human label (e.g. "High"); rich_text fields accept Markdown (headings, lists, links, code — parsed to blocks) and are returned to you as Markdown.',
+        '',
+        'Links: get_record / query_records / create_record / update_record all include a `url` — a clickable web-app link for that record, ready to hand to a user. Scheme: {web origin}/w/{workspace_id}/d/{database_id}/r/{title-slug}-{number} (falls back to the record uuid when it has no public number yet). workspace_id/database_id are the ids from list_workspaces/list_databases — never the human name/slug you passed in. Use get_links to resolve a database or view link, or a batch of record links, without a round-trip per record.',
         '',
         `SCOPE: ${scopeExclusions(effective)}`,
         '',
@@ -393,7 +397,13 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           }),
         );
         return text({
-          records: res.data.map((r) => ({ id: r.id, number: r.number, title: r.title, values: labelize(detail, r.values) })),
+          records: res.data.map((r) => ({
+            id: r.id,
+            number: r.number,
+            title: r.title,
+            values: labelize(detail, r.values),
+            url: recordUrl(ws.id, db.id, r),
+          })),
           next_cursor: res.next_cursor,
           has_more: res.has_more,
         });
@@ -428,7 +438,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
             }),
           );
       const detail = await getDetail(ws.id, db.id);
-      return text({ ...row, values: labelize(detail, row.values) });
+      return text({ ...row, values: labelize(detail, row.values), url: recordUrl(ws.id, db.id, row) });
     }),
   );
 
@@ -548,7 +558,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           body: { values: mapWriteValues(detail, values) } as never,
         }),
       );
-      const record = { ...row, values: labelize(detail, row.values) };
+      const record = { ...row, values: labelize(detail, row.values), url: recordUrl(ws.id, db.id, row) };
       const unset = unsetFields(detail, values);
       return text(
         unset.length
@@ -582,7 +592,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
             body: { values: mapWriteValues(detail, values) } as never,
           }),
         );
-        return text({ ...row, values: labelize(detail, row.values) });
+        return text({ ...row, values: labelize(detail, row.values), url: recordUrl(ws.id, db.id, row) });
       },
     ),
   );
@@ -1127,6 +1137,53 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       );
       return text(res);
     }),
+  );
+
+  reg(
+    'get_links',
+    {
+      title: 'Get links',
+      description:
+        'Resolve web-app URLs — for records, a database, and/or its saved views — without a round-trip per record. get_record / query_records / create_record / update_record already include a `url` on each record; reach for this tool for a database link, a view link, or a batch of record links in one call.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string().optional().describe('Database name, api slug, or id. Required to resolve `records` or `views`; on its own, returns just the database link.'),
+        records: z.array(z.string()).optional().describe('Record uuids or public numbers to link.'),
+        views: z.array(z.string()).optional().describe('View names or ids to link.'),
+      },
+    },
+    handle<{ workspace: string; database?: string; records?: string[]; views?: string[] }>(
+      async ({ workspace, database, records, views }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        if (!database) {
+          if (records?.length || views?.length) throw new Error('`database` is required to resolve `records` or `views`.');
+          return text({ workspace: ws.id });
+        }
+        const db = await resolveDatabase(client, ws.id, database);
+        const out: { database: string; records?: Record<string, string>; views?: Record<string, string> } = {
+          database: databaseUrl(ws.id, db.id),
+        };
+        if (records?.length) {
+          out.records = {};
+          for (const ref of records) {
+            const rec = await resolveRecordId(ws.id, db.id, ref);
+            const row = await unwrap<RecordRow>(
+              client.GET('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}', { params: { path: { ws: ws.id, db: db.id, rec } } }),
+            );
+            out.records[ref] = recordUrl(ws.id, db.id, row);
+          }
+        }
+        if (views?.length) {
+          const detail = await getDetail(ws.id, db.id);
+          out.views = {};
+          for (const ref of views) {
+            const v = resolveView(detail, ref);
+            out.views[ref] = viewUrl(ws.id, db.id, v.id);
+          }
+        }
+        return text(out);
+      },
+    ),
   );
 
   // ============ Relations (MN-146 fast-follow): link databases ============

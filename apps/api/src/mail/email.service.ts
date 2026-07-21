@@ -1,5 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { env } from '../config/env';
+import { DB } from '../db/db.module';
+import type { Db } from '../db/client';
+import { currentMonthPeriodStart, incrementUsageCounter, EMAIL_SEND_METRIC } from '../billing/usage-metering';
 import type { EmailInput } from './email.types';
 import { renderEmail } from './templates';
 import { LogMailDriver, ResendMailDriver, SmtpMailDriver } from './mail-driver';
@@ -31,6 +34,11 @@ export class EmailService {
    * in a test doesn't stick around. */
   driver: MailDriver | undefined;
 
+  /** Optional so existing unit tests (`new EmailService()`) keep working —
+   * only the workspaceId-counted path below ever touches `db`, and every
+   * production instantiation goes through Nest DI, which always supplies it. */
+  constructor(@Inject(DB) private readonly db?: Db) {}
+
   private resolveDriver(): MailDriver {
     if (this.driver) return this.driver;
     const e = env();
@@ -47,7 +55,15 @@ export class EmailService {
     return this.driver;
   }
 
-  async send(input: EmailInput): Promise<void> {
+  /**
+   * `workspaceId` is optional and purely for MN-194 cost attribution — the
+   * account-level sends (verify-email/reset-password, see auth.ts) have no
+   * workspace to attribute to and are simply not counted; that's fine, they're
+   * a platform-level cost, not one this workspace-scoped counter needs to
+   * carry. Counting is fire-and-forget, same as the send itself: a failed
+   * increment must never be the reason a real email doesn't go out.
+   */
+  async send(input: EmailInput, workspaceId?: string): Promise<void> {
     const rendered = renderEmail(input);
     const driver = this.resolveDriver();
     void driver.send({ to: input.to, ...rendered }).catch((err: unknown) => {
@@ -55,5 +71,15 @@ export class EmailService {
         `Email send failed to ${input.to} [${rendered.subject}] via ${driver.name}: ${err instanceof Error ? err.message : String(err)}`,
       );
     });
+
+    if (workspaceId && this.db) {
+      void incrementUsageCounter(this.db, workspaceId, currentMonthPeriodStart(), EMAIL_SEND_METRIC).catch(
+        (err: unknown) => {
+          this.logger.warn(
+            `MN-194 email-send counter failed for workspace ${workspaceId}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        },
+      );
+    }
   }
 }
