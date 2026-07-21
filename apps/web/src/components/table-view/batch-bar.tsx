@@ -79,15 +79,22 @@ export function BatchBar({
     }
   }
 
-  async function applyValues(values: Record<string, unknown>) {
+  // MN-279: `close` defaults true (the historical "set, then close the panel"
+  // behavior). Multi-select toggles pass close: false so the panel stays open
+  // and each pick applies to the selection right away instead of batching
+  // until Done/Clear.
+  async function applyValues(values: Record<string, unknown>, opts: { close?: boolean } = {}) {
+    const { close = true } = opts;
     setBusy(true);
     const { data, error } = await api.PATCH('/api/v1/workspaces/{ws}/databases/{db}/records/batch', {
       params: { path: { ws, db } },
       body: { record_ids: selected, values } as never,
     });
     setBusy(false);
-    setSettingField(null);
-    setLinkingField(null);
+    if (close) {
+      setSettingField(null);
+      setLinkingField(null);
+    }
     if (error) {
       toast.error('Batch update failed');
       return;
@@ -285,6 +292,9 @@ export function BatchBar({
                 value={null}
                 members={members}
                 onCommit={(value) => void applyValues({ [settingField.apiName]: value })}
+                onToggleImmediate={(value) =>
+                  void applyValues({ [settingField.apiName]: value }, { close: false })
+                }
                 onCancel={() => setSettingField(null)}
               />
             </div>

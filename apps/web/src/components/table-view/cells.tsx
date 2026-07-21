@@ -314,11 +314,18 @@ interface EditorProps {
   value: unknown;
   members: Array<{ id: string; name: string; image?: string | null }>;
   onCommit: (value: unknown) => void;
+  /**
+   * MN-279: fired on every multi-select toggle so the pick persists right away
+   * instead of batching until Done/Clear/close. Optional — callers that don't
+   * pass it keep the pre-MN-279 batch-until-close behavior for that editor
+   * (no regression, just not yet upgraded).
+   */
+  onToggleImmediate?: (value: unknown) => void;
   onCancel: () => void;
 }
 
 /** Inline editor per field type. Enter commits, Esc cancels, blur commits. */
-export function CellEditor({ ws, db, field, value, members, onCommit, onCancel }: EditorProps) {
+export function CellEditor({ ws, db, field, value, members, onCommit, onToggleImmediate, onCancel }: EditorProps) {
   switch (field.type) {
     case 'title':
     case 'text':
@@ -365,6 +372,9 @@ export function CellEditor({ ws, db, field, value, members, onCommit, onCancel }
           options={field.options ?? []}
           selected={Array.isArray(value) ? (value as string[]) : []}
           onToggle={(ids) => onCommit(ids.length ? ids : null)}
+          onToggleImmediate={
+            onToggleImmediate ? (ids) => onToggleImmediate(ids.length ? ids : null) : undefined
+          }
           onClear={() => onCommit(null)}
           onClose={onCancel}
         />
@@ -379,6 +389,9 @@ export function CellEditor({ ws, db, field, value, members, onCommit, onCancel }
           selected={selected}
           onPick={(id) => onCommit(id)}
           onToggle={(ids) => onCommit(ids.length ? ids : null)}
+          onToggleImmediate={
+            onToggleImmediate ? (ids) => onToggleImmediate(ids.length ? ids : null) : undefined
+          }
           onClear={() => onCommit(null)}
           onClose={onCancel}
         />
@@ -522,6 +535,7 @@ function OptionList({
   allowCreate = false,
   onPick,
   onToggle,
+  onToggleImmediate,
   onClear,
   onClose,
 }: {
@@ -534,6 +548,10 @@ function OptionList({
   allowCreate?: boolean;
   onPick?: (id: string) => void;
   onToggle?: (ids: string[]) => void;
+  /** MN-279: called with the updated id list on every toggle, in addition to
+   * (not instead of) local state — lets the caller persist immediately while
+   * the popover stays open. Undefined for callers not yet wired up. */
+  onToggleImmediate?: (ids: string[]) => void;
   onClear: () => void;
   onClose: () => void;
 }) {
@@ -596,9 +614,17 @@ function OptionList({
     if (idx < filtered.length) {
       const option = filtered[idx]!;
       if (multi) {
-        setCurrent((prev) =>
-          prev.includes(option.id) ? prev.filter((x) => x !== option.id) : [...prev, option.id],
-        );
+        // MN-279: used to only update local state here and wait for
+        // Done/Clear/close to persist — an easy-to-miss step that silently
+        // drops a toggle if the popover is dismissed another way. Persist
+        // every toggle right away (when the caller supports it via
+        // onToggleImmediate); the popover stays open (no onToggle/close
+        // here) so multi-picking stays fluid.
+        const next = current.includes(option.id)
+          ? current.filter((x) => x !== option.id)
+          : [...current, option.id];
+        setCurrent(next);
+        onToggleImmediate?.(next);
       } else {
         onPick?.(option.id);
       }

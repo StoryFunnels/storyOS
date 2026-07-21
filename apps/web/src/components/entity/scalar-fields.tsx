@@ -75,6 +75,9 @@ function ScalarValue({ field, record, ws, db, rec, members, memberNames, memberI
             setEditing(false);
             onCommit(field, next);
           }}
+          // MN-279: multi-select toggles persist immediately without closing
+          // the popover — bypasses the setEditing(false) above.
+          onToggleImmediate={(next) => onCommit(field, next)}
           onCancel={() => setEditing(false)}
         />
       </div>

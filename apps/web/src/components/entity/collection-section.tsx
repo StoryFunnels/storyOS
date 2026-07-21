@@ -75,6 +75,10 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
     void qc.invalidateQueries({ queryKey: ['collection', ws, targetDbId, rec, field.id] });
     void qc.invalidateQueries({ queryKey: ['record', ws, db, rec] });
   };
+  // MN-279: closing the editor is no longer baked into the mutation's global
+  // callbacks — a multi-select toggle needs to persist without closing the
+  // popover. Call sites that should close (checkbox toggle, the editor's
+  // finishing commit) pass their own onSuccess/onError to do so.
   const updateLinked = useMutation({
     mutationFn: async ({ rowId, values }: { rowId: string; values: Record<string, unknown> }) => {
       const { error } = await api.PATCH('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}', {
@@ -84,11 +88,9 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
       if (error) throw error;
     },
     onSuccess: () => {
-      setEditingCell(null);
       invalidateCollection();
     },
     onError: () => {
-      setEditingCell(null);
       toast.error('Could not update the linked record');
     },
   });
@@ -266,7 +268,11 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
                           editable
                             ? () => {
                                 if (col.type === 'checkbox') {
-                                  updateLinked.mutate({ rowId: row.id, values: { [col.apiName]: !(value === true) } });
+                                  // Direct toggle, never opens the editor popover — nothing to close.
+                                  updateLinked.mutate(
+                                    { rowId: row.id, values: { [col.apiName]: !(value === true) } },
+                                    { onSuccess: () => setEditingCell(null), onError: () => setEditingCell(null) },
+                                  );
                                 } else {
                                   setEditingCell(isEditing ? null : { rowId: row.id, fieldId: col.id });
                                 }
@@ -293,7 +299,17 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
                             field={col}
                             value={value ?? null}
                             members={members}
-                            onCommit={(next) => updateLinked.mutate({ rowId: row.id, values: { [col.apiName]: next } })}
+                            onCommit={(next) =>
+                              updateLinked.mutate(
+                                { rowId: row.id, values: { [col.apiName]: next } },
+                                { onSuccess: () => setEditingCell(null), onError: () => setEditingCell(null) },
+                              )
+                            }
+                            // MN-279: multi-select toggles persist immediately without
+                            // closing the popover (no onSuccess/onError override here).
+                            onToggleImmediate={(next) =>
+                              updateLinked.mutate({ rowId: row.id, values: { [col.apiName]: next } })
+                            }
                             onCancel={() => setEditingCell(null)}
                           />
                         )}
