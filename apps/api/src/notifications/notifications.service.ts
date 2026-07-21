@@ -23,7 +23,22 @@ export type NotificationType =
    * automatic downgrade to Free, so there is no toggle to honour here either.
    */
   | 'trial_reminder_23'
-  | 'trial_reminder_29';
+  | 'trial_reminder_29'
+  /**
+   * MN-252 — an OAuth2 connection's token refresh failed (no refresh_token,
+   * or the provider rejected it) and its status flipped to `expired`. Sent to
+   * the connection's creator only; not an opt-out ping for the same reason
+   * approval_requested isn't — it's the thing that unblocks reconnecting, not
+   * a "something already happened" ping the recipient might rather mute.
+   */
+  | 'connection_error'
+  /**
+   * MN-189 follow-up (#265) — an off-session auto-reload charge failed.
+   * Bare, like the trial reminders above. Not an opt-out ping for the same
+   * reason: it's a billing problem the workspace needs to act on (update the
+   * card), not an FYI about something already handled.
+   */
+  | 'auto_reload_failed';
 
 /**
  * The types a user can switch off (#31). `notifications.type` is a plain text

@@ -873,6 +873,25 @@ export const aiCreditBalances = pgTable('ai_credit_balances', {
   autoReloadThresholdCents: integer('auto_reload_threshold_cents'),
   /** How much to add when auto-reload fires. */
   autoReloadAmountCents: integer('auto_reload_amount_cents'),
+  /**
+   * MN-189 follow-up (#265) — the off-session charge mutex. Set (claimed) the
+   * moment a threshold-crossing attempt starts, cleared the moment it
+   * concludes (success or failure). The claim is an atomic
+   * `UPDATE ... WHERE auto_reload_claimed_at IS NULL` (same shape as
+   * TrialRemindersService's sentAt columns), so two `recordUsage()` calls
+   * crossing the threshold in the same instant can never both win it —
+   * exactly one proceeds to call Stripe.
+   */
+  autoReloadClaimedAt: timestamp('auto_reload_claimed_at', { withTimezone: true }),
+  /** Consecutive off-session charge failures since the last success. Reset to
+   * 0 on a successful reload; drives the retry backoff and the eventual
+   * auto-disable (see AiCreditsService.AUTO_RELOAD_MAX_ATTEMPTS). */
+  autoReloadFailureCount: integer('auto_reload_failure_count').notNull().default(0),
+  /** Earliest time AutoReloadRetryService's sweep (or a future usage event)
+   * may retry a failed reload. NULL means no retry is pending — either
+   * nothing has failed, or retries were exhausted and auto-reload was
+   * disabled. */
+  autoReloadNextRetryAt: timestamp('auto_reload_next_retry_at', { withTimezone: true }),
   ...timestamps,
 });
 
@@ -888,6 +907,19 @@ export const aiCreditTransactionType = pgEnum('ai_credit_transaction_type', [
  * negative. `tokensIn`/`tokensOut`/`ourCostCents` are only set on `usage`
  * rows (per-run cost attribution, MN-188's other half); `stripePaymentIntentId`
  * only on `top_up` (idempotency key — see AiCreditsService.applyTopUp).
+ *
+ * `expiresAt`/`remainingCents` (MN-189 follow-up, #265): credits expire 12
+ * months after purchase (MN-189's original proposal — implemented rather than
+ * left perpetual, since this is greenfield with no production balances yet).
+ * Only ever set on `top_up` rows — `remainingCents` starts equal to
+ * `amountCents` and is decremented FIFO (oldest top-up first) as usage
+ * consumes it, in the same transaction as the debit
+ * (AiCreditsService.recordUsage). `expiresAt` is checked lazily — at
+ * getBalance()/recordUsage() time, not via a cron sweep — the simplest
+ * correct option given this ledger has no scheduled-sweep infra of its own
+ * yet: any top-up past its expiry with `remainingCents > 0` gets that
+ * remainder forfeited (an `adjustment` ledger row records the forfeiture) the
+ * next time the balance is touched.
  */
 export const aiCreditTransactions = pgTable(
   'ai_credit_transactions',
@@ -903,6 +935,11 @@ export const aiCreditTransactions = pgTable(
     tokensOut: integer('tokens_out'),
     ourCostCents: integer('our_cost_cents'),
     stripePaymentIntentId: text('stripe_payment_intent_id').unique(),
+    /** `top_up` rows only: 12 months after `createdAt`. */
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    /** `top_up` rows only: starts at `amountCents`, FIFO-decremented by usage,
+     * zeroed by lazy expiry once `expiresAt` passes. */
+    remainingCents: integer('remaining_cents'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('ai_credit_transactions_workspace_idx').on(t.workspaceId, t.createdAt)],
@@ -1001,3 +1038,50 @@ export const platformAdmins = pgTable('platform_admins', {
   grantedBy: text('granted_by'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * MN-252 — the workspace credential registry. One row per connected external
+ * provider (Apify, Resend, and — once the follow-up tickets land their own
+ * descriptors — LinkedIn/Meta/YouTube via OAuth2). Replaces the ad-hoc
+ * plaintext `workspaces.settings.{slack,linear,github}` blobs for anything
+ * new; those three keep working as-is (migrating them is an explicit
+ * non-goal here).
+ *
+ * `authSealed` is the secretbox (apps/api/src/common/secretbox.ts) ciphertext
+ * of the provider's auth JSON (an API key, or an OAuth token pair) — the
+ * plaintext is never stored, logged, or returned by any endpoint.
+ * `errorStreak`/`breakerOpenUntil` are pre-provisioned columns for MN-253's
+ * circuit breaker; nothing writes `breakerOpenUntil` yet.
+ */
+export const connectionStatus = pgEnum('connection_status', [
+  'active',
+  'expired',
+  'revoked',
+  'error',
+]);
+
+export const connections = pgTable(
+  'connections',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    /** Provider descriptor id (providers/index.ts registry key) — e.g. "apify". */
+    provider: text('provider').notNull(),
+    /** Admin-chosen display name, distinguishing multiple connections to one provider. */
+    name: text('name').notNull(),
+    /** secretbox ciphertext of the auth JSON — never the plaintext. */
+    authSealed: text('auth_sealed').notNull(),
+    /** OAuth scopes actually granted; [] for api_key/smtp providers. */
+    scopes: jsonb('scopes').notNull().default([]),
+    status: connectionStatus('status').notNull().default('active'),
+    lastOkAt: timestamp('last_ok_at', { withTimezone: true }),
+    errorStreak: integer('error_streak').notNull().default(0),
+    /** Pre-provisioned for MN-253's circuit breaker — unused until then. */
+    breakerOpenUntil: timestamp('breaker_open_until', { withTimezone: true }),
+    createdBy: text('created_by'),
+    ...timestamps,
+  },
+  (t) => [index('connections_workspace_provider_idx').on(t.workspaceId, t.provider)],
+);

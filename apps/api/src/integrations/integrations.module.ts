@@ -5,6 +5,7 @@ import { FieldsModule } from '../fields/fields.module';
 import { RecordsModule } from '../records/records.module';
 import { RelationsModule } from '../relations/relations.module';
 import { WorkspacesModule } from '../workspaces/workspaces.module';
+import { MigrationFrameworkModule } from '../migration-framework/migration-framework.module';
 import { GithubAppService } from './github-app.service';
 import { GithubService } from './github.service';
 import { GithubWebhookService } from './github-webhook.service';
@@ -19,7 +20,7 @@ import { LinearService } from './linear.service';
 import { SlackService } from './slack.service';
 
 @Module({
-  imports: [DatabasesModule, DocumentsModule, FieldsModule, RecordsModule, RelationsModule, WorkspacesModule],
+  imports: [DatabasesModule, DocumentsModule, FieldsModule, RecordsModule, RelationsModule, WorkspacesModule, MigrationFrameworkModule],
   controllers: [
     IntegrationsController,
     GithubWebhookController,

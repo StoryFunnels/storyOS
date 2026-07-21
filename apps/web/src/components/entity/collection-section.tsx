@@ -283,20 +283,15 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
                           <span className="text-faint">—</span>
                         )}
                         {isEditing && (
-                          <span
-                            className="absolute right-0 top-full z-30 mt-1 w-56"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <span className="relative block min-h-8 rounded-[var(--radius-card)] border border-border-default bg-card p-1 shadow-[0_8px_24px_rgba(15,23,41,0.15)]">
-                              <CellEditor
-                                field={col}
-                                value={value ?? null}
-                                members={members}
-                                onCommit={(next) => updateLinked.mutate({ rowId: row.id, values: { [col.apiName]: next } })}
-                                onCancel={() => setEditingCell(null)}
-                              />
-                            </span>
-                          </span>
+                          // CellEditor self-positions (MN-230d, viewport-collision-aware);
+                          // the `relative` cell span above is its anchor.
+                          <CellEditor
+                            field={col}
+                            value={value ?? null}
+                            members={members}
+                            onCommit={(next) => updateLinked.mutate({ rowId: row.id, values: { [col.apiName]: next } })}
+                            onCancel={() => setEditingCell(null)}
+                          />
                         )}
                       </span>
                     );

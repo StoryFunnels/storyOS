@@ -64,6 +64,14 @@ const DECLARED_SAFE: Record<string, string> = {
   // spares them at redaction time. They are covered, not exempted.
   key: "a Linear team's key (`ENG`), an identifier, not a credential",
   team_keys: 'Linear team identifiers — the non-secret sibling of api_key',
+  // apps/api/src/integrations/linear-source-adapter.ts (MN-236) — the
+  // migration-framework SourceAdapter's `LinearSourceConfig.teamKeys`, the same
+  // non-secret Linear team identifiers as `team_keys` above, just camelCase to
+  // match the new adapter's config shape. `LinearService` still owns `team_keys`
+  // (snake_case, settings-blob shaped) for its own read/write path, so both
+  // spellings are live at once rather than one superseding the other.
+  teamKeys:
+    'apps/api/src/integrations/linear-source-adapter.ts (MN-236) — camelCase sibling of team_keys, same non-secret Linear team identifiers',
   signature: 'an HMAC we compute per delivery; never stored in a settings blob',
   tokenHash: 'sha256 of an invite token — the plaintext never round-trips',
   // #201: a workspace-level boolean feature flag ("gate files behind an access
@@ -81,6 +89,12 @@ const DECLARED_SAFE: Record<string, string> = {
     'apps/api/src/agents/agents.service.ts (MN-188) — a token *count* for StoryOS-AI run cost/credit metering, not a credential',
   tokensOut:
     'apps/api/src/agents/agents.service.ts (MN-188) — a token *count* for StoryOS-AI run cost/credit metering, not a credential',
+  // packages/schemas/src/connections.ts (MN-252) — a discriminator string
+  // ('oauth2' | 'api_key' | 'smtp'), not a credential. NB its sibling `auth` (the
+  // actual raw credential payload on the same schema) is NOT exempted here — it's
+  // real secret material and is covered by the `auth` tail in redact-secrets.ts
+  // instead, which gives it wholesale redaction.
+  auth_kind: "packages/schemas/src/connections.ts (MN-252) — the provider's auth-mechanism discriminator, not a credential",
 };
 
 function propertyNames(): Map<string, Set<string>> {

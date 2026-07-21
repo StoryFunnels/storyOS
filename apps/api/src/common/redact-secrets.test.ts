@@ -118,6 +118,26 @@ describe('redactSecrets', () => {
     });
   });
 
+  /**
+   * MN-252: a connection's `auth` is the raw provider-specific credential
+   * payload (whatever shape that provider's healthCheck/seal expects — an
+   * `api_key`, an OAuth token pair, …). There's no fixed sub-key to pattern
+   * match, so the whole object is redacted wholesale, same as `credential`/
+   * `credentials` — unlike `headers`, this is not a per-value container.
+   */
+  it('redacts a connection auth payload wholesale, regardless of its provider-specific shape', () => {
+    const out = redactSecrets({
+      provider: 'apify',
+      name: 'Prod Apify',
+      auth: { api_key: 'apify_api_abc123' },
+    });
+    expect(out).toEqual({
+      provider: 'apify',
+      name: 'Prod Apify',
+      auth: '[redacted]',
+    });
+  });
+
   /** webhookUrlSchema accepts `https://user:pass@host` — the key `url` says nothing. */
   it('strips userinfo out of a URL whose key looks innocent', () => {
     expect(

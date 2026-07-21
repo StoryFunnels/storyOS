@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { hkdfSync, randomBytes } from 'node:crypto';
 import { z } from 'zod';
 
 /**
@@ -47,6 +47,62 @@ export function resolveAuthSecret(
   return value && value.length > 0 ? value : randomBytes(32).toString('hex');
 }
 
+const HEX_64_RE = /^[0-9a-f]{64}$/i;
+
+/**
+ * Resolve CONNECTIONS_MASTER_KEY (MN-252), or refuse to boot. This key seals
+ * every row in `connections` (secretbox.ts) — an OAuth token, an Apify key, a
+ * Resend key — so a weak or shared key is exactly as bad as a weak
+ * BETTER_AUTH_SECRET, just for credentials instead of sessions.
+ *
+ * In production it must be an explicit 64-char hex string (32 bytes for
+ * AES-256), the same shape `openssl rand -hex 32` produces. Outside
+ * production, an unset key is derived deterministically via HKDF from
+ * BETTER_AUTH_SECRET, so a local setup needs no new env var — but note this
+ * means a dev/test key changes whenever BETTER_AUTH_SECRET does (including
+ * BETTER_AUTH_SECRET's own per-boot randomness when it is unset), so rows
+ * sealed in one boot won't decrypt after a restart unless BETTER_AUTH_SECRET
+ * is itself pinned in `.env`. That mirrors the existing session-secret
+ * trade-off exactly, and self-host operators already set BETTER_AUTH_SECRET.
+ */
+export function resolveConnectionsMasterKey(
+  nodeEnv: 'development' | 'test' | 'production',
+  provided: string | undefined,
+  authSecret: string,
+): string {
+  const value = provided?.trim();
+  if (nodeEnv === 'production') {
+    const weak = !value || !HEX_64_RE.test(value);
+    if (weak) {
+      throw new Error(
+        [
+          'FATAL: refusing to boot in production with an unsafe CONNECTIONS_MASTER_KEY.',
+          value
+            ? 'The value is not a 64-character hex string (32 bytes).'
+            : 'CONNECTIONS_MASTER_KEY is not set.',
+          'This key encrypts every connected provider credential at rest — a weak or',
+          'guessable value defeats that entirely. Set a strong, unique key before starting:',
+          '',
+          '    CONNECTIONS_MASTER_KEY=$(openssl rand -hex 32)',
+          '',
+        ].join('\n'),
+      );
+    }
+    return value.toLowerCase();
+  }
+  if (value && HEX_64_RE.test(value)) return value.toLowerCase();
+  // development / test: derive from BETTER_AUTH_SECRET via HKDF-SHA256 so a
+  // fresh checkout encrypts/decrypts connections with zero extra setup.
+  const derived = hkdfSync(
+    'sha256',
+    Buffer.from(authSecret, 'utf8'),
+    Buffer.alloc(0),
+    Buffer.from('storyos.connections.master-key.v1'),
+    32,
+  );
+  return Buffer.from(derived).toString('hex');
+}
+
 export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(3001),
@@ -59,6 +115,11 @@ export const envSchema = z.object({
   WEB_URL: z.string().default('http://localhost:3000'),
   /** Resolved via resolveAuthSecret() in env(); never defaulted to a constant. */
   BETTER_AUTH_SECRET: z.string().optional(),
+  /**
+   * Resolved via resolveConnectionsMasterKey() in env() (MN-252); never
+   * defaulted to a constant. Encrypts the `connections` registry at rest.
+   */
+  CONNECTIONS_MASTER_KEY: z.string().optional(),
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().default(1025),
   SMTP_USER: z.string().optional(),
@@ -167,6 +228,15 @@ export const envSchema = z.object({
   /** 30 days per MN-107; overridable only to shorten dev cycles. */
   BILLING_TRIAL_DAYS: z.coerce.number().int().positive().default(30),
   /**
+   * MN-189 follow-up (#265) — how many consecutive off-session auto-reload
+   * charge failures a workspace tolerates before auto-reload is disabled and
+   * the workspace notified. See AI_CREDIT_AUTO_RELOAD_BACKOFF_MINUTES
+   * (plans.ts) for the backoff between attempts; if this is set higher than
+   * that array's length, the last (longest) backoff is reused for the extra
+   * attempts.
+   */
+  AI_CREDIT_AUTO_RELOAD_MAX_ATTEMPTS: z.coerce.number().int().positive().default(3),
+  /**
    * MN-104 — the instance operator. On boot, if a user with this email
    * exists, they're granted platform_admin (idempotent). Unset = nobody is a
    * platform admin and /admin is unreachable by anyone. Re-checked every
@@ -176,9 +246,14 @@ export const envSchema = z.object({
   PLATFORM_ADMIN_EMAIL: z.string().optional(),
 });
 
-export type Env = Omit<z.infer<typeof envSchema>, 'BETTER_AUTH_SECRET'> & {
+export type Env = Omit<
+  z.infer<typeof envSchema>,
+  'BETTER_AUTH_SECRET' | 'CONNECTIONS_MASTER_KEY'
+> & {
   /** Always resolved to a concrete secret (or boot is refused). */
   BETTER_AUTH_SECRET: string;
+  /** Always resolved to a 64-char hex key (or boot is refused). */
+  CONNECTIONS_MASTER_KEY: string;
 };
 
 let cached: Env | undefined;
@@ -186,11 +261,14 @@ let cached: Env | undefined;
 export function env(): Env {
   if (!cached) {
     const parsed = envSchema.parse(process.env);
+    const authSecret = resolveAuthSecret(parsed.NODE_ENV, parsed.BETTER_AUTH_SECRET);
     cached = {
       ...parsed,
-      BETTER_AUTH_SECRET: resolveAuthSecret(
+      BETTER_AUTH_SECRET: authSecret,
+      CONNECTIONS_MASTER_KEY: resolveConnectionsMasterKey(
         parsed.NODE_ENV,
-        parsed.BETTER_AUTH_SECRET,
+        parsed.CONNECTIONS_MASTER_KEY,
+        authSecret,
       ),
     };
   }

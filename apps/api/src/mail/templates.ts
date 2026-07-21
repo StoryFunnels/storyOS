@@ -284,6 +284,32 @@ function renderTrialReminder(workspaceName: string, daysRemaining: number, billi
   return { subject, text, html };
 }
 
+function renderAutoReloadFailed(workspaceName: string, billingUrl: string): RenderedEmail {
+  const safeWorkspace = escapeHtml(workspaceName);
+  const subject = `Auto-reload turned off for ${workspaceName}`;
+  const text = [
+    `StoryOS AI credit auto-reload for ${workspaceName} failed too many times in a row and has been turned off.`,
+    '',
+    "This usually means the saved card was declined or needs updating (some banks require you to re-authorize off-session charges).",
+    '',
+    `Update your payment method: ${billingUrl}`,
+    '',
+    'Runs will pause once the current balance reaches zero until you top up or re-enable auto-reload.',
+  ].join('\n');
+  const html = renderBrandedEmail({
+    heading: 'Auto-reload turned off',
+    preheader: `Auto-reload for ${safeWorkspace} failed too many times and has been turned off.`,
+    bodyHtml: `
+      <p style="margin: 0 0 12px;">Hi there,</p>
+      <p style="margin: 0 0 12px;">StoryOS AI credit auto-reload for <strong>${safeWorkspace}</strong> failed too many times in a row, so we've turned it off rather than keep retrying.</p>
+      <p class="eo-muted" style="margin: 0 0 12px; color: ${LIGHT.textMuted}; font-size: 13px;">This usually means the saved card was declined or needs re-authorizing for off-session charges.</p>
+      <p class="eo-muted" style="margin: 0; color: ${LIGHT.textMuted}; font-size: 13px;">Runs will pause once the current balance reaches zero until you top up or re-enable auto-reload.</p>
+    `,
+    cta: { label: 'Update payment method', url: billingUrl },
+  });
+  return { subject, text, html };
+}
+
 /** One small render function per email kind (MN-103), each producing StoryOS's
  * branded HTML shell (MN-147) — the seam callers (invites/comments/auth) never
  * have to touch when the template changes. */
@@ -299,5 +325,7 @@ export function renderEmail(input: EmailInput): RenderedEmail {
       return renderResetPassword(input.url);
     case 'trial-reminder':
       return renderTrialReminder(input.workspaceName, input.daysRemaining, input.billingUrl);
+    case 'auto-reload-failed':
+      return renderAutoReloadFailed(input.workspaceName, input.billingUrl);
   }
 }
