@@ -17,7 +17,9 @@ export type NotificationType =
   | 'trial_reminder_23'
   | 'trial_reminder_29'
   // MN-252: also bare — a connection has no record behind it either.
-  | 'connection_error';
+  | 'connection_error'
+  // MN-189 follow-up (#265): also bare — an off-session auto-reload charge failed.
+  | 'auto_reload_failed';
 export interface NotificationRow {
   id: string;
   type: NotificationType;
@@ -41,6 +43,7 @@ export const NOTIFICATION_VERBS: Record<NotificationType, string> = {
   trial_reminder_23: 'sent a trial reminder',
   trial_reminder_29: 'sent a final trial reminder',
   connection_error: 'flagged a connection',
+  auto_reload_failed: 'flagged an auto-reload failure',
 };
 const VERBS = NOTIFICATION_VERBS;
 
