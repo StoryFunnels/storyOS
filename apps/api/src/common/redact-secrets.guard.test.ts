@@ -64,6 +64,14 @@ const DECLARED_SAFE: Record<string, string> = {
   // spares them at redaction time. They are covered, not exempted.
   key: "a Linear team's key (`ENG`), an identifier, not a credential",
   team_keys: 'Linear team identifiers — the non-secret sibling of api_key',
+  // apps/api/src/integrations/linear-source-adapter.ts (MN-236) — the
+  // migration-framework SourceAdapter's `LinearSourceConfig.teamKeys`, the same
+  // non-secret Linear team identifiers as `team_keys` above, just camelCase to
+  // match the new adapter's config shape. `LinearService` still owns `team_keys`
+  // (snake_case, settings-blob shaped) for its own read/write path, so both
+  // spellings are live at once rather than one superseding the other.
+  teamKeys:
+    'apps/api/src/integrations/linear-source-adapter.ts (MN-236) — camelCase sibling of team_keys, same non-secret Linear team identifiers',
   signature: 'an HMAC we compute per delivery; never stored in a settings blob',
   tokenHash: 'sha256 of an invite token — the plaintext never round-trips',
   // #201: a workspace-level boolean feature flag ("gate files behind an access
