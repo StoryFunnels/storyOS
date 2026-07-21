@@ -178,7 +178,12 @@ function MembersPageContent() {
                   >
                     Export
                   </Button>
-                  <Button variant="ghost" size="sm" onClick={() => removeMember.mutate(member.id)}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => removeMember.mutate(member.id)}
+                    title="Remove: revoke their access to this workspace. Their comments and history stay, still attributed to them — you can re-invite them later."
+                  >
                     Remove
                   </Button>
                   <EraseMemberDialog ws={ws} member={member} onDone={() => void qc.invalidateQueries({ queryKey: ['members', ws] })} />
@@ -255,7 +260,11 @@ function EraseMemberDialog({
       }}
     >
       <DialogTrigger asChild>
-        <Button variant="destructive" size="sm">
+        <Button
+          variant="destructive"
+          size="sm"
+          title="Erase: permanently delete & anonymize this member for GDPR. Irreversible — requires typed confirmation."
+        >
           Erase
         </Button>
       </DialogTrigger>
