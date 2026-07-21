@@ -1,13 +1,18 @@
 import { Inject, Injectable, UnprocessableEntityException } from '@nestjs/common';
 import { and, eq, isNull } from 'drizzle-orm';
-import { parse } from 'csv-parse/sync';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { fields, records, selectOptions } from '../db/schema';
 import { FieldsService } from '../fields/fields.service';
-import { RecordsService } from '../records/records.service';
 import { RelationsService } from '../relations/relations.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
+import { ChunkedApplyService } from '../migration-framework/chunked-apply.service';
+import { DryRunBuilder } from '../migration-framework/dry-run';
+import { coerceScalar, inferFieldType } from '../migration-framework/field-type-mapping';
+import { buildTitleIndex, resolveTargetsByTitle, splitTargets } from '../migration-framework/relation-resolver';
+import { RelationLinkerService } from '../migration-framework/relation-linker.service';
+import { buildLabelIndex } from '../migration-framework/select-options';
+import { CsvSourceAdapter } from './csv-source-adapter';
 
 export interface ColumnMapping {
   column: string;
@@ -25,88 +30,39 @@ interface Warning {
   message: string;
 }
 
-const INFERABLE_DATE = /^(\d{4}-\d{2}-\d{2}|\d{1,2}[./]\d{1,2}[./]\d{4})/;
-const BOOLS = new Set(['true', 'false', 'yes', 'no', '1', '0']);
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const URL_RE = /^https?:\/\/\S+$/i;
+/** Re-exported for callers that only need the relation-cell-splitting rule (MN-075). */
+export { splitTargets };
 
 /**
- * A relation cell may name several targets, comma-separated — the shape CSV
- * export writes (MN-075), so import must read it back that way or the round-trip
- * silently drops every target but the first. A title containing a comma survives
- * because the CSV parser already unquoted the cell; we only split the top level.
+ * CSV import (MN-052): parse → infer → map → dry-run → chunked commit — now
+ * built on the shared migration framework (#198 / MN-236, ADR-0013) instead of
+ * hand-rolling type inference, relation-by-title matching and chunked commit
+ * inline. See docs/decisions/ADR-0013-migration-framework.md.
  */
-export function splitTargets(raw: string): string[] {
-  return raw
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
-
-/** CSV import (MN-052): parse → infer → map → dry-run → chunked commit. */
 @Injectable()
 export class ImportService {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly fieldsService: FieldsService,
-    private readonly recordsService: RecordsService,
     private readonly relationsService: RelationsService,
+    private readonly chunkedApply: ChunkedApplyService,
+    private readonly relationLinker: RelationLinkerService,
   ) {}
 
   parseCsv(buffer: Buffer): { headers: string[]; rows: string[][] } {
-    const text = buffer.toString('utf8').replace(/^\uFEFF/, '');
-    const firstLine = text.slice(0, text.indexOf('\n') + 1 || undefined);
-    const delimiter = [',', ';', '\t'].reduce((best, d) =>
-      (firstLine.split(d).length > firstLine.split(best).length ? d : best),
-    );
-    let parsed: string[][];
-    try {
-      parsed = parse(text, { delimiter, relax_column_count: true, skip_empty_lines: true }) as string[][];
-    } catch (error) {
-      throw new UnprocessableEntityException(`Could not parse CSV: ${(error as Error).message}`);
-    }
-    if (parsed.length === 0) throw new UnprocessableEntityException('The CSV is empty');
-    const [headers, ...rows] = parsed;
-    return { headers: headers!.map((h) => h.trim()), rows };
+    const adapter = new CsvSourceAdapter();
+    adapter.connect({ buffer });
+    return { headers: adapter.parsedHeaders, rows: adapter.parsedRows };
   }
 
-  /** Suggested type per column from the first 1000 rows (MN-052 inference rules). */
+  /** Suggested type per column from the first 1000 rows (MN-052 inference rules,
+   * generalized into migration-framework/field-type-mapping). */
   inferTypes(headers: string[], rows: string[][]): Array<{ column: string; type: string; options?: string[] }> {
     return headers.map((column, i) => {
-      const sample = rows.slice(0, 1000).map((r) => (r[i] ?? '').trim()).filter(Boolean);
-      if (sample.length === 0) return { column, type: 'text' };
-      const share = (pred: (v: string) => boolean) => sample.filter(pred).length / sample.length;
-      if (share((v) => BOOLS.has(v.toLowerCase())) >= 0.95) return { column, type: 'checkbox' };
-      if (share((v) => Number.isFinite(Number(v.replace(',', '.')))) >= 0.98) return { column, type: 'number' };
-      if (share((v) => INFERABLE_DATE.test(v)) >= 0.95) return { column, type: 'date' };
-      if (share((v) => EMAIL.test(v)) >= 0.9) return { column, type: 'email' };
-      if (share((v) => URL_RE.test(v)) >= 0.9) return { column, type: 'url' };
-      const distinct = [...new Set(sample)];
-      if (distinct.length <= 24 && sample.length >= distinct.length * 2) {
-        return { column, type: 'select', options: distinct };
-      }
-      return { column, type: 'text' };
+      const sample = rows.slice(0, 1000).map((r) => r[i] ?? '');
+      const inferred = inferFieldType(sample);
+      return { column, type: inferred.type, options: inferred.options };
     });
-  }
-
-  private coerceCell(type: string, raw: string): unknown {
-    const value = raw.trim();
-    if (!value) return undefined;
-    switch (type) {
-      case 'number': {
-        const n = Number(value.replace(/\s/g, '').replace(',', '.'));
-        return Number.isFinite(n) ? n : undefined;
-      }
-      case 'checkbox':
-        return ['true', 'yes', '1'].includes(value.toLowerCase());
-      case 'date': {
-        const m = /^(\d{1,2})[./](\d{1,2})[./](\d{4})$/.exec(value);
-        if (m) return `${m[3]}-${m[2]!.padStart(2, '0')}-${m[1]!.padStart(2, '0')}`;
-        return INFERABLE_DATE.test(value) ? value.slice(0, 10) : undefined;
-      }
-      default:
-        return value;
-    }
   }
 
   async run(
@@ -118,7 +74,6 @@ export class ImportService {
     actorId: string,
   ) {
     const { headers, rows } = this.parseCsv(buffer);
-    const warnings: Warning[] = [];
     const byColumn = new Map(mapping.map((m) => [m.column, m.to]));
     const titleColumns = mapping.filter((m) => m.to.kind === 'title');
     if (titleColumns.length !== 1) {
@@ -147,8 +102,9 @@ export class ImportService {
       if (m.to.kind === 'new') newFields.push({ column: m.column, ...m.to });
     }
 
-    // Relation title → id maps (one per relation column).
-    const relationMaps = new Map<string, Map<string, string | null>>(); // field_id -> titleLower -> id|null(ambiguous)
+    // Relation title → id indexes (one per relation column) — the framework's
+    // "resolve by target title" trick (buildTitleIndex/resolveTargetsByTitle).
+    const relationMaps = new Map<string, Map<string, string | null>>();
     for (const m of mapping) {
       if (m.to.kind !== 'relation') continue;
       const field = fieldById.get(m.to.field_id)!;
@@ -159,26 +115,20 @@ export class ImportService {
         where: and(eq(records.databaseId, targetDbId), isNull(records.deletedAt)),
         columns: { id: true, title: true },
       });
-      const map = new Map<string, string | null>();
-      for (const t of targets) {
-        const key = t.title.toLowerCase();
-        map.set(key, map.has(key) ? null : t.id); // null marks ambiguity
-      }
-      relationMaps.set(m.to.field_id, map);
+      relationMaps.set(m.to.field_id, buildTitleIndex(targets));
     }
 
     if (dryRun) {
-      // Walk rows collecting per-cell warnings without writing.
-      let creates = 0;
-      const sample: Array<Record<string, unknown>> = [];
+      const report = new DryRunBuilder();
+      report.newFields = newFields;
       rows.forEach((row, rowIndex) => {
         const titleIdx = headers.indexOf(titleColumns[0]!.column);
         const title = (row[titleIdx] ?? '').trim();
         if (!title) {
-          warnings.push({ row: rowIndex + 2, column: titleColumns[0]!.column, message: 'empty title — row skipped' });
+          report.addWarning({ row: rowIndex + 2, column: titleColumns[0]!.column, message: 'empty title — row skipped' });
           return;
         }
-        creates++;
+        report.willCreate++;
         const preview: Record<string, unknown> = { name: title };
         headers.forEach((column, i) => {
           const to = byColumn.get(column);
@@ -186,25 +136,35 @@ export class ImportService {
           const raw = (row[i] ?? '').trim();
           if (!raw) return;
           if (to.kind === 'relation') {
-            for (const title of splitTargets(raw)) {
-              const hit = relationMaps.get(to.field_id)!.get(title.toLowerCase());
-              if (hit === undefined) warnings.push({ row: rowIndex + 2, column, message: `no record titled "${title}"` });
-              else if (hit === null) warnings.push({ row: rowIndex + 2, column, message: `"${title}" is ambiguous` });
-            }
-            if (sample.length < 5) preview[column] = raw;
+            const { warnings } = resolveTargetsByTitle(relationMaps.get(to.field_id)!, raw);
+            for (const message of warnings) report.addWarning({ row: rowIndex + 2, column, message });
+            preview[column] = raw;
             return;
           }
           const type = to.kind === 'new' ? to.type : fieldById.get(to.field_id)!.type;
-          const coerced = this.coerceCell(type, raw);
-          if (coerced === undefined) warnings.push({ row: rowIndex + 2, column, message: `"${raw.slice(0, 30)}" is not a valid ${type}` });
-          else if (sample.length < 5) preview[column] = coerced;
+          const coerced = coerceScalar(type, raw);
+          if (coerced === undefined) {
+            report.addWarning({ row: rowIndex + 2, column, message: `"${raw.slice(0, 30)}" is not a valid ${type}` });
+          } else {
+            preview[column] = coerced;
+          }
         });
-        if (sample.length < 5) sample.push(preview);
+        report.addSample(preview);
       });
-      return { dry_run: true, rows: rows.length, will_create: creates, new_fields: newFields, warnings: warnings.slice(0, 100), warnings_total: warnings.length, sample };
+      const built = report.build();
+      return {
+        dry_run: true,
+        rows: rows.length,
+        will_create: built.will_create,
+        new_fields: newFields,
+        warnings: built.warnings,
+        warnings_total: built.warnings_total,
+        sample: built.sample,
+      };
     }
 
     // Commit: create new fields, then records in chunks, then links.
+    const warnings: Warning[] = [];
     const columnField = new Map<string, { apiName: string; type: string; id: string }>();
     const selectLabelMaps = new Map<string, Map<string, string>>();
     for (const m of mapping) {
@@ -219,7 +179,7 @@ export class ImportService {
           const options = await this.db.query.selectOptions.findMany({
             where: eq(selectOptions.fieldId, f.id),
           });
-          selectLabelMaps.set(m.column, new Map(options.map((o) => [o.label.toLowerCase(), o.id])));
+          selectLabelMaps.set(m.column, buildLabelIndex(options));
         }
       } else if (m.to.kind === 'new') {
         // New select columns: options = distinct values (≤100), imported by label.
@@ -238,12 +198,11 @@ export class ImportService {
         })) as { id: string; apiName: string; type: string; options?: Array<{ id: string; label: string }> };
         columnField.set(m.column, { apiName: created.apiName, type: m.to.type, id: created.id });
         if (created.options) {
-          selectLabelMaps.set(m.column, new Map(created.options.map((o) => [o.label.toLowerCase(), o.id])));
+          selectLabelMaps.set(m.column, buildLabelIndex(created.options));
         }
       }
     }
     const titleIdx = headers.indexOf(titleColumns[0]!.column);
-    const createdIds: string[] = [];
     const pendingLinks: Array<{ recordIndex: number; fieldId: string; targetId: string }> = [];
     const payloads: Array<Record<string, unknown>> = [];
     rows.forEach((row, rowIndex) => {
@@ -261,14 +220,9 @@ export class ImportService {
         if (to.kind === 'relation') {
           // A cell can name several targets — that's how export writes a
           // many-to-many, so import must read it back the same way (MN-075).
-          for (const title of splitTargets(raw)) {
-            const hit = relationMaps.get(to.field_id)!.get(title.toLowerCase());
-            if (hit === undefined || hit === null) {
-              warnings.push({ row: rowIndex + 2, column, message: hit === null ? `"${title}" is ambiguous` : `no record titled "${title}"` });
-            } else {
-              pendingLinks.push({ recordIndex: payloads.length, fieldId: to.field_id, targetId: hit });
-            }
-          }
+          const { hits, warnings: misses } = resolveTargetsByTitle(relationMaps.get(to.field_id)!, raw);
+          for (const message of misses) warnings.push({ row: rowIndex + 2, column, message });
+          for (const targetId of hits) pendingLinks.push({ recordIndex: payloads.length, fieldId: to.field_id, targetId });
           return;
         }
         const meta = columnField.get(column);
@@ -279,7 +233,7 @@ export class ImportService {
           else warnings.push({ row: rowIndex + 2, column, message: `"${raw.slice(0, 30)}" is not a known option` });
           return;
         }
-        const coerced = this.coerceCell(meta.type, raw);
+        const coerced = coerceScalar(meta.type, raw);
         if (coerced === undefined) {
           warnings.push({ row: rowIndex + 2, column, message: `"${raw.slice(0, 30)}" dropped — not a valid ${meta.type}` });
         } else {
@@ -289,17 +243,19 @@ export class ImportService {
       payloads.push(values);
     });
 
-    for (let offset = 0; offset < payloads.length; offset += 500) {
-      const chunk = payloads.slice(offset, offset + 500);
-      const created = await this.recordsService.createBatch(membership.workspaceId, databaseId, chunk, actorId, 0, { suppressAutomations: true });
-      created.forEach((r) => createdIds.push(r.id));
-    }
+    const createdIds = await this.chunkedApply.createChunked(membership.workspaceId, databaseId, payloads, actorId);
     for (const link of pendingLinks) {
       const recordId = createdIds[link.recordIndex];
       if (!recordId) continue;
-      await this.relationsService
-        .addLinks(membership.workspaceId, databaseId, recordId, link.fieldId, [link.targetId], actorId)
-        .catch((error: Error) => warnings.push({ row: 0, column: '', message: `link failed: ${error.message}` }));
+      const failure = await this.relationLinker.link(
+        membership.workspaceId,
+        databaseId,
+        recordId,
+        link.fieldId,
+        [link.targetId],
+        actorId,
+      );
+      if (failure) warnings.push({ row: 0, column: '', message: failure });
     }
 
     return {

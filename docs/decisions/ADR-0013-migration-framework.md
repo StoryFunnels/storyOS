@@ -1,8 +1,22 @@
 # ADR-0013: A shared migration framework + a first-class external-id primitive
 
-- **Status:** accepted (design; implementation follows)
+- **Status:** partially implemented — see the note below
 - **Date:** 2026-07-17
 - **Source:** #198 (MN-236 shared import pipeline) and the importer research on #169–#172 (Airtable, Notion, Monday, Fibery). Grounded in the three importers that already exist (Linear, CSV, GitHub).
+
+> **Implementation note (2026-07-21, #198).** `apps/api/src/migration-framework/`
+> now holds the `SourceAdapter` contract, the IR types, the field-type mapping
+> layer, the unified dry-run builder, chunked apply, and shared upsert/relation-link
+> helpers — and the CSV (MN-052) and Linear (MN-066) importers are refactored
+> onto it (`CsvSourceAdapter`, `LinearSourceAdapter`). **Deliberately deferred:**
+> the DB-level `records.source_system`/`source_id` primitive from §1 — it's a
+> schema migration, and landing one the same night several agents are shipping
+> migrations in parallel was judged not worth the collision risk for a v1 that
+> doesn't strictly require it. Idempotent re-import instead runs on an ordinary
+> field (`external-id-upsert.service.ts`), which is what Linear already used.
+> GitHub's importer was left untouched (out of #198's stated scope), and no new
+> source (Airtable/Notion/Monday/Fibery, #169–#172) has been built yet — they
+> still plug into the adapter interface as planned.
 
 ## Context
 
