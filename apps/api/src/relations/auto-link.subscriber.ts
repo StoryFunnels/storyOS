@@ -9,8 +9,12 @@ import { AutoLinkService } from './auto-link.service';
  * in — so links appear as the data changes, not only when someone clicks "Run now".
  *
  * Best-effort by design: a failure here never breaks the write that triggered it
- * (the bus already isolates listeners; we also swallow + log). Auto-link creates
- * record_links but emits no domain event, so there is no cascade to guard against.
+ * (the bus already isolates listeners; we also swallow + log). Auto-link's own
+ * record_links inserts (AutoLinkService.insertPlannedLinks) emit `record_linked`
+ * themselves (MN-287, mirroring RelationsService's addLinks) so
+ * RollupInvalidationSubscriber recomputes rollups for links auto-link creates —
+ * this subscriber only reacts to `record_created`/`record_updated`, so that
+ * cascade doesn't loop back through here.
  */
 @Injectable()
 export class AutoLinkSubscriber implements OnModuleInit {

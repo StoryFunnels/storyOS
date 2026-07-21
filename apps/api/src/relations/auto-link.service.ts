@@ -3,6 +3,7 @@ import { and, eq, inArray, isNotNull, isNull, or } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { activityEvents, fields, recordLinks, records, relations } from '../db/schema';
+import { DomainEventsService } from '../events/domain-events.service';
 import { RelationsService } from './relations.service';
 import type { StoredAutoLink } from './relations.service';
 import {
@@ -28,6 +29,7 @@ export class AutoLinkService {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly relations: RelationsService,
+    private readonly domainEvents: DomainEventsService,
   ) {}
 
   /** Resolve the stored config into typed match fields; null if unset or broken (deleted field). */
@@ -81,6 +83,10 @@ export class AutoLinkService {
     if (!links.length) return 0;
     const titleByPair = new Map(links.map((l) => [`${l.fromId} ${l.toId}`, l]));
     let created = 0;
+    // MN-287: every pair actually inserted (post onConflictDoNothing, across every
+    // chunk) — carried out of the transaction so the record_linked emit below
+    // follows the same after-commit convention RelationsService's addLinks uses.
+    const insertedPairs: Array<{ fromRecordId: string; toRecordId: string }> = [];
     await this.db.transaction(async (tx) => {
       const CHUNK = 500;
       for (let i = 0; i < links.length; i += CHUNK) {
@@ -93,6 +99,7 @@ export class AutoLinkService {
           .onConflictDoNothing()
           .returning({ fromRecordId: recordLinks.fromRecordId, toRecordId: recordLinks.toRecordId });
         created += inserted.length;
+        insertedPairs.push(...inserted);
         const events = inserted.flatMap((row) => {
           const meta = titleByPair.get(`${row.fromRecordId} ${row.toRecordId}`);
           return [
@@ -115,6 +122,41 @@ export class AutoLinkService {
         if (events.length) await tx.insert(activityEvents).values(events);
       }
     });
+
+    // MN-287: auto-link writes record_links directly, the same gap RelationsService's
+    // dedicated Links API had before MN-267 wired addLinks/replaceLinks/removeLinks to
+    // emit record_linked. Same event shape here, grouped by the side-A (fromRecordId)
+    // record so one event's otherRecordIds covers every side-B target it was just
+    // paired with — RollupInvalidationSubscriber's invalidateRollupsForChange walks
+    // the relation's reverse field itself, so the side-B records' rollups are covered
+    // without a second event.
+    if (insertedPairs.length) {
+      const otherIdsByFrom = new Map<string, string[]>();
+      for (const { fromRecordId, toRecordId } of insertedPairs) {
+        const list = otherIdsByFrom.get(fromRecordId);
+        if (list) list.push(toRecordId);
+        else otherIdsByFrom.set(fromRecordId, [toRecordId]);
+      }
+      for (const [fromRecordId, otherRecordIds] of otherIdsByFrom) {
+        this.domainEvents.emit({
+          type: 'record_linked',
+          workspaceId,
+          databaseId: relation.databaseAId,
+          recordId: fromRecordId,
+          relationFieldId: relation.fieldAId,
+          actorId,
+          depth: 0,
+          linkedRelations: [
+            {
+              relationId: relation.id,
+              fieldId: relation.fieldAId,
+              otherDatabaseId: relation.databaseBId,
+              otherRecordIds,
+            },
+          ],
+        });
+      }
+    }
     return created;
   }
 

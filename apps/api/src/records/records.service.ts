@@ -1027,6 +1027,29 @@ export class RecordsService {
             .insert(recordLinks)
             .values(rows.map((r) => ({ relationId: relation.id, fromRecordId: created.id, toRecordId: r.to })))
             .onConflictDoNothing();
+          // MN-287: duplicate() copies links via raw inserts (bypassing writeLinks()
+          // entirely — the whole point is copying without re-running link resolution),
+          // the same gap auto-link had before it emitted its own record_linked. Same
+          // event shape RelationsService's addLinks emits: RollupInvalidationSubscriber
+          // recomputes the new record's own rollup through this field AND (via the
+          // relation's reverse field) every copied target's rollup.
+          this.domainEvents.emit({
+            type: 'record_linked',
+            workspaceId,
+            databaseId,
+            recordId: created.id,
+            relationFieldId: def.id,
+            actorId,
+            depth: 0,
+            linkedRelations: [
+              {
+                relationId: relation.id,
+                fieldId: def.id,
+                otherDatabaseId: relation.databaseBId,
+                otherRecordIds: rows.map((r) => r.to),
+              },
+            ],
+          });
         }
       } else {
         const rows = await this.db
@@ -1038,6 +1061,23 @@ export class RecordsService {
             .insert(recordLinks)
             .values(rows.map((r) => ({ relationId: relation.id, fromRecordId: r.from, toRecordId: created.id })))
             .onConflictDoNothing();
+          this.domainEvents.emit({
+            type: 'record_linked',
+            workspaceId,
+            databaseId,
+            recordId: created.id,
+            relationFieldId: def.id,
+            actorId,
+            depth: 0,
+            linkedRelations: [
+              {
+                relationId: relation.id,
+                fieldId: def.id,
+                otherDatabaseId: relation.databaseAId,
+                otherRecordIds: rows.map((r) => r.from),
+              },
+            ],
+          });
         }
       }
     }
