@@ -364,7 +364,10 @@ function BoardColumn({
     <div
       ref={setNodeRef}
       className={cn(
-        'flex w-72 shrink-0 flex-col rounded-[var(--radius-card)] border border-border-default bg-sidebar',
+        // MN-230d: a fixed 288px column is near full-bleed on a 375px phone with
+        // no room to see the next column; 85vw keeps one primary column visible
+        // with a peek of the next, `md:w-72` restores the desktop width.
+        'flex w-[85vw] shrink-0 flex-col rounded-[var(--radius-card)] border border-border-default bg-sidebar md:w-72',
         isOver && 'ring-2 ring-[var(--accent)]',
       )}
     >

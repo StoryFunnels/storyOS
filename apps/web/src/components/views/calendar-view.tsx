@@ -123,6 +123,16 @@ export function CalendarView({
     updateRecord.mutate({ rec, values: { [dateField.apiName]: `${day}${time}` } });
   }
 
+  // Shared by both the month grid (desktop) and the agenda list (mobile, MN-230d)
+  // so "create on an empty day" behaves identically either way.
+  function handleCreate(iso: string) {
+    if (readOnly || !dateField) return;
+    createRecord.mutate(
+      isSystemDate(dateField.type) ? { name: 'Untitled' } : { name: 'Untitled', [dateField.apiName]: iso },
+      { onSuccess: (created) => router.push(`/w/${ws}/d/${db}/r/${created.id}`) },
+    );
+  }
+
   if (!dateField) {
     return (
       <p className="p-6 text-sm text-muted">
@@ -167,7 +177,10 @@ export function CalendarView({
       </div>
 
       <DndContext sensors={sensors} onDragEnd={onDragEnd}>
-        <div className="grid flex-1 auto-rows-fr grid-cols-7 overflow-y-auto">
+        {/* MN-230d: a 7-column grid is unreadable under ~375px (≈49px cells) —
+            switch to a scrollable one-column agenda below `md`, keep the
+            familiar month grid at `md` and up. */}
+        <div className="hidden flex-1 auto-rows-fr grid-cols-7 overflow-y-auto md:grid">
           {WEEKDAYS.map((d) => (
             <div key={d} className="border-b border-r border-border-default bg-app px-2 py-1 text-[11px] font-medium text-faint">
               {d}
@@ -192,18 +205,102 @@ export function CalendarView({
                   if (Date.now() - lastDragEnd.current < 200) return;
                   router.push(`/w/${ws}/d/${db}/r/${id}`);
                 }}
-                onCreate={() => {
-                  if (readOnly) return;
-                  createRecord.mutate(
-                    isSystemDate(dateField.type) ? { name: 'Untitled' } : { name: 'Untitled', [dateField.apiName]: iso },
-                    { onSuccess: (created) => router.push(`/w/${ws}/d/${db}/r/${created.id}`) },
-                  );
-                }}
+                onCreate={() => handleCreate(iso)}
               />
             );
           })}
         </div>
       </DndContext>
+
+      <AgendaList
+        grid={grid}
+        month={view.month}
+        byDay={byDay}
+        chipFields={chipFields}
+        memberNames={memberNames}
+        readOnly={readOnly}
+        todayStr={todayStr}
+        onOpen={(id) => router.push(`/w/${ws}/d/${db}/r/${id}`)}
+        onCreate={handleCreate}
+      />
+    </div>
+  );
+}
+
+/**
+ * Mobile agenda/list layout (MN-230d, Phase 3 of the responsive plan): one
+ * scrollable column, a row per day of the displayed month. Chips reuse the
+ * same field display as the month grid; an empty day gets a quick "+ Add"
+ * affordance so capture still works without the grid.
+ */
+function AgendaList({
+  grid,
+  month,
+  byDay,
+  chipFields,
+  memberNames,
+  readOnly,
+  todayStr,
+  onOpen,
+  onCreate,
+}: {
+  grid: Date[];
+  month: number;
+  byDay: Map<string, RecordRow[]>;
+  chipFields: Field[];
+  memberNames: Map<string, string>;
+  readOnly: boolean;
+  todayStr: string;
+  onOpen: (id: string) => void;
+  onCreate: (iso: string) => void;
+}) {
+  const days = grid.filter((d) => d.getMonth() === month);
+  return (
+    <div className="flex-1 divide-y divide-border-default overflow-y-auto md:hidden">
+      {days.map((day) => {
+        const iso = fmtDate(day);
+        const chips = byDay.get(iso) ?? [];
+        const isToday = iso === todayStr;
+        return (
+          <div key={iso} className="flex gap-3 px-4 py-2.5">
+            <div className="w-10 shrink-0 text-center">
+              <div className="text-[10px] uppercase text-faint">{WEEKDAYS[(day.getDay() + 6) % 7]}</div>
+              <div className={cn('text-[14px]', isToday ? 'font-semibold text-primary' : 'text-ink-secondary')}>
+                {day.getDate()}
+              </div>
+            </div>
+            <div className="min-w-0 flex-1 space-y-1 pt-0.5">
+              {chips.length === 0 ? (
+                !readOnly && (
+                  <button type="button" className="text-[12px] text-faint hover:text-ink" onClick={() => onCreate(iso)}>
+                    + Add
+                  </button>
+                )
+              ) : (
+                chips.map((row) => (
+                  <button
+                    key={row.id}
+                    type="button"
+                    className="block w-full rounded border border-border-default bg-card px-2 py-1 text-left hover:border-border-strong"
+                    onClick={() => onOpen(row.id)}
+                  >
+                    <p className="truncate text-[13px] font-medium text-ink">{row.title || 'Untitled'}</p>
+                    {chipFields.map((field) => {
+                      const value = row.values[field.apiName];
+                      if (value === undefined || value === null || value === '') return null;
+                      return (
+                        <div key={field.id} className="truncate text-[11px] text-muted">
+                          <CellDisplay field={field} value={value} memberNames={memberNames} />
+                        </div>
+                      );
+                    })}
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

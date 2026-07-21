@@ -41,6 +41,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { EntityIcon, IconColorPicker } from '@/components/ui/icon-picker';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { API_URL, api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import type { Field } from '../table-view/use-table-data';
@@ -1207,14 +1208,26 @@ function ConditionRow({
 
           {editingLabel && (
             <div className="mt-1.5 flex items-center gap-1.5 rounded border border-border-default bg-app p-1.5">
-              <button
-                type="button"
-                onClick={() => setPickingIcon((v) => !v)}
-                className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-border-default hover:bg-hover"
-                title="Change icon"
-              >
-                <EntityIcon icon={condition.icon} color={null} size={13} fallback={<Icon className="h-3.5 w-3.5 text-faint" />} />
-              </button>
+              <Popover open={pickingIcon} onOpenChange={setPickingIcon}>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-border-default hover:bg-hover"
+                    title="Change icon"
+                  >
+                    <EntityIcon icon={condition.icon} color={null} size={13} fallback={<Icon className="h-3.5 w-3.5 text-faint" />} />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="p-2" onClick={(e) => e.stopPropagation()}>
+                  <IconColorPicker
+                    icon={condition.icon ?? null}
+                    color={null}
+                    onChange={(patch) => {
+                      if ('icon' in patch) onChange({ ...condition, icon: patch.icon ?? undefined });
+                    }}
+                  />
+                </PopoverContent>
+              </Popover>
               <input
                 autoFocus
                 className="h-6 flex-1 rounded border border-border-default bg-card px-1.5 text-[12px] text-ink outline-none"
@@ -1232,17 +1245,6 @@ function ConditionRow({
               >
                 Done
               </button>
-              {pickingIcon && (
-                <div className="absolute left-0 top-full z-50 mt-1 rounded-[var(--radius-card)] border border-border-default bg-card p-2 shadow-[0_4px_12px_rgba(15,23,41,0.08)]">
-                  <IconColorPicker
-                    icon={condition.icon ?? null}
-                    color={null}
-                    onChange={(patch) => {
-                      if ('icon' in patch) onChange({ ...condition, icon: patch.icon ?? undefined });
-                    }}
-                  />
-                </div>
-              )}
             </div>
           )}
         </div>

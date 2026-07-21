@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Popover, PopoverContent, PopoverParentAnchor } from '@/components/ui/popover';
 
 const MONTHS = [
   'january', 'february', 'march', 'april', 'may', 'june',
@@ -69,7 +70,6 @@ export function DatePicker({
   onCommit: (value: string | null) => void;
   onCancel: () => void;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
   const initialDate = value ? String(value).slice(0, 10) : null;
   const initialTime = includeTime && value && String(value).length > 10 ? String(value).slice(11, 16) : '';
 
@@ -87,18 +87,14 @@ export function DatePicker({
     onCommit(includeTime && time ? `${date}T${time}` : date);
   }
 
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        // Outside click keeps whatever the input currently parses to.
-        if (selected && selected !== initialDate) commit(selected);
-        else if (includeTime && selected && time !== initialTime) commit(selected);
-        else onCancel();
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  });
+  // MN-230d: closing (outside click, Escape) mirrors the old mousedown-outside
+  // handler — keep whatever the input currently parses to, otherwise cancel.
+  function handleOpenChange(open: boolean) {
+    if (open) return;
+    if (selected && selected !== initialDate) commit(selected);
+    else if (includeTime && selected && time !== initialTime) commit(selected);
+    else onCancel();
+  }
 
   const grid = useMemo(() => {
     const first = new Date(view.year, view.month, 1);
@@ -121,92 +117,90 @@ export function DatePicker({
   }
 
   return (
-    <div
-      ref={ref}
-      className="absolute left-0 top-full z-30 mt-0.5 w-64 rounded-[var(--radius-card)] border border-border-default bg-card p-2 shadow-[0_4px_12px_rgba(15,23,41,0.1)]"
-      onKeyDown={(e) => e.key === 'Escape' && onCancel()}
-      onClick={(e) => e.stopPropagation()}
-    >
-      <input
-        autoFocus
-        placeholder="2026-07-15, 15.07, jul 15, today…"
-        className={cn(
-          'mb-1.5 w-full rounded-[var(--radius-control)] border bg-card px-2 py-1.5 text-[13px] text-ink outline-none placeholder:text-faint',
-          text && !selected ? 'border-error' : 'border-border-default focus:border-border-strong',
-        )}
-        value={text}
-        onChange={(e) => {
-          setText(e.target.value);
-          const parsed = parseDateText(e.target.value);
-          if (parsed) {
-            const d = new Date(parsed);
-            setView({ year: d.getFullYear(), month: d.getMonth() });
-          }
-        }}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            if (selected) commit(selected);
-            else if (!text.trim()) commit(null);
-          }
-        }}
-      />
-      {includeTime && (
+    <Popover open onOpenChange={handleOpenChange}>
+      <PopoverParentAnchor />
+      <PopoverContent className="w-64 p-2" onClick={(e) => e.stopPropagation()}>
         <input
-          type="time"
-          className="mb-1.5 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-[13px] text-ink outline-none"
-          value={time}
-          onChange={(e) => setTime(e.target.value)}
+          autoFocus
+          placeholder="2026-07-15, 15.07, jul 15, today…"
+          className={cn(
+            'mb-1.5 w-full rounded-[var(--radius-control)] border bg-card px-2 py-1.5 text-[13px] text-ink outline-none placeholder:text-faint',
+            text && !selected ? 'border-error' : 'border-border-default focus:border-border-strong',
+          )}
+          value={text}
+          onChange={(e) => {
+            setText(e.target.value);
+            const parsed = parseDateText(e.target.value);
+            if (parsed) {
+              const d = new Date(parsed);
+              setView({ year: d.getFullYear(), month: d.getMonth() });
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              if (selected) commit(selected);
+              else if (!text.trim()) commit(null);
+            }
+          }}
         />
-      )}
+        {includeTime && (
+          <input
+            type="time"
+            className="mb-1.5 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-[13px] text-ink outline-none"
+            value={time}
+            onChange={(e) => setTime(e.target.value)}
+          />
+        )}
 
-      <div className="mb-1 flex items-center justify-between px-1">
-        <span className="text-[13px] font-medium text-ink">{monthLabel}</span>
-        <span className="flex gap-0.5">
-          <button type="button" className="rounded p-1 text-muted hover:bg-hover hover:text-ink" onClick={() => shiftMonth(-1)}>
-            <ChevronLeft className="h-3.5 w-3.5" />
-          </button>
-          <button type="button" className="rounded p-1 text-muted hover:bg-hover hover:text-ink" onClick={() => shiftMonth(1)}>
-            <ChevronRight className="h-3.5 w-3.5" />
-          </button>
-        </span>
-      </div>
-
-      <div className="grid grid-cols-7 text-center">
-        {WEEKDAYS.map((d, i) => (
-          <span key={i} className="py-0.5 text-[11px] font-medium text-faint">
-            {d}
-          </span>
-        ))}
-        {grid.map((d) => {
-          const iso = fmtDate(d);
-          const inMonth = d.getMonth() === view.month;
-          return (
-            <button
-              key={iso}
-              type="button"
-              className={cn(
-                'rounded py-1 text-[12px] hover:bg-hover',
-                inMonth ? 'text-ink' : 'text-faint',
-                iso === selected && 'bg-primary text-[var(--text-on-dark)] hover:bg-primary',
-                iso === todayStr && iso !== selected && 'font-semibold text-[var(--accent)]',
-              )}
-              onClick={() => commit(iso)}
-            >
-              {d.getDate()}
+        <div className="mb-1 flex items-center justify-between px-1">
+          <span className="text-[13px] font-medium text-ink">{monthLabel}</span>
+          <span className="flex gap-0.5">
+            <button type="button" className="rounded p-1 text-muted hover:bg-hover hover:text-ink" onClick={() => shiftMonth(-1)}>
+              <ChevronLeft className="h-3.5 w-3.5" />
             </button>
-          );
-        })}
-      </div>
+            <button type="button" className="rounded p-1 text-muted hover:bg-hover hover:text-ink" onClick={() => shiftMonth(1)}>
+              <ChevronRight className="h-3.5 w-3.5" />
+            </button>
+          </span>
+        </div>
 
-      <div className="mt-1 flex items-center justify-between border-t border-border-default px-1 pt-1.5">
-        <button type="button" className="text-[12px] text-muted hover:text-ink" onClick={() => commit(null)}>
-          Clear
-        </button>
-        <button type="button" className="text-[12px] text-muted hover:text-ink" onClick={() => commit(todayStr)}>
-          Today
-        </button>
-      </div>
-    </div>
+        <div className="grid grid-cols-7 text-center">
+          {WEEKDAYS.map((d, i) => (
+            <span key={i} className="py-0.5 text-[11px] font-medium text-faint">
+              {d}
+            </span>
+          ))}
+          {grid.map((d) => {
+            const iso = fmtDate(d);
+            const inMonth = d.getMonth() === view.month;
+            return (
+              <button
+                key={iso}
+                type="button"
+                className={cn(
+                  'rounded py-1 text-[12px] hover:bg-hover',
+                  inMonth ? 'text-ink' : 'text-faint',
+                  iso === selected && 'bg-primary text-[var(--text-on-dark)] hover:bg-primary',
+                  iso === todayStr && iso !== selected && 'font-semibold text-[var(--accent)]',
+                )}
+                onClick={() => commit(iso)}
+              >
+                {d.getDate()}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="mt-1 flex items-center justify-between border-t border-border-default px-1 pt-1.5">
+          <button type="button" className="text-[12px] text-muted hover:text-ink" onClick={() => commit(null)}>
+            Clear
+          </button>
+          <button type="button" className="text-[12px] text-muted hover:text-ink" onClick={() => commit(todayStr)}>
+            Today
+          </button>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
