@@ -5,6 +5,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { BillingService } from '../billing/billing.service';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { databases, fields, memberships, relations, selectOptions, user, views } from '../db/schema';
@@ -44,6 +45,7 @@ export class FormsService {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly records: RecordsService,
+    private readonly billing: BillingService,
   ) {}
 
   /** Resolve a public token → its view + form config + database, or 404. */
@@ -165,12 +167,21 @@ export class FormsService {
           .where(and(eq(memberships.workspaceId, database.workspaceId), eq(memberships.status, 'active')))
       : [];
 
+    // "Powered by StoryOS" attribution (#269) — the highest-value brand-exposure
+    // surface is exactly the embedded case, so it's shown on both the standalone
+    // link and the embed. Paid plans get the standard freemium-badge removal
+    // (Typeform/Calendly/Substack pattern) via the same entitlements read path
+    // MN-168 established (BillingService.getStatus), no new toggle needed.
+    const billingStatus = await this.billing.getStatus(database.workspaceId);
+    const hideBranding = billingStatus.plan !== 'free';
+
     return {
       title: form.title || database.name,
       description: form.description ?? null,
       submit_text: form.submit_text || 'Submit',
       success_message: form.success_message ?? null,
       redirect_url: form.redirect_url ?? null,
+      hide_branding: hideBranding,
       fields: chosen.map((f) => ({
         field_id: f.id,
         api_name: f.apiName,

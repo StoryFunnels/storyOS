@@ -10,21 +10,26 @@ import { RecordsService } from '../records/records.service';
 import { RelationsService } from '../relations/relations.service';
 import { SpacesService } from '../workspaces/spaces.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
+import { DryRunBuilder } from '../migration-framework/dry-run';
+import { ExternalIdUpsertService } from '../migration-framework/external-id-upsert.service';
+import { RelationLinkerService } from '../migration-framework/relation-linker.service';
+import { pickOption } from '../migration-framework/select-options';
 import { markdownToBlocks } from './markdown-to-blocks';
+import { LinearSourceAdapter } from './linear-source-adapter';
 
-interface LinearTeam {
+export interface LinearTeam {
   id: string;
   key: string;
   name: string;
 }
 
-interface LinearLabel {
+export interface LinearLabel {
   id: string;
   name: string;
   color: string | null;
 }
 
-interface LinearTeamData {
+export interface LinearTeamData {
   labels: { nodes: LinearLabel[] };
   cycles: { nodes: Array<{ id: string; name: string | null; number: number; startsAt: string | null; endsAt: string | null }> };
   projects: { nodes: Array<{ id: string; name: string; description: string | null; state: string; targetDate: string | null; url: string }> };
@@ -49,7 +54,7 @@ interface LinearTeamData {
 
 export type LinearFetcher = (query: string, variables: Record<string, unknown>, apiKey: string) => Promise<unknown>;
 
-const defaultFetcher: LinearFetcher = async (query, variables, apiKey) => {
+export const defaultFetcher: LinearFetcher = async (query, variables, apiKey) => {
   const res = await fetch('https://api.linear.app/graphql', {
     method: 'POST',
     headers: { authorization: apiKey, 'content-type': 'application/json' },
@@ -65,9 +70,9 @@ const defaultFetcher: LinearFetcher = async (query, variables, apiKey) => {
   return body.data;
 };
 
-const TEAMS_QUERY = `query Teams { teams { nodes { id key name } } }`;
+export const TEAMS_QUERY = `query Teams { teams { nodes { id key name } } }`;
 
-const TEAM_QUERY = `query Team($id: String!) {
+export const TEAM_QUERY = `query Team($id: String!) {
   team(id: $id) {
     labels(first: 250) { nodes { id name color } }
     cycles(first: 50) { nodes { id name number startsAt endsAt } }
@@ -97,21 +102,12 @@ const STATE_MAP: Record<string, string> = {
 const PRIORITY_MAP: Record<number, string> = { 1: 'Urgent', 2: 'High', 3: 'Medium', 4: 'Low' };
 
 /**
- * Resolve a select option id from a label→id map, trying each candidate in order,
- * case-insensitively (#68). Linear's state.type only knows categories (started,
- * completed…), so an "In Review" issue (type `started`) would collapse to "In
- * Progress"; matching on the state *name* first preserves it, and any custom-named
- * state that matches an option is kept instead of being dropped to a fallback.
+ * Resolve a select option id from a label→id map, trying each candidate in
+ * order, case-insensitively (#68). Now the framework's shared `pickOption`
+ * (migration-framework/select-options.ts, imported above) — re-exported here
+ * so existing importers of this module keep working unchanged.
  */
-export function pickOption(map: Map<string, string>, ...candidates: Array<string | undefined>): string | null {
-  const lower = new Map([...map].map(([label, id]) => [label.toLowerCase(), id]));
-  for (const candidate of candidates) {
-    if (!candidate) continue;
-    const id = map.get(candidate) ?? lower.get(candidate.toLowerCase());
-    if (id) return id;
-  }
-  return null;
-}
+export { pickOption };
 
 /**
  * Linear importer (MN-066): leave Linear, keep your data. One-shot GraphQL
@@ -133,6 +129,8 @@ export class LinearService {
     private readonly recordsService: RecordsService,
     private readonly relationsService: RelationsService,
     private readonly documentsService: DocumentsService,
+    private readonly externalIdUpsert: ExternalIdUpsertService,
+    private readonly relationLinker: RelationLinkerService,
   ) {}
 
   /**
@@ -300,6 +298,9 @@ export class LinearService {
     return { issuesDb, projectsDb, sprintsDb, labelsDb, labelsFieldId };
   }
 
+  /** Idempotent re-import by Linear id (MN-066) — now the framework's shared
+   * upsert-by-external-id primitive (ADR-0013 §3) instead of a hand-rolled
+   * query-then-create/update, so every adapter gets this for free. */
   private async upsertByLinearId(
     membership: Membership,
     databaseId: string,
@@ -307,19 +308,8 @@ export class LinearService {
     values: Record<string, unknown>,
     actorId: string,
   ): Promise<string> {
-    const existing = await this.recordsService.query(databaseId, {
-      filter: { field: 'linear_id', op: 'eq', value: linearId },
-      sorts: [],
-      limit: 1,
-    } as never, actorId);
-    if (existing.data[0]) {
-      await this.recordsService.update(membership.workspaceId, databaseId, existing.data[0].id, values, actorId);
-      return existing.data[0].id;
-    }
-    const created = await this.recordsService.create(
-      membership.workspaceId, databaseId, { ...values, linear_id: linearId }, actorId, 0,
-    );
-    return created.id;
+    const { id } = await this.externalIdUpsert.upsert(membership, databaseId, 'linear_id', linearId, values, actorId);
+    return id;
   }
 
   private async fetchTeams(workspaceId: string): Promise<{ teams: LinearTeam[]; apiKey: string }> {
@@ -336,7 +326,13 @@ export class LinearService {
     return { teams, apiKey };
   }
 
-  /** Counts only, writes nothing — the look-before-you-leap step. */
+  /**
+   * Counts only, writes nothing — the look-before-you-leap step. Also runs the
+   * shared `LinearSourceAdapter` (the framework's `SourceAdapter` contract,
+   * ADR-0013) to produce the unified dry-run report every importer now shares
+   * — additive fields alongside the original per-team breakdown so existing
+   * consumers of `.teams` keep working unchanged.
+   */
   async dryRun(membership: Membership) {
     const { teams, apiKey } = await this.fetchTeams(membership.workspaceId);
     const summary = { dry_run: true, teams: [] as Array<{ key: string; name: string; issues: number; sprints: number; projects: number; labels: number }> };
@@ -351,12 +347,28 @@ export class LinearService {
         labels: data.labels.nodes.length,
       });
     }
-    return summary;
+
+    const adapter = new LinearSourceAdapter();
+    await adapter.connect({ apiKey, teamKeys: teams.map((t) => t.key), fetcher: this.fetcher });
+    const [schema, sourceRecords] = await Promise.all([adapter.readSchema(), adapter.readRecords()]);
+    const report = new DryRunBuilder();
+    for (const record of sourceRecords) {
+      report.willCreate++;
+      report.addSample({ container: record.container, title: record.title, ...record.fields });
+    }
+    const built = report.build();
+
+    return { ...summary, will_create: built.will_create, sample: built.sample, schema };
   }
 
   async sync(membership: Membership, actorId: string) {
     const { teams, apiKey } = await this.fetchTeams(membership.workspaceId);
     const summary = { dry_run: false, issues: 0, sprints: 0, projects: 0, labels: 0, teams: teams.map((t) => t.key) };
+    // Failed links used to be silently swallowed (`.catch(() => undefined)`) —
+    // every importer had that bug (ADR-0013). RelationLinkerService turns a
+    // failure into a warning instead, collected here without changing the
+    // summary's existing counted fields.
+    const linkWarnings: string[] = [];
 
     for (const team of teams) {
       const { team: data } = (await this.fetcher(TEAM_QUERY, { id: team.id }, apiKey)) as { team: LinearTeamData };
@@ -428,9 +440,8 @@ export class LinearService {
 
         const link = async (field: typeof sprintField, target: string | undefined) => {
           if (!field || !target) return;
-          await this.relationsService
-            .addLinks(membership.workspaceId, issuesDb.id, id, field.id, [target], actorId)
-            .catch(() => undefined);
+          const failure = await this.relationLinker.link(membership.workspaceId, issuesDb.id, id, field.id, [target], actorId);
+          if (failure) linkWarnings.push(failure);
         };
         await link(sprintField, issue.cycle ? sprintIds.get(issue.cycle.id) : undefined);
         await link(projectField, issue.project ? projectIds.get(issue.project.id) : undefined);
@@ -440,9 +451,8 @@ export class LinearService {
           .map((l) => labelRecordIds.get(l.id))
           .filter((v): v is string => Boolean(v));
         if (labelsFieldId && labelTargets.length) {
-          await this.relationsService
-            .addLinks(membership.workspaceId, issuesDb.id, id, labelsFieldId, labelTargets, actorId)
-            .catch(() => undefined);
+          const failure = await this.relationLinker.link(membership.workspaceId, issuesDb.id, id, labelsFieldId, labelTargets, actorId);
+          if (failure) linkWarnings.push(failure);
         }
       }
 
@@ -452,13 +462,12 @@ export class LinearService {
           const child = issueIds.get(issue.id);
           const parent = issue.parent ? issueIds.get(issue.parent.id) : undefined;
           if (!child || !parent) continue;
-          await this.relationsService
-            .addLinks(membership.workspaceId, issuesDb.id, child, parentField.id, [parent], actorId)
-            .catch(() => undefined);
+          const failure = await this.relationLinker.link(membership.workspaceId, issuesDb.id, child, parentField.id, [parent], actorId);
+          if (failure) linkWarnings.push(failure);
         }
       }
     }
-    return summary;
+    return linkWarnings.length > 0 ? { ...summary, warnings: linkWarnings } : summary;
   }
 
   private async selectLabelMap(databaseId: string, apiName: string): Promise<Map<string, string>> {

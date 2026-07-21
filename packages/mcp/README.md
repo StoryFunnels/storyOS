@@ -21,6 +21,7 @@ Ticket: [MN-076](../../tickets/MN-076-mcp-server.md).
 | `search` | Full-text record search — turn a name into a real id. |
 | `query_records` | Filter / sort / paginate records (structured filter AST). |
 | `get_record` | One record in full, by uuid or public number. |
+| `get_links` | Web-app URLs for a database, its saved views, and/or a batch of records — without a round-trip per record. |
 
 **Write** (each returns the resulting record; each 422 is surfaced verbatim)
 | Tool | What it does |
@@ -45,7 +46,7 @@ Ticket: [MN-076](../../tickets/MN-076-mcp-server.md).
 | `create_relation` / `delete_relation` | Link two databases (one_to_many / many_to_many) — paired relation fields. |
 | `reorder_fields` / `reorder_views` | Set field / view order by name. |
 
-Conveniences: `query_records` / `get_record` return select values as **labels** (not option ids) and rich_text as **Markdown**; `create_record` / `update_record` accept **Markdown** on a rich_text field (headings, lists, links, code → parsed to blocks) and select **labels**; `create_record` reports any **unset** template fields.
+Conveniences: `query_records` / `get_record` return select values as **labels** (not option ids) and rich_text as **Markdown**; `create_record` / `update_record` accept **Markdown** on a rich_text field (headings, lists, links, code → parsed to blocks) and select **labels**; `create_record` reports any **unset** template fields. `get_record` / `query_records` / `create_record` / `update_record` all include a `url` — a clickable web-app link for that record — so an agent never has to describe a manual navigation path.
 
 Hosted Streamable HTTP (for ChatGPT / claude.ai connectors without a local process)
 is the remaining phase — it lands with the cloud tier (see MN-069).

@@ -53,14 +53,38 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
     ...(isAdmin ? [{ href: `${base}/integrations`, label: 'Integrations' }] : []),
     ...(canEdit ? [{ href: `${base}/api`, label: 'API tokens' }] : []),
   ];
+  const allLinks = [...personal, ...workspaceLinks];
 
   return (
-    <div className="flex min-h-full">
-      <nav className="w-52 shrink-0 border-r border-border-default bg-sidebar p-3">
-        <SettingsNavGroup title="Personal" links={personal} pathname={pathname} />
-        {workspaceLinks.length > 0 && (
-          <SettingsNavGroup title="Workspace" links={workspaceLinks} pathname={pathname} />
-        )}
+    <div className="flex min-h-full flex-col md:flex-row">
+      {/* MN-230e: under md the two-pane side-nav collapses into a single
+       * horizontal scrollable tab bar; at md+ it's the grouped vertical
+       * side-nav (the `md:hidden` / `hidden md:block` pair below toggles it). */}
+      <nav className="shrink-0 border-b border-border-default bg-sidebar md:w-52 md:border-b-0 md:border-r md:p-3">
+        <div className="flex gap-1 overflow-x-auto px-3 py-2 md:hidden">
+          {allLinks.map((link) => {
+            const active = pathname === link.href;
+            return (
+              <Link
+                key={link.href}
+                href={link.href}
+                className={`shrink-0 whitespace-nowrap rounded px-3 py-1.5 text-[13px] ${
+                  active
+                    ? 'bg-active font-medium text-ink'
+                    : 'text-ink-secondary hover:bg-hover'
+                }`}
+              >
+                {link.label}
+              </Link>
+            );
+          })}
+        </div>
+        <div className="hidden md:block">
+          <SettingsNavGroup title="Personal" links={personal} pathname={pathname} />
+          {workspaceLinks.length > 0 && (
+            <SettingsNavGroup title="Workspace" links={workspaceLinks} pathname={pathname} />
+          )}
+        </div>
       </nav>
       <div className="min-w-0 flex-1">{children}</div>
     </div>

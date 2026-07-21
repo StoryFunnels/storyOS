@@ -18,7 +18,7 @@ Never commit your real `.env` — it holds secrets. The repo ships an `.env.exam
 |---|---|---|
 | `BETTER_AUTH_SECRET` | — (required) | Generate with `openssl rand -hex 32`. |
 | `POSTGRES_PASSWORD` | `storyos` | Change for anything internet-facing. |
-| `API_URL` / `WEB_URL` | `http://localhost:3001` / `:3000` | Set **both** to your public URL (same origin), e.g. `https://os.example.com`. |
+| `API_URL` / `WEB_URL` | `http://localhost:3001` / `:3000` | Set **both** to your public URL (same origin), e.g. `https://os.example.com`. `WEB_URL` is also passed to the `mcp` service — it's the origin used to build the `url` field on MCP record responses. |
 | `NEXT_PUBLIC_API_URL` | empty (same-origin) | Only for split-origin setups (API on a different host). Set at build time. |
 | `HTTP_PORT` / `HTTPS_PORT` | `80` / `443` | Host ports of the Caddy proxy. |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS`, `MAIL_FROM` | unset | Invites, mentions, verification, and resets. Without SMTP, invite links are copyable in the UI and other emails are logged. Any SMTP provider works. |

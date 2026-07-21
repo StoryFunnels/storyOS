@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AccessModule } from '../access/access.module';
 import { AiCreditsController } from './ai-credits.controller';
 import { AiCreditsService } from './ai-credits.service';
+import { AutoReloadRetryService } from './auto-reload-retry.service';
 import { BillingController, BillingWebhookController } from './billing.controller';
 import { BillingService } from './billing.service';
 import { EntitlementsService } from './entitlements.service';
@@ -26,12 +27,25 @@ import { TrialRemindersService } from './trial-reminders.service';
  * TrialRemindersService (#263) needs NotificationsService and EmailService,
  * but both NotificationsModule and MailModule are `@Global()` (like DbModule)
  * so they resolve without being listed here — same reason AccessModule is the
- * only explicit import for BillingService's own dependency.
+ * only explicit import for BillingService's own dependency. AiCreditsService
+ * (#265) now needs the same two for its auto-reload failure notifications,
+ * for the same reason.
+ *
+ * AutoReloadRetryService (#265) is the backoff-retry sweep for auto-reload's
+ * off-session charge — see its own doc comment; it only depends on
+ * AiCreditsService (already a provider here) and DB.
  */
 @Module({
   imports: [AccessModule],
   controllers: [BillingController, BillingWebhookController, AiCreditsController],
-  providers: [StripeService, BillingService, EntitlementsService, AiCreditsService, TrialRemindersService],
+  providers: [
+    StripeService,
+    BillingService,
+    EntitlementsService,
+    AiCreditsService,
+    TrialRemindersService,
+    AutoReloadRetryService,
+  ],
   exports: [BillingService, EntitlementsService, AiCreditsService],
 })
 export class BillingModule {}

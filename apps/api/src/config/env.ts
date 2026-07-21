@@ -167,6 +167,15 @@ export const envSchema = z.object({
   /** 30 days per MN-107; overridable only to shorten dev cycles. */
   BILLING_TRIAL_DAYS: z.coerce.number().int().positive().default(30),
   /**
+   * MN-189 follow-up (#265) — how many consecutive off-session auto-reload
+   * charge failures a workspace tolerates before auto-reload is disabled and
+   * the workspace notified. See AI_CREDIT_AUTO_RELOAD_BACKOFF_MINUTES
+   * (plans.ts) for the backoff between attempts; if this is set higher than
+   * that array's length, the last (longest) backoff is reused for the extra
+   * attempts.
+   */
+  AI_CREDIT_AUTO_RELOAD_MAX_ATTEMPTS: z.coerce.number().int().positive().default(3),
+  /**
    * MN-104 — the instance operator. On boot, if a user with this email
    * exists, they're granted platform_admin (idempotent). Unset = nobody is a
    * platform admin and /admin is unreachable by anyone. Re-checked every

@@ -344,6 +344,20 @@
       "when": 1784587301767,
       "tag": "0048_daily_marvel_apes",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1784599738745,
+      "tag": "0049_concerned_wallop",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1784601022798,
+      "tag": "0050_classy_gauntlet",
+      "breakpoints": true
     }
   ]
 }

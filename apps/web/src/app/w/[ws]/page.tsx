@@ -100,7 +100,7 @@ export default function WorkspaceHome() {
   const showChecklist = steps.length > 0 && !allDone && !dismissed;
 
   return (
-    <div className="mx-auto max-w-2xl p-10">
+    <div className="mx-auto max-w-2xl p-4 sm:p-10">
       {sampleCount > 0 && (
         <div className="mb-6 flex items-center justify-between rounded-[var(--radius-card)] border border-border-default bg-accent-soft px-4 py-3">
           <span className="text-[13px] text-ink">
@@ -176,7 +176,7 @@ export default function WorkspaceHome() {
               Browse all templates
             </button>
           </div>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {(registry.data?.intents ?? []).map((intent) => {
               const Icon = TEMPLATE_ICONS[intent.template] ?? Blocks;
               return (

@@ -61,7 +61,7 @@ export default function IntegrationsPage() {
     (slug === 'slack' && (slack.data?.has_token || slack.data?.has_webhook));
 
   return (
-    <div className="mx-auto max-w-4xl p-8">
+    <div className="mx-auto max-w-4xl p-4 sm:p-8">
       <h1 className="mb-1 text-lg font-semibold text-ink">Integrations</h1>
       <p className="mb-6 text-[13px] text-muted">
         Connect StoryOS to the tools you already use. Credentials are stored on your server and never leave it —

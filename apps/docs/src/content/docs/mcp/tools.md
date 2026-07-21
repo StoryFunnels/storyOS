@@ -19,6 +19,7 @@ design the workspace, not just fill it. Always call `get_started` first.
 | `search` | Full-text record search — turn a name into a real id. |
 | `query_records` | Filter / sort / paginate records with the structured filter AST. |
 | `get_record` | One record in full, by uuid or public number. |
+| `get_links` | Web-app URLs for a database, its saved views, and/or a batch of records — no round-trip per record. |
 
 ## Write
 
@@ -50,6 +51,10 @@ Each write returns the resulting record; each `422` is surfaced verbatim.
 - `create_record` / `update_record` accept a plain **string** on a rich_text field (auto-wrapped to
   blocks) and select **labels**.
 - `create_record` reports any **unset** template fields so the agent can fill them.
+- `get_record` / `query_records` / `create_record` / `update_record` all include a `url` — a
+  clickable web-app link for that record, e.g. `https://app.storyos.dev/w/{workspace_id}/d/{database_id}/r/{title-slug}-{number}`
+  (falls back to the record's uuid when it has no public number yet). Use `get_links` for a
+  database or view link, or to resolve a batch of record links in one call.
 
 For the concepts these tools operate on, see [databases & fields](/concepts/databases-and-fields/),
 [relations](/concepts/relations/), and [views](/concepts/views/).

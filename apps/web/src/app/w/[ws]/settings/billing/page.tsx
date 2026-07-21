@@ -87,7 +87,7 @@ export default function BillingPage() {
     onError: () => toast.error('Could not start the trial'),
   });
 
-  if (billing.isLoading) return <div className="p-8 text-[13px] text-muted">Loading…</div>;
+  if (billing.isLoading) return <div className="p-4 text-[13px] text-muted sm:p-8">Loading…</div>;
   if (!billing.data) return null;
   const b = billing.data;
 
@@ -98,7 +98,7 @@ export default function BillingPage() {
   const neverStartedTrial = b.plan === 'free' && !b.trialEndsAt;
 
   return (
-    <div className="mx-auto max-w-3xl p-8">
+    <div className="mx-auto max-w-3xl p-4 sm:p-8">
       <h1 className="mb-1 text-lg font-semibold text-ink">Billing</h1>
       <p className="mb-6 text-[13px] text-muted">Plan, usage, and payment for this workspace.</p>
 
@@ -116,7 +116,7 @@ export default function BillingPage() {
         )}
 
         <Section title="Plan" description="Your current plan and price.">
-          <div className="flex items-center justify-between rounded-[var(--radius-control)] border border-border-default bg-card p-4">
+          <div className="flex flex-col gap-3 rounded-[var(--radius-control)] border border-border-default bg-card p-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-sm font-medium text-ink">{PLAN_LABEL[b.plan]}</p>
               <p className="text-[13px] text-muted">{PLAN_PRICE[b.plan]}</p>
@@ -126,7 +126,7 @@ export default function BillingPage() {
                 </p>
               )}
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               {neverStartedTrial && (
                 <Button variant="secondary" onClick={() => startTrial.mutate()} disabled={startTrial.isPending}>
                   Start 30-day Pro trial

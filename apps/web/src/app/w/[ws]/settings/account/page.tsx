@@ -26,10 +26,10 @@ async function resizeTo256(file: File): Promise<Blob> {
 export default function AccountPage() {
   const { data: session, refetch } = useSession();
 
-  if (!session) return <div className="p-8 text-[13px] text-muted">Loading…</div>;
+  if (!session) return <div className="p-4 text-[13px] text-muted sm:p-8">Loading…</div>;
 
   return (
-    <div className="mx-auto max-w-3xl p-8">
+    <div className="mx-auto max-w-3xl p-4 sm:p-8">
       <h1 className="mb-1 text-lg font-semibold text-ink">Account</h1>
       <p className="mb-6 text-[13px] text-muted">Manage your profile and sign-in details.</p>
 

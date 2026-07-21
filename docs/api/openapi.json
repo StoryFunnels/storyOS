@@ -3673,6 +3673,107 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/versions": {
+      "get": {
+        "operationId": "RecordVersionsController_list",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "rec",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50,
+              "type": "integer"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Record version history, newest first (cursor)",
+        "tags": [
+          "record-versions"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/versions/{version}/restore": {
+      "post": {
+        "operationId": "RecordVersionsController_restore",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "rec",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Restore the record to a previously captured version",
+        "tags": [
+          "record-versions"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/attachments": {
       "get": {
         "operationId": "AttachmentsController_list",
@@ -4591,6 +4692,21 @@
           }
         },
         "summary": "Save Slack bot token, webhook URL and/or default channel",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/integrations/slack/test": {
+      "post": {
+        "operationId": "SlackIntegrationsController_sendTest",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Send a test message using the saved Slack config, to verify the connection",
         "tags": [
           "integrations"
         ]

@@ -24,7 +24,7 @@ export default function NotificationsPage() {
   };
 
   return (
-    <div className="mx-auto max-w-3xl p-8">
+    <div className="mx-auto max-w-3xl p-4 sm:p-8">
       <h1 className="mb-1 text-lg font-semibold text-ink">Notifications</h1>
       <p className="mb-6 text-[13px] text-muted">
         Choose what shows up in your inbox. Everything is on by default.
