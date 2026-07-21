@@ -89,13 +89,16 @@ export class InvitesService {
     // MN-147: the branded invite email's subject/heading name the workspace —
     // a cheap extra lookup on the (uncommon, admin-triggered) invite path.
     const workspace = await this.db.query.workspaces.findFirst({ where: eq(workspaces.id, workspaceId) });
-    await this.emailService.send({
-      kind: 'invite',
-      to: email,
-      role: input.role,
-      acceptUrl,
-      workspaceName: workspace?.name ?? 'StoryOS',
-    });
+    await this.emailService.send(
+      {
+        kind: 'invite',
+        to: email,
+        role: input.role,
+        acceptUrl,
+        workspaceName: workspace?.name ?? 'StoryOS',
+      },
+      workspaceId, // MN-194 — attributes this send's cost to the workspace that invited
+    );
 
     // accept_url returned so admins can copy-share it when SMTP is absent (A2).
     return { id: invite!.id, email: invite!.email, role: invite!.role, accept_url: acceptUrl };

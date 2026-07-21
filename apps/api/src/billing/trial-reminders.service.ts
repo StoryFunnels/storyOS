@@ -177,13 +177,16 @@ export class TrialRemindersService implements OnModuleInit, OnModuleDestroy {
     });
 
     for (const admin of adminUsers) {
-      await this.email.send({
-        kind: 'trial-reminder',
-        to: admin.email,
-        workspaceName,
-        daysRemaining,
-        billingUrl,
-      });
+      await this.email.send(
+        {
+          kind: 'trial-reminder',
+          to: admin.email,
+          workspaceName,
+          daysRemaining,
+          billingUrl,
+        },
+        workspaceId, // MN-194 — attributes this send's cost to the trialing workspace
+      );
     }
   }
 }

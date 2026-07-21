@@ -106,6 +106,7 @@ describe('TrialRemindersService.sweep', () => {
     expect(send).toHaveBeenCalledTimes(1);
     expect(send).toHaveBeenCalledWith(
       expect.objectContaining({ kind: 'trial-reminder', to: 'admin@acme.test', daysRemaining: 7, workspaceName: 'Acme' }),
+      'ws1', // MN-194 — cost-attribution workspaceId, threaded through EmailService.send
     );
   });
 
@@ -127,7 +128,7 @@ describe('TrialRemindersService.sweep', () => {
     expect(notify).toHaveBeenCalledTimes(1);
     expect(notify).toHaveBeenCalledWith(expect.objectContaining({ type: 'trial_reminder_29' }));
     expect(send).toHaveBeenCalledTimes(1);
-    expect(send).toHaveBeenCalledWith(expect.objectContaining({ daysRemaining: 1 }));
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ daysRemaining: 1 }), 'ws1');
   });
 
   it('never fires for a Stripe-backed (paid) subscription — the DB query excludes it, so no candidates come back', async () => {

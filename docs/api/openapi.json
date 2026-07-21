@@ -5208,6 +5208,26 @@
           "admin"
         ]
       }
+    },
+    "/api/v1/admin/costs": {
+      "get": {
+        "operationId": "AdminController_getCosts",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "MN-194 — per-workspace cost and margin from real usage (hosted calls, storage, email; AI cost estimated pending MN-214r), plus blended margin per plan and the margin-floor flags.",
+        "tags": [
+          "admin"
+        ]
+      }
     }
   },
   "info": {
