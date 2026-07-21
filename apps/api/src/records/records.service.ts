@@ -5,17 +5,18 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, or, sql, SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, or, sql, SQL } from 'drizzle-orm';
 import { evaluateFormula, formulaRefs, validateRecordValues } from '@storyos/schemas';
 import type { FormulaNode } from '@storyos/schemas';
 import type { FieldDef } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { activityEvents, databases, documents, fields, memberships, recordLinks, records, relations, selectOptions, user } from '../db/schema';
+import { activityEvents, databases, documents, fields, memberships, recordLinks, recordVersions, records, relations, selectOptions, user } from '../db/schema';
 import type { QueryRecordsInput } from '@storyos/schemas';
 import { compileFilter, cursorCondition, sortExpr } from './query-compiler';
 import type { SortSpec } from './query-compiler';
 import { keyBetween, keysAfter } from './rank';
+import { diffSnapshots } from './record-diff';
 import { NotificationsService } from '../notifications/notifications.service';
 import { DomainEventsService } from '../events/domain-events.service';
 import { MentionsService } from '../mentions/mentions.service';
@@ -904,6 +905,17 @@ export class RecordsService {
           type: 'record.updated',
           payload: { diff },
         });
+        // MN-231: snapshot the FULL pre-write state (not just the diff) so a
+        // later restore can write it straight back without replaying a chain
+        // of diffs. Same transaction as the write it's capturing — never
+        // captured without the change it precedes actually landing.
+        await tx.insert(recordVersions).values({
+          workspaceId,
+          recordId,
+          actorId,
+          title: row.title,
+          values: before,
+        });
       }
       // Naming a relation in an update sets it to exactly these targets.
       if (linkPlans.length) {
@@ -991,6 +1003,111 @@ export class RecordsService {
         });
       }
     }
+    return this.project(updated, defs);
+  }
+
+  /** MN-231: version history, newest first (cursor-paginated like ActivityService.listForRecord). */
+  async listVersions(recordId: string, limit: number, cursor?: string) {
+    const conditions = [eq(recordVersions.recordId, recordId)];
+    if (cursor) {
+      const created = new Date(Buffer.from(cursor, 'base64url').toString());
+      if (!Number.isNaN(created.getTime())) conditions.push(lt(recordVersions.createdAt, created));
+    }
+    const rows = await this.db.query.recordVersions.findMany({
+      where: and(...conditions),
+      orderBy: [desc(recordVersions.createdAt)],
+      limit: limit + 1,
+    });
+    const page = rows.slice(0, limit);
+    const hasMore = rows.length > limit;
+    return {
+      data: page.map((v) => ({
+        id: v.id,
+        title: v.title,
+        actor_id: v.actorId,
+        created_at: v.createdAt,
+      })),
+      next_cursor:
+        hasMore && page.length > 0
+          ? Buffer.from(page[page.length - 1]!.createdAt.toISOString()).toString('base64url')
+          : null,
+      has_more: hasMore,
+    };
+  }
+
+  /**
+   * MN-231: restore a record's values + title to a previously captured
+   * snapshot (record_versions). Writes back the FULL snapshot (not a merge)
+   * — this is "go back to exactly this point", not a field patch.
+   *
+   * Deliberately narrower than update(): it does NOT re-run mentions re-sync
+   * or the "assigned"/"state_changed" notification side effects update()
+   * fires for genuine user edits. Restoring an old snapshot re-triggering a
+   * notification storm for changes that already happened once would be
+   * confusing, not helpful. It DOES write the same activity_events shape
+   * (so the restore shows up in the existing MN-027 trail) and recomputes
+   * formulas, so read paths stay consistent.
+   *
+   * The pre-restore state is itself snapshotted first, so a restore is never
+   * a one-way door — restoring "to version N" can always be undone by
+   * restoring to the version captured immediately before it ran.
+   */
+  async restoreVersion(
+    workspaceId: string,
+    databaseId: string,
+    recordId: string,
+    versionId: string,
+    actorId: string,
+  ): Promise<ProjectedRecord> {
+    const version = await this.db.query.recordVersions.findFirst({
+      where: and(eq(recordVersions.id, versionId), eq(recordVersions.recordId, recordId)),
+    });
+    if (!version) throw new NotFoundException('Version not found');
+
+    const defs = await this.fieldDefs(databaseId);
+    const row = await this.getRow(databaseId, recordId);
+    const target = { values: version.values as Record<string, unknown>, title: version.title };
+    const diff = diffSnapshots({ values: row.values as Record<string, unknown>, title: row.title }, target);
+
+    if (Object.keys(diff).length === 0) return this.project(row, defs);
+
+    const updated = await this.db.transaction(async (tx) => {
+      await tx.insert(recordVersions).values({
+        workspaceId,
+        recordId,
+        actorId,
+        title: row.title,
+        values: row.values,
+      });
+      const [next] = await tx
+        .update(records)
+        .set({ values: target.values, title: target.title, updatedBy: actorId })
+        .where(eq(records.id, recordId))
+        .returning();
+      await tx.insert(activityEvents).values({
+        workspaceId,
+        recordId,
+        actorId,
+        type: 'record.updated',
+        payload: { diff, restored_from_version_id: versionId },
+      });
+      return next!;
+    });
+
+    if (defs.some((d) => d.type === 'formula')) {
+      await this.materializeFormulas(defs, [updated]).catch(() => undefined);
+    }
+
+    this.domainEvents.emit({
+      type: 'record_updated',
+      workspaceId,
+      databaseId,
+      recordId,
+      changedFieldIds: Object.keys(diff).filter((k) => k !== 'title'),
+      actorId,
+      depth: 0,
+    });
+
     return this.project(updated, defs);
   }
 
