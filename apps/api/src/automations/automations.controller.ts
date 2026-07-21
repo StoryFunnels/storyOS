@@ -38,9 +38,18 @@ export class AutomationsController {
 
   @Post()
   @ApiOperation({ summary: 'Create a rule (trigger + condition + actions)' })
-  async create(@Req() req: WorkspaceRequest, @Param('db') databaseId: string, @Body() body: CreateAutomationDto) {
+  async create(
+    @Req() req: WorkspaceRequest,
+    @Param('db') databaseId: string,
+    @Body() body: CreateAutomationDto,
+  ) {
     await this.creator(req, databaseId);
-    return this.automationsService.create(req.membership.workspaceId, databaseId, body as never, req.user.id);
+    return this.automationsService.create(
+      req.membership.workspaceId,
+      databaseId,
+      body as never,
+      req.user.id,
+    );
   }
 
   @Patch(':id')
@@ -52,19 +61,33 @@ export class AutomationsController {
     @Body() body: UpdateAutomationDto,
   ) {
     await this.creator(req, databaseId);
-    return this.automationsService.update(req.membership.workspaceId, databaseId, id, body as never, req.user.id);
+    return this.automationsService.update(
+      req.membership.workspaceId,
+      databaseId,
+      id,
+      body as never,
+      req.user.id,
+    );
   }
 
   @Delete(':id')
   @ApiOperation({ summary: 'Delete a rule' })
-  async remove(@Req() req: WorkspaceRequest, @Param('db') databaseId: string, @Param('id') id: string) {
+  async remove(
+    @Req() req: WorkspaceRequest,
+    @Param('db') databaseId: string,
+    @Param('id') id: string,
+  ) {
     await this.creator(req, databaseId);
     return this.automationsService.remove(databaseId, id);
   }
 
   @Get(':id/runs')
   @ApiOperation({ summary: 'Run history (30-day retention)' })
-  async runs(@Req() req: WorkspaceRequest, @Param('db') databaseId: string, @Param('id') id: string) {
+  async runs(
+    @Req() req: WorkspaceRequest,
+    @Param('db') databaseId: string,
+    @Param('id') id: string,
+  ) {
     await this.creator(req, databaseId);
     return this.automationsService.runs(databaseId, id);
   }
@@ -78,6 +101,40 @@ export class AutomationsController {
     @Body() body: TestAutomationDto,
   ) {
     await this.creator(req, databaseId);
-    return this.automationsService.test(req.membership.workspaceId, databaseId, id, body.record_id, req.user.id);
+    return this.automationsService.test(
+      req.membership.workspaceId,
+      databaseId,
+      id,
+      body.record_id,
+      req.user.id,
+    );
+  }
+
+  @Post(':id/regenerate-hook')
+  @RequiresScope('write')
+  @ApiOperation({
+    summary: "Rotate a webhook_received rule's token + secret — the old URL 404s immediately",
+  })
+  async regenerateHook(
+    @Req() req: WorkspaceRequest,
+    @Param('db') databaseId: string,
+    @Param('id') id: string,
+  ) {
+    await this.creator(req, databaseId);
+    return this.automationsService.regenerateHook(databaseId, id);
+  }
+
+  @Get(':id/last-payload')
+  @RequiresScope('write')
+  @ApiOperation({
+    summary: 'The most recent payload a webhook_received rule received (for token mapping)',
+  })
+  async lastPayload(
+    @Req() req: WorkspaceRequest,
+    @Param('db') databaseId: string,
+    @Param('id') id: string,
+  ) {
+    await this.creator(req, databaseId);
+    return this.automationsService.lastHookPayload(databaseId, id);
   }
 }

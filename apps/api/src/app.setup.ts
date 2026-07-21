@@ -9,6 +9,7 @@ import { checkSignInRateLimit, isSignInPath } from './auth/auth-rate-limit';
 import { env } from './config/env';
 import { GITHUB_WEBHOOK_PATH } from './integrations/github-webhook.service';
 import { BILLING_WEBHOOK_PATH } from './billing/billing.controller';
+import { HOOKS_PATH_PREFIX } from './automations/hooks.controller';
 
 /**
  * Routes that need the untouched request bytes, because a signature was
@@ -20,6 +21,16 @@ import { BILLING_WEBHOOK_PATH } from './billing/billing.controller';
  * kept only where an HMAC is actually verified.
  */
 const RAW_BODY_PATHS = new Set<string>([GITHUB_WEBHOOK_PATH, BILLING_WEBHOOK_PATH]);
+
+/**
+ * `RAW_BODY_PATHS` is exact-match, but MN-254's inbound hook route carries
+ * `:workspaceSlug/:hookToken` in the path — there's no fixed string to put in
+ * the set. A prefix check covers it the same way without weakening the exact
+ * matches above (nothing else starts with this prefix).
+ */
+function needsRawBody(path: string): boolean {
+  return RAW_BODY_PATHS.has(path) || path.startsWith(HOOKS_PATH_PREFIX);
+}
 
 /** A request whose raw bytes were retained because its path is on the allowlist. */
 export type RawBodyRequest = FastifyRequest & { rawBody?: Buffer };
@@ -80,8 +91,31 @@ function registerRawBodyJsonParser(app: NestFastifyApplication) {
     (request, body, done) => {
       // request.url carries the query string; the allowlist is path-only.
       const path = request.url.split('?')[0] ?? '';
-      if (RAW_BODY_PATHS.has(path)) (request as RawBodyRequest).rawBody = body;
+      if (needsRawBody(path)) (request as RawBodyRequest).rawBody = body;
       defaultJsonParser(request, body.toString('utf8'), done);
+    },
+  );
+
+  /**
+   * MN-254: the inbound hook receiver also accepts form-encoded submissions
+   * (a plain HTML form's default enctype). Nest's own bootstrap already
+   * registered a default parser for this content type (see the big comment
+   * above — registerParserMiddleware sets up json AND urlencoded), so this
+   * takes it over the same way the block above takes over 'application/json':
+   * remove Nest's, re-add ours, retaining raw bytes under the same allowlist
+   * for the same reason JSON does — an HMAC signs the wire bytes, not a
+   * re-serialized body. No other route currently accepts this content type,
+   * so behavior for the rest of the app is unchanged.
+   */
+  fastify.removeContentTypeParser('application/x-www-form-urlencoded');
+  fastify.addContentTypeParser<Buffer>(
+    'application/x-www-form-urlencoded',
+    { parseAs: 'buffer', bodyLimit },
+    (request, body, done) => {
+      const path = request.url.split('?')[0] ?? '';
+      if (needsRawBody(path)) (request as RawBodyRequest).rawBody = body;
+      const parsed = Object.fromEntries(new URLSearchParams(body.toString('utf8')).entries());
+      done(null, parsed);
     },
   );
 }
@@ -101,7 +135,10 @@ function mountAuthHandler(app: NestFastifyApplication) {
       // src/auth/auth-rate-limit.ts for the keying rationale.
       const path = request.url.split('?')[0] ?? '';
       if (isSignInPath(path)) {
-        const { allowed, retryAfterSeconds } = await checkSignInRateLimit(throttlerStorage, request);
+        const { allowed, retryAfterSeconds } = await checkSignInRateLimit(
+          throttlerStorage,
+          request,
+        );
         if (!allowed) {
           reply.header('retry-after', String(retryAfterSeconds));
           return reply.status(429).send({

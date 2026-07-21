@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { MousePointerClick, Play, Zap } from 'lucide-react';
 import { toast } from 'sonner';
-import { api } from '@/lib/api';
+import { api, API_URL } from '@/lib/api';
 import { useDateFormat } from '@/lib/preferences';
 import { ButtonActionsEditor } from '@/components/table-view/button-actions-editor';
 import type { ButtonAction } from '@/components/table-view/button-actions-editor';
@@ -26,6 +26,11 @@ interface Rule {
   condition: { field: string; op: string; value?: unknown } | null;
   actions: ButtonAction[];
   failureStreak: number;
+  /** MN-254: set only while trigger.type is "webhook_received". */
+  hookToken?: string | null;
+  hookSecret?: string | null;
+  lastHookPayload?: unknown;
+  lastHookAt?: string | null;
 }
 
 interface Run {
@@ -44,11 +49,25 @@ function triggerSentence(rule: Rule, fields: Field[]): string {
     return field ? `When "${field.displayName}" changes` : 'When a record changes';
   }
   if (t.type === 'schedule') return `Every ${t.every}${t.at ? ` at ${t.at}` : ''} (server time)`;
+  if (t.type === 'webhook_received') return 'A webhook is received';
   return t.type;
 }
 
+/** The public endpoint lives on the API host, not the web app's own origin. */
+function hookUrl(ws: string, hookToken: string): string {
+  return `${API_URL.replace(/\/$/, '')}/api/v1/hooks/${ws}/${hookToken}`;
+}
+
 /** Buttons & automations panel (MN-046/047) — per-database sections. */
-export function AutomationsPanel({ ws, db, onClose }: { ws: string; db: string; onClose: () => void }) {
+export function AutomationsPanel({
+  ws,
+  db,
+  onClose,
+}: {
+  ws: string;
+  db: string;
+  onClose: () => void;
+}) {
   const qc = useQueryClient();
   const confirm = useConfirm();
   const database = useDatabase(ws, db);
@@ -81,9 +100,12 @@ export function AutomationsPanel({ ws, db, onClose }: { ws: string; db: string; 
 
   const remove = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await api.DELETE('/api/v1/workspaces/{ws}/databases/{db}/automations/{id}', {
-        params: { path: { ws, db, id } },
-      } as never);
+      const { error } = await api.DELETE(
+        '/api/v1/workspaces/{ws}/databases/{db}/automations/{id}',
+        {
+          params: { path: { ws, db, id } },
+        } as never,
+      );
       if (error) throw error;
     },
     onSuccess: invalidate,
@@ -93,7 +115,10 @@ export function AutomationsPanel({ ws, db, onClose }: { ws: string; db: string; 
   const fields = database.data?.fields ?? [];
 
   return (
-    <DialogContent title={`Buttons & automations — ${database.data?.name ?? ''}`} className="max-w-2xl">
+    <DialogContent
+      title={`Buttons & automations — ${database.data?.name ?? ''}`}
+      className="max-w-2xl"
+    >
       <div className="flex max-h-[75vh] flex-col gap-3 overflow-y-auto pr-1">
         <div className="flex gap-1">
           {(['rules', 'buttons'] as const).map((t) => (
@@ -105,7 +130,11 @@ export function AutomationsPanel({ ws, db, onClose }: { ws: string; db: string; 
               )}
               onClick={() => setTab(t)}
             >
-              {t === 'rules' ? <Zap className="h-3.5 w-3.5" /> : <MousePointerClick className="h-3.5 w-3.5" />}
+              {t === 'rules' ? (
+                <Zap className="h-3.5 w-3.5" />
+              ) : (
+                <MousePointerClick className="h-3.5 w-3.5" />
+              )}
               {t === 'rules' ? 'Automation rules' : 'Buttons'}
             </button>
           ))}
@@ -119,10 +148,15 @@ export function AutomationsPanel({ ws, db, onClose }: { ws: string; db: string; 
               </p>
             )}
             {buttons.map((b) => (
-              <div key={b.id} className="rounded-[var(--radius-card)] border border-border-default p-3">
+              <div
+                key={b.id}
+                className="rounded-[var(--radius-card)] border border-border-default p-3"
+              >
                 <p className="text-[13px] font-medium text-ink">{b.displayName}</p>
                 <p className="text-[12px] text-muted">
-                  {((b.config['actions'] as ButtonAction[]) ?? []).map((a) => a.type.replace('_', ' ')).join(' → ')}
+                  {((b.config['actions'] as ButtonAction[]) ?? [])
+                    .map((a) => a.type.replace('_', ' '))
+                    .join(' → ')}
                 </p>
               </div>
             ))}
@@ -141,13 +175,21 @@ export function AutomationsPanel({ ws, db, onClose }: { ws: string; db: string; 
                 onToggle={(enabled) => toggle.mutate({ id: rule.id, enabled })}
                 onEdit={() => setEditing(rule)}
                 onDelete={async () => {
-                  if (await confirm({ title: `Delete rule "${rule.name}"?`, confirmLabel: 'Delete', danger: true }))
+                  if (
+                    await confirm({
+                      title: `Delete rule "${rule.name}"?`,
+                      confirmLabel: 'Delete',
+                      danger: true,
+                    })
+                  )
                     remove.mutate(rule.id);
                 }}
               />
             ))}
             {(rules.data ?? []).length === 0 && (
-              <p className="text-[13px] text-muted">No rules yet. Rules run actions when records change or on a schedule.</p>
+              <p className="text-[13px] text-muted">
+                No rules yet. Rules run actions when records change or on a schedule.
+              </p>
             )}
             <Button size="sm" className="self-start" onClick={() => setEditing('new')}>
               New rule
@@ -157,12 +199,23 @@ export function AutomationsPanel({ ws, db, onClose }: { ws: string; db: string; 
 
         {tab === 'rules' && editing && (
           <RuleEditor
+            // Remounts when a brand-new rule finishes saving (id goes from
+            // absent to real) so its initial state picks up the freshly
+            // minted hook token/secret instead of stale "new rule" state.
+            key={editing === 'new' ? 'new' : editing.id}
             ws={ws}
             db={db}
             fields={fields}
             rule={editing === 'new' ? null : editing}
-            onDone={() => {
-              setEditing(null);
+            onDone={(saved) => {
+              // A just-created webhook_received rule has no visible URL until
+              // this response — stay on it so the endpoint/secret show up,
+              // instead of closing back to a list that hasn't refetched yet.
+              if (saved && saved.trigger.type === 'webhook_received' && editing === 'new') {
+                setEditing(saved);
+              } else {
+                setEditing(null);
+              }
               invalidate();
             }}
           />
@@ -200,9 +253,12 @@ function RuleRow({
   const runs = useQuery({
     queryKey: ['automation-runs', ws, db, rule.id],
     queryFn: async () => {
-      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/runs', {
-        params: { path: { ws, db, id: rule.id } },
-      } as never);
+      const { data, error } = await api.GET(
+        '/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/runs',
+        {
+          params: { path: { ws, db, id: rule.id } },
+        } as never,
+      );
       if (error) throw error;
       return (data as unknown as { data: Run[] }).data;
     },
@@ -212,14 +268,23 @@ function RuleRow({
   return (
     <div className="rounded-[var(--radius-card)] border border-border-default p-3">
       <div className="flex items-center gap-2">
-        <input type="checkbox" checked={rule.enabled} onChange={(e) => onToggle(e.target.checked)} title="Enabled" />
+        <input
+          type="checkbox"
+          checked={rule.enabled}
+          onChange={(e) => onToggle(e.target.checked)}
+          title="Enabled"
+        />
         <button className="min-w-0 flex-1 text-left" onClick={onEdit}>
           <p className="truncate text-[13px] font-medium text-ink">{rule.name}</p>
           <p className="truncate text-[12px] text-muted">
-            {triggerSentence(rule, fields)} → {rule.actions.map((a) => a.type.replace('_', ' ')).join(', ')}
+            {triggerSentence(rule, fields)} →{' '}
+            {rule.actions.map((a) => a.type.replace('_', ' ')).join(', ')}
           </p>
         </button>
-        <button className="text-[12px] text-muted hover:text-ink" onClick={() => setShowRuns((s) => !s)}>
+        <button
+          className="text-[12px] text-muted hover:text-ink"
+          onClick={() => setShowRuns((s) => !s)}
+        >
           Runs
         </button>
         <button className="text-[12px] text-error hover:underline" onClick={onDelete}>
@@ -227,7 +292,9 @@ function RuleRow({
         </button>
       </div>
       {!rule.enabled && rule.failureStreak >= 10 && (
-        <p className="mt-1 text-[12px] text-warning">Auto-disabled after repeated failures — fix the actions and re-enable.</p>
+        <p className="mt-1 text-[12px] text-warning">
+          Auto-disabled after repeated failures — fix the actions and re-enable.
+        </p>
       )}
       {showRuns && (
         <div className="mt-2 border-t border-border-default pt-2">
@@ -237,7 +304,11 @@ function RuleRow({
               <span
                 className={cn(
                   'mr-1.5 inline-block h-1.5 w-1.5 rounded-full',
-                  run.status === 'ok' ? 'bg-success' : run.status === 'error' ? 'bg-error' : 'bg-warning',
+                  run.status === 'ok'
+                    ? 'bg-success'
+                    : run.status === 'error'
+                      ? 'bg-error'
+                      : 'bg-warning',
                 )}
               />
               {fmt.dateTime(run.createdAt)} · {run.status}
@@ -251,7 +322,15 @@ function RuleRow({
 }
 
 const NO_VALUE_OPS = new Set(['is_empty', 'not_empty']);
-const RELATIVE_RANGES = ['today', 'yesterday', 'tomorrow', 'last_7_days', 'next_7_days', 'this_month', 'next_30_days'];
+const RELATIVE_RANGES = [
+  'today',
+  'yesterday',
+  'tomorrow',
+  'last_7_days',
+  'next_7_days',
+  'this_month',
+  'next_30_days',
+];
 
 function RuleEditor({
   ws,
@@ -264,14 +343,18 @@ function RuleEditor({
   db: string;
   fields: Field[];
   rule: Rule | null;
-  onDone: () => void;
+  /** Passed the saved rule on success — lets the parent stay on a freshly
+   * created webhook_received rule so its URL/secret are visible immediately. */
+  onDone: (saved?: Rule) => void;
 }) {
   const [name, setName] = useState(rule?.name ?? '');
   const [triggerType, setTriggerType] = useState(rule?.trigger.type ?? 'record_updated');
   const [triggerFieldId, setTriggerFieldId] = useState(rule?.trigger.field_id ?? '');
   const [every, setEvery] = useState(rule?.trigger.every ?? 'day');
   const [at, setAt] = useState(rule?.trigger.at ?? '09:00');
-  const [actions, setActions] = useState<ButtonAction[]>(rule?.actions ?? [{ type: 'add_comment', body_template: '' }]);
+  const [actions, setActions] = useState<ButtonAction[]>(
+    rule?.actions ?? [{ type: 'add_comment', body_template: '' }],
+  );
   const [conditionField, setConditionField] = useState(rule?.condition?.field ?? '');
   const [conditionOp, setConditionOp] = useState(rule?.condition?.op ?? '');
   const [conditionValue, setConditionValue] = useState<string>(() => {
@@ -280,12 +363,81 @@ function RuleEditor({
     return v === undefined ? '' : String(v);
   });
   const [busy, setBusy] = useState(false);
+  const [hookToken, setHookToken] = useState(rule?.hookToken ?? null);
+  const [hookSecret, setHookSecret] = useState(rule?.hookSecret ?? null);
+  const [regenBusy, setRegenBusy] = useState(false);
+  const [showLastPayload, setShowLastPayload] = useState(false);
+  const confirm = useConfirm();
   const membersQuery = useMembers(ws, true);
   const members = (membersQuery.data ?? []).map((m) => ({ id: m.user.id, name: m.user.name }));
+  const isWebhookTrigger = triggerType === 'webhook_received';
+
+  const lastPayloadQuery = useQuery({
+    queryKey: ['automation-last-payload', ws, db, rule?.id],
+    queryFn: async () => {
+      const { data, error } = await api.GET(
+        '/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/last-payload',
+        {
+          params: { path: { ws, db, id: rule!.id } },
+        } as never,
+      );
+      if (error) throw error;
+      return data as unknown as { last_hook_payload: unknown; last_hook_at: string | null };
+    },
+    enabled: Boolean(rule?.id) && isWebhookTrigger && showLastPayload,
+  });
+
+  // The URL segment (workspaces/:ws in the API path) is the raw workspace id
+  // everywhere else in this app, but the public hook URL is keyed on the
+  // workspace's slug — fetch it once, only when there's a hook to show.
+  const workspaceQuery = useQuery({
+    queryKey: ['workspace-slug', ws],
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/workspaces/{ws}', {
+        params: { path: { ws } },
+      } as never);
+      if (error) throw error;
+      return data as unknown as { slug: string };
+    },
+    enabled: isWebhookTrigger && Boolean(rule),
+  });
+
+  async function regenerateHook() {
+    if (!rule) return;
+    if (
+      !(await confirm({
+        title: 'Regenerate the webhook secret?',
+        message:
+          'The current URL and secret stop working immediately — update anywhere they were pasted.',
+        confirmLabel: 'Regenerate',
+        danger: true,
+      }))
+    ) {
+      return;
+    }
+    setRegenBusy(true);
+    const { data, error } = await api.POST(
+      '/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/regenerate-hook',
+      {
+        params: { path: { ws, db, id: rule.id } },
+      } as never,
+    );
+    setRegenBusy(false);
+    if (error) {
+      toast.error('Could not regenerate the webhook token');
+      return;
+    }
+    const updated = data as unknown as Rule;
+    setHookToken(updated.hookToken ?? null);
+    setHookSecret(updated.hookSecret ?? null);
+    toast.success('Webhook token regenerated');
+  }
 
   const conditionable = fields.filter((f) => OPS_BY_TYPE[f.type]);
   const selectedConditionField = fields.find((f) => f.apiName === conditionField);
-  const conditionOps = selectedConditionField ? OPS_BY_TYPE[selectedConditionField.type] ?? [] : [];
+  const conditionOps = selectedConditionField
+    ? (OPS_BY_TYPE[selectedConditionField.type] ?? [])
+    : [];
   const currentOp = conditionOps.find((o) => o.op === conditionOp);
   const scopableFields = fields.filter((f) => !f.isSystem && f.type !== 'title');
 
@@ -319,7 +471,14 @@ function RuleEditor({
         : triggerType === 'record_updated'
           ? { type: 'record_updated', ...(triggerFieldId ? { field_id: triggerFieldId } : {}) }
           : { type: triggerType };
-    const body = { name, trigger, condition: buildCondition(), actions };
+    // Webhook rules have no triggering record for a condition to evaluate
+    // against — v1 rejects one server-side, so don't even build it here.
+    const body = {
+      name,
+      trigger,
+      condition: isWebhookTrigger ? undefined : buildCondition(),
+      actions,
+    };
     const call = rule
       ? api.PATCH('/api/v1/workspaces/{ws}/databases/{db}/automations/{id}', {
           params: { path: { ws, db, id: rule.id } },
@@ -329,21 +488,29 @@ function RuleEditor({
           params: { path: { ws, db } },
           body: body as never,
         } as never);
-    const { error } = await call;
+    const { data, error } = await call;
     setBusy(false);
     if (error) {
-      toast.error((error as { error?: { message?: string } })?.error?.message ?? 'Could not save the rule');
+      toast.error(
+        (error as { error?: { message?: string } })?.error?.message ?? 'Could not save the rule',
+      );
       return;
     }
     toast.success(rule ? 'Rule updated' : 'Rule created');
-    onDone();
+    onDone(data as unknown as Rule);
   }
 
   return (
     <div className="flex flex-col gap-3 rounded-[var(--radius-card)] border border-border-default p-3">
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="rule-name">Name</Label>
-        <Input id="rule-name" autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Escalate urgent tickets" />
+        <Input
+          id="rule-name"
+          autoFocus
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="e.g. Escalate urgent tickets"
+        />
       </div>
 
       <div className="flex flex-col gap-1.5">
@@ -357,6 +524,7 @@ function RuleEditor({
             <option value="record_created">A record is created</option>
             <option value="record_updated">A record changes</option>
             <option value="schedule">On a schedule</option>
+            <option value="webhook_received">A webhook is received</option>
           </select>
           {triggerType === 'record_updated' && (
             <select
@@ -384,107 +552,208 @@ function RuleEditor({
                 <option value="week">every week</option>
               </select>
               {every !== 'hour' && (
-                <Input className="h-8 w-24" value={at} onChange={(e) => setAt(e.target.value)} placeholder="09:00" />
+                <Input
+                  className="h-8 w-24"
+                  value={at}
+                  onChange={(e) => setAt(e.target.value)}
+                  placeholder="09:00"
+                />
               )}
             </>
           )}
         </div>
       </div>
 
-      <div className="flex flex-col gap-1.5">
-        <Label>Only if (optional)</Label>
-        <div className="flex flex-wrap gap-2">
-          <select
-            className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
-            value={conditionField}
-            onChange={(e) => {
-              const next = e.target.value;
-              setConditionField(next);
-              const field = fields.find((f) => f.apiName === next);
-              // Auto-pick the first operator so the dropdown never sits on a bare "op…".
-              setConditionOp(field ? OPS_BY_TYPE[field.type]?.[0]?.op ?? '' : '');
-              setConditionValue('');
-            }}
-          >
-            <option value="">no condition</option>
-            {conditionable.map((f) => (
-              <option key={f.id} value={f.apiName}>
-                {f.displayName}
-              </option>
-            ))}
-          </select>
-          {selectedConditionField && (
+      {isWebhookTrigger && (
+        <div className="flex flex-col gap-1.5 rounded-[var(--radius-card)] border border-border-default bg-card/50 p-2.5">
+          <Label>Webhook endpoint</Label>
+          {!rule ? (
+            <p className="text-[12px] text-muted">
+              Save this rule once to mint its URL and secret.
+            </p>
+          ) : (
+            <>
+              <div className="flex items-center gap-1.5">
+                <Input
+                  readOnly
+                  className="h-7 font-mono text-[12px]"
+                  value={
+                    hookToken && workspaceQuery.data
+                      ? hookUrl(workspaceQuery.data.slug, hookToken)
+                      : 'Loading…'
+                  }
+                />
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={!hookToken || !workspaceQuery.data}
+                  onClick={() => {
+                    if (!hookToken || !workspaceQuery.data) return;
+                    void navigator.clipboard.writeText(
+                      hookUrl(workspaceQuery.data.slug, hookToken),
+                    );
+                    toast.success('URL copied');
+                  }}
+                >
+                  Copy
+                </Button>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Input readOnly className="h-7 font-mono text-[12px]" value={hookSecret ?? ''} />
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(hookSecret ?? '');
+                    toast.success('Secret copied');
+                  }}
+                >
+                  Copy
+                </Button>
+                <Button variant="secondary" size="sm" disabled={regenBusy} onClick={regenerateHook}>
+                  Regenerate
+                </Button>
+              </div>
+              <p className="text-[11px] text-faint">
+                Sign requests with this secret (X-StoryOS-Signature: sha256=…, X-StoryOS-Timestamp)
+                to have them verified; unsigned requests are accepted if no signature is sent.{' '}
+                {'{payload.path}'} tokens read the delivered body in any action field below — e.g.{' '}
+                {'{payload.email}'} or {'{payload.answers.0.value}'}.
+              </p>
+              <button
+                type="button"
+                className="self-start text-[12px] text-muted hover:text-ink"
+                onClick={() => setShowLastPayload((s) => !s)}
+              >
+                {showLastPayload ? 'Hide' : 'Show'} last received payload
+              </button>
+              {showLastPayload && (
+                <pre className="max-h-40 overflow-auto rounded border border-border-default bg-card p-2 text-[11px] text-muted">
+                  {lastPayloadQuery.isLoading
+                    ? 'Loading…'
+                    : lastPayloadQuery.data?.last_hook_payload
+                      ? JSON.stringify(lastPayloadQuery.data.last_hook_payload, null, 2)
+                      : 'No delivery received yet.'}
+                </pre>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {!isWebhookTrigger && (
+        <div className="flex flex-col gap-1.5">
+          <Label>Only if (optional)</Label>
+          <div className="flex flex-wrap gap-2">
             <select
               className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
-              value={conditionOp}
-              onChange={(e) => setConditionOp(e.target.value)}
+              value={conditionField}
+              onChange={(e) => {
+                const next = e.target.value;
+                setConditionField(next);
+                const field = fields.find((f) => f.apiName === next);
+                // Auto-pick the first operator so the dropdown never sits on a bare "op…".
+                setConditionOp(field ? (OPS_BY_TYPE[field.type]?.[0]?.op ?? '') : '');
+                setConditionValue('');
+              }}
             >
-              {conditionOps.map((o) => (
-                <option key={o.op} value={o.op}>
-                  {o.label}
+              <option value="">no condition</option>
+              {conditionable.map((f) => (
+                <option key={f.id} value={f.apiName}>
+                  {f.displayName}
                 </option>
               ))}
             </select>
-          )}
-          {selectedConditionField && currentOp && currentOp.input !== 'none' && (
-            currentOp.input === 'options' ? (
+            {selectedConditionField && (
               <select
                 className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
-                value={conditionValue}
-                onChange={(e) => setConditionValue(e.target.value)}
+                value={conditionOp}
+                onChange={(e) => setConditionOp(e.target.value)}
               >
-                <option value="">
-                  {selectedConditionField.type === 'user' ? 'person…' : 'option…'}
-                </option>
-                {(selectedConditionField.type === 'user'
-                  ? members.map((m) => ({ id: m.id, label: m.name }))
-                  : (selectedConditionField.options ?? []).map((o) => ({ id: o.id, label: o.label }))
-                ).map((o) => (
-                  <option key={o.id} value={o.id}>
+                {conditionOps.map((o) => (
+                  <option key={o.op} value={o.op}>
                     {o.label}
                   </option>
                 ))}
               </select>
-            ) : currentOp.input === 'relative' ? (
-              <select
-                className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
-                value={conditionValue || 'next_7_days'}
-                onChange={(e) => setConditionValue(e.target.value)}
-              >
-                {RELATIVE_RANGES.map((r) => (
-                  <option key={r} value={r}>
-                    {r.replaceAll('_', ' ')}
+            )}
+            {selectedConditionField &&
+              currentOp &&
+              currentOp.input !== 'none' &&
+              (currentOp.input === 'options' ? (
+                <select
+                  className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                  value={conditionValue}
+                  onChange={(e) => setConditionValue(e.target.value)}
+                >
+                  <option value="">
+                    {selectedConditionField.type === 'user' ? 'person…' : 'option…'}
                   </option>
-                ))}
-              </select>
-            ) : currentOp.input === 'boolean' ? (
-              <select
-                className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
-                value={conditionValue || 'true'}
-                onChange={(e) => setConditionValue(e.target.value)}
-              >
-                <option value="true">checked</option>
-                <option value="false">unchecked</option>
-              </select>
-            ) : (
-              <Input
-                type={currentOp.input === 'date' ? 'date' : currentOp.input === 'number' ? 'number' : 'text'}
-                className="h-8 w-40"
-                value={conditionValue}
-                onChange={(e) => setConditionValue(e.target.value)}
-              />
-            )
-          )}
+                  {(selectedConditionField.type === 'user'
+                    ? members.map((m) => ({ id: m.id, label: m.name }))
+                    : (selectedConditionField.options ?? []).map((o) => ({
+                        id: o.id,
+                        label: o.label,
+                      }))
+                  ).map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              ) : currentOp.input === 'relative' ? (
+                <select
+                  className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                  value={conditionValue || 'next_7_days'}
+                  onChange={(e) => setConditionValue(e.target.value)}
+                >
+                  {RELATIVE_RANGES.map((r) => (
+                    <option key={r} value={r}>
+                      {r.replaceAll('_', ' ')}
+                    </option>
+                  ))}
+                </select>
+              ) : currentOp.input === 'boolean' ? (
+                <select
+                  className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                  value={conditionValue || 'true'}
+                  onChange={(e) => setConditionValue(e.target.value)}
+                >
+                  <option value="true">checked</option>
+                  <option value="false">unchecked</option>
+                </select>
+              ) : (
+                <Input
+                  type={
+                    currentOp.input === 'date'
+                      ? 'date'
+                      : currentOp.input === 'number'
+                        ? 'number'
+                        : 'text'
+                  }
+                  className="h-8 w-40"
+                  value={conditionValue}
+                  onChange={(e) => setConditionValue(e.target.value)}
+                />
+              ))}
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="flex flex-col gap-1.5">
         <Label>Then</Label>
-        <ButtonActionsEditor ws={ws} db={db} fields={fields} actions={actions} onChange={setActions} />
+        <ButtonActionsEditor
+          ws={ws}
+          db={db}
+          fields={fields}
+          actions={actions}
+          onChange={setActions}
+          restrictToWebhookSafe={isWebhookTrigger}
+        />
       </div>
 
       <div className="flex justify-end gap-2">
-        <Button variant="secondary" size="sm" onClick={onDone}>
+        <Button variant="secondary" size="sm" onClick={() => onDone()}>
           Cancel
         </Button>
         <Button size="sm" disabled={busy || !name.trim() || actions.length === 0} onClick={save}>

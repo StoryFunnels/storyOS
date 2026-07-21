@@ -10,13 +10,32 @@ import type { Field } from './use-table-data';
 
 export type ButtonAction =
   | { type: 'set_values'; values: Record<string, unknown> }
-  | { type: 'create_record'; database_id: string; values: Record<string, unknown>; link_via_relation_field_id?: string }
+  | {
+      type: 'create_record';
+      database_id: string;
+      values: Record<string, unknown>;
+      link_via_relation_field_id?: string;
+    }
   | { type: 'add_comment'; body_template: string }
   | { type: 'notify_user'; user: string; message: string }
   | { type: 'update_linked'; relation_field_id: string; values: Record<string, unknown> }
+  | { type: 'send_slack_message'; text: string; channel?: string }
   // A secret header value is write-only (#249): reads return the `{ __keep: true }`
   // presence flag in its place, and echoing it back on save keeps the stored value.
-  | { type: 'send_webhook'; url: string; body_template?: string; headers?: Record<string, string | { __keep: true }> };
+  | {
+      type: 'send_webhook';
+      url: string;
+      body_template?: string;
+      headers?: Record<string, string | { __keep: true }>;
+    };
+
+/** MN-254: the only actions a webhook_received rule can run — no triggering record. */
+const WEBHOOK_SAFE_ACTIONS = new Set([
+  'create_record',
+  'send_slack_message',
+  'send_webhook',
+  'notify_user',
+]);
 
 type Member = { id: string; name: string };
 
@@ -27,21 +46,40 @@ export function ButtonActionsEditor({
   fields: dbFields,
   actions,
   onChange,
+  restrictToWebhookSafe,
 }: {
   ws: string;
   db: string;
   fields: Field[];
   actions: ButtonAction[];
   onChange: (actions: ButtonAction[]) => void;
+  /** MN-254: true when the parent rule's trigger is "webhook_received" — there's no
+   * triggering record, so only actions that don't need one are offered. */
+  restrictToWebhookSafe?: boolean;
 }) {
   const databases = useDatabases(ws);
   const membersQuery = useMembers(ws, true);
   const members = (membersQuery.data ?? []).map((m) => ({ id: m.user.id, name: m.user.name }));
   const settable = dbFields.filter(
-    (f) => !f.isSystem && !['title', 'relation', 'lookup', 'rollup', 'button', 'rich_text', 'created_at', 'updated_at', 'created_by'].includes(f.type),
+    (f) =>
+      !f.isSystem &&
+      ![
+        'title',
+        'relation',
+        'lookup',
+        'rollup',
+        'button',
+        'rich_text',
+        'created_at',
+        'updated_at',
+        'created_by',
+      ].includes(f.type),
   );
   const userFields = dbFields.filter((f) => f.type === 'user');
   const relationFields = dbFields.filter((f) => f.type === 'relation');
+  const payloadHint = restrictToWebhookSafe ? ' or {payload.path}' : '';
+  /** MN-254: whether to show a given action type in the "Then" dropdown. */
+  const offersAction = (type: string) => !restrictToWebhookSafe || WEBHOOK_SAFE_ACTIONS.has(type);
 
   function patch(i: number, next: ButtonAction) {
     onChange(actions.map((a, j) => (j === i ? next : a)));
@@ -50,7 +88,10 @@ export function ButtonActionsEditor({
   return (
     <div className="flex flex-col gap-2">
       {actions.map((action, i) => (
-        <div key={i} className="flex flex-col gap-1.5 rounded-[var(--radius-card)] border border-border-default p-2">
+        <div
+          key={i}
+          className="flex flex-col gap-1.5 rounded-[var(--radius-card)] border border-border-default p-2"
+        >
           <div className="flex items-center gap-2">
             <select
               className="h-8 flex-1 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
@@ -58,21 +99,48 @@ export function ButtonActionsEditor({
               onChange={(e) => {
                 const t = e.target.value;
                 if (t === 'set_values') patch(i, { type: 'set_values', values: {} });
-                else if (t === 'create_record') patch(i, { type: 'create_record', database_id: db, values: { name: 'New record for {Title}' } });
-                else if (t === 'notify_user') patch(i, { type: 'notify_user', user: '@me', message: '' });
-                else if (t === 'update_linked') patch(i, { type: 'update_linked', relation_field_id: relationFields[0]?.id ?? '', values: {} });
+                else if (t === 'create_record') {
+                  patch(i, {
+                    type: 'create_record',
+                    database_id: db,
+                    values: {
+                      name: restrictToWebhookSafe ? '{payload.name}' : 'New record for {Title}',
+                    },
+                  });
+                } else if (t === 'notify_user')
+                  patch(i, { type: 'notify_user', user: '@me', message: '' });
+                else if (t === 'update_linked')
+                  patch(i, {
+                    type: 'update_linked',
+                    relation_field_id: relationFields[0]?.id ?? '',
+                    values: {},
+                  });
                 else if (t === 'send_webhook') patch(i, { type: 'send_webhook', url: '' });
+                else if (t === 'send_slack_message')
+                  patch(i, { type: 'send_slack_message', text: '' });
                 else patch(i, { type: 'add_comment', body_template: '' });
               }}
             >
-              <option value="set_values">Set fields on this record</option>
+              {/* MN-254: a webhook_received rule has no triggering record, so only
+                  WEBHOOK_SAFE_ACTIONS are offered — the backend rejects the rest with
+                  a clear 422 either way, but hiding them here avoids a round-trip. */}
+              {offersAction('set_values') && (
+                <option value="set_values">Set fields on this record</option>
+              )}
               <option value="create_record">Create a record</option>
-              <option value="update_linked">Update linked records</option>
-              <option value="add_comment">Add a comment</option>
+              {offersAction('update_linked') && (
+                <option value="update_linked">Update linked records</option>
+              )}
+              {offersAction('add_comment') && <option value="add_comment">Add a comment</option>}
               <option value="notify_user">Notify a person</option>
+              <option value="send_slack_message">Send a Slack message</option>
               <option value="send_webhook">Send a webhook</option>
             </select>
-            <button type="button" className="p-1 text-faint hover:text-error" onClick={() => onChange(actions.filter((_, j) => j !== i))}>
+            <button
+              type="button"
+              className="p-1 text-faint hover:text-error"
+              onClick={() => onChange(actions.filter((_, j) => j !== i))}
+            >
               <Trash2 className="h-3.5 w-3.5" />
             </button>
           </div>
@@ -92,19 +160,37 @@ export function ButtonActionsEditor({
               <select
                 className="h-7 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
                 value={action.database_id}
-                onChange={(e) => patch(i, { ...action, database_id: e.target.value, link_via_relation_field_id: undefined })}
+                onChange={(e) =>
+                  patch(i, {
+                    ...action,
+                    database_id: e.target.value,
+                    link_via_relation_field_id: undefined,
+                  })
+                }
               >
                 {(databases.data ?? []).map((d) => (
-                  <option key={d.id} value={d.id}>{d.name}</option>
+                  <option key={d.id} value={d.id}>
+                    {d.name}
+                  </option>
                 ))}
               </select>
               <Input
                 className="h-7"
-                placeholder="Title template — {Title} inserts this record's title"
+                placeholder={`Title template — {Title} inserts this record's title${payloadHint}`}
                 value={String(action.values.name ?? '')}
-                onChange={(e) => patch(i, { ...action, values: { ...action.values, name: e.target.value } })}
+                onChange={(e) =>
+                  patch(i, { ...action, values: { ...action.values, name: e.target.value } })
+                }
               />
-              <LinkBackPicker ws={ws} sourceDb={db} targetDb={action.database_id} value={action.link_via_relation_field_id} onChange={(v) => patch(i, { ...action, link_via_relation_field_id: v })} />
+              {!restrictToWebhookSafe && (
+                <LinkBackPicker
+                  ws={ws}
+                  sourceDb={db}
+                  targetDb={action.database_id}
+                  value={action.link_via_relation_field_id}
+                  onChange={(v) => patch(i, { ...action, link_via_relation_field_id: v })}
+                />
+              )}
             </div>
           )}
 
@@ -115,6 +201,23 @@ export function ButtonActionsEditor({
               value={action.body_template}
               onChange={(e) => patch(i, { ...action, body_template: e.target.value })}
             />
+          )}
+
+          {action.type === 'send_slack_message' && (
+            <div className="flex flex-col gap-1">
+              <Input
+                className="h-7"
+                placeholder="#channel or channel id (optional — falls back to the workspace default)"
+                value={action.channel ?? ''}
+                onChange={(e) => patch(i, { ...action, channel: e.target.value || undefined })}
+              />
+              <textarea
+                className="min-h-[56px] rounded border border-border-default bg-card px-2 py-1 text-[12px] text-ink"
+                placeholder={`Message${payloadHint ? ' — {payload.path} interpolates values' : ' — {Field Name} interpolates values'}`}
+                value={action.text}
+                onChange={(e) => patch(i, { ...action, text: e.target.value })}
+              />
+            </div>
           )}
 
           {action.type === 'send_webhook' && (
@@ -139,15 +242,17 @@ export function ButtonActionsEditor({
               <Input
                 className="h-7"
                 type="url"
-                placeholder="https://hooks.example.com/... — {Field Name} interpolates"
+                placeholder={`https://hooks.example.com/... — {Field Name} interpolates${payloadHint}`}
                 value={action.url}
                 onChange={(e) => patch(i, { ...action, url: e.target.value })}
               />
               <textarea
                 className="min-h-[56px] rounded border border-border-default bg-card px-2 py-1 font-mono text-[12px] text-ink"
-                placeholder={'Body (optional) — JSON is sent as-is, {Field Name} interpolates.\nLeave empty to send the whole record.'}
+                placeholder={`Body (optional) — JSON is sent as-is, {Field Name} interpolates${payloadHint}.\nLeave empty to send the whole record.`}
                 value={action.body_template ?? ''}
-                onChange={(e) => patch(i, { ...action, body_template: e.target.value || undefined })}
+                onChange={(e) =>
+                  patch(i, { ...action, body_template: e.target.value || undefined })
+                }
               />
               <p className="text-[11px] text-faint">
                 Signed with the workspace webhook secret; failures retry automatically.
@@ -163,13 +268,18 @@ export function ButtonActionsEditor({
                 onChange={(e) => patch(i, { ...action, user: e.target.value })}
               >
                 <option value="@me">Me (whoever runs it)</option>
-                {userFields.map((f) => (
-                  <option key={f.id} value={f.apiName}>{f.displayName}</option>
-                ))}
+                {/* MN-254: a webhook rule has no triggering record, so a person FIELD
+                    can't be read — only "@me" (the rule owner) is valid there. */}
+                {!restrictToWebhookSafe &&
+                  userFields.map((f) => (
+                    <option key={f.id} value={f.apiName}>
+                      {f.displayName}
+                    </option>
+                  ))}
               </select>
               <Input
                 className="h-7"
-                placeholder="Message — {Field Name} interpolates values"
+                placeholder={`Message — {Field Name} interpolates values${payloadHint}`}
                 value={action.message}
                 onChange={(e) => patch(i, { ...action, message: e.target.value })}
               />
@@ -246,7 +356,9 @@ function FieldValuesEditor({
       >
         <option value="">{addLabel}</option>
         {remaining.map((f) => (
-          <option key={f.id} value={f.apiName}>{f.displayName}</option>
+          <option key={f.id} value={f.apiName}>
+            {f.displayName}
+          </option>
         ))}
       </select>
       {Object.entries(values).map(([key, value]) => {
@@ -254,7 +366,12 @@ function FieldValuesEditor({
         return (
           <div key={key} className="flex items-center gap-1.5 text-[12px] text-ink">
             <span className="w-28 shrink-0 truncate text-muted">{field?.displayName ?? key}</span>
-            <SetValueEditor field={field} members={members} value={value} onChange={(v) => onChange({ ...values, [key]: v })} />
+            <SetValueEditor
+              field={field}
+              members={members}
+              value={value}
+              onChange={(v) => onChange({ ...values, [key]: v })}
+            />
             <button
               type="button"
               className="p-0.5 text-faint hover:text-error"
@@ -290,24 +407,38 @@ function SetValueEditor({
   value: unknown;
   onChange: (value: unknown) => void;
 }) {
-  const controlCls = 'h-7 min-w-0 flex-1 rounded border border-border-default bg-card px-1 text-[12px] text-ink';
+  const controlCls =
+    'h-7 min-w-0 flex-1 rounded border border-border-default bg-card px-1 text-[12px] text-ink';
   if (!field) {
-    return <Input className="h-7" value={String(value ?? '')} onChange={(e) => onChange(e.target.value)} />;
+    return (
+      <Input
+        className="h-7"
+        value={String(value ?? '')}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    );
   }
   switch (field.type) {
     case 'select':
       return (
-        <select className={controlCls} value={typeof value === 'string' ? value : ''} onChange={(e) => onChange(e.target.value || null)}>
+        <select
+          className={controlCls}
+          value={typeof value === 'string' ? value : ''}
+          onChange={(e) => onChange(e.target.value || null)}
+        >
           <option value="">— none —</option>
           {(field.options ?? []).map((o) => (
-            <option key={o.id} value={o.id}>{o.label}</option>
+            <option key={o.id} value={o.id}>
+              {o.label}
+            </option>
           ))}
         </select>
       );
     case 'multi_select': {
       const ids = Array.isArray(value) ? (value as string[]) : [];
       const options = field.options ?? [];
-      if (options.length === 0) return <span className="flex-1 text-[11px] text-faint">No options</span>;
+      if (options.length === 0)
+        return <span className="flex-1 text-[11px] text-faint">No options</span>;
       return (
         <div className="flex flex-1 flex-wrap items-center gap-1">
           {options.map((o) => {
@@ -319,7 +450,9 @@ function SetValueEditor({
                 onClick={() => onChange(on ? ids.filter((x) => x !== o.id) : [...ids, o.id])}
                 className={cn(
                   'rounded-full border px-2 py-0.5 text-[11px]',
-                  on ? 'border-[var(--accent)] bg-active text-ink' : 'border-border-default text-muted',
+                  on
+                    ? 'border-[var(--accent)] bg-active text-ink'
+                    : 'border-border-default text-muted',
                 )}
               >
                 {o.label}
@@ -331,10 +464,16 @@ function SetValueEditor({
     }
     case 'user':
       return (
-        <select className={controlCls} value={typeof value === 'string' ? value : '@me'} onChange={(e) => onChange(e.target.value)}>
+        <select
+          className={controlCls}
+          value={typeof value === 'string' ? value : '@me'}
+          onChange={(e) => onChange(e.target.value)}
+        >
           <option value="@me">Me (whoever runs it)</option>
           {members.map((m) => (
-            <option key={m.id} value={m.id}>{m.name}</option>
+            <option key={m.id} value={m.id}>
+              {m.name}
+            </option>
           ))}
         </select>
       );
@@ -343,7 +482,11 @@ function SetValueEditor({
     case 'checkbox':
       return (
         <label className="flex flex-1 items-center gap-1.5 text-[12px] text-muted">
-          <input type="checkbox" checked={value === true} onChange={(e) => onChange(e.target.checked)} />
+          <input
+            type="checkbox"
+            checked={value === true}
+            onChange={(e) => onChange(e.target.checked)}
+          />
           {value === true ? 'Checked' : 'Unchecked'}
         </label>
       );
@@ -357,12 +500,24 @@ function SetValueEditor({
         />
       );
     default:
-      return <Input className="h-7" value={String(value ?? '')} onChange={(e) => onChange(e.target.value)} />;
+      return (
+        <Input
+          className="h-7"
+          value={String(value ?? '')}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      );
   }
 }
 
 /** Date value: the @today / @now tokens stay available alongside a concrete date picker. */
-function DateValueEditor({ value, onChange }: { value: unknown; onChange: (value: unknown) => void }) {
+function DateValueEditor({
+  value,
+  onChange,
+}: {
+  value: unknown;
+  onChange: (value: unknown) => void;
+}) {
   const v = typeof value === 'string' ? value : '';
   const isToken = v === '@today' || v === '@now';
   return (
@@ -380,7 +535,12 @@ function DateValueEditor({ value, onChange }: { value: unknown; onChange: (value
         <option value="date">Specific date…</option>
       </select>
       {!isToken && (
-        <Input className="h-7 min-w-0 flex-1" type="date" value={v} onChange={(e) => onChange(e.target.value || '')} />
+        <Input
+          className="h-7 min-w-0 flex-1"
+          type="date"
+          value={v}
+          onChange={(e) => onChange(e.target.value || '')}
+        />
       )}
     </div>
   );
@@ -413,7 +573,9 @@ function LinkBackPicker({
     >
       <option value="">Don't link back</option>
       {candidates.map((f) => (
-        <option key={f.id} value={f.id}>Link back via "{f.displayName}"</option>
+        <option key={f.id} value={f.id}>
+          Link back via "{f.displayName}"
+        </option>
       ))}
     </select>
   );
@@ -437,10 +599,24 @@ function UpdateLinkedEditor({
   const targetDbId = relField?.relation?.target_database_id ?? '';
   const target = useDatabase(ws, targetDbId);
   const settable = (target.data?.fields ?? []).filter(
-    (f) => !f.isSystem && !['title', 'relation', 'lookup', 'rollup', 'button', 'rich_text', 'created_at', 'updated_at', 'created_by'].includes(f.type),
+    (f) =>
+      !f.isSystem &&
+      ![
+        'title',
+        'relation',
+        'lookup',
+        'rollup',
+        'button',
+        'rich_text',
+        'created_at',
+        'updated_at',
+        'created_by',
+      ].includes(f.type),
   );
   if (relationFields.length === 0) {
-    return <p className="text-[12px] text-faint">This database has no relations to update through.</p>;
+    return (
+      <p className="text-[12px] text-faint">This database has no relations to update through.</p>
+    );
   }
   return (
     <div className="flex flex-col gap-1">
@@ -450,7 +626,9 @@ function UpdateLinkedEditor({
         onChange={(e) => onChange({ ...action, relation_field_id: e.target.value, values: {} })}
       >
         {relationFields.map((f) => (
-          <option key={f.id} value={f.id}>Through "{f.displayName}"</option>
+          <option key={f.id} value={f.id}>
+            Through "{f.displayName}"
+          </option>
         ))}
       </select>
       <FieldValuesEditor

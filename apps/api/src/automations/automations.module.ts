@@ -11,6 +11,8 @@ import { AutomationActionsService } from './actions.service';
 import { ButtonsController } from './buttons.controller';
 import { AutomationsController } from './automations.controller';
 import { AutomationsService } from './automations.service';
+import { HooksController } from './hooks.controller';
+import { HookRateLimiterService } from './hook-rate-limiter.service';
 
 @Module({
   imports: [
@@ -23,8 +25,8 @@ import { AutomationsService } from './automations.service';
     IntegrationsModule,
     BillingModule,
   ],
-  controllers: [ButtonsController, AutomationsController],
-  providers: [AutomationActionsService, AutomationsService],
+  controllers: [ButtonsController, AutomationsController, HooksController],
+  providers: [AutomationActionsService, AutomationsService, HookRateLimiterService],
   exports: [AutomationActionsService, AutomationsService],
 })
 export class AutomationsModule {}
