@@ -23,6 +23,14 @@ export type EmailInput =
       workspaceName: string;
       daysRemaining: number;
       billingUrl: string;
+    }
+  | {
+      /** Auto-reload's off-session charge exhausted its retries and was
+       * disabled (#265) — sent once per disablement, not per failed attempt. */
+      kind: 'auto-reload-failed';
+      to: string;
+      workspaceName: string;
+      billingUrl: string;
     };
 
 export type EmailKind = EmailInput['kind'];
