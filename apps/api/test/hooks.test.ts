@@ -21,6 +21,17 @@ async function inject(method: string, url: string, payload?: unknown) {
   });
 }
 
+/**
+ * Every webhook_received rule mints a hookSecret at creation (mintHook() in
+ * automations.service.ts is unconditional — see test 1 below), so the
+ * receiver always requires a valid signature. Compute one the same way
+ * webhook-sender.ts's signPayload does, over the exact bytes being sent.
+ */
+function sign(secret: string, body: string): { signature: string; timestamp: string } {
+  const timestamp = Math.floor(Date.now() / 1000);
+  return { signature: `sha256=${signPayload(secret, body, timestamp)}`, timestamp: String(timestamp) };
+}
+
 /** Raw, unauthenticated hit against the public receiver — no admin token. */
 async function hook(
   workspaceSlug: string,
@@ -119,11 +130,8 @@ describe('webhook_received rules (MN-254)', () => {
       })
     ).json();
 
-    const res = await hook(
-      wsSlug,
-      rule.hookToken,
-      JSON.stringify({ contact: { name: 'Ada Lovelace', email: 'ada@example.com' } }),
-    );
+    const body = JSON.stringify({ contact: { name: 'Ada Lovelace', email: 'ada@example.com' } });
+    const res = await hook(wsSlug, rule.hookToken, body, sign(rule.hookSecret, body));
     expect(res.statusCode, res.body).toBe(202);
     const runId = res.json().run_id;
     expect(typeof runId).toBe('string');
@@ -161,11 +169,8 @@ describe('webhook_received rules (MN-254)', () => {
         ],
       })
     ).json();
-    const res = await hook(
-      wsSlug,
-      rule.hookToken,
-      JSON.stringify({ answers: [{ value: 'First answer' }, { value: 'Second' }] }),
-    );
+    const body = JSON.stringify({ answers: [{ value: 'First answer' }, { value: 'Second' }] });
+    const res = await hook(wsSlug, rule.hookToken, body, sign(rule.hookSecret, body));
     expect(res.statusCode).toBe(202);
     await engine.settleHook(res.json().run_id);
     const records = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/records`)).json();
@@ -182,8 +187,10 @@ describe('webhook_received rules (MN-254)', () => {
         ],
       })
     ).json();
-    const res = await hook(wsSlug, rule.hookToken, 'full_name=Grace+Hopper&source=landing', {
+    const body = 'full_name=Grace+Hopper&source=landing';
+    const res = await hook(wsSlug, rule.hookToken, body, {
       contentType: 'application/x-www-form-urlencoded',
+      ...sign(rule.hookSecret, body),
     });
     expect(res.statusCode, res.body).toBe(202);
     await engine.settleHook(res.json().run_id);
@@ -246,7 +253,13 @@ describe('webhook_received rules (MN-254)', () => {
     const usingOld = await hook(wsSlug, oldToken, '{}');
     expect(usingOld.statusCode).toBe(404);
 
-    const usingNew = await hook(wsSlug, regenerated.hookToken, '{}');
+    const body = '{}';
+    const usingNew = await hook(
+      wsSlug,
+      regenerated.hookToken,
+      body,
+      sign(regenerated.hookSecret, body),
+    );
     expect(usingNew.statusCode).toBe(202);
   });
 
