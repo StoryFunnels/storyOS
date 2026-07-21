@@ -7,6 +7,21 @@ export interface DomainEvent {
   recordId: string;
   changedFieldIds?: string[];
   relationFieldId?: string;
+  /**
+   * MN-267: precise before∪after other-side target ids for every relation
+   * field this write touched — captured by RecordsService.writeLinks() AT
+   * WRITE TIME (before the delete-then-insert replace), never reconstructed
+   * from record_links after the fact, so an unlink is never missed. Lets
+   * RollupInvalidationSubscriber recompute both this record's own rollup
+   * through the field that changed and the affected other-side records'
+   * rollup through the relation's reverse field.
+   */
+  linkedRelations?: Array<{
+    relationId: string;
+    fieldId: string;
+    otherDatabaseId: string;
+    otherRecordIds: string[];
+  }>;
   /** null for anonymous public-form submissions (MN-101). */
   actorId: string | null;
   depth: number;

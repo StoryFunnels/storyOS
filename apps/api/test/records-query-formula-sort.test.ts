@@ -13,12 +13,16 @@ import { authed, signUpUser } from './helpers/users';
  * fieldExpr()/the keyset cursor treat it like any other stored field — same
  * machinery #252 already hardened, not a second (offset) pagination mode.
  *
- * Rollup is NOT in scope here — the spike for THIS ticket found no existing
- * recompute-on-related-record-change plumbing for rollups (attachRollups is a
- * pure read-time, per-fetched-page computation; grep DomainEventsService
- * subscribers and there's no rollup one). That's the follow-up ticket. A
- * formula that reaches into a rollup (or lookup) inherits that same
- * cross-record staleness and is asserted NOT sortable below.
+ * Rollup was NOT in scope for MN-260 — the spike for that ticket found no
+ * existing recompute-on-related-record-change plumbing for rollups
+ * (attachRollups was a pure read-time, per-fetched-page computation; no
+ * DomainEventsService subscriber touched rollup at all). #267 built that
+ * plumbing (RollupInvalidationSubscriber + RecordsService.invalidateRollupsForChange/
+ * recomputeRollupsForRelationField materializing into the same computed_values
+ * column) — see records-query-rollup-sort.test.ts for rollup's own sort/cursor
+ * coverage and the cross-record recompute test. A formula that reaches into a
+ * rollup is sortable now too (asserted below); one reaching into a `lookup`
+ * still isn't — lookup has no such plumbing.
  */
 
 let app: NestFastifyApplication;
@@ -187,7 +191,7 @@ describe('sorting by formula fields (MN-260)', () => {
     expect(res.json().data.map((r: { title: string }) => r.title)).toEqual(['Low', 'Mid', 'High']);
   });
 
-  it('rejects sorting by a formula that (transitively) depends on a rollup — cross-record staleness is out of scope', async () => {
+  it('allows sorting by a rollup, and by a formula that (transitively) depends on one (MN-267) — but still rejects one that depends on a lookup', async () => {
     const spaceId = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
     const membersDb = (await inject('POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name: 'Members' })).json().id;
     const timeoffDb = (await inject('POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name: 'Time Off' })).json().id;
@@ -225,23 +229,43 @@ describe('sorting by formula fields (MN-260)', () => {
     });
     expect(okSort.statusCode, okSort.body).toBe(201);
 
-    // …but the rollup-dependent one 422s rather than silently sorting on a value
-    // that was materialized as if the related record's total were always null.
-    const badSort = await app.inject({
-      method: 'POST',
-      url: `/api/v1/workspaces/${wsId}/databases/${membersDb}/records/query`,
-      headers: authed(admin.token),
-      payload: { sorts: [{ field: 'balance', direction: 'asc' }] },
-    });
-    expect(badSort.statusCode, badSort.body).toBe(422);
-
-    // Rollup itself is still unsortable too (unchanged from pre-#260 behavior).
+    // MN-267: rollup now has real recompute-on-related-record-change plumbing
+    // (RollupInvalidationSubscriber) — it's sortable directly, and so is a
+    // formula that (transitively) depends on one. See records-query-rollup-sort.test.ts
+    // for the actual ordering/cursor coverage; this file only asserts the gate.
     const rollupSort = await app.inject({
       method: 'POST',
       url: `/api/v1/workspaces/${wsId}/databases/${membersDb}/records/query`,
       headers: authed(admin.token),
       payload: { sorts: [{ field: 'days_used', direction: 'asc' }] },
     });
-    expect(rollupSort.statusCode, rollupSort.body).toBe(422);
+    expect(rollupSort.statusCode, rollupSort.body).toBe(201);
+
+    const balanceSort = await app.inject({
+      method: 'POST',
+      url: `/api/v1/workspaces/${wsId}/databases/${membersDb}/records/query`,
+      headers: authed(admin.token),
+      payload: { sorts: [{ field: 'balance', direction: 'asc' }] },
+    });
+    expect(balanceSort.statusCode, balanceSort.body).toBe(201);
+
+    // …but `lookup` still has no such plumbing — a formula reaching into one
+    // 422s rather than silently sorting on a value materialized as always null.
+    const lookupField = await inject('POST', `/workspaces/${wsId}/databases/${membersDb}/fields`, {
+      display_name: 'Any Day Off', type: 'lookup',
+      config: { relation_field_id: timeOffRelationField.id, target_field_api_name: 'days' },
+    });
+    expect(lookupField.statusCode, lookupField.body).toBe(201);
+    const throughLookup = await inject('POST', `/workspaces/${wsId}/databases/${membersDb}/fields`, {
+      display_name: 'Plus Lookup', type: 'formula', config: { expression: '{Allocation} + {Any Day Off}' },
+    });
+    expect(throughLookup.statusCode, throughLookup.body).toBe(201);
+    const badSort = await app.inject({
+      method: 'POST',
+      url: `/api/v1/workspaces/${wsId}/databases/${membersDb}/records/query`,
+      headers: authed(admin.token),
+      payload: { sorts: [{ field: 'plus_lookup', direction: 'asc' }] },
+    });
+    expect(badSort.statusCode, badSort.body).toBe(422);
   });
 });

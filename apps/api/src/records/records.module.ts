@@ -5,11 +5,12 @@ import { MentionsModule } from '../mentions/mentions.module';
 import { WorkspacesModule } from '../workspaces/workspaces.module';
 import { RecordsController } from './records.controller';
 import { RecordsService } from './records.service';
+import { RollupInvalidationSubscriber } from './rollup-invalidation.subscriber';
 
 @Module({
   imports: [WorkspacesModule, DatabasesModule, MentionsModule, AbuseModule],
   controllers: [RecordsController],
-  providers: [RecordsService],
+  providers: [RecordsService, RollupInvalidationSubscriber],
   exports: [RecordsService],
 })
 export class RecordsModule {}

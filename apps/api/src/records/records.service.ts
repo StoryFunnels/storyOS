@@ -29,6 +29,12 @@ interface LinkPlan {
   relationId: string;
   side: 'a' | 'b';
   apiName: string;
+  /** MN-267: this record's own relation-field id — lets writeLinks() report exactly
+   * which relation field changed, without re-deriving it from apiName later. */
+  fieldId: string;
+  /** MN-267: the database on the OTHER side of this relation — lets writeLinks()
+   * report where the affected rollup-bearing records (if any) live. */
+  targetDatabaseId: string;
   targets: Array<{ id: string; title: string }>;
 }
 
@@ -324,9 +330,15 @@ export class RecordsService {
     await this.db.transaction(async (tx) => {
       for (const row of rows) {
         const stored = row.values as Record<string, unknown>;
+        // MN-267: a rollup field is never in `values` (it's purely computed) — its
+        // materialized value lives in `computed_values`, written independently by
+        // recomputeRollupsForRelationField. Reading it from there (rather than the
+        // always-undefined `values` lookup below) is what makes a formula-over-rollup
+        // safe to materialize at all now that formulaDependsOnlyOnOwnRecord allows it.
+        const computed = row.computedValues as Record<string, unknown>;
         const bag: Record<string, unknown> = { name: row.title };
         for (const def of defs) {
-          let value = stored[def.id];
+          let value: unknown = def.type === 'rollup' ? computed[def.id] : stored[def.id];
           if (def.type === 'select' && typeof value === 'string') {
             value = labelByOption.get(value) ?? value;
           }
@@ -342,7 +354,13 @@ export class RecordsService {
             patch[def.id] = null;
           }
         }
-        await tx.update(records).set({ computedValues: patch }).where(eq(records.id, row.id));
+        // MN-267: merge (jsonb `||`), never a full replace — recomputeRollupsForRelationField
+        // writes into this SAME column independently (a rollup and a formula can both
+        // materialize for the same record without racing to clobber each other's keys).
+        await tx
+          .update(records)
+          .set({ computedValues: sql`${records.computedValues} || ${JSON.stringify(patch)}::jsonb` })
+          .where(eq(records.id, row.id));
       }
     });
   }
@@ -373,6 +391,246 @@ export class RecordsService {
       await this.materializeFormulas(defs, chunk);
       cursor = chunk[chunk.length - 1]!.id;
       if (chunk.length < CHUNK) break;
+    }
+  }
+
+  /**
+   * MN-267: the cross-record half of rollup materialization. `attachRollups()`
+   * (above) is read-time only — this is the genuinely new piece: given a
+   * database, ONE of its relation fields, and a bounded set of record ids on
+   * that database, recomputes every rollup field configured to read through
+   * that relation field for exactly those records, and persists into
+   * `computed_values` (merged, never a full replace — see materializeFormulas).
+   *
+   * Two callers feed this, both via RollupInvalidationSubscriber:
+   *  - a RELATED record's own field changed (invalidateRollupsForChange case a)
+   *  - this relation's link membership changed (case b, using writeLinks'
+   *    precise before∪after ids — see DomainEvent.linkedRelations)
+   *
+   * Chunked (CHUNK) so a highly-connected relation's fan-out is bounded per
+   * round trip — this method itself is always invoked fire-and-forget by the
+   * subscriber, never awaited by the write that triggered the change, so the
+   * chunking bounds memory/transaction size rather than request latency.
+   *
+   * Also re-materializes any formula that (transitively) depends on one of
+   * these rollups, for the SAME chunk — otherwise a formula-over-rollup's
+   * sort value would only ever refresh the next time that record happened to
+   * be written directly, defeating the point of lifting
+   * formulaDependsOnlyOnOwnRecord's rollup exclusion.
+   */
+  async recomputeRollupsForRelationField(
+    databaseId: string,
+    relationFieldId: string,
+    recordIds: string[],
+  ): Promise<void> {
+    if (recordIds.length === 0) return;
+    const defs = await this.fieldDefs(databaseId);
+    const rollupDefs = defs.filter(
+      (d) => d.type === 'rollup' && d.config['relation_field_id'] === relationFieldId,
+    );
+    if (rollupDefs.length === 0) return;
+
+    const CHUNK = 500;
+    for (let i = 0; i < recordIds.length; i += CHUNK) {
+      const chunk = recordIds.slice(i, i + CHUNK);
+      const patchByRecord = new Map<string, Record<string, unknown>>();
+      for (const def of rollupDefs) {
+        const values = await this.computeRollupValuesForChunk(def, defs, chunk);
+        for (const recordId of chunk) {
+          const patch = patchByRecord.get(recordId) ?? {};
+          patch[def.id] = values.has(recordId) ? values.get(recordId) : def.config['op'] === 'count' ? 0 : null;
+          patchByRecord.set(recordId, patch);
+        }
+      }
+      await this.db.transaction(async (tx) => {
+        for (const [recordId, patch] of patchByRecord) {
+          await tx
+            .update(records)
+            .set({ computedValues: sql`${records.computedValues} || ${JSON.stringify(patch)}::jsonb` })
+            .where(eq(records.id, recordId));
+        }
+      });
+      if (defs.some((d) => d.type === 'formula')) {
+        const freshRows = await this.db.query.records.findMany({ where: inArray(records.id, chunk) });
+        await this.materializeFormulas(defs, freshRows).catch(() => undefined);
+      }
+    }
+  }
+
+  /** One grouped aggregate query per rollup field per chunk — never N+1 per record. */
+  private async computeRollupValuesForChunk(
+    def: FieldDef,
+    defs: FieldDef[],
+    recordIds: string[],
+  ): Promise<Map<string, number | null>> {
+    const op = def.config['op'] as 'count' | 'sum' | 'avg' | 'min' | 'max';
+    const relationDef = defs.find((d) => d.id === def.config['relation_field_id']);
+    const result = new Map<string, number | null>();
+    if (!relationDef || relationDef.type !== 'relation') return result; // dangling — resolves to nothing, same as attachRollups
+
+    const side = relationDef.config['side'] as 'a' | 'b';
+    const relationId = relationDef.config['relation_id'] as string;
+    const myCol = side === 'a' ? recordLinks.fromRecordId : recordLinks.toRecordId;
+    const otherCol = side === 'a' ? recordLinks.toRecordId : recordLinks.fromRecordId;
+
+    if (op === 'count') {
+      const rows = await this.db
+        .select({ mine: myCol, n: sql<number>`count(*)` })
+        .from(recordLinks)
+        .innerJoin(records, and(eq(records.id, otherCol), isNull(records.deletedAt)))
+        .where(and(eq(recordLinks.relationId, relationId), inArray(myCol, recordIds)))
+        .groupBy(myCol);
+      for (const r of rows) result.set(r.mine, Number(r.n));
+      return result;
+    }
+
+    const targetApiName = def.config['target_field_api_name'] as string | undefined | null;
+    if (!targetApiName) return result;
+    const relation = await this.db.query.relations.findFirst({ where: eq(relations.id, relationId) });
+    if (!relation) return result;
+    const targetDbId = side === 'a' ? relation.databaseBId : relation.databaseAId;
+    const targetDefs = await this.fieldDefs(targetDbId);
+    const targetFieldId = targetDefs.find((d) => d.api_name === targetApiName)?.id;
+    if (!targetFieldId) return result;
+
+    const numExpr = sql`((${records.values}->>${targetFieldId})::numeric)`;
+    const aggExpr =
+      op === 'sum'
+        ? sql<number>`sum(${numExpr})`
+        : op === 'avg'
+          ? sql<number>`avg(${numExpr})`
+          : op === 'min'
+            ? sql<number>`min(${numExpr})`
+            : sql<number>`max(${numExpr})`;
+
+    const rows = await this.db
+      .select({ mine: myCol, v: aggExpr })
+      .from(recordLinks)
+      .innerJoin(
+        records,
+        and(
+          eq(records.id, otherCol),
+          isNull(records.deletedAt),
+          sql`jsonb_typeof(${records.values}->${targetFieldId}) = 'number'`,
+        ),
+      )
+      .where(and(eq(recordLinks.relationId, relationId), inArray(myCol, recordIds)))
+      .groupBy(myCol);
+    for (const r of rows) result.set(r.mine, r.v === null ? null : Number(r.v));
+    return result;
+  }
+
+  /**
+   * MN-267: backfill for a newly-created rollup field across every existing
+   * record on its database — mirrors materializeFormulaFieldForAllRecords'
+   * reasoning exactly (without this, sorting by a brand-new rollup field
+   * would show every pre-existing record as null until its relation next
+   * changed). Chunked to avoid holding thousands of ids in memory at once.
+   */
+  async recomputeRollupFieldForAllRecords(databaseId: string, fieldId: string): Promise<void> {
+    const defs = await this.fieldDefs(databaseId);
+    const def = defs.find((d) => d.id === fieldId);
+    if (!def || def.type !== 'rollup') return;
+    const relationFieldId = def.config['relation_field_id'] as string | undefined;
+    if (!relationFieldId) return;
+    const CHUNK = 500;
+    let cursor: string | null = null;
+    for (;;) {
+      const conditions = [eq(records.databaseId, databaseId), isNull(records.deletedAt)];
+      if (cursor) conditions.push(gt(records.id, cursor));
+      const chunk = await this.db.query.records.findMany({
+        where: and(...conditions),
+        orderBy: [asc(records.id)],
+        limit: CHUNK,
+        columns: { id: true },
+      });
+      if (chunk.length === 0) break;
+      await this.recomputeRollupsForRelationField(
+        databaseId,
+        relationFieldId,
+        chunk.map((r) => r.id),
+      );
+      cursor = chunk[chunk.length - 1]!.id;
+      if (chunk.length < CHUNK) break;
+    }
+  }
+
+  /**
+   * MN-267: the reverse-lookup entry point RollupInvalidationSubscriber calls
+   * for every record_created/record_updated domain event. Two independent,
+   * additive cascades — a change can trigger either, both, or neither:
+   *
+   *  (a) `changedFieldIds` — a plain field on `recordId` changed. Walks every
+   *      relation where `databaseId` participates, and for each one whose
+   *      OTHER side has a rollup reading through the reverse relation field
+   *      (a `count` rollup always qualifies — it cares about link membership,
+   *      not field values; sum/avg/min/max only if the changed field is its
+   *      target), recomputes that rollup for whichever other-side records are
+   *      CURRENTLY linked to `recordId`.
+   *  (b) `linkedRelations` — this record's own relation link-set changed.
+   *      Uses writeLinks()'s precise before∪after ids (never reconstructed
+   *      from record_links after the fact, so an unlink is never missed) to
+   *      recompute both this record's own rollup through the field that
+   *      changed, and the affected other-side records' rollup through the
+   *      relation's reverse field (`relations.fieldAId`/`fieldBId` — the
+   *      relation row already carries both sides' field ids directly, no
+   *      extra field-table lookup needed).
+   *
+   * Always called fire-and-forget from the subscriber (bus-isolated, and
+   * wrapped again there) — never lets a recompute failure surface on the
+   * write that triggered it.
+   */
+  async invalidateRollupsForChange(event: {
+    databaseId: string;
+    recordId: string;
+    changedFieldIds?: string[];
+    linkedRelations?: Array<{ relationId: string; fieldId: string; otherDatabaseId: string; otherRecordIds: string[] }>;
+  }): Promise<void> {
+    if (event.changedFieldIds?.length) {
+      // target_field_api_name (rollup config) is an api_name; changedFieldIds are
+      // field ids (Object.keys(diff) in update()) — resolve ids to api_names on
+      // THIS database once, up front, so the per-relation filter below compares
+      // like with like instead of an id against a name that never matches.
+      const myDefs = await this.fieldDefs(event.databaseId);
+      const idToApiName = new Map(myDefs.map((d) => [d.id, d.api_name]));
+      const changedApiNames = new Set(
+        event.changedFieldIds.map((id) => idToApiName.get(id)).filter((n): n is string => !!n),
+      );
+      const rels = await this.db.query.relations.findMany({
+        where: or(eq(relations.databaseAId, event.databaseId), eq(relations.databaseBId, event.databaseId)),
+      });
+      for (const rel of rels) {
+        const mySide: 'a' | 'b' = rel.databaseAId === event.databaseId ? 'a' : 'b';
+        const otherDbId = mySide === 'a' ? rel.databaseBId : rel.databaseAId;
+        const reverseFieldId = mySide === 'a' ? rel.fieldBId : rel.fieldAId;
+        const otherDefs = await this.fieldDefs(otherDbId);
+        const relevantRollups = otherDefs.filter(
+          (d) =>
+            d.type === 'rollup' &&
+            d.config['relation_field_id'] === reverseFieldId &&
+            (d.config['op'] === 'count' || changedApiNames.has(d.config['target_field_api_name'] as string)),
+        );
+        if (relevantRollups.length === 0) continue;
+
+        const myCol = mySide === 'a' ? recordLinks.fromRecordId : recordLinks.toRecordId;
+        const otherCol = mySide === 'a' ? recordLinks.toRecordId : recordLinks.fromRecordId;
+        const links = await this.db
+          .select({ other: otherCol })
+          .from(recordLinks)
+          .where(and(eq(recordLinks.relationId, rel.id), eq(myCol, event.recordId)));
+        const otherIds = links.map((l) => l.other);
+        if (otherIds.length === 0) continue;
+        await this.recomputeRollupsForRelationField(otherDbId, reverseFieldId, otherIds);
+      }
+    }
+
+    for (const link of event.linkedRelations ?? []) {
+      await this.recomputeRollupsForRelationField(event.databaseId, link.fieldId, [event.recordId]);
+      if (link.otherRecordIds.length === 0) continue;
+      const relation = await this.db.query.relations.findFirst({ where: eq(relations.id, link.relationId) });
+      if (!relation) continue;
+      const reverseFieldId = relation.fieldAId === link.fieldId ? relation.fieldBId : relation.fieldAId;
+      await this.recomputeRollupsForRelationField(link.otherDatabaseId, reverseFieldId, link.otherRecordIds);
     }
   }
 
@@ -624,7 +882,7 @@ export class RecordsService {
           `"${apiName}" can link to only one target (one-to-many); got ${targets.length}`,
         );
       }
-      plans.push({ relationId: relation.id, side, apiName, targets });
+      plans.push({ relationId: relation.id, side, apiName, fieldId: def.id, targetDatabaseId, targets });
     }
     return plans;
   }
@@ -633,6 +891,11 @@ export class RecordsService {
    * Writes a plan's links inside an existing transaction. `replace` clears the
    * record's current targets first — an update naming a relation means "set it to
    * exactly this", the same semantics as PUT /links.
+   *
+   * MN-267: also returns, per plan, the before∪after set of other-side record ids —
+   * captured HERE, before the replace-delete runs, because that's the only place an
+   * unlinked id is still visible. This feeds RollupInvalidationSubscriber: a rollup
+   * on either side of this relation may need to recompute for exactly these ids.
    */
   private async writeLinks(
     tx: Db,
@@ -641,10 +904,18 @@ export class RecordsService {
     record: { id: string; title: string },
     plans: LinkPlan[],
     replace: boolean,
-  ) {
+  ): Promise<Array<{ relationId: string; fieldId: string; otherDatabaseId: string; otherRecordIds: string[] }>> {
+    const affected: Array<{ relationId: string; fieldId: string; otherDatabaseId: string; otherRecordIds: string[] }> = [];
     for (const plan of plans) {
       const myCol = plan.side === 'a' ? recordLinks.fromRecordId : recordLinks.toRecordId;
+      const otherCol = plan.side === 'a' ? recordLinks.toRecordId : recordLinks.fromRecordId;
+      let beforeIds: string[] = [];
       if (replace) {
+        const existing = await tx
+          .select({ other: otherCol })
+          .from(recordLinks)
+          .where(and(eq(recordLinks.relationId, plan.relationId), eq(myCol, record.id)));
+        beforeIds = existing.map((r) => r.other);
         await tx
           .delete(recordLinks)
           .where(and(eq(recordLinks.relationId, plan.relationId), eq(myCol, record.id)));
@@ -679,7 +950,17 @@ export class RecordsService {
           ]),
         );
       }
+      const otherIds = new Set([...beforeIds, ...plan.targets.map((t) => t.id)]);
+      if (otherIds.size > 0) {
+        affected.push({
+          relationId: plan.relationId,
+          fieldId: plan.fieldId,
+          otherDatabaseId: plan.targetDatabaseId,
+          otherRecordIds: [...otherIds],
+        });
+      }
     }
+    return affected;
   }
 
   private async lastPosition(databaseId: string): Promise<string | null> {
@@ -794,6 +1075,14 @@ export class RecordsService {
     );
     const positions = await keysAfter(await this.lastPosition(databaseId), inputs.length);
 
+    // MN-267: keyed by record index — writeLinks() runs inside the transaction below
+    // and reports which other-side records may need a rollup recompute; carried out
+    // to the record_created emit after commit, same pattern update() uses.
+    const linkedRelationsByIndex = new Map<
+      number,
+      Array<{ relationId: string; fieldId: string; otherDatabaseId: string; otherRecordIds: string[] }>
+    >();
+
     const rows = await this.db.transaction(async (tx) => {
       // Allocate a contiguous block of public numbers atomically (MN-087): bump the
       // per-database counter by N and take the returned high-water mark. Gap-tolerant.
@@ -829,7 +1118,8 @@ export class RecordsService {
       for (const [i, row] of inserted.entries()) {
         const plans = linkPlans[i]!;
         if (plans.length) {
-          await this.writeLinks(tx as unknown as Db, workspaceId, actorId, row, plans, false);
+          const linked = await this.writeLinks(tx as unknown as Db, workspaceId, actorId, row, plans, false);
+          if (linked.length) linkedRelationsByIndex.set(i, linked);
         }
       }
       return inserted;
@@ -845,7 +1135,7 @@ export class RecordsService {
       await this.materializeFormulas(defs, rows).catch(() => undefined);
     }
     if (!options.suppressAutomations) {
-      for (const row of rows) {
+      for (const [i, row] of rows.entries()) {
         this.domainEvents.emit({
           type: 'record_created',
           workspaceId,
@@ -853,6 +1143,7 @@ export class RecordsService {
           recordId: row.id,
           actorId,
           depth,
+          linkedRelations: linkedRelationsByIndex.get(i),
         });
       }
     }
@@ -922,6 +1213,15 @@ export class RecordsService {
     // A relation-only update has no value diff, but is still a real change.
     if (Object.keys(diff).length === 0 && linkPlans.length === 0) return this.project(row, defs);
 
+    // MN-267: populated inside the transaction below (writeLinks' before∪after
+    // report), read after commit to feed the record_updated event.
+    let linkedRelations: Array<{
+      relationId: string;
+      fieldId: string;
+      otherDatabaseId: string;
+      otherRecordIds: string[];
+    }> = [];
+
     const updated = await this.db.transaction(async (tx) => {
       const [next] = await tx
         .update(records)
@@ -950,7 +1250,7 @@ export class RecordsService {
       }
       // Naming a relation in an update sets it to exactly these targets.
       if (linkPlans.length) {
-        await this.writeLinks(
+        linkedRelations = await this.writeLinks(
           tx as unknown as Db,
           workspaceId,
           actorId,
@@ -980,6 +1280,7 @@ export class RecordsService {
       changedFieldIds: Object.keys(diff).filter((k) => k !== 'title'),
       actorId,
       depth,
+      linkedRelations: linkedRelations.length ? linkedRelations : undefined,
     });
 
     // #140: a rich_text field can carry @/# mentions — re-sync backlinks +
@@ -1345,7 +1646,11 @@ export class RecordsService {
 
     const SORTABLE = new Set([
       'id', 'title', 'text', 'number', 'date', 'url', 'email', 'select',
-      'checkbox', 'created_at', 'updated_at', 'created_by', 'user', 'formula',
+      // MN-267: rollup is now materialized too (recomputeRollupsForRelationField,
+      // invalidated via RollupInvalidationSubscriber on the related record's
+      // change or the relation's own link-set change) — reuses computed_values/
+      // fieldExpr()/the keyset cursor exactly like formula does (MN-260).
+      'checkbox', 'created_at', 'updated_at', 'created_by', 'user', 'formula', 'rollup',
     ]);
     const sorts: SortSpec[] = input.sorts.map((s) => {
       const def = byApiName.get(s.field);
@@ -1353,13 +1658,14 @@ export class RecordsService {
       if (!SORTABLE.has(def.type) || (def.type === 'user' && def.config['multi'] === true)) {
         throw new UnprocessableEntityException(`cannot sort by ${def.type} field "${s.field}"`);
       }
-      // MN-260: a formula is only sortable if its materialized value can be
-      // trusted — i.e. it never (transitively) reaches a lookup/rollup field.
-      // Rollup itself stays fully unsortable (see formulaDependsOnlyOnOwnRecord's
-      // doc comment for the spike finding behind that split).
+      // MN-260/MN-267: a formula is only sortable if its materialized value can
+      // be trusted — i.e. it never (transitively) reaches a `lookup` field.
+      // `rollup` is no longer excluded here (see formulaDependsOnlyOnOwnRecord's
+      // doc comment) — it has real invalidation plumbing now, same as a formula
+      // referencing another formula.
       if (def.type === 'formula' && !formulaDependsOnlyOnOwnRecord(def, byApiName)) {
         throw new UnprocessableEntityException(
-          `cannot sort by formula field "${s.field}" — it depends on a related record (through a lookup or rollup), which isn't materialized yet`,
+          `cannot sort by formula field "${s.field}" — it depends on a related record (through a lookup), which isn't materialized yet`,
         );
       }
       return { def, direction: s.direction };
@@ -1497,20 +1803,23 @@ function orderFormulasByDependency(formulaDefs: FieldDef[]): FieldDef[] {
 }
 
 /**
- * MN-260 spike finding: rollups have NO recompute-on-related-record-change
- * plumbing today (attachRollups is purely a read-time, per-fetched-page
- * computation — grep the codebase for a rollup subscriber on DomainEventsService
- * and there isn't one), so rollups are NOT materialized/sortable in this ticket
- * (tracked separately). Formulas were scoped in because they depend only on
- * this record's own fields — EXCEPT a formula may reference a `lookup` or
- * `rollup` field (FieldsService.formulaTypeOf allows it, and
- * apps/api/test/rollups.test.ts's "formulas reference rollups" case proves it's
- * a real, exercised path, not a hypothetical). Those transitively inherit the
- * same cross-record staleness rollups have, so this walks the formula's full
- * dependency chain (through other formulas too) and excludes it from
- * materialization/SORTABLE if it ever reaches a lookup or rollup — rather than
- * materializing a value that would be silently wrong (computed as if the
- * related value were always null).
+ * MN-260 spike finding, resolved for rollup by MN-267: rollups had NO
+ * recompute-on-related-record-change plumbing when this was first written
+ * (attachRollups was purely a read-time, per-fetched-page computation, and no
+ * subscriber on DomainEventsService touched rollups at all). That plumbing now
+ * exists — RollupInvalidationSubscriber + RecordsService.invalidateRollupsForChange/
+ * recomputeRollupsForRelationField, persisting into the same `computed_values`
+ * column formula already uses — so a formula that depends on a rollup is safe
+ * to materialize: the rollup's own materialized value is what gets read (see
+ * materializeFormulas' `computed` lookup), not a value computed as if the
+ * related record's total were always null.
+ *
+ * `lookup` stays excluded — it has no materialization/invalidation plumbing of
+ * its own (a separate ticket, if ever addressed), so a formula reaching into
+ * one would still silently compute as if the looked-up value were always
+ * null. This walks the formula's full dependency chain (through other
+ * formulas, and now through rollups too) and excludes it from
+ * materialization/SORTABLE only if it ever reaches a lookup.
  */
 function formulaDependsOnlyOnOwnRecord(def: FieldDef, byApiName: Map<string, FieldDef>): boolean {
   const visited = new Set<string>();
@@ -1520,7 +1829,7 @@ function formulaDependsOnlyOnOwnRecord(def: FieldDef, byApiName: Map<string, Fie
       visited.add(apiName);
       const target = byApiName.get(apiName);
       if (!target) continue; // dangling ref resolves to null at eval time — not a cross-record concern
-      if (target.type === 'lookup' || target.type === 'rollup') return false;
+      if (target.type === 'lookup') return false;
       if (target.type === 'formula') {
         const targetAst = target.config['ast'] as FormulaNode | undefined;
         if (targetAst && !walk(targetAst)) return false;
@@ -1538,7 +1847,7 @@ function extractSortValue(row: RecordRow, def: { id: string; type: string }): un
   if (def.type === 'created_at') return row.createdAt.toISOString();
   if (def.type === 'updated_at') return row.updatedAt.toISOString();
   if (def.type === 'created_by') return row.createdBy;
-  if (def.type === 'formula') {
+  if (def.type === 'formula' || def.type === 'rollup') {
     const raw = (row.computedValues as Record<string, unknown>)[def.id];
     return raw === undefined ? null : raw;
   }
