@@ -691,6 +691,33 @@ export const activityEvents = pgTable(
   (t) => [index('activity_record_created_idx').on(t.recordId, t.createdAt)],
 );
 
+/**
+ * Record versioning (MN-231, layer 3 of the durability plan — extends the
+ * MN-027 activity trail from "view the diff" to "restore the snapshot").
+ * One row per record write that changes stored data: the FULL prior
+ * values/title, captured before the write lands, so a restore never has to
+ * replay/reconstruct state from a chain of diffs. Same cascade shape as
+ * activity_events; no retention/pruning job yet (deferred — see MN-231
+ * ticket comment).
+ */
+export const recordVersions = pgTable(
+  'record_versions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    recordId: uuid('record_id')
+      .notNull()
+      .references(() => records.id, { onDelete: 'cascade' }),
+    actorId: text('actor_id'),
+    title: text('title').notNull(),
+    values: jsonb('values').notNull().default({}),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('record_versions_record_created_idx').on(t.recordId, t.createdAt)],
+);
+
 export const invites = pgTable('invites', {
   id: uuid('id').primaryKey().defaultRandom(),
   workspaceId: uuid('workspace_id')
