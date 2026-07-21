@@ -115,6 +115,7 @@ export interface PlanBlendedMargin {
 export function estimatedRevenueCents(plan: PlanId, billableSeats: number): number {
   const def = PLANS[plan];
   if (!Number.isFinite(def.priceUsd)) return 0; // Enterprise: negotiated out-of-band, no self-serve number to project
+  if (plan === 'free') return 0; // Free is $0 by design (MN-107) — the $12 seat overage only applies to Pro/Business
   const overage = seatOverage(plan, billableSeats);
   return Math.round((def.priceUsd + overage * SEAT_PRICE_USD) * 100);
 }
