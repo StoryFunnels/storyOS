@@ -278,4 +278,11 @@ export class SlackIntegrationsController {
   saveConfig(@Req() req: WorkspaceRequest, @Body() body: SlackConfigDto) {
     return this.slack.saveConfig(req.membership.workspaceId, body);
   }
+
+  /** #256 AC: a "Send test message" button so a user can verify the connection without building an automation. */
+  @Post('test')
+  @ApiOperation({ summary: 'Send a test message using the saved Slack config, to verify the connection' })
+  sendTest(@Req() req: WorkspaceRequest) {
+    return this.slack.sendMessage(req.membership.workspaceId, { text: 'StoryOS connected ✅' });
+  }
 }

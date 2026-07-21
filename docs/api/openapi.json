@@ -4596,6 +4596,21 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/integrations/slack/test": {
+      "post": {
+        "operationId": "SlackIntegrationsController_sendTest",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Send a test message using the saved Slack config, to verify the connection",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/agents": {
       "get": {
         "operationId": "AgentsController_getPack",
