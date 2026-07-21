@@ -45,8 +45,28 @@ export function seal(plaintext: string, key: Buffer = masterKey()): string {
 }
 
 /**
+ * `Buffer.from(str, 'base64')` is deliberately lenient — it stops at the first
+ * invalid character instead of rejecting the input, which means a corrupted
+ * *encoding* (not just corrupted bytes) can silently decode to the same
+ * buffer as the untampered original. E.g. flipping the trailing `=` padding
+ * of a 16-byte tag's base64 (`…hFTQ==` → `…hFTQ=A`) decodes to bit-for-bit
+ * the same tag, and GCM would then happily "verify" a tampered sealed string.
+ * Re-encoding and comparing catches that: any string that isn't already the
+ * canonical base64 of its own decoded bytes is rejected outright, before it
+ * ever reaches the cipher.
+ */
+function strictBase64Decode(segment: string, label: string): Buffer {
+  const decoded = Buffer.from(segment, 'base64');
+  if (decoded.toString('base64') !== segment) {
+    throw new Error(`secretbox: malformed base64 in ${label}`);
+  }
+  return decoded;
+}
+
+/**
  * Reverse of `seal`. Throws on any tamper (a flipped byte anywhere fails GCM's
- * auth-tag check) or on the wrong key — never silently returns garbage.
+ * auth-tag check, and a flipped base64 character fails the strict re-encode
+ * check above) or on the wrong key — never silently returns garbage.
  */
 export function open(sealed: string, key: Buffer = masterKey()): string {
   const parts = sealed.split('.');
@@ -54,9 +74,9 @@ export function open(sealed: string, key: Buffer = masterKey()): string {
     throw new Error('secretbox: malformed or unrecognized ciphertext version');
   }
   const [, ivPart, tagPart, ciphertextPart] = parts as [string, string, string, string];
-  const iv = Buffer.from(ivPart, 'base64');
-  const tag = Buffer.from(tagPart, 'base64');
-  const ciphertext = Buffer.from(ciphertextPart, 'base64');
+  const iv = strictBase64Decode(ivPart, 'iv');
+  const tag = strictBase64Decode(tagPart, 'tag');
+  const ciphertext = strictBase64Decode(ciphertextPart, 'ciphertext');
   const decipher = createDecipheriv(ALGORITHM, key, iv);
   decipher.setAuthTag(tag);
   // GCM verifies the tag inside final() — a tampered ciphertext or a wrong key

@@ -56,6 +56,14 @@ const SECRET_TAILS = new Set([
   'authorization',
   // GitHub-speak for a token; `github_pat`, `pat`.
   'pat',
+  // apps/api/src/connections/connections.service.ts (MN-252) — createConnectionSchema's
+  // `auth` is the raw, provider-specific credential payload (e.g. `{ api_key: "..." }`)
+  // exactly as the caller submitted it, held in memory before ConnectionsService.create()
+  // calls `seal()`. Unlike `auth_kind` (a discriminator string, see DECLARED_SAFE in
+  // redact-secrets.guard.test.ts) this is real secret material, so it gets the same
+  // wholesale, whole-object redaction as `credential`/`credentials` above — there's no
+  // fixed sub-key to pattern-match since every provider's auth shape is different.
+  'auth',
 ]);
 
 /**

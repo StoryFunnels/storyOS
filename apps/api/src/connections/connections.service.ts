@@ -193,9 +193,12 @@ export class ConnectionsService implements OnModuleInit, OnModuleDestroy {
     return row;
   }
 
+  /** 404, not 400 — an unrecognized provider id is "no such resource in the
+   * registry", the same shape as requireRow/requireOAuthProvider/requireEnv
+   * below, not a malformed request. */
   private requireProvider(id: string): ProviderDescriptor {
     const descriptor = PROVIDER_REGISTRY.get(id);
-    if (!descriptor) throw new BadRequestException(`Unknown provider "${id}"`);
+    if (!descriptor) throw new NotFoundException(`Unknown provider "${id}"`);
     return descriptor;
   }
 
