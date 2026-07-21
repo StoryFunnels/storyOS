@@ -23,7 +23,14 @@ export type NotificationType =
    * automatic downgrade to Free, so there is no toggle to honour here either.
    */
   | 'trial_reminder_23'
-  | 'trial_reminder_29';
+  | 'trial_reminder_29'
+  /**
+   * MN-189 follow-up (#265) — an off-session auto-reload charge failed.
+   * Bare, like the trial reminders above. Not an opt-out ping for the same
+   * reason: it's a billing problem the workspace needs to act on (update the
+   * card), not an FYI about something already handled.
+   */
+  | 'auto_reload_failed';
 
 /**
  * The types a user can switch off (#31). `notifications.type` is a plain text

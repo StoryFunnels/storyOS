@@ -6,7 +6,7 @@ process.env.STRIPE_PRICE_BUSINESS = 'price_business_test';
 process.env.STRIPE_PRICE_SEAT = 'price_seat_test';
 
 import { describe, expect, it } from 'vitest';
-import { basePriceId, isPurchasablePlan, planForPriceId, seatOverage } from './plans';
+import { basePriceId, creditExpiryDate, isPurchasablePlan, planForPriceId, seatOverage } from './plans';
 
 describe('planForPriceId', () => {
   it('maps the configured Pro and Business price ids back to plans', () => {
@@ -51,5 +51,25 @@ describe('seatOverage', () => {
 
   it('never goes negative when a workspace is under its included seats', () => {
     expect(seatOverage('business', 1)).toBe(0);
+  });
+});
+
+describe('creditExpiryDate — MN-189 follow-up (#265)', () => {
+  it('is exactly 12 months out', () => {
+    const from = new Date('2026-01-15T12:00:00.000Z');
+    const expiry = creditExpiryDate(from);
+    expect(expiry.getUTCFullYear()).toBe(2027);
+    expect(expiry.getUTCMonth()).toBe(from.getUTCMonth());
+    expect(expiry.getUTCDate()).toBe(15);
+  });
+
+  it('rolls over year-end and handles a leap-day source date without skipping a day', () => {
+    // 2028-02-29 (leap year) + 12 months -> 2029-02-29 doesn't exist, so
+    // Date#setMonth rolls it to 2029-03-01 — documented behavior, not a bug:
+    // this is the one calendar edge case where "12 months" can't land on the
+    // same day-of-month.
+    const from = new Date('2028-02-29T00:00:00.000Z');
+    const expiry = creditExpiryDate(from);
+    expect(expiry.getUTCFullYear()).toBe(2029);
   });
 });
