@@ -351,6 +351,13 @@
       "when": 1784599738745,
       "tag": "0049_concerned_wallop",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1784601022798,
+      "tag": "0050_classy_gauntlet",
+      "breakpoints": true
     }
   ]
 }
