@@ -1,6 +1,7 @@
 'use client';
 
-import { Plus, Trash2 } from 'lucide-react';
+import { Info, Plus, Trash2 } from 'lucide-react';
+import Link from 'next/link';
 import { useDatabases } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
@@ -118,6 +119,23 @@ export function ButtonActionsEditor({
 
           {action.type === 'send_webhook' && (
             <div className="flex flex-col gap-1">
+              {!action.url.trim() && (
+                <div className="flex items-start gap-1.5 rounded border border-border-default bg-hover px-2 py-1.5 text-[11px] text-muted">
+                  <Info className="mt-0.5 h-3 w-3 shrink-0" />
+                  <span>
+                    This sends data to a URL you choose — paste in the webhook URL your
+                    automation tool (n8n, Make, Zapier) gives you, or your own endpoint.{' '}
+                    <Link
+                      href={`/w/${ws}/settings/webhooks`}
+                      target="_blank"
+                      className="underline underline-offset-2 hover:no-underline"
+                    >
+                      See how webhooks work
+                    </Link>
+                    .
+                  </span>
+                </div>
+              )}
               <Input
                 className="h-7"
                 type="url"

@@ -3,6 +3,7 @@
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { CircleHelp } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { useDateFormat } from '@/lib/preferences';
@@ -111,16 +112,41 @@ export default function WebhooksSettingsPage() {
         <h1 className="text-lg font-semibold text-ink">Webhooks</h1>
         <CreateWebhookDialog ws={ws} databases={databases.data ?? []} />
       </div>
-      <p className="mb-6 text-[13px] text-muted">
-        StoryOS POSTs to your URL when records change — wire it into n8n, Make, Zapier or your own
-        endpoint. Each payload is signed: verify{' '}
-        <code className="rounded bg-hover px-1">X-StoryOS-Signature</code> as{' '}
-        <code className="rounded bg-hover px-1">
-          sha256=HMAC(secret, &quot;{'{timestamp}'}.{'{body}'}&quot;)
-        </code>{' '}
-        using <code className="rounded bg-hover px-1">X-StoryOS-Timestamp</code>. Failures retry with
-        backoff for about 15 minutes.
+      <p className="mb-2 text-[13px] text-muted">
+        A webhook is a message StoryOS sends to a URL of your choice whenever something
+        happens here — a record gets created, updated, or changed. It&apos;s how you push
+        those changes into an automation tool like <span className="text-ink">n8n</span>,{' '}
+        <span className="text-ink">Make</span>, or <span className="text-ink">Zapier</span>,
+        or into your own app.
       </p>
+      <p className="mb-4 text-[13px] text-muted">
+        Add one below with the URL your tool gives you, and choose which changes should
+        trigger it. Failed deliveries are retried automatically for about 15 minutes.
+      </p>
+
+      <details className="mb-6 rounded-[var(--radius-card)] border border-border-default bg-card px-3 py-2">
+        <summary className="cursor-pointer select-none text-[13px] font-medium text-ink">
+          Advanced — for developers
+        </summary>
+        <p className="mt-2 text-[13px] text-muted">
+          Each payload is signed so you can verify it really came from StoryOS: check the{' '}
+          <code className="rounded bg-hover px-1">X-StoryOS-Signature</code> header against{' '}
+          <code className="rounded bg-hover px-1">
+            sha256=HMAC(secret, &quot;{'{timestamp}'}.{'{body}'}&quot;)
+          </code>{' '}
+          using the timestamp in{' '}
+          <code className="rounded bg-hover px-1">X-StoryOS-Timestamp</code>. Most no-code
+          tools handle this for you and don&apos;t need it at all.{' '}
+          <a
+            href="https://docs.storyos.dev/concepts/webhooks"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 text-ink underline underline-offset-2 hover:no-underline"
+          >
+            <CircleHelp className="h-3.5 w-3.5" /> Full signing docs
+          </a>
+        </p>
+      </details>
 
       <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card">
         {(webhooks.data ?? []).length === 0 && (
@@ -305,10 +331,18 @@ function CreateWebhookDialog({
       <DialogContent title={secret ? 'Copy your signing secret' : 'New webhook'}>
         {secret ? (
           <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-1.5">
+              <p className="text-[13px] font-medium text-ink">Your signing secret</p>
+              <span
+                className="inline-flex cursor-help text-faint hover:text-ink"
+                title="A signing secret lets the tool receiving this webhook confirm the request really came from StoryOS and wasn't forged or altered in transit. StoryOS uses it to compute a signature sent with every delivery, which your endpoint can check before trusting the data. Most no-code tools (n8n, Make, Zapier) don't need it at all — it's only for verifying authenticity yourself."
+              >
+                <CircleHelp className="h-3.5 w-3.5" />
+              </span>
+            </div>
             <p className="text-[13px] text-muted">
-              This secret is shown once. Use it to verify the{' '}
-              <code className="rounded bg-hover px-1">X-StoryOS-Signature</code> header on every
-              payload.
+              This is shown to you only once, right now — copy it somewhere safe. If you lose
+              it, delete this webhook and create a new one instead.
             </p>
             <code className="break-all rounded-[var(--radius-control)] border border-border-default bg-app p-2 text-[12px] text-ink">
               {secret}
