@@ -5867,7 +5867,7 @@
           },
           "icon": {
             "type": "string",
-            "maxLength": 16
+            "maxLength": 48
           }
         },
         "required": [
@@ -5884,7 +5884,7 @@
           },
           "icon": {
             "type": "string",
-            "maxLength": 16,
+            "maxLength": 48,
             "nullable": true
           },
           "position": {
@@ -7499,7 +7499,7 @@
           },
           "icon": {
             "type": "string",
-            "maxLength": 16
+            "maxLength": 48
           }
         }
       },
@@ -7512,7 +7512,7 @@
           },
           "icon": {
             "type": "string",
-            "maxLength": 16,
+            "maxLength": 48,
             "nullable": true
           },
           "content": {},

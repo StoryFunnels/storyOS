@@ -1,5 +1,6 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, eq, inArray } from 'drizzle-orm';
+import { normalizeIconInput } from '@storyos/schemas/icons';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { spaces } from '../db/schema';
@@ -41,9 +42,13 @@ export class SpacesService {
     });
     const position = Math.max(-1, ...existing.map((s) => s.position)) + 1;
     const slug = this.uniqueSpaceSlug(input.name, new Set(existing.map((s) => s.slug)));
+    // #283: never persist raw emoji — normalize through the same table the
+    // one-time backfill (#251) uses, for every caller (HTTP API, templates,
+    // integrations), not just requests that go through createSpaceSchema.
+    const icon = normalizeIconInput(input.icon, input.name);
     const [space] = await this.db
       .insert(spaces)
-      .values({ workspaceId, name: input.name, slug, icon: input.icon, color: input.color, position })
+      .values({ workspaceId, name: input.name, slug, icon, color: input.color, position })
       .returning();
     return space!;
   }
@@ -53,9 +58,24 @@ export class SpacesService {
     spaceId: string,
     patch: { name?: string; icon?: string | null; color?: string | null; position?: number },
   ) {
+    let icon = patch.icon;
+    if (icon !== undefined && icon !== null) {
+      // Prefer the name in this same patch; otherwise the current row's name
+      // powers inferIconFromName()'s fallback for emoji outside the table (#283).
+      const name =
+        patch.name ??
+        (
+          await this.db.query.spaces.findFirst({
+            where: and(eq(spaces.id, spaceId), eq(spaces.workspaceId, workspaceId)),
+            columns: { name: true },
+          })
+        )?.name ??
+        '';
+      icon = normalizeIconInput(icon, name) ?? icon;
+    }
     const [space] = await this.db
       .update(spaces)
-      .set(patch)
+      .set({ ...patch, icon })
       .where(and(eq(spaces.id, spaceId), eq(spaces.workspaceId, workspaceId)))
       .returning();
     if (!space) throw new NotFoundException('Space not found');

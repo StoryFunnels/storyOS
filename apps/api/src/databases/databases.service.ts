@@ -1,5 +1,6 @@
 import { ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, eq, inArray, isNull, or } from 'drizzle-orm';
+import { normalizeIconInput } from '@storyos/schemas/icons';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { databases, fields, recordLinks, relations, selectOptions, spaces, views } from '../db/schema';
@@ -230,7 +231,10 @@ export class DatabasesService {
           workspaceId: membership.workspaceId,
           spaceId: input.space_id,
           name: input.name,
-          icon: input.icon,
+          // #283: normalize through the emoji migration table for every
+          // caller (HTTP API, templates, integrations), not just requests
+          // that go through createDatabaseSchema.
+          icon: normalizeIconInput(input.icon, input.name),
           apiSlug,
           position,
         })
@@ -317,11 +321,18 @@ export class DatabasesService {
       apiSlug = await this.uniqueSlugFor(patch.space_id, current.apiSlug);
     }
 
+    // #283: normalize through the emoji migration table (current.name already
+    // loaded above) rather than trusting the caller sent a `set:` ref.
+    const icon =
+      patch.icon !== undefined && patch.icon !== null
+        ? (normalizeIconInput(patch.icon, patch.name ?? current.name) ?? patch.icon)
+        : patch.icon;
+
     const [updated] = await this.db
       .update(databases)
       .set({
         name: patch.name,
-        icon: patch.icon,
+        icon,
         color: patch.color === null ? null : patch.color,
         spaceId: patch.space_id,
         apiSlug,

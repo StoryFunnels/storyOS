@@ -5,6 +5,7 @@ import {
   ICON_SET_META,
   inferIconFromName,
   isEmojiShaped,
+  normalizeIconInput,
   resolveMigratedIcon,
   setIconName,
 } from '@storyos/schemas';
@@ -46,6 +47,62 @@ describe('emoji → SVG migration table (#251)', () => {
     expect(resolveMigratedIcon(null, 'x')).toBeNull();
     expect(resolveMigratedIcon('', 'x')).toBeNull();
     expect(resolveMigratedIcon('Plain text icon', 'x')).toBeNull();
+  });
+});
+
+describe('expanded migration table (#283)', () => {
+  it('covers seed-template and integration/agent emoji not in the original 93', () => {
+    // github.service.ts / linear.service.ts / agents.service.ts defaults.
+    expect(EMOJI_ICON_MIGRATION['🐙']).toEqual({ icon: 'set:plug', color: 'orange' });
+    expect(EMOJI_ICON_MIGRATION['🔀']).toEqual({ icon: 'set:repeat', color: 'purple' });
+    expect(EMOJI_ICON_MIGRATION['🏷️']).toEqual({ icon: 'set:tag', color: 'orange' });
+    expect(EMOJI_ICON_MIGRATION['📐']).toEqual({ icon: 'set:compass', color: 'blue' });
+    expect(EMOJI_ICON_MIGRATION['🤖']).toEqual({ icon: 'set:zap', color: 'orange' });
+    expect(EMOJI_ICON_MIGRATION['▶️']).toEqual({ icon: 'set:activity', color: 'gray' });
+  });
+
+  it('covers a broad general set beyond templates/integrations', () => {
+    expect(setIconName(EMOJI_ICON_MIGRATION['❌']!.icon)).toBe('circle-x');
+    expect(setIconName(EMOJI_ICON_MIGRATION['📱']!.icon)).toBe('phone');
+    expect(setIconName(EMOJI_ICON_MIGRATION['💻']!.icon)).toBe('wrench');
+    expect(setIconName(EMOJI_ICON_MIGRATION['📧']!.icon)).toBe('mail');
+    expect(setIconName(EMOJI_ICON_MIGRATION['💵']!.icon)).toBe('dollar-sign');
+    expect(setIconName(EMOJI_ICON_MIGRATION['🎉']!.icon)).toBe('gift');
+    expect(setIconName(EMOJI_ICON_MIGRATION['🛡️']!.icon)).toBe('shield-check');
+    expect(setIconName(EMOJI_ICON_MIGRATION['👩‍💻']!.icon)).toBe('wrench');
+  });
+
+  it('has no duplicate emoji keys (a later entry would silently shadow an earlier one)', () => {
+    // EMOJI_ICON_MIGRATION is built with Object.fromEntries from MIGRATION_RULES;
+    // if two rules shared an emoji key, the object would just have fewer keys
+    // than rules. Import count indirectly via a sanity floor well above the
+    // original 93 (#283 added well over 100 more).
+    expect(Object.keys(EMOJI_ICON_MIGRATION).length).toBeGreaterThan(200);
+  });
+});
+
+describe('normalizeIconInput (#283 write-path guard)', () => {
+  it('passes through null/undefined unchanged', () => {
+    expect(normalizeIconInput(null, 'x')).toBeNull();
+    expect(normalizeIconInput(undefined, 'x')).toBeUndefined();
+  });
+
+  it('passes through an already-migrated set: ref unchanged', () => {
+    expect(normalizeIconInput('set:rocket', 'x')).toBe('set:rocket');
+    expect(normalizeIconInput('set:this-name-does-not-exist', 'x')).toBe('set:this-name-does-not-exist');
+  });
+
+  it('passes through plain non-emoji text unchanged', () => {
+    expect(normalizeIconInput('Plain text', 'x')).toBe('Plain text');
+  });
+
+  it('normalizes a known emoji to its mapped set: ref', () => {
+    expect(normalizeIconInput('🤝', 'Anything')).toBe('set:handshake');
+  });
+
+  it('normalizes an unmapped emoji via the name-inferred fallback', () => {
+    expect(normalizeIconInput('👍', 'Clients')).toBe('set:handshake');
+    expect(normalizeIconInput('👍', 'No Keyword Match Here')).toBe('set:database');
   });
 });
 

@@ -1,6 +1,15 @@
 import { z } from 'zod';
 
-/** An emoji, or a curated-set reference `set:<name>` (MN-208). */
+/**
+ * An emoji, or a curated-set reference `set:<name>` (MN-208).
+ *
+ * #283: this only bounds length — it doesn't reject raw emoji. The invariant
+ * that only `set:<name>` refs actually get persisted is enforced one layer
+ * down, in DatabasesService.create/update (via `normalizeIconInput` from
+ * `@storyos/schemas/icons`), because that's the only choke point every entry
+ * point (HTTP API, templates, integrations) actually goes through — see the
+ * comment on createSpaceSchema in ./workspaces.ts for the full reasoning.
+ */
 const iconValueSchema = z.string().max(48);
 
 export const createDatabaseSchema = z.object({

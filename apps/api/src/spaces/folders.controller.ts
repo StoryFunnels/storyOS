@@ -9,12 +9,17 @@ import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { FoldersService } from './folders.service';
 
-const createSchema = z.object({ name: z.string().trim().min(1).max(100), icon: z.string().max(16).optional() });
+// #283: max(16) was too small even for existing `set:<name>` refs (e.g.
+// `set:layout-dashboard` is 20 chars) — bumped to match the max(48) convention
+// used by createSpaceSchema/createDatabaseSchema. The service (FoldersService)
+// normalizes any raw emoji through the migration table before it's persisted,
+// so this bound only needs to fit a `set:` ref or a short emoji.
+const createSchema = z.object({ name: z.string().trim().min(1).max(100), icon: z.string().max(48).optional() });
 class CreateFolderDto extends createZodDto(createSchema) {}
 
 const updateSchema = z.object({
   name: z.string().trim().min(1).max(100).optional(),
-  icon: z.string().max(16).nullable().optional(),
+  icon: z.string().max(48).nullable().optional(),
   position: z.number().int().optional(),
 });
 class UpdateFolderDto extends createZodDto(updateSchema) {}
