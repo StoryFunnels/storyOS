@@ -958,6 +958,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/relations/{rel}/select-drift": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Detect select↔relation drift for a parent record (MN-286): child records whose select-field label matches the parent’s title but aren’t linked here */
+        get: operations["RelationsController_selectDrift"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/relations/{rel}/select-drift/reconcile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Bulk-link every currently-drifted child record to the parent (MN-286) */
+        post: operations["RelationsController_reconcileSelectDrift"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/links/{field}": {
         parameters: {
             query?: never;
@@ -2627,6 +2661,10 @@ export interface components {
                 /** @default false */
                 case_sensitive: boolean;
             } | null;
+        };
+        SelectDriftReconcileDto: {
+            /** Format: uuid */
+            record_id: string;
         };
         DeleteRelationDto: {
             /** @enum {boolean} */
@@ -4695,6 +4733,50 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RelationsController_selectDrift: {
+        parameters: {
+            query: {
+                record_id: string;
+            };
+            header?: never;
+            path: {
+                rel: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RelationsController_reconcileSelectDrift: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rel: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SelectDriftReconcileDto"];
+            };
+        };
         responses: {
             201: {
                 headers: {

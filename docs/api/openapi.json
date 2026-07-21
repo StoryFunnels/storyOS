@@ -2315,6 +2315,82 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/relations/{rel}/select-drift": {
+      "get": {
+        "operationId": "RelationsController_selectDrift",
+        "parameters": [
+          {
+            "name": "rel",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "record_id",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Detect select↔relation drift for a parent record (MN-286): child records whose select-field label matches the parent’s title but aren’t linked here",
+        "tags": [
+          "relations"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/relations/{rel}/select-drift/reconcile": {
+      "post": {
+        "operationId": "RelationsController_reconcileSelectDrift",
+        "parameters": [
+          {
+            "name": "rel",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SelectDriftReconcileDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Bulk-link every currently-drifted child record to the parent (MN-286)",
+        "tags": [
+          "relations"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/links/{field}": {
       "get": {
         "operationId": "LinksController_list",
@@ -6558,6 +6634,19 @@
         },
         "required": [
           "auto_link"
+        ]
+      },
+      "SelectDriftReconcileDto": {
+        "type": "object",
+        "properties": {
+          "record_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "record_id"
         ]
       },
       "DeleteRelationDto": {

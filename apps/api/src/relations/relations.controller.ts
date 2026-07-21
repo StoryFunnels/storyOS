@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -7,6 +8,7 @@ import {
   Patch,
   Post,
   Put,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -17,6 +19,7 @@ import {
   deleteRelationSchema,
   linkRecordsSchema,
   replaceLinksSchema,
+  selectDriftReconcileSchema,
   updateRelationSchema,
 } from '@storyos/schemas';
 import { AuthGuard } from '../auth/auth.guard';
@@ -26,12 +29,14 @@ import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { DatabasesService } from '../databases/databases.service';
 import { RelationsService } from './relations.service';
 import { AutoLinkService } from './auto-link.service';
+import { SelectRelationDriftService } from './select-relation-drift.service';
 
 class CreateRelationDto extends createZodDto(createRelationSchema) {}
 class DeleteRelationDto extends createZodDto(deleteRelationSchema) {}
 class UpdateRelationDto extends createZodDto(updateRelationSchema) {}
 class LinkRecordsDto extends createZodDto(linkRecordsSchema) {}
 class ReplaceLinksDto extends createZodDto(replaceLinksSchema) {}
+class SelectDriftReconcileDto extends createZodDto(selectDriftReconcileSchema) {}
 
 @ApiTags('relations')
 @ApiBearerAuth()
@@ -42,6 +47,7 @@ export class RelationsController {
   constructor(
     private readonly relationsService: RelationsService,
     private readonly autoLinkService: AutoLinkService,
+    private readonly selectDriftService: SelectRelationDriftService,
     private readonly databases: DatabasesService,
   ) {}
 
@@ -82,6 +88,44 @@ export class RelationsController {
     await this.databases.assertAccess(req.membership, relation.databaseAId, 'editor');
     await this.databases.assertAccess(req.membership, relation.databaseBId, 'editor');
     return this.autoLinkService.runAutoLink(req.membership.workspaceId, relationId, req.user.id);
+  }
+
+  @Get(':rel/select-drift')
+  @RequiresScope('read')
+  @ApiOperation({
+    summary:
+      'Detect select↔relation drift for a parent record (MN-286): child records whose select-field ' +
+      'label matches the parent’s title but aren’t linked here',
+  })
+  async selectDrift(
+    @Req() req: WorkspaceRequest,
+    @Param('rel') relationId: string,
+    @Query('record_id') recordId?: string,
+  ) {
+    if (!recordId) throw new BadRequestException('record_id query param is required');
+    const relation = await this.relationsService.getRelation(req.membership.workspaceId, relationId);
+    await this.databases.assertAccess(req.membership, relation.databaseAId, 'viewer');
+    await this.databases.assertAccess(req.membership, relation.databaseBId, 'viewer');
+    return this.selectDriftService.checkDrift(req.membership.workspaceId, relationId, recordId);
+  }
+
+  @Post(':rel/select-drift/reconcile')
+  @RequiresScope('write')
+  @ApiOperation({ summary: 'Bulk-link every currently-drifted child record to the parent (MN-286)' })
+  async reconcileSelectDrift(
+    @Req() req: WorkspaceRequest,
+    @Param('rel') relationId: string,
+    @Body() body: SelectDriftReconcileDto,
+  ) {
+    const relation = await this.relationsService.getRelation(req.membership.workspaceId, relationId);
+    await this.databases.assertAccess(req.membership, relation.databaseAId, 'editor');
+    await this.databases.assertAccess(req.membership, relation.databaseBId, 'editor');
+    return this.selectDriftService.reconcile(
+      req.membership.workspaceId,
+      relationId,
+      body.record_id,
+      req.user.id,
+    );
   }
 
   @Delete(':rel')

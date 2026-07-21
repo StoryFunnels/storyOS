@@ -30,6 +30,7 @@ import { cn } from '@/lib/utils';
 import { NOT_INLINE } from './entity-field-utils';
 import type { CollectionView, VP } from './entity-field-utils';
 import { FieldMenu, useSetFieldConfig } from './field-controls';
+import { SelectDriftBanner } from './select-drift-banner';
 
 const COLLECTION_CAP = 20;
 
@@ -220,6 +221,7 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
       </div>
       {!collapsed && (
         <>
+          <SelectDriftBanner ws={ws} field={field} record={record} readOnly={readOnly} />
           <div
             className={cn(
               'rounded-[var(--radius-card)] border border-border-default bg-card',

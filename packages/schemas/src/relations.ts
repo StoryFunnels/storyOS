@@ -54,3 +54,13 @@ export const linkRecordsSchema = z.object({
 export const replaceLinksSchema = z.object({
   record_ids: z.array(z.uuid()).max(100),
 });
+
+/**
+ * Select↔relation drift reconciliation (MN-286): link every child record
+ * currently drifted (carries a select label matching `record_id`'s title but
+ * isn't linked via this relation) to `record_id`. The server recomputes the
+ * drift set itself rather than trusting a client-supplied list.
+ */
+export const selectDriftReconcileSchema = z.object({
+  record_id: z.uuid(),
+});
