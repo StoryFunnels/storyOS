@@ -94,13 +94,18 @@ export class AiCreditsService {
 
   async getBalance(workspaceId: string): Promise<AiCreditBalance> {
     return this.db.transaction(async (tx) => {
-      await this.expireStaleCredits(tx as unknown as Db, workspaceId, new Date());
+      const expired = await this.expireStaleCredits(tx as unknown as Db, workspaceId, new Date());
       const row = await tx.query.aiCreditBalances.findFirst({
         where: eq(aiCreditBalances.workspaceId, workspaceId),
       });
       if (!row) return ZERO_BALANCE;
       return {
-        balanceCents: row.balanceCents,
+        // Prefer the balance expireStaleCredits just computed over a fresh
+        // read: it already forfeited whatever was stale in this same
+        // transaction, and re-reading here would just echo the pre-forfeit
+        // snapshot back (the row read above is only needed for the other
+        // auto-reload fields, which expiry never touches).
+        balanceCents: expired?.balanceCents ?? row.balanceCents,
         autoReloadEnabled: row.autoReloadEnabled,
         autoReloadThresholdCents: row.autoReloadThresholdCents,
         autoReloadAmountCents: row.autoReloadAmountCents,
@@ -223,12 +228,15 @@ export class AiCreditsService {
     let shouldAttemptReload = false;
 
     await this.db.transaction(async (tx) => {
-      await this.expireStaleCredits(tx as unknown as Db, workspaceId, new Date());
+      const expired = await this.expireStaleCredits(tx as unknown as Db, workspaceId, new Date());
 
       const row = await tx.query.aiCreditBalances.findFirst({
         where: eq(aiCreditBalances.workspaceId, workspaceId),
       });
-      const current = row?.balanceCents ?? 0;
+      // Same reasoning as getBalance: if expiry just forfeited part of the
+      // balance, that's the current truth — a fresh read of `row` here would
+      // otherwise be racing/echoing the pre-forfeit value.
+      const current = expired?.balanceCents ?? row?.balanceCents ?? 0;
       const next = Math.max(0, current - input.creditsChargedCents);
       const consumed = current - next;
 
@@ -279,7 +287,11 @@ export class AiCreditsService {
    * timer because a failed reload must be retried even if nobody reads the
    * balance in the meantime).
    */
-  private async expireStaleCredits(tx: Db, workspaceId: string, now: Date): Promise<void> {
+  private async expireStaleCredits(
+    tx: Db,
+    workspaceId: string,
+    now: Date,
+  ): Promise<{ balanceCents: number } | null> {
     const stale = await tx.query.aiCreditTransactions.findMany({
       where: and(
         eq(aiCreditTransactions.workspaceId, workspaceId),
@@ -289,10 +301,10 @@ export class AiCreditsService {
         gt(aiCreditTransactions.remainingCents, 0),
       ),
     });
-    if (stale.length === 0) return;
+    if (stale.length === 0) return null;
 
     const forfeitedCents = stale.reduce((sum, row) => sum + (row.remainingCents ?? 0), 0);
-    if (forfeitedCents <= 0) return;
+    if (forfeitedCents <= 0) return null;
 
     await tx
       .update(aiCreditTransactions)
@@ -319,6 +331,8 @@ export class AiCreditsService {
       type: 'adjustment',
       amountCents: -forfeitedCents,
     });
+
+    return { balanceCents: next };
   }
 
   /**
@@ -374,6 +388,15 @@ export class AiCreditsService {
         autoReloadEnabled: input.enabled,
         autoReloadThresholdCents: input.thresholdCents ?? null,
         autoReloadAmountCents: input.amountCents ?? null,
+        // Re-enabling (or re-configuring) auto-reload after a prior
+        // disablement/backoff starts the retry state clean — a workspace
+        // that fixes its card and flips this back on shouldn't inherit a
+        // stale failure count or backoff timer from before. Set on both the
+        // insert path (a workspace configuring auto-reload for the very
+        // first time) and the conflict path below, so the row is clean
+        // either way.
+        autoReloadFailureCount: 0,
+        autoReloadNextRetryAt: null,
       })
       .onConflictDoUpdate({
         target: aiCreditBalances.workspaceId,
@@ -381,10 +404,6 @@ export class AiCreditsService {
           autoReloadEnabled: input.enabled,
           autoReloadThresholdCents: input.thresholdCents ?? null,
           autoReloadAmountCents: input.amountCents ?? null,
-          // Re-enabling (or re-configuring) auto-reload after a prior
-          // disablement/backoff starts the retry state clean — a workspace
-          // that fixes its card and flips this back on shouldn't inherit a
-          // stale failure count or backoff timer from before.
           autoReloadFailureCount: 0,
           autoReloadNextRetryAt: null,
         },
