@@ -286,6 +286,8 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
                           // CellEditor self-positions (MN-230d, viewport-collision-aware);
                           // the `relative` cell span above is its anchor.
                           <CellEditor
+                            ws={ws}
+                            db={targetDbId}
                             field={col}
                             value={value ?? null}
                             members={members}
