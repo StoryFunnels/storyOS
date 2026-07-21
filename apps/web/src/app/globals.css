@@ -37,6 +37,10 @@
   --radius-control: 6px;
   --radius-card: 8px;
   --radius-modal: 12px;
+  /* #281: select-value badges and relation-entity chips share this 4px shape —
+     deliberately NOT full-pill, so the "solid mini-tag" direction reads as its
+     own visual language rather than the generic rounded-pill every other tool uses. */
+  --radius-chip: 4px;
 }
 
 /* Dark theme (#30). Everything downstream reads the semantic --bg/--text/--border
@@ -101,6 +105,7 @@
   --radius-control: 6px;
   --radius-card: 8px;
   --radius-modal: 12px;
+  --radius-chip: 4px;
 }
 
 body {

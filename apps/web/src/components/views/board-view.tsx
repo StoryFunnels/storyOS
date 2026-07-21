@@ -20,6 +20,7 @@ import { recordHref } from '@/lib/records';
 import { cn } from '@/lib/utils';
 import { Avatar } from '@/components/ui/avatar';
 import { CellDisplay, OPTION_COLORS, fieldValue } from '../table-view/cells';
+import { RelationChip } from '../table-view/relation-cell';
 import type { LinkChip } from '../table-view/relation-cell';
 import {
   useDatabase,
@@ -552,21 +553,22 @@ export function CardFieldChip({
     );
   }
 
-  const color = fieldColor(field.id);
-  const pill = 'inline-flex max-w-full items-center gap-1 rounded-full bg-hover px-1.5 py-0.5 text-[11px] text-ink-secondary';
+  // #281: relation references get the shared outline-only chip (same shape as
+  // table/record-page relation chips) instead of the field-hued triangle pill below
+  // — a relation isn't a category, so it shouldn't borrow the category-hue system.
   if (field.type === 'relation') {
     const links = (value as LinkChip[]) ?? [];
     return (
       <>
         {links.map((chip) => (
-          <span key={chip.id} className={pill}>
-            <Triangle color={color} />
-            <span className="max-w-32 truncate">{chip.title || 'Untitled'}</span>
-          </span>
+          <RelationChip key={chip.id} title={chip.title} className="max-w-32" />
         ))}
       </>
     );
   }
+
+  const color = fieldColor(field.id);
+  const pill = 'inline-flex max-w-full items-center gap-1 rounded-full bg-hover px-1.5 py-0.5 text-[11px] text-ink-secondary';
   return (
     <span className={pill}>
       <Triangle color={color} />
