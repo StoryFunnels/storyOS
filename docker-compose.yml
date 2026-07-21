@@ -37,6 +37,7 @@ services:
       DATABASE_URL: postgres://storyos:${POSTGRES_PASSWORD:-storyos}@postgres:5432/storyos
       RUN_MIGRATIONS: "true"
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env (e.g. openssl rand -hex 32)}
+      CONNECTIONS_MASTER_KEY: ${CONNECTIONS_MASTER_KEY:?set CONNECTIONS_MASTER_KEY in .env (e.g. openssl rand -hex 32)}
       API_URL: ${API_URL:-http://localhost:3001}
       WEB_URL: ${WEB_URL:-http://localhost:3000}
       ATTACHMENTS_DIR: /data/attachments
@@ -50,6 +51,7 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
       MAIL_FROM: ${MAIL_FROM:-StoryOS <noreply@localhost>}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       # Billing (MN-165). All optional — unset = billing disabled, every workspace Free.
