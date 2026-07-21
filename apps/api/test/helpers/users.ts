@@ -7,7 +7,8 @@ export async function signUpUser(
   app: NestFastifyApplication,
   name: string,
 ): Promise<{ token: string; email: string }> {
-  const email = `${name.toLowerCase()}-${Date.now()}-${counter++}@test.storyos.dev`;
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  const email = `${slug}-${Date.now()}-${counter++}@test.storyos.dev`;
   const res = await app.inject({
     method: 'POST',
     url: '/api/v1/auth/sign-up/email',
