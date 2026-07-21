@@ -147,6 +147,32 @@ describe('create_record with relation values (MN-080)', () => {
     expect(res.statusCode).toBe(422);
     expect(JSON.stringify(res.json())).toMatch(/array of record ids or numbers/);
   });
+
+  /**
+   * #278: a public number sent as a JSON string (e.g. { project: ["1"] }, which is
+   * exactly what an agent following the tool's own docs — "target record numbers or
+   * ids" — can produce) used to fall through to a raw uuid-column lookup and crash
+   * with an unhandled Postgres syntax error, surfaced to the caller as a bare 500.
+   */
+  it('links by a public number sent as a string, not just a JS number (#278)', async () => {
+    const project = await relationApiName(projectField, tasksDb);
+    const res = await inject('POST', `/workspaces/${wsId}/databases/${tasksDb}/records`, {
+      values: { name: 'By stringified number', [project]: [String(projectOne.number)] },
+    });
+    expect(res.statusCode).toBe(201);
+    const fetched = (await inject('GET', `/workspaces/${wsId}/databases/${tasksDb}/records/${res.json().id}`)).json();
+    expect(fetched.values[project]).toEqual([expect.objectContaining({ title: 'Apollo' })]);
+  });
+
+  it('names the field and target for a malformed relation value instead of a bare 500 (#278)', async () => {
+    const project = await relationApiName(projectField, tasksDb);
+    const res = await inject('POST', `/workspaces/${wsId}/databases/${tasksDb}/records`, {
+      values: { name: 'Garbage target', [project]: ['not-a-real-id'] },
+    });
+    expect(res.statusCode).toBe(422);
+    expect(res.json().error.details[0].path).toBe(`values.${project}`);
+    expect(res.json().error.details[0].message).toMatch(/not-a-real-id/);
+  });
 });
 
 describe('update_record with relation values (MN-080)', () => {
