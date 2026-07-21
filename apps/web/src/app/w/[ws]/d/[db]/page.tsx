@@ -75,7 +75,7 @@ function DatabasePageInner() {
     <div className="flex h-full flex-col">
       {/* View tabs */}
       <div className="flex h-11 items-center gap-1 border-b border-border-default px-3">
-        <h1 className="mr-3 flex items-center gap-1.5 text-sm font-semibold text-ink">
+        <h1 className="mr-3 flex shrink-0 items-center gap-1.5 text-sm font-semibold text-ink">
           {readOnly ? (
             database.data?.icon && (
               <EntityIconChip
@@ -114,45 +114,52 @@ function DatabasePageInner() {
           )}
           {database.data?.name}
         </h1>
-        <DndContext sensors={viewSensors} collisionDetection={closestCenter} onDragEnd={onViewDragEnd}>
-          <SortableContext items={views.map((v) => v.id)} strategy={horizontalListSortingStrategy}>
-            {views.map((view) => (
-              <ViewTab
-                key={view.id}
-                view={view}
-                isActive={view.id === activeView?.id}
-                canManage={!readOnly}
-                canDelete={!readOnly && views.length > 1}
-                mutations={viewMutations}
-                onNavigate={() => router.replace(`/w/${ws}/d/${db}?view=${view.id}`)}
-                onDuplicated={(id) => router.replace(`/w/${ws}/d/${db}?view=${id}`)}
-                onDelete={async () => {
-                  if (
-                    !(await confirm({
-                      title: `Delete view "${view.name}"?`,
-                      message: 'The view is removed. Records are not affected.',
-                      confirmLabel: 'Delete',
-                      danger: true,
-                    }))
-                  )
-                    return;
-                  viewMutations.deleteView.mutate(view.id);
-                  router.replace(`/w/${ws}/d/${db}`);
-                }}
-              />
-            ))}
-          </SortableContext>
-        </DndContext>
+        {/* Tabs scroll horizontally instead of clipping under the flex parent
+            (MN-230b); min-w-0 lets this flex item shrink below content size so
+            overflow-x-auto actually kicks in rather than pushing the row wide. */}
+        <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+          <DndContext sensors={viewSensors} collisionDetection={closestCenter} onDragEnd={onViewDragEnd}>
+            <SortableContext items={views.map((v) => v.id)} strategy={horizontalListSortingStrategy}>
+              {views.map((view) => (
+                <ViewTab
+                  key={view.id}
+                  view={view}
+                  isActive={view.id === activeView?.id}
+                  canManage={!readOnly}
+                  canDelete={!readOnly && views.length > 1}
+                  mutations={viewMutations}
+                  onNavigate={() => router.replace(`/w/${ws}/d/${db}?view=${view.id}`)}
+                  onDuplicated={(id) => router.replace(`/w/${ws}/d/${db}?view=${id}`)}
+                  onDelete={async () => {
+                    if (
+                      !(await confirm({
+                        title: `Delete view "${view.name}"?`,
+                        message: 'The view is removed. Records are not affected.',
+                        confirmLabel: 'Delete',
+                        danger: true,
+                      }))
+                    )
+                      return;
+                    viewMutations.deleteView.mutate(view.id);
+                    router.replace(`/w/${ws}/d/${db}`);
+                  }}
+                />
+              ))}
+            </SortableContext>
+          </DndContext>
+        </div>
         {!readOnly && database.data && (
-          <NewViewDialog
-            fields={database.data.fields}
-            onCreate={(name, type, configPatch) =>
-              viewMutations.createView.mutate(
-                { name, type, config: { ...EMPTY_CONFIG, ...configPatch } },
-                { onSuccess: (v) => router.replace(`/w/${ws}/d/${db}?view=${v.id}`) },
-              )
-            }
-          />
+          <div className="shrink-0">
+            <NewViewDialog
+              fields={database.data.fields}
+              onCreate={(name, type, configPatch) =>
+                viewMutations.createView.mutate(
+                  { name, type, config: { ...EMPTY_CONFIG, ...configPatch } },
+                  { onSuccess: (v) => router.replace(`/w/${ws}/d/${db}?view=${v.id}`) },
+                )
+              }
+            />
+          </div>
         )}
       </div>
 
