@@ -156,11 +156,13 @@ jobs:
       - name: Validate docker-compose.yml
         env:
           BETTER_AUTH_SECRET: ci-validation-only
+          CONNECTIONS_MASTER_KEY: 0000000000000000000000000000000000000000000000000000000000000000
         run: docker compose -f docker-compose.yml config > /dev/null
 
       - name: Every long-lived service must self-heal (MN-127)
         env:
           BETTER_AUTH_SECRET: ci-validation-only
+          CONNECTIONS_MASTER_KEY: 0000000000000000000000000000000000000000000000000000000000000000
         run: |
           docker compose -f docker-compose.yml config --format json > /tmp/compose.json
           missing=$(python3 -c "import json; svc = json.load(open('/tmp/compose.json'))['services']; print(' '.join(n for n, s in svc.items() if s.get('restart') != 'unless-stopped'))")
