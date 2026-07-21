@@ -3,13 +3,14 @@
 import { useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Archive, ArchiveRestore, ExternalLink, Inbox as InboxIcon } from 'lucide-react';
+import { ArrowLeft, Archive, ArchiveRestore, Check, ExternalLink, Inbox as InboxIcon, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
   NOTIFICATION_VERBS,
+  useResolveRun,
   type NotificationRow,
   type NotificationType,
 } from '@/components/inbox-panel';
@@ -66,13 +67,22 @@ export default function InboxPage() {
   });
 
   const rows = useMemo(() => (list.data?.pages ?? []).flatMap((p) => p.data), [list.data]);
+  // Desktop (md+) auto-previews rows[0] so the two-pane layout never shows an
+  // empty right pane. Under md there is only one pane, so it must start on the
+  // LIST — auto-previewing here would skip straight to a detail view the user
+  // never tapped into. selectedId starts null and is only set by an explicit
+  // tap, so "has the user tapped a row" and "what does desktop preview" are two
+  // different questions answered from the same piece of state.
   const selected = rows.find((n) => n.id === selectedId) ?? rows[0] ?? null;
+  const mobileShowDetail = selectedId !== null;
 
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ['inbox', ws] });
     void qc.invalidateQueries({ queryKey: ['notifications', ws] });
     void qc.invalidateQueries({ queryKey: ['unread', ws] });
   };
+
+  const resolveRun = useResolveRun(ws, invalidate);
 
   const setArchivedMut = useMutation({
     mutationFn: async ({ id, archive }: { id: string; archive: boolean }) => {
@@ -102,15 +112,18 @@ export default function InboxPage() {
   return (
     <div className="flex h-full flex-col">
       <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border-default px-4">
-        <InboxIcon className="h-4 w-4 text-muted" />
-        <h1 className="text-sm font-semibold text-ink">Inbox</h1>
-        <div className="ml-4 flex gap-1">
+        <InboxIcon className="h-4 w-4 shrink-0 text-muted" />
+        <h1 className="shrink-0 text-sm font-semibold text-ink">Inbox</h1>
+        {/* Same fix as the view-tab bar (MN-230b): scrolls instead of clipping
+            under a narrow viewport — min-w-0 lets it actually shrink so
+            overflow-x-auto kicks in rather than pushing the header wide. */}
+        <div className="ml-4 flex min-w-0 flex-1 gap-1 overflow-x-auto">
           {TYPE_TABS.map((t) => (
             <button
               key={t.key}
               onClick={() => setType(t.key)}
               className={cn(
-                'rounded px-2.5 py-1 text-[12px] font-medium',
+                'shrink-0 rounded px-2.5 py-1 text-[12px] font-medium',
                 type === t.key ? 'bg-active text-ink' : 'text-muted hover:bg-hover',
               )}
             >
@@ -121,7 +134,7 @@ export default function InboxPage() {
         <button
           onClick={() => setArchived((v) => !v)}
           className={cn(
-            'ml-auto flex items-center gap-1.5 rounded px-2.5 py-1 text-[12px] font-medium',
+            'flex shrink-0 items-center gap-1.5 rounded px-2.5 py-1 text-[12px] font-medium',
             archived ? 'bg-active text-ink' : 'text-muted hover:bg-hover',
           )}
         >
@@ -130,8 +143,15 @@ export default function InboxPage() {
       </header>
 
       <div className="flex min-h-0 flex-1">
-        {/* LIST */}
-        <div className="w-full max-w-md shrink-0 overflow-y-auto border-r border-border-default">
+        {/* LIST — single-pane under md: hidden once a row's been tapped, so the
+            detail view replaces it instead of squeezing beside it. Always shown
+            at md+ where both panes fit. */}
+        <div
+          className={cn(
+            'w-full overflow-y-auto border-r border-border-default md:max-w-md md:shrink-0',
+            mobileShowDetail && 'hidden md:block',
+          )}
+        >
           {rows.length === 0 && !list.isLoading && (
             <p className="p-6 text-center text-[13px] text-muted">
               {archived ? 'Nothing archived.' : "You're all caught up 🎉"}
@@ -183,13 +203,26 @@ export default function InboxPage() {
           )}
         </div>
 
-        {/* PREVIEW */}
-        <div className="min-w-0 flex-1 overflow-y-auto p-6">
+        {/* PREVIEW — single-pane under md: hidden until a row's been tapped
+            (mirrors the list above), full-bleed replacement rather than a
+            squeezed side panel. Always shown at md+. */}
+        <div
+          className={cn(
+            'min-w-0 flex-1 overflow-y-auto p-4 sm:p-6',
+            !mobileShowDetail && 'hidden md:block',
+          )}
+        >
           {!selected ? (
             <p className="text-[13px] text-muted">Select a notification to preview it.</p>
           ) : (
             <div className="mx-auto max-w-2xl">
-              <div className="mb-4 flex items-start justify-between gap-3">
+              <button
+                onClick={() => setSelectedId(null)}
+                className="mb-3 flex items-center gap-1 text-[13px] text-muted hover:text-ink md:hidden"
+              >
+                <ArrowLeft className="h-3.5 w-3.5" /> Back
+              </button>
+              <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="flex items-center gap-2">
                   {selected.actor && (
                     <Avatar userId={selected.actor.id} name={selected.actor.name} image={selected.actor.image} size={32} />
@@ -244,6 +277,31 @@ export default function InboxPage() {
                   <p className="mt-2 text-[12px] text-faint">This record has been deleted.</p>
                 )}
               </div>
+
+              {/* The killer mobile flow (mobile-responsive-plan.md): one tap to
+                  approve or reject a gated agent action (#210, ADR-0010 §4).
+                  min-h-12 (48px) full-width buttons — easy thumb targets, no
+                  squeezing at 375px. */}
+              {selected.type === 'approval_requested' && selected.record && !selected.record.deleted && (
+                <div className="mt-4 flex gap-3">
+                  <button
+                    type="button"
+                    disabled={resolveRun.isPending}
+                    onClick={() => resolveRun.mutate({ runId: selected.record!.id, verdict: 'reject' })}
+                    className="flex min-h-[48px] flex-1 items-center justify-center gap-1.5 rounded-[var(--radius-control)] border border-border-default text-[14px] font-medium text-ink-secondary hover:bg-hover disabled:opacity-50"
+                  >
+                    <X className="h-4 w-4" /> Reject
+                  </button>
+                  <button
+                    type="button"
+                    disabled={resolveRun.isPending}
+                    onClick={() => resolveRun.mutate({ runId: selected.record!.id, verdict: 'approve' })}
+                    className="flex min-h-[48px] flex-1 items-center justify-center gap-1.5 rounded-[var(--radius-control)] bg-primary text-[14px] font-medium text-[var(--text-on-dark)] hover:bg-primary-hover disabled:opacity-50"
+                  >
+                    <Check className="h-4 w-4" /> Approve
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>

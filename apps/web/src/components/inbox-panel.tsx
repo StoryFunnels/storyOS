@@ -2,9 +2,11 @@
 
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Inbox as InboxIcon, Maximize2, X } from 'lucide-react';
-import { api } from '@/lib/api';
+import { toast } from 'sonner';
+import { Check, Inbox as InboxIcon, Maximize2, X } from 'lucide-react';
+import { api, apiErrorMessage } from '@/lib/api';
 import { Avatar } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
 
@@ -13,6 +15,9 @@ export type NotificationType =
   | 'mentioned'
   | 'commented'
   | 'state_changed'
+  // #210, ADR-0010 §4: a run staged a gated action and is waiting on its
+  // owner — this IS the approval gate (see useResolveRun below).
+  | 'approval_requested'
   // #263: bare — no record behind these, see NotificationRow.record being null.
   | 'trial_reminder_23'
   | 'trial_reminder_29'
@@ -38,11 +43,33 @@ export const NOTIFICATION_VERBS: Record<NotificationType, string> = {
   mentioned: 'mentioned you',
   commented: 'commented',
   state_changed: 'updated status on',
+  approval_requested: 'needs your approval on',
   trial_reminder_23: 'sent a trial reminder',
   trial_reminder_29: 'sent a final trial reminder',
   connection_error: 'flagged a connection',
 };
 const VERBS = NOTIFICATION_VERBS;
+
+/**
+ * The approval gate's Approve/Reject (#210, ADR-0010 §4), called from wherever
+ * an `approval_requested` notification is rendered — the Inbox slide-over and
+ * the full Inbox page. `runId` is the Run record's uuid (NotificationRow.record.id).
+ */
+export function useResolveRun(ws: string, onSettled: () => void) {
+  return useMutation({
+    mutationFn: async ({ runId, verdict }: { runId: string; verdict: 'approve' | 'reject' }) => {
+      const { error } = await api.POST(`/api/v1/workspaces/{ws}/agents/runs/{run}/${verdict}` as never, {
+        params: { path: { ws, run: runId } },
+      } as never);
+      if (error) throw error;
+    },
+    onSuccess: (_data, vars) => {
+      toast.success(vars.verdict === 'approve' ? 'Run approved' : 'Run rejected');
+      onSettled();
+    },
+    onError: (err) => toast.error(apiErrorMessage(err, 'Could not resolve — the run may already be settled')),
+  });
+}
 
 function relativeTime(iso: string): string {
   const seconds = (Date.now() - new Date(iso).getTime()) / 1000;
@@ -125,12 +152,24 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
     onSuccess: invalidate,
   });
 
+  const resolveRun = useResolveRun(ws, invalidate);
+
   let lastBucket: string | null = null;
 
-  return (
+  // Portal to document.body: this panel is opened from the Sidebar, which since
+  // MN-230b (#216) lives inside the off-canvas drawer wrapper — an element that
+  // always carries `transition-transform`/`translate-x-*` classes (even at md+,
+  // where translate-x-0 is still a real `transform` value). Any transform
+  // establishes a containing block for `position: fixed` descendants, so
+  // without the portal this `fixed inset-0` overlay was being sized/positioned
+  // relative to the ~240px sidebar box instead of the viewport — clipped to a
+  // sliver on mobile, and rendered mostly off-screen to the left on desktop.
+  return createPortal(
     <div className="fixed inset-0 z-40" onClick={onClose}>
       <div
-        className="absolute bottom-0 right-0 top-0 flex w-96 flex-col border-l border-border-default bg-card shadow-[-8px_0_24px_rgba(15,23,41,0.08)]"
+        // Fits a 375px viewport (was a hard-coded w-96/384px, wider than the
+        // screen it needs to sit inside): full-bleed under md, fixed width above.
+        className="absolute bottom-0 right-0 top-0 flex w-full flex-col border-l border-border-default bg-card shadow-[-8px_0_24px_rgba(15,23,41,0.08)] md:w-96"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex h-12 shrink-0 items-center justify-between border-b border-border-default px-4">
@@ -192,12 +231,27 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
                     {header}
                   </div>
                 )}
-                <button
+                <div
+                  // A plain div, not <button> — an approval_requested row nests
+                  // real Approve/Reject <button>s in it, and a <button> can't
+                  // contain a <button>. role/tabIndex/onKeyDown keep it operable
+                  // the same way a button row would be.
+                  role="button"
+                  tabIndex={0}
                   className={cn(
                     'flex w-full items-start gap-2.5 border-b border-border-default px-4 py-3 text-left hover:bg-hover',
                     !n.read_at && 'bg-accent-soft/60',
                   )}
                   onClick={() => {
+                    markRead.mutate(n.id);
+                    if (n.record && !n.record.deleted) {
+                      onClose();
+                      router.push(`/w/${ws}/d/${n.record.database_id}/r/${n.record.id}`);
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter' && e.key !== ' ') return;
+                    e.preventDefault();
                     markRead.mutate(n.id);
                     if (n.record && !n.record.deleted) {
                       onClose();
@@ -228,12 +282,35 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
                       </span>
                     )}
                     {n.snippet && <span className="block truncate text-[12px] text-faint">{n.snippet}</span>}
+                    {/* The killer mobile flow (mobile-responsive-plan.md): approve or
+                        reject a gated agent action in one tap, right from the Inbox.
+                        min-h-11 (44px) keeps both a comfortable thumb target. */}
+                    {n.type === 'approval_requested' && n.record && !n.record.deleted && (
+                      <span className="mt-2 flex gap-2" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          disabled={resolveRun.isPending}
+                          onClick={() => resolveRun.mutate({ runId: n.record!.id, verdict: 'reject' })}
+                          className="min-h-[44px] flex-1 rounded-[var(--radius-control)] border border-border-default px-3 text-[13px] font-medium text-ink-secondary hover:bg-hover disabled:opacity-50"
+                        >
+                          Reject
+                        </button>
+                        <button
+                          type="button"
+                          disabled={resolveRun.isPending}
+                          onClick={() => resolveRun.mutate({ runId: n.record!.id, verdict: 'approve' })}
+                          className="flex min-h-[44px] flex-1 items-center justify-center gap-1.5 rounded-[var(--radius-control)] bg-primary px-3 text-[13px] font-medium text-[var(--text-on-dark)] hover:bg-primary-hover disabled:opacity-50"
+                        >
+                          <Check className="h-3.5 w-3.5" /> Approve
+                        </button>
+                      </span>
+                    )}
                   </span>
                   <span className="flex shrink-0 flex-col items-end gap-1">
                     <span className="text-[11px] text-faint">{relativeTime(n.created_at)}</span>
                     {!n.read_at && <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />}
                   </span>
-                </button>
+                </div>
               </div>
             );
           })}
@@ -248,6 +325,7 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

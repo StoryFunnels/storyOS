@@ -8,6 +8,7 @@ import { Toaster } from 'sonner';
 import { useSession } from '@/lib/auth-client';
 import { AccountMenu } from '@/components/account-menu';
 import { CommandPalette } from '@/components/command-palette';
+import { QuickAddFab } from '@/components/quick-add-fab';
 import { ShortcutsOverlay } from '@/components/shortcuts-overlay';
 import { Sidebar } from '@/components/sidebar';
 import { useSidebarCollapsed } from '@/lib/sidebar-state';
@@ -92,6 +93,7 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
       </div>
       <CommandPalette />
       <ShortcutsOverlay />
+      <QuickAddFab />
       <Toaster position="bottom-right" />
     </div>
   );

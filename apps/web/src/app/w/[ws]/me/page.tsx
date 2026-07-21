@@ -135,7 +135,7 @@ export default function MyWorkPage() {
   const empty = !loading && (tab === 'activity' ? recent.length === 0 : groups.length === 0);
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-8">
       <h1 className="mb-1 text-xl font-semibold text-ink">My Work</h1>
       <p className="mb-5 text-sm text-muted">Everything with your name on it, across databases.</p>
 
@@ -225,13 +225,17 @@ export default function MyWorkPage() {
                             <Link
                               key={record.id}
                               href={`/w/${ws}/d/${group.database.id}/r/${record.id}`}
-                              className="flex items-center gap-3 border-b border-border-default px-4 py-2.5 last:border-b-0 hover:bg-hover"
+                              // flex-wrap: at 375px a few chips + the date won't fit
+                              // beside the title on one line — they wrap to their own
+                              // row (below) instead of forcing horizontal overflow,
+                              // since those items are shrink-0 and refuse to squeeze.
+                              className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border-default px-4 py-2.5 last:border-b-0 hover:bg-hover"
                               style={tint ? { boxShadow: `inset 3px 0 0 ${tint}` } : undefined}
                             >
                               <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">
                                 {record.title || 'Untitled'}
                               </span>
-                              <span className="flex shrink-0 items-center gap-2">
+                              <span className="flex w-full shrink-0 items-center gap-2 sm:w-auto">
                                 {chips.map((f) =>
                                   record.values[f.api_name] != null ? (
                                     <span key={f.id} className="flex max-w-[10rem] items-center text-[12px]">
