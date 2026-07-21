@@ -8,6 +8,9 @@ import { unwrap, uploadAttachment } from './client.js';
 // at boot.
 import { blocksToMarkdown, markdownToBlocks } from '@storyos/schemas/markdown';
 import { ICON_CATEGORIES, ICON_SET_META, ICON_SET_PREFIX } from '@storyos/schemas/icons';
+// Type-only — erased at compile time, so unlike a value import this does NOT pull
+// the zod-bearing barrel into the bundle (see note above).
+import type { FilterOp } from '@storyos/schemas';
 import { listDatabases, listWorkspaces, resolveDatabase, resolveWorkspace } from './resolve.js';
 import { databaseUrl, recordUrl, viewUrl } from './links.js';
 
@@ -75,21 +78,53 @@ interface RecordRow {
   values: Record<string, unknown>;
 }
 
-const FILTER_GUIDE = `Filtering uses a structured AST (never free text):
-  filter = { "and": [ <condition>, ... ] }   // or "or"; conditions nest
-  condition = { "field": "<api_name>", "op": "<operator>", "value": <value> }
-Operators by field type (call describe_database for exact api_names; the server
-validates and returns a typed error naming any mismatch):
-  text/url/email : eq, neq, contains, starts_with, is_empty, not_empty
-  number/id/date : eq, neq, gt, gte, lt, lte, is_empty, not_empty
-  select         : eq, neq, is_empty, not_empty        (value = option label or id)
-  multi_select   : has, has_none                        (value = [labels or ids])
-  user           : has, has_none                        (value = ["@me"] or user ids)
-  relation       : has, has_none                        (value = [record ids])
-  checkbox       : eq                                    (value = true | false)
-Dates accept ISO strings or relative tokens; user filters accept "@me".
-eq/neq on a select or person are accepted and mapped to has/has_none for you.
-Example: { "and": [{ "field": "priority", "op": "eq", "value": "Urgent" }] }`;
+/**
+ * The op×field-type matrix, kept in one place so the cheat sheet below can
+ * never silently drift from what the API actually accepts (#204: the old
+ * hand-written prose advertised a "starts_with" op that was never real — any
+ * agent that followed the doc got a 422 on every text filter it tried).
+ * Source of truth: apps/api/src/records/query-compiler.ts's per-type switch;
+ * mirrors the same matrix as apps/web's OPS_BY_TYPE (view-toolbar.tsx), plus
+ * the extra eq/neq the MCP additionally accepts and translates for select/
+ * multi_select/user via mapFilterValues below.
+ */
+export const OPS_BY_FIELD_TYPE = {
+  'text/url/email': ['eq', 'neq', 'contains', 'is_empty', 'not_empty'],
+  'number/id': ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'is_empty', 'not_empty'],
+  date: ['eq', 'neq', 'before', 'after', 'within', 'is_empty', 'not_empty'],
+  select: ['eq', 'neq', 'has', 'has_none', 'is_empty', 'not_empty'],
+  multi_select: ['has', 'has_none', 'is_empty', 'not_empty'],
+  user: ['eq', 'neq', 'has', 'has_none', 'is_empty', 'not_empty'],
+  relation: ['has', 'has_none', 'is_empty', 'not_empty'],
+  checkbox: ['eq', 'neq'],
+} satisfies Record<string, FilterOp[]>;
+
+function opsRow(label: keyof typeof OPS_BY_FIELD_TYPE, hint?: string): string {
+  const ops = OPS_BY_FIELD_TYPE[label];
+  const padded = label.padEnd(14);
+  return hint ? `  ${padded} : ${ops.join(', ')}  (${hint})` : `  ${padded} : ${ops.join(', ')}`;
+}
+
+export const FILTER_GUIDE = [
+  'Filtering uses a structured AST (never free text):',
+  '  filter = { "and": [ <condition>, ... ] }   // or "or"; conditions nest',
+  '  condition = { "field": "<api_name>", "op": "<operator>", "value": <value> }',
+  'A bare single condition (no and/or wrapper) also works — both are accepted.',
+  'Operators by field type (call describe_database for exact api_names; the server',
+  'validates and returns a typed error naming any mismatch):',
+  opsRow('text/url/email', 'value = a string'),
+  opsRow('number/id', 'value = a number'),
+  opsRow('date', 'value = ISO string, or a relative token for "within"'),
+  opsRow('select', 'value = option label or id; eq/neq auto-map to has/has_none'),
+  opsRow('multi_select', 'value = [labels or ids]'),
+  opsRow('user', 'value = "@me" or user id(s); eq/neq auto-map to has/has_none'),
+  opsRow('relation', 'value = [record ids]'),
+  opsRow('checkbox', 'value = true | false'),
+  'Relative date tokens for "within": today, yesterday, tomorrow, last_7_days,',
+  'next_7_days, this_month, next_30_days.',
+  'Example (grouped): { "and": [{ "field": "priority", "op": "eq", "value": "Urgent" }] }',
+  'Example (bare):     { "field": "priority", "op": "eq", "value": "Urgent" }',
+].join('\n');
 
 function describeFields(db: DatabaseDetail) {
   return db.fields
@@ -372,11 +407,22 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Query records',
       description:
-        'List/filter/sort records in a database. filter is the structured AST (see get_started). Returns compact records + next_cursor for pagination.',
+        'List/filter/sort records in a database. filter is the structured AST (see get_started for the ' +
+        'full op cheat-sheet). Both a grouped filter — { "and": [{ "field": "priority", "op": "eq", ' +
+        '"value": "Urgent" }] } — and a bare single condition — { "field": "priority", "op": "eq", ' +
+        '"value": "Urgent" } — are accepted; no group wrapper is required for one condition. Returns ' +
+        'compact records + next_cursor for pagination.',
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
         database: z.string().describe('Database name, api slug, or id.'),
-        filter: z.any().optional().describe('Filter AST: { and: [{ field, op, value }] } — see get_started.'),
+        filter: z
+          .any()
+          .optional()
+          .describe(
+            'Filter AST — grouped { and: [{ field, op, value }] }/{ or: [...] }, or a bare ' +
+              '{ field, op, value } condition. Example: { "field": "priority", "op": "eq", "value": "Urgent" }. ' +
+              'See get_started for the op-by-field-type cheat sheet.',
+          ),
         sorts: z
           .array(z.object({ field: z.string(), direction: z.enum(['asc', 'desc']) }))
           .optional()
