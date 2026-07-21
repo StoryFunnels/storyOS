@@ -4,6 +4,7 @@ import { createTestApp } from './helpers/app';
 import { authed, signUpUser } from './helpers/users';
 import { AgentsService } from '../src/agents/agents.service';
 import { EntitlementsService } from '../src/billing/entitlements.service';
+import { AiCreditsService } from '../src/billing/ai-credits.service';
 import { ManagedAiRuntime, NonAiRuntime, pickRuntime } from '../src/agents/agent-runtime';
 import type { AgentRuntime } from '../src/agents/agent-runtime';
 
@@ -515,6 +516,128 @@ describe('MN-168 — entitlements wiring at dispatch', () => {
     } finally {
       service.runtimeFor = originalRuntime;
       entitlements.can = originalCan;
+    }
+  });
+});
+
+describe('MN-188 — StoryOS-AI runs decrement prepaid credits', () => {
+  /** The admin's bare userId — needed to invoke the completion hook directly. */
+  async function adminUserId(): Promise<string> {
+    const members = (await as(admin.token, 'GET', `/workspaces/${wsId}/members`)).json();
+    const list = Array.isArray(members) ? members : members.data;
+    const mine = list.find((m: { user: { email: string; id: string } }) => m.user.email === admin.email);
+    if (!mine) throw new Error('admin membership not found');
+    return mine.user.id;
+  }
+
+  function storyOsAiRuntime(): AgentRuntime {
+    return {
+      runClass: 'storyos_ai',
+      async *execute() {
+        yield { tool: 'managed.step', summary: 'called the managed model' };
+      },
+    };
+  }
+
+  it('a completed StoryOS-AI run charges the workspace ai_credit_balances exactly once, via AiCreditsService', async () => {
+    const agent = await createAgent('Metered AI bot', { enabled: true, scopes: ['read'] });
+    const service = app.get(AgentsService);
+    const aiCredits = app.get(AiCreditsService);
+    const originalRuntime = service.runtimeFor;
+    const originalRecordUsage = aiCredits.recordUsage.bind(aiCredits);
+    const recordUsageSpy = vi.fn(originalRecordUsage);
+    service.runtimeFor = () => storyOsAiRuntime();
+    aiCredits.recordUsage = recordUsageSpy;
+    try {
+      const res = await as(admin.token, 'POST', `/workspaces/${wsId}/agents/${agent.id}/run`);
+      expect(res.statusCode, res.body).toBe(201);
+      const run = res.json();
+
+      const fields = await fieldsOf(runsDbId);
+      expect(run.values.status).toBe(optionId(fields.get('status'), 'Succeeded'));
+      expect(run.values.run_class).toBe(optionId(fields.get('run_class'), 'StoryOS AI'));
+
+      // Wired through AiCreditsService's existing API — no parallel mechanism —
+      // and charged exactly once for the one completed run.
+      expect(recordUsageSpy).toHaveBeenCalledTimes(1);
+      // The Run's own `cost` field records what was charged (in cents) — a
+      // real, inspectable number, even though it's a placeholder pending
+      // MN-214r's real per-run token cost.
+      expect(run.values.cost).toBeGreaterThan(0);
+    } finally {
+      service.runtimeFor = originalRuntime;
+      aiCredits.recordUsage = originalRecordUsage;
+    }
+  });
+
+  it('never fires for non-AI or your-own-AI runs — the class boundary MN-188 draws', async () => {
+    const aiCredits = app.get(AiCreditsService);
+    const originalRecordUsage = aiCredits.recordUsage.bind(aiCredits);
+    const recordUsageSpy = vi.fn(originalRecordUsage);
+    aiCredits.recordUsage = recordUsageSpy;
+    const service = app.get(AgentsService);
+    const originalRuntime = service.runtimeFor;
+    try {
+      // non_ai
+      const nonAi = await createAgent('Unmetered non-AI bot', { enabled: true, scopes: ['read'] });
+      service.runtimeFor = () => new NonAiRuntime();
+      expect((await as(admin.token, 'POST', `/workspaces/${wsId}/agents/${nonAi.id}/run`)).statusCode).toBe(201);
+
+      // your_own_ai
+      const byo = await createAgent('Unmetered BYO bot', { enabled: true, scopes: ['read'] });
+      service.runtimeFor = () => ({
+        runClass: 'your_own_ai',
+        async *execute() {
+          yield { tool: 'byo.step', summary: 'drove a tool over MCP' };
+        },
+      });
+      expect((await as(admin.token, 'POST', `/workspaces/${wsId}/agents/${byo.id}/run`)).statusCode).toBe(201);
+
+      expect(recordUsageSpy).not.toHaveBeenCalled();
+    } finally {
+      service.runtimeFor = originalRuntime;
+      aiCredits.recordUsage = originalRecordUsage;
+    }
+  });
+
+  it('is idempotent — invoking the completion hook twice for the same run only decrements once', async () => {
+    const agent = await createAgent('Double-billed bot', { enabled: true, scopes: ['read'] });
+    const service = app.get(AgentsService);
+    const aiCredits = app.get(AiCreditsService);
+    const originalRuntime = service.runtimeFor;
+    const originalRecordUsage = aiCredits.recordUsage.bind(aiCredits);
+    const recordUsageSpy = vi.fn(originalRecordUsage);
+    service.runtimeFor = () => storyOsAiRuntime();
+    aiCredits.recordUsage = recordUsageSpy;
+    try {
+      const res = await as(admin.token, 'POST', `/workspaces/${wsId}/agents/${agent.id}/run`);
+      expect(res.statusCode, res.body).toBe(201);
+      const run = res.json();
+      expect(recordUsageSpy).toHaveBeenCalledTimes(1);
+
+      // Simulate the completion path firing a second time for the SAME run
+      // (e.g. a retried job or a duplicate event) by calling the private
+      // completion hook directly — the same technique `service.runtimeFor`
+      // swapping already relies on to reach behavior with no HTTP-level seam.
+      const actorId = await adminUserId();
+      const chargeAgain = (
+        service as unknown as {
+          chargeStoryOsAiRun: (
+            workspaceId: string,
+            runsDbId: string,
+            run: unknown,
+            actorId: string,
+          ) => Promise<unknown>;
+        }
+      ).chargeStoryOsAiRun.bind(service);
+      const secondResult = (await chargeAgain(wsId, runsDbId, run, actorId)) as { values: { cost: number } };
+
+      // Still only ever charged once — the run's own `cost` field was the guard.
+      expect(recordUsageSpy).toHaveBeenCalledTimes(1);
+      expect(secondResult.values.cost).toBe(run.values.cost);
+    } finally {
+      service.runtimeFor = originalRuntime;
+      aiCredits.recordUsage = originalRecordUsage;
     }
   });
 });
