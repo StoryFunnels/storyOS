@@ -42,7 +42,11 @@ Warm neutrals instead of Attio's cool grays. Background is warm white, never pur
 }
 ```
 
-**Select-option colors** (user-pickable, for tags/kanban columns — warm-tuned, readable on white): gray `#B5B0A5`, brown `#8B6F47`, gold `#D4A017`, orange `#D97E36`, red `#C0392B`, pink `#C05B7E`, purple `#7E5BA6`, blue `#3D5296`, teal `#057160`, green `#2D7A4F`. Rendered as soft chips: 12% opacity background, full-strength text/dot.
+**Select-option colors** (user-pickable, for tags/kanban columns — warm-tuned, readable on white): gray `#B5B0A5`, brown `#8B6F47`, gold `#D4A017`, orange `#D97E36`, red `#C0392B`, pink `#C05B7E`, purple `#7E5BA6`, blue `#3D5296`, teal `#057160`, green `#2D7A4F`.
+
+**Value chips (#281, "solid mini-tag"):** select-field badges (State, Priority, Type, Project, …) and relation-entity chips (Blocked By, Blocker for, …) share one 4px-radius shape but opposite treatments, so a category value and a link to another record are never visually confused:
+- *Select-value badge* — solid fill in the option's own color (the table above), white text, uppercase with ~0.03em letter-spacing, semibold, slightly below body size.
+- *Relation-entity chip* — outline only, ~1.4px `--border-strong`, no fill, normal-case text at body size/weight. The deliberate visual inverse of the badge above.
 
 ## Typography
 
@@ -53,7 +57,7 @@ Warm neutrals instead of Attio's cool grays. Background is warm white, never pur
 
 ## Shape & depth
 
-- Radii (Attio-ish, compact): controls/inputs/cells **6px**, cards/popovers **8px**, modals **12px**, chips/avatars **full**.
+- Radii (Attio-ish, compact): controls/inputs/cells **6px**, cards/popovers **8px**, modals **12px**, avatars **full**. Value chips (select badges + relation-entity chips, #281) are the one deliberate exception: **4px**, not a pill — see "Value chips" above.
 - Depth comes from **1px borders + subtle bg shifts**, not shadows. Shadows only on floating elements: popover `0 4px 12px rgba(15,23,41,0.08)`, modal `0 20px 50px rgba(15,23,41,0.15)`.
 - Focus: gold ring (`--focus-ring`), 2px offset on keyboard focus.
 

@@ -16,6 +16,26 @@ export interface LinkChip {
   number?: number | null;
 }
 
+/**
+ * Relation-entity chip (#281, "solid mini-tag" direction's outline half): the
+ * deliberate visual inverse of OptionChip (cells.tsx) — same 4px-radius shape, but
+ * outline-only in a neutral/faint border with normal-case body-size text and no
+ * fill or letter-spacing, so a reference to another record (Blocked By, Blocker
+ * for, board relation groups, …) is never confused with a category value.
+ */
+export function RelationChip({ title, className }: { title: string; className?: string }) {
+  return (
+    <span
+      className={cn(
+        'inline-flex max-w-40 shrink-0 items-center truncate rounded-[var(--radius-chip)] border-[1.4px] border-border-strong px-1.5 py-0.5 text-[13px] text-ink',
+        className,
+      )}
+    >
+      <span className="truncate">{title || 'Untitled'}</span>
+    </span>
+  );
+}
+
 /** Compact relation display (MN-16): cap visible chips so a heavily-linked cell
  * never blows up the row; the rest collapse into a "+N" pill (tooltip lists them). */
 export function RelationChips({ chips, max = 3 }: { chips: LinkChip[]; max?: number }) {
@@ -24,16 +44,11 @@ export function RelationChips({ chips, max = 3 }: { chips: LinkChip[]; max?: num
   return (
     <span className="flex items-center gap-1 overflow-hidden">
       {shown.map((chip) => (
-        <span
-          key={chip.id}
-          className="inline-flex max-w-40 shrink-0 items-center truncate rounded border border-border-default bg-hover px-1.5 py-0.5 text-[12px] text-ink"
-        >
-          <span className="truncate">{chip.title || 'Untitled'}</span>
-        </span>
+        <RelationChip key={chip.id} title={chip.title} />
       ))}
       {rest.length > 0 && (
         <span
-          className="shrink-0 rounded border border-border-default bg-muted-bg px-1.5 py-0.5 text-[12px] text-muted"
+          className="shrink-0 rounded-[var(--radius-chip)] border border-border-default px-1.5 py-0.5 text-[12px] text-muted"
           title={rest.map((c) => c.title || 'Untitled').join(', ')}
         >
           +{rest.length}

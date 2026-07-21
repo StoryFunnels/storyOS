@@ -122,14 +122,20 @@ export function optionColor(
   return opt ? OPTION_COLORS[opt.color] ?? OPTION_COLORS.gray! : null;
 }
 
+/**
+ * Select-value badge (#281, "solid mini-tag"): a solid fill in the option's own
+ * color, 4px corners (deliberately not a full pill), white text set small-caps-style
+ * — uppercase, letter-spaced, semibold, a touch smaller than body text. This is the
+ * visual opposite of RelationChips' outline treatment below, on purpose: a category
+ * value should never be mistaken for a link to another record.
+ */
 export function OptionChip({ option }: { option: SelectOption }) {
   const color = OPTION_COLORS[option.color] ?? OPTION_COLORS.gray!;
   return (
     <span
-      className="inline-flex max-w-full items-center gap-1 truncate rounded-full px-2 py-0.5 text-[12px] font-medium"
-      style={{ backgroundColor: `${color}1F`, color }}
+      className="inline-flex max-w-full items-center truncate rounded-[var(--radius-chip)] px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.03em] text-white"
+      style={{ backgroundColor: color }}
     >
-      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: color }} />
       <span className="truncate">{option.label}</span>
     </span>
   );
