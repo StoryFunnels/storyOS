@@ -107,8 +107,8 @@ export default function WebhooksSettingsPage() {
   });
 
   return (
-    <div className="mx-auto max-w-3xl p-8">
-      <div className="mb-2 flex items-center justify-between">
+    <div className="mx-auto max-w-3xl p-4 sm:p-8">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-lg font-semibold text-ink">Webhooks</h1>
         <CreateWebhookDialog ws={ws} databases={databases.data ?? []} />
       </div>
@@ -156,7 +156,7 @@ export default function WebhooksSettingsPage() {
         )}
         {(webhooks.data ?? []).map((hook) => (
           <div key={hook.id} className="border-b border-border-default last:border-b-0">
-            <div className="flex items-start justify-between gap-3 px-4 py-3">
+            <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium text-ink">{hook.url}</p>
                 <p className="mt-0.5 text-[12px] text-muted">
@@ -172,7 +172,7 @@ export default function WebhooksSettingsPage() {
                   )}
                 </div>
               </div>
-              <div className="flex shrink-0 items-center gap-1">
+              <div className="flex flex-wrap items-center gap-1 sm:shrink-0">
                 <Button
                   variant="ghost"
                   size="sm"
@@ -406,7 +406,7 @@ function CreateWebhookDialog({
 
             <div className="flex flex-col gap-1.5">
               <Label>Events</Label>
-              <div className="grid grid-cols-2 gap-1.5">
+              <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
                 {EVENTS.map((event) => (
                   <label
                     key={event.id}

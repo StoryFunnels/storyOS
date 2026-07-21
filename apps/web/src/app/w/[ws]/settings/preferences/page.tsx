@@ -43,7 +43,7 @@ export default function PreferencesPage() {
     update.mutate({ regional: patch }, { onError: () => toast.error('Could not save — try again') });
 
   return (
-    <div className="mx-auto max-w-3xl p-8">
+    <div className="mx-auto max-w-3xl p-4 sm:p-8">
       <h1 className="mb-1 text-lg font-semibold text-ink">Preferences</h1>
       <p className="mb-6 text-[13px] text-muted">Personal settings for how the app looks and reads.</p>
 
