@@ -80,7 +80,7 @@ export default function LinearIntegrationPage() {
   });
 
   return (
-    <div className="mx-auto max-w-2xl p-8">
+    <div className="mx-auto max-w-2xl p-4 sm:p-8">
       <Link href={`/w/${ws}/settings/integrations`} className="mb-4 inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-ink">
         <ArrowLeft className="h-3.5 w-3.5" /> Integrations
       </Link>
