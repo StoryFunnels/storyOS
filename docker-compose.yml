@@ -108,6 +108,9 @@ services:
       - api
     environment:
       STORYOS_URL: ${MCP_STORYOS_URL:-http://api:3001}
+      # Public web origin, for the `url` field on record responses (#268) — same
+      # var the web/api services use, so a self-host deploy only sets it once.
+      WEB_URL: ${WEB_URL:-http://localhost:3000}
       PORT: "3002"
       # OAuth discovery advertising (MN-154). Set true once the AS (api) has MCP_OAUTH on.
       MCP_OAUTH: ${MCP_OAUTH:-}
