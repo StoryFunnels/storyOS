@@ -4712,6 +4712,201 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/connections": {
+      "get": {
+        "operationId": "ConnectionsController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List connections (auth material is never returned)",
+        "tags": [
+          "connections"
+        ]
+      },
+      "post": {
+        "operationId": "ConnectionsController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateConnectionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Connect an api_key/smtp provider — runs a live health check before saving",
+        "tags": [
+          "connections"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/connections/providers": {
+      "get": {
+        "operationId": "ConnectionsController_providers",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "The provider catalog — what can be connected, and how",
+        "tags": [
+          "connections"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/connections/{id}": {
+      "delete": {
+        "operationId": "ConnectionsController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Disconnect — hard-deletes the row, no tombstone",
+        "tags": [
+          "connections"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/connections/{id}/test": {
+      "post": {
+        "operationId": "ConnectionsController_test",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Re-run the provider health check against the stored credential",
+        "tags": [
+          "connections"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/connections/oauth/{provider}/start": {
+      "get": {
+        "operationId": "ConnectionsController_start",
+        "parameters": [
+          {
+            "name": "provider",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Begin an OAuth2 connect (redirects to the provider)",
+        "tags": [
+          "connections"
+        ]
+      }
+    },
+    "/api/v1/connections/oauth/callback": {
+      "get": {
+        "operationId": "ConnectionsOAuthController_callback",
+        "parameters": [
+          {
+            "name": "state",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "code",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "error",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "OAuth2 callback — verifies state, exchanges the code, seals the tokens",
+        "tags": [
+          "connections"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/agents": {
       "get": {
         "operationId": "AgentsController_getPack",
@@ -8074,6 +8269,30 @@
             "format": "uri"
           }
         }
+      },
+      "CreateConnectionDto": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "auth": {
+            "type": "object",
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "provider",
+          "name",
+          "auth"
+        ]
       },
       "CreateAgentTriggerDto": {
         "type": "object",
