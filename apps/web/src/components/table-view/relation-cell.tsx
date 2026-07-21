@@ -97,7 +97,6 @@ export function RelationEditor({
       void qc.invalidateQueries({ queryKey: ['records', ws, db] });
       void qc.invalidateQueries({ queryKey: ['records', ws, targetDb] });
       void qc.invalidateQueries({ queryKey: ['record', ws, db, recordId] });
-      onDone();
     },
     onError: () => toast.error('Could not update links'),
   });
@@ -120,21 +119,31 @@ export function RelationEditor({
 
   function pick(chip: LinkChip) {
     if (single) {
-      save.mutate([chip.id]);
+      // Single-pick saves and closes immediately — unchanged.
+      save.mutate([chip.id], { onSuccess: onDone });
       return;
     }
-    setSelected((prev) =>
-      prev.some((c) => c.id === chip.id) ? prev.filter((c) => c.id !== chip.id) : [...prev, chip],
-    );
+    // MN-279: multi-select used to only update local state here and wait for
+    // Done/Clear/close to persist — an easy-to-miss step that silently drops
+    // a toggle if the popover is dismissed another way. Save every toggle
+    // right away, same as single-select; the popover stays open (no onDone)
+    // so picking multiple items stays fluid.
+    const next = selected.some((c) => c.id === chip.id)
+      ? selected.filter((c) => c.id !== chip.id)
+      : [...selected, chip];
+    setSelected(next);
+    save.mutate(next.map((c) => c.id));
   }
 
   // MN-230d: closing (outside click, Escape) resolves the same way the old
   // mousedown-outside handler did — single-pick just cancels back to the
-  // last save, multi-pick commits whatever is currently checked.
+  // last save, multi-pick commits whatever is currently checked (MN-279:
+  // in practice a no-op resave since every toggle already persisted, but it
+  // still needs to fire onDone to close the popover).
   function handleOpenChange(open: boolean) {
     if (open) return;
     if (single) onDone();
-    else save.mutate(selected.map((c) => c.id));
+    else save.mutate(selected.map((c) => c.id), { onSuccess: onDone });
   }
 
   const selectedIds = useMemo(() => new Set(selected.map((c) => c.id)), [selected]);
@@ -232,13 +241,16 @@ export function RelationEditor({
           )}
         </div>
         <div className="flex justify-between border-t border-border-default px-2 py-1.5">
-          <button className="text-[12px] text-muted hover:text-ink" onClick={() => save.mutate([])}>
+          <button
+            className="text-[12px] text-muted hover:text-ink"
+            onClick={() => save.mutate([], { onSuccess: onDone })}
+          >
             Clear
           </button>
           {!single && (
             <button
               className="text-[12px] text-ink underline"
-              onClick={() => save.mutate(selected.map((c) => c.id))}
+              onClick={() => save.mutate(selected.map((c) => c.id), { onSuccess: onDone })}
             >
               Done
             </button>

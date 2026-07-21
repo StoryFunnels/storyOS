@@ -215,6 +215,9 @@ function StatusAction({
             onCommit(v);
             setEditing(false);
           }}
+          // MN-279: multi-select toggles persist immediately without closing
+          // the popover — bypasses the setEditing(false) above.
+          onToggleImmediate={(v) => onCommit(v)}
           onCancel={() => setEditing(false)}
         />
       )}
@@ -301,6 +304,9 @@ function AssignAction({
             onCommit(v);
             setEditing(false);
           }}
+          // MN-279: multi-select toggles persist immediately without closing
+          // the popover — bypasses the setEditing(false) above.
+          onToggleImmediate={(v) => onCommit(v)}
           onCancel={() => setEditing(false)}
         />
       )}
