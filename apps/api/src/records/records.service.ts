@@ -45,6 +45,11 @@ export interface ProjectedRecord {
 
 const TRASH_RETENTION_DAYS = 30;
 
+/** #278: a relation target is either a real record uuid or a public number — never
+ * anything else. Guards planLinks() from handing a non-uuid string to a uuid column,
+ * which Postgres rejects with a raw syntax error (surfaced as an opaque 500). */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * The RecordsRepository seam (ADR-0002): every record read/write in the
  * system flows through this service. Storage strategy changes happen here,
@@ -552,9 +557,34 @@ export class RecordsService {
       const side = config.side;
       const targetDatabaseId = side === 'a' ? relation.databaseBId : relation.databaseAId;
 
-      // Ids and public numbers both allowed; numbers are the friendly form.
-      const ids = raw.filter((v): v is string => typeof v === 'string');
-      const numbers = raw.filter((v): v is number => typeof v === 'number');
+      // Ids and public numbers both allowed; numbers are the friendly form. A JSON
+      // payload (e.g. from create_record, where relations are written inline with
+      // the rest of the record) may carry a public number as a numeric string like
+      // "1" rather than a JS number — that's treated the same as the number 1, never
+      // as a raw id lookup. Anything that is neither a real uuid nor a number/numeric
+      // string is rejected here, by field and value, instead of reaching the uuid
+      // column and failing as a raw Postgres syntax error the caller sees as an
+      // opaque 500 (#278).
+      const isNumericString = (v: string) => /^\d+$/.test(v.trim());
+      const toNumber = (v: string | number) => (typeof v === 'number' ? v : Number.parseInt(v.trim(), 10));
+      const invalid = raw.find(
+        (v) => !(typeof v === 'number' || (typeof v === 'string' && (isNumericString(v) || UUID_RE.test(v.trim())))),
+      );
+      if (invalid !== undefined) {
+        throw new UnprocessableEntityException({
+          message: 'Record values validation failed',
+          details: [
+            {
+              path: `values.${apiName}`,
+              message: `expected a record id or number, got ${JSON.stringify(invalid)}`,
+            },
+          ],
+        });
+      }
+      const ids = raw.filter((v): v is string => typeof v === 'string' && !isNumericString(v));
+      const numbers = raw
+        .filter((v) => typeof v === 'number' || (typeof v === 'string' && isNumericString(v)))
+        .map(toNumber);
       const found = raw.length
         ? await this.db.query.records.findMany({
             where: and(
@@ -572,7 +602,8 @@ export class RecordsService {
 
       const targets: Array<{ id: string; title: string }> = [];
       for (const v of raw) {
-        const hit = found.find((r) => (typeof v === 'string' ? r.id === v : r.number === v));
+        const numeric = typeof v === 'number' || (typeof v === 'string' && isNumericString(v));
+        const hit = found.find((r) => (numeric ? r.number === toNumber(v) : r.id === v));
         if (!hit) {
           throw new UnprocessableEntityException({
             message: 'Record values validation failed',
