@@ -209,6 +209,13 @@ export const automationTriggerSchema = z.discriminatedUnion('type', [
     at: z.string().regex(/^\d{2}:\d{2}$/).optional(),
     weekday: z.number().int().min(0).max(6).optional(),
   }),
+  /**
+   * MN-254: an inbound URL the outside world can POST to. No config lives on
+   * the trigger itself — the endpoint identity (token + secret) lives on the
+   * automation row, minted on create/regenerate, because it must survive
+   * independently of whatever the trigger object looks like.
+   */
+  z.object({ type: z.literal('webhook_received') }),
 ]);
 
 export const createAutomationSchema = z.object({

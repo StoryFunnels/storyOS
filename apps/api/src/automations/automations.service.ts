@@ -1,9 +1,18 @@
-import { Inject, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { randomBytes, randomUUID } from 'node:crypto';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+  OnModuleDestroy,
+  OnModuleInit,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import { and, desc, eq, isNotNull, isNull, lte, sql } from 'drizzle-orm';
 import type { AutomationAction } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { automationRuns, automations, databases, records } from '../db/schema';
+import { automationRuns, automations, databases, records, workspaces } from '../db/schema';
 import { compileFilter } from '../records/query-compiler';
 import type { FilterNode } from '@storyos/schemas';
 import { RecordsService } from '../records/records.service';
@@ -13,6 +22,7 @@ import { EntitlementsService } from '../billing/entitlements.service';
 import { AutomationActionsService } from './actions.service';
 import { env } from '../config/env';
 import { presentActionHeaders, restoreActionHeaders } from '../common/webhook-headers';
+import { redactSecrets } from '../common/redact-secrets';
 
 interface Trigger {
   type: string;
@@ -25,6 +35,8 @@ interface Trigger {
 
 const MAX_DEPTH = 2;
 const MAX_FAILURES = 10;
+/** create()/update() apply this whenever a rule's trigger is webhook_received. */
+const HOOK_SECRET_PREFIX = 'whin_';
 
 /**
  * Automations engine (MN-047): rules = trigger + condition (view filter AST)
@@ -38,6 +50,8 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
   private timer: ReturnType<typeof setInterval> | null = null;
   /** Serializes runs per record to avoid interleaved writes. */
   private chains = new Map<string, Promise<void>>();
+  /** MN-254: in-flight webhook hook runs, keyed by the run id returned in the 202. */
+  private hookRuns = new Map<string, Promise<void>>();
 
   constructor(
     @Inject(DB) private readonly db: Db,
@@ -77,12 +91,26 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
   async create(
     workspaceId: string,
     databaseId: string,
-    input: { name: string; trigger: Trigger; condition?: unknown; actions: AutomationAction[]; enabled?: boolean },
+    input: {
+      name: string;
+      trigger: Trigger;
+      condition?: unknown;
+      actions: AutomationAction[];
+      enabled?: boolean;
+    },
     actorId: string,
   ) {
     // No prior actions to preserve against — this strips any stray presence flags.
     const actions = restoreActionHeaders(input.actions, []);
-    await this.actions.validate(databaseId, workspaceId, actions);
+    await this.actions.validate(databaseId, workspaceId, actions, input.trigger.type);
+    // MN-254: a webhook delivery has no triggering record, so a rule's
+    // condition (a record-filter AST) has nothing to evaluate against — v1
+    // rejects it outright rather than silently always-match or always-skip.
+    if (input.trigger.type === 'webhook_received' && input.condition) {
+      throw new UnprocessableEntityException(
+        'webhook_received rules cannot use a condition yet — payload-based conditions are not supported in v1.',
+      );
+    }
     if (input.condition) await this.assertConditionCompiles(databaseId, input.condition, actorId);
     const [rule] = await this.db
       .insert(automations)
@@ -95,6 +123,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         enabled: input.enabled ?? true,
         createdBy: actorId,
         nextDueAt: input.trigger.type === 'schedule' ? this.nextDue(input.trigger) : null,
+        ...(input.trigger.type === 'webhook_received' ? this.mintHook() : {}),
       })
       .returning();
     return this.present(rule!);
@@ -104,18 +133,39 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
     workspaceId: string,
     databaseId: string,
     ruleId: string,
-    patch: { name?: string; trigger?: Trigger; condition?: unknown; actions?: AutomationAction[]; enabled?: boolean },
+    patch: {
+      name?: string;
+      trigger?: Trigger;
+      condition?: unknown;
+      actions?: AutomationAction[];
+      enabled?: boolean;
+    },
     actorId: string,
   ) {
     const rule = await this.getRule(databaseId, ruleId);
+    const trigger = (patch.trigger ?? rule.trigger) as Trigger;
     // Resolve write-only header presence flags against the stored actions so editing
     // an unrelated part of the rule can't clobber a secret webhook header (#249).
-    const actions = patch.actions
-      ? restoreActionHeaders(patch.actions, rule.actions)
-      : undefined;
-    if (actions) await this.actions.validate(databaseId, workspaceId, actions);
+    const actions = patch.actions ? restoreActionHeaders(patch.actions, rule.actions) : undefined;
+    if (actions) await this.actions.validate(databaseId, workspaceId, actions, trigger.type);
+    const condition = patch.condition === undefined ? rule.condition : patch.condition;
+    if (trigger.type === 'webhook_received' && condition) {
+      throw new UnprocessableEntityException(
+        'webhook_received rules cannot use a condition yet — payload-based conditions are not supported in v1.',
+      );
+    }
     if (patch.condition) await this.assertConditionCompiles(databaseId, patch.condition, actorId);
-    const trigger = (patch.trigger ?? rule.trigger) as Trigger;
+    // Mint a hook identity the moment a rule becomes (or starts life as, via a
+    // trigger patch) webhook_received and doesn't have one yet; clear it the
+    // moment the trigger moves away, so a stale rule never keeps a live URL.
+    const hookPatch =
+      trigger.type === 'webhook_received'
+        ? rule.hookToken
+          ? {}
+          : this.mintHook()
+        : rule.hookToken
+          ? { hookToken: null, hookSecret: null, lastHookPayload: null, lastHookAt: null }
+          : {};
     const [updated] = await this.db
       .update(automations)
       .set({
@@ -127,10 +177,45 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         // Re-enabling or editing resets the failure streak and reschedules.
         failureStreak: patch.enabled === true || patch.actions ? 0 : undefined,
         nextDueAt: trigger.type === 'schedule' ? this.nextDue(trigger) : null,
+        ...hookPatch,
       })
       .where(eq(automations.id, ruleId))
       .returning();
     return this.present(updated!);
+  }
+
+  /** Rotate a rule's hook token + secret (MN-254) — the old URL 404s immediately. */
+  async regenerateHook(databaseId: string, ruleId: string) {
+    const rule = await this.getRule(databaseId, ruleId);
+    if ((rule.trigger as Trigger).type !== 'webhook_received') {
+      throw new UnprocessableEntityException(
+        'Only a webhook_received rule has a hook to regenerate.',
+      );
+    }
+    const [updated] = await this.db
+      .update(automations)
+      .set(this.mintHook())
+      .where(eq(automations.id, ruleId))
+      .returning();
+    return this.present(updated!);
+  }
+
+  /** The RuleEditor's "last received payload" inspector (MN-254). */
+  async lastHookPayload(databaseId: string, ruleId: string) {
+    const rule = await this.getRule(databaseId, ruleId);
+    return { last_hook_payload: rule.lastHookPayload, last_hook_at: rule.lastHookAt };
+  }
+
+  /**
+   * token: url-safe, unguessable (18 bytes of entropy). secret: mirrors the
+   * outbound `whsec_` convention (webhooks.service.ts create()) so both
+   * inbound and outbound webhook secrets are recognizable at a glance.
+   */
+  private mintHook(): { hookToken: string; hookSecret: string } {
+    return {
+      hookToken: randomBytes(24).toString('base64url'),
+      hookSecret: `${HOOK_SECRET_PREFIX}${randomBytes(24).toString('hex')}`,
+    };
   }
 
   async remove(databaseId: string, ruleId: string) {
@@ -150,12 +235,23 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** Dry run against one record: condition verdict + would-run actions. */
-  async test(workspaceId: string, databaseId: string, ruleId: string, recordId: string, actorId: string) {
+  async test(
+    workspaceId: string,
+    databaseId: string,
+    ruleId: string,
+    recordId: string,
+    actorId: string,
+  ) {
     const rule = await this.getRule(databaseId, ruleId);
     const matches = rule.condition
       ? await this.conditionMatches(databaseId, rule.condition as FilterNode, recordId, actorId)
       : true;
-    await this.actions.validate(databaseId, workspaceId, rule.actions as AutomationAction[]);
+    await this.actions.validate(
+      databaseId,
+      workspaceId,
+      rule.actions as AutomationAction[],
+      (rule.trigger as Trigger).type,
+    );
     return {
       condition_matches: matches,
       would_run: matches,
@@ -198,6 +294,155 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
     return Boolean(row);
   }
 
+  // --- webhook hook path (MN-254) ---
+
+  /**
+   * Resolve a delivery's (workspaceSlug, hookToken) pair to the rule it names,
+   * or null if there is no such rule, it's disabled, or its trigger has since
+   * moved away from webhook_received (a token lingering after a trigger patch
+   * would otherwise silently keep working). The receiver turns null into a
+   * 404 with no further detail — indistinguishable from a token that never
+   * existed.
+   */
+  async findByHookToken(workspaceSlug: string, hookToken: string) {
+    const [row] = await this.db
+      .select({
+        id: automations.id,
+        databaseId: automations.databaseId,
+        workspaceId: databases.workspaceId,
+        trigger: automations.trigger,
+        hookSecret: automations.hookSecret,
+        actions: automations.actions,
+        createdBy: automations.createdBy,
+        enabled: automations.enabled,
+      })
+      .from(automations)
+      .innerJoin(databases, eq(databases.id, automations.databaseId))
+      .innerJoin(workspaces, eq(workspaces.id, databases.workspaceId))
+      .where(and(eq(automations.hookToken, hookToken), eq(workspaces.slug, workspaceSlug)))
+      .limit(1);
+    if (!row || !row.enabled || (row.trigger as Trigger).type !== 'webhook_received') return null;
+    return row;
+  }
+
+  /**
+   * Kicks off one webhook delivery's execution and returns a run id
+   * synchronously, so the receiver's 202 can carry it immediately — the run
+   * row itself, and everything the actions do, land after the reply (Step 2
+   * of MN-254's guide: "respond 202 immediately, then execute async").
+   */
+  startHookRun(
+    rule: { id: string; databaseId: string; actions: unknown; createdBy: string | null },
+    workspaceId: string,
+    payload: Record<string, unknown>,
+  ): string {
+    const runId = randomUUID();
+    const promise = this.runHookRule(rule, workspaceId, payload, runId).catch((error) => {
+      this.logger.warn(`webhook hook run ${runId} failed: ${String(error)}`);
+    });
+    this.hookRuns.set(runId, promise);
+    void promise.finally(() => {
+      if (this.hookRuns.get(runId) === promise) this.hookRuns.delete(runId);
+    });
+    return runId;
+  }
+
+  /** Test hook: awaits a hook run so assertions see its effects (mirrors settle()). */
+  async settleHook(runId: string): Promise<void> {
+    await (this.hookRuns.get(runId) ?? Promise.resolve());
+  }
+
+  /**
+   * Executes one webhook delivery. Deliberately bypasses DomainEventsService —
+   * that bus is for record-change events, and a hook delivery has no record —
+   * and instead builds an ActionContext whose `record` is null and whose
+   * `payload` is the delivered body. Always ends with exactly one
+   * automationRuns row, at the pre-minted `runId`, so quota accounting and the
+   * run-history view see every delivery whether it succeeds, is skipped for
+   * quota, or throws.
+   */
+  private async runHookRule(
+    rule: { id: string; databaseId: string; actions: unknown; createdBy: string | null },
+    workspaceId: string,
+    payload: Record<string, unknown>,
+    runId: string,
+  ): Promise<void> {
+    const started = Date.now();
+    // Observability for the RuleEditor's "last received payload" inspector —
+    // recorded even if the run itself is skipped or fails.
+    await this.db
+      .update(automations)
+      .set({ lastHookPayload: redactSecrets(payload), lastHookAt: new Date() })
+      .where(eq(automations.id, rule.id));
+
+    try {
+      // MN-168: same non-AI allowance every other automation run counts against.
+      if (!(await this.entitlements.can(workspaceId, 'automation_run'))) {
+        await this.db.insert(automationRuns).values({
+          id: runId,
+          automationId: rule.id,
+          workspaceId,
+          triggerRecordId: null,
+          status: 'skipped',
+          error: 'plan automation-run allowance reached for this month',
+          depth: 0,
+          durationMs: Date.now() - started,
+        });
+        return;
+      }
+      const effects = await this.actions.execute(rule.actions as AutomationAction[], {
+        workspaceId,
+        databaseId: rule.databaseId,
+        record: null,
+        payload,
+        actorId: rule.createdBy ?? 'automation',
+        // A create_record action's own write emits record_created at depth 1,
+        // consistent with the normal path's depth+1 — so a downstream rule can
+        // run exactly once (MAX_DEPTH guard) instead of chaining forever.
+        depth: 1,
+        triggerType: 'webhook_received',
+      });
+      await this.db.insert(automationRuns).values({
+        id: runId,
+        automationId: rule.id,
+        workspaceId,
+        triggerRecordId: null,
+        status: 'ok',
+        effects,
+        depth: 1,
+        durationMs: Date.now() - started,
+      });
+      await this.entitlements.recordNonAiRun(workspaceId);
+      await this.db
+        .update(automations)
+        .set({ failureStreak: 0 })
+        .where(eq(automations.id, rule.id));
+    } catch (error) {
+      await this.db.insert(automationRuns).values({
+        id: runId,
+        automationId: rule.id,
+        workspaceId,
+        triggerRecordId: null,
+        status: 'error',
+        error: (error as Error).message?.slice(0, 500) ?? 'failed',
+        depth: 0,
+        durationMs: Date.now() - started,
+      });
+      const current = await this.db.query.automations.findFirst({
+        where: eq(automations.id, rule.id),
+      });
+      if (current) {
+        const streak = current.failureStreak + 1;
+        await this.db
+          .update(automations)
+          .set({ failureStreak: streak, enabled: streak >= MAX_FAILURES ? false : undefined })
+          .where(eq(automations.id, rule.id));
+        if (streak >= MAX_FAILURES)
+          this.logger.warn(`automation ${rule.id} auto-disabled after ${streak} failures`);
+      }
+    }
+  }
+
   // --- event path ---
 
   dispatch(event: DomainEvent): void {
@@ -226,30 +471,60 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
       if (trigger.type === 'record_updated' && trigger.field_id) {
         if (!event.changedFieldIds?.includes(trigger.field_id)) continue;
       }
-      if (trigger.type === 'record_linked' && trigger.relation_field_id !== event.relationFieldId) continue;
+      if (trigger.type === 'record_linked' && trigger.relation_field_id !== event.relationFieldId)
+        continue;
 
       if (event.depth >= MAX_DEPTH) {
-        await this.logRun(rule.id, event.workspaceId, event.recordId, 'skipped', `depth ${event.depth} — loop guard`, null, event.depth, 0);
+        await this.logRun(
+          rule.id,
+          event.workspaceId,
+          event.recordId,
+          'skipped',
+          `depth ${event.depth} — loop guard`,
+          null,
+          event.depth,
+          0,
+        );
         continue;
       }
       await this.runRule(rule.id, event.workspaceId, event.databaseId, event.recordId, event.depth);
     }
   }
 
-  private async runRule(ruleId: string, workspaceId: string, databaseId: string, recordId: string, depth: number) {
+  private async runRule(
+    ruleId: string,
+    workspaceId: string,
+    databaseId: string,
+    recordId: string,
+    depth: number,
+  ) {
     const started = Date.now();
     const rule = await this.db.query.automations.findFirst({ where: eq(automations.id, ruleId) });
     if (!rule || !rule.enabled) return;
     try {
       if (rule.condition) {
-        const matches = await this.conditionMatches(databaseId, rule.condition as FilterNode, recordId, rule.createdBy ?? '');
+        const matches = await this.conditionMatches(
+          databaseId,
+          rule.condition as FilterNode,
+          recordId,
+          rule.createdBy ?? '',
+        );
         if (!matches) {
           return; // silent non-match: no run row (intended behavior; run log stays signal, not noise)
         }
       }
       const record = await this.recordsService.get(databaseId, recordId).catch(() => null);
       if (!record) {
-        await this.logRun(ruleId, workspaceId, recordId, 'skipped', 'record gone', null, depth, Date.now() - started);
+        await this.logRun(
+          ruleId,
+          workspaceId,
+          recordId,
+          'skipped',
+          'record gone',
+          null,
+          depth,
+          Date.now() - started,
+        );
         return;
       }
 
@@ -279,17 +554,36 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         actorId: rule.createdBy ?? 'automation',
         depth: depth + 1,
       });
-      await this.logRun(ruleId, workspaceId, recordId, 'ok', null, effects, depth, Date.now() - started);
+      await this.logRun(
+        ruleId,
+        workspaceId,
+        recordId,
+        'ok',
+        null,
+        effects,
+        depth,
+        Date.now() - started,
+      );
       await this.entitlements.recordNonAiRun(workspaceId);
       await this.db.update(automations).set({ failureStreak: 0 }).where(eq(automations.id, ruleId));
     } catch (error) {
       const streak = rule.failureStreak + 1;
-      await this.logRun(ruleId, workspaceId, recordId, 'error', (error as Error).message?.slice(0, 500) ?? 'failed', null, depth, Date.now() - started);
+      await this.logRun(
+        ruleId,
+        workspaceId,
+        recordId,
+        'error',
+        (error as Error).message?.slice(0, 500) ?? 'failed',
+        null,
+        depth,
+        Date.now() - started,
+      );
       await this.db
         .update(automations)
         .set({ failureStreak: streak, enabled: streak >= MAX_FAILURES ? false : undefined })
         .where(eq(automations.id, ruleId));
-      if (streak >= MAX_FAILURES) this.logger.warn(`automation ${ruleId} auto-disabled after ${streak} failures`);
+      if (streak >= MAX_FAILURES)
+        this.logger.warn(`automation ${ruleId} auto-disabled after ${streak} failures`);
     }
   }
 
@@ -339,7 +633,11 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
   /** One scheduler pass — public so tests can invoke it directly. */
   async tick(): Promise<void> {
     const due = await this.db.query.automations.findMany({
-      where: and(eq(automations.enabled, true), isNotNull(automations.nextDueAt), lte(automations.nextDueAt, new Date())),
+      where: and(
+        eq(automations.enabled, true),
+        isNotNull(automations.nextDueAt),
+        lte(automations.nextDueAt, new Date()),
+      ),
       limit: 20,
     });
     for (const rule of due) {
@@ -355,7 +653,9 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
           .set({ nextDueAt: this.nextDue(trigger) })
           .where(eq(automations.id, rule.id));
 
-        const database = await this.db.query.databases.findFirst({ where: eq(databases.id, rule.databaseId) });
+        const database = await this.db.query.databases.findFirst({
+          where: eq(databases.id, rule.databaseId),
+        });
         if (!database) continue;
         // The condition IS the selection for scheduled rules.
         const defs = await this.recordsService.fieldDefs(rule.databaseId);
@@ -370,7 +670,8 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
           .from(records)
           .where(and(eq(records.databaseId, rule.databaseId), isNull(records.deletedAt), where))
           .limit(500);
-        if (targets.length === 500) this.logger.warn(`schedule ${rule.id}: truncated at 500 records`);
+        if (targets.length === 500)
+          this.logger.warn(`schedule ${rule.id}: truncated at 500 records`);
         for (const target of targets) {
           await this.runRule(rule.id, database.workspaceId, rule.databaseId, target.id, 0);
         }
@@ -379,6 +680,8 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
       }
     }
     // Retention: purge runs older than 30 days (cheap daily-ish pass).
-    await this.db.delete(automationRuns).where(lte(automationRuns.createdAt, new Date(Date.now() - 30 * 86_400_000)));
+    await this.db
+      .delete(automationRuns)
+      .where(lte(automationRuns.createdAt, new Date(Date.now() - 30 * 86_400_000)));
   }
 }

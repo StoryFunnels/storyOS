@@ -4436,6 +4436,126 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/regenerate-hook": {
+      "post": {
+        "operationId": "AutomationsController_regenerateHook",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Rotate a webhook_received rule's token + secret — the old URL 404s immediately",
+        "tags": [
+          "automations"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/last-payload": {
+      "get": {
+        "operationId": "AutomationsController_lastPayload",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "The most recent payload a webhook_received rule received (for token mapping)",
+        "tags": [
+          "automations"
+        ]
+      }
+    },
+    "/api/v1/hooks/{workspaceSlug}/{hookToken}": {
+      "post": {
+        "operationId": "HooksController_receive",
+        "parameters": [
+          {
+            "name": "workspaceSlug",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "hookToken",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-storyos-signature",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-storyos-timestamp",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "content-type",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": ""
+          }
+        },
+        "summary": "Inbound webhook receiver for a webhook_received automation rule",
+        "tags": [
+          "hooks"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/integrations/github": {
       "get": {
         "operationId": "IntegrationsController_getConfig",
@@ -7609,6 +7729,20 @@
                   "type",
                   "every"
                 ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "webhook_received"
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
+                ]
               }
             ]
           },
@@ -7921,6 +8055,20 @@
                 "required": [
                   "type",
                   "every"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "webhook_received"
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
                 ]
               }
             ]

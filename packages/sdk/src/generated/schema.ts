@@ -1675,6 +1675,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/regenerate-hook": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rotate a webhook_received rule's token + secret — the old URL 404s immediately */
+        post: operations["AutomationsController_regenerateHook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/last-payload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The most recent payload a webhook_received rule received (for token mapping) */
+        get: operations["AutomationsController_lastPayload"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hooks/{workspaceSlug}/{hookToken}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Inbound webhook receiver for a webhook_received automation rule */
+        post: operations["HooksController_receive"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/integrations/github": {
         parameters: {
             query?: never;
@@ -2878,6 +2929,9 @@ export interface components {
                 every: "hour" | "day" | "week";
                 at?: string;
                 weekday?: number;
+            } | {
+                /** @enum {string} */
+                type: "webhook_received";
             };
             condition?: unknown;
             actions: ({
@@ -2957,6 +3011,9 @@ export interface components {
                 every: "hour" | "day" | "week";
                 at?: string;
                 weekday?: number;
+            } | {
+                /** @enum {string} */
+                type: "webhook_received";
             };
             condition?: unknown;
             actions?: ({
@@ -5902,6 +5959,70 @@ export interface operations {
         };
         responses: {
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AutomationsController_regenerateHook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AutomationsController_lastPayload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    HooksController_receive: {
+        parameters: {
+            query?: never;
+            header: {
+                "x-storyos-signature": string;
+                "x-storyos-timestamp": string;
+                "content-type": string;
+            };
+            path: {
+                workspaceSlug: string;
+                hookToken: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };

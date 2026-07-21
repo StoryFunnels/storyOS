@@ -511,6 +511,17 @@ export const automations = pgTable(
     failureStreak: integer('failure_streak').notNull().default(0),
     nextDueAt: timestamp('next_due_at', { withTimezone: true }),
     createdBy: text('created_by'),
+    /**
+     * MN-254: inbound webhook identity, set only while trigger.type is
+     * 'webhook_received' (minted on create/update, rotated by regenerate-hook,
+     * cleared if the rule's trigger changes to something else). hookToken is
+     * unique so the public receiver can resolve a delivery with one indexed
+     * lookup; hookSecret signs the optional HMAC.
+     */
+    hookToken: text('hook_token').unique(),
+    hookSecret: text('hook_secret'),
+    lastHookPayload: jsonb('last_hook_payload'),
+    lastHookAt: timestamp('last_hook_at', { withTimezone: true }),
     ...timestamps,
   },
   (t) => [index('automations_database_idx').on(t.databaseId, t.enabled)],
