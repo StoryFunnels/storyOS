@@ -171,6 +171,7 @@ export class FieldsService {
       return this.withOptions(tx as unknown as Db, field!);
     });
     await this.backfillFormulaField(databaseId, created);
+    await this.backfillRollupField(databaseId, created);
     return created;
   }
 
@@ -187,6 +188,17 @@ export class FieldsService {
   private async backfillFormulaField(databaseId: string, field: { id: string; type: string }): Promise<void> {
     if (field.type !== 'formula') return;
     await this.recordsService.materializeFormulaFieldForAllRecords(databaseId, field.id).catch(() => undefined);
+  }
+
+  /**
+   * MN-267: same reasoning as backfillFormulaField, for a newly-created rollup
+   * field — without this, "add a rollup field, sort by it" would show every
+   * pre-existing record as null until its relation next changed.
+   * Best-effort/isolated: never fails the field-create response.
+   */
+  private async backfillRollupField(databaseId: string, field: { id: string; type: string }): Promise<void> {
+    if (field.type !== 'rollup') return;
+    await this.recordsService.recomputeRollupFieldForAllRecords(databaseId, field.id).catch(() => undefined);
   }
 
   /** Field types a formula may reference, mapped to formula types. */

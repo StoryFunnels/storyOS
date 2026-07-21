@@ -145,9 +145,12 @@ export const SORTABLE = new Set([
   'title', 'text', 'number', 'date', 'url', 'email', 'select', 'checkbox', 'created_at', 'updated_at',
   // MN-260: formula is materialized server-side and reads through fieldExpr()
   // like any stored field now — SortButton further narrows to same-record-only
-  // formulas via isSortableFormula (sort-config.ts). rollup stays excluded: no
-  // recompute-on-related-record-change plumbing exists yet (separate ticket).
-  'formula',
+  // formulas via isSortableFormula (sort-config.ts).
+  // MN-267: rollup now has real recompute-on-related-record-change plumbing
+  // (RollupInvalidationSubscriber, apps/api/src/records/rollup-invalidation.subscriber.ts)
+  // and is materialized the same way formula is, so it's sortable too. `lookup`
+  // stays excluded: still no such plumbing for it.
+  'formula', 'rollup',
 ]);
 
 export function ViewToolbar({
@@ -1559,9 +1562,9 @@ function RecordPicker({
  *
  * `fields` is the view's FULL field list, not pre-filtered — the builder narrows to
  * SORTABLE itself (mirroring the query layer's SORTABLE set in records.service.ts),
- * further narrowed for formula fields by isSortableFormula (MN-260 — a formula that
- * reaches into a lookup/rollup isn't materialized, same cross-record gap rollup
- * itself has) instead of silently omitting those fields from view.
+ * further narrowed for formula fields by isSortableFormula (MN-260/MN-267 — a
+ * formula that reaches into a `lookup` isn't materialized; one reaching into a
+ * `rollup` now is) instead of silently omitting those fields from view.
  */
 export function SortButton({
   fields,
@@ -1579,12 +1582,12 @@ export function SortButton({
   const [open, setOpen] = useState(false);
   const byApiName = new Map(fields.map((f) => [f.apiName, f]));
   const sortableFields = fields.filter((f) => SORTABLE.has(f.type) && isSortableFormula(f, byApiName));
-  // MN-260: rollup has no recompute-on-related-record-change plumbing yet (tracked
-  // separately) so it's still fully excluded; a formula reaching into a lookup/
-  // rollup inherits that same cross-record staleness and is excluded too — see
-  // isSortableFormula above.
+  // MN-267: rollup is sortable now (real recompute-on-related-record-change
+  // plumbing exists — see SORTABLE's comment above); `lookup` is the one still
+  // fully excluded, and a formula reaching into one inherits that same
+  // cross-record staleness and is excluded too — see isSortableFormula above.
   const hasUnsortableComputedFields = fields.some(
-    (f) => f.type === 'rollup' || (f.type === 'formula' && !isSortableFormula(f, byApiName)),
+    (f) => f.type === 'lookup' || (f.type === 'formula' && !isSortableFormula(f, byApiName)),
   );
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
@@ -1638,7 +1641,7 @@ export function SortButton({
 
             {hasUnsortableComputedFields && (
               <p className="border-b border-border-default px-3 py-1.5 text-[11px] text-faint">
-                Rollup fields, and formulas that reference a lookup or rollup, aren't sortable yet.
+                Lookup fields, and formulas that reference a lookup, aren't sortable yet.
               </p>
             )}
 

@@ -14,6 +14,7 @@ import { activityEvents, databases, fields, recordLinks, records, relations } fr
 import { slugify } from '../databases/databases.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { isComparableType } from './auto-link';
+import { DomainEventsService } from '../events/domain-events.service';
 
 /** Persisted auto-link config (on relations.autoLink) — field ids, resolved at save. */
 export interface StoredAutoLink {
@@ -26,7 +27,10 @@ type FieldRow = typeof fields.$inferSelect;
 
 @Injectable()
 export class RelationsService {
-  constructor(@Inject(DB) private readonly db: Db) {}
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    private readonly domainEvents: DomainEventsService,
+  ) {}
 
   private async uniqueApiName(databaseId: string, displayName: string): Promise<string> {
     const root = slugify(displayName);
@@ -461,6 +465,32 @@ export class RelationsService {
         targets,
       );
     });
+    // MN-267: the dedicated Links API (this method) writes record_links directly,
+    // bypassing RecordsService entirely — so unlike a relation set inline via
+    // update()'s `values`, nothing emitted a domain event for it before this.
+    // 'record_linked' already existed in DomainEvent (designed for exactly this,
+    // just never fired) — RollupInvalidationSubscriber (and, now for the first
+    // time, any 'record_linked' automation trigger) picks it up the same way a
+    // record_updated with linkedRelations does.
+    if (targets.length) {
+      this.domainEvents.emit({
+        type: 'record_linked',
+        workspaceId,
+        databaseId,
+        recordId: ctx.record.id,
+        relationFieldId: fieldId,
+        actorId,
+        depth: 0,
+        linkedRelations: [
+          {
+            relationId: ctx.relation.id,
+            fieldId,
+            otherDatabaseId: ctx.targetDatabaseId,
+            otherRecordIds: targets.map((t) => t.id),
+          },
+        ],
+      });
+    }
     return this.listLinks(databaseId, recordId, fieldId);
   }
 
@@ -479,13 +509,19 @@ export class RelationsService {
     const targets = targetIds.length ? await this.loadTargets(ctx.targetDatabaseId, targetIds) : [];
     const myCol = ctx.side === 'a' ? recordLinks.fromRecordId : recordLinks.toRecordId;
 
+    // MN-267: before∪after other-side ids (mirrors RecordsService.writeLinks'
+    // own reasoning) — captured here so an unlinked id is never missed by a
+    // downstream rollup recompute (record_links itself no longer has it once
+    // this transaction commits).
+    let removedIds: string[] = [];
+
     await this.db.transaction(async (tx) => {
       const removed = await tx
         .delete(recordLinks)
         .where(and(eq(recordLinks.relationId, ctx.relation.id), eq(myCol, recordId)))
         .returning();
       if (removed.length) {
-        const removedIds = removed.map((l) => (ctx.side === 'a' ? l.toRecordId : l.fromRecordId));
+        removedIds = removed.map((l) => (ctx.side === 'a' ? l.toRecordId : l.fromRecordId));
         const removedTargets = await tx.query.records.findMany({
           where: inArray(records.id, removedIds),
           columns: { id: true, title: true },
@@ -519,6 +555,22 @@ export class RelationsService {
         );
       }
     });
+
+    const affectedOtherIds = [...new Set([...removedIds, ...targets.map((t) => t.id)])];
+    if (affectedOtherIds.length) {
+      this.domainEvents.emit({
+        type: 'record_linked',
+        workspaceId,
+        databaseId,
+        recordId: ctx.record.id,
+        relationFieldId: fieldId,
+        actorId,
+        depth: 0,
+        linkedRelations: [
+          { relationId: ctx.relation.id, fieldId, otherDatabaseId: ctx.targetDatabaseId, otherRecordIds: affectedOtherIds },
+        ],
+      });
+    }
     return this.listLinks(databaseId, recordId, fieldId);
   }
 
@@ -534,6 +586,8 @@ export class RelationsService {
     const myCol = ctx.side === 'a' ? recordLinks.fromRecordId : recordLinks.toRecordId;
     const otherCol = ctx.side === 'a' ? recordLinks.toRecordId : recordLinks.fromRecordId;
 
+    let removedIds: string[] = [];
+
     await this.db.transaction(async (tx) => {
       const removed = await tx
         .delete(recordLinks)
@@ -546,7 +600,7 @@ export class RelationsService {
         )
         .returning();
       if (removed.length) {
-        const removedIds = removed.map((l) => (ctx.side === 'a' ? l.toRecordId : l.fromRecordId));
+        removedIds = removed.map((l) => (ctx.side === 'a' ? l.toRecordId : l.fromRecordId));
         const removedTargets = await tx.query.records.findMany({
           where: inArray(records.id, removedIds),
           columns: { id: true, title: true },
@@ -562,6 +616,21 @@ export class RelationsService {
         );
       }
     });
+
+    if (removedIds.length) {
+      this.domainEvents.emit({
+        type: 'record_linked',
+        workspaceId,
+        databaseId,
+        recordId: ctx.record.id,
+        relationFieldId: fieldId,
+        actorId,
+        depth: 0,
+        linkedRelations: [
+          { relationId: ctx.relation.id, fieldId, otherDatabaseId: ctx.targetDatabaseId, otherRecordIds: removedIds },
+        ],
+      });
+    }
     return this.listLinks(databaseId, recordId, fieldId);
   }
 }

@@ -54,6 +54,11 @@ function fieldExpr(def: FieldDef): SQL {
     if (resultType === 'checkbox') return sql`((${records.computedValues}->>${def.id})::boolean)`;
     return sql`(${records.computedValues}->>${def.id})`;
   }
+  // MN-267: rollup fields have nothing in `values` either — every op (count,
+  // sum, avg, min, max) is numeric, so unlike formula there's no result_type
+  // branch needed. Materialized by RecordsService.recomputeRollupsForRelationField,
+  // invalidated on the related record's/relation's change (RollupInvalidationSubscriber).
+  if (def.type === 'rollup') return sql`((${records.computedValues}->>${def.id})::numeric)`;
   return sql`(${records.values}->>${def.id})`;
 }
 

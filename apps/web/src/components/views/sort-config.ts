@@ -22,14 +22,17 @@ interface SortableFieldLike {
 }
 
 /**
- * MN-260: a formula field is sortable only if its full dependency chain (through
- * other formulas too) never reaches a lookup or rollup field — mirrors the API's
- * formulaDependsOnlyOnOwnRecord (records.service.ts) exactly, same as SORTABLE
- * below already mirrors records.service.ts's SORTABLE set. A lookup/rollup pulls
- * from a RELATED record that isn't materialized for sorting (that's the rollup
- * follow-up ticket, not this one), so a formula reaching into one would silently
- * sort on a value computed as if the related field were always null — the picker
- * excludes it instead of offering a sort that 422s or lies.
+ * MN-260/MN-267: a formula field is sortable only if its full dependency chain
+ * (through other formulas too) never reaches a `lookup` field — mirrors the
+ * API's formulaDependsOnlyOnOwnRecord (records.service.ts) exactly, same as
+ * SORTABLE below already mirrors records.service.ts's SORTABLE set. `rollup`
+ * is no longer excluded here: MN-267 built real recompute-on-related-record-
+ * change plumbing for it (RollupInvalidationSubscriber, materialized into the
+ * same computed_values column formula uses), so a formula reaching into a
+ * rollup is exactly as safe as one reaching into another formula now. `lookup`
+ * still has no such plumbing — a formula reaching into one would silently
+ * sort on a value computed as if the related field were always null — the
+ * picker excludes it instead of offering a sort that 422s or lies.
  */
 export function isSortableFormula(field: SortableFieldLike, byApiName: Map<string, SortableFieldLike>): boolean {
   if (field.type !== 'formula') return true;
@@ -42,7 +45,7 @@ export function isSortableFormula(field: SortableFieldLike, byApiName: Map<strin
       visited.add(apiName);
       const target = byApiName.get(apiName);
       if (!target) continue; // dangling ref — not a cross-record concern
-      if (target.type === 'lookup' || target.type === 'rollup') return false;
+      if (target.type === 'lookup') return false;
       if (target.type === 'formula') {
         const targetAst = target.config['ast'] as FormulaNode | undefined;
         if (targetAst && !walk(targetAst)) return false;

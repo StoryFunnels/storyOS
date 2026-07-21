@@ -88,10 +88,13 @@ describe('MAX_SORTS', () => {
 });
 
 /**
- * MN-260: mirrors records.service.ts's formulaDependsOnlyOnOwnRecord — a formula
- * is sortable only if its full dependency chain (through other formulas too)
- * never reaches a lookup or rollup field, since those pull from a related record
- * that isn't materialized for sorting.
+ * MN-260/MN-267: mirrors records.service.ts's formulaDependsOnlyOnOwnRecord —
+ * a formula is sortable only if its full dependency chain (through other
+ * formulas too) never reaches a `lookup` field, since lookup still pulls from
+ * a related record with no materialization/invalidation plumbing. `rollup`
+ * WAS excluded here too until MN-267 built that plumbing for it
+ * (RollupInvalidationSubscriber) — a formula reaching into a rollup is now
+ * exactly as safe as one reaching into another formula.
  */
 describe('isSortableFormula', () => {
   type F = { apiName: string; type: string; config: Record<string, unknown> };
@@ -112,11 +115,11 @@ describe('isSortableFormula', () => {
     expect(isSortableFormula(remaining, byApiName)).toBe(true);
   });
 
-  it('is false for a formula that directly references a rollup', () => {
+  it('is true for a formula that directly references a rollup (MN-267: rollup is materialized now)', () => {
     const daysUsed = field({ apiName: 'days_used', type: 'rollup' });
     const balance = field({ apiName: 'balance', config: { ast: ref('days_used') } });
     const byApiName = new Map([['days_used', daysUsed], ['balance', balance]]);
-    expect(isSortableFormula(balance, byApiName)).toBe(false);
+    expect(isSortableFormula(balance, byApiName)).toBe(true);
   });
 
   it('is false for a formula that directly references a lookup', () => {
@@ -126,11 +129,19 @@ describe('isSortableFormula', () => {
     expect(isSortableFormula(health, byApiName)).toBe(false);
   });
 
-  it('is false transitively, through a chain of formula-over-formula', () => {
+  it('is true transitively, through a chain of formula-over-formula-over-rollup', () => {
     const daysUsed = field({ apiName: 'days_used', type: 'rollup' });
     const balance = field({ apiName: 'balance', config: { ast: ref('days_used') } });
     const doubled = field({ apiName: 'doubled', config: { ast: { kind: 'binary', op: '*', left: ref('balance'), right: { kind: 'lit', value: 2 } } } });
     const byApiName = new Map([['days_used', daysUsed], ['balance', balance], ['doubled', doubled]]);
+    expect(isSortableFormula(doubled, byApiName)).toBe(true);
+  });
+
+  it('is false transitively, through a chain of formula-over-formula-over-lookup', () => {
+    const parentState = field({ apiName: 'parent_state', type: 'lookup' });
+    const health = field({ apiName: 'health', config: { ast: ref('parent_state') } });
+    const doubled = field({ apiName: 'doubled', config: { ast: { kind: 'binary', op: '*', left: ref('health'), right: { kind: 'lit', value: 2 } } } });
+    const byApiName = new Map([['parent_state', parentState], ['health', health], ['doubled', doubled]]);
     expect(isSortableFormula(doubled, byApiName)).toBe(false);
   });
 
