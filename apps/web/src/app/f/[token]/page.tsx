@@ -27,6 +27,8 @@ interface FormDef {
   submit_text: string;
   success_message: string | null;
   redirect_url: string | null;
+  /** Paid-plan white-label (#269) — hides the "Powered by StoryOS" attribution. */
+  hide_branding: boolean;
   fields: FormField[];
 }
 
@@ -36,6 +38,12 @@ interface FormDef {
  * which creates a record anonymously. Relation and user inputs (#224) call two
  * extra token-scoped public endpoints — search/create for relations, and the
  * roster embedded in the form definition for users.
+ *
+ * "Powered by StoryOS" attribution (#269) renders on both the standalone link
+ * and the embed — the embed is the higher-value growth surface, since that's
+ * where people who've never heard of StoryOS actually see the form. Paid
+ * workspaces skip it via `def.hide_branding` (set server-side from the
+ * workspace's plan, MN-168's entitlements read path).
  */
 export default function PublicFormPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params);
@@ -150,7 +158,7 @@ export default function PublicFormPage({ params }: { params: Promise<{ token: st
         >
           {submitting ? 'Submitting…' : def!.submit_text}
         </button>
-        {!embed && <p className="text-center text-[11px] text-neutral-400">Powered by StoryOS</p>}
+        {!def!.hide_branding && <p className="text-center text-[11px] text-neutral-400">Powered by StoryOS</p>}
       </form>
     </div>
   );
