@@ -4,7 +4,13 @@
 // no build-time precache manifest (that needs a webpack/workbox plugin this
 // ticket doesn't add) — instead it caches same-origin GET responses as
 // they're fetched, so a page visited once is available offline afterward.
-const CACHE_VERSION = 'storyos-shell-v1';
+//
+// #288: bumped so any browser that already has an old worker registered
+// (from before local dev stopped registering one at all — see
+// lib/service-worker.ts) picks up this version, wipes its old cache on
+// `activate`, and starts running the `/_next/static/*` bypass below. That
+// self-heals a stale dev registration without anyone touching devtools.
+const CACHE_VERSION = 'storyos-shell-v2';
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
@@ -34,6 +40,22 @@ self.addEventListener('fetch', (event) => {
   if (url.pathname.startsWith('/api/')) return;
 
   if (request.mode === 'navigate') {
+    event.respondWith(networkFirst(request));
+    return;
+  }
+
+  // #288: Turbopack's dev-mode chunk URLs under `/_next/static/*` aren't
+  // immutable the way a production build's are — the same URL can serve
+  // different content across a dev-server restart or after an edit. A
+  // cache-first policy here previously meant a service worker registered
+  // once in dev could serve a pre-edit JS bundle forever. `lib/
+  // service-worker.ts` now skips registering in dev entirely, but this
+  // worker doesn't know its own environment (it's a static public asset,
+  // not run through Next's env replacement) — so this bypass also protects
+  // anyone still running an already-registered worker from a session
+  // before that guard shipped. `networkFirst` still falls back to the
+  // cache when offline, so production's offline app shell is unaffected.
+  if (url.pathname.startsWith('/_next/static/')) {
     event.respondWith(networkFirst(request));
     return;
   }

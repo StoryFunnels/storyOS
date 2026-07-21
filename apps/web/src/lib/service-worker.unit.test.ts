@@ -24,7 +24,8 @@ describe('registerServiceWorker', () => {
     expect(() => registerServiceWorker()).not.toThrow();
   });
 
-  it('registers immediately when the page has already finished loading', async () => {
+  it('registers immediately when the page has already finished loading, in production', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
     const register = vi.fn().mockResolvedValue(undefined);
     vi.stubGlobal('window', { addEventListener: vi.fn() });
     vi.stubGlobal('navigator', { serviceWorker: { register } });
@@ -36,7 +37,8 @@ describe('registerServiceWorker', () => {
     expect(register).toHaveBeenCalledWith('/sw.js');
   });
 
-  it('waits for the load event instead of registering immediately when the page is still loading', async () => {
+  it('waits for the load event instead of registering immediately when the page is still loading, in production', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
     const register = vi.fn().mockResolvedValue(undefined);
     const addEventListener = vi.fn();
     vi.stubGlobal('window', { addEventListener });
@@ -48,6 +50,60 @@ describe('registerServiceWorker', () => {
 
     expect(register).not.toHaveBeenCalled();
     expect(addEventListener).toHaveBeenCalledWith('load', expect.any(Function), { once: true });
+  });
+
+  // #288: local dev (and any other non-production environment) must never
+  // register the app-shell service worker — Turbopack's dev chunks aren't
+  // content-hashed the way production output is, so a cache-first SW can
+  // silently serve a pre-edit JS bundle forever.
+  it('does not register in a non-production environment (NODE_ENV unset, e.g. under vitest)', async () => {
+    const register = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('window', { addEventListener: vi.fn() });
+    vi.stubGlobal('navigator', {
+      serviceWorker: { register, getRegistrations: vi.fn().mockResolvedValue([]) },
+    });
+    vi.stubGlobal('document', { readyState: 'complete' });
+
+    const { registerServiceWorker } = await import('./service-worker');
+    registerServiceWorker();
+    await Promise.resolve();
+
+    expect(register).not.toHaveBeenCalled();
+  });
+
+  it('unregisters any existing registration and clears caches when not in production, so a stale dev registration self-heals', async () => {
+    const registrationA = { unregister: vi.fn().mockResolvedValue(true) };
+    const registrationB = { unregister: vi.fn().mockResolvedValue(true) };
+    const getRegistrations = vi.fn().mockResolvedValue([registrationA, registrationB]);
+    const cachesDelete = vi.fn().mockResolvedValue(true);
+    vi.stubEnv('NODE_ENV', 'development');
+    vi.stubGlobal('window', { addEventListener: vi.fn() });
+    vi.stubGlobal('navigator', { serviceWorker: { getRegistrations } });
+    vi.stubGlobal('document', { readyState: 'complete' });
+    vi.stubGlobal('caches', {
+      keys: vi.fn().mockResolvedValue(['storyos-shell-v1']),
+      delete: cachesDelete,
+    });
+
+    const { registerServiceWorker } = await import('./service-worker');
+    registerServiceWorker();
+    await vi.waitFor(() => expect(cachesDelete).toHaveBeenCalled());
+
+    expect(getRegistrations).toHaveBeenCalled();
+    expect(registrationA.unregister).toHaveBeenCalled();
+    expect(registrationB.unregister).toHaveBeenCalled();
+    expect(cachesDelete).toHaveBeenCalledWith('storyos-shell-v1');
+  });
+
+  it('swallows cleanup failures instead of throwing, when not in production', async () => {
+    vi.stubGlobal('window', { addEventListener: vi.fn() });
+    vi.stubGlobal('navigator', {
+      serviceWorker: { getRegistrations: vi.fn().mockRejectedValue(new Error('boom')) },
+    });
+    vi.stubGlobal('document', { readyState: 'complete' });
+
+    const { registerServiceWorker } = await import('./service-worker');
+    expect(() => registerServiceWorker()).not.toThrow();
   });
 });
 
