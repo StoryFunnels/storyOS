@@ -396,6 +396,18 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         });
         return;
       }
+      // Placeholder row (same FK reasoning as runRule() above): inserted
+      // BEFORE actions.execute() so a job it enqueues has a real
+      // automation_runs.id to reference, then updated in place below.
+      await this.db.insert(automationRuns).values({
+        id: runId,
+        automationId: rule.id,
+        workspaceId,
+        triggerRecordId: null,
+        status: 'running',
+        depth: 1,
+        durationMs: 0,
+      });
       const effects = await this.actions.execute(rule.actions as AutomationAction[], {
         workspaceId,
         databaseId: rule.databaseId,
@@ -410,32 +422,38 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         ruleId: rule.id,
         runId,
       });
-      await this.db.insert(automationRuns).values({
-        id: runId,
-        automationId: rule.id,
-        workspaceId,
-        triggerRecordId: null,
-        status: 'ok',
-        effects,
-        depth: 1,
-        durationMs: Date.now() - started,
-      });
+      await this.db
+        .update(automationRuns)
+        .set({ status: 'ok', error: null, effects, durationMs: Date.now() - started })
+        .where(eq(automationRuns.id, runId));
       await this.entitlements.recordNonAiRun(workspaceId);
       await this.db
         .update(automations)
         .set({ failureStreak: 0 })
         .where(eq(automations.id, rule.id));
     } catch (error) {
-      await this.db.insert(automationRuns).values({
-        id: runId,
-        automationId: rule.id,
-        workspaceId,
-        triggerRecordId: null,
-        status: 'error',
-        error: (error as Error).message?.slice(0, 500) ?? 'failed',
-        depth: 0,
-        durationMs: Date.now() - started,
-      });
+      const message = (error as Error).message?.slice(0, 500) ?? 'failed';
+      // Upsert: the placeholder above may or may not have landed yet
+      // (entitlements.can() can throw before it does), so this covers both —
+      // ON CONFLICT DO UPDATE is simpler here than a runRowInserted flag
+      // since runHookRule (unlike runRule) has only this one early-return
+      // before the placeholder, not several.
+      await this.db
+        .insert(automationRuns)
+        .values({
+          id: runId,
+          automationId: rule.id,
+          workspaceId,
+          triggerRecordId: null,
+          status: 'error',
+          error: message,
+          depth: 0,
+          durationMs: Date.now() - started,
+        })
+        .onConflictDoUpdate({
+          target: automationRuns.id,
+          set: { status: 'error', error: message, durationMs: Date.now() - started },
+        });
       const current = await this.db.query.automations.findFirst({
         where: eq(automations.id, rule.id),
       });
@@ -509,9 +527,18 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
     const started = Date.now();
     // MN-253: pre-minted, like startHookRun's runId — actions.execute() needs
     // it before the run row exists, to key any job it enqueues (idempotencyKey
-    // = ruleId:recordId:runId:actionIndex). Threaded into the same
-    // automationRuns.id below so a job's runId FK actually resolves to this run.
+    // = ruleId:recordId:runId:actionIndex). `automation_jobs.run_id` is a real
+    // FK against `automation_runs.id` (MN-109 found this the hard way: the
+    // registry was empty until run_agent, so `jobs.enqueue()` had never
+    // actually been reached before, and inserting the automationRuns row only
+    // AFTER actions.execute() meant the very first real job insert violated
+    // the FK — the referenced run didn't exist yet). A placeholder row is
+    // inserted at this id right before actions.execute() runs (see below) so
+    // any job it enqueues resolves; runRowInserted tracks whether that
+    // happened, so the catch block below knows whether to update it or (for
+    // an error before that point) insert it fresh, exactly as before.
     const runId = randomUUID();
+    let runRowInserted = false;
     const rule = await this.db.query.automations.findFirst({ where: eq(automations.id, ruleId) });
     if (!rule || !rule.enabled) return;
     try {
@@ -560,6 +587,21 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
+      // Placeholder row, inserted BEFORE actions.execute() so a job it
+      // enqueues (run_id → automation_runs.id) has something real to
+      // reference — see the FK note above. Updated in place below rather
+      // than inserted again either way this ends.
+      await this.db.insert(automationRuns).values({
+        id: runId,
+        automationId: ruleId,
+        workspaceId,
+        triggerRecordId: recordId,
+        status: 'running',
+        depth,
+        durationMs: 0,
+      });
+      runRowInserted = true;
+
       const effects = await this.actions.execute(rule.actions as AutomationAction[], {
         workspaceId,
         databaseId,
@@ -569,32 +611,23 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         ruleId,
         runId,
       });
-      await this.logRun(
-        ruleId,
-        workspaceId,
-        recordId,
-        'ok',
-        null,
-        effects,
-        depth,
-        Date.now() - started,
-        runId,
-      );
+      await this.db
+        .update(automationRuns)
+        .set({ status: 'ok', error: null, effects, durationMs: Date.now() - started })
+        .where(eq(automationRuns.id, runId));
       await this.entitlements.recordNonAiRun(workspaceId);
       await this.db.update(automations).set({ failureStreak: 0 }).where(eq(automations.id, ruleId));
     } catch (error) {
       const streak = rule.failureStreak + 1;
-      await this.logRun(
-        ruleId,
-        workspaceId,
-        recordId,
-        'error',
-        (error as Error).message?.slice(0, 500) ?? 'failed',
-        null,
-        depth,
-        Date.now() - started,
-        runId,
-      );
+      const message = (error as Error).message?.slice(0, 500) ?? 'failed';
+      if (runRowInserted) {
+        await this.db
+          .update(automationRuns)
+          .set({ status: 'error', error: message, durationMs: Date.now() - started })
+          .where(eq(automationRuns.id, runId));
+      } else {
+        await this.logRun(ruleId, workspaceId, recordId, 'error', message, null, depth, Date.now() - started, runId);
+      }
       await this.db
         .update(automations)
         .set({ failureStreak: streak, enabled: streak >= MAX_FAILURES ? false : undefined })
