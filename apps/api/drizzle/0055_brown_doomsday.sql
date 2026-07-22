@@ -17,11 +17,12 @@ CREATE TABLE "approvals" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+ALTER TABLE "automation_jobs" DROP CONSTRAINT "automation_jobs_run_id_automation_runs_id_fk";
+--> statement-breakpoint
 ALTER TABLE "automation_jobs" ADD COLUMN "approval_id" uuid;--> statement-breakpoint
 ALTER TABLE "automations" ADD COLUMN "approver_id" text;--> statement-breakpoint
 ALTER TABLE "notifications" ADD COLUMN "ref_id" text;--> statement-breakpoint
 ALTER TABLE "approvals" ADD CONSTRAINT "approvals_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "approvals" ADD CONSTRAINT "approvals_rule_id_automations_id_fk" FOREIGN KEY ("rule_id") REFERENCES "public"."automations"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "approvals" ADD CONSTRAINT "approvals_run_id_automation_runs_id_fk" FOREIGN KEY ("run_id") REFERENCES "public"."automation_runs"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "approvals_workspace_status_expiry_idx" ON "approvals" USING btree ("workspace_id","status","expires_at");--> statement-breakpoint
 ALTER TABLE "automation_jobs" ADD CONSTRAINT "automation_jobs_approval_id_approvals_id_fk" FOREIGN KEY ("approval_id") REFERENCES "public"."approvals"("id") ON DELETE set null ON UPDATE no action;

@@ -1129,7 +1129,17 @@ export const automationJobs = pgTable(
       .notNull()
       .references(() => workspaces.id, { onDelete: 'cascade' }),
     ruleId: uuid('rule_id').references(() => automations.id, { onDelete: 'set null' }),
-    runId: uuid('run_id').references(() => automationRuns.id, { onDelete: 'set null' }),
+    /** MN-255 fix: intentionally NOT a FK. `runId` is minted by
+     * AutomationsService BEFORE the automation_runs row exists — `runRule()`/
+     * `runHookRule()` pass the pre-minted id into `actions.execute()` and only
+     * INSERT automation_runs afterward, once execute() returns (see
+     * automations.service.ts's own comment: "actions.execute() needs it
+     * before the run row exists"). A hard FK here would make enqueue() throw
+     * a foreign-key violation for exactly the case it exists to support — a
+     * job (or, discovered via MN-255, an approval) created mid-execute(). A
+     * dangling runId (the automation_runs insert never happens, e.g. a crash)
+     * is a harmless orphan reference, not a correctness problem. */
+    runId: uuid('run_id'),
     connectionId: uuid('connection_id').references(() => connections.id, { onDelete: 'set null' }),
     /** MN-255: set only when this job was enqueued by ApprovalsService.approve()
      * — lets JobRunnerService post a follow-up "executed"/"failed" comment on
@@ -1182,7 +1192,11 @@ export const approvals = pgTable(
       .notNull()
       .references(() => workspaces.id, { onDelete: 'cascade' }),
     ruleId: uuid('rule_id').references(() => automations.id, { onDelete: 'set null' }),
-    runId: uuid('run_id').references(() => automationRuns.id, { onDelete: 'set null' }),
+    /** Not a FK — see `automationJobs.runId`'s comment: this row is inserted
+     * BY `actions.service.ts execute()`, which runs strictly before
+     * `runRule()`/`runHookRule()` insert the automation_runs row for this
+     * same `runId`. A hard FK would 500 on every gated action. */
+    runId: uuid('run_id'),
     recordId: uuid('record_id'),
     actionIndex: integer('action_index').notNull(),
     /** FROZEN rendered action — see module doc above. */

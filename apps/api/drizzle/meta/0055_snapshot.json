@@ -1,5 +1,5 @@
 {
-  "id": "e031e43d-8a88-4115-b18d-5b40a9880f29",
+  "id": "9faa9180-6a04-4b19-9229-c83fcd5c6c1a",
   "prevId": "ac9ead96-c136-493a-9eaa-10999c65cd38",
   "version": "7",
   "dialect": "postgresql",
@@ -884,19 +884,6 @@
           ],
           "onDelete": "set null",
           "onUpdate": "no action"
-        },
-        "approvals_run_id_automation_runs_id_fk": {
-          "name": "approvals_run_id_automation_runs_id_fk",
-          "tableFrom": "approvals",
-          "tableTo": "automation_runs",
-          "columnsFrom": [
-            "run_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -1209,19 +1196,6 @@
           "tableTo": "automations",
           "columnsFrom": [
             "rule_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "automation_jobs_run_id_automation_runs_id_fk": {
-          "name": "automation_jobs_run_id_automation_runs_id_fk",
-          "tableFrom": "automation_jobs",
-          "tableTo": "automation_runs",
-          "columnsFrom": [
-            "run_id"
           ],
           "columnsTo": [
             "id"
