@@ -12,15 +12,18 @@ import { z } from 'zod';
  */
 const iconValueSchema = z.string().max(48);
 
+export const databaseColorSchema = z.enum([
+  'gray', 'brown', 'gold', 'orange', 'red', 'pink', 'purple', 'blue', 'teal', 'green',
+]);
+
 export const createDatabaseSchema = z.object({
   space_id: z.uuid(),
   name: z.string().trim().min(1).max(100),
   icon: iconValueSchema.optional(),
+  /** MN-299: explicit override; DatabasesService.create() auto-assigns a
+   * random palette color when this is omitted. */
+  color: databaseColorSchema.optional(),
 });
-
-export const databaseColorSchema = z.enum([
-  'gray', 'brown', 'gold', 'orange', 'red', 'pink', 'purple', 'blue', 'teal', 'green',
-]);
 
 export const updateDatabaseSchema = z.object({
   name: z.string().trim().min(1).max(100).optional(),

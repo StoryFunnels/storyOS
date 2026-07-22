@@ -206,6 +206,7 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, ws 
           chips={(value as LinkChip[]) ?? []}
           ws={ws}
           targetDb={field.relation?.target_database_id}
+          color={field.relation?.target_database_color}
         />
       );
     case 'checkbox':

@@ -29,6 +29,9 @@ export interface Field {
     side: 'a' | 'b';
     target_database_id: string;
     target_database_name: string | null;
+    /** MN-299: the target database's palette color, for the relation chip's
+     * cylinder marker. Always resolved server-side (never null in practice). */
+    target_database_color?: string | null;
     inverse_field_id: string;
   };
 }

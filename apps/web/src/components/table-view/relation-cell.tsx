@@ -17,6 +17,41 @@ export interface LinkChip {
   number?: number | null;
 }
 
+/** Same hex values as cells.tsx's OPTION_COLORS — kept as a small local copy
+ * (mirrors nextOptionColor's comment there) so this leaf module doesn't
+ * import from cells.tsx, which already imports RelationChips from here. */
+const DB_MARKER_COLORS: Record<string, string> = {
+  gray: '#B5B0A5',
+  brown: '#8B6F47',
+  gold: '#D4A017',
+  orange: '#D97E36',
+  red: '#C0392B',
+  pink: '#C05B7E',
+  purple: '#7E5BA6',
+  blue: '#3D5296',
+  teal: '#057160',
+  green: '#2D7A4F',
+};
+
+/**
+ * Small filled "database" cylinder marker (MN-299): renders in the target
+ * database's color immediately before a relation chip's title, so users can
+ * tell which database a link points to at a glance — table cells, board
+ * cards, the relation editor's own pills, record-detail chips, and
+ * related-records panel rows all render this SAME component (never
+ * reimplemented per site). Renders nothing if no color is known.
+ */
+export function DbColorMarker({ color, className }: { color?: string | null; className?: string }) {
+  if (!color) return null;
+  const hex = DB_MARKER_COLORS[color] ?? DB_MARKER_COLORS.gray!;
+  return (
+    <svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true" className={cn('shrink-0', className)}>
+      <path d="M1 3.2v5.6C1 10 3.2 11 6 11s5-1 5-2.2V3.2" fill={hex} />
+      <ellipse cx="6" cy="3.2" rx="5" ry="2.2" fill={hex} />
+    </svg>
+  );
+}
+
 /**
  * Relation-entity chip (#281, "solid mini-tag" direction's outline half): the
  * deliberate visual inverse of OptionChip (cells.tsx) — same 4px-radius shape, but
@@ -33,13 +68,16 @@ export function RelationChip({
   title,
   href,
   className,
+  color,
 }: {
   title: string;
   href?: string;
   className?: string;
+  /** MN-299: target database color for the cylinder marker. */
+  color?: string | null;
 }) {
   const shared = cn(
-    'inline-flex max-w-40 shrink-0 items-center truncate rounded-[var(--radius-chip)] border-[1.4px] border-border-strong px-1.5 py-0.5 text-[13px] text-ink',
+    'inline-flex max-w-40 shrink-0 items-center gap-1 truncate rounded-[var(--radius-chip)] border-[1.4px] border-border-strong px-1.5 py-0.5 text-[13px] text-ink',
     className,
   );
   if (href) {
@@ -54,12 +92,14 @@ export function RelationChip({
         onClick={(e) => e.stopPropagation()}
         className={cn(shared, 'hover:border-border-strong hover:bg-hover hover:underline')}
       >
+        <DbColorMarker color={color} />
         <span className="truncate">{title || 'Untitled'}</span>
       </a>
     );
   }
   return (
     <span className={shared}>
+      <DbColorMarker color={color} />
       <span className="truncate">{title || 'Untitled'}</span>
     </span>
   );
@@ -72,6 +112,7 @@ export function RelationChips({
   max = 3,
   ws,
   targetDb,
+  color,
 }: {
   chips: LinkChip[];
   max?: number;
@@ -81,6 +122,8 @@ export function RelationChips({
    * already uses). Omit either to keep chips non-navigable (unchanged). */
   ws?: string;
   targetDb?: string;
+  /** MN-299: target database color for each chip's cylinder marker. */
+  color?: string | null;
 }) {
   const shown = chips.slice(0, max);
   const rest = chips.slice(max);
@@ -91,6 +134,7 @@ export function RelationChips({
           key={chip.id}
           title={chip.title}
           href={ws && targetDb ? recordHref(ws, targetDb, chip) : undefined}
+          color={color}
         />
       ))}
       {rest.length > 0 && (
@@ -117,11 +161,14 @@ export function SelectedRelationChip({
   ws,
   targetDb,
   onRemove,
+  color,
 }: {
   chip: LinkChip;
   ws: string;
   targetDb: string;
   onRemove: (chip: LinkChip) => void;
+  /** MN-299: target database color for the cylinder marker. */
+  color?: string | null;
 }) {
   return (
     <span className="inline-flex items-center gap-1 rounded border border-border-default bg-hover px-1.5 py-0.5 text-[12px] text-ink">
@@ -130,8 +177,9 @@ export function SelectedRelationChip({
         target="_blank"
         rel="noreferrer"
         onClick={(e) => e.stopPropagation()}
-        className="max-w-40 truncate hover:underline"
+        className="flex max-w-40 items-center gap-1 truncate hover:underline"
       >
+        <DbColorMarker color={color} />
         {chip.title || 'Untitled'}
       </a>
       <button
@@ -316,7 +364,14 @@ export function RelationEditor({
         {!single && selected.length > 0 && (
           <div className="flex flex-wrap gap-1 border-b border-border-default p-2">
             {selected.map((chip) => (
-              <SelectedRelationChip key={chip.id} chip={chip} ws={ws} targetDb={targetDb} onRemove={pick} />
+              <SelectedRelationChip
+                key={chip.id}
+                chip={chip}
+                ws={ws}
+                targetDb={targetDb}
+                onRemove={pick}
+                color={relation.target_database_color}
+              />
             ))}
           </div>
         )}
