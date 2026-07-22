@@ -5412,6 +5412,31 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/packs/preview": {
+      "post": {
+        "operationId": "PacksController_preview",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstallDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Preview what installing a manifest would do; creates nothing",
+        "tags": [
+          "packs"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/favorites": {
       "get": {
         "operationId": "FavoritesController_list",
