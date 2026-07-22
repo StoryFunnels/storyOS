@@ -180,13 +180,21 @@ export class TemplatesService {
               direction: s.direction,
             })) as never,
             hidden_field_ids: [],
-            card_field_ids: [],
+            card_field_ids: (viewDef.card_fields ?? [])
+              .map((key) => fieldIds.get(`${viewDef.database}.${key}`))
+              .filter((id): id is string => !!id),
             column_widths: {},
             ...(viewDef.group_by_field
               ? { group_by_field_id: fieldIds.get(`${viewDef.database}.${viewDef.group_by_field}`)! }
               : {}),
             ...(viewDef.date_field
               ? { date_field_id: fieldIds.get(`${viewDef.database}.${viewDef.date_field}`)! }
+              : {}),
+            ...(viewDef.start_date_field
+              ? { start_date_field_id: fieldIds.get(`${viewDef.database}.${viewDef.start_date_field}`)! }
+              : {}),
+            ...(viewDef.end_date_field
+              ? { end_date_field_id: fieldIds.get(`${viewDef.database}.${viewDef.end_date_field}`)! }
               : {}),
             ...(filters ? { filters: filters as never } : {}),
           } as never,

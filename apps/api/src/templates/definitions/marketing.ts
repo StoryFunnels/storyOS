@@ -300,6 +300,7 @@ export const videoProduction: TemplateDef = {
   views: [
     { database: 'videos', name: 'Pipeline', type: 'board', group_by_field: 'stage' },
     { database: 'videos', name: 'Publish calendar', type: 'calendar', date_field: 'publish' },
+    { database: 'videos', name: 'Video Gallery', type: 'gallery', card_fields: ['stage', 'platform', 'length'] },
     { database: 'tasks', name: 'This week', type: 'table', filters: [{ field: 'due', op: 'within', value: 'next_7_days' }] },
     { database: 'expenses', name: 'All costs', type: 'table', sorts: [{ field: 'amount', direction: 'desc' }] },
   ],
