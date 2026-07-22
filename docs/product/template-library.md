@@ -147,3 +147,45 @@ Positioning honesty: we won't out-Linear Linear for a 30-person eng org. The wed
 - Cross-pack relations (Posts→Articles, Funnels→Clients): installer creates them **only when the target database exists** in the workspace; otherwise skips with a note in the install summary.
 - Intent question = first screen of the MN-033 gallery; intents map to (template, scope) pairs; "New client" additionally pre-fills the space name and ends on the guest-invite dialog.
 - Client Space's "Requests" database exists because guests can't create records in v1 — revisit if guest-created records ever land.
+
+---
+
+## Business Pack rebuild (MN-221 / #163)
+
+#82 flagged these seven starters as too simple for real agentic work — schema and sample
+records, no automation, no agent, nothing that runs. Once MN-218's pack manifest format
+(`packages/schemas/src/packs.ts`) existed, each was rebuilt as a real Business Pack —
+carrying the same databases, relations and sample data as the template above, plus what a
+template cannot express: a workflow state with a **human gate**, a deterministic
+**automation**, and an **agent** bound to that gated state transition. They live in the
+Business Packs gallery (`GET /packs/registry`, `apps/web/.../w/[ws]/packs`) as the fuller,
+agentic alternative to the plain templates above — see `apps/api/src/packs/starter-packs.ts`
+for the manifests themselves.
+
+Every agent below is deliberately gated (`human_gate: true`): each one drafts something
+outward-facing or otherwise consequential, at exactly the transition where a person should
+decide "run this now" rather than have it fire on every record silently.
+
+| Starter (template) | Business Pack | Gated state → agent | Automation |
+|---|---|---|---|
+| Client Work | **Agency OS** (`agency-os`) | Client → *Onboarding* → **Onboarding Assistant** drafts a welcome packet | Notify on project status change |
+| Client Space | **Client Portal** (`client-portal`) | Task's Client Approval → *Waiting* → **Approval Drafter** drafts the approval-request message | Notify on deliverable status change |
+| Dev Project | **Dev Project OS** (`dev-project-os`) | Issue → *Triage* → **Triage Bot** proposes type/priority/labels | Notify when a release ships |
+| Content Pipeline | **Content Engine** (`content-engine`) | Article → *Brief* → **Draft Assistant** writes a first outline | Notify when an article's stage changes |
+| Author Studio | **Book Launch** (`book-launch`) | Chapter → *Draft* → **Revision Assistant** proposes revision notes | Notify when a chapter is finalized |
+| Coaching Practice | **Coaching OS** (`coaching-os`) | Session → *Done* → **Session Notes Assistant** drafts notes + action items | Notify on client status change |
+| Consulting | **Consulting OS** (`consulting-os`) | Proposal → *Negotiating* → **Follow-up Drafter** drafts the follow-up email | Notify on engagement status change |
+
+Deliberately out of scope for the pack rebuild:
+
+- **No cross-pack relations.** `ArchitectService.buildRelations` resolves a relation's `to`
+  only against databases *the same manifest* declares, so a relation into another pack's
+  database would 422 the moment that pack isn't already installed. Every Business Pack above
+  is self-contained and installs standalone (unlike the cross-pack relations noted above for
+  the plain templates, e.g. Funnels→Clients).
+- **No sample-record cross-links.** `packSampleRecordSchema` carries `values` only (no
+  `links`), so pack sample records are illustrative rows in various states, not a linked demo
+  dataset the way template sample records are.
+- **The intent-based onboarding flow (`INTENTS`, above) still installs the plain templates,
+  not these packs.** Rewiring "what are you working on?" to install a Business Pack instead of
+  a static template is a follow-up, not part of this rebuild — see the MN-221 PR description.
