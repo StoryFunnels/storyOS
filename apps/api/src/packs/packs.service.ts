@@ -108,6 +108,13 @@ interface LiveView {
   name: string;
   type: string;
   config: Record<string, unknown>;
+  /** Every database is provisioned with exactly one (`databases.service.ts`'s
+   * "All records"), and `ViewsService.remove` refuses to delete a database's
+   * last view. It is scaffolding, not pack content — see the doc on
+   * `computeCollisions`'s view classification and `installViews`/`uninstall`
+   * for why it is never a `collision`, never independently tracked, and never
+   * removed. */
+  isDefault?: boolean;
 }
 
 interface SliceDb {
@@ -737,7 +744,12 @@ export class PacksService {
     // database that isn't live yet previews all of its views and automations
     // as `create` without ever asking a database id that doesn't exist for
     // its children.
-    const viewNamesByDb = new Map<string, Set<string>>();
+    // Value: normalized view name → is it the database's default ("All
+    // records")? Every database is provisioned with exactly one (see
+    // `LiveView.isDefault`'s doc) — it is scaffolding, not pack content, so a
+    // planned view that matches it is never a `collision` needing a person's
+    // decision, whatever the tracked-provenance lookup would otherwise say.
+    const viewNamesByDb = new Map<string, Map<string, boolean>>();
     const automationNamesByDb = new Map<string, Set<string>>();
 
     const views: PackPreviewItem[] = [];
@@ -751,12 +763,16 @@ export class PacksService {
       let names = viewNamesByDb.get(live.id);
       if (!names) {
         const detail = await this.databases.get(membership, live.id);
-        names = new Set(
-          ((detail as unknown as { views: { name: string }[] }).views ?? []).map((v) => norm(v.name)),
+        names = new Map(
+          ((detail as unknown as { views: LiveView[] }).views ?? []).map(
+            (v) => [norm(v.name), Boolean(v.isDefault)] as const,
+          ),
         );
         viewNamesByDb.set(live.id, names);
       }
-      views.push({ name: label, action: classify('view', label, names.has(norm(planned.name))) });
+      const match = names.get(norm(planned.name));
+      const action = match === undefined ? 'create' : match ? 'reuse' : classify('view', label, true);
+      views.push({ name: label, action });
     }
 
     const automations: PackPreviewItem[] = [];
@@ -893,7 +909,11 @@ export class PacksService {
 
     const refToId = await this.readInstallRefs(membership, working, dbIds);
     const hashes = new Map<string, string>();
-    await this.installViews(membership, working, dbIds, refToId, result, viewResolutions, hashes);
+    // Entity ids never worth a `pack_install_items` row — currently just a
+    // database's default view (see `installViews`'s doc). `recordInstall`
+    // filters these out so `uninstall` never learns about them at all.
+    const untracked = new Set<string>();
+    await this.installViews(membership, working, dbIds, refToId, result, viewResolutions, hashes, untracked);
     await this.installAutomations(
       membership,
       working,
@@ -907,7 +927,7 @@ export class PacksService {
     await this.installSkills(membership, working, result, hashes);
     await this.hashInstalledAgents(membership, result, hashes);
 
-    await this.recordInstall(membership, manifest, result, existingInstall, hashes);
+    await this.recordInstall(membership, manifest, result, existingInstall, hashes, untracked);
 
     return result;
   }
@@ -1082,6 +1102,7 @@ export class PacksService {
     result: PackInstallResult,
     existingInstall: { id: string } | undefined,
     hashes: Map<string, string>,
+    untracked: Set<string> = new Set(),
   ): Promise<void> {
     let installId: string;
     if (existingInstall) {
@@ -1121,7 +1142,7 @@ export class PacksService {
     }> = [];
     const add = (kind: Kind, entries: Array<{ name: string; action: string; id: string }>) => {
       for (const entry of entries) {
-        if (entry.action === 'skipped' || !entry.id) continue;
+        if (entry.action === 'skipped' || !entry.id || untracked.has(entry.id)) continue;
         rows.push({
           packInstallId: installId,
           kind,
@@ -1198,6 +1219,20 @@ export class PacksService {
         const dbId = await this.findDbIdByName(membership, database);
         const live = dbId ? await this.findLiveView(membership, dbId, item.entityId) : undefined;
         if (!live) continue; // already gone — nothing to remove or keep
+        // Belt-and-braces: `installViews` no longer tracks a database's
+        // default view at all (see its doc), so this should be unreachable —
+        // but a database's default view must never be deleted regardless of
+        // how a row for it ended up here (`ViewsService.remove` refuses to
+        // drop a database's last view; better to say why than to 409 mid-uninstall).
+        if (live.isDefault) {
+          kept.push({
+            kind: 'view',
+            name: item.name,
+            id: item.entityId,
+            reason: "A database's default view is never removed.",
+          });
+          continue;
+        }
         if (this.hashOf({ name: live.name, type: live.type, config: live.config }) !== item.contentHash) {
           kept.push({ kind: 'view', name: item.name, id: item.entityId, reason: 'Changed since install.' });
           continue;
@@ -1441,6 +1476,7 @@ export class PacksService {
     result: PackInstallResult,
     resolutions: Map<string, PackInstallResolutions[string]> = new Map(),
     hashes: Map<string, string> = new Map(),
+    untracked: Set<string> = new Set(),
   ): Promise<void> {
     for (const planned of manifest.views) {
       const label = `${planned.database}.${planned.name}`;
@@ -1458,10 +1494,19 @@ export class PacksService {
       );
       if (existing) {
         result.views.push({ name: label, action: 'reused', id: existing.id });
-        hashes.set(
-          `view:${existing.id}`,
-          this.hashOf({ name: existing.name, type: existing.type, config: existing.config }),
-        );
+        // The database's default ("All records") is scaffolding every
+        // database has, not pack content — never hashed, never tracked as a
+        // pack_install_item (see `untracked`'s callers: `recordInstall` skips
+        // it, so `uninstall` never considers deleting it and the "a database
+        // must keep at least one view" invariant can never be in play).
+        if (existing.isDefault) {
+          untracked.add(existing.id);
+        } else {
+          hashes.set(
+            `view:${existing.id}`,
+            this.hashOf({ name: existing.name, type: existing.type, config: existing.config }),
+          );
+        }
         continue;
       }
 
