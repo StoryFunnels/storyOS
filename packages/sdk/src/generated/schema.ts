@@ -3273,6 +3273,18 @@ export interface components {
                         __keep: true;
                     };
                 };
+            } | {
+                /** @enum {string} */
+                type: "run_agent";
+                agent: string;
+                prompt?: string;
+                tool_scope?: ("read" | "write" | "admin")[];
+                /** @enum {string} */
+                target?: "trigger_record";
+                model?: string;
+                max_steps?: number;
+                max_cost_cents?: number;
+                dry_run?: boolean;
             })[];
             /** @default true */
             enabled: boolean;
@@ -3363,6 +3375,18 @@ export interface components {
                         __keep: true;
                     };
                 };
+            } | {
+                /** @enum {string} */
+                type: "run_agent";
+                agent: string;
+                prompt?: string;
+                tool_scope?: ("read" | "write" | "admin")[];
+                /** @enum {string} */
+                target?: "trigger_record";
+                model?: string;
+                max_steps?: number;
+                max_cost_cents?: number;
+                dry_run?: boolean;
             })[];
             enabled?: boolean;
             approverId?: string | null;

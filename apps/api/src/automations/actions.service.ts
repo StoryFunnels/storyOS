@@ -408,6 +408,14 @@ export class AutomationActionsService {
               databaseId: ctx.databaseId,
               recordId: ctx.record?.id ?? null,
               actorId: ctx.actorId,
+              // MN-109: carried so a run_agent executor's own record writes
+              // (via AgentsService.dispatchRun's applyProposedAction) inherit
+              // THIS call's depth rather than resetting to 0 across the queue
+              // boundary — without it, an agent write-back that re-triggers
+              // the same rule would never hit automations.service.ts's
+              // MAX_DEPTH loop guard. Harmless for every other registered
+              // kind today (none write back to records).
+              depth: ctx.depth ?? 0,
             },
           },
           idempotencyKey,

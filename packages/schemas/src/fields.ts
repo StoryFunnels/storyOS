@@ -116,6 +116,57 @@ export const actionSchema = z.discriminatedUnion('type', [
       )
       .optional(),
   }),
+  /**
+   * MN-109 Phase A: run an AI agent (the Agentic OS's Agents database, #209)
+   * from a regular automation rule or button — schedule / record event /
+   * button, as opposed to the Architect's state-transition bindings (#211).
+   * Durable-queued like any other long-running action kind (MN-253) — see
+   * job-runner.service.ts's registered 'run_agent' executor, which calls the
+   * SAME AgentsService.dispatchRun() every other trigger uses.
+   *
+   * NOTE (MN-255 integration point): once the approval-gate PR lands, spread
+   * `...gated` (its `{ require_approval }` flag) onto this variant like every
+   * other action — gating whether the run LAUNCHES. That is independent of
+   * an agent's own "Approval policy" (agent-runtime.ts's APPROVAL_POLICY_KINDS),
+   * which gates what a launched run's steps may do.
+   */
+  z.object({
+    type: z.literal('run_agent'),
+    /** Agent record's uuid or public number — resolved the same way manual runs are. */
+    agent: z.string().min(1).max(100),
+    /**
+     * Optional override for the agent's own Goal, for this run only. Phase A
+     * keeps this a static string (no {Field} interpolation yet) — becomes the
+     * runtime's `AgentRunAgent.goal` for a real driver to read.
+     */
+    prompt: z.string().max(2000).optional(),
+    /**
+     * Further caps the agent's own declared Scopes for this run only — can
+     * only narrow, never widen (ADR-0010 §2's least-privilege guarantee).
+     */
+    tool_scope: z.array(z.enum(['read', 'write', 'admin'])).max(3).optional(),
+    /**
+     * Phase A supports exactly one target: the record that fired this rule or
+     * button. There is no other addressable target yet — databases aren't
+     * records (#206) — so this is a placeholder for Phase B/C's richer picker.
+     */
+    target: z.literal('trigger_record').optional(),
+    /**
+     * Reserved for BYO/managed model selection (Phase D). Inert today — no
+     * AgentRuntime driver reads it (pickRuntime() always returns NonAiRuntime)
+     * — accepted now so a run_agent action authored against this shape doesn't
+     * need a breaking schema change once a real driver exists.
+     */
+    model: z.string().max(100).optional(),
+    /** Guardrail: stop and fail the run rather than let it run unbounded. */
+    max_steps: z.number().int().min(1).max(50).optional(),
+    /** Guardrail: refuse to execute if the run's classified cost would exceed
+     * this many cents. Only meaningful for a 'storyos_ai'-classified run. */
+    max_cost_cents: z.number().int().min(0).optional(),
+    /** Guardrail: never apply a proposed action for real — log what would
+     * happen instead (mirrors fields.service.ts's changeType dry-run shape). */
+    dry_run: z.boolean().optional(),
+  }),
 ]);
 export type AutomationAction = z.infer<typeof actionSchema>;
 
