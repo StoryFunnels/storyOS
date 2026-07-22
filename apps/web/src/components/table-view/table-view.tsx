@@ -18,6 +18,7 @@ import { AddFieldDialog } from './add-field-dialog';
 import { BatchBar } from './batch-bar';
 import { HeaderCell } from './header-cell';
 import { PASTE_WRONG_TARGET, coercePaste, resolvePasteSource } from './paste';
+import { computeRangeBounds, hasCrossedDragThreshold, parseCellDataset, type Cursor } from './range-select';
 import { RelationEditor } from './relation-cell';
 import {
   useDatabase,
@@ -34,15 +35,27 @@ import { cn } from '@/lib/utils';
 const ROW_HEIGHT = 32;
 const DEFAULT_WIDTH = 180;
 const TITLE_WIDTH = 260;
+// #296: how far the pointer has to move before a mousedown-on-a-cell turns into
+// a range-select drag rather than an ordinary click — same distance columnSensors'
+// PointerSensor below already uses for drag-to-reorder-columns.
+const DRAG_THRESHOLD = 6;
 
 // The public id renders in the row gutter (Airtable-style), not as its own column.
 const HIDDEN_TYPES = new Set(['id', 'created_by']);
 // checkbox toggles on click; rich_text edits on the record page; lookup is computed.
 const NO_EDITOR = new Set(['checkbox', 'rich_text', 'lookup', 'button', 'formula', 'created_at', 'updated_at']);
 
-interface Cursor {
-  row: number;
-  col: number;
+// #296: resolves "which cell is the pointer over right now" from raw client
+// coordinates during a drag — a mousemove event has no React target for the
+// cell you're currently hovering, unlike a click, so we read it back off the
+// DOM via the data-row/data-col attributes each cell renders below. The
+// string→number parsing itself lives in parseCellDataset (range-select.ts)
+// so it's unit-testable without a DOM.
+function cellFromPoint(x: number, y: number): Cursor | null {
+  const target = (document.elementFromPoint(x, y) as HTMLElement | null)?.closest<HTMLElement>(
+    '[data-row][data-col]',
+  );
+  return parseCellDataset(target?.dataset);
 }
 
 export function TableView({
@@ -237,15 +250,64 @@ export function TableView({
   // The rectangular cell range spanning `cursor` (the anchor) to `rangeEnd` (the
   // far corner), normalized to top-left/bottom-right. Null when there's no active
   // range — i.e. every existing single-cell code path is unaffected (MN-285).
-  const rangeBounds = useMemo(() => {
-    if (!cursor || !rangeEnd) return null;
-    return {
-      r0: Math.min(cursor.row, rangeEnd.row),
-      r1: Math.max(cursor.row, rangeEnd.row),
-      c0: Math.min(cursor.col, rangeEnd.col),
-      c1: Math.max(cursor.col, rangeEnd.col),
+  // #296: `rangeEnd` may have been set by shift+click, shift+arrow, or a mouse
+  // drag — computeRangeBounds (range-select.ts) doesn't know or care which.
+  const rangeBounds = useMemo(() => computeRangeBounds(cursor, rangeEnd), [cursor, rangeEnd]);
+
+  // #296: mousedown-on-a-cell + drag + release range selection — the mouse
+  // counterpart to MN-285's shift+click/shift+arrow, feeding the exact same
+  // cursor/rangeEnd state (not a parallel selection mechanism). A mousedown
+  // only remembers where it started; nothing changes yet, so an ordinary
+  // click (no movement past DRAG_THRESHOLD) still runs the click handler
+  // below completely untouched — including #293's relation-chip link-through
+  // and the title row's "Open" link, both of which already stop propagation
+  // on their own click today. Only once the pointer has moved past the
+  // threshold do we treat it as a real drag: anchor the range at the
+  // mousedown cell (like a fresh, non-shift click would) and grow the far
+  // corner from there as the pointer moves.
+  const dragAnchorRef = useRef<{ row: number; col: number; x: number; y: number } | null>(null);
+  const draggingRef = useRef(false);
+  // Swallows the single click that follows a real drag's mouseup, so
+  // whatever the pointer happens to land on (a cell, a relation chip, the
+  // title's "Open" link, a row button, …) doesn't also fire its own click on
+  // top of the range we just finished dragging out.
+  const suppressClickRef = useRef(false);
+  const [dragSelecting, setDragSelecting] = useState(false);
+
+  const handleDragMove = useCallback((e: MouseEvent) => {
+    const anchor = dragAnchorRef.current;
+    if (!anchor) return;
+    if (!draggingRef.current) {
+      if (!hasCrossedDragThreshold(anchor, e.clientX, e.clientY, DRAG_THRESHOLD)) return;
+      draggingRef.current = true;
+      setDragSelecting(true);
+      setEditing(false);
+      setCursor({ row: anchor.row, col: anchor.col });
+    }
+    const cell = cellFromPoint(e.clientX, e.clientY);
+    if (cell) setRangeEnd((prev) => (prev && prev.row === cell.row && prev.col === cell.col ? prev : cell));
+  }, []);
+
+  const handleDragUp = useCallback(() => {
+    window.removeEventListener('mousemove', handleDragMove);
+    window.removeEventListener('mouseup', handleDragUp);
+    if (draggingRef.current) {
+      suppressClickRef.current = true;
+      scrollRef.current?.focus();
+    }
+    draggingRef.current = false;
+    dragAnchorRef.current = null;
+    setDragSelecting(false);
+  }, [handleDragMove]);
+
+  // Belt-and-suspenders: if the component unmounts mid-drag (e.g. navigating
+  // away while the mouse is still down), don't leak the window listeners.
+  useEffect(() => {
+    return () => {
+      window.removeEventListener('mousemove', handleDragMove);
+      window.removeEventListener('mouseup', handleDragUp);
     };
-  }, [cursor, rangeEnd]);
+  }, [handleDragMove, handleDragUp]);
 
   // Copy/paste a cell value between cells (MN-15). Keeps the raw copied value +
   // source field so same-type paste is exact; falls back to the clipboard text.
@@ -477,8 +539,24 @@ export function TableView({
         className="min-h-0 flex-1 overflow-auto"
         tabIndex={0}
         onKeyDown={onKeyDown}
+        onClickCapture={(e) => {
+          // #296: swallow exactly the one click that follows a real
+          // drag-select's mouseup — see handleDragUp — regardless of what
+          // element it landed on (capture runs before any nested onClick,
+          // including the relation-chip/title-link ones that stop
+          // propagation on themselves).
+          if (suppressClickRef.current) {
+            suppressClickRef.current = false;
+            e.preventDefault();
+            e.stopPropagation();
+          }
+        }}
       >
-        <div ref={gridRef} style={{ width: totalWidth }} className="outline-none">
+        <div
+          ref={gridRef}
+          style={{ width: totalWidth }}
+          className={cn('outline-none', dragSelecting && 'select-none')}
+        >
           {/* Header */}
           <div className="sticky top-0 z-20 flex border-b border-border-default bg-app">
             <div className={cn('flex w-14 shrink-0 items-center justify-center bg-app text-[11px] font-medium text-faint', pinned && 'sticky left-0 z-30')}>
@@ -624,6 +702,11 @@ export function TableView({
                     return (
                       <div
                         key={field.id}
+                        // #296: read back by cellFromPoint during a drag, since a
+                        // mousemove event carries no React target for the cell
+                        // currently under the pointer.
+                        data-row={item.index}
+                        data-col={colIndex}
                         style={{ width: widthOf(field), ...(pinned && colIndex < frozenCount ? { left: frozenLeft(colIndex) } : {}) }}
                         className={cn(
                           'relative flex shrink-0 items-center overflow-visible border-r border-border-default px-2',
@@ -639,6 +722,22 @@ export function TableView({
                           // the frozen-column background above when both are present.
                           inRange && !isCursor && 'z-10 bg-accent-soft/60',
                         )}
+                        onMouseDown={(e) => {
+                          // A stale flag from a drag whose mouseup landed somewhere
+                          // no click event reaches (e.g. released outside the
+                          // window) shouldn't swallow a later, unrelated click.
+                          suppressClickRef.current = false;
+                          // Shift+mousedown is left alone entirely so shift+click's
+                          // own branch below (extending the range from the existing
+                          // cursor) runs exactly as before; and mousedown on a cell
+                          // that's already open for editing lets the editor's own
+                          // text-selection/caret placement happen instead of
+                          // hijacking it into a range drag.
+                          if (e.button !== 0 || e.shiftKey || isEditing) return;
+                          dragAnchorRef.current = { row: item.index, col: colIndex, x: e.clientX, y: e.clientY };
+                          window.addEventListener('mousemove', handleDragMove);
+                          window.addEventListener('mouseup', handleDragUp);
+                        }}
                         onClick={(e) => {
                           if (e.shiftKey && cursor) {
                             setRangeEnd({ row: item.index, col: colIndex });
