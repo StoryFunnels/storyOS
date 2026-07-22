@@ -152,15 +152,34 @@ describe('filtered rollups (MN-295)', () => {
     expect(await getMemberValues(alphaId)).toMatchObject({ [daysUsedOpenFieldApi]: 8 });
   });
 
-  it('is queryable/sortable the same as an unfiltered rollup (materialized into computed_values)', async () => {
+  /**
+   * NOT tested here: filtering a QUERY by a rollup field's computed VALUE
+   * (`filter: {field: <rollup>, op: 'eq', value: N}`) — that's a separate,
+   * PRE-EXISTING restriction unrelated to MN-295. query-compiler.ts's
+   * compileCondition() has never had a `case 'rollup'` (nor `case 'formula'`)
+   * in its type switch, all the way back to the file's first commit
+   * (395a611, MN-012) — confirmed by git log -p showing the `default: throw
+   * err('filters on "${def.type}" fields are not supported')` fallback
+   * unchanged since then, and by this PR's own diff touching nothing in
+   * compileCondition. Only sortExpr/fieldExpr support rollup (and formula)
+   * fields — i.e. you can sort a query by a rollup's materialized value
+   * (asserted below, and by records-query-rollup-sort.test.ts for the
+   * unfiltered case), but not filter by it. Out of scope for this ticket.
+   */
+  it('is sortable the same as an unfiltered rollup (materialized into computed_values)', async () => {
+    const beta = (
+      await inject('POST', `/workspaces/${wsId}/databases/${membersDb}/records`, { values: { name: 'Beta' } })
+    ).json();
+
     const res = await app.inject({
       method: 'POST',
       url: `/api/v1/workspaces/${wsId}/databases/${membersDb}/records/query`,
       headers: authed(admin.token),
-      payload: { filter: { field: openCountFieldApi, op: 'eq', value: 2 } },
+      payload: { sorts: [{ field: openCountFieldApi, direction: 'desc' }] },
     });
     expect(res.statusCode, res.body).toBe(201);
-    expect(res.json().data.map((r: { title: string }) => r.title)).toEqual(['Alpha']);
+    // Alpha (open_count 2) sorts above Beta (no Time Off records → 0).
+    expect(res.json().data.map((r: { id: string }) => r.id)).toEqual([alphaId, beta.id]);
   });
 
   it('recomputes when a linked record\'s FILTERED-ON field changes, even though the target field did not (reuses MN-267\'s invalidation, not a second mechanism)', async () => {
