@@ -34,6 +34,7 @@ const DAYS_FIELD_ID = 'days-field-id'; // number field on TIMEOFF_DB
 const DAYS_USED_FIELD_ID = 'days-used-field-id'; // sum rollup on MEMBERS_DB
 const COUNT_FIELD_ID = 'record-count-field-id'; // count rollup on MEMBERS_DB
 const OTHER_NUMBER_FIELD_ID = 'unrelated-number-field-id'; // a field the rollup does NOT target
+const STATE_FIELD_ID = 'state-field-id'; // a field on TIMEOFF_DB a filtered rollup reads — NOT the sum's target
 
 const RELATION = {
   id: RELATION_ID,
@@ -46,6 +47,7 @@ const RELATION = {
 const timeoffDefs: FieldDef[] = [
   { id: DAYS_FIELD_ID, api_name: 'days', type: 'number', config: {} },
   { id: OTHER_NUMBER_FIELD_ID, api_name: 'unrelated', type: 'number', config: {} },
+  { id: STATE_FIELD_ID, api_name: 'state', type: 'select', config: {} },
   { id: FIELD_A_ID, api_name: 'member', type: 'relation', config: { relation_id: RELATION_ID, side: 'a' } },
 ];
 
@@ -56,6 +58,24 @@ const membersDefsWithSumRollup: FieldDef[] = [
     api_name: 'days_used',
     type: 'rollup',
     config: { relation_field_id: FIELD_B_ID, op: 'sum', target_field_api_name: 'days' },
+  },
+];
+
+const membersDefsWithFilteredSumRollup: FieldDef[] = [
+  { id: FIELD_B_ID, api_name: 'time_off', type: 'relation', config: { relation_id: RELATION_ID, side: 'b' } },
+  {
+    id: DAYS_USED_FIELD_ID,
+    api_name: 'days_used',
+    type: 'rollup',
+    config: {
+      relation_field_id: FIELD_B_ID,
+      op: 'sum',
+      target_field_api_name: 'days',
+      // MN-295: filters on `state`, not `days` — the invalidation gap this
+      // whole feature needs to close (target-field-only invalidation would
+      // never notice a `state` flip).
+      filter: { field: 'state', op: 'neq', value: 'approved' },
+    },
   },
 ];
 
@@ -143,6 +163,57 @@ describe('RecordsService.invalidateRollupsForChange — case (a): a related reco
       databaseId: TIMEOFF_DB,
       recordId: 'timeoff-rec-1',
       changedFieldIds: [OTHER_NUMBER_FIELD_ID], // unrelated field
+    });
+
+    expect(recompute).not.toHaveBeenCalled();
+  });
+
+  it('MN-295: a filtered sum rollup recomputes when the changed field is referenced by its FILTER, even though it is not the target field', async () => {
+    const db = makeDb({ relations: [RELATION], linkedOtherIds: ['member-rec-1'] });
+    const service = makeService(db);
+    const recompute = stub(service, {
+      [TIMEOFF_DB]: timeoffDefs,
+      [MEMBERS_DB]: membersDefsWithFilteredSumRollup,
+    });
+
+    await service.invalidateRollupsForChange({
+      databaseId: TIMEOFF_DB,
+      recordId: 'timeoff-rec-1',
+      changedFieldIds: [STATE_FIELD_ID], // the FILTER's field, not the sum's target ('days')
+    });
+
+    expect(recompute).toHaveBeenCalledExactlyOnceWith(MEMBERS_DB, FIELD_B_ID, ['member-rec-1']);
+  });
+
+  it('MN-295: a filtered sum rollup still recomputes when the changed field IS the target field', async () => {
+    const db = makeDb({ relations: [RELATION], linkedOtherIds: ['member-rec-1'] });
+    const service = makeService(db);
+    const recompute = stub(service, {
+      [TIMEOFF_DB]: timeoffDefs,
+      [MEMBERS_DB]: membersDefsWithFilteredSumRollup,
+    });
+
+    await service.invalidateRollupsForChange({
+      databaseId: TIMEOFF_DB,
+      recordId: 'timeoff-rec-1',
+      changedFieldIds: [DAYS_FIELD_ID],
+    });
+
+    expect(recompute).toHaveBeenCalledExactlyOnceWith(MEMBERS_DB, FIELD_B_ID, ['member-rec-1']);
+  });
+
+  it('MN-295: a filtered sum rollup does NOT recompute when the changed field is neither the target nor referenced by the filter (no false cascade)', async () => {
+    const db = makeDb({ relations: [RELATION], linkedOtherIds: ['member-rec-1'] });
+    const service = makeService(db);
+    const recompute = stub(service, {
+      [TIMEOFF_DB]: timeoffDefs,
+      [MEMBERS_DB]: membersDefsWithFilteredSumRollup,
+    });
+
+    await service.invalidateRollupsForChange({
+      databaseId: TIMEOFF_DB,
+      recordId: 'timeoff-rec-1',
+      changedFieldIds: [OTHER_NUMBER_FIELD_ID],
     });
 
     expect(recompute).not.toHaveBeenCalled();

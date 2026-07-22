@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { OPTION_COLORS } from './cells';
-import { useDatabase } from './use-table-data';
+import { useDatabase, useMembers } from './use-table-data';
 import type { Field } from './use-table-data';
 import {
   COLOR_NAMES,
@@ -24,6 +24,11 @@ import { DraftOptionsEditor } from './option-editors';
 import { FormulaEditor } from './formula-editor';
 import { ButtonActionsEditor } from './button-actions-editor';
 import type { ButtonAction } from './button-actions-editor';
+// MN-295: reuse the SAME filter-condition builder saved views use, rather
+// than a second filter UI for the Rollup's optional filter.
+import { OPS_BY_TYPE, FilterBuilderPanel } from '../views/view-toolbar';
+import { buildFilterGroup, filterConditions, filterConnector } from '../views/filter-config';
+import type { FilterGroup } from '../views/filter-config';
 
 export function AddFieldDialog({
   ws,
@@ -50,6 +55,10 @@ export function AddFieldDialog({
   const [lookupRelationId, setLookupRelationId] = useState(initialRelationId ?? '');
   const [lookupTargetApi, setLookupTargetApi] = useState('');
   const [rollupOp, setRollupOp] = useState('count');
+  // MN-295: the rollup's optional filter, in the same {and:[...]}/{or:[...]}
+  // tree shape ViewConfig.filters already uses — collapses to `undefined`
+  // (no filter — unconditional aggregate, same as before MN-295) when empty.
+  const [rollupFilter, setRollupFilter] = useState<FilterGroup | undefined>(undefined);
   const [buttonActions, setButtonActions] = useState<ButtonAction[]>([
     { type: 'add_comment', body_template: 'Done ✅ ({Title})' },
   ]);
@@ -79,6 +88,17 @@ export function AddFieldDialog({
   const lookupTargetFields = (lookupTargetDb.data?.fields ?? []).filter((f) =>
     type === 'rollup' ? f.type === 'number' : LOOKUPABLE.has(f.type),
   );
+  // MN-295: the rollup filter builder operates over the RELATED database's
+  // fields (same "filterable" gate FiltersSection uses — OPS_BY_TYPE), and
+  // needs member names for its "me"/user-field pickers.
+  const rollupFilterableFields = (lookupTargetDb.data?.fields ?? []).filter((f) => OPS_BY_TYPE[f.type]);
+  const rollupMembers = useMembers(ws, type === 'rollup');
+  const rollupMemberList = useMemo(
+    () => (rollupMembers.data ?? []).map((m) => ({ id: m.user.id, name: m.user.name })),
+    [rollupMembers.data],
+  );
+  const rollupFilterConnector = filterConnector(rollupFilter);
+  const rollupFilterNodes = filterConditions(rollupFilter);
 
   const create = useMutation({
     mutationFn: async () => {
@@ -100,7 +120,12 @@ export function AddFieldDialog({
         type === 'lookup'
           ? { relation_field_id: lookupRelationId, target_field_api_name: lookupTargetApi }
           : type === 'rollup'
-            ? { relation_field_id: lookupRelationId, op: rollupOp, ...(lookupTargetApi ? { target_field_api_name: lookupTargetApi } : {}) }
+            ? {
+                relation_field_id: lookupRelationId,
+                op: rollupOp,
+                ...(lookupTargetApi ? { target_field_api_name: lookupTargetApi } : {}),
+                ...(rollupFilter ? { filter: rollupFilter } : {}),
+              }
           : type === 'button'
             ? { color: buttonColor, actions: buttonActions }
             : type === 'formula'
@@ -195,6 +220,7 @@ export function AddFieldDialog({
                   onChange={(e) => {
                     setLookupRelationId(e.target.value);
                     setLookupTargetApi('');
+                    setRollupFilter(undefined); // MN-295: filter fields belong to the OLD relation's target db
                   }}
                 >
                   <option value="" disabled>
@@ -226,6 +252,25 @@ export function AddFieldDialog({
                       </option>
                     ))}
                   </select>
+                </div>
+              )}
+              {type === 'rollup' && lookupRelation && (
+                <div className="flex flex-col gap-1.5">
+                  <Label>Filter (optional)</Label>
+                  <p className="text-[12px] text-faint">
+                    Only aggregate linked records matching this condition — e.g. State is not Done.
+                  </p>
+                  <div className="rounded-[var(--radius-card)] border border-border-default">
+                    <FilterBuilderPanel
+                      fields={rollupFilterableFields}
+                      members={rollupMemberList}
+                      ws={ws}
+                      connector={rollupFilterConnector}
+                      nodes={rollupFilterNodes}
+                      onNodesChange={(next) => setRollupFilter(buildFilterGroup(rollupFilterConnector, next))}
+                      onConnectorChange={(next) => setRollupFilter(buildFilterGroup(next, rollupFilterNodes))}
+                    />
+                  </div>
                 </div>
               )}
             </>
