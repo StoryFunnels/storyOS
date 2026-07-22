@@ -23,6 +23,7 @@ import { AutomationActionsService } from './actions.service';
 import { env } from '../config/env';
 import { presentActionHeaders, restoreActionHeaders } from '../common/webhook-headers';
 import { redactSecrets } from '../common/redact-secrets';
+import { MAX_FAILURES } from './constants';
 
 interface Trigger {
   type: string;
@@ -34,8 +35,6 @@ interface Trigger {
 }
 
 const MAX_DEPTH = 2;
-/** Also reused by JobRunnerService (MN-253) for a job-backed rule's failure policy. */
-export const MAX_FAILURES = 10;
 /** create()/update() apply this whenever a rule's trigger is webhook_received. */
 const HOOK_SECRET_PREFIX = 'whin_';
 

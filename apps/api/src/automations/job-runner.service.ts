@@ -18,7 +18,7 @@ import type { TokenBucketState } from '../common/token-bucket';
 import { ConnectionsService } from '../connections/connections.service';
 import { PROVIDER_REGISTRY } from '../connections/providers';
 import { NotificationsService } from '../notifications/notifications.service';
-import { MAX_FAILURES } from './automations.service';
+import { MAX_FAILURES } from './constants';
 
 type AutomationJobRow = typeof automationJobs.$inferSelect;
 
