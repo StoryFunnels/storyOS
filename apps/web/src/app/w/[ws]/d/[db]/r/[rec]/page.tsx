@@ -181,7 +181,14 @@ export default function EntityPage() {
         <div className="flex shrink-0 items-center gap-1">
           <StarButton ws={ws} rec={recordId} />
           {schemaEditable && <FieldsPopover ws={ws} db={db} fields={allFields} />}
-          <RecordActions ws={ws} db={db} rec={recordId} readOnly={readOnly} canCreate={schemaEditable} />
+          <RecordActions
+            ws={ws}
+            db={db}
+            rec={recordId}
+            readOnly={readOnly}
+            canCreate={schemaEditable}
+            isAdmin={workspace.data?.role === 'admin'}
+          />
         </div>
       </div>
 

@@ -1,10 +1,10 @@
 import { Inject, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { markdownToBlocks } from '@storyos/schemas';
 import type { TokenScope } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { databases as databasesTable, fields as fieldsTable, selectOptions } from '../db/schema';
+import { databases as databasesTable, fields as fieldsTable, records as recordsTable, selectOptions } from '../db/schema';
 import { DatabasesService } from '../databases/databases.service';
 import { FieldsService } from '../fields/fields.service';
 import { RecordsService } from '../records/records.service';
@@ -16,6 +16,8 @@ import { AutomationActionsService } from '../automations/actions.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { EntitlementsService } from '../billing/entitlements.service';
 import { AiCreditsService } from '../billing/ai-credits.service';
+import { CommentsService } from '../comments/comments.service';
+import type { CommentSegment } from '../comments/comments.service';
 import { AI_CREDIT_MARKUP_MULTIPLIER, STORYOS_AI_RUN_PLACEHOLDER_COST_CENTS } from '../billing/plans';
 import { deriveAgentPrincipal, scopeForRole } from './agent-principal';
 import {
@@ -117,6 +119,8 @@ export class AgentsService {
     private readonly entitlements: EntitlementsService,
     /** MN-188/MN-189: the prepaid-credit ledger a run_class='storyos_ai' run decrements. */
     private readonly aiCredits: AiCreditsService,
+    /** #44: posts a delegated run's outcome back onto the record it was delegated on. */
+    private readonly comments: CommentsService,
   ) {}
 
   /**
@@ -708,6 +712,99 @@ export class AgentsService {
       // the answer they asked for. Retry belongs to unattended dispatch (#212).
       retries: 0,
     });
+  }
+
+  // ── Delegate to agent (#44, the flagship integrations-directory card) ──────
+
+  /**
+   * "Delegate to agent" on a record: a manual run exactly like `run()` above,
+   * except the record the admin was looking at becomes the run's context
+   * (`inputRecordId`), and once the run finishes — succeeded, failed, or
+   * parked waiting for approval — a comment is posted back on THAT record
+   * (not just the Run) linking to the Run so its full step log is one click
+   * away. That comment-back is the whole feature: everything else here is
+   * `run()`'s existing dispatch path with a record attached.
+   *
+   * Deliberately the minimal version of "mention/assign the agent on a
+   * record": no new @mention affordance in the comment composer, no chat
+   * surface (#39) or skills catalog (#40) — just the smallest path from
+   * "pick an agent for this record" to "it worked and told me here", so the
+   * integrations-directory card is real rather than a mockup. A richer
+   * assign-by-@mention UX can replace this call site later without changing
+   * what it calls.
+   */
+  async delegate(
+    membership: Membership,
+    agentRef: string,
+    recordId: string,
+  ): Promise<ProjectedRecord> {
+    const { agentsDb, runsDb } = await this.ensurePack(membership);
+    const agentRecord = await this.resolveAgent(agentsDb.id, agentRef);
+
+    if (agentRecord.values['enabled'] !== true) {
+      throw new UnprocessableEntityException('This agent is disabled — enable it before delegating to it');
+    }
+    await this.requireLiveRecord(membership.workspaceId, recordId);
+
+    const run = await this.dispatchRun({
+      workspaceId: membership.workspaceId,
+      agentsDb,
+      runsDb,
+      agentRecord,
+      trigger: 'Manual',
+      inputRecordId: recordId,
+      owner: { userId: membership.userId, scope: scopeForRole(membership.role) },
+      retries: 0,
+    });
+
+    await this.postDelegationComment(membership.workspaceId, runsDb.id, run, agentRecord.title, recordId, membership.userId);
+    return run;
+  }
+
+  /** A record must exist, undeleted, in THIS workspace — same check comments.service.ts's #record mentions use. */
+  private async requireLiveRecord(workspaceId: string, recordId: string): Promise<void> {
+    const [row] = await this.db
+      .select({ id: recordsTable.id })
+      .from(recordsTable)
+      .innerJoin(databasesTable, eq(databasesTable.id, recordsTable.databaseId))
+      .where(
+        and(
+          eq(recordsTable.id, recordId),
+          eq(databasesTable.workspaceId, workspaceId),
+          isNull(recordsTable.deletedAt),
+        ),
+      )
+      .limit(1);
+    if (!row) throw new NotFoundException('Record not found in this workspace');
+  }
+
+  /**
+   * The "posts progress back to the record" half of delegate(). Best-effort —
+   * mirrors every other notify()-style producer in this file: a run that
+   * finished is the result the admin asked for, and a failure to comment
+   * about it must never turn that into a failed request.
+   *
+   * The comment carries a `record` segment pointing at the Run itself, so its
+   * full step log renders as a navigable chip rather than being flattened
+   * into comment text (the Run's `Steps` field is a rendered BlockNote
+   * document — round-tripping it to plain text here would be lossy, the same
+   * reasoning `StagedAction` above documents for `Pending action`).
+   */
+  private async postDelegationComment(
+    workspaceId: string,
+    runsDbId: string,
+    run: ProjectedRecord,
+    agentName: string,
+    recordId: string,
+    actorId: string,
+  ): Promise<void> {
+    const statusLabels = await this.optionLabelsById(runsDbId, 'status');
+    const status = statusLabels.get(run.values['status'] as string) ?? 'done';
+    const body: CommentSegment[] = [
+      { type: 'text', text: `🤖 Delegated to ${agentName} — ${status}. ` },
+      { type: 'record', record_id: run.id, database_id: runsDbId },
+    ];
+    await this.comments.create(workspaceId, recordId, body, actorId).catch(() => undefined);
   }
 
   // ── Approval gates (#210, ADR-0010 §4) ──────────────────────────────────────

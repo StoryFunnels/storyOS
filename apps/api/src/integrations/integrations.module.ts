@@ -13,6 +13,7 @@ import {
   GithubOAuthController,
   GithubWebhookController,
   IntegrationsController,
+  IntegrationsDirectoryController,
   LinearIntegrationsController,
   SlackIntegrationsController,
 } from './integrations.controller';
@@ -22,6 +23,7 @@ import { SlackService } from './slack.service';
 @Module({
   imports: [DatabasesModule, DocumentsModule, FieldsModule, RecordsModule, RelationsModule, WorkspacesModule, MigrationFrameworkModule],
   controllers: [
+    IntegrationsDirectoryController,
     IntegrationsController,
     GithubWebhookController,
     GithubOAuthController,

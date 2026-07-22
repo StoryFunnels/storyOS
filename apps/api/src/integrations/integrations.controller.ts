@@ -17,19 +17,82 @@ import type { FastifyReply } from 'fastify';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 import { AuthGuard } from '../auth/auth.guard';
+import { RequiresScope } from '../auth/token-scope.guard';
 import type { RawBodyRequest } from '../app.setup';
 import { env } from '../config/env';
+import { redactSecrets } from '../common/redact-secrets';
 import { MinRole, WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { GithubAppService } from './github-app.service';
 import { GithubService } from './github.service';
 import { GithubWebhookService } from './github-webhook.service';
+import { INTEGRATION_REGISTRY } from './integration-registry';
 import { LinearService } from './linear.service';
 import { SlackService } from './slack.service';
 
 /** 302 redirect via the raw Fastify reply (Nest passthrough is off under @Res). */
 function redirect(reply: FastifyReply, url: string): void {
   void reply.header('location', url).code(302).send();
+}
+
+/**
+ * The integrations directory (#44): the registry's static metadata plus each
+ * platform's live `connected` status, in one round trip — what the gallery at
+ * `/settings/integrations` renders generically instead of three separate
+ * per-platform queries. Any active member can read it (same "read what's
+ * connected, never the credential" split as `ConnectionsController.providers`);
+ * connecting/configuring still goes through each platform's own admin-only
+ * controller below.
+ *
+ * The response carries no secret-shaped fields at all today (id/label/status/
+ * connected booleans only), but it is still run through `redactSecrets` —
+ * the same utility every other integration/config response uses — so a field
+ * added here later can never silently leak a credential.
+ */
+@ApiTags('integrations')
+@UseGuards(AuthGuard, WorkspaceAccessGuard)
+@Controller('workspaces/:ws/integrations')
+export class IntegrationsDirectoryController {
+  constructor(
+    private readonly github: GithubService,
+    private readonly linear: LinearService,
+    private readonly slack: SlackService,
+  ) {}
+
+  @Get()
+  @RequiresScope('read')
+  @ApiOperation({ summary: 'Integrations directory — registry metadata + per-integration connected status' })
+  async list(@Req() req: WorkspaceRequest) {
+    const workspaceId = req.membership.workspaceId;
+    const [github, linear, slack] = await Promise.all([
+      this.github.getConfig(workspaceId),
+      this.linear.getConfig(workspaceId),
+      this.slack.getConfig(workspaceId),
+    ]);
+    const connected: Record<string, boolean> = {
+      github: Boolean(github.connected || github.has_token),
+      linear: Boolean(linear.has_key),
+      slack: Boolean(slack.has_token || slack.has_webhook),
+      // Not built yet (still `status: 'soon'` in the registry) — never connected.
+      'google-calendar': false,
+      // Built-in and always available; there is nothing to "connect".
+      'delegate-agent': true,
+    };
+    // Wire shape is snake_case (`built_by`/`auth_kind`), matching every other
+    // response in this file (has_token, default_channel, …) — the registry
+    // descriptor itself stays camelCase (ordinary TS convention) because it
+    // never leaves the server as-is.
+    const data = INTEGRATION_REGISTRY.map((d) => ({
+      id: d.id,
+      label: d.label,
+      built_by: d.builtBy,
+      description: d.description,
+      auth_kind: d.authKind,
+      status: d.status,
+      connected: connected[d.id] ?? false,
+    }));
+    return { data: redactSecrets(data) };
+  }
 }
 
 /** A state-automation entry: a state-option label, or null to disable the event. */
