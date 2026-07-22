@@ -4,7 +4,20 @@ import { useMemo, useState } from 'react';
 import { OPTION_COLORS } from '@/components/table-view/cells';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-import { ICON_BY_NAME, ICON_CATEGORIES, ICON_SET, ICON_SET_PREFIX, type IconCategory, isSetIconRef, setIconName } from './icon-set';
+import {
+  BRAND_ICON_META,
+  BRAND_ICON_PREFIX,
+  brandIconSlug,
+  brandIconSrc,
+  ICON_BY_NAME,
+  ICON_CATEGORIES,
+  ICON_SET,
+  ICON_SET_PREFIX,
+  type IconCategory,
+  isBrandIconRef,
+  isSetIconRef,
+  setIconName,
+} from './icon-set';
 
 export const COLOR_NAMES = Object.keys(OPTION_COLORS);
 
@@ -28,19 +41,33 @@ export function IconColorPicker({
   onChange: (patch: { icon?: string | null; color?: string | null }) => void;
 }) {
   const [query, setQuery] = useState('');
-  const [cat, setCat] = useState<IconCategory | 'all'>('all');
+  const [cat, setCat] = useState<IconCategory | 'all' | 'brands'>('all');
   const q = query.trim().toLowerCase();
 
+  // While searching, brand results always show alongside the curated set
+  // (#298 AC: "one search box" — no second, parallel picker UI) regardless of
+  // which category chip was last active. Browsing without a query keeps the
+  // existing per-category behaviour, plus a dedicated "Brands" chip.
   const icons = useMemo(() => {
+    if (cat === 'brands' && !q) return [];
     return ICON_SET.filter((d) => {
-      if (cat !== 'all' && !d.categories.includes(cat)) return false;
+      if (cat !== 'all' && cat !== 'brands' && !d.categories.includes(cat)) return false;
       if (!q) return true;
       return d.name.includes(q) || d.keywords.includes(q);
     });
   }, [cat, q]);
 
+  const brandIcons = useMemo(() => {
+    if (!q) return cat === 'brands' ? BRAND_ICON_META : [];
+    return BRAND_ICON_META.filter((d) => d.slug.includes(q) || d.keywords.includes(q));
+  }, [cat, q]);
+
   function pickIcon(name: string) {
     onChange({ icon: `${ICON_SET_PREFIX}${name}` });
+  }
+
+  function pickBrand(slug: string) {
+    onChange({ icon: `${BRAND_ICON_PREFIX}${slug}` });
   }
 
   return (
@@ -69,6 +96,9 @@ export function IconColorPicker({
               {c.label}
             </CatChip>
           ))}
+          <CatChip active={cat === 'brands'} onClick={() => setCat('brands')}>
+            Brands
+          </CatChip>
         </div>
       )}
       <div className="max-h-40 overflow-y-auto">
@@ -91,7 +121,26 @@ export function IconColorPicker({
               </button>
             );
           })}
-          {icons.length === 0 && <p className="col-span-8 p-2 text-[12px] text-muted">No matches.</p>}
+          {brandIcons.map((d) => {
+            const selected = brandIconSlug(icon) === d.slug;
+            return (
+              <button
+                key={d.slug}
+                type="button"
+                title={d.name}
+                className={cn(
+                  'flex h-7 w-7 items-center justify-center rounded hover:bg-hover',
+                  selected && 'bg-accent-soft ring-1 ring-[var(--accent)]',
+                )}
+                onClick={() => pickBrand(d.slug)}
+              >
+                <BrandIconImg slug={d.slug} size={16} />
+              </button>
+            );
+          })}
+          {icons.length === 0 && brandIcons.length === 0 && (
+            <p className="col-span-8 p-2 text-[12px] text-muted">No matches.</p>
+          )}
         </div>
       </div>
 
@@ -190,9 +239,35 @@ export function EntityIconChip({
 }
 
 /**
+ * A vendored brand/logo SVG (#298, apps/web/public/brand-icons/<slug>.svg),
+ * rendered via a plain `<img>` — importing ~100 marks as individual React
+ * components (the lucide `ICON_COMPONENTS` pattern) isn't practical at this
+ * scale. Sized to match the surrounding icon slot: an explicit pixel `size`,
+ * or `1em` so it scales with font-size the same way the curated set's lucide
+ * icons do when no `size` is passed.
+ *
+ * These are Simple Icons-style flat marks with no `currentColor` — the
+ * `color` picker's background tint doesn't apply to the glyph itself, so
+ * (unlike the lucide set) brand icons ignore `color` and always render at
+ * their own natural appearance.
+ */
+function BrandIconImg({ slug, size, className }: { slug: string; size?: number; className?: string }) {
+  return (
+    <img
+      src={brandIconSrc(slug)}
+      alt=""
+      draggable={false}
+      className={cn(size ? 'object-contain' : 'h-[1em] w-[1em] object-contain', className)}
+      style={size ? { width: size, height: size } : undefined}
+    />
+  );
+}
+
+/**
  * Sidebar/database glyph. Renders, in order: a curated set icon (`set:<name>`,
- * tinted by color), a legacy emoji/text string, or the fallback glyph tinted
- * by color. Set icons scale crisply to any `size`.
+ * tinted by color), a brand/logo mark (`brand:<slug>`, #298), a legacy
+ * emoji/text string, or the fallback glyph tinted by color. Set icons scale
+ * crisply to any `size`.
  *
  * #251 retired emoji from the picker and backfilled existing values to `set:`
  * refs, but this branch stays: a stray emoji can still arrive from an older
@@ -228,10 +303,19 @@ export function EntityIcon({
       </span>
     );
   }
-  // A `set:` ref that failed to resolve above (a stale/unknown curated name —
-  // e.g. from data predating a set rename) is NOT a legacy emoji glyph and
-  // must never render as visible text; fall through to `fallback` instead.
-  if (icon && !isSetIconRef(icon)) {
+  const brandSlug = brandIconSlug(icon);
+  if (brandSlug) {
+    return (
+      <span className={cn('inline-flex shrink-0 items-center justify-center', className)}>
+        <BrandIconImg slug={brandSlug} size={size} />
+      </span>
+    );
+  }
+  // A `set:`/`brand:` ref that failed to resolve above (a stale/unknown name —
+  // e.g. from data predating a set rename or a removed brand icon) is NOT a
+  // legacy emoji glyph and must never render as visible text; fall through to
+  // `fallback` instead.
+  if (icon && !isSetIconRef(icon) && !isBrandIconRef(icon)) {
     return (
       <span
         className={cn(

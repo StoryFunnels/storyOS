@@ -25,6 +25,7 @@ vi.mock('@/components/table-view/cells', () => ({
 }));
 
 const { EntityIcon, IconColorPicker } = await import('./icon-picker');
+const { BRAND_ICON_META } = await import('./icon-set');
 
 /**
  * Real render tests (react-dom/server, no extra test deps needed — jsdom/RTL
@@ -63,6 +64,59 @@ describe('IconColorPicker (#251: emoji retired from the picker)', () => {
 
   it('still offers the background colour palette', () => {
     expect(markup).toContain('Background');
+  });
+
+  it('offers a Brands chip alongside the curated categories (#298)', () => {
+    expect(markup).toContain('Brands');
+  });
+});
+
+describe('brand icon search data (#298: same search box matches slug + keywords)', () => {
+  it('a slug substring matches its own entry, mirroring the picker\'s own filter (d.slug.includes(q))', () => {
+    const q = 'git';
+    const hits = BRAND_ICON_META.filter((d) => d.slug.includes(q) || d.keywords.includes(q));
+    expect(hits.map((d) => d.slug)).toEqual(expect.arrayContaining(['github', 'gitlab']));
+  });
+
+  it('the X/Twitter entry is findable by both "x" and "twitter" (ticket-specified example)', () => {
+    const bySlug = BRAND_ICON_META.find((d) => d.slug === 'x-twitter')!;
+    expect(bySlug).toBeTruthy();
+    expect(bySlug.slug.includes('x')).toBe(true);
+    expect(bySlug.keywords.includes('twitter')).toBe(true);
+  });
+
+  it('includes the two hand-recreated StoryOS-sibling products', () => {
+    const slugs = BRAND_ICON_META.map((d) => d.slug);
+    expect(slugs).toContain('storyfunnels');
+    expect(slugs).toContain('storypages');
+  });
+
+  it('has no duplicate slugs', () => {
+    const slugs = BRAND_ICON_META.map((d) => d.slug);
+    expect(new Set(slugs).size).toBe(slugs.length);
+  });
+});
+
+describe('EntityIcon brand rendering (#298)', () => {
+  it('renders a brand: ref as an <img> pointing at its vendored SVG, not as text', () => {
+    const markup = renderToStaticMarkup(
+      createElement(EntityIcon, { icon: 'brand:github', color: null, fallback: null }),
+    );
+    expect(markup).toContain('<img');
+    expect(markup).toContain('/brand-icons/github.svg');
+    expect(markup).not.toContain('brand:github');
+  });
+
+  it('an unrecognized brand: slug renders the fallback, never the raw "brand:slug" string as text', () => {
+    const markup = renderToStaticMarkup(
+      createElement(EntityIcon, {
+        icon: 'brand:this-slug-does-not-exist',
+        color: null,
+        fallback: createElement('span', { className: 'the-fallback' }, 'FB'),
+      }),
+    );
+    expect(markup).not.toContain('brand:this-slug-does-not-exist');
+    expect(markup).toContain('the-fallback');
   });
 });
 

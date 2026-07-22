@@ -16,11 +16,16 @@
  * later without touching stored data.
  */
 import {
+  BRAND_ICON_META,
+  BRAND_ICON_PREFIX,
+  brandIconSlug,
   ICON_CATEGORIES,
   ICON_SET_META,
   ICON_SET_PREFIX,
+  isBrandIconRef,
   isSetIconRef,
   setIconName,
+  type BrandIconMeta,
   type IconCategory,
 } from '@storyos/schemas';
 import {
@@ -161,14 +166,29 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 
-export type { IconCategory };
-export { ICON_CATEGORIES, ICON_SET_PREFIX, isSetIconRef, setIconName };
+export type { IconCategory, BrandIconMeta };
+export {
+  BRAND_ICON_META,
+  BRAND_ICON_PREFIX,
+  brandIconSlug,
+  ICON_CATEGORIES,
+  ICON_SET_PREFIX,
+  isBrandIconRef,
+  isSetIconRef,
+  setIconName,
+};
 
 export interface IconDef {
   name: string;
   Icon: LucideIcon;
   categories: IconCategory[];
   keywords: string;
+}
+
+/** Public path each brand SVG is vendored at (#298) — one file per
+ * `BRAND_ICON_META` entry, named by slug. See apps/web/public/brand-icons/. */
+export function brandIconSrc(slug: string): string {
+  return `/brand-icons/${slug}.svg`;
 }
 
 /** Name → lucide-react component. The name/category/keyword data itself comes

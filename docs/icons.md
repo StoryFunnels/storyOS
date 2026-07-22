@@ -24,6 +24,28 @@ or click the icon directly in a database's header): search, browse by
 category, choose a background, and preview live. The change applies
 immediately and shows in both the header and the sidebar.
 
+## Brand icons (`brand:<slug>`)
+
+Alongside the curated `set:` icons, a second namespace covers real, recognizable
+platform logos — for cases like "this is our LinkedIn workspace" or "this
+connects to Notion" that a generic glyph can't express (#298). Written the
+same way, e.g. `{ "icon": "brand:github", "color": null }` — background colour
+doesn't apply to a brand mark's own artwork, so `color` is ignored for these.
+
+The set is ~100 third-party marks sourced from [Simple Icons](https://simpleicons.org/)
+(CC0-licensed), curated for a work-OS / marketing-agency audience — social,
+dev/eng, productivity, business/marketing, web/CMS, infra/AI, and CRM/ops
+tooling — plus two hand-recreated marks for StoryOS's own sibling products,
+`storyfunnels` and `storypages`. The SVGs are vendored one file per icon under
+`apps/web/public/brand-icons/<slug>.svg`. In the picker, the **Brands** chip
+browses the full set, and the same search box matches a brand's slug or
+keywords (e.g. `x-twitter` is findable by both "x" and "twitter").
+
+A handful of well-known marks (LinkedIn, Slack, Microsoft's and Adobe's
+product suites, AWS, Salesforce) aren't included — Simple Icons no longer
+ships them (brand-requested removals) — and were substituted with other real,
+CC0-licensed marks in the same category rather than hand-drawn from scratch.
+
 ## Available `set:` names
 
 **Work** — `briefcase`, `folder-kanban`, `layout-dashboard`, `target`, `rocket`, `flag`, `milestone`, `trophy`, `compass`, `map`, `building2`, `goal`
@@ -48,4 +70,5 @@ _The name/category/keyword data is curated in `packages/schemas/src/icons.ts`
 (the source of truth, shared by the web app, the migration backfill, and the
 MCP); `apps/web/src/components/ui/icon-set.tsx` pairs each name with its
 lucide-react component. This list is a snapshot — `list_icon_set` (MCP) is
-always current._
+always current, and now also returns the `brand:` catalog under its `brands`
+key._

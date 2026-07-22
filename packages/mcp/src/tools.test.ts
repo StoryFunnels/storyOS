@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { setIconName } from '@storyos/schemas/icons';
+import { brandIconSlug, setIconName } from '@storyos/schemas/icons';
 import { filterOpSchema, queryRecordsSchema } from '@storyos/schemas';
 import { buildIconCatalog, FILTER_GUIDE, ICON_PARAM_DESCRIPTION, mapFilterValues, OPS_BY_FIELD_TYPE, registerTools } from './tools.js';
 import type { Ctx } from './client.js';
@@ -218,6 +218,40 @@ describe('buildIconCatalog (list_icon_set, #251)', () => {
   it('has no empty categories', () => {
     for (const [label, names] of Object.entries(catalog.categories)) {
       expect(names.length, `category "${label}" is empty`).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe('buildIconCatalog brand set (list_icon_set, #298)', () => {
+  const catalog = buildIconCatalog();
+
+  it('advertises the brand: prefix', () => {
+    expect(catalog.brands.prefix).toBe('brand:');
+  });
+
+  it('includes real, recognizable platform marks plus the two StoryOS-sibling products', () => {
+    const slugs = catalog.brands.icons.map((d) => d.slug);
+    expect(slugs).toContain('github');
+    expect(slugs).toContain('notion');
+    expect(slugs).toContain('figma');
+    expect(slugs).toContain('storyfunnels');
+    expect(slugs).toContain('storypages');
+  });
+
+  it('has ~100 third-party marks plus the 2 custom ones', () => {
+    expect(catalog.brands.icons.length).toBeGreaterThanOrEqual(100);
+  });
+
+  it('every listed slug resolves back through brandIconSlug — no drift between the catalog and what the icon param accepts', () => {
+    for (const { slug } of catalog.brands.icons) {
+      expect(brandIconSlug(`brand:${slug}`)).toBe(slug);
+    }
+  });
+
+  it('every brand entry has a name and non-empty keywords', () => {
+    for (const d of catalog.brands.icons) {
+      expect(d.name.length).toBeGreaterThan(0);
+      expect(d.keywords.length).toBeGreaterThan(0);
     }
   });
 });

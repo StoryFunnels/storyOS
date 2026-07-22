@@ -7,7 +7,7 @@ import { unwrap, uploadAttachment } from './client.js';
 // schemas index into this ESM bundle inlines a CJS require('zod') that throws
 // at boot.
 import { blocksToMarkdown, markdownToBlocks } from '@storyos/schemas/markdown';
-import { ICON_CATEGORIES, ICON_SET_META, ICON_SET_PREFIX } from '@storyos/schemas/icons';
+import { BRAND_ICON_META, BRAND_ICON_PREFIX, ICON_CATEGORIES, ICON_SET_META, ICON_SET_PREFIX } from '@storyos/schemas/icons';
 // Type-only — erased at compile time, so unlike a value import this does NOT pull
 // the zod-bearing barrel into the bundle (see note above).
 import type { FilterOp } from '@storyos/schemas';
@@ -18,13 +18,20 @@ import { databaseUrl, recordUrl, viewUrl } from './links.js';
  * (#251: emoji retired as the picker option in-app; the MCP surface keeps
  * accepting it for back-compat but no longer advertises it as the default). */
 export const ICON_PARAM_DESCRIPTION =
-  'A curated icon ref, e.g. "set:rocket" — call list_icon_set for the full catalog. ' +
+  'A curated icon ref, e.g. "set:rocket" or a brand/logo ref like "brand:github" (#298) — call list_icon_set for the full catalog. ' +
   'A raw emoji (e.g. "📁") still works for backward compatibility with older data, but is not the preferred form.';
 
-/** Curated icon names grouped by category label, for the list_icon_set tool
- * (#251). Exported standalone (like mapFilterValues below) so it's testable
- * without registering a full McpServer. */
-export function buildIconCatalog(): { prefix: string; categories: Record<string, string[]> } {
+/** Curated icon names grouped by category label, plus the brand/logo set
+ * (#298), for the list_icon_set tool (#251). Both halves are read straight
+ * off @storyos/schemas/icons — the same module apps/web's icon-picker.tsx
+ * pulls from — so a new icon added there needs no changes here to show up.
+ * Exported standalone (like mapFilterValues below) so it's testable without
+ * registering a full McpServer. */
+export function buildIconCatalog(): {
+  prefix: string;
+  categories: Record<string, string[]>;
+  brands: { prefix: string; icons: { slug: string; name: string; keywords: string }[] };
+} {
   const byCategory: Record<string, string[]> = {};
   for (const cat of ICON_CATEGORIES) byCategory[cat.label] = [];
   for (const icon of ICON_SET_META) {
@@ -33,7 +40,11 @@ export function buildIconCatalog(): { prefix: string; categories: Record<string,
       (byCategory[label] ??= []).push(icon.name);
     }
   }
-  return { prefix: ICON_SET_PREFIX, categories: byCategory };
+  return {
+    prefix: ICON_SET_PREFIX,
+    categories: byCategory,
+    brands: { prefix: BRAND_ICON_PREFIX, icons: BRAND_ICON_META },
+  };
 }
 
 /** MCP text result. */
@@ -940,7 +951,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List icon set',
       description:
-        'List the curated StoryOS icon names, grouped by category, as the "set:<name>" refs accepted by the icon param on create_database, update_database, create_space and update_space (#251). Call this before setting an icon so you pick a real name.',
+        'List the curated StoryOS icon names, grouped by category, as the "set:<name>" refs accepted by the icon param on create_database, update_database, create_space and update_space (#251) — plus the "brand:<slug>" third-party/product logo set (#298, e.g. "brand:github", "brand:notion") under the `brands` key. Call this before setting an icon so you pick a real name/slug.',
       inputSchema: {},
     },
     handle<Record<string, never>>(async () => text(buildIconCatalog())),
