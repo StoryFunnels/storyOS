@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
@@ -59,6 +59,11 @@ export function BatchBar({
   const [settingField, setSettingField] = useState<Field | null>(null);
   const [linkingField, setLinkingField] = useState<Field | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // MN-294: same resolver table-view.tsx's own copy actions use, so a user-field
+  // column in the exported CSV/TSV shows the person's name, not their raw id.
+  const memberNames = useMemo(() => new Map(members.map((m) => [m.id, m.name])), [members]);
+  const resolveMemberName = useCallback((id: string) => memberNames.get(id) ?? id, [memberNames]);
 
   /** MN-197: how many of the selection already carry a value — the overwrite blast radius. */
   const overwriteCount = useMemo(() => {
@@ -182,7 +187,7 @@ export function BatchBar({
       header: ['Title', ...exportFields.map((f) => f.displayName)],
       body: selectedRows.map((r) => [
         r.title,
-        ...exportFields.map((f) => cellToText(f, r.values[f.apiName])),
+        ...exportFields.map((f) => cellToText(f, r.values[f.apiName], resolveMemberName)),
       ]),
     };
   }

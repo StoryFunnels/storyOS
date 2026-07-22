@@ -23,8 +23,23 @@ export function richTextPreview(blocks: unknown, max = 200): string {
   return out.join(' ').trim().slice(0, max);
 }
 
-/** Plain-text rendering of a cell value for the clipboard (MN-015 copy/paste). */
-export function cellToText(field: { type: string; options?: SelectOption[] }, value: unknown): string {
+/** Resolves a better-auth user id to the display name shown on screen for it;
+ * falls back to the raw id when no resolver is supplied (MN-294) or the id
+ * isn't found (e.g. a member who's left the workspace). */
+export type MemberNameResolver = (id: string) => string;
+
+/** Plain-text rendering of a cell value for the clipboard (MN-015 copy/paste).
+ *
+ * `resolveMemberName` is optional — the only caller that omits it is `paste.ts`'s
+ * cross-type coercion fallback, which is a pure module with no access to member
+ * data; that path is unrelated to MN-294 (this ticket is about the clipboard TEXT
+ * representation from `table-view.tsx`'s copy actions, which do pass a resolver).
+ */
+export function cellToText(
+  field: { type: string; options?: SelectOption[] },
+  value: unknown,
+  resolveMemberName?: MemberNameResolver,
+): string {
   if (value === undefined || value === null || value === '') return '';
   switch (field.type) {
     case 'rich_text':
@@ -40,6 +55,15 @@ export function cellToText(field: { type: string; options?: SelectOption[] }, va
     case 'relation': {
       const chips = (value as Array<{ title?: string }>) ?? [];
       return chips.map((c) => c.title ?? '').filter(Boolean).join(', ');
+    }
+    // MN-294: user ids are raw better-auth ids on the wire — copy the display
+    // name(s) shown on screen instead, comma-separated for multi-user (matching
+    // the multi_select convention above).
+    case 'user': {
+      const ids = (Array.isArray(value) ? value : [value]).filter(
+        (id): id is string => typeof id === 'string' && id.length > 0,
+      );
+      return ids.map((id) => resolveMemberName?.(id) ?? id).join(', ');
     }
     case 'date': {
       const d = new Date(String(value));
