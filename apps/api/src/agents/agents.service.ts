@@ -1,10 +1,16 @@
-import { Inject, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException, OnModuleInit, UnprocessableEntityException } from '@nestjs/common';
 import { and, eq, isNull } from 'drizzle-orm';
 import { markdownToBlocks } from '@storyos/schemas';
-import type { TokenScope } from '@storyos/schemas';
+import type { AutomationAction, TokenScope } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { databases as databasesTable, fields as fieldsTable, records as recordsTable, selectOptions } from '../db/schema';
+import {
+  databases as databasesTable,
+  fields as fieldsTable,
+  memberships as membershipsTable,
+  records as recordsTable,
+  selectOptions,
+} from '../db/schema';
 import { DatabasesService } from '../databases/databases.service';
 import { FieldsService } from '../fields/fields.service';
 import { RecordsService } from '../records/records.service';
@@ -13,6 +19,7 @@ import { RelationsService } from '../relations/relations.service';
 import { SpacesService } from '../workspaces/spaces.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { AutomationActionsService } from '../automations/actions.service';
+import { JobRunnerService } from '../automations/job-runner.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { EntitlementsService } from '../billing/entitlements.service';
 import { AiCreditsService } from '../billing/ai-credits.service';
@@ -35,8 +42,35 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 /** Base backoff between run-execution retries; doubles per attempt (#212). */
 const DEFAULT_RETRY_DELAY_MS = 50;
 
-/** The Run record's "Trigger" select labels — how a run came to be. */
-export type RunTrigger = 'Manual' | 'State change' | 'Schedule';
+/** The Run record's "Trigger" select labels — how a run came to be.
+ * 'Automation' (MN-109 Phase A) is a regular automation rule or button —
+ * schedule / record event / button — as opposed to the Architect's
+ * state-transition bindings ('State change', #212). */
+export type RunTrigger = 'Manual' | 'State change' | 'Schedule' | 'Automation';
+
+/**
+ * Guardrails a caller can layer onto a dispatch (MN-109 Phase A). All optional
+ * and additive — omitting this object entirely (every pre-existing caller)
+ * preserves dispatchRun's exact prior behavior.
+ */
+export interface DispatchRunGuardrails {
+  /** Further caps the agent's own declared Scopes for this run only — can
+   * only narrow, never widen (ADR-0010 §2). */
+  scopeCap?: string[];
+  /** If set, any proposed action whose kind isn't listed here is staged for
+   * approval regardless of the agent's own Approval policy. */
+  allowedActionKinds?: string[];
+  /** Hard cap on steps executed this attempt. Exceeding it fails the run with
+   * a clear reason rather than truncating it silently. */
+  maxSteps?: number;
+  /** Refuse to execute (Failed immediately, before any step runs) if the run's
+   * classified cost would exceed this many cents. Only meaningful for a
+   * 'storyos_ai'-classified run — non_ai/your_own_ai runs have no cost to
+   * compare against yet. */
+  maxCostCents?: number;
+  /** Never apply a proposed action for real — log what would happen instead. */
+  dryRun?: boolean;
+}
 
 /**
  * What the Run's `Pending action` holds while a run is Waiting approval (#210).
@@ -83,6 +117,11 @@ export interface DispatchRunInput {
   retryDelayMs?: number;
   /** The triggering event's depth, carried into the agent's own writes. */
   depth?: number;
+  /** MN-109 Phase A: a run_agent action's `prompt` — overrides the agent's own
+   * Goal for this run only. Undefined for every pre-existing caller. */
+  promptOverride?: string;
+  /** MN-109 Phase A guardrails — see DispatchRunGuardrails. */
+  guardrails?: DispatchRunGuardrails;
 }
 
 /**
@@ -97,7 +136,7 @@ export interface DispatchRunInput {
  * with no migration.
  */
 @Injectable()
-export class AgentsService {
+export class AgentsService implements OnModuleInit {
   /**
    * The dispatch-time runtime choice (#205). Swappable in tests, like
    * GithubService.fetcher — it is the seam a managed/BYO driver plugs into.
@@ -121,7 +160,53 @@ export class AgentsService {
     private readonly aiCredits: AiCreditsService,
     /** #44: posts a delegated run's outcome back onto the record it was delegated on. */
     private readonly comments: CommentsService,
+    /** MN-109 Phase A: the durable queue a run_agent automation action runs
+     * through — an agent run is long-running like the external kinds MN-253
+     * built this for, so it registers 'run_agent' the same way MN-256/257/
+     * 258/259/263's provider modules register theirs. */
+    private readonly jobs: JobRunnerService,
   ) {}
+
+  /** MN-109 Phase A: register the run_agent job kind at bootstrap. The moment
+   * this runs, actions.service.ts's execute() routes any `run_agent` action
+   * through the durable queue automatically (JobRunnerService.hasExecutor) —
+   * no change needed there. */
+  onModuleInit(): void {
+    this.jobs.registerExecutor(
+      'run_agent',
+      async (payload) => {
+        const action = payload['action'] as Extract<AutomationAction, { type: 'run_agent' }>;
+        const ctx = payload['ctx'] as {
+          workspaceId: string;
+          databaseId: string;
+          recordId: string | null;
+          actorId: string;
+          depth?: number;
+        };
+        const run = await this.runFromAutomation({
+          workspaceId: ctx.workspaceId,
+          agentRef: action.agent,
+          // Phase A's only supported target: the record that fired the rule
+          // or button (absent for a webhook_received rule, but run_agent is
+          // never in WEBHOOK_SAFE_ACTIONS, so that combination 422s at save
+          // time before it ever reaches here).
+          inputRecordId: ctx.recordId ?? undefined,
+          // Carries the SAME depth the rule's own actions.execute() call used
+          // (already incremented past the triggering event) — without this an
+          // agent's write-back through a job would always look like depth 0
+          // and the automations loop guard could never bound a cycle.
+          depth: ctx.depth ?? 0,
+          prompt: action.prompt,
+          toolScope: action.tool_scope,
+          maxSteps: action.max_steps,
+          maxCostCents: action.max_cost_cents,
+          dryRun: action.dry_run,
+        });
+        return { runId: run.id, status: run.values['status'] };
+      },
+      { timeoutClass: 'long' },
+    );
+  }
 
   /**
    * The pack's databases, as far as they have been provisioned. Public because
@@ -149,6 +234,26 @@ export class AgentsService {
       where: and(eq(fieldsTable.databaseId, databaseId), eq(fieldsTable.apiName, apiName)),
     });
     if (!existing) await this.fields.create(databaseId, spec);
+  }
+
+  /** Add an option to a select/multi_select field if it isn't there yet, by
+   * label — the same idempotent-backfill shape ensureField() uses, one level
+   * down (MN-109 Phase A's "Automation" Trigger option on pre-existing packs). */
+  private async ensureSelectOption(
+    databaseId: string,
+    apiName: string,
+    label: string,
+    color: string,
+  ): Promise<void> {
+    const field = await this.db.query.fields.findFirst({
+      where: and(eq(fieldsTable.databaseId, databaseId), eq(fieldsTable.apiName, apiName)),
+    });
+    if (!field) return; // field doesn't exist on this pack version — nothing to add the option to
+    const existingOptions = await this.db.query.selectOptions.findMany({
+      where: eq(selectOptions.fieldId, field.id),
+    });
+    if (existingOptions.some((o) => o.label === label)) return;
+    await this.fields.addOption(databaseId, field.id, { label, color });
   }
 
   /** label → option id for a select/multi_select field, for writing values. */
@@ -222,11 +327,14 @@ export class AgentsService {
           type: 'select',
           config: {},
           // "Manual" is the default concept — the manual run ships before the
-          // state/schedule runtimes exist (ADR-0010 §3).
+          // state/schedule runtimes exist (ADR-0010 §3). "Automation" (MN-109
+          // Phase A) is a regular rule/button, as opposed to "State change"'s
+          // dedicated bindings (#211).
           options: [
             { label: 'Manual', color: 'gray' },
             { label: 'State change', color: 'green' },
             { label: 'Schedule', color: 'purple' },
+            { label: 'Automation', color: 'teal' },
           ],
         },
         // TODO(#206): a relation to "databases" isn't possible while databases
@@ -269,6 +377,7 @@ export class AgentsService {
             { label: 'Manual', color: 'gray' },
             { label: 'State change', color: 'green' },
             { label: 'Schedule', color: 'purple' },
+            { label: 'Automation', color: 'teal' },
           ],
         },
         {
@@ -335,6 +444,16 @@ export class AgentsService {
       type: 'text',
       config: {},
     });
+
+    // MN-109 Phase A ships after Runs (#209) and Agents (#209), so a pack
+    // provisioned by an earlier release has a "Trigger" field on both Agents
+    // and Runs with only three options — back-fill "Automation" onto both,
+    // the same reasoning as "Pending action" above: without the option, a
+    // run_agent dispatch would write a null Trigger rather than a Run nobody
+    // can tell came from an automation. Idempotent, and a no-op immediately
+    // after either database was just created above (the option is already there).
+    await this.ensureSelectOption(agentsDb.id, 'trigger', 'Automation', 'teal');
+    await this.ensureSelectOption(runsDb.id, 'trigger', 'Automation', 'teal');
 
     let triggersDb = existing.triggersDb;
     if (!triggersDb) {
@@ -464,6 +583,92 @@ export class AgentsService {
   }
 
   /**
+   * The identity a run acts as when there is no calling human (ADR-0010 §2):
+   * the agent record's own creator, re-checked against CURRENT membership so
+   * a demoted or departed owner narrows or blocks the run rather than one
+   * being run under stale privilege. Shared by the state-transition
+   * dispatcher (AgentTriggerSubscriber, #212) and the run_agent automation
+   * action (MN-109 Phase A) — both dispatch with nobody at the keyboard.
+   */
+  async resolveAgentOwner(
+    workspaceId: string,
+    agentRecord: ProjectedRecord,
+  ): Promise<{ userId: string; scope: TokenScope } | null> {
+    const ownerUserId = agentRecord.created_by;
+    if (!ownerUserId) return null;
+    const membership = await this.db.query.memberships.findFirst({
+      where: and(eq(membershipsTable.workspaceId, workspaceId), eq(membershipsTable.userId, ownerUserId)),
+    });
+    if (!membership || membership.status !== 'active') return null;
+    return { userId: ownerUserId, scope: scopeForRole(membership.role) };
+  }
+
+  /**
+   * MN-109 Phase A — the run_agent automation action's entry point. Called
+   * from the job-runner executor registered in onModuleInit, once per queued
+   * `run_agent` action. Deliberately thin: resolve the agent + owner, then
+   * hand off to the SAME dispatchRun() every other trigger uses — this is a
+   * new entry surface, not a new engine.
+   *
+   * Unlike run()/delegate(), there is no admin session to authorize against:
+   * the caller is the automations engine itself, so authority comes from the
+   * agent's own owner (resolveAgentOwner), exactly like the state-transition
+   * dispatcher.
+   */
+  async runFromAutomation(input: {
+    workspaceId: string;
+    agentRef: string;
+    inputRecordId?: string;
+    depth?: number;
+    prompt?: string;
+    toolScope?: string[];
+    maxSteps?: number;
+    maxCostCents?: number;
+    dryRun?: boolean;
+  }): Promise<ProjectedRecord> {
+    const { agentsDb, runsDb } = await this.findPackDbs(input.workspaceId);
+    if (!agentsDb || !runsDb) {
+      throw new UnprocessableEntityException(
+        'The Agents pack is not provisioned in this workspace yet — run an agent manually ' +
+          '(or POST /agents/ensure) before wiring a run_agent automation to it.',
+      );
+    }
+    const agentRecord = await this.resolveAgent(agentsDb.id, input.agentRef);
+    if (agentRecord.values['enabled'] !== true) {
+      throw new UnprocessableEntityException(
+        'This agent is disabled — enable it before running it from an automation',
+      );
+    }
+    const owner = await this.resolveAgentOwner(input.workspaceId, agentRecord);
+    if (!owner) {
+      throw new UnprocessableEntityException(
+        "This agent's owner is no longer an active member of this workspace",
+      );
+    }
+
+    return this.dispatchRun({
+      workspaceId: input.workspaceId,
+      agentsDb,
+      runsDb,
+      agentRecord,
+      trigger: 'Automation',
+      inputRecordId: input.inputRecordId,
+      owner,
+      // Unattended, same as state-change dispatch: retry a transient failure
+      // twice with backoff before the Run lands as the dead-letter.
+      retries: 2,
+      depth: input.depth ?? 0,
+      promptOverride: input.prompt,
+      guardrails: {
+        scopeCap: input.toolScope,
+        maxSteps: input.maxSteps,
+        maxCostCents: input.maxCostCents,
+        dryRun: input.dryRun,
+      },
+    });
+  }
+
+  /**
    * The one path that turns "run this agent" into a Run record (#208, #212).
    *
    * Manual runs and state-change dispatch share it deliberately: the run-class
@@ -494,13 +699,24 @@ export class AgentsService {
         .filter((label): label is string => Boolean(label)),
     );
 
+    // MN-109 Phase A: a guardrail-supplied tool_scope further caps what the
+    // agent declared for THIS run only — intersection, never union, so it can
+    // only narrow (ADR-0010 §2 still holds: the ceiling is owner ∩ agent ∩ this).
+    const scopeCeiling = input.guardrails?.scopeCap;
+    const effectiveScopes = scopeCeiling
+      ? declaredScopes.filter((s) => scopeCeiling.includes(s))
+      : declaredScopes;
+
     // #207 / ADR-0010 §2: the run acts as its owner, capped by what the agent declares.
-    const principal = deriveAgentPrincipal(owner.userId, owner.scope, declaredScopes);
+    const principal = deriveAgentPrincipal(owner.userId, owner.scope, effectiveScopes);
 
     const agent: AgentRunAgent = {
       id: agentRecord.id,
       name: agentRecord.title,
-      scopes: declaredScopes,
+      // MN-109 Phase A: a run_agent action's `prompt` overrides the agent's
+      // own Goal for this run only. Undefined for every pre-existing caller.
+      goal: input.promptOverride,
+      scopes: effectiveScopes,
       targetDatabases: (agentRecord.values['target_databases'] as string | undefined) ?? undefined,
     };
 
@@ -526,20 +742,35 @@ export class AgentsService {
     const overAllowance =
       runtime.runClass === 'non_ai' && !(await this.entitlements.can(workspaceId, 'automation_run'));
 
+    // MN-109 Phase A cost-cap guardrail: refuse to even start a run whose
+    // classified cost is already known to exceed the configured ceiling.
+    // Today only 'storyos_ai' runs have a known cost (the flat MN-214r
+    // placeholder) — non_ai/your_own_ai runs have nothing to compare a cap
+    // against yet, so the guardrail is a no-op for them rather than a false
+    // block.
+    const costCapExceeded =
+      runtime.runClass === 'storyos_ai' &&
+      input.guardrails?.maxCostCents !== undefined &&
+      STORYOS_AI_RUN_PLACEHOLDER_COST_CENTS * AI_CREDIT_MARKUP_MULTIPLIER > input.guardrails.maxCostCents;
+
+    const blockedBeforeExecution = overAllowance || costCapExceeded;
+
     let run = await this.recordsService.create(
       workspaceId,
       runsDb.id,
       {
         name: `${agent.name} — ${trigger}`,
         trigger: triggerIds.get(trigger) ?? null,
-        status: statusIds.get(overAllowance ? 'Failed' : 'Running') ?? null,
+        status: statusIds.get(blockedBeforeExecution ? 'Failed' : 'Running') ?? null,
         run_class: runClassIds.get(runClassLabel) ?? null,
         started_at: new Date().toISOString(),
-        ...(overAllowance
+        ...(blockedBeforeExecution
           ? {
               finished_at: new Date().toISOString(),
               steps: markdownToBlocks(
-                '- **entitlements.blocked** — Plan automation-run allowance reached for this month',
+                overAllowance
+                  ? '- **entitlements.blocked** — Plan automation-run allowance reached for this month'
+                  : `- **guardrail.cost_cap** — Estimated run cost exceeds the configured max_cost_cents (${input.guardrails?.maxCostCents})`,
               ),
             }
           : {}),
@@ -555,7 +786,7 @@ export class AgentsService {
       // so a write-back that re-triggers is bounded by the max-depth counter.
       input.depth ?? 0,
     );
-    if (overAllowance) return run;
+    if (blockedBeforeExecution) return run;
 
     // ── Execute ───────────────────────────────────────────────────────────────
     // A runtime failure is a *run* outcome, not a request failure: it lands in
@@ -580,6 +811,37 @@ export class AgentsService {
         })) {
           attemptSteps.push(step);
 
+          // MN-109 Phase A step-cap guardrail: stop dead rather than let an
+          // unbounded loop run forever. Treated as a run failure (not a silent
+          // truncation) so it is loud where the owner will actually look.
+          if (input.guardrails?.maxSteps && attemptSteps.length > input.guardrails.maxSteps) {
+            failure = `guardrail: exceeded max_steps (${input.guardrails.maxSteps})`;
+            break;
+          }
+
+          if (!step.action) continue;
+          const kind = step.action.kind;
+
+          // MN-109 Phase A dry-run guardrail: never apply anything for real —
+          // log what WOULD have happened and keep going. Takes priority over
+          // the approval gate below: a preview has nothing to ask approval for.
+          if (input.guardrails?.dryRun) {
+            attemptSteps.push({
+              tool: 'action.dry_run',
+              summary: `Would apply (${kind}): ${step.action.summary}`,
+              detail: 'dry_run guardrail — nothing was applied',
+            });
+            continue;
+          }
+
+          // MN-109 Phase A allowed-action guardrail: an action kind outside the
+          // configured allowlist is treated exactly like an owner-gated one —
+          // staged for approval rather than refused outright, so a narrower
+          // run_agent action can still make forward progress under supervision.
+          const blockedByAllowlist = Boolean(
+            input.guardrails?.allowedActionKinds && !input.guardrails.allowedActionKinds.includes(kind),
+          );
+
           // ── The gate (ADR-0010 §4) ──────────────────────────────────────────
           // The one place a proposal becomes a fact. A step carrying an action
           // whose kind the owner gated is STAGED — written down, never run — and
@@ -587,8 +849,7 @@ export class AgentsService {
           // downstream of this: reject can guarantee "no side effects" only
           // because nothing was ever applied, and undo is possible only because
           // the apply happens later, under a human's say-so.
-          if (!step.action) continue;
-          if (approvalPolicy.has(step.action.kind)) {
+          if (approvalPolicy.has(kind) || blockedByAllowlist) {
             staged = step.action;
             // `break` inside for-await calls the generator's .return(), so the
             // runtime is disposed and its remaining steps never execute. Halting

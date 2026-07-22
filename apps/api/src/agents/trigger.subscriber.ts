@@ -1,13 +1,8 @@
-import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { and, eq } from 'drizzle-orm';
-import { DB } from '../db/db.module';
-import type { Db } from '../db/client';
-import { memberships } from '../db/schema';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { DomainEventsService } from '../events/domain-events.service';
 import type { DomainEvent } from '../events/domain-events.service';
 import { RecordsService } from '../records/records.service';
 import type { ProjectedRecord } from '../records/records.service';
-import { scopeForRole } from './agent-principal';
 import { AgentsService } from './agents.service';
 
 /**
@@ -53,7 +48,6 @@ export class AgentTriggerSubscriber implements OnModuleInit {
   cooldownMs = DEFAULT_COOLDOWN_MS;
 
   constructor(
-    @Inject(DB) private readonly db: Db,
     private readonly agents: AgentsService,
     private readonly recordsService: RecordsService,
     private readonly domainEvents: DomainEventsService,
@@ -153,7 +147,7 @@ export class AgentTriggerSubscriber implements OnModuleInit {
       // checkbox is not enabled either (same rule as the manual path).
       if (!agentRecord || agentRecord.values['enabled'] !== true) continue;
 
-      const owner = await this.resolveOwner(event.workspaceId, agentRecord);
+      const owner = await this.agents.resolveAgentOwner(event.workspaceId, agentRecord);
       if (!owner) {
         // The owner left the workspace: there is no identity to run as, and
         // running as anyone else would breach least privilege (ADR-0010 §2).
@@ -188,21 +182,6 @@ export class AgentTriggerSubscriber implements OnModuleInit {
         depth: event.depth + 1,
       });
     }
-  }
-
-  /**
-   * The identity a triggered run acts as (ADR-0010 §2). There is no caller on
-   * this path, so the owner is the agent record's creator, capped by their
-   * current workspace role — a demoted owner narrows their agents with them.
-   */
-  private async resolveOwner(workspaceId: string, agentRecord: ProjectedRecord) {
-    const ownerUserId = agentRecord.created_by;
-    if (!ownerUserId) return null;
-    const membership = await this.db.query.memberships.findFirst({
-      where: and(eq(memberships.workspaceId, workspaceId), eq(memberships.userId, ownerUserId)),
-    });
-    if (!membership || membership.status !== 'active') return null;
-    return { userId: ownerUserId, scope: scopeForRole(membership.role) };
   }
 
   /** Drop expired cooldowns so the map can't grow without bound. */

@@ -136,6 +136,7 @@ describe('Runs system database (#209, ADR-0010 §1)', () => {
       'Manual',
       'State change',
       'Schedule',
+      'Automation',
     ]);
 
     // Both pack databases live in the one "Agentic OS" space.
