@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, X } from 'lucide-react';
+import { Check, Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -232,7 +232,10 @@ export function RelationEditor({
               onClick={() => pick(row)}
             >
               <span className="truncate">{row.title || 'Untitled'}</span>
-              {!single && selectedIds.has(row.id) && <span className="text-[11px] text-muted">linked</span>}
+              {/* MN-292: mark the currently linked record(s) — previously only
+                  the multi-select case showed anything, so a single-pick
+                  relation field's picker never revealed its current value. */}
+              {selectedIds.has(row.id) && <Check className="h-3.5 w-3.5 shrink-0 text-accent" />}
             </button>
           ))}
           {showCreate ? (
