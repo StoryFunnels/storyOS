@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { architectPlanSchema } from './architect';
+import { architectPlanSchema, planAgentSchema } from './architect';
+import { skillExampleSchema } from './skills';
 import { viewTypeSchema } from './views';
 
 /**
@@ -195,6 +196,53 @@ export const packSampleRecordSchema = z.object({
 export type PackSampleRecord = z.infer<typeof packSampleRecordSchema>;
 
 /**
+ * A skill (#40), bundled into a pack.
+ *
+ * Deliberately the same shape `createSkillSchema` accepts — not a subset, not
+ * a wrapper — because #40's whole design point is that a skill is *portable
+ * prose*: no record ids, no field ids, nothing StoryOS-internal. That is
+ * exactly what a pack needs to carry one, so there is no ref-rewriting here at
+ * all (contrast `packViewSchema`/`packAutomationSchema`, which exist because
+ * their configs bury real ids). `examples` is imported from `./skills` rather
+ * than duplicated for the same reason the rest of that module gives: it is
+ * the source of truth, and copying it here is how the two would silently
+ * drift the day it grows a field.
+ */
+export const packSkillSchema = z.object({
+  name: z.string().min(1).max(100),
+  description: z.string().min(1).max(500),
+  when_to_use: z.string().min(1).max(1000),
+  instructions: z.string().min(1).max(20_000),
+  examples: z.array(skillExampleSchema).max(20).default([]),
+  allowed_tools: z.array(z.string().min(1).max(100)).max(50).default([]),
+});
+export type PackSkill = z.infer<typeof packSkillSchema>;
+
+/**
+ * An agent definition, extended with the skill names (matched against this
+ * manifest's `skills[].name`) it is meant to use.
+ *
+ * This is the ref list `packManifestSchema`'s old TODO(#40) promised, now that
+ * #40 exists — and it is an ordinary name list, not a `$ref`-pattern string,
+ * for the same reason `target_databases` is: it sits in a typed, structured
+ * slot (an array on a known shape), and `$ref` strings exist only for the
+ * opaque blobs (`packViewSchema.config`, `packAutomationSchema.trigger`/
+ * `actions`) that bury ids at arbitrary, unknowable depth.
+ *
+ * There is no live agent↔skill relation in the product yet (an Agent record
+ * has no `skills` column — see `skills.ts`'s header on why a skill is a plain
+ * table, not a provisioned "pack" database), so this is honestly declarative
+ * today: `PacksService.install` validates every name resolves to a bundled
+ * skill, but nothing yet reads it at runtime. That is the same bargain the
+ * rest of the format strikes elsewhere (`requires.ai` is a human-facing
+ * declaration, not a runtime input) rather than a gap unique to this field.
+ */
+export const packAgentSchema = planAgentSchema.extend({
+  skills: z.array(nameSchema).default([]),
+});
+export type PackAgent = z.infer<typeof packAgentSchema>;
+
+/**
  * The manifest.
  *
  * `format_version` is the *envelope* version and is not the pack's `version`:
@@ -228,25 +276,19 @@ export const packManifestSchema = architectPlanSchema.extend({
   upgrade_notes: z.string().max(5000).optional(),
   requires: packRequiresSchema.default({ connections: [], ai: 'none' }),
 
+  /**
+   * Overrides `ArchitectPlan.agents`'s element type: a pack agent carries the
+   * `skills` name list `planAgentSchema` itself has no reason to know about
+   * (the Architect proposer/build walk predates #40 and has no use for it).
+   */
+  agents: z.array(packAgentSchema).default([]),
+
   derived_fields: z.array(packDerivedFieldSchema).default([]),
   views: z.array(packViewSchema).default([]),
   automations: z.array(packAutomationSchema).default([]),
   sample_records: z.array(packSampleRecordSchema).default([]),
-
-  /**
-   * Reserved for #40. **Nothing populates or reads this yet.**
-   *
-   * ADR-0010 describes an agent's `skills` as "a relation, once #40 lands"; no
-   * Skills database, service or schema exists in the codebase today. The field
-   * is reserved rather than designed because inventing a Skills system here
-   * would prejudge #40's model, and reserved rather than omitted because the
-   * ACs bind the manifest to cover skills and a later addition must not need a
-   * `format_version` bump to do it.
-   *
-   * TODO(#40): give this an element schema and wire export/install, at which
-   * point `PackAgent.skills` becomes a ref list into it.
-   */
-  skills: z.array(z.unknown()).default([]),
+  /** Skills (#40) bundled into this pack, installed/matched by name. */
+  skills: z.array(packSkillSchema).default([]),
 });
 export type PackManifest = z.infer<typeof packManifestSchema>;
 
@@ -290,6 +332,7 @@ export const packInstallResultSchema = z.object({
   views: z.array(installedEntitySchema),
   automations: z.array(installedEntitySchema),
   sample_records: z.array(installedEntitySchema),
+  skills: z.array(installedEntitySchema),
 });
 export type PackInstallResult = z.infer<typeof packInstallResultSchema>;
 
@@ -357,6 +400,14 @@ export const packExportRequestSchema = z
      * requirement its own content proves.
      */
     connections: z.array(packConnectionSchema).default([]),
+    /**
+     * Skills to bundle, by id. Explicit rather than derived from the slice:
+     * a skill (#40) is workspace-wide, not scoped to a space or a list of
+     * database ids the way schema is, so there is no "the skills in this
+     * slice" to infer — the author picks, the same opt-in shape
+     * `include_sample_records` already uses for content that isn't schema.
+     */
+    skill_ids: z.array(z.uuid()).default([]),
   })
   .refine((v) => Boolean(v.space) !== Boolean(v.database_ids?.length), {
     message: 'specify exactly one of `space` or `database_ids`',

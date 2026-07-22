@@ -931,3 +931,170 @@ describe('preview', () => {
     expect([403, 404]).toContain(res.statusCode);
   });
 });
+
+// ── skills (#40) ─────────────────────────────────────────────────────────────
+
+/**
+ * Skills are the one manifest section with no ids to rewrite — a skill is
+ * portable prose by design (skills.ts's header) — so what's worth testing
+ * here is different from the rest of the format: explicit opt-in selection at
+ * export (a skill is workspace-wide, not scoped to a slice), idempotent
+ * install by name regardless of who created it, and the
+ * agent-declares-a-skill-name validation the manifest format adds on top of
+ * #40's own shape.
+ */
+describe('skills (#40)', () => {
+  async function createSkill(wsId: string, overrides: Record<string, unknown> = {}) {
+    const res = await as(admin.token, 'POST', `/workspaces/${wsId}/skills`, {
+      name: 'Lead triage reply drafter',
+      description: 'Drafts a first-touch reply for a new lead.',
+      when_to_use: 'When a new lead lands and needs a fast reply drafted.',
+      instructions: 'Read the lead, draft a reply, leave it for a human.',
+      examples: [],
+      allowed_tools: ['records.read'],
+      visibility: 'shared',
+      ...overrides,
+    });
+    expect(res.statusCode, res.body).toBe(201);
+    return res.json() as { id: string; name: string };
+  }
+
+  it('bundles an explicitly-requested skill into the manifest, unchanged', async () => {
+    const wsId = await newWorkspace('Skills Source');
+    await buildSourceBusinessViaApi(wsId);
+    const skill = await createSkill(wsId);
+
+    const res = await exportPack(wsId, {
+      slug: 'sales-os',
+      name: 'Sales OS',
+      version: '1.0.0',
+      summary: 'Leads and tasks',
+      space: 'Sales',
+      skill_ids: [skill.id],
+    });
+    expect(res.statusCode, res.body).toBe(201);
+    const manifest = res.json() as PackManifest;
+
+    expect(manifest.skills).toHaveLength(1);
+    expect(manifest.skills[0]).toMatchObject({
+      name: skill.name,
+      description: 'Drafts a first-touch reply for a new lead.',
+      allowed_tools: ['records.read'],
+    });
+    // Portable by design: no ref, no id, anywhere in it.
+    expect(rawUuidsIn(manifest.skills)).toEqual([]);
+  }, 60_000);
+
+  it('a skill not requested does not ride along', async () => {
+    const wsId = await newWorkspace('Skills Unrequested');
+    await buildSourceBusinessViaApi(wsId);
+    await createSkill(wsId);
+
+    const res = await exportPack(wsId, {
+      slug: 'sales-os',
+      name: 'Sales OS',
+      version: '1.0.0',
+      summary: 'Leads and tasks',
+      space: 'Sales',
+    });
+    const manifest = res.json() as PackManifest;
+    expect(manifest.skills).toEqual([]);
+  }, 60_000);
+
+  it('installs the skill as shared, and a re-install reuses it by name', async () => {
+    const sourceWs = await newWorkspace('Skills RT Source');
+    await buildSourceBusinessViaApi(sourceWs);
+    const skill = await createSkill(sourceWs);
+
+    const manifest = (
+      await exportPack(sourceWs, {
+        slug: 'sales-os',
+        name: 'Sales OS',
+        version: '1.0.0',
+        summary: 'Leads and tasks',
+        space: 'Sales',
+        skill_ids: [skill.id],
+      })
+    ).json() as PackManifest;
+
+    const targetWs = await newWorkspace('Skills RT Target');
+    const first = await installOk(targetWs, manifest);
+    expect(first.skills).toHaveLength(1);
+    expect(first.skills[0].action).toBe('created');
+
+    const installed = (await as(admin.token, 'GET', `/workspaces/${targetWs}/skills`)).json()
+      .data as Array<{ name: string; visibility: string }>;
+    expect(installed.map((s) => s.name)).toContain(skill.name);
+    expect(installed.find((s) => s.name === skill.name)!.visibility).toBe('shared');
+
+    const second = await installOk(targetWs, manifest);
+    expect(second.skills[0].action).toBe('reused');
+    const after = (await as(admin.token, 'GET', `/workspaces/${targetWs}/skills`)).json().data as unknown[];
+    expect(after).toHaveLength(installed.length); // no duplicate
+  }, 90_000);
+
+  it("an agent's skill name must resolve to a bundled skill — 422, not a silent no-op", async () => {
+    const sourceWs = await newWorkspace('Skills Validate Source');
+    await buildSourceBusinessViaApi(sourceWs);
+    const base = (
+      await exportPack(sourceWs, {
+        slug: 'sales-os',
+        name: 'Sales OS',
+        version: '1.0.0',
+        summary: 'Leads and tasks',
+        space: 'Sales',
+      })
+    ).json() as PackManifest;
+
+    const wsId = await newWorkspace('Skills Validate Target');
+    const manifest = {
+      ...base,
+      agents: base.agents.map((a) => ({ ...a, skills: ['Nonexistent Skill'] })),
+    };
+    const res = await installPack(wsId, manifest);
+    expect(res.statusCode, res.body).toBe(422);
+    expect(res.body).toContain('Nonexistent Skill');
+  }, 60_000);
+
+  it('installs cleanly when an agent declares a skill the manifest bundles', async () => {
+    const sourceWs = await newWorkspace('Skills Bound Source');
+    await buildSourceBusinessViaApi(sourceWs);
+    const skill = await createSkill(sourceWs, { name: 'Weekly status digest' });
+    const base = (
+      await exportPack(sourceWs, {
+        slug: 'sales-os',
+        name: 'Sales OS',
+        version: '1.0.0',
+        summary: 'Leads and tasks',
+        space: 'Sales',
+        skill_ids: [skill.id],
+      })
+    ).json() as PackManifest;
+
+    const wsId = await newWorkspace('Skills Bound Target');
+    const manifest = {
+      ...base,
+      agents: base.agents.map((a) => ({ ...a, skills: [skill.name] })),
+    };
+    const result = await installOk(wsId, manifest);
+    expect(result.skills).toHaveLength(1);
+    expect(result.agents.map((a: { name: string }) => a.name)).toContain('Greeter');
+  }, 60_000);
+
+  it('two requested skills with colliding names are refused at export', async () => {
+    const wsId = await newWorkspace('Skills Collide');
+    await buildSourceBusinessViaApi(wsId);
+    const a = await createSkill(wsId, { name: 'Duplicate Name' });
+    const b = await createSkill(wsId, { name: 'duplicate name' }); // same, case/space-insensitively
+
+    const res = await exportPack(wsId, {
+      slug: 'sales-os',
+      name: 'Sales OS',
+      version: '1.0.0',
+      summary: 'Leads and tasks',
+      space: 'Sales',
+      skill_ids: [a.id, b.id],
+    });
+    expect(res.statusCode, res.body).toBe(422);
+  }, 60_000);
+});
