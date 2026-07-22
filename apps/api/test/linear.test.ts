@@ -166,4 +166,16 @@ describe('Linear importer (MN-066)', () => {
     const eng1 = list.data.find((r: { title: string }) => r.title === 'Share dialog loses focus');
     expect(eng1.values.state).toBe(done);
   });
+
+  it('disconnect (MN-249) clears the API key and team filter', async () => {
+    const before = (await inject('GET', `/workspaces/${wsId}/integrations/linear`)).json();
+    expect(before.has_key).toBe(true);
+
+    const res = await inject('POST', `/workspaces/${wsId}/integrations/linear/disconnect`);
+    expect(res.statusCode, res.body).toBe(201);
+    expect(res.json()).toEqual({ team_keys: [], has_key: false });
+
+    const after = (await inject('GET', `/workspaces/${wsId}/integrations/linear`)).json();
+    expect(after.has_key).toBe(false);
+  });
 });

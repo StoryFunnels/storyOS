@@ -81,6 +81,16 @@ describe('Integrations directory (#44)', () => {
     expect(after.find((d) => d.id === 'github')?.connected).toBe(false);
   });
 
+  it('MN-249: disconnect flips a connected platform back to not-connected in the directory', async () => {
+    await as(admin.token, 'POST', `/workspaces/${wsId}/integrations/slack`, { bot_token: 'xoxb-disconnect-me' });
+    expect((await directory(admin.token)).find((d) => d.id === 'slack')?.connected).toBe(true);
+
+    const res = await as(admin.token, 'POST', `/workspaces/${wsId}/integrations/slack/disconnect`);
+    expect(res.statusCode, res.body).toBe(201);
+
+    expect((await directory(admin.token)).find((d) => d.id === 'slack')?.connected).toBe(false);
+  });
+
   it('carries the registry metadata the gallery renders generically', async () => {
     const data = await directory(admin.token);
     const github = data.find((d) => d.id === 'github');

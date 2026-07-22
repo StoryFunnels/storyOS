@@ -196,6 +196,13 @@ export class IntegrationsController {
     return this.github.sync(req.membership, req.user.id);
   }
 
+  /** MN-249: the directory's per-row "Disconnect" action — clears token/App install/repos. */
+  @Post('disconnect')
+  @ApiOperation({ summary: 'Disconnect GitHub — clears token, App installation and watched repos' })
+  disconnect(@Req() req: WorkspaceRequest) {
+    return this.github.disconnect(req.membership.workspaceId);
+  }
+
   private requireAppConfigured(): void {
     if (!this.githubApp.isConfigured()) {
       throw new NotFoundException('GitHub App connect is not configured on this server');
@@ -317,6 +324,13 @@ export class LinearIntegrationsController {
   sync(@Req() req: WorkspaceRequest) {
     return this.linear.sync(req.membership, req.user.id);
   }
+
+  /** MN-249: the directory's per-row "Disconnect" action — clears the API key + team filter. */
+  @Post('disconnect')
+  @ApiOperation({ summary: 'Disconnect Linear — clears the stored API key and team-key filter' })
+  disconnect(@Req() req: WorkspaceRequest) {
+    return this.linear.disconnect(req.membership.workspaceId);
+  }
 }
 
 /**
@@ -347,5 +361,12 @@ export class SlackIntegrationsController {
   @ApiOperation({ summary: 'Send a test message using the saved Slack config, to verify the connection' })
   sendTest(@Req() req: WorkspaceRequest) {
     return this.slack.sendMessage(req.membership.workspaceId, { text: 'StoryOS connected ✅' });
+  }
+
+  /** MN-249: the directory's per-row "Disconnect" action — clears token/webhook/channel. */
+  @Post('disconnect')
+  @ApiOperation({ summary: 'Disconnect Slack — clears the stored bot token, webhook and default channel' })
+  disconnect(@Req() req: WorkspaceRequest) {
+    return this.slack.disconnect(req.membership.workspaceId);
   }
 }

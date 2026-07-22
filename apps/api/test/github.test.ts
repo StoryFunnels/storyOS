@@ -104,4 +104,19 @@ describe('GitHub integration v1 (MN-065)', () => {
     const closed = stateField.options.find((o: { label: string }) => o.label === 'Closed').id;
     expect(issue1.values.state).toBe(closed);
   });
+
+  it('disconnect (MN-249) clears the token, repos and connected state', async () => {
+    const before = (await inject('GET', `/workspaces/${wsId}/integrations/github`)).json();
+    expect(before.has_token).toBe(true);
+
+    const res = await inject('POST', `/workspaces/${wsId}/integrations/github/disconnect`);
+    expect(res.statusCode, res.body).toBe(201);
+    expect(res.json().has_token).toBe(false);
+    expect(res.json().connected).toBe(false);
+    expect(res.json().repos).toEqual([]);
+
+    const after = (await inject('GET', `/workspaces/${wsId}/integrations/github`)).json();
+    expect(after.has_token).toBe(false);
+    expect(after.connected).toBe(false);
+  });
 });

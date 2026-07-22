@@ -75,6 +75,17 @@ export class SlackService {
     return this.present(await this.readConfig(workspaceId));
   }
 
+  /** MN-249: clear the stored bot token / webhook / default channel — back to not-connected. */
+  async disconnect(workspaceId: string) {
+    const ws = await this.db.query.workspaces.findFirst({ where: eq(workspaces.id, workspaceId) });
+    const settings = (ws?.settings ?? {}) as Record<string, unknown>;
+    await this.db
+      .update(workspaces)
+      .set({ settings: { ...settings, slack: {} } })
+      .where(eq(workspaces.id, workspaceId));
+    return this.present({});
+  }
+
   /** Client-safe view — never leaks the token or the webhook URL (which is itself a secret). */
   private present(slack: SlackConfig) {
     return {

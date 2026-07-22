@@ -203,6 +203,22 @@ export class GithubService {
   }
 
   /**
+   * MN-249: clear the stored token/App installation/repos/webhook secret so the
+   * integrations directory shows this platform as not-connected again. Watched
+   * repos and state-automation mapping are reset with it — reconnecting starts
+   * from a clean slate rather than silently resurrecting a stale repo list.
+   */
+  async disconnect(workspaceId: string) {
+    const ws = await this.db.query.workspaces.findFirst({ where: eq(workspaces.id, workspaceId) });
+    const settings = (ws?.settings ?? {}) as Record<string, unknown>;
+    await this.db
+      .update(workspaces)
+      .set({ settings: { ...settings, github: {} } })
+      .where(eq(workspaces.id, workspaceId));
+    return this.present({});
+  }
+
+  /**
    * Persist the installation id captured on the OAuth callback (#247). Kept
    * separate from `saveConfig` so the unauthenticated callback path writes only
    * this one field and can never clobber a token/secret/repo set.

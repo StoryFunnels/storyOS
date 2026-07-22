@@ -178,6 +178,17 @@ export class LinearService {
     return { team_keys: linear?.team_keys ?? [], has_key: Boolean(linear?.api_key) };
   }
 
+  /** MN-249: clear the stored API key + team-key filter — back to not-connected. */
+  async disconnect(workspaceId: string) {
+    const ws = await this.db.query.workspaces.findFirst({ where: eq(workspaces.id, workspaceId) });
+    const settings = (ws?.settings ?? {}) as Record<string, unknown>;
+    await this.db
+      .update(workspaces)
+      .set({ settings: { ...settings, linear: {} } })
+      .where(eq(workspaces.id, workspaceId));
+    return { team_keys: [], has_key: false };
+  }
+
   private async apiKey(workspaceId: string): Promise<string> {
     const ws = await this.db.query.workspaces.findFirst({ where: eq(workspaces.id, workspaceId) });
     const key = (((ws?.settings ?? {}) as Record<string, unknown>).linear as { api_key?: string })?.api_key;
