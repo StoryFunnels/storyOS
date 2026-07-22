@@ -3,11 +3,12 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Copy, CopyPlus, MoreHorizontal, SlidersHorizontal, Star, Trash2, Plus } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Bot, Copy, CopyPlus, MoreHorizontal, SlidersHorizontal, Star, Trash2, Plus } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import { Dialog, DialogTrigger } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -90,19 +91,22 @@ export function StarButton({ ws, rec }: { ws: string; rec: string }) {
   );
 }
 
-/** Header Actions menu: duplicate, copy link, delete (MN-074). */
+/** Header Actions menu: duplicate, copy link, delete (MN-074), delegate to agent (#44). */
 export function RecordActions({
   ws,
   db,
   rec,
   readOnly,
   canCreate,
+  isAdmin,
 }: {
   ws: string;
   db: string;
   rec: string;
   readOnly: boolean;
   canCreate: boolean;
+  /** #44: delegate-to-agent rides AgentsController's existing admin-only gate. */
+  isAdmin: boolean;
 }) {
   const router = useRouter();
   const qc = useQueryClient();
@@ -150,32 +154,171 @@ export function RecordActions({
     }
   };
 
+  const [delegateOpen, setDelegateOpen] = useState(false);
+
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button className="rounded p-1 text-muted hover:bg-hover hover:text-ink" title="Actions">
-          <MoreHorizontal className="h-4 w-4" />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        {canCreate && (
-          <DropdownMenuItem onSelect={() => duplicate.mutate()}>
-            <CopyPlus className="mr-2 h-3.5 w-3.5" /> Duplicate
-          </DropdownMenuItem>
-        )}
-        <DropdownMenuItem onSelect={copyLink}>
-          <Copy className="mr-2 h-3.5 w-3.5" /> Copy link
-        </DropdownMenuItem>
-        {!readOnly && (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem className="text-error" onSelect={() => remove.mutate()}>
-              <Trash2 className="mr-2 h-3.5 w-3.5" /> Delete
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button className="rounded p-1 text-muted hover:bg-hover hover:text-ink" title="Actions">
+            <MoreHorizontal className="h-4 w-4" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          {canCreate && (
+            <DropdownMenuItem onSelect={() => duplicate.mutate()}>
+              <CopyPlus className="mr-2 h-3.5 w-3.5" /> Duplicate
             </DropdownMenuItem>
-          </>
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
+          )}
+          <DropdownMenuItem onSelect={copyLink}>
+            <Copy className="mr-2 h-3.5 w-3.5" /> Copy link
+          </DropdownMenuItem>
+          {isAdmin && (
+            <DropdownMenuItem onSelect={() => setDelegateOpen(true)}>
+              <Bot className="mr-2 h-3.5 w-3.5" /> Delegate to agent
+            </DropdownMenuItem>
+          )}
+          {!readOnly && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem className="text-error" onSelect={() => remove.mutate()}>
+                <Trash2 className="mr-2 h-3.5 w-3.5" /> Delete
+              </DropdownMenuItem>
+            </>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {isAdmin && <DelegateToAgentDialog ws={ws} db={db} rec={rec} open={delegateOpen} onOpenChange={setDelegateOpen} />}
+    </>
+  );
+}
+
+interface AgentOption {
+  id: string;
+  title: string;
+}
+
+/**
+ * "Delegate to agent" (#44) — the record-side half of the integrations-
+ * directory flagship card (the settings-side half is
+ * `/settings/integrations/delegate-agent/page.tsx`). Deliberately minimal: a
+ * plain `<select>` of enabled agents (there are rarely more than a handful)
+ * and one button — the feature is the delegate call + the comment it posts
+ * back, not the picker.
+ */
+function DelegateToAgentDialog({
+  ws,
+  db,
+  rec,
+  open,
+  onOpenChange,
+}: {
+  ws: string;
+  db: string;
+  rec: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const qc = useQueryClient();
+  const [agentId, setAgentId] = useState('');
+
+  const pack = useQuery({
+    queryKey: ['agents-pack', ws],
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/agents', {
+        params: { path: { ws } },
+      } as never);
+      if (error) throw error;
+      return data as unknown as { exists: boolean; id?: string };
+    },
+    enabled: open,
+  });
+  const agentsDbId = pack.data?.exists ? pack.data.id : undefined;
+
+  const agents = useQuery({
+    queryKey: ['delegate-agent-options', ws, agentsDbId],
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/databases/{db}/records', {
+        params: { path: { ws, db: agentsDbId! }, query: { limit: 100 } },
+      } as never);
+      if (error) throw error;
+      const rows = (data as unknown as { data: Array<{ id: string; title: string; values: Record<string, unknown> }> }).data;
+      return rows.filter((r) => r.values['enabled'] === true).map((r): AgentOption => ({ id: r.id, title: r.title }));
+    },
+    enabled: open && Boolean(agentsDbId),
+  });
+
+  const delegate = useMutation({
+    mutationFn: async () => {
+      const { error } = await api.POST('/api/v1/workspaces/{ws}/agents/{agent}/delegate', {
+        params: { path: { ws, agent: agentId } },
+        body: { record_id: rec } as never,
+      } as never);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success('Delegated — the outcome will post here as a comment');
+      onOpenChange(false);
+      setAgentId('');
+      void qc.invalidateQueries({ queryKey: ['comments', ws, db, rec] });
+    },
+    onError: (error) => toast.error((error as { error?: { message?: string } })?.error?.message ?? 'Could not delegate'),
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent title="Delegate to agent">
+        <div className="flex flex-col gap-4">
+          <p className="text-[13px] text-muted">
+            The agent runs with this record as its context, through the same tool catalog a manual run uses, and
+            posts its outcome back here as a comment.
+          </p>
+          {!pack.data?.exists ? (
+            <p className="text-[13px] text-ink-secondary">
+              Agents aren&apos;t enabled yet — enable them from{' '}
+              <a href={`/w/${ws}/settings/integrations/delegate-agent`} className="text-accent hover:underline">
+                Integrations → Delegate to agent
+              </a>
+              , then create at least one enabled agent record.
+            </p>
+          ) : (agents.data ?? []).length === 0 ? (
+            <p className="text-[13px] text-ink-secondary">
+              No enabled agents yet — create one in the Agents database, or enable an existing one.
+            </p>
+          ) : (
+            <select
+              className="h-8 rounded border border-border-default bg-card px-2 text-[13px] text-ink"
+              value={agentId}
+              onChange={(e) => setAgentId(e.target.value)}
+              autoFocus
+            >
+              <option value="" disabled>
+                Choose an agent…
+              </option>
+              {(agents.data ?? []).map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.title}
+                </option>
+              ))}
+            </select>
+          )}
+          <div className="flex justify-end gap-2">
+            <DialogClose asChild>
+              <Button type="button" variant="secondary">
+                Cancel
+              </Button>
+            </DialogClose>
+            <Button
+              type="button"
+              disabled={!agentId || delegate.isPending}
+              onClick={() => delegate.mutate()}
+            >
+              {delegate.isPending ? 'Delegating…' : 'Delegate'}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

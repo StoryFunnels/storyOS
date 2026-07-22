@@ -23,6 +23,10 @@ const createTriggerSchema = z.object({
 
 class CreateAgentTriggerDto extends createZodDto(createTriggerSchema) {}
 
+/** #44: the record to delegate — becomes the run's context (`inputRecordId`). */
+const delegateSchema = z.object({ record_id: z.uuid() });
+class DelegateToAgentDto extends createZodDto(delegateSchema) {}
+
 /**
  * Agents system database (MN-214a, ADR-0010). Admin-only, mirroring the
  * integrations pack controllers. Agent *records* are managed through the normal
@@ -74,6 +78,21 @@ export class AgentsController {
   @ApiOperation({ summary: 'Run an agent manually; returns the Run record' })
   run(@Req() req: WorkspaceRequest, @Param('agent') agent: string) {
     return this.agents.run(req.membership, agent);
+  }
+
+  /**
+   * Delegate to agent (#44) — the integrations-directory flagship card: assign
+   * an agent to a record. It runs exactly like a manual run (#208), with that
+   * record as its context, and posts its outcome back on the record as a
+   * comment (with a chip linking to the full Run) once it finishes.
+   */
+  @Post(':agent/delegate')
+  @ApiParam({ name: 'agent', description: "The agent record's uuid or public number" })
+  @ApiOperation({
+    summary: 'Delegate a record to an agent — it runs with the record as context and posts progress back as a comment',
+  })
+  delegate(@Req() req: WorkspaceRequest, @Param('agent') agent: string, @Body() body: DelegateToAgentDto) {
+    return this.agents.delegate(req.membership, agent, body.record_id);
   }
 
   /**

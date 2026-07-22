@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AutomationsModule } from '../automations/automations.module';
 import { BillingModule } from '../billing/billing.module';
+import { CollaborationModule } from '../comments/collaboration.module';
 import { DatabasesModule } from '../databases/databases.module';
 import { FieldsModule } from '../fields/fields.module';
 import { NotificationsModule } from '../notifications/notifications.module';
@@ -32,11 +33,17 @@ import { AgentTriggerSubscriber } from './trigger.subscriber';
  * imports at all: it is a *client* of the very same services listed above —
  * "it needs no engine privilege the CRUD API does not already expose" — which is
  * why it lives here rather than in a module of its own.
+ *
+ * "Delegate to agent" (#44) adds one import, `CollaborationModule`, for
+ * `CommentsService` — the minimal "assign agent to record → it runs → posts
+ * progress back as a comment" path, reusing the same comment-create path a
+ * person's @mention goes through rather than inventing a second write path.
  */
 @Module({
   imports: [
     AutomationsModule,
     BillingModule,
+    CollaborationModule,
     DatabasesModule,
     FieldsModule,
     NotificationsModule,

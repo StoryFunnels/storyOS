@@ -1760,6 +1760,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/integrations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Integrations directory — registry metadata + per-integration connected status */
+        get: operations["IntegrationsDirectoryController_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/integrations/github": {
         parameters: {
             query?: never;
@@ -2115,6 +2132,23 @@ export interface paths {
         put?: never;
         /** Run an agent manually; returns the Run record */
         post: operations["AgentsController_run"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/agents/{agent}/delegate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Delegate a record to an agent — it runs with the record as context and posts progress back as a comment */
+        post: operations["AgentsController_delegate"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3156,6 +3190,10 @@ export interface components {
             state_option_id: string;
             human_gate?: boolean;
             enabled?: boolean;
+        };
+        DelegateToAgentDto: {
+            /** Format: uuid */
+            record_id: string;
         };
         ProposeDto: {
             goal: string;
@@ -6112,6 +6150,23 @@ export interface operations {
             };
         };
     };
+    IntegrationsDirectoryController_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     IntegrationsController_getConfig: {
         parameters: {
             query?: never;
@@ -6568,6 +6623,30 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AgentsController_delegate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The agent record's uuid or public number */
+                agent: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DelegateToAgentDto"];
+            };
+        };
         responses: {
             201: {
                 headers: {

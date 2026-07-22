@@ -4632,6 +4632,21 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/integrations": {
+      "get": {
+        "operationId": "IntegrationsDirectoryController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Integrations directory — registry metadata + per-integration connected status",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/integrations/github": {
       "get": {
         "operationId": "IntegrationsController_getConfig",
@@ -5178,6 +5193,41 @@
           }
         },
         "summary": "Run an agent manually; returns the Run record",
+        "tags": [
+          "agents"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/agents/{agent}/delegate": {
+      "post": {
+        "operationId": "AgentsController_delegate",
+        "parameters": [
+          {
+            "name": "agent",
+            "required": true,
+            "in": "path",
+            "description": "The agent record's uuid or public number",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DelegateToAgentDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Delegate a record to an agent — it runs with the record as context and posts progress back as a comment",
         "tags": [
           "agents"
         ]
@@ -8565,6 +8615,19 @@
           "database_id",
           "state_field_id",
           "state_option_id"
+        ]
+      },
+      "DelegateToAgentDto": {
+        "type": "object",
+        "properties": {
+          "record_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "record_id"
         ]
       },
       "ProposeDto": {
