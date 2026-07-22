@@ -20,6 +20,7 @@ import { DomainEventsService } from '../events/domain-events.service';
 import type { DomainEvent } from '../events/domain-events.service';
 import { EntitlementsService } from '../billing/entitlements.service';
 import { AutomationActionsService } from './actions.service';
+import { ApprovalsService } from './approvals.service';
 import { env } from '../config/env';
 import { presentActionHeaders, restoreActionHeaders } from '../common/webhook-headers';
 import { redactSecrets } from '../common/redact-secrets';
@@ -59,6 +60,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
     private readonly actions: AutomationActionsService,
     private readonly domainEvents: DomainEventsService,
     private readonly entitlements: EntitlementsService,
+    private readonly approvalsService: ApprovalsService,
   ) {}
 
   onModuleInit() {
@@ -97,6 +99,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
       condition?: unknown;
       actions: AutomationAction[];
       enabled?: boolean;
+      approverId?: string;
     },
     actorId: string,
   ) {
@@ -121,6 +124,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         condition: input.condition ?? null,
         actions,
         enabled: input.enabled ?? true,
+        approverId: input.approverId ?? null,
         createdBy: actorId,
         nextDueAt: input.trigger.type === 'schedule' ? this.nextDue(input.trigger) : null,
         ...(input.trigger.type === 'webhook_received' ? this.mintHook() : {}),
@@ -139,6 +143,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
       condition?: unknown;
       actions?: AutomationAction[];
       enabled?: boolean;
+      approverId?: string | null;
     },
     actorId: string,
   ) {
@@ -174,6 +179,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         condition: patch.condition === undefined ? undefined : patch.condition,
         actions,
         enabled: patch.enabled,
+        approverId: patch.approverId === undefined ? undefined : patch.approverId,
         // Re-enabling or editing resets the failure streak and reschedules.
         failureStreak: patch.enabled === true || patch.actions ? 0 : undefined,
         nextDueAt: trigger.type === 'schedule' ? this.nextDue(trigger) : null,
@@ -645,6 +651,12 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
 
   /** One scheduler pass — public so tests can invoke it directly. */
   async tick(): Promise<void> {
+    // MN-255: expire pending approvals nobody decided on within 7 days —
+    // piggybacks this tick rather than owning a second timer, same as
+    // JobRunnerService's reaper piggybacks its own tick().
+    await this.approvalsService.expireStale().catch((error: unknown) => {
+      this.logger.warn(`approval expiry sweep failed: ${String(error)}`);
+    });
     const due = await this.db.query.automations.findMany({
       where: and(
         eq(automations.enabled, true),

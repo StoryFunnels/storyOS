@@ -8,7 +8,7 @@ import {
 import { and, eq, inArray, lte, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { automationJobs, automations, connections } from '../db/schema';
+import { approvals, automationJobs, automations, connections } from '../db/schema';
 import { env } from '../config/env';
 import { redactSecrets } from '../common/redact-secrets';
 import { ProviderError } from '../common/provider-error';
@@ -18,6 +18,7 @@ import type { TokenBucketState } from '../common/token-bucket';
 import { ConnectionsService } from '../connections/connections.service';
 import { PROVIDER_REGISTRY } from '../connections/providers';
 import { NotificationsService } from '../notifications/notifications.service';
+import { CommentsService } from '../comments/comments.service';
 import { MAX_FAILURES } from './constants';
 
 type AutomationJobRow = typeof automationJobs.$inferSelect;
@@ -69,6 +70,9 @@ export interface EnqueueInput {
   ruleId: string | null;
   runId: string | null;
   connectionId?: string | null;
+  /** MN-255: set when ApprovalsService.approve() is the caller — see
+   * postApprovalOutcome() below. */
+  approvalId?: string | null;
   actionIndex: number;
   kind: string;
   payload: Record<string, unknown>;
@@ -136,6 +140,7 @@ export class JobRunnerService implements OnModuleInit, OnModuleDestroy {
     @Inject(DB) private readonly db: Db,
     private readonly connections: ConnectionsService,
     private readonly notifications: NotificationsService,
+    private readonly comments: CommentsService,
   ) {}
 
   onModuleInit() {
@@ -172,6 +177,7 @@ export class JobRunnerService implements OnModuleInit, OnModuleDestroy {
         ruleId: input.ruleId,
         runId: input.runId,
         connectionId: input.connectionId ?? null,
+        approvalId: input.approvalId ?? null,
         actionIndex: input.actionIndex,
         kind: input.kind,
         payload: input.payload,
@@ -312,9 +318,10 @@ export class JobRunnerService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async finalizeSuccess(job: AutomationJobRow, result: unknown): Promise<void> {
+    const artifact = sanitizeArtifact(result);
     await this.db
       .update(automationJobs)
-      .set({ status: 'succeeded', artifact: sanitizeArtifact(result), lastError: null })
+      .set({ status: 'succeeded', artifact, lastError: null })
       .where(eq(automationJobs.id, job.id));
     if (job.connectionId) {
       await this.db
@@ -322,6 +329,7 @@ export class JobRunnerService implements OnModuleInit, OnModuleDestroy {
         .set({ errorStreak: 0, status: 'active', lastOkAt: new Date() })
         .where(eq(connections.id, job.connectionId));
     }
+    await this.postApprovalOutcome(job, 'succeeded', artifact);
   }
 
   /** A non-retryable failure with no attempt made yet (unknown kind, deleted
@@ -332,6 +340,37 @@ export class JobRunnerService implements OnModuleInit, OnModuleDestroy {
       .set({ status: 'failed', lastError: sanitizeError(message) })
       .where(eq(automationJobs.id, job.id));
     await this.onFinalFailure(job, message);
+    await this.postApprovalOutcome(job, 'failed', message);
+  }
+
+  /**
+   * MN-255: the "Approved: …" audit comment ApprovalsService.approve() posts
+   * only says the action was queued — this is what tells the record's
+   * watchers whether it actually went out. Only fires for jobs that came from
+   * an approval (`job.approvalId` set); a normal (non-gated) queued job is
+   * unaffected. Best-effort: a comment failure must never touch the job's own
+   * succeeded/failed status, which has already been written by the time this
+   * runs.
+   */
+  private async postApprovalOutcome(
+    job: AutomationJobRow,
+    outcome: 'succeeded' | 'failed',
+    detail: unknown,
+  ): Promise<void> {
+    if (!job.approvalId) return;
+    try {
+      const approval = await this.db.query.approvals.findFirst({ where: eq(approvals.id, job.approvalId) });
+      const ctx = (job.payload as { ctx?: { recordId?: string | null } } | null)?.ctx;
+      const recordId = ctx?.recordId;
+      if (!approval?.decidedBy || !recordId) return;
+      const summary =
+        outcome === 'succeeded'
+          ? `Approved action executed successfully.${detail ? ` ${JSON.stringify(detail).slice(0, 300)}` : ''}`
+          : `Approved action failed: ${sanitizeError(String(detail))}`;
+      await this.comments.create(job.workspaceId, recordId, [{ type: 'text', text: summary }], approval.decidedBy);
+    } catch (error) {
+      this.logger.warn(`approval outcome comment failed: ${String(error)}`);
+    }
   }
 
   private async releaseWithoutAttempt(job: AutomationJobRow, nextAttemptAt: Date): Promise<void> {
@@ -361,6 +400,7 @@ export class JobRunnerService implements OnModuleInit, OnModuleDestroy {
       .set({ status: 'failed', lastError })
       .where(eq(automationJobs.id, job.id));
     await this.onFinalFailure(job, lastError);
+    await this.postApprovalOutcome(job, 'failed', lastError);
   }
 
   private async bumpConnectionErrorStreak(connectionId: string): Promise<void> {

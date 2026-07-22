@@ -33,9 +33,10 @@ describe('buildIdempotencyKey (MN-253)', () => {
  */
 describe('JobRunnerService executor registry (no DB)', () => {
   function newService(): JobRunnerService {
-    // DB/ConnectionsService/NotificationsService are never touched by
-    // registerExecutor/hasExecutor — safe to pass placeholders.
+    // DB/ConnectionsService/NotificationsService/CommentsService are never
+    // touched by registerExecutor/hasExecutor — safe to pass placeholders.
     return new JobRunnerService(
+      undefined as never,
       undefined as never,
       undefined as never,
       undefined as never,

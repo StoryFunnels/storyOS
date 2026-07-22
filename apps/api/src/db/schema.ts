@@ -522,6 +522,10 @@ export const automations = pgTable(
     hookSecret: text('hook_secret'),
     lastHookPayload: jsonb('last_hook_payload'),
     lastHookAt: timestamp('last_hook_at', { withTimezone: true }),
+    /** MN-255: per-rule override of who approves a gated action this rule fires.
+     * Defaults to `createdBy` (the rule owner) when null — see
+     * ApprovalsService.approverFor(). */
+    approverId: text('approver_id'),
     ...timestamps,
   },
   (t) => [index('automations_database_idx').on(t.databaseId, t.enabled)],
@@ -647,6 +651,12 @@ export const notifications = pgTable(
     recordId: uuid('record_id').references(() => records.id, { onDelete: 'cascade' }),
     actorId: text('actor_id'),
     type: text('type').notNull(),
+    /** MN-255: a loose (no FK — the referent varies by `type`) pointer to the
+     * entity a notification is actionable against, when that isn't `recordId`
+     * itself. `action_approval_requested` sets this to `approvals.id`, since
+     * the triggering record (`recordId`, shown for context) and the thing the
+     * Inbox card actually approves/rejects (this) are different rows. */
+    refId: text('ref_id'),
     snippet: text('snippet'),
     count: integer('count').notNull().default(1),
     readAt: timestamp('read_at', { withTimezone: true }),
@@ -1119,8 +1129,23 @@ export const automationJobs = pgTable(
       .notNull()
       .references(() => workspaces.id, { onDelete: 'cascade' }),
     ruleId: uuid('rule_id').references(() => automations.id, { onDelete: 'set null' }),
-    runId: uuid('run_id').references(() => automationRuns.id, { onDelete: 'set null' }),
+    /** MN-255 fix: intentionally NOT a FK. `runId` is minted by
+     * AutomationsService BEFORE the automation_runs row exists — `runRule()`/
+     * `runHookRule()` pass the pre-minted id into `actions.execute()` and only
+     * INSERT automation_runs afterward, once execute() returns (see
+     * automations.service.ts's own comment: "actions.execute() needs it
+     * before the run row exists"). A hard FK here would make enqueue() throw
+     * a foreign-key violation for exactly the case it exists to support — a
+     * job (or, discovered via MN-255, an approval) created mid-execute(). A
+     * dangling runId (the automation_runs insert never happens, e.g. a crash)
+     * is a harmless orphan reference, not a correctness problem. */
+    runId: uuid('run_id'),
     connectionId: uuid('connection_id').references(() => connections.id, { onDelete: 'set null' }),
+    /** MN-255: set only when this job was enqueued by ApprovalsService.approve()
+     * — lets JobRunnerService post a follow-up "executed"/"failed" comment on
+     * the triggering record once the job settles. SET NULL, not cascade: a
+     * job that already ran keeps its history if the approval row is pruned. */
+    approvalId: uuid('approval_id').references(() => approvals.id, { onDelete: 'set null' }),
     actionIndex: integer('action_index').notNull(),
     /** e.g. 'send_email', 'post_social.linkedin' — the executor registry key. */
     kind: text('kind').notNull(),
@@ -1147,6 +1172,52 @@ export const automationJobs = pgTable(
     index('automation_jobs_claim_idx').on(t.status, t.nextAttemptAt),
     index('automation_jobs_connection_idx').on(t.connectionId),
   ],
+);
+
+/**
+ * MN-255 — the approval gate. A `require_approval` action stops here instead
+ * of running: `actionSnapshot` is the FULLY RENDERED action (every {Field}/
+ * {payload} token already interpolated, at request time — see
+ * actions.service.ts's `execute()`) so a record edit between "queued for
+ * approval" and "approved" can never change what eventually runs. `runId` is
+ * SET NULL (not cascade) for the same reason `automationJobs.ruleId` is: an
+ * approval that already resolved keeps its history if the run row is later
+ * pruned. `ruleId` likewise SET NULL if the rule itself is deleted.
+ */
+export const approvals = pgTable(
+  'approvals',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    ruleId: uuid('rule_id').references(() => automations.id, { onDelete: 'set null' }),
+    /** Not a FK — see `automationJobs.runId`'s comment: this row is inserted
+     * BY `actions.service.ts execute()`, which runs strictly before
+     * `runRule()`/`runHookRule()` insert the automation_runs row for this
+     * same `runId`. A hard FK would 500 on every gated action. */
+    runId: uuid('run_id'),
+    recordId: uuid('record_id'),
+    actionIndex: integer('action_index').notNull(),
+    /** FROZEN rendered action — see module doc above. */
+    actionSnapshot: jsonb('action_snapshot').notNull(),
+    /** Human-readable summary for the Inbox card. */
+    previewText: text('preview_text').notNull(),
+    /** pending | approved | rejected | expired */
+    status: text('status').notNull().default('pending'),
+    /** Who must decide. Defaults to the rule's createdBy at insert time —
+     * see ApprovalsService.approverFor() — with `automations.approverId` as
+     * a per-rule override. */
+    approverId: text('approver_id'),
+    decidedBy: text('decided_by'),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    reason: text('reason'),
+    expiresAt: timestamp('expires_at', { withTimezone: true })
+      .notNull()
+      .default(sql`now() + interval '7 days'`),
+    ...timestamps,
+  },
+  (t) => [index('approvals_workspace_status_expiry_idx').on(t.workspaceId, t.status, t.expiresAt)],
 );
 
 /** Personal vs team-shared (#40 AC #1): 'personal' is visible only to its

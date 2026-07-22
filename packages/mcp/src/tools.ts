@@ -233,6 +233,9 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   list_icon_set: 'read',
   get_record_description: 'read',
   list_skills: 'read',
+  // MN-255: read-only by design — approve/reject are Inbox-only in v1, so
+  // an agent can queue work for a human to decide but never decide for one.
+  list_approvals: 'read',
   // write (record + content mutations)
   create_record: 'write',
   update_record: 'write',
@@ -1707,5 +1710,30 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         run_log: run,
       });
     }),
+  );
+
+  reg(
+    'list_approvals',
+    {
+      title: 'List approvals',
+      description:
+        'MN-255: list this workspace\'s require_approval gate items (pending/approved/rejected/expired) — the preview text, status and approver of each. ' +
+        'Read-only: approving or rejecting happens in the app Inbox, not via MCP, so a human always makes that call.',
+      inputSchema: {
+        workspace: z.string(),
+        status: z.enum(['pending', 'approved', 'rejected', 'expired']).optional().describe('Filter by status; omit for all.'),
+      },
+    },
+    handle<{ workspace: string; status?: 'pending' | 'approved' | 'rejected' | 'expired' }>(
+      async ({ workspace, status }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const res = await unwrap<unknown>(
+          client.GET('/api/v1/workspaces/{ws}/approvals', {
+            params: { path: { ws: ws.id }, query: status ? { status } : undefined },
+          } as never),
+        );
+        return text(res);
+      },
+    ),
   );
 }

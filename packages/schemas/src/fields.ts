@@ -44,35 +44,52 @@ export const numberConfigSchema = z.object({
 });
 export const dateConfigSchema = z.object({ include_time: z.boolean().default(false) });
 export const userConfigSchema = z.object({ multi: z.boolean().default(false) });
+/**
+ * MN-255: any action can be gated behind a human approval instead of running
+ * immediately. Spread onto every actionSchema variant below rather than added
+ * once at the union level, since z.discriminatedUnion requires each member to
+ * be its own z.object with the literal `type` — there's no "base shape" a
+ * discriminated union can share. Descriptor-level defaults (e.g. post_social/
+ * send_email default to true) are enforced in AutomationActionsService.validate(),
+ * not here — the schema only says the flag is legal on every action type.
+ */
+const gated = { require_approval: z.boolean().optional() };
+
 /** Button actions (MN-046, shared with MN-047 automations). */
 export const actionSchema = z.discriminatedUnion('type', [
   z.object({
+    ...gated,
     type: z.literal('set_values'),
     values: z.record(z.string(), z.unknown()),
   }),
   z.object({
+    ...gated,
     type: z.literal('create_record'),
     database_id: z.uuid(),
     values: z.record(z.string(), z.unknown()).default({}),
     link_via_relation_field_id: z.uuid().optional(),
   }),
   z.object({
+    ...gated,
     type: z.literal('add_comment'),
     body_template: z.string().min(1).max(2000),
   }),
   z.object({
+    ...gated,
     type: z.literal('notify_user'),
     // '@me' or the api_name of a user field on this record
     user: z.string().min(1).max(100),
     message: z.string().min(1).max(500),
   }),
   z.object({
+    ...gated,
     type: z.literal('update_linked'),
     // a relation field on this database; its linked records get the values
     relation_field_id: z.uuid(),
     values: z.record(z.string(), z.unknown()),
   }),
   z.object({
+    ...gated,
     type: z.literal('send_slack_message'),
     // {Field Name} tokens are interpolated from the triggering record
     text: z.string().min(1).max(3000),
@@ -84,6 +101,7 @@ export const actionSchema = z.discriminatedUnion('type', [
    * record-change webhooks. Shares that sender, signing secret and retry path.
    */
   z.object({
+    ...gated,
     type: z.literal('send_webhook'),
     url: webhookUrlSchema,
     // {Field Name} tokens are interpolated; omit for the standard record payload
@@ -236,6 +254,10 @@ export const createAutomationSchema = z.object({
   condition: z.unknown().optional(),
   actions: z.array(actionSchema).min(1).max(10),
   enabled: z.boolean().default(true),
+  /** MN-255: who approves a `require_approval` action this rule fires — a
+   * user id, defaulting to the rule's own creator (the "rule owner") when
+   * omitted. */
+  approverId: z.string().optional(),
 });
 
 export const updateAutomationSchema = z.object({
@@ -244,4 +266,6 @@ export const updateAutomationSchema = z.object({
   condition: z.unknown().nullable().optional(),
   actions: z.array(actionSchema).min(1).max(10).optional(),
   enabled: z.boolean().optional(),
+  /** MN-255: nullable so a rule can revert to defaulting the rule owner. */
+  approverId: z.string().nullable().optional(),
 });

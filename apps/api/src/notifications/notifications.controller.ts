@@ -28,6 +28,9 @@ export class NotificationsController {
       'state_changed',
       // #210: filterable like any other type, though it is never opt-out-able.
       'approval_requested',
+      // MN-255: the automation-action approval gate — distinct from
+      // approval_requested (#210's agent-run gate), also never opt-out-able.
+      'action_approval_requested',
       // #263: bare billing/system reminders, also never opt-out-able.
       'trial_reminder_23',
       'trial_reminder_29',
