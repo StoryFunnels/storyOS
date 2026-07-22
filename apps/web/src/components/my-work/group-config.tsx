@@ -7,18 +7,19 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ColorByButton, FiltersSection, SortButton } from '@/components/views/view-toolbar';
-import { isFilterGroup, nodeChildren, nodeConnector } from '@/components/views/filter-config';
-import type { FilterCondition, FilterGroup, FilterNode } from '@/components/views/filter-config';
+import type { FilterCondition, FilterGroup } from '@/components/views/filter-config';
 import type { NullsPlacement, SortSpec } from '@/components/views/sort-config';
 import { OPTION_COLORS } from '@/components/table-view/cells';
 import type { Field } from '@/components/table-view/use-table-data';
 import { cn } from '@/lib/utils';
-// MN-252: sortMyWorkRecords lives in a plain .ts sibling module (not here), so
-// the *.unit.test.ts harness (JSX-free, see apps/web/vitest.config.ts) can
-// import it without pulling this file's JSX into the test's module graph.
+// MN-252/MN-297: sortMyWorkRecords and matchesFilters live in plain .ts sibling
+// modules (not here), so the *.unit.test.ts harness (JSX-free, see
+// apps/web/vitest.config.ts) can import them without pulling this file's JSX
+// into the test's module graph.
 import { sortMyWorkRecords } from './sort-my-work';
+import { matchesFilters } from './filter-my-work';
 
-export { sortMyWorkRecords };
+export { sortMyWorkRecords, matchesFilters };
 
 export interface DenseField {
   id: string;
@@ -67,75 +68,6 @@ export function visibleFields(fields: DenseField[], config: MyWorkDbConfig): Den
     return fields.filter((f) => !hidden.has(f.id)).slice(0, 6);
   }
   return [...fields].sort((a, b) => CHIP_ORDER.indexOf(a.type) - CHIP_ORDER.indexOf(b.type)).slice(0, 4);
-}
-
-function isEmpty(v: unknown): boolean {
-  return v == null || v === '' || (Array.isArray(v) && v.length === 0);
-}
-function matchOne(value: unknown, op: string, target: unknown): boolean {
-  const s = (x: unknown) => String(x ?? '').toLowerCase();
-  const has = (x: unknown) => Array.isArray(value) && value.map(String).includes(String(x));
-  switch (op) {
-    case 'is_empty':
-      return isEmpty(value);
-    case 'is_not_empty':
-      return !isEmpty(value);
-    case 'eq':
-    case 'is':
-      return s(value) === s(target) || has(target);
-    case 'neq':
-    case 'is_not':
-      return !(s(value) === s(target) || has(target));
-    case 'contains':
-      return s(value).includes(s(target)) || has(target);
-    case 'not_contains':
-      return !(s(value).includes(s(target)) || has(target));
-    case 'gt':
-      return Number(value) > Number(target);
-    case 'gte':
-      return Number(value) >= Number(target);
-    case 'lt':
-      return Number(value) < Number(target);
-    case 'lte':
-      return Number(value) <= Number(target);
-    case 'before':
-      return String(value) < String(target);
-    case 'after':
-      return String(value) > String(target);
-    case 'on':
-      return String(value).slice(0, 10) === String(target).slice(0, 10);
-    default:
-      return true; // unknown op → don't filter anything out
-  }
-}
-/** Recursively evaluates one node of the filter tree against a record's values.
- * Mirrors the API's compileFilter/activeFilter recursion (MN-258): a group's
- * result is its children's results combined by its OWN connector; a disabled
- * leaf (MN-253 UI) contributes no opinion (`undefined`), same as it dropping out
- * of activeFilterNode for saved views. `undefined` propagates up through an empty
- * group exactly like an empty filter — "no verdict" reads as "don't exclude". */
-function evaluateNode(node: FilterNode, values: Record<string, unknown>): boolean | undefined {
-  if (isFilterGroup(node)) {
-    const results = nodeChildren(node)
-      .map((child) => evaluateNode(child, values))
-      .filter((r): r is boolean => r !== undefined);
-    if (results.length === 0) return undefined;
-    return nodeConnector(node) === 'or' ? results.some(Boolean) : results.every(Boolean);
-  }
-  if (node.disabled) return undefined;
-  return matchOne(values[node.field], node.op, node.value);
-}
-
-/** Client-side And/Or filter over the returned records (My Work is a bounded set),
- * now supporting nested groups (MN-258) — My Work shares the SAME `FiltersSection`
- * builder + persisted `FilterGroup` shape as saved views, so a group built here
- * must be evaluated with the same and/or nesting the server would apply. */
-export function matchesFilters(
-  values: Record<string, unknown>,
-  config: MyWorkDbConfig,
-): boolean {
-  if (!config.filters) return true;
-  return evaluateNode(config.filters, values) ?? true;
 }
 
 export interface RecordGroup<T> {
