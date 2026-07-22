@@ -45,7 +45,19 @@ export type NotificationType =
    * opt-out ping for the same reason connection_error isn't — it's the thing
    * that tells an owner their automation silently stopped running.
    */
-  | 'automation_disabled';
+  | 'automation_disabled'
+  /**
+   * MN-255 — a `require_approval` automation action is waiting on a human in
+   * the Inbox before it runs. Deliberately distinct from `approval_requested`
+   * (#210's agent-run gate): that type's Inbox card treats `recordId` AS the
+   * thing being approved (a Run record) and posts straight to
+   * `/agents/runs/{id}/approve`. Here `recordId` is the arbitrary TRIGGERING
+   * record (for context/linking) and the approvable entity is a separate
+   * `approvals` row — carried in `refId`, not `recordId` — so the two gates
+   * can't be confused for one another in the Inbox. Not an opt-out ping, same
+   * reasoning as `approval_requested`: it's a gate a run is blocked on.
+   */
+  | 'action_approval_requested';
 
 /**
  * The types a user can switch off (#31). `notifications.type` is a plain text
@@ -78,6 +90,9 @@ interface NotifyInput {
   type: NotificationType;
   recipients: string[];
   snippet?: string;
+  /** MN-255: see NotificationType's `action_approval_requested` doc — the
+   * approvable entity's own id, when it isn't `recordId`. */
+  refId?: string;
   /**
    * Deliver to the actor themselves. Off by default — you don't want an inbox
    * item for your own comment. An approval request needs it on: the run acts as
@@ -120,7 +135,14 @@ export class NotificationsService {
         if (recent) {
           await this.db
             .update(notifications)
-            .set({ count: recent.count + 1, snippet: input.snippet ?? recent.snippet })
+            .set({
+              count: recent.count + 1,
+              snippet: input.snippet ?? recent.snippet,
+              // MN-255: a collapsed burst keeps pointing at the newest
+              // approvable entity — the older one is still reachable via the
+              // approvals list, just not from this Inbox row.
+              refId: input.refId ?? recent.refId,
+            })
             .where(eq(notifications.id, recent.id));
         } else {
           await this.db.insert(notifications).values({
@@ -130,6 +152,7 @@ export class NotificationsService {
             recordId: input.recordId ?? null,
             actorId: input.actorId,
             type: input.type,
+            refId: input.refId ?? null,
             snippet: input.snippet,
           });
         }
@@ -220,6 +243,7 @@ export class NotificationsService {
           type: n.type,
           count: n.count,
           snippet: n.snippet,
+          ref_id: n.refId,
           read_at: n.readAt,
           created_at: n.createdAt,
           record: record

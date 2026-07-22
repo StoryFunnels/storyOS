@@ -4632,6 +4632,88 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/approvals": {
+      "get": {
+        "operationId": "ApprovalsController_list",
+        "parameters": [
+          {
+            "name": "status",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "List approvals for this workspace, optionally filtered by status",
+        "tags": [
+          "approvals"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/approvals/{id}/approve": {
+      "post": {
+        "operationId": "ApprovalsController_approve",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Approve a pending approval — enqueues the gated action from its frozen snapshot (human-only)",
+        "tags": [
+          "approvals"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/approvals/{id}/reject": {
+      "post": {
+        "operationId": "ApprovalsController_reject",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RejectApprovalDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Reject a pending approval — the gated action never runs (human-only)",
+        "tags": [
+          "approvals"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/integrations": {
       "get": {
         "operationId": "IntegrationsDirectoryController_list",
@@ -8177,6 +8259,9 @@
                 {
                   "type": "object",
                   "properties": {
+                    "require_approval": {
+                      "type": "boolean"
+                    },
                     "type": {
                       "type": "string",
                       "enum": [
@@ -8196,6 +8281,9 @@
                 {
                   "type": "object",
                   "properties": {
+                    "require_approval": {
+                      "type": "boolean"
+                    },
                     "type": {
                       "type": "string",
                       "enum": [
@@ -8226,6 +8314,9 @@
                 {
                   "type": "object",
                   "properties": {
+                    "require_approval": {
+                      "type": "boolean"
+                    },
                     "type": {
                       "type": "string",
                       "enum": [
@@ -8246,6 +8337,9 @@
                 {
                   "type": "object",
                   "properties": {
+                    "require_approval": {
+                      "type": "boolean"
+                    },
                     "type": {
                       "type": "string",
                       "enum": [
@@ -8272,6 +8366,9 @@
                 {
                   "type": "object",
                   "properties": {
+                    "require_approval": {
+                      "type": "boolean"
+                    },
                     "type": {
                       "type": "string",
                       "enum": [
@@ -8297,6 +8394,9 @@
                 {
                   "type": "object",
                   "properties": {
+                    "require_approval": {
+                      "type": "boolean"
+                    },
                     "type": {
                       "type": "string",
                       "enum": [
@@ -8322,6 +8422,9 @@
                 {
                   "type": "object",
                   "properties": {
+                    "require_approval": {
+                      "type": "boolean"
+                    },
                     "type": {
                       "type": "string",
                       "enum": [
@@ -8375,6 +8478,9 @@
           "enabled": {
             "default": true,
             "type": "boolean"
+          },
+          "approverId": {
+            "type": "string"
           }
         },
         "required": [
@@ -8506,6 +8612,9 @@
                 {
                   "type": "object",
                   "properties": {
+                    "require_approval": {
+                      "type": "boolean"
+                    },
                     "type": {
                       "type": "string",
                       "enum": [
@@ -8525,6 +8634,9 @@
                 {
                   "type": "object",
                   "properties": {
+                    "require_approval": {
+                      "type": "boolean"
+                    },
                     "type": {
                       "type": "string",
                       "enum": [
@@ -8555,6 +8667,9 @@
                 {
                   "type": "object",
                   "properties": {
+                    "require_approval": {
+                      "type": "boolean"
+                    },
                     "type": {
                       "type": "string",
                       "enum": [
@@ -8575,6 +8690,9 @@
                 {
                   "type": "object",
                   "properties": {
+                    "require_approval": {
+                      "type": "boolean"
+                    },
                     "type": {
                       "type": "string",
                       "enum": [
@@ -8601,6 +8719,9 @@
                 {
                   "type": "object",
                   "properties": {
+                    "require_approval": {
+                      "type": "boolean"
+                    },
                     "type": {
                       "type": "string",
                       "enum": [
@@ -8626,6 +8747,9 @@
                 {
                   "type": "object",
                   "properties": {
+                    "require_approval": {
+                      "type": "boolean"
+                    },
                     "type": {
                       "type": "string",
                       "enum": [
@@ -8651,6 +8775,9 @@
                 {
                   "type": "object",
                   "properties": {
+                    "require_approval": {
+                      "type": "boolean"
+                    },
                     "type": {
                       "type": "string",
                       "enum": [
@@ -8703,6 +8830,10 @@
           },
           "enabled": {
             "type": "boolean"
+          },
+          "approverId": {
+            "type": "string",
+            "nullable": true
           }
         }
       },
@@ -8718,6 +8849,15 @@
         "required": [
           "record_id"
         ]
+      },
+      "RejectApprovalDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        }
       },
       "GithubConfigDto": {
         "type": "object",

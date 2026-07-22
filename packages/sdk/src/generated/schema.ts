@@ -1760,6 +1760,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/approvals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List approvals for this workspace, optionally filtered by status */
+        get: operations["ApprovalsController_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/approvals/{id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve a pending approval — enqueues the gated action from its frozen snapshot (human-only) */
+        post: operations["ApprovalsController_approve"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/approvals/{id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reject a pending approval — the gated action never runs (human-only) */
+        post: operations["ApprovalsController_reject"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/integrations": {
         parameters: {
             query?: never;
@@ -3165,12 +3216,14 @@ export interface components {
             };
             condition?: unknown;
             actions: ({
+                require_approval?: boolean;
                 /** @enum {string} */
                 type: "set_values";
                 values: {
                     [key: string]: unknown;
                 };
             } | {
+                require_approval?: boolean;
                 /** @enum {string} */
                 type: "create_record";
                 /** Format: uuid */
@@ -3182,15 +3235,18 @@ export interface components {
                 /** Format: uuid */
                 link_via_relation_field_id?: string;
             } | {
+                require_approval?: boolean;
                 /** @enum {string} */
                 type: "add_comment";
                 body_template: string;
             } | {
+                require_approval?: boolean;
                 /** @enum {string} */
                 type: "notify_user";
                 user: string;
                 message: string;
             } | {
+                require_approval?: boolean;
                 /** @enum {string} */
                 type: "update_linked";
                 /** Format: uuid */
@@ -3199,11 +3255,13 @@ export interface components {
                     [key: string]: unknown;
                 };
             } | {
+                require_approval?: boolean;
                 /** @enum {string} */
                 type: "send_slack_message";
                 text: string;
                 channel?: string;
             } | {
+                require_approval?: boolean;
                 /** @enum {string} */
                 type: "send_webhook";
                 /** Format: uri */
@@ -3218,6 +3276,7 @@ export interface components {
             })[];
             /** @default true */
             enabled: boolean;
+            approverId?: string;
         };
         UpdateAutomationDto: {
             name?: string;
@@ -3247,12 +3306,14 @@ export interface components {
             };
             condition?: unknown;
             actions?: ({
+                require_approval?: boolean;
                 /** @enum {string} */
                 type: "set_values";
                 values: {
                     [key: string]: unknown;
                 };
             } | {
+                require_approval?: boolean;
                 /** @enum {string} */
                 type: "create_record";
                 /** Format: uuid */
@@ -3264,15 +3325,18 @@ export interface components {
                 /** Format: uuid */
                 link_via_relation_field_id?: string;
             } | {
+                require_approval?: boolean;
                 /** @enum {string} */
                 type: "add_comment";
                 body_template: string;
             } | {
+                require_approval?: boolean;
                 /** @enum {string} */
                 type: "notify_user";
                 user: string;
                 message: string;
             } | {
+                require_approval?: boolean;
                 /** @enum {string} */
                 type: "update_linked";
                 /** Format: uuid */
@@ -3281,11 +3345,13 @@ export interface components {
                     [key: string]: unknown;
                 };
             } | {
+                require_approval?: boolean;
                 /** @enum {string} */
                 type: "send_slack_message";
                 text: string;
                 channel?: string;
             } | {
+                require_approval?: boolean;
                 /** @enum {string} */
                 type: "send_webhook";
                 /** Format: uri */
@@ -3299,10 +3365,14 @@ export interface components {
                 };
             })[];
             enabled?: boolean;
+            approverId?: string | null;
         };
         TestAutomationDto: {
             /** Format: uuid */
             record_id: string;
+        };
+        RejectApprovalDto: {
+            reason?: string;
         };
         GithubConfigDto: {
             token?: string;
@@ -6333,6 +6403,67 @@ export interface operations {
         requestBody?: never;
         responses: {
             202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ApprovalsController_list: {
+        parameters: {
+            query: {
+                status: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ApprovalsController_approve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ApprovalsController_reject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RejectApprovalDto"];
+            };
+        };
+        responses: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };

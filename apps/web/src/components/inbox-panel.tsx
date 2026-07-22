@@ -26,12 +26,20 @@ export type NotificationType =
   // MN-189 follow-up (#265): also bare — an off-session auto-reload charge failed.
   | 'auto_reload_failed'
   // MN-253: also bare — a disabled automation rule has no record behind it either.
-  | 'automation_disabled';
+  | 'automation_disabled'
+  // MN-255: a require_approval automation action waiting on a human. Distinct
+  // from approval_requested (#210's agent-run gate, above) — that type's
+  // record IS the thing being approved; here the record (if any) is just the
+  // triggering context, and `ref_id` carries the actual approvals.id to act on.
+  | 'action_approval_requested';
 export interface NotificationRow {
   id: string;
   type: NotificationType;
   count: number;
   snippet: string | null;
+  /** MN-255: the approvable entity's own id when it isn't `record.id` — set
+   * for `action_approval_requested`, null otherwise. */
+  ref_id: string | null;
   read_at: string | null;
   created_at: string;
   record: { id: string; title: string; database_id: string; database_name: string; deleted: boolean } | null;
@@ -53,6 +61,7 @@ export const NOTIFICATION_VERBS: Record<NotificationType, string> = {
   connection_error: 'flagged a connection',
   auto_reload_failed: 'flagged an auto-reload failure',
   automation_disabled: 'disabled an automation',
+  action_approval_requested: 'needs your approval to run',
 };
 const VERBS = NOTIFICATION_VERBS;
 
@@ -74,6 +83,36 @@ export function useResolveRun(ws: string, onSettled: () => void) {
       onSettled();
     },
     onError: (err) => toast.error(apiErrorMessage(err, 'Could not resolve — the run may already be settled')),
+  });
+}
+
+/**
+ * MN-255's approval gate: the same idea as useResolveRun above, but against
+ * a distinct entity (`approvals`, not an agent run) and endpoint — reject
+ * takes an optional reason, matching POST …/approvals/:id/reject's body.
+ */
+export function useResolveApproval(ws: string, onSettled: () => void) {
+  return useMutation({
+    mutationFn: async ({
+      approvalId,
+      verdict,
+      reason,
+    }: {
+      approvalId: string;
+      verdict: 'approve' | 'reject';
+      reason?: string;
+    }) => {
+      const { error } = await api.POST(`/api/v1/workspaces/{ws}/approvals/{id}/${verdict}` as never, {
+        params: { path: { ws, id: approvalId } },
+        body: verdict === 'reject' ? { reason } : undefined,
+      } as never);
+      if (error) throw error;
+    },
+    onSuccess: (_data, vars) => {
+      toast.success(vars.verdict === 'approve' ? 'Approved' : 'Rejected');
+      onSettled();
+    },
+    onError: (err) => toast.error(apiErrorMessage(err, 'Could not resolve — it may already be settled or expired')),
   });
 }
 
@@ -159,6 +198,11 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
   });
 
   const resolveRun = useResolveRun(ws, invalidate);
+  const resolveApproval = useResolveApproval(ws, invalidate);
+  // MN-255: which row's Reject is showing its reason box, and its draft text.
+  // Inline rather than a modal (MN-24 retired window.prompt/confirm) — one
+  // row can have this open at a time, keyed by notification id.
+  const [rejecting, setRejecting] = useState<{ notificationId: string; reason: string } | null>(null);
 
   let lastBucket: string | null = null;
 
@@ -309,6 +353,69 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
                         >
                           <Check className="h-3.5 w-3.5" /> Approve
                         </button>
+                      </span>
+                    )}
+                    {/* MN-255: the automation-action approval gate — same shape as
+                        the agent-run gate above, its own entity/endpoint (ref_id,
+                        not record.id), and Reject opens an inline reason box
+                        instead of firing immediately. */}
+                    {n.type === 'action_approval_requested' && n.ref_id && (
+                      <span onClick={(e) => e.stopPropagation()}>
+                        {rejecting?.notificationId === n.id ? (
+                          <span className="mt-2 flex flex-col gap-1.5">
+                            <textarea
+                              autoFocus
+                              value={rejecting.reason}
+                              onChange={(e) => setRejecting({ notificationId: n.id, reason: e.target.value })}
+                              placeholder="Reason (optional)"
+                              rows={2}
+                              className="w-full rounded-[var(--radius-control)] border border-border-default bg-app px-2 py-1.5 text-[12px] text-ink placeholder:text-faint"
+                            />
+                            <span className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setRejecting(null)}
+                                className="min-h-[36px] flex-1 rounded-[var(--radius-control)] border border-border-default px-3 text-[12px] font-medium text-ink-secondary hover:bg-hover"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                disabled={resolveApproval.isPending}
+                                onClick={() => {
+                                  resolveApproval.mutate({
+                                    approvalId: n.ref_id!,
+                                    verdict: 'reject',
+                                    reason: rejecting.reason || undefined,
+                                  });
+                                  setRejecting(null);
+                                }}
+                                className="min-h-[36px] flex-1 rounded-[var(--radius-control)] border border-border-default px-3 text-[12px] font-medium text-ink-secondary hover:bg-hover disabled:opacity-50"
+                              >
+                                Confirm reject
+                              </button>
+                            </span>
+                          </span>
+                        ) : (
+                          <span className="mt-2 flex gap-2">
+                            <button
+                              type="button"
+                              disabled={resolveApproval.isPending}
+                              onClick={() => setRejecting({ notificationId: n.id, reason: '' })}
+                              className="min-h-[44px] flex-1 rounded-[var(--radius-control)] border border-border-default px-3 text-[13px] font-medium text-ink-secondary hover:bg-hover disabled:opacity-50"
+                            >
+                              Reject
+                            </button>
+                            <button
+                              type="button"
+                              disabled={resolveApproval.isPending}
+                              onClick={() => resolveApproval.mutate({ approvalId: n.ref_id!, verdict: 'approve' })}
+                              className="flex min-h-[44px] flex-1 items-center justify-center gap-1.5 rounded-[var(--radius-control)] bg-primary px-3 text-[13px] font-medium text-[var(--text-on-dark)] hover:bg-primary-hover disabled:opacity-50"
+                            >
+                              <Check className="h-3.5 w-3.5" /> Approve
+                            </button>
+                          </span>
+                        )}
                       </span>
                     )}
                   </span>

@@ -14,6 +14,7 @@ import { RelationsService } from '../relations/relations.service';
 import { stringHeadersOnly } from '../common/webhook-headers';
 import { getJsonPath } from '../common/json-path';
 import { JobRunnerService, buildIdempotencyKey } from './job-runner.service';
+import { ApprovalsService } from './approvals.service';
 
 /** Full token match — `{payload.a.b.0}`, nothing else in the string. */
 const PAYLOAD_VALUE_TOKEN_RE = /^\{payload\.([^{}]+)\}$/;
@@ -102,6 +103,7 @@ export class AutomationActionsService {
     private readonly slackService: SlackService,
     private readonly webhooksService: WebhooksService,
     private readonly jobs: JobRunnerService,
+    private readonly approvals: ApprovalsService,
   ) {}
 
   /** The related database + this record's linked ids through a relation field. */
@@ -271,6 +273,66 @@ export class AutomationActionsService {
   }
 
   /**
+   * MN-255: fully render a `require_approval` action's tokens NOW — before it
+   * ever reaches a human — so the frozen snapshot ApprovalsService stores is
+   * exactly what runs on approve(), independent of any edit to the record
+   * (or the payload it references) between now and then. Mirrors each
+   * branch's own token-resolution below, just without the side effect.
+   */
+  private renderForApproval(
+    action: AutomationAction,
+    ctx: ActionContext,
+    displayToApi: Map<string, string>,
+  ): { snapshot: AutomationAction; previewText: string } {
+    switch (action.type) {
+      case 'set_values': {
+        const values = this.resolveTokens(action.values, ctx);
+        return {
+          snapshot: { ...action, values },
+          previewText: `Set ${Object.keys(values).join(', ') || 'no fields'} on "${ctx.record?.title ?? 'this record'}"`,
+        };
+      }
+      case 'create_record': {
+        const values = this.resolveTokens(action.values, ctx);
+        if (typeof values.name === 'string') values.name = this.interpolate(values.name, ctx, displayToApi);
+        return {
+          snapshot: { ...action, values },
+          previewText: `Create a record${typeof values.name === 'string' ? ` "${values.name}"` : ''}`,
+        };
+      }
+      case 'add_comment': {
+        const text = this.interpolate(action.body_template, ctx, displayToApi);
+        return { snapshot: { ...action, body_template: text }, previewText: `Comment: ${text.slice(0, 200)}` };
+      }
+      case 'notify_user': {
+        const message = this.interpolate(action.message, ctx, displayToApi);
+        return { snapshot: { ...action, message }, previewText: `Notify: ${message.slice(0, 200)}` };
+      }
+      case 'update_linked': {
+        const values = this.resolveTokens(action.values, ctx);
+        return {
+          snapshot: { ...action, values },
+          previewText: `Update linked records: ${Object.keys(values).join(', ') || 'no fields'}`,
+        };
+      }
+      case 'send_slack_message': {
+        const text = this.interpolate(action.text, ctx, displayToApi);
+        return {
+          snapshot: { ...action, text },
+          previewText: `Slack message${action.channel ? ` to ${action.channel}` : ''}: ${text.slice(0, 200)}`,
+        };
+      }
+      case 'send_webhook': {
+        const url = this.interpolate(action.url, ctx, displayToApi, encodeURIComponent);
+        const body_template = action.body_template
+          ? this.interpolate(action.body_template, ctx, displayToApi, jsonEscape)
+          : action.body_template;
+        return { snapshot: { ...action, url, body_template }, previewText: `Webhook → ${url}` };
+      }
+    }
+  }
+
+  /**
    * Executes actions in order. Any failure throws — callers wrap a press in
    * one logical transaction by re-validating first; individual service calls
    * are already transactional, and a mid-list validation error aborts before
@@ -286,6 +348,27 @@ export class AutomationActionsService {
 
     const effects: ActionEffect[] = [];
     for (const [actionIndex, action] of actions.entries()) {
+      // MN-255: a gated action stops here — render its tokens now (so the
+      // frozen snapshot can't drift from a later record edit), insert an
+      // approval + notify its approver, and do NOT enqueue an MN-253 job or
+      // run inline. ApprovalsService.approve() enqueues the job later, from
+      // the SAME snapshot rendered here.
+      if (action.require_approval) {
+        const { snapshot, previewText } = this.renderForApproval(action, ctx, displayToApi);
+        const effect = await this.approvals.create({
+          workspaceId: ctx.workspaceId,
+          databaseId: ctx.databaseId,
+          ruleId: ctx.ruleId ?? null,
+          runId: ctx.runId ?? null,
+          recordId: ctx.record?.id ?? null,
+          actionIndex,
+          action: snapshot,
+          previewText,
+          requesterActorId: ctx.actorId,
+        });
+        effects.push(effect);
+        continue;
+      }
       // MN-253: an action kind with a registered executor (send_email,
       // post_social.*, http_request, youtube_upload — added by
       // MN-256/257/258/259/263) never runs inline — it's durable-queued

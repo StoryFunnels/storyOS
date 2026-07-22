@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils';
 import {
   NOTIFICATION_VERBS,
   useResolveRun,
+  useResolveApproval,
   type NotificationRow,
   type NotificationType,
 } from '@/components/inbox-panel';
@@ -26,6 +27,7 @@ const TYPE_TABS: Array<{ key: NotificationType | 'all'; label: string }> = [
   { key: 'mentioned', label: 'Mentions' },
   { key: 'commented', label: 'Comments' },
   { key: 'state_changed', label: 'Status' },
+  { key: 'action_approval_requested', label: 'Approvals' },
 ];
 
 function relativeTime(iso: string): string {
@@ -83,6 +85,8 @@ export default function InboxPage() {
   };
 
   const resolveRun = useResolveRun(ws, invalidate);
+  const resolveApproval = useResolveApproval(ws, invalidate);
+  const [rejectReason, setRejectReason] = useState('');
 
   const setArchivedMut = useMutation({
     mutationFn: async ({ id, archive }: { id: string; archive: boolean }) => {
@@ -300,6 +304,48 @@ export default function InboxPage() {
                   >
                     <Check className="h-4 w-4" /> Approve
                   </button>
+                </div>
+              )}
+
+              {/* MN-255: the automation-action approval gate — own entity
+                  (ref_id, not the notification's own record), Reject carries
+                  an optional reason. Renders whenever there's still an
+                  approval to decide (no record required — a webhook-
+                  triggered gated action has none). */}
+              {selected.type === 'action_approval_requested' && selected.ref_id && (
+                <div className="mt-4 flex flex-col gap-2">
+                  <textarea
+                    value={rejectReason}
+                    onChange={(e) => setRejectReason(e.target.value)}
+                    placeholder="Reason if rejecting (optional)"
+                    rows={2}
+                    className="w-full rounded-[var(--radius-control)] border border-border-default bg-app px-2.5 py-1.5 text-[13px] text-ink placeholder:text-faint"
+                  />
+                  <div className="flex gap-3">
+                    <button
+                      type="button"
+                      disabled={resolveApproval.isPending}
+                      onClick={() => {
+                        resolveApproval.mutate({
+                          approvalId: selected.ref_id!,
+                          verdict: 'reject',
+                          reason: rejectReason || undefined,
+                        });
+                        setRejectReason('');
+                      }}
+                      className="flex min-h-[48px] flex-1 items-center justify-center gap-1.5 rounded-[var(--radius-control)] border border-border-default text-[14px] font-medium text-ink-secondary hover:bg-hover disabled:opacity-50"
+                    >
+                      <X className="h-4 w-4" /> Reject
+                    </button>
+                    <button
+                      type="button"
+                      disabled={resolveApproval.isPending}
+                      onClick={() => resolveApproval.mutate({ approvalId: selected.ref_id!, verdict: 'approve' })}
+                      className="flex min-h-[48px] flex-1 items-center justify-center gap-1.5 rounded-[var(--radius-control)] bg-primary text-[14px] font-medium text-[var(--text-on-dark)] hover:bg-primary-hover disabled:opacity-50"
+                    >
+                      <Check className="h-4 w-4" /> Approve
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
