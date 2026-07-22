@@ -1,6 +1,7 @@
 import { ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, eq, inArray, isNull, or } from 'drizzle-orm';
 import { normalizeIconInput } from '@storyos/schemas/icons';
+import { resolveDatabaseColor, randomDatabaseColor } from '../common/database-color';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { databases, fields, recordLinks, relations, selectOptions, spaces, views } from '../db/schema';
@@ -101,7 +102,12 @@ export class DatabasesService {
     const spaceSlugMap = await this.spaceSlugs(membership.workspaceId);
     const withRef = (d: (typeof rows)[number]) => {
       const spaceSlug = spaceSlugMap.get(d.spaceId) ?? null;
-      return { ...d, spaceSlug, qualifiedSlug: spaceSlug ? `${spaceSlug}/${d.apiSlug}` : d.apiSlug };
+      return {
+        ...d,
+        color: resolveDatabaseColor(d.id, d.color),
+        spaceSlug,
+        qualifiedSlug: spaceSlug ? `${spaceSlug}/${d.apiSlug}` : d.apiSlug,
+      };
     };
     if (!visibility) return rows.map(withRef);
     return rows
@@ -160,9 +166,12 @@ export class DatabasesService {
       ];
       const targetDbs = await this.db.query.databases.findMany({
         where: inArray(databases.id, targetIds),
-        columns: { id: true, name: true },
+        columns: { id: true, name: true, color: true },
       });
       const dbName = new Map(targetDbs.map((d) => [d.id, d.name]));
+      // MN-299: resolved (never-null) so the frontend can render the relation
+      // chip's cylinder marker with no extra per-chip fetch.
+      const dbColor = new Map(targetDbs.map((d) => [d.id, resolveDatabaseColor(d.id, d.color)]));
       const byId = new Map(relationRows.map((r) => [r.id, r]));
 
       for (const field of fieldsWithOptions) {
@@ -178,6 +187,7 @@ export class DatabasesService {
           side: config.side,
           target_database_id: targetDatabaseId,
           target_database_name: dbName.get(targetDatabaseId) ?? null,
+          target_database_color: dbColor.get(targetDatabaseId) ?? null,
           inverse_field_id: config.side === 'a' ? relation.fieldBId : relation.fieldAId,
         };
       }
@@ -197,6 +207,7 @@ export class DatabasesService {
     const spaceSlug = space?.slug ?? null;
     return {
       ...database,
+      color: resolveDatabaseColor(database.id, database.color),
       spaceSlug,
       qualifiedSlug: spaceSlug ? `${spaceSlug}/${database.apiSlug}` : database.apiSlug,
       my_access,
@@ -210,7 +221,7 @@ export class DatabasesService {
   /** Creates the database + title/system fields + default table view, atomically (B2). */
   async create(
     membership: Membership,
-    input: { space_id: string; name: string; icon?: string },
+    input: { space_id: string; name: string; icon?: string; color?: string },
   ) {
     const space = await this.db.query.spaces.findFirst({
       where: and(eq(spaces.id, input.space_id), eq(spaces.workspaceId, membership.workspaceId)),
@@ -235,6 +246,10 @@ export class DatabasesService {
           // caller (HTTP API, templates, integrations), not just requests
           // that go through createDatabaseSchema.
           icon: normalizeIconInput(input.icon, input.name),
+          // MN-299: auto-assign a random palette color at creation time so
+          // relation chips always have something to render; the icon-picker
+          // swatch UI (update()) can still override it manually afterward.
+          color: input.color ?? randomDatabaseColor(),
           apiSlug,
           position,
         })

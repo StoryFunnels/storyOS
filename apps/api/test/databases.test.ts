@@ -1,7 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
+import { eq } from 'drizzle-orm';
+import { OPTION_COLORS } from '@storyos/schemas';
 import { createTestApp } from './helpers/app';
 import { authed, signUpUser } from './helpers/users';
+import { connectTestDb } from './helpers/db';
+import { databases } from '../src/db/schema';
 
 let app: NestFastifyApplication;
 let admin: { token: string; email: string };
@@ -9,6 +13,7 @@ let wsId: string;
 let generalSpaceId: string;
 let clientSpaceId: string;
 let tasksDbId: string;
+const { db, pool } = connectTestDb();
 
 beforeAll(async () => {
   app = await createTestApp();
@@ -40,6 +45,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await app.close();
+  await pool.end();
 });
 
 describe('databases CRUD (MN-009)', () => {
@@ -183,5 +189,126 @@ describe('databases CRUD (MN-009)', () => {
       headers: authed(admin.token),
     });
     expect(gone.statusCode).toBe(404);
+  });
+});
+
+describe('database color auto-assignment + fallback (MN-299)', () => {
+  it('auto-assigns a random palette color at creation time', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/v1/workspaces/${wsId}/databases`,
+      headers: authed(admin.token),
+      payload: { space_id: generalSpaceId, name: 'Auto Color' },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(OPTION_COLORS).toContain(res.json().color);
+  });
+
+  it('an explicit color at creation time is respected, not overridden', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/v1/workspaces/${wsId}/databases`,
+      headers: authed(admin.token),
+      payload: { space_id: generalSpaceId, name: 'Explicit Color', color: 'teal' },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().color).toBe('teal');
+  });
+
+  it('the manual-override path (icon-picker swatch → update()) still works unchanged', async () => {
+    const created = await app.inject({
+      method: 'POST',
+      url: `/api/v1/workspaces/${wsId}/databases`,
+      headers: authed(admin.token),
+      payload: { space_id: generalSpaceId, name: 'Override Me' },
+    });
+    const id = created.json().id;
+    const autoColor = created.json().color;
+
+    const patched = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/workspaces/${wsId}/databases/${id}`,
+      headers: authed(admin.token),
+      payload: { color: 'red' },
+    });
+    expect(patched.statusCode).toBe(200);
+    expect(patched.json().color).toBe('red');
+    expect(patched.json().color).not.toBe(autoColor === 'red' ? undefined : autoColor);
+  });
+
+  it('a legacy null-colored database (pre-MN-299) resolves to a stable non-null color at read time, without persisting it', async () => {
+    const created = await app.inject({
+      method: 'POST',
+      url: `/api/v1/workspaces/${wsId}/databases`,
+      headers: authed(admin.token),
+      payload: { space_id: generalSpaceId, name: 'Legacy Null Color' },
+    });
+    const id = created.json().id;
+
+    // Simulate a database that predates auto-color-assignment: force color
+    // back to null directly at the row level (bypassing the service).
+    await db.update(databases).set({ color: null }).where(eq(databases.id, id));
+
+    const first = await app.inject({
+      method: 'GET',
+      url: `/api/v1/workspaces/${wsId}/databases/${id}`,
+      headers: authed(admin.token),
+    });
+    expect(OPTION_COLORS).toContain(first.json().color);
+
+    // Stable across reads (hash-of-id, not random-per-request) and never
+    // written back to the row.
+    const second = await app.inject({
+      method: 'GET',
+      url: `/api/v1/workspaces/${wsId}/databases/${id}`,
+      headers: authed(admin.token),
+    });
+    expect(second.json().color).toBe(first.json().color);
+
+    const [row] = await db.select().from(databases).where(eq(databases.id, id));
+    expect(row!.color).toBeNull();
+  });
+
+  it('surfaces target_database_color alongside target_database_name on relation fields', async () => {
+    const parent = await app.inject({
+      method: 'POST',
+      url: `/api/v1/workspaces/${wsId}/databases`,
+      headers: authed(admin.token),
+      payload: { space_id: generalSpaceId, name: 'Color Relation Parent' },
+    });
+    const child = await app.inject({
+      method: 'POST',
+      url: `/api/v1/workspaces/${wsId}/databases`,
+      headers: authed(admin.token),
+      payload: { space_id: generalSpaceId, name: 'Color Relation Child' },
+    });
+    const parentId = parent.json().id;
+    const childId = child.json().id;
+    const childColor = child.json().color;
+
+    const relRes = await app.inject({
+      method: 'POST',
+      url: `/api/v1/workspaces/${wsId}/relations`,
+      headers: authed(admin.token),
+      payload: {
+        database_a_id: parentId,
+        database_b_id: childId,
+        cardinality: 'many_to_many',
+        field_a_name: 'Children',
+        field_b_name: 'Parents',
+      },
+    });
+    expect(relRes.statusCode, relRes.body).toBe(201);
+
+    const detail = await app.inject({
+      method: 'GET',
+      url: `/api/v1/workspaces/${wsId}/databases/${parentId}`,
+      headers: authed(admin.token),
+    });
+    const relField = detail.json().fields.find((f: { type: string }) => f.type === 'relation');
+    expect(relField.relation).toMatchObject({
+      target_database_id: childId,
+      target_database_color: childColor,
+    });
   });
 });

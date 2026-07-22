@@ -7,7 +7,7 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { GripVertical, Pin, Plus } from 'lucide-react';
 import { CellDisplay, CellEditor, PressButton } from '@/components/table-view/cells';
-import { RelationEditor } from '@/components/table-view/relation-cell';
+import { DbColorMarker, RelationEditor } from '@/components/table-view/relation-cell';
 import type { LinkChip } from '@/components/table-view/relation-cell';
 import type { Field } from '@/components/table-view/use-table-data';
 import { recordHref } from '@/lib/records';
@@ -41,8 +41,9 @@ function ScalarValue({ field, record, ws, db, rec, members, memberNames, memberI
           <Link
             key={chip.id}
             href={recordHref(ws, field.relation!.target_database_id, chip)}
-            className="inline-flex max-w-full items-center truncate rounded border border-border-default bg-hover px-1.5 py-0.5 text-[12px] text-ink hover:border-border-strong"
+            className="inline-flex max-w-full items-center gap-1 truncate rounded border border-border-default bg-hover px-1.5 py-0.5 text-[12px] text-ink hover:border-border-strong"
           >
+            <DbColorMarker color={field.relation?.target_database_color} />
             {chip.title || 'Untitled'}
           </Link>
         ))}

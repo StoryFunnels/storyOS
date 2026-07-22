@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { BillingService } from '../billing/billing.service';
+import { resolveDatabaseColor } from '../common/database-color';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { databases, fields, memberships, relations, selectOptions, user, views } from '../db/schema';
@@ -130,7 +131,12 @@ export class FormsService {
     const relationById = new Map(relationRows.map((r) => [r.id, r]));
     const relationInfoByField = new Map<
       string,
-      { target_database_id: string; target_database_name: string | null; single: boolean }
+      {
+        target_database_id: string;
+        target_database_name: string | null;
+        target_database_color: string | null;
+        single: boolean;
+      }
     >();
     const targetDbIds = new Set<string>();
     for (const f of relationFields) {
@@ -141,16 +147,28 @@ export class FormsService {
       targetDbIds.add(targetDatabaseId);
       // Mirrors the in-app RelationEditor's single-vs-multi rule (relation-cell.tsx).
       const single = rel.cardinality === 'one_to_many' && cfg.side === 'a';
-      relationInfoByField.set(f.id, { target_database_id: targetDatabaseId, target_database_name: null, single });
+      relationInfoByField.set(f.id, {
+        target_database_id: targetDatabaseId,
+        target_database_name: null,
+        target_database_color: null,
+        single,
+      });
     }
     if (targetDbIds.size) {
       const targetDbRows = await this.db.query.databases.findMany({
         where: inArray(databases.id, [...targetDbIds]),
-        columns: { id: true, name: true },
+        columns: { id: true, name: true, color: true },
       });
       const nameById = new Map(targetDbRows.map((d) => [d.id, d.name]));
+      // MN-299: resolved (never-null) so the form's relation search UI can
+      // carry a marker color with no extra per-field fetch.
+      const colorById = new Map(targetDbRows.map((d) => [d.id, resolveDatabaseColor(d.id, d.color)]));
       for (const [fieldId, info] of relationInfoByField) {
-        relationInfoByField.set(fieldId, { ...info, target_database_name: nameById.get(info.target_database_id) ?? null });
+        relationInfoByField.set(fieldId, {
+          ...info,
+          target_database_name: nameById.get(info.target_database_id) ?? null,
+          target_database_color: colorById.get(info.target_database_id) ?? null,
+        });
       }
     }
     // A relation field we couldn't resolve is unusable — drop it (back-compat safety).

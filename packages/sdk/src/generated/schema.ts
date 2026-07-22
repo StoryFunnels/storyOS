@@ -2562,6 +2562,8 @@ export interface components {
             space_id: string;
             name: string;
             icon?: string;
+            /** @enum {string} */
+            color?: "gray" | "brown" | "gold" | "orange" | "red" | "pink" | "purple" | "blue" | "teal" | "green";
         };
         UpdateDatabaseDto: {
             name?: string;

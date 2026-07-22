@@ -8,7 +8,7 @@ import { ChevronDown, ChevronRight, List, Palette, Plus } from 'lucide-react';
 import { api } from '@/lib/api';
 import { atLeast } from '@/lib/access';
 import { CellDisplay, CellEditor, OPTION_COLORS } from '@/components/table-view/cells';
-import { RelationEditor } from '@/components/table-view/relation-cell';
+import { DbColorMarker, RelationEditor } from '@/components/table-view/relation-cell';
 import type { LinkChip } from '@/components/table-view/relation-cell';
 import {
   AddFilterButton,
@@ -249,6 +249,10 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
                     href={recordHref(ws, targetDbId, row)}
                     className="flex min-w-0 flex-1 items-center gap-2"
                   >
+                    {/* MN-299: target-database cylinder marker — distinct from the
+                        color-by dot below, which reflects THIS row's own color-by
+                        field value, not the target database's color. */}
+                    <DbColorMarker color={targetDb.data?.color} />
                     {color && <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />}
                     <span className="min-w-0 flex-1 truncate">{row.title || 'Untitled'}</span>
                   </Link>

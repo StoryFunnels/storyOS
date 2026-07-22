@@ -561,7 +561,12 @@ export function CardFieldChip({
     return (
       <>
         {links.map((chip) => (
-          <RelationChip key={chip.id} title={chip.title} className="max-w-32" />
+          <RelationChip
+            key={chip.id}
+            title={chip.title}
+            className="max-w-32"
+            color={field.relation?.target_database_color}
+          />
         ))}
       </>
     );

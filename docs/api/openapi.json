@@ -6141,6 +6141,21 @@
           "icon": {
             "type": "string",
             "maxLength": 48
+          },
+          "color": {
+            "type": "string",
+            "enum": [
+              "gray",
+              "brown",
+              "gold",
+              "orange",
+              "red",
+              "pink",
+              "purple",
+              "blue",
+              "teal",
+              "green"
+            ]
           }
         },
         "required": [

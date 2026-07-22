@@ -9,7 +9,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 // so the module loads under vitest's plain-node ESM evaluation.
 vi.mock('@/lib/api', () => ({ api: {}, apiErrorMessage: () => '' }));
 
-const { RelationChip, RelationChips, SelectedRelationChip } = await import('./relation-cell');
+const { RelationChip, RelationChips, SelectedRelationChip, DbColorMarker } = await import('./relation-cell');
 
 /**
  * #293: relation chips had no way to open the linked record — only ever a
@@ -72,6 +72,51 @@ describe('RelationChips (#293: builds each chip\'s link from ws + targetDb + the
       createElement(RelationChips, { chips: many, max: 2, ws: 'acme', targetDb: 'db-blocked-by' }),
     );
     expect(markup).toContain('+2');
+  });
+});
+
+describe('DbColorMarker (MN-299: the shared cylinder marker every chip render site reuses)', () => {
+  it('renders an svg filled with the palette hex for a known color name', () => {
+    const markup = renderToStaticMarkup(createElement(DbColorMarker, { color: 'blue' }));
+    expect(markup).toContain('<svg');
+    expect(markup).toContain('#3D5296'); // blue, same hex as cells.tsx's OPTION_COLORS
+  });
+
+  it('falls back to the gray hex for an unrecognized color name', () => {
+    const markup = renderToStaticMarkup(createElement(DbColorMarker, { color: 'not-a-real-color' }));
+    expect(markup).toContain('#B5B0A5'); // gray
+  });
+
+  it('renders nothing when color is null/undefined (no marker for chips with no known target color)', () => {
+    expect(renderToStaticMarkup(createElement(DbColorMarker, { color: null }))).toBe('');
+    expect(renderToStaticMarkup(createElement(DbColorMarker, {}))).toBe('');
+  });
+});
+
+describe('RelationChip/RelationChips/SelectedRelationChip forward color to DbColorMarker (MN-299)', () => {
+  it('RelationChip renders the marker before the title when a color is given', () => {
+    const markup = renderToStaticMarkup(createElement(RelationChip, { title: 'Q3 Launch', color: 'red' }));
+    expect(markup).toContain('#C0392B'); // red
+    expect(markup.indexOf('#C0392B')).toBeLessThan(markup.indexOf('Q3 Launch'));
+  });
+
+  it('RelationChips forwards one color to every chip (all chips share the same target database)', () => {
+    const chips = [
+      { id: 'rec-1', title: 'Alpha', number: 1 },
+      { id: 'rec-2', title: 'Beta', number: 2 },
+    ];
+    const markup = renderToStaticMarkup(createElement(RelationChips, { chips, color: 'teal' }));
+    expect(markup.split('<svg').length - 1).toBe(2); // one marker per chip
+    expect(markup).toContain('#057160'); // teal
+  });
+
+  it('SelectedRelationChip renders the marker alongside the × button', () => {
+    const chip = { id: 'rec-1', title: 'Alpha', number: 1 };
+    const markup = renderToStaticMarkup(
+      createElement(SelectedRelationChip, { chip, ws: 'acme', targetDb: 'db-blocked-by', onRemove: () => {}, color: 'purple' }),
+    );
+    expect(markup).toContain('#7E5BA6'); // purple
+    expect(markup).toContain('<button');
   });
 });
 
