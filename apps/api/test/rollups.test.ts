@@ -120,6 +120,57 @@ describe('rollup fields (MN-064)', () => {
     expect(ana.values.days_avg).toBe(3.5);
   });
 
+  it('MN-295: validates the optional filter against the RELATED database\'s fields', async () => {
+    const unknownField = await inject('POST', `/workspaces/${wsId}/databases/${membersDb}/fields`, {
+      display_name: 'Bad Filter', type: 'rollup',
+      config: { relation_field_id: timeoffFieldId, op: 'count', filter: { field: 'nope', op: 'eq', value: 'x' } },
+    });
+    expect(unknownField.statusCode, unknownField.body).toBe(422);
+
+    const wrongOpForType = await inject('POST', `/workspaces/${wsId}/databases/${membersDb}/fields`, {
+      display_name: 'Bad Op', type: 'rollup',
+      // 'days' is a number field — 'contains' is a text-only op.
+      config: { relation_field_id: timeoffFieldId, op: 'count', filter: { field: 'days', op: 'contains', value: '5' } },
+    });
+    expect(wrongOpForType.statusCode, wrongOpForType.body).toBe(422);
+
+    const ok = await inject('POST', `/workspaces/${wsId}/databases/${membersDb}/fields`, {
+      display_name: 'Big Trips', type: 'rollup',
+      config: { relation_field_id: timeoffFieldId, op: 'count', filter: { field: 'days', op: 'gt', value: 3 } },
+    });
+    expect(ok.statusCode, ok.body).toBe(201);
+  });
+
+  it('MN-295: rejects a "me" value in a rollup filter — a materialized, shared rollup has no per-viewer "current user"', async () => {
+    const handledBy = await inject('POST', `/workspaces/${wsId}/databases/${timeoffDb}/fields`, {
+      display_name: 'Handled By', type: 'user',
+    });
+    expect(handledBy.statusCode, handledBy.body).toBe(201);
+
+    const res = await inject('POST', `/workspaces/${wsId}/databases/${membersDb}/fields`, {
+      display_name: 'Mine', type: 'rollup',
+      config: { relation_field_id: timeoffFieldId, op: 'count', filter: { field: 'handled_by', op: 'eq', value: 'me' } },
+    });
+    expect(res.statusCode, res.body).toBe(422);
+  });
+
+  it('MN-295: read-time aggregation (attachRollups) applies the filter, not just the materialized/sort path', async () => {
+    const bigTrips = await inject('POST', `/workspaces/${wsId}/databases/${membersDb}/fields`, {
+      display_name: 'Big Trips Only', type: 'rollup',
+      config: { relation_field_id: timeoffFieldId, op: 'count', filter: { field: 'days', op: 'gt', value: 3 } },
+    });
+    expect(bigTrips.statusCode, bigTrips.body).toBe(201);
+    const bigTripsApi = bigTrips.json().apiName;
+
+    // GET one record goes through RecordsService.get() → attachLinks → attachRollups
+    // (fresh read-time aggregation), NOT the materialized computed_values column
+    // records/query reads — Ana has Trip=5 (matches days>3) and Sick=2 (doesn't).
+    const list = (await inject('GET', `/workspaces/${wsId}/databases/${membersDb}/records?limit=50`)).json();
+    const ana = list.data.find((r: { title: string }) => r.title === 'Ana');
+    const anaGet = (await inject('GET', `/workspaces/${wsId}/databases/${membersDb}/records/${ana.id}`)).json();
+    expect(anaGet.values[bigTripsApi]).toBe(1);
+  });
+
   it('cascades: deleting the relation removes dependent rollups', async () => {
     const detailBefore = (await inject('GET', `/workspaces/${wsId}/databases/${membersDb}`)).json();
     expect(detailBefore.fields.some((f: { type: string }) => f.type === 'rollup')).toBe(true);

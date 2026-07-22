@@ -34,6 +34,23 @@ function joinNodes(parts: SQL[], separator: SQL): SQL {
   return sql`(${joined})`;
 }
 
+/**
+ * MN-295: every field api_name referenced anywhere in a filter tree — used by
+ * a filtered rollup's invalidation check (RecordsService.invalidateRollupsForChange)
+ * to decide whether a related record's changed field could flip the filter's
+ * result for it, not just to compile SQL.
+ */
+export function filterReferencedFields(node: FilterNode): Set<string> {
+  const names = new Set<string>();
+  const walk = (n: FilterNode) => {
+    if ('and' in n) return n.and.forEach(walk);
+    if ('or' in n) return n.or.forEach(walk);
+    names.add(n.field);
+  };
+  walk(node);
+  return names;
+}
+
 /** Typed value expression for a field, extracted from the JSONB values column. */
 function fieldExpr(def: FieldDef): SQL {
   if (def.type === 'id') return sql`${records.number}`;

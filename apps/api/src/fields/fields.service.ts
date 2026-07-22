@@ -7,14 +7,16 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
-import type { CreatableFieldType, FormulaFieldInfo } from '@storyos/schemas';
-import { FormulaError, formulaRefs, parseFormula, typecheck } from '@storyos/schemas';
+import type { CreatableFieldType, FilterNode, FormulaFieldInfo } from '@storyos/schemas';
+import { activeFilter, FormulaError, formulaRefs, parseFormula, typecheck } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { fields, records, relations, selectOptions } from '../db/schema';
 import { slugify } from '../databases/databases.service';
 import { presentFieldConfig, restoreFieldConfig } from '../common/webhook-headers';
 import { RecordsService } from '../records/records.service';
+import { compileFilter } from '../records/query-compiler';
+import type { CompilerContext } from '../records/query-compiler';
 
 type Field = typeof fields.$inferSelect;
 
@@ -46,6 +48,17 @@ function richTextToPlain(blocks: unknown): string {
   };
   if (Array.isArray(blocks)) walk(blocks);
   return out.join(' ').trim();
+}
+
+/** MN-295: finds a "me"-valued condition on a user/created_by field anywhere in a
+ * filter tree, or undefined if there isn't one. Returns the offending field's api_name. */
+function findMeReference(node: FilterNode, ctx: CompilerContext): string | undefined {
+  if ('and' in node) return node.and.map((n) => findMeReference(n, ctx)).find((f) => f !== undefined);
+  if ('or' in node) return node.or.map((n) => findMeReference(n, ctx)).find((f) => f !== undefined);
+  const def = ctx.defs.get(node.field);
+  if (!def || (def.type !== 'user' && def.type !== 'created_by')) return undefined;
+  const usesMe = node.value === 'me' || (Array.isArray(node.value) && node.value.includes('me'));
+  return usesMe ? node.field : undefined;
 }
 
 @Injectable()
@@ -292,7 +305,14 @@ export class FieldsService {
 
   static readonly ROLLUP_OPS = new Set(['count', 'sum', 'avg', 'min', 'max']);
 
-  /** MN-064: count needs no target; sum/avg/min/max aggregate a NUMBER field on the related database. */
+  /**
+   * MN-064: count needs no target; sum/avg/min/max aggregate a NUMBER field on
+   * the related database. MN-295: an optional `filter` (the same AST used for
+   * saved views / POST /records/query) is validated against the RELATED
+   * database's live fields — reusing query-compiler's compileFilter() itself
+   * as the validator (its `err()` throws are already the right shape for a
+   * config 422), rather than re-implementing field/op/option-id checks here.
+   */
   private async assertRollupConfig(databaseId: string, config: Record<string, unknown>) {
     const op = config['op'] as string | undefined;
     if (!op || !FieldsService.ROLLUP_OPS.has(op)) {
@@ -300,19 +320,50 @@ export class FieldsService {
     }
     const targetApiName = config['target_field_api_name'] as string | undefined | null;
     const targetDbId = await this.resolveRelationTargetDb(databaseId, config['relation_field_id'] as string | undefined);
-    if (op === 'count' && !targetApiName) return; // count of linked records
-    if (!targetApiName) {
-      throw new UnprocessableEntityException(`rollup op "${op}" needs a target_field_api_name`);
+    if (op !== 'count' || targetApiName) {
+      if (!targetApiName) {
+        throw new UnprocessableEntityException(`rollup op "${op}" needs a target_field_api_name`);
+      }
+      const targetField = await this.db.query.fields.findFirst({
+        where: and(eq(fields.databaseId, targetDbId), eq(fields.apiName, targetApiName), isNull(fields.deletedAt)),
+      });
+      if (!targetField) {
+        throw new UnprocessableEntityException('target_field_api_name does not exist on the related database');
+      }
+      if (op !== 'count' && targetField.type !== 'number') {
+        throw new UnprocessableEntityException(`rollup "${op}" aggregates number fields, not ${targetField.type}`);
+      }
     }
-    const targetField = await this.db.query.fields.findFirst({
-      where: and(eq(fields.databaseId, targetDbId), eq(fields.apiName, targetApiName), isNull(fields.deletedAt)),
-    });
-    if (!targetField) {
-      throw new UnprocessableEntityException('target_field_api_name does not exist on the related database');
+
+    const filter = config['filter'] as FilterNode | undefined;
+    if (filter) await this.assertRollupFilter(targetDbId, filter);
+  }
+
+  /** MN-295: compiles the rollup's filter against the related database's fields, purely
+   * for validation — the resulting SQL is discarded here; the real evaluation happens in
+   * RecordsService (attachRollups / computeRollupValuesForChunk) at read/recompute time. */
+  private async assertRollupFilter(targetDbId: string, filter: FilterNode) {
+    const targetDefs = await this.recordsService.fieldDefs(targetDbId);
+    const ctx: CompilerContext = {
+      defs: new Map(targetDefs.map((d) => [d.api_name, d])),
+      currentUserId: '',
+    };
+    const pruned = activeFilter(filter);
+    if (!pruned) return; // every condition disabled — same as no filter
+
+    // A rollup's aggregate is materialized once and shared across every viewer
+    // (RecordsService.recomputeRollupsForRelationField), not recomputed per
+    // request — so a "me" value (which view/query filters resolve against
+    // whichever user is asking) has no well-defined meaning here. Reject it
+    // explicitly rather than silently resolving "me" against a placeholder.
+    const meField = findMeReference(pruned, ctx);
+    if (meField) {
+      throw new UnprocessableEntityException(
+        `rollup filter on "${meField}" cannot use "me" — rollups are materialized once and shared across every viewer, not scoped per-viewer`,
+      );
     }
-    if (op !== 'count' && targetField.type !== 'number') {
-      throw new UnprocessableEntityException(`rollup "${op}" aggregates number fields, not ${targetField.type}`);
-    }
+
+    compileFilter(pruned, ctx);
   }
 
   /** Soft-delete lookups AND rollups that point at a deleted target field or severed relation field. */

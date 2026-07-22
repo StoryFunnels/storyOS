@@ -6,15 +6,15 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, or, sql, SQL } from 'drizzle-orm';
-import { evaluateFormula, formulaRefs, validateRecordValues } from '@storyos/schemas';
+import { activeFilter, evaluateFormula, formulaRefs, validateRecordValues } from '@storyos/schemas';
 import type { FormulaNode } from '@storyos/schemas';
-import type { FieldDef } from '@storyos/schemas';
+import type { FieldDef, FilterNode } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { activityEvents, databases, documents, fields, memberships, recordLinks, recordVersions, records, relations, selectOptions, user } from '../db/schema';
 import type { QueryRecordsInput } from '@storyos/schemas';
-import { compileFilter, cursorCondition, sortExpr } from './query-compiler';
-import type { SortSpec } from './query-compiler';
+import { compileFilter, cursorCondition, filterReferencedFields, sortExpr } from './query-compiler';
+import type { CompilerContext, SortSpec } from './query-compiler';
 import { keyBetween, keysAfter } from './rank';
 import { diffSnapshots } from './record-diff';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -177,6 +177,13 @@ export class RecordsService {
    * MN-064: aggregates related records through the already-attached relation
    * chips. One target-defs load + one records batch per rollup field. Empty
    * relation: 0 for count, null for the rest.
+   *
+   * MN-295: an optional `filter` on the rollup config scopes the aggregate to
+   * only the linked records matching it — the SAME filter AST/compiler as
+   * saved views (query-compiler's compileFilter), just compiled against the
+   * RELATED database's fields and folded into the `targetRows` where-clause
+   * below, so a filtered rollup fetches only the target rows that pass its
+   * condition (rather than filtering an already-`SELECT *`ed batch in JS).
    */
   private async attachRollups(projected: ProjectedRecord[], defs: FieldDef[]): Promise<ProjectedRecord[]> {
     const rollupDefs = defs.filter((d) => d.type === 'rollup');
@@ -185,11 +192,13 @@ export class RecordsService {
     for (const def of rollupDefs) {
       const op = def.config['op'] as 'count' | 'sum' | 'avg' | 'min' | 'max';
       const targetApiName = def.config['target_field_api_name'] as string | undefined | null;
+      const filterNode = activeFilter(def.config['filter'] as FilterNode | undefined);
       const relationDef = defs.find((d) => d.id === def.config['relation_field_id']);
       if (!relationDef || relationDef.type !== 'relation') continue; // dangling — resolve to nothing
 
       let targetFieldId: string | null = null;
-      if (targetApiName) {
+      let filterSql: SQL | undefined;
+      if (targetApiName || filterNode) {
         const side = relationDef.config['side'] as 'a' | 'b';
         const relation = await this.db.query.relations.findFirst({
           where: eq(relations.id, relationDef.config['relation_id'] as string),
@@ -197,29 +206,41 @@ export class RecordsService {
         if (!relation) continue;
         const targetDbId = side === 'a' ? relation.databaseBId : relation.databaseAId;
         const targetDefs = await this.fieldDefs(targetDbId);
-        targetFieldId = targetDefs.find((d) => d.api_name === targetApiName)?.id ?? null;
+        if (targetApiName) targetFieldId = targetDefs.find((d) => d.api_name === targetApiName)?.id ?? null;
+        if (filterNode) {
+          const ctx: CompilerContext = {
+            defs: new Map(targetDefs.map((d) => [d.api_name, d])),
+            currentUserId: '', // rollup filters may not reference "me" (validated at field-create time)
+          };
+          filterSql = compileFilter(filterNode, ctx);
+        }
       }
 
       const numberById = new Map<string, number>();
-      if (targetFieldId) {
+      const passesFilter = new Set<string>();
+      if (targetFieldId || filterSql) {
         const linkedIds = new Set<string>();
         for (const record of projected) {
           const chips = record.values[relationDef.api_name] as Array<{ id: string }> | undefined;
           chips?.forEach((chip) => linkedIds.add(chip.id));
         }
         if (linkedIds.size > 0) {
-          const targetRows = await this.db.query.records.findMany({
-            where: and(inArray(records.id, [...linkedIds]), isNull(records.deletedAt)),
-          });
+          const conditions = [inArray(records.id, [...linkedIds]), isNull(records.deletedAt)];
+          if (filterSql) conditions.push(filterSql);
+          const targetRows = await this.db.query.records.findMany({ where: and(...conditions) });
           for (const row of targetRows) {
-            const raw = (row.values as Record<string, unknown>)[targetFieldId];
-            if (typeof raw === 'number') numberById.set(row.id, raw);
+            passesFilter.add(row.id);
+            if (targetFieldId) {
+              const raw = (row.values as Record<string, unknown>)[targetFieldId];
+              if (typeof raw === 'number') numberById.set(row.id, raw);
+            }
           }
         }
       }
 
       for (const record of projected) {
-        const chips = (record.values[relationDef.api_name] as Array<{ id: string }> | undefined) ?? [];
+        const allChips = (record.values[relationDef.api_name] as Array<{ id: string }> | undefined) ?? [];
+        const chips = filterSql ? allChips.filter((chip) => passesFilter.has(chip.id)) : allChips;
         if (!targetApiName) {
           record.values[def.api_name] = op === 'count' ? chips.length : null;
           continue;
@@ -457,7 +478,17 @@ export class RecordsService {
     }
   }
 
-  /** One grouped aggregate query per rollup field per chunk — never N+1 per record. */
+  /**
+   * One grouped aggregate query per rollup field per chunk — never N+1 per record.
+   *
+   * MN-295: an optional `filter` on the rollup config is compiled (SAME
+   * query-compiler.compileFilter as attachRollups/saved views) against the
+   * RELATED database's fields and joined into the innerJoin's ON clause below,
+   * so filtered-out related records never enter the aggregate — for `count`
+   * as much as for sum/avg/min/max, which is why the relation lookup that used
+   * to happen only in the non-count branch now happens up front whenever a
+   * filter is present.
+   */
   private async computeRollupValuesForChunk(
     def: FieldDef,
     defs: FieldDef[],
@@ -473,23 +504,37 @@ export class RecordsService {
     const myCol = side === 'a' ? recordLinks.fromRecordId : recordLinks.toRecordId;
     const otherCol = side === 'a' ? recordLinks.toRecordId : recordLinks.fromRecordId;
 
+    const targetApiName = def.config['target_field_api_name'] as string | undefined | null;
+    const filterNode = activeFilter(def.config['filter'] as FilterNode | undefined);
+
+    let filterSql: SQL | undefined;
+    let targetDefs: FieldDef[] | undefined;
+    if (targetApiName || filterNode) {
+      const relation = await this.db.query.relations.findFirst({ where: eq(relations.id, relationId) });
+      if (!relation) return result;
+      const targetDbId = side === 'a' ? relation.databaseBId : relation.databaseAId;
+      targetDefs = await this.fieldDefs(targetDbId);
+      if (filterNode) {
+        const ctx: CompilerContext = {
+          defs: new Map(targetDefs.map((d) => [d.api_name, d])),
+          currentUserId: '', // rollup filters may not reference "me" (validated at field-create time)
+        };
+        filterSql = compileFilter(filterNode, ctx);
+      }
+    }
+
     if (op === 'count') {
       const rows = await this.db
         .select({ mine: myCol, n: sql<number>`count(*)` })
         .from(recordLinks)
-        .innerJoin(records, and(eq(records.id, otherCol), isNull(records.deletedAt)))
+        .innerJoin(records, and(eq(records.id, otherCol), isNull(records.deletedAt), filterSql))
         .where(and(eq(recordLinks.relationId, relationId), inArray(myCol, recordIds)))
         .groupBy(myCol);
       for (const r of rows) result.set(r.mine, Number(r.n));
       return result;
     }
 
-    const targetApiName = def.config['target_field_api_name'] as string | undefined | null;
-    if (!targetApiName) return result;
-    const relation = await this.db.query.relations.findFirst({ where: eq(relations.id, relationId) });
-    if (!relation) return result;
-    const targetDbId = side === 'a' ? relation.databaseBId : relation.databaseAId;
-    const targetDefs = await this.fieldDefs(targetDbId);
+    if (!targetApiName || !targetDefs) return result;
     const targetFieldId = targetDefs.find((d) => d.api_name === targetApiName)?.id;
     if (!targetFieldId) return result;
 
@@ -512,6 +557,7 @@ export class RecordsService {
           eq(records.id, otherCol),
           isNull(records.deletedAt),
           sql`jsonb_typeof(${records.values}->${targetFieldId}) = 'number'`,
+          filterSql,
         ),
       )
       .where(and(eq(recordLinks.relationId, relationId), inArray(myCol, recordIds)))
@@ -565,8 +611,10 @@ export class RecordsService {
    *      OTHER side has a rollup reading through the reverse relation field
    *      (a `count` rollup always qualifies — it cares about link membership,
    *      not field values; sum/avg/min/max only if the changed field is its
-   *      target), recomputes that rollup for whichever other-side records are
-   *      CURRENTLY linked to `recordId`.
+   *      target OR — MN-295 — referenced by its filter, since a filtered
+   *      aggregate's result can flip when a filtered-on field changes even
+   *      with no link change), recomputes that rollup for whichever
+   *      other-side records are CURRENTLY linked to `recordId`.
    *  (b) `linkedRelations` — this record's own relation link-set changed.
    *      Uses writeLinks()'s precise before∪after ids (never reconstructed
    *      from record_links after the fact, so an unlink is never missed) to
@@ -604,12 +652,16 @@ export class RecordsService {
         const otherDbId = mySide === 'a' ? rel.databaseBId : rel.databaseAId;
         const reverseFieldId = mySide === 'a' ? rel.fieldBId : rel.fieldAId;
         const otherDefs = await this.fieldDefs(otherDbId);
-        const relevantRollups = otherDefs.filter(
-          (d) =>
-            d.type === 'rollup' &&
-            d.config['relation_field_id'] === reverseFieldId &&
-            (d.config['op'] === 'count' || changedApiNames.has(d.config['target_field_api_name'] as string)),
-        );
+        const relevantRollups = otherDefs.filter((d) => {
+          if (d.type !== 'rollup' || d.config['relation_field_id'] !== reverseFieldId) return false;
+          if (d.config['op'] === 'count') return true; // link-membership rollup — safe (if redundant) to always recompute
+          if (changedApiNames.has(d.config['target_field_api_name'] as string)) return true;
+          // MN-295: a filtered sum/avg/min/max also needs recompute when the
+          // changed field is one the filter reads, not just the target field.
+          const filterNode = activeFilter(d.config['filter'] as FilterNode | undefined);
+          if (!filterNode) return false;
+          return [...filterReferencedFields(filterNode)].some((f) => changedApiNames.has(f));
+        });
         if (relevantRollups.length === 0) continue;
 
         const myCol = mySide === 'a' ? recordLinks.fromRecordId : recordLinks.toRecordId;

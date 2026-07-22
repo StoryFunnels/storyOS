@@ -816,7 +816,15 @@ function PinnedFilterChip({
  * reusing the exact dnd-kit setup MN-253 shipped rather than a second drag
  * pattern per nesting level; `onDragEnd` resolves the drop into a tree op
  * (`moveNodeTo`) instead of a flat array index swap. */
-function FilterBuilderPanel({
+/**
+ * MN-295: exported so the Rollup field-config UI (add-field-dialog.tsx /
+ * edit-field-dialog.tsx) can reuse this SAME condition-tree builder for a
+ * rollup's filter, rather than a second filter-condition UI. Everything else
+ * about it (row rendering, drag-to-reorder, group nesting) is unchanged —
+ * a caller outside the view toolbar just drives `nodes`/`connector` from its
+ * own local state instead of a persisted `ViewConfig.filters`.
+ */
+export function FilterBuilderPanel({
   fields,
   members,
   ws,

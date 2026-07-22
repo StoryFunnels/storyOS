@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { webhookUrlSchema } from './webhooks';
+import { filterSchema } from './query';
 
 /** Field types a user can create. title/system/relation types are managed elsewhere. */
 export const creatableFieldTypeSchema = z.enum([
@@ -118,11 +119,22 @@ export const formulaConfigSchema = z.object({
   result_type: z.enum(['text', 'number', 'checkbox', 'date']).optional(),
 });
 
-/** Rollup (MN-064): aggregate related records; count works with no target field. */
+/**
+ * Rollup (MN-064): aggregate related records; count works with no target field.
+ * MN-295: an optional filter scopes the aggregate to only the linked records
+ * matching a condition (e.g. "count of Issues where State != Done"). Reuses
+ * the SAME filter AST as saved views / POST /records/query (`filterSchema`,
+ * packages/schemas/src/query.ts) rather than a parallel condition language —
+ * it's compiled against the RELATED database's fields, evaluated in
+ * apps/api/src/records/records.service.ts's attachRollups()/
+ * computeRollupValuesForChunk() via query-compiler's compileFilter(). Omitted
+ * (undefined) preserves the pre-MN-295 unconditional-aggregate behavior.
+ */
 export const rollupConfigSchema = z.object({
   relation_field_id: z.uuid(),
   op: z.enum(['count', 'sum', 'avg', 'min', 'max']),
   target_field_api_name: z.string().trim().min(1).nullish(),
+  filter: filterSchema.optional(),
 });
 
 export const emptyConfigSchema = z.object({});
