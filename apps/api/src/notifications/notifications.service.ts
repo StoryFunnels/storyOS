@@ -38,7 +38,14 @@ export type NotificationType =
    * reason: it's a billing problem the workspace needs to act on (update the
    * card), not an FYI about something already handled.
    */
-  | 'auto_reload_failed';
+  | 'auto_reload_failed'
+  /**
+   * MN-253 — JobRunnerService auto-disabled a rule after MAX_FAILURES
+   * consecutive job failures. Sent to the rule's creator only; not an
+   * opt-out ping for the same reason connection_error isn't — it's the thing
+   * that tells an owner their automation silently stopped running.
+   */
+  | 'automation_disabled';
 
 /**
  * The types a user can switch off (#31). `notifications.type` is a plain text

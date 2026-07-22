@@ -1080,8 +1080,71 @@ export const connections = pgTable(
     errorStreak: integer('error_streak').notNull().default(0),
     /** Pre-provisioned for MN-253's circuit breaker — unused until then. */
     breakerOpenUntil: timestamp('breaker_open_until', { withTimezone: true }),
+    /**
+     * MN-253 — per-connection token-bucket state (common/token-bucket.ts),
+     * `{ tokens: number, lastRefillAt: string }`. Null until the first job
+     * runs against this connection; JobRunnerService seeds it from the
+     * provider descriptor's `rateLimit` default on first use.
+     */
+    connectionRateState: jsonb('connection_rate_state'),
     createdBy: text('created_by'),
     ...timestamps,
   },
   (t) => [index('connections_workspace_provider_idx').on(t.workspaceId, t.provider)],
+);
+
+/**
+ * MN-253 — the durable action-job queue. One row per external-action attempt
+ * chain: `actions.service.ts`'s execute() enqueues a row here instead of
+ * running an external action kind (send_email, post_social.*, http_request,
+ * youtube_upload — added by MN-256/257/258/259/263) inline, and
+ * JobRunnerService's claim loop (SKIP LOCKED) runs it with backoff retries.
+ *
+ * `idempotencyKey` is UNIQUE — enqueue() does `INSERT … ON CONFLICT DO
+ * NOTHING`, so a duplicate enqueue call for the same rule/record/run/action
+ * index never creates a second row; it returns the existing one instead.
+ *
+ * `connectionId` is nullable (SET NULL) so deleting a connection never loses
+ * job history, but is set whenever a job targets one — it's what the claim
+ * loop joins against for the per-connection circuit breaker and rate limit.
+ *
+ * `ruleId` is SET NULL (not cascade) so a job that already ran keeps its
+ * history if the owning rule is later deleted.
+ */
+export const automationJobs = pgTable(
+  'automation_jobs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    ruleId: uuid('rule_id').references(() => automations.id, { onDelete: 'set null' }),
+    runId: uuid('run_id').references(() => automationRuns.id, { onDelete: 'set null' }),
+    connectionId: uuid('connection_id').references(() => connections.id, { onDelete: 'set null' }),
+    actionIndex: integer('action_index').notNull(),
+    /** e.g. 'send_email', 'post_social.linkedin' — the executor registry key. */
+    kind: text('kind').notNull(),
+    /** FROZEN at enqueue: rendered action config + { workspaceId, databaseId, recordId, actorId }. */
+    payload: jsonb('payload').notNull(),
+    idempotencyKey: text('idempotency_key').notNull(),
+    /** queued | running | succeeded | failed | canceled */
+    status: text('status').notNull().default('queued'),
+    attempts: integer('attempts').notNull().default(0),
+    nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }).notNull().defaultNow(),
+    /** short (30s) | long (15min) | upload (60min) — see common/backoff-schedule.ts. */
+    timeoutClass: text('timeout_class').notNull().default('short'),
+    /** Set when claimed; the reaper reverts a job stuck 'running' past its
+     * timeoutClass duration back to 'queued' so an API restart never loses it. */
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    /** Redacted (common/redact-secrets.ts) + truncated to 8KB. */
+    lastError: text('last_error'),
+    /** Redacted provider response + artifact id, whatever the executor returns. */
+    artifact: jsonb('artifact'),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('automation_jobs_idempotency_key_idx').on(t.idempotencyKey),
+    index('automation_jobs_claim_idx').on(t.status, t.nextAttemptAt),
+    index('automation_jobs_connection_idx').on(t.connectionId),
+  ],
 );

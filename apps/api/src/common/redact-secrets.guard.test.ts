@@ -95,6 +95,13 @@ const DECLARED_SAFE: Record<string, string> = {
   // real secret material and is covered by the `auth` tail in redact-secrets.ts
   // instead, which gives it wholesale redaction.
   auth_kind: "packages/schemas/src/connections.ts (MN-252) — the provider's auth-mechanism discriminator, not a credential",
+  // apps/api/src/automations/job-runner.service.ts (MN-253) — a dedup/idempotency
+  // key derived from ruleId:recordId:runId:actionIndex (see buildIdempotencyKey),
+  // not a credential. It's deliberately handed to every executor via JobHelpers
+  // so it can be forwarded to a provider's own idempotency mechanism — the exact
+  // opposite of something that should be hidden from the code that needs it.
+  idempotencyKey:
+    'apps/api/src/automations/job-runner.service.ts (MN-253) — a dedup key (ruleId:recordId:runId:actionIndex), not a credential',
 };
 
 function propertyNames(): Map<string, Set<string>> {

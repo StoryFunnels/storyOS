@@ -23,6 +23,7 @@ import { AutomationActionsService } from './actions.service';
 import { env } from '../config/env';
 import { presentActionHeaders, restoreActionHeaders } from '../common/webhook-headers';
 import { redactSecrets } from '../common/redact-secrets';
+import { MAX_FAILURES } from './constants';
 
 interface Trigger {
   type: string;
@@ -34,7 +35,6 @@ interface Trigger {
 }
 
 const MAX_DEPTH = 2;
-const MAX_FAILURES = 10;
 /** create()/update() apply this whenever a rule's trigger is webhook_received. */
 const HOOK_SECRET_PREFIX = 'whin_';
 
@@ -401,6 +401,8 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         // run exactly once (MAX_DEPTH guard) instead of chaining forever.
         depth: 1,
         triggerType: 'webhook_received',
+        ruleId: rule.id,
+        runId,
       });
       await this.db.insert(automationRuns).values({
         id: runId,
@@ -499,6 +501,11 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
     depth: number,
   ) {
     const started = Date.now();
+    // MN-253: pre-minted, like startHookRun's runId — actions.execute() needs
+    // it before the run row exists, to key any job it enqueues (idempotencyKey
+    // = ruleId:recordId:runId:actionIndex). Threaded into the same
+    // automationRuns.id below so a job's runId FK actually resolves to this run.
+    const runId = randomUUID();
     const rule = await this.db.query.automations.findFirst({ where: eq(automations.id, ruleId) });
     if (!rule || !rule.enabled) return;
     try {
@@ -553,6 +560,8 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         record,
         actorId: rule.createdBy ?? 'automation',
         depth: depth + 1,
+        ruleId,
+        runId,
       });
       await this.logRun(
         ruleId,
@@ -563,6 +572,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         effects,
         depth,
         Date.now() - started,
+        runId,
       );
       await this.entitlements.recordNonAiRun(workspaceId);
       await this.db.update(automations).set({ failureStreak: 0 }).where(eq(automations.id, ruleId));
@@ -577,6 +587,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         null,
         depth,
         Date.now() - started,
+        runId,
       );
       await this.db
         .update(automations)
@@ -596,8 +607,10 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
     effects: unknown,
     depth: number,
     durationMs: number,
+    id?: string,
   ) {
     await this.db.insert(automationRuns).values({
+      ...(id ? { id } : {}),
       automationId,
       workspaceId,
       triggerRecordId: recordId,

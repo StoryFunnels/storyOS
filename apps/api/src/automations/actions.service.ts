@@ -13,6 +13,7 @@ import type { ProjectedRecord } from '../records/records.service';
 import { RelationsService } from '../relations/relations.service';
 import { stringHeadersOnly } from '../common/webhook-headers';
 import { getJsonPath } from '../common/json-path';
+import { JobRunnerService, buildIdempotencyKey } from './job-runner.service';
 
 /** Full token match — `{payload.a.b.0}`, nothing else in the string. */
 const PAYLOAD_VALUE_TOKEN_RE = /^\{payload\.([^{}]+)\}$/;
@@ -48,6 +49,14 @@ export interface ActionContext {
   payload?: Record<string, unknown> | null;
   /** MN-254: set by runHookRule so validate()'s re-check applies the same restriction. */
   triggerType?: string;
+  /** MN-253: absent when actions run outside a rule (none today — every caller
+   * is a rule run — kept optional so a future non-rule caller isn't forced to
+   * fabricate one). Feeds the job idempotency key and automation_jobs.rule_id. */
+  ruleId?: string | null;
+  /** MN-253: pre-minted by the caller (automations.service.ts) before actions
+   * run, so a job enqueued mid-execute() can carry the SAME id its eventual
+   * automationRuns row gets — see buildIdempotencyKey. */
+  runId?: string;
 }
 
 export interface ActionEffect {
@@ -92,6 +101,7 @@ export class AutomationActionsService {
     private readonly notificationsService: NotificationsService,
     private readonly slackService: SlackService,
     private readonly webhooksService: WebhooksService,
+    private readonly jobs: JobRunnerService,
   ) {}
 
   /** The related database + this record's linked ids through a relation field. */
@@ -275,7 +285,57 @@ export class AutomationActionsService {
     const displayToApi = new Map(live.map((f) => [f.displayName, f.apiName]));
 
     const effects: ActionEffect[] = [];
-    for (const action of actions) {
+    for (const [actionIndex, action] of actions.entries()) {
+      // MN-253: an action kind with a registered executor (send_email,
+      // post_social.*, http_request, youtube_upload — added by
+      // MN-256/257/258/259/263) never runs inline — it's durable-queued
+      // instead, so a flaky provider retries with backoff rather than
+      // stalling this record's save or double-firing on a retry. No such
+      // kind exists on this schema version yet (the registry is empty in
+      // production), so every action below still runs exactly as before;
+      // this branch only fires once a later ticket both adds the action
+      // literal to packages/schemas' actionSchema AND registers an executor
+      // for it.
+      if (this.jobs.hasExecutor(action.type)) {
+        const runId = ctx.runId ?? 'no-run';
+        const idempotencyKey = buildIdempotencyKey({
+          ruleId: ctx.ruleId ?? null,
+          recordId: ctx.record?.id ?? null,
+          runId,
+          actionIndex,
+        });
+        // Forward-compatible: no current action carries a connection id, but
+        // a future external-kind schema will — extracted opportunistically so
+        // the circuit breaker/rate limiter (job-runner.service.ts) has it.
+        const connectionId =
+          typeof (action as Record<string, unknown>).connection_id === 'string'
+            ? ((action as Record<string, unknown>).connection_id as string)
+            : null;
+        const { jobId } = await this.jobs.enqueue({
+          workspaceId: ctx.workspaceId,
+          ruleId: ctx.ruleId ?? null,
+          runId: ctx.runId ?? null,
+          connectionId,
+          actionIndex,
+          kind: action.type,
+          payload: {
+            action,
+            ctx: {
+              workspaceId: ctx.workspaceId,
+              databaseId: ctx.databaseId,
+              recordId: ctx.record?.id ?? null,
+              actorId: ctx.actorId,
+            },
+          },
+          idempotencyKey,
+        });
+        effects.push({
+          type: 'queued_job',
+          record_id: ctx.record?.id,
+          summary: `Queued ${action.type} (job ${jobId})`,
+        });
+        continue;
+      }
       if (action.type === 'set_values') {
         // validate() already refused this action on a record-less (webhook)
         // context — ctx.record is guaranteed here.
