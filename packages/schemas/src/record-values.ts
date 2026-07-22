@@ -64,7 +64,15 @@ export function validateRecordValues(
   for (const [key, raw] of Object.entries(input)) {
     const field = byApiName.get(key);
     if (!field) {
-      result.issues.push({ path: `values.${key}`, message: `unknown field "${key}"` });
+      // #280: "description" is the single most likely name someone reaches for
+      // without the database actually having a custom field by that name — what
+      // they usually mean is the record's own document body (a separate concept,
+      // reached via GET/PUT .../records/:rec/document, not a values key at all).
+      const hint =
+        key === 'description'
+          ? ' — no field named "description" on this database. If you meant the record\'s own rich-text description (the document body under its title), that\'s a separate thing, not a values key: use get_record_description / update_record_description.'
+          : '';
+      result.issues.push({ path: `values.${key}`, message: `unknown field "${key}"${hint}` });
       continue;
     }
     if (

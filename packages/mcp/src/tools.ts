@@ -220,9 +220,11 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   list_attachments: 'read',
   list_spaces: 'read',
   list_icon_set: 'read',
+  get_record_description: 'read',
   // write (record + content mutations)
   create_record: 'write',
   update_record: 'write',
+  update_record_description: 'write',
   delete_record: 'write',
   link_records: 'write',
   unlink_records: 'write',
@@ -307,6 +309,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         '',
         'Refs: address a database by its qualified "space/database" slug (from list_databases) — a bare name that exists in two spaces is rejected. Never invent ids; they come from search / list_* / a prior result. Names, slugs and select labels are resolved server-side.',
         'Values: select/multi_select take the human label (e.g. "High"); rich_text fields accept Markdown (headings, lists, links, code — parsed to blocks) and are returned to you as Markdown.',
+        '',
+        '"Description": a record\'s own rich-text description (the block editor content under its title) is NOT a values key — writing values.description 422s unless the database happens to have a real custom field by that name. Use get_record_description / update_record_description (also Markdown in/out) for the record\'s document body.',
         '',
         'Links: get_record / query_records / create_record / update_record all include a `url` — a clickable web-app link for that record, ready to hand to a user. Scheme: {web origin}/w/{workspace_id}/d/{database_id}/r/{title-slug}-{number} (falls back to the record uuid when it has no public number yet). workspace_id/database_id are the ids from list_workspaces/list_databases — never the human name/slug you passed in. Use get_links to resolve a database or view link, or a batch of record links, without a round-trip per record.',
         '',
@@ -640,6 +644,87 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           }),
         );
         return text({ ...row, values: labelize(detail, row.values), url: recordUrl(ws.id, db.id, row) });
+      },
+    ),
+  );
+
+  // ---- Record description (#280): the record's own rich document body — GET/PUT
+  // .../records/:rec/document — is a SEPARATE thing from an ordinary custom field
+  // that happens to be named "description". `values.description` in create_record/
+  // update_record only ever reaches a real field of that name (and 422s if none
+  // exists); these two tools are the only way to reach the document body. Content
+  // round-trips as Markdown, exactly like a rich_text field (blocksToMarkdown /
+  // markdownToBlocks) — never raw BlockNote block JSON. ----
+
+  reg(
+    'get_record_description',
+    {
+      title: "Get record's description (document body)",
+      description:
+        "The record's own rich-text description/document — the block editor content shown under its title, NOT a custom field literally named \"description\" (that would show up in get_record's values instead, if the database has one). Returns Markdown. version 0 means it has never been written.",
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        record: z.string().describe('Record uuid or public number.'),
+      },
+    },
+    handle<{ workspace: string; database: string; record: string }>(async ({ workspace, database, record }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const rec = await resolveRecordId(ws.id, db.id, record);
+      const doc = await unwrap<{ record_id: string; content: unknown; version: number; updated_at: string | null }>(
+        client.GET('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/document', {
+          params: { path: { ws: ws.id, db: db.id, rec } },
+        }),
+      );
+      return text({
+        content: Array.isArray(doc.content) ? blocksToMarkdown(doc.content) : '',
+        version: doc.version,
+        updated_at: doc.updated_at,
+      });
+    }),
+  );
+
+  reg(
+    'update_record_description',
+    {
+      title: "Set record's description (document body)",
+      description:
+        "Overwrite the record's rich-text description/document — the block editor content shown under its title, NOT a custom field literally named \"description\" (use update_record's values for that). content is Markdown (headings/lists/links parsed into real blocks, same as a rich_text field). Omit expected_version to overwrite unconditionally; pass the version from a prior get_record_description to fail safely (409) if it changed since you read it.",
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        record: z.string().describe('Record uuid or public number.'),
+        content: z.string().describe('Markdown. An empty string clears the description.'),
+        expected_version: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe('Optimistic-concurrency guard. Omit to overwrite regardless of the current version.'),
+      },
+    },
+    handle<{ workspace: string; database: string; record: string; content: string; expected_version?: number }>(
+      async ({ workspace, database, record, content, expected_version }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const rec = await resolveRecordId(ws.id, db.id, record);
+        const version =
+          expected_version ??
+          (
+            await unwrap<{ version: number }>(
+              client.GET('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/document', {
+                params: { path: { ws: ws.id, db: db.id, rec } },
+              }),
+            )
+          ).version;
+        const doc = await unwrap<{ record_id: string; content: unknown; version: number; updated_at: string | null }>(
+          client.PUT('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/document', {
+            params: { path: { ws: ws.id, db: db.id, rec } },
+            body: { content: markdownToBlocks(content), expected_version: version } as never,
+          }),
+        );
+        return text({ content, version: doc.version, updated_at: doc.updated_at });
       },
     ),
   );

@@ -264,6 +264,7 @@ function buildFakeClient() {
   records.set('rec-uuid-1', { id: 'rec-uuid-1', number: 42, title: 'Fix the bug', values: {} });
   let nextSeq = 2;
   let nextNumber = 43;
+  const documents = new Map<string, { content: unknown; version: number; updated_at: string | null }>();
 
   type Path = Record<string, string> | undefined;
   const byNumber = (n: string) => [...records.values()].find((r) => String(r.number) === n);
@@ -280,6 +281,10 @@ function buildFakeClient() {
     if (path === '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}') {
       const row = records.get(p.rec!);
       return row ? { data: row } : { error: { error: { message: `No record ${p.rec}` } } };
+    }
+    if (path === '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/document') {
+      const doc = documents.get(p.rec!);
+      return { data: doc ? { record_id: p.rec, ...doc } : { record_id: p.rec, content: null, version: 0, updated_at: null } };
     }
     throw new Error(`fake client: unhandled GET ${path}`);
   };
@@ -310,7 +315,33 @@ function buildFakeClient() {
     throw new Error(`fake client: unhandled PATCH ${path}`);
   };
 
-  return { GET, POST, PATCH };
+  const PUT = async (
+    path: string,
+    opts?: { params?: { path?: Path }; body?: { content?: unknown; expected_version?: number } },
+  ) => {
+    if (path === '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/document') {
+      const rec = opts!.params!.path!.rec!;
+      const existing = documents.get(rec);
+      const currentVersion = existing?.version ?? 0;
+      const expected = opts?.body?.expected_version;
+      if (expected !== currentVersion) {
+        return {
+          error: {
+            error: {
+              message: 'Document was edited elsewhere',
+              details: [{ path: 'expected_version', message: `current version is ${currentVersion}` }],
+            },
+          },
+        };
+      }
+      const updated = { content: opts?.body?.content, version: currentVersion + 1, updated_at: '2026-01-01T00:00:00.000Z' };
+      documents.set(rec, updated);
+      return { data: { record_id: rec, ...updated } };
+    }
+    throw new Error(`fake client: unhandled PUT ${path}`);
+  };
+
+  return { GET, POST, PATCH, PUT };
 }
 
 type ToolResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
@@ -421,6 +452,57 @@ describe('get_links (#268)', () => {
     const result = await handlers.get('get_links')!({ workspace: 'Acme Co', records: ['42'] });
     expect(result.isError).toBe(true);
     expect(result.content[0]!.text).toMatch(/database.*required/i);
+  });
+});
+
+describe('get_record_description / update_record_description (#280)', () => {
+  it('reads version 0 and empty content for a record that has never had a description written', async () => {
+    const result = await callTool(buildHandlers(), 'get_record_description', {
+      workspace: 'Acme Co',
+      database: 'Issues',
+      record: '42',
+    });
+    expect(result).toEqual({ content: '', version: 0, updated_at: null });
+  });
+
+  it('writes Markdown, and a follow-up read reflects it', async () => {
+    const handlers = buildHandlers();
+    const written = await callTool(handlers, 'update_record_description', {
+      workspace: 'Acme Co',
+      database: 'Issues',
+      record: '42',
+      content: '# Heading\n\nSome body text.',
+    });
+    expect(written.version).toBe(1);
+
+    const read = await callTool(handlers, 'get_record_description', { workspace: 'Acme Co', database: 'Issues', record: '42' });
+    expect(read.version).toBe(1);
+    expect(read.content).toContain('Heading');
+    expect(read.content).toContain('Some body text.');
+  });
+
+  it('omitting expected_version auto-fetches the current one, so a second write in a row still succeeds', async () => {
+    const handlers = buildHandlers();
+    await callTool(handlers, 'update_record_description', { workspace: 'Acme Co', database: 'Issues', record: '42', content: 'First.' });
+    const second = await callTool(handlers, 'update_record_description', { workspace: 'Acme Co', database: 'Issues', record: '42', content: 'Second.' });
+    expect(second.version).toBe(2);
+  });
+
+  it('a stale expected_version surfaces the conflict clearly instead of silently overwriting', async () => {
+    const handlers = buildHandlers();
+    await callTool(handlers, 'update_record_description', { workspace: 'Acme Co', database: 'Issues', record: '42', content: 'First.' });
+
+    const result = await handlers.get('update_record_description')!({
+      workspace: 'Acme Co',
+      database: 'Issues',
+      record: '42',
+      content: 'Conflicting write.',
+      expected_version: 0, // stale — the record is already at version 1
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0]!.text).toMatch(/edited elsewhere/i);
+    expect(result.content[0]!.text).toMatch(/current version is 1/i);
   });
 });
 
