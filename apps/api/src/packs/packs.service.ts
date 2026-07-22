@@ -1,5 +1,6 @@
-import { Inject, Injectable, UnprocessableEntityException } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
+import { ConflictException, Inject, Injectable, UnprocessableEntityException } from '@nestjs/common';
+import { createHash } from 'node:crypto';
+import { and, eq, isNull } from 'drizzle-orm';
 import {
   creatableFieldTypeSchema,
   dbRef,
@@ -14,11 +15,14 @@ import type {
   PackConnection,
   PackDerivedField,
   PackExportRequest,
+  PackInstallResolutions,
   PackInstallResult,
+  PackInstallSummary,
   PackManifest,
   PackPreviewItem,
   PackPreviewResult,
   PackSkill,
+  PackUninstallResult,
   PackUnmetRequirement,
   PlanAgent,
   PlanDatabase,
@@ -28,7 +32,7 @@ import type {
 } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { workspaces } from '../db/schema';
+import { packInstallItems, packInstalls, workspaces } from '../db/schema';
 import { redactSecrets } from '../common/redact-secrets';
 import { AgentsService } from '../agents/agents.service';
 import { ArchitectService } from '../agents/architect.service';
@@ -104,6 +108,13 @@ interface LiveView {
   name: string;
   type: string;
   config: Record<string, unknown>;
+  /** Every database is provisioned with exactly one (`databases.service.ts`'s
+   * "All records"), and `ViewsService.remove` refuses to delete a database's
+   * last view. It is scaffolding, not pack content — see the doc on
+   * `computeCollisions`'s view classification and `installViews`/`uninstall`
+   * for why it is never a `collision`, never independently tracked, and never
+   * removed. */
+  isDefault?: boolean;
 }
 
 interface SliceDb {
@@ -684,30 +695,61 @@ export class PacksService {
    * correct, since that is exactly what installing it would do.
    */
   async preview(membership: Membership, rawManifest: unknown): Promise<PackPreviewResult> {
-    const parsed = packManifestSchema.safeParse(rawManifest);
-    if (!parsed.success) {
-      throw new UnprocessableEntityException(
-        `This is not a valid pack manifest: ${parsed.error.issues
-          .map((i) => `${i.path.join('.') || '(root)'} ${i.message}`)
-          .join('; ')}`,
-      );
-    }
-    const manifest = parsed.data;
+    const manifest = this.parseManifest(rawManifest);
     const unmet = await this.checkRequirements(membership, manifest);
+    const collisions = await this.computeCollisions(membership, manifest);
+    return { slug: manifest.slug, name: manifest.name, version: manifest.version, unmet, ...collisions };
+  }
+
+  /**
+   * Classify every database/view/automation/agent the manifest plans against
+   * live state — `create` | `reuse` | `collision` — the one piece of logic
+   * `preview` and `install` share (MN-219 / #161). `reuse` and `collision`
+   * both mean "a live object already has this name"; the tracked-provenance
+   * lookup (`pack_installs`/`pack_install_items`) is what tells them apart —
+   * see `packPreviewItemSchema`'s doc.
+   */
+  private async computeCollisions(
+    membership: Membership,
+    manifest: PackManifest,
+  ): Promise<{
+    databases: PackPreviewItem[];
+    views: PackPreviewItem[];
+    automations: PackPreviewItem[];
+    agents: PackPreviewItem[];
+  }> {
+    const existingInstall = await this.findExistingInstall(membership.workspaceId, manifest.slug);
+    const tracked = existingInstall
+      ? {
+          database: await this.trackedNames(existingInstall.id, 'database'),
+          view: await this.trackedNames(existingInstall.id, 'view'),
+          automation: await this.trackedNames(existingInstall.id, 'automation'),
+          agent: await this.trackedNames(existingInstall.id, 'agent'),
+        }
+      : undefined;
+    const classify = (kind: 'database' | 'view' | 'automation' | 'agent', label: string, exists: boolean): PackPreviewItem['action'] => {
+      if (!exists) return 'create';
+      return tracked?.[kind].has(norm(label)) ? 'reuse' : 'collision';
+    };
 
     const liveDbs = await this.databases.list(membership);
     const liveByName = new Map(liveDbs.map((d) => [norm(d.name), d]));
 
     const databases: PackPreviewItem[] = manifest.databases.map((d) => ({
       name: d.name,
-      action: liveByName.has(norm(d.name)) ? 'reuse' : 'create',
+      action: classify('database', d.name, liveByName.has(norm(d.name))),
     }));
 
     // Views/automations only exist once their database does — a planned
     // database that isn't live yet previews all of its views and automations
     // as `create` without ever asking a database id that doesn't exist for
     // its children.
-    const viewNamesByDb = new Map<string, Set<string>>();
+    // Value: normalized view name → is it the database's default ("All
+    // records")? Every database is provisioned with exactly one (see
+    // `LiveView.isDefault`'s doc) — it is scaffolding, not pack content, so a
+    // planned view that matches it is never a `collision` needing a person's
+    // decision, whatever the tracked-provenance lookup would otherwise say.
+    const viewNamesByDb = new Map<string, Map<string, boolean>>();
     const automationNamesByDb = new Map<string, Set<string>>();
 
     const views: PackPreviewItem[] = [];
@@ -721,12 +763,16 @@ export class PacksService {
       let names = viewNamesByDb.get(live.id);
       if (!names) {
         const detail = await this.databases.get(membership, live.id);
-        names = new Set(
-          ((detail as unknown as { views: { name: string }[] }).views ?? []).map((v) => norm(v.name)),
+        names = new Map(
+          ((detail as unknown as { views: LiveView[] }).views ?? []).map(
+            (v) => [norm(v.name), Boolean(v.isDefault)] as const,
+          ),
         );
         viewNamesByDb.set(live.id, names);
       }
-      views.push({ name: label, action: names.has(norm(planned.name)) ? 'reuse' : 'create' });
+      const match = names.get(norm(planned.name));
+      const action = match === undefined ? 'create' : match ? 'reuse' : classify('view', label, true);
+      views.push({ name: label, action });
     }
 
     const automations: PackPreviewItem[] = [];
@@ -743,7 +789,10 @@ export class PacksService {
         names = new Set(data.map((r) => norm(r.name)));
         automationNamesByDb.set(live.id, names);
       }
-      automations.push({ name: label, action: names.has(norm(planned.name)) ? 'reuse' : 'create' });
+      automations.push({
+        name: label,
+        action: classify('automation', label, names.has(norm(planned.name))),
+      });
     }
 
     const { agentsDb } = await this.agents.findPackDbs(membership.workspaceId);
@@ -754,10 +803,42 @@ export class PacksService {
     }
     const agents: PackPreviewItem[] = manifest.agents.map((a) => ({
       name: a.name,
-      action: agentTitles?.has(norm(a.name)) ? 'reuse' : 'create',
+      action: classify('agent', a.name, agentTitles?.has(norm(a.name)) ?? false),
     }));
 
-    return { slug: manifest.slug, name: manifest.name, version: manifest.version, unmet, databases, views, automations, agents };
+    return { databases, views, automations, agents };
+  }
+
+  private parseManifest(rawManifest: unknown): PackManifest {
+    const parsed = packManifestSchema.safeParse(rawManifest);
+    if (!parsed.success) {
+      throw new UnprocessableEntityException(
+        `This is not a valid pack manifest: ${parsed.error.issues
+          .map((i) => `${i.path.join('.') || '(root)'} ${i.message}`)
+          .join('; ')}`,
+      );
+    }
+    return parsed.data;
+  }
+
+  private async findExistingInstall(workspaceId: string, slug: string) {
+    return this.db.query.packInstalls.findFirst({
+      where: and(
+        eq(packInstalls.workspaceId, workspaceId),
+        eq(packInstalls.slug, slug),
+        isNull(packInstalls.uninstalledAt),
+      ),
+    });
+  }
+
+  private async trackedNames(
+    packInstallId: string,
+    kind: 'database' | 'view' | 'automation' | 'agent' | 'skill',
+  ): Promise<Set<string>> {
+    const rows = await this.db.query.packInstallItems.findMany({
+      where: and(eq(packInstallItems.packInstallId, packInstallId), eq(packInstallItems.kind, kind)),
+    });
+    return new Set(rows.map((r) => norm(r.name)));
   }
 
   // ── install ────────────────────────────────────────────────────────────────
@@ -770,20 +851,19 @@ export class PacksService {
    * first. The parts added here follow the same rule — a view, automation or
    * sample record is matched by name on its database before it is created — so a
    * second install of the same manifest creates nothing.
+   *
+   * `resolutions` (MN-219 / #161) answers every `collision` `preview` would
+   * report (see `computeCollisions`) — keyed by the same label `preview`
+   * showed. Anything still unresolved is a 409, not a guess: installing on a
+   * genuine name collision without an explicit decision is exactly the
+   * silent-adoption bug `preview` exists to let a person catch first.
    */
-  async install(membership: Membership, rawManifest: unknown): Promise<PackInstallResult> {
-    const parsed = packManifestSchema.safeParse(rawManifest);
-    if (!parsed.success) {
-      // 422 rather than a 500 or a pipe-level 400: a malformed manifest is a bad
-      // request about a legitimate resource, and the operator needs to know
-      // which part of it is wrong. Same contract as `ArchitectService.build`.
-      throw new UnprocessableEntityException(
-        `This is not a valid pack manifest: ${parsed.error.issues
-          .map((i) => `${i.path.join('.') || '(root)'} ${i.message}`)
-          .join('; ')}`,
-      );
-    }
-    const manifest = parsed.data;
+  async install(
+    membership: Membership,
+    rawManifest: unknown,
+    resolutions: PackInstallResolutions = {},
+  ): Promise<PackInstallResult> {
+    const manifest = this.parseManifest(rawManifest);
     // Fail fast, before anything is built: a manifest whose agent declares a
     // skill it does not bundle is malformed the same way a dangling `$ref`
     // is, and the same rule applies — a broken promise about the manifest's
@@ -791,11 +871,16 @@ export class PacksService {
     this.validateAgentSkillNames(manifest);
     const unmet = await this.checkRequirements(membership, manifest);
 
+    const existingInstall = await this.findExistingInstall(membership.workspaceId, manifest.slug);
+    const collisions = await this.computeCollisions(membership, manifest);
+    const { manifest: working, skippedAgents, viewResolutions, automationResolutions } =
+      this.applyResolutions(manifest, collisions, resolutions);
+
     // ── The reuse: a PackManifest IS an ArchitectPlan ────────────────────────
     // Databases, fields, relations, states, agents and bindings — all of it,
     // through the walk #214 already ships. Nothing about that walk is
     // reimplemented, adapted or wrapped here.
-    const built = await this.architect.build(membership, manifest);
+    const built = await this.architect.build(membership, working);
 
     const result: PackInstallResult = {
       slug: manifest.slug,
@@ -807,7 +892,7 @@ export class PacksService {
       fields: built.fields,
       relations: built.relations,
       states: built.states,
-      agents: built.agents,
+      agents: [...built.agents, ...skippedAgents.map((name) => ({ name, action: 'skipped' as const, id: '' }))],
       triggers: built.triggers,
       derived_fields: [],
       views: [],
@@ -820,15 +905,436 @@ export class PacksService {
 
     // Derived fields go in before the ref table the views use is built: a view
     // may size or show a rollup column, so the rollup has to exist first.
-    await this.installDerivedFields(membership, manifest, dbIds, result);
+    await this.installDerivedFields(membership, working, dbIds, result);
 
-    const refToId = await this.readInstallRefs(membership, manifest, dbIds);
-    await this.installViews(membership, manifest, dbIds, refToId, result);
-    await this.installAutomations(membership, manifest, dbIds, refToId, result);
-    await this.installSampleRecords(membership, manifest, dbIds, refToId, result);
-    await this.installSkills(membership, manifest, result);
+    const refToId = await this.readInstallRefs(membership, working, dbIds);
+    const hashes = new Map<string, string>();
+    // Entity ids never worth a `pack_install_items` row — currently just a
+    // database's default view (see `installViews`'s doc). `recordInstall`
+    // filters these out so `uninstall` never learns about them at all.
+    const untracked = new Set<string>();
+    await this.installViews(membership, working, dbIds, refToId, result, viewResolutions, hashes, untracked);
+    await this.installAutomations(
+      membership,
+      working,
+      dbIds,
+      refToId,
+      result,
+      automationResolutions,
+      hashes,
+    );
+    await this.installSampleRecords(membership, working, dbIds, refToId, result);
+    await this.installSkills(membership, working, result, hashes);
+    await this.hashInstalledAgents(membership, result, hashes);
+
+    await this.recordInstall(membership, manifest, result, existingInstall, hashes, untracked);
 
     return result;
+  }
+
+  /**
+   * Resolve every collision `computeCollisions` reported, per `resolutions`.
+   *
+   * Databases only accept `reuse` — see `packInstallResolutionSchema`'s doc on
+   * why `rename` isn't offered there (the symbolic `$db`/`$field`/`$option` ref
+   * table is derived from a database's *name*, so renaming it mid-manifest
+   * would desynchronize every ref embedded in view/automation configs
+   * elsewhere — a correctness risk, not a UI gap). Agents, views and
+   * automations carry no such ref and accept the full `reuse`/`rename`/`skip`
+   * set.
+   */
+  private applyResolutions(
+    manifest: PackManifest,
+    collisions: {
+      databases: PackPreviewItem[];
+      views: PackPreviewItem[];
+      automations: PackPreviewItem[];
+      agents: PackPreviewItem[];
+    },
+    resolutions: PackInstallResolutions,
+  ): {
+    manifest: PackManifest;
+    skippedAgents: string[];
+    viewResolutions: Map<string, PackInstallResolutions[string]>;
+    automationResolutions: Map<string, PackInstallResolutions[string]>;
+  } {
+    const unresolved: string[] = [];
+
+    for (const item of collisions.databases) {
+      if (item.action !== 'collision') continue;
+      const resolution = resolutions[item.name];
+      if (!resolution) {
+        unresolved.push(`Database "${item.name}"`);
+        continue;
+      }
+      if (resolution.action !== 'reuse') {
+        throw new UnprocessableEntityException(
+          `Database "${item.name}" already exists and is not from a previous install of this ` +
+            `pack. Only "reuse" is supported for a database name collision in this release — ` +
+            `rename your existing database first, or resolve it as "reuse" to adopt it as this ` +
+            `pack's.`,
+        );
+      }
+      // No manifest change: `reuse` is exactly what `ArchitectService.build`'s
+      // own find-by-name already does.
+    }
+
+    let working = manifest;
+    const skippedAgents: string[] = [];
+    for (const item of collisions.agents) {
+      if (item.action !== 'collision') continue;
+      const resolution = resolutions[item.name];
+      if (!resolution) {
+        unresolved.push(`Agent "${item.name}"`);
+        continue;
+      }
+      if (resolution.action === 'skip') {
+        working = this.removeAgent(working, item.name);
+        skippedAgents.push(item.name);
+      } else if (resolution.action === 'rename') {
+        working = this.renameAgent(working, item.name, resolution.rename_to!);
+      }
+    }
+
+    const viewResolutions = new Map<string, PackInstallResolutions[string]>();
+    for (const item of collisions.views) {
+      if (item.action !== 'collision') continue;
+      const resolution = resolutions[item.name];
+      if (!resolution) {
+        unresolved.push(`View "${item.name}"`);
+        continue;
+      }
+      viewResolutions.set(item.name, resolution);
+    }
+
+    const automationResolutions = new Map<string, PackInstallResolutions[string]>();
+    for (const item of collisions.automations) {
+      if (item.action !== 'collision') continue;
+      const resolution = resolutions[item.name];
+      if (!resolution) {
+        unresolved.push(`Automation "${item.name}"`);
+        continue;
+      }
+      automationResolutions.set(item.name, resolution);
+    }
+
+    if (unresolved.length > 0) {
+      throw new ConflictException(
+        `This pack collides with existing objects that need a decision: ${unresolved.join(', ')}. ` +
+          `Call preview to see every collision, then install again with a \`resolutions\` entry ` +
+          `(reuse/rename/skip) for each.`,
+      );
+    }
+
+    return { manifest: working, skippedAgents, viewResolutions, automationResolutions };
+  }
+
+  private removeAgent(manifest: PackManifest, name: string): PackManifest {
+    return {
+      ...manifest,
+      agents: manifest.agents.filter((a) => norm(a.name) !== norm(name)),
+      triggers: manifest.triggers.filter((t) => norm(t.agent) !== norm(name)),
+    };
+  }
+
+  private renameAgent(manifest: PackManifest, oldName: string, newName: string): PackManifest {
+    return {
+      ...manifest,
+      agents: manifest.agents.map((a) => (norm(a.name) === norm(oldName) ? { ...a, name: newName } : a)),
+      triggers: manifest.triggers.map((t) =>
+        norm(t.agent) === norm(oldName) ? { ...t, agent: newName } : t,
+      ),
+    };
+  }
+
+  /** Stable JSON — object keys sorted recursively, so two equal values hash equal regardless of insertion order. */
+  private canonicalize(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map((v) => this.canonicalize(v));
+    if (value && typeof value === 'object') {
+      const out: Record<string, unknown> = {};
+      for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+        out[key] = this.canonicalize((value as Record<string, unknown>)[key]);
+      }
+      return out;
+    }
+    return value;
+  }
+
+  private hashOf(value: unknown): string {
+    return createHash('sha256').update(JSON.stringify(this.canonicalize(value))).digest('hex');
+  }
+
+  /**
+   * Live agent records' content, hashed for uninstall's modified-since-install
+   * check — computed after `architect.build` rather than inside
+   * `installViews`-style loops, because agents are created by `build`, not by
+   * this service (see `install`'s header on "a PackManifest IS an
+   * ArchitectPlan").
+   */
+  private async hashInstalledAgents(
+    membership: Membership,
+    result: PackInstallResult,
+    hashes: Map<string, string>,
+  ): Promise<void> {
+    const real = result.agents.filter((a) => a.action !== 'skipped' && a.id);
+    if (real.length === 0) return;
+    const { agentsDb } = await this.agents.findPackDbs(membership.workspaceId);
+    if (!agentsDb) return;
+    for (const agent of real) {
+      const record = await this.records.get(agentsDb.id, agent.id);
+      hashes.set(`agent:${agent.id}`, this.hashOf(record.values));
+    }
+  }
+
+  /**
+   * Persist what this install touched (MN-219 / #161) — the provenance
+   * `computeCollisions` (next install/preview) and `uninstall` both read.
+   *
+   * A re-install of the same slug updates the existing `pack_installs` row in
+   * place and replaces its items wholesale rather than diffing them: the
+   * fresh set from this run *is* the current truth, and nothing here is
+   * matched against the old rows for anything other than "is this the same
+   * pack" (already settled by `existingInstall`).
+   */
+  private async recordInstall(
+    membership: Membership,
+    manifest: PackManifest,
+    result: PackInstallResult,
+    existingInstall: { id: string } | undefined,
+    hashes: Map<string, string>,
+    untracked: Set<string> = new Set(),
+  ): Promise<void> {
+    let installId: string;
+    if (existingInstall) {
+      installId = existingInstall.id;
+    } else {
+      const [inserted] = await this.db
+        .insert(packInstalls)
+        .values({
+          workspaceId: membership.workspaceId,
+          slug: manifest.slug,
+          name: manifest.name,
+          version: manifest.version,
+          installedBy: membership.userId,
+        })
+        .returning({ id: packInstalls.id });
+      installId = inserted!.id;
+    }
+
+    if (existingInstall) {
+      await this.db
+        .update(packInstalls)
+        .set({ name: manifest.name, version: manifest.version, installedBy: membership.userId })
+        .where(eq(packInstalls.id, installId));
+      await this.db.delete(packInstallItems).where(eq(packInstallItems.packInstallId, installId));
+    }
+
+    type Kind =
+      | 'database' | 'field' | 'relation' | 'state' | 'agent' | 'trigger'
+      | 'derived_field' | 'view' | 'automation' | 'sample_record' | 'skill';
+    const rows: Array<{
+      packInstallId: string;
+      kind: Kind;
+      name: string;
+      entityId: string;
+      action: 'created' | 'reused';
+      contentHash: string | null;
+    }> = [];
+    const add = (kind: Kind, entries: Array<{ name: string; action: string; id: string }>) => {
+      for (const entry of entries) {
+        if (entry.action === 'skipped' || !entry.id || untracked.has(entry.id)) continue;
+        rows.push({
+          packInstallId: installId,
+          kind,
+          name: entry.name,
+          entityId: entry.id,
+          action: entry.action as 'created' | 'reused',
+          contentHash: hashes.get(`${kind}:${entry.id}`) ?? null,
+        });
+      }
+    };
+    add('database', result.databases);
+    add('field', result.fields);
+    add('relation', result.relations);
+    add('state', result.states);
+    add('agent', result.agents);
+    add('trigger', result.triggers);
+    add('derived_field', result.derived_fields);
+    add('view', result.views);
+    add('automation', result.automations);
+    add('sample_record', result.sample_records);
+    add('skill', result.skills);
+
+    if (rows.length > 0) await this.db.insert(packInstallItems).values(rows);
+  }
+
+  /** Every tracked install in this workspace, newest first (MN-219 / #161). */
+  async listInstalls(membership: Membership): Promise<PackInstallSummary[]> {
+    const rows = await this.db.query.packInstalls.findMany({
+      where: and(eq(packInstalls.workspaceId, membership.workspaceId), isNull(packInstalls.uninstalledAt)),
+      orderBy: (t, { desc }) => [desc(t.createdAt)],
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      slug: r.slug,
+      name: r.name,
+      version: r.version,
+      installed_at: r.createdAt.toISOString(),
+      installed_by: r.installedBy,
+    }));
+  }
+
+  /**
+   * Uninstall (MN-219 / #161) — removes what this install made, keeps what a
+   * person has since changed.
+   *
+   * Scoped to views, automations, agents and skills. Schema (databases,
+   * fields, relations, states) and sample records are never touched here —
+   * see `packUninstallResultSchema`'s doc: deleting a database cascades to
+   * everything hanging off it, including anything the user built on top since
+   * install, and there is no per-field/per-record modified-since-install
+   * signal to gate that safely. An agent's trigger bindings are removed
+   * alongside it unconditionally (a binding is part of the agent's own
+   * definition, not separately editable content), regardless of the agent
+   * record's own modified state.
+   */
+  async uninstall(membership: Membership, packInstallId: string): Promise<PackUninstallResult> {
+    const install = await this.db.query.packInstalls.findFirst({
+      where: and(eq(packInstalls.id, packInstallId), eq(packInstalls.workspaceId, membership.workspaceId)),
+    });
+    if (!install || install.uninstalledAt) {
+      throw new UnprocessableEntityException('No installed pack matches that id in this workspace.');
+    }
+    const items = await this.db.query.packInstallItems.findMany({
+      where: eq(packInstallItems.packInstallId, packInstallId),
+    });
+
+    const removed: PackUninstallResult['removed'] = [];
+    const kept: PackUninstallResult['kept'] = [];
+    const { agentsDb, triggersDb } = await this.agents.findPackDbs(membership.workspaceId);
+
+    for (const item of items) {
+      if (item.kind === 'view') {
+        const database = item.name.split('.')[0] ?? item.name;
+        const dbId = await this.findDbIdByName(membership, database);
+        const live = dbId ? await this.findLiveView(membership, dbId, item.entityId) : undefined;
+        if (!live) continue; // already gone — nothing to remove or keep
+        // Belt-and-braces: `installViews` no longer tracks a database's
+        // default view at all (see its doc), so this should be unreachable —
+        // but a database's default view must never be deleted regardless of
+        // how a row for it ended up here (`ViewsService.remove` refuses to
+        // drop a database's last view; better to say why than to 409 mid-uninstall).
+        if (live.isDefault) {
+          kept.push({
+            kind: 'view',
+            name: item.name,
+            id: item.entityId,
+            reason: "A database's default view is never removed.",
+          });
+          continue;
+        }
+        if (this.hashOf({ name: live.name, type: live.type, config: live.config }) !== item.contentHash) {
+          kept.push({ kind: 'view', name: item.name, id: item.entityId, reason: 'Changed since install.' });
+          continue;
+        }
+        await this.views.remove(dbId!, item.entityId);
+        removed.push({ kind: 'view', name: item.name, id: item.entityId });
+      } else if (item.kind === 'automation') {
+        const database = item.name.split('.')[0] ?? item.name;
+        const dbId = await this.findDbIdByName(membership, database);
+        const live = dbId ? await this.findLiveAutomation(dbId, item.entityId) : undefined;
+        if (!live) continue;
+        const projection = {
+          name: live.name,
+          trigger: live.trigger,
+          condition: live.condition,
+          actions: live.actions,
+          enabled: live.enabled,
+        };
+        if (this.hashOf(projection) !== item.contentHash) {
+          kept.push({
+            kind: 'automation',
+            name: item.name,
+            id: item.entityId,
+            reason: 'Changed since install.',
+          });
+          continue;
+        }
+        await this.automations.remove(dbId!, item.entityId);
+        removed.push({ kind: 'automation', name: item.name, id: item.entityId });
+      } else if (item.kind === 'agent') {
+        if (!agentsDb) continue;
+        let record;
+        try {
+          record = await this.records.get(agentsDb.id, item.entityId);
+        } catch {
+          continue; // already gone
+        }
+        if (this.hashOf(record.values) !== item.contentHash) {
+          kept.push({ kind: 'agent', name: item.name, id: item.entityId, reason: 'Changed since install.' });
+          continue;
+        }
+        if (triggersDb) {
+          const { data: bindings } = await this.records.list(triggersDb.id, { limit: MAX_SCAN });
+          for (const binding of bindings) {
+            const boundAgentId = ((binding.values['agent'] as Array<{ id: string }> | undefined) ?? [])[0]?.id;
+            if (boundAgentId === item.entityId) {
+              await this.records.softDelete(membership.workspaceId, triggersDb.id, binding.id, membership.userId);
+            }
+          }
+        }
+        await this.records.softDelete(membership.workspaceId, agentsDb.id, item.entityId, membership.userId);
+        removed.push({ kind: 'agent', name: item.name, id: item.entityId });
+      } else if (item.kind === 'skill') {
+        let skill;
+        try {
+          skill = await this.skills.get(membership, membership.userId, item.entityId);
+        } catch {
+          continue;
+        }
+        const projection = {
+          name: skill.name,
+          description: skill.description,
+          when_to_use: skill.when_to_use,
+          instructions: skill.instructions,
+          examples: skill.examples,
+          allowed_tools: skill.allowed_tools,
+        };
+        if (this.hashOf(projection) !== item.contentHash) {
+          kept.push({ kind: 'skill', name: item.name, id: item.entityId, reason: 'Changed since install.' });
+          continue;
+        }
+        await this.skills.remove(membership, membership.userId, item.entityId);
+        removed.push({ kind: 'skill', name: item.name, id: item.entityId });
+      }
+    }
+
+    await this.db.update(packInstalls).set({ uninstalledAt: new Date() }).where(eq(packInstalls.id, packInstallId));
+    return { removed, kept };
+  }
+
+  private async findDbIdByName(membership: Membership, name: string): Promise<string | undefined> {
+    const live = await this.databases.list(membership);
+    return live.find((d) => norm(d.name) === norm(name))?.id;
+  }
+
+  private async findLiveView(
+    membership: Membership,
+    dbId: string,
+    viewId: string,
+  ): Promise<LiveView | undefined> {
+    const detail = await this.databases.get(membership, dbId);
+    return ((detail as unknown as { views: LiveView[] }).views ?? []).find((v) => v.id === viewId);
+  }
+
+  private async findLiveAutomation(
+    dbId: string,
+    ruleId: string,
+  ): Promise<
+    { name: string; trigger: unknown; condition?: unknown; actions: unknown; enabled: boolean } | undefined
+  > {
+    const { data } = await this.automations.list(dbId);
+    return data.find((r) => r.id === ruleId);
   }
 
   /**
@@ -968,16 +1474,39 @@ export class PacksService {
     dbIds: Map<string, string>,
     refToId: Map<string, string>,
     result: PackInstallResult,
+    resolutions: Map<string, PackInstallResolutions[string]> = new Map(),
+    hashes: Map<string, string> = new Map(),
+    untracked: Set<string> = new Set(),
   ): Promise<void> {
     for (const planned of manifest.views) {
       const label = `${planned.database}.${planned.name}`;
+      const resolution = resolutions.get(label);
+      if (resolution?.action === 'skip') {
+        result.views.push({ name: label, action: 'skipped', id: '' });
+        continue;
+      }
+      const targetName = resolution?.action === 'rename' ? resolution.rename_to! : planned.name;
+
       const dbId = this.resolveDb(dbIds, planned.database, `The view "${label}"`);
       const detail = await this.databases.get(membership, dbId);
       const existing = ((detail as unknown as { views: LiveView[] }).views ?? []).find(
-        (v) => norm(v.name) === norm(planned.name),
+        (v) => norm(v.name) === norm(targetName),
       );
       if (existing) {
         result.views.push({ name: label, action: 'reused', id: existing.id });
+        // The database's default ("All records") is scaffolding every
+        // database has, not pack content — never hashed, never tracked as a
+        // pack_install_item (see `untracked`'s callers: `recordInstall` skips
+        // it, so `uninstall` never considers deleting it and the "a database
+        // must keep at least one view" invariant can never be in play).
+        if (existing.isDefault) {
+          untracked.add(existing.id);
+        } else {
+          hashes.set(
+            `view:${existing.id}`,
+            this.hashOf({ name: existing.name, type: existing.type, config: existing.config }),
+          );
+        }
         continue;
       }
 
@@ -991,13 +1520,17 @@ export class PacksService {
       const created = await this.views.create(
         dbId,
         {
-          name: planned.name,
+          name: targetName,
           type: planned.type,
           config: config as never,
         },
         membership.userId,
       );
       result.views.push({ name: label, action: 'created', id: created.id });
+      hashes.set(
+        `view:${created.id}`,
+        this.hashOf({ name: targetName, type: planned.type, config }),
+      );
     }
   }
 
@@ -1007,31 +1540,57 @@ export class PacksService {
     dbIds: Map<string, string>,
     refToId: Map<string, string>,
     result: PackInstallResult,
+    resolutions: Map<string, PackInstallResolutions[string]> = new Map(),
+    hashes: Map<string, string> = new Map(),
   ): Promise<void> {
     for (const planned of manifest.automations) {
       const label = `${planned.database}.${planned.name}`;
+      const resolution = resolutions.get(label);
+      if (resolution?.action === 'skip') {
+        result.automations.push({ name: label, action: 'skipped', id: '' });
+        continue;
+      }
+      const targetName = resolution?.action === 'rename' ? resolution.rename_to! : planned.name;
+
       const dbId = this.resolveDb(dbIds, planned.database, `The automation "${label}"`);
       const { data } = await this.automations.list(dbId);
-      const existing = data.find((r) => norm(r.name) === norm(planned.name));
+      const existing = data.find((r) => norm(r.name) === norm(targetName));
       if (existing) {
         result.automations.push({ name: label, action: 'reused', id: existing.id });
+        hashes.set(
+          `automation:${existing.id}`,
+          this.hashOf({
+            name: existing.name,
+            trigger: existing.trigger,
+            condition: existing.condition,
+            actions: existing.actions,
+            enabled: existing.enabled,
+          }),
+        );
         continue;
       }
 
       const where = `The automation "${label}"`;
+      const trigger = deref(planned.trigger, refToId, where);
+      const condition = planned.condition ? deref(planned.condition, refToId, where) : undefined;
+      const actions = deref(planned.actions, refToId, where);
       const created = await this.automations.create(
         membership.workspaceId,
         dbId,
         {
-          name: planned.name,
-          trigger: deref(planned.trigger, refToId, where) as never,
-          condition: planned.condition ? deref(planned.condition, refToId, where) : undefined,
-          actions: deref(planned.actions, refToId, where) as never,
+          name: targetName,
+          trigger: trigger as never,
+          condition,
+          actions: actions as never,
           enabled: planned.enabled,
         },
         membership.userId,
       );
       result.automations.push({ name: label, action: 'created', id: created.id });
+      hashes.set(
+        `automation:${created.id}`,
+        this.hashOf({ name: targetName, trigger, condition, actions, enabled: planned.enabled }),
+      );
     }
   }
 
@@ -1130,16 +1689,34 @@ export class PacksService {
     membership: Membership,
     manifest: PackManifest,
     result: PackInstallResult,
+    hashes: Map<string, string> = new Map(),
   ): Promise<void> {
     if (manifest.skills.length === 0) return;
 
+    const skillProjection = (s: {
+      name: string;
+      description: string;
+      when_to_use: string;
+      instructions: string;
+      examples: unknown;
+      allowed_tools: unknown;
+    }) => ({
+      name: s.name,
+      description: s.description,
+      when_to_use: s.when_to_use,
+      instructions: s.instructions,
+      examples: s.examples,
+      allowed_tools: s.allowed_tools,
+    });
+
     const { data: visible } = await this.skills.list(membership, membership.userId);
-    const byName = new Map(visible.map((s) => [norm(s.name), s.id] as const));
+    const byName = new Map(visible.map((s) => [norm(s.name), s] as const));
 
     for (const planned of manifest.skills) {
       const existing = byName.get(norm(planned.name));
       if (existing) {
-        result.skills.push({ name: planned.name, action: 'reused', id: existing });
+        result.skills.push({ name: planned.name, action: 'reused', id: existing.id });
+        hashes.set(`skill:${existing.id}`, this.hashOf(skillProjection(existing)));
         continue;
       }
       const created = await this.skills.create(membership, membership.userId, {
@@ -1151,8 +1728,9 @@ export class PacksService {
         allowed_tools: planned.allowed_tools,
         visibility: 'shared',
       });
-      byName.set(norm(created.name), created.id);
+      byName.set(norm(created.name), created);
       result.skills.push({ name: planned.name, action: 'created', id: created.id });
+      hashes.set(`skill:${created.id}`, this.hashOf(skillProjection(created)));
     }
   }
 }

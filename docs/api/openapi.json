@@ -5811,6 +5811,84 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/packs/installed": {
+      "get": {
+        "operationId": "PacksController_installed",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "List tracked pack installs in this workspace",
+        "tags": [
+          "packs"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/packs/{installId}/uninstall": {
+      "post": {
+        "operationId": "PacksController_uninstall",
+        "parameters": [
+          {
+            "name": "installId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Uninstall a tracked pack install",
+        "tags": [
+          "packs"
+        ]
+      }
+    },
+    "/api/v1/packs/registry": {
+      "get": {
+        "operationId": "PacksRegistryController_registry",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "The built-in Business Pack gallery",
+        "tags": [
+          "packs"
+        ]
+      }
+    },
+    "/api/v1/packs/registry/{slug}": {
+      "get": {
+        "operationId": "PacksRegistryController_entry",
+        "parameters": [
+          {
+            "name": "slug",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "One built-in pack, manifest included",
+        "tags": [
+          "packs"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/favorites": {
       "get": {
         "operationId": "FavoritesController_list",
@@ -9446,7 +9524,31 @@
       "InstallDto": {
         "type": "object",
         "properties": {
-          "manifest": {}
+          "manifest": {},
+          "resolutions": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "type": "string",
+                  "enum": [
+                    "reuse",
+                    "rename",
+                    "skip"
+                  ]
+                },
+                "rename_to": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                }
+              },
+              "required": [
+                "action"
+              ]
+            }
+          }
         }
       },
       "FavoriteDto": {

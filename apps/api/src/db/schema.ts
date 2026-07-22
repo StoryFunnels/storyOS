@@ -1271,3 +1271,80 @@ export const skills = pgTable(
     index('skills_owner_idx').on(t.workspaceId, t.ownerId),
   ],
 );
+
+/** What kind of live object a `pack_install_items` row tracks (MN-219 / #161). */
+export const packInstallItemKind = pgEnum('pack_install_item_kind', [
+  'database',
+  'field',
+  'relation',
+  'state',
+  'agent',
+  'trigger',
+  'derived_field',
+  'view',
+  'automation',
+  'sample_record',
+  'skill',
+]);
+export const packInstallItemAction = pgEnum('pack_install_item_action', ['created', 'reused']);
+
+/**
+ * One install (or re-install) of a Business Pack into a workspace (MN-219 /
+ * #161).
+ *
+ * The installer (#160) is otherwise entirely stateless — every "does this
+ * already exist" check is a live name lookup, which is enough for
+ * idempotency but not for two things #161 needs: telling an install's own
+ * re-run apart from a genuine name collision with something the user made,
+ * and clean uninstall (remove what's unmodified, keep what the user has
+ * since changed, with a warning). Both need to know what a pack installed,
+ * which nothing recorded before this table existed.
+ */
+export const packInstalls = pgTable(
+  'pack_installs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    slug: text('slug').notNull(),
+    name: text('name').notNull(),
+    version: text('version').notNull(),
+    installedBy: text('installed_by').notNull(),
+    /** Set once uninstalled; the row stays for history rather than being deleted. */
+    uninstalledAt: timestamp('uninstalled_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [index('pack_installs_workspace_slug_idx').on(t.workspaceId, t.slug)],
+);
+
+/**
+ * One object a pack install created or reused.
+ *
+ * `contentHash` is a snapshot of the object's pack-relevant fields at install
+ * time (see `packs.service.ts`'s `contentHashOf`), populated only for the
+ * kinds uninstall independently removes (view/automation/agent/skill — see
+ * `packUninstallResultSchema`'s doc). Null for every other kind: they are
+ * tracked for provenance (collision detection) but uninstall never acts on
+ * them, so there is nothing to diff.
+ */
+export const packInstallItems = pgTable(
+  'pack_install_items',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    packInstallId: uuid('pack_install_id')
+      .notNull()
+      .references(() => packInstalls.id, { onDelete: 'cascade' }),
+    kind: packInstallItemKind('kind').notNull(),
+    /** The `preview`-style label — a bare name, or `"<database>.<name>"`. */
+    name: text('name').notNull(),
+    entityId: uuid('entity_id').notNull(),
+    action: packInstallItemAction('action').notNull(),
+    contentHash: text('content_hash'),
+    ...timestamps,
+  },
+  (t) => [
+    index('pack_install_items_install_idx').on(t.packInstallId),
+    index('pack_install_items_entity_idx').on(t.kind, t.entityId),
+  ],
+);

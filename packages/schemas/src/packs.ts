@@ -300,9 +300,16 @@ export const packUnmetRequirementSchema = z.object({
 });
 export type PackUnmetRequirement = z.infer<typeof packUnmetRequirementSchema>;
 
+/**
+ * `skipped` (MN-219 / #161) marks an item a collision resolution chose not to
+ * install — `id` is `''` in that case, since nothing was created. Only ever
+ * produced for agents, views and automations (the categories `preview`
+ * reviews and a collision resolution can target — see
+ * `packInstallResolutionSchema`'s doc).
+ */
 const installedEntitySchema = z.object({
   name: z.string(),
-  action: z.enum(['created', 'reused']),
+  action: z.enum(['created', 'reused', 'skipped']),
   id: z.string(),
 });
 
@@ -336,10 +343,22 @@ export const packInstallResultSchema = z.object({
 });
 export type PackInstallResult = z.infer<typeof packInstallResultSchema>;
 
-/** One planned item's install fate, as `preview` reports it — the same `create`/`reuse` vocabulary `install` itself uses (see `installedEntitySchema`). */
+/**
+ * One planned item's install fate, as `preview` reports it.
+ *
+ * `create`/`reuse` are the vocabulary `install` itself uses (see
+ * `installedEntitySchema`). `collision` is #161's addition: a live object
+ * already has this name, but — unlike `reuse` — it was *not* left behind by an
+ * earlier install of this same pack (tracked in `pack_installs`/
+ * `pack_install_items`), so installing would silently adopt something the
+ * user made or that a different pack owns. Distinguishing the two needs that
+ * provenance table; without it every same-name match would have to be treated
+ * as either always-safe or always-a-collision, and both are wrong half the
+ * time.
+ */
 export const packPreviewItemSchema = z.object({
   name: z.string(),
-  action: z.enum(['create', 'reuse']),
+  action: z.enum(['create', 'reuse', 'collision']),
 });
 export type PackPreviewItem = z.infer<typeof packPreviewItemSchema>;
 
@@ -350,7 +369,10 @@ export type PackPreviewItem = z.infer<typeof packPreviewItemSchema>;
  * install — databases, views, automations, agents — not the full
  * `PackInstallResult` breakdown (fields/relations/states/derived_fields/
  * sample_records ride along with their database and aren't independently
- * interesting at preview time).
+ * interesting at preview time). Skills are bundled (#40/#160) but likewise not
+ * broken out here — same reasoning as fields: a skill installs alongside the
+ * agent that uses it and is not, on its own, something a person reviews
+ * before clicking install.
  */
 export const packPreviewResultSchema = z.object({
   slug: z.string(),
@@ -363,6 +385,87 @@ export const packPreviewResultSchema = z.object({
   agents: z.array(packPreviewItemSchema),
 });
 export type PackPreviewResult = z.infer<typeof packPreviewResultSchema>;
+
+/**
+ * How to resolve one `collision` reported by `preview` (MN-219 / #161).
+ *
+ * Keyed in the install request by the same `name` label `preview` used for
+ * that item (e.g. a database's name, or `"<database>.<view name>"`) — the
+ * label a person already saw on the review screen, so the client does not
+ * need a second id scheme just to say "this one, rename it".
+ *
+ *   reuse  — adopt the existing object as this pack's own from now on
+ *            (subsequent re-installs and uninstall track it).
+ *   rename — install the pack's version under a different name, leaving the
+ *            colliding object untouched.
+ *   skip   — do not install this item at all.
+ *
+ * Only meaningful for the categories `preview` reviews (databases, views,
+ * automations, agents) — see `packPreviewResultSchema`'s doc for why the rest
+ * ride along uninspected.
+ */
+export const packInstallResolutionSchema = z
+  .object({
+    action: z.enum(['reuse', 'rename', 'skip']),
+    rename_to: z.string().min(1).max(200).optional(),
+  })
+  .refine((v) => v.action !== 'rename' || Boolean(v.rename_to), {
+    message: '`rename` requires `rename_to`',
+  });
+export type PackInstallResolution = z.infer<typeof packInstallResolutionSchema>;
+
+export const packInstallResolutionsSchema = z.record(z.string(), packInstallResolutionSchema);
+export type PackInstallResolutions = z.infer<typeof packInstallResolutionsSchema>;
+
+/** One tracked install of a pack into a workspace, as the "installed" list reports it. */
+export const packInstallSummarySchema = z.object({
+  id: z.uuid(),
+  slug: z.string(),
+  name: z.string(),
+  version: z.string(),
+  installed_at: z.string(),
+  installed_by: z.string(),
+});
+export type PackInstallSummary = z.infer<typeof packInstallSummarySchema>;
+
+/** One object uninstall touched, or chose not to. */
+export const packUninstallItemSchema = z.object({
+  kind: z.enum(['view', 'automation', 'agent', 'skill']),
+  name: z.string(),
+  id: z.uuid(),
+  /** Present only on `kept` — why it was left behind. */
+  reason: z.string().optional(),
+});
+export type PackUninstallItem = z.infer<typeof packUninstallItemSchema>;
+
+/**
+ * What uninstall did (MN-219 / #161).
+ *
+ * Scoped to views, automations, agents and skills: the objects `install`
+ * creates that are independently deletable without collateral damage. Schema
+ * (databases/fields/relations/states) and sample records are conservatively
+ * never removed by uninstall — deleting a database cascades to every field,
+ * relation and record hanging off it, including anything the user built on
+ * top since, and no per-field/per-record "modified since install" signal
+ * exists to gate that safely. Uninstall leaves schema in place and only ever
+ * removes or keeps-with-a-reason the four kinds it tracks a content snapshot
+ * for.
+ */
+export const packUninstallResultSchema = z.object({
+  removed: z.array(packUninstallItemSchema),
+  kept: z.array(packUninstallItemSchema),
+});
+export type PackUninstallResult = z.infer<typeof packUninstallResultSchema>;
+
+/** A pack offered in the built-in gallery, manifest included (MN-219 / #161). */
+export const packRegistryEntrySchema = z.object({
+  slug: z.string(),
+  name: z.string(),
+  summary: z.string(),
+  highlights: z.array(z.string()).default([]),
+  manifest: packManifestSchema,
+});
+export type PackRegistryEntry = z.infer<typeof packRegistryEntrySchema>;
 
 /** What to export: a space by name, or an explicit list of database ids. */
 export const packExportRequestSchema = z

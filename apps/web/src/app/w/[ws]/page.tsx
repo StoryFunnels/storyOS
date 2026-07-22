@@ -18,6 +18,7 @@ interface OnboardingState {
   board_view_built: boolean;
   relation_created: boolean;
   ai_connected: boolean;
+  business_pack_installed: boolean;
 }
 
 export default function WorkspaceHome() {
@@ -94,6 +95,11 @@ export default function WorkspaceHome() {
         },
         { label: 'Invite a teammate', done: gs.teammate_invited, href: `/w/${ws}/settings/members` },
         { label: 'Connect your AI (MCP)', done: gs.ai_connected, href: `/w/${ws}/settings/api` },
+        {
+          label: 'Install a Business Pack',
+          done: gs.business_pack_installed,
+          href: `/w/${ws}/packs`,
+        },
       ]
     : [];
   const allDone = steps.length > 0 && steps.every((s) => s.done);

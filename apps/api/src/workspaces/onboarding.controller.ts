@@ -8,6 +8,7 @@ import {
   databases,
   invites,
   memberships,
+  packInstalls,
   records,
   relations,
   views,
@@ -44,8 +45,15 @@ export class OnboardingController {
     const sampleIds =
       ((ws?.settings ?? {}) as { sample_record_ids?: string[] }).sample_record_ids ?? [];
 
-    const [database_created, records_added, teammate_invited, board_view_built, relation_created, ai_connected] =
-      await Promise.all([
+    const [
+      database_created,
+      records_added,
+      teammate_invited,
+      board_view_built,
+      relation_created,
+      ai_connected,
+      business_pack_installed,
+    ] = await Promise.all([
         this.exists(
           this.db.select({ one: sql`1` }).from(databases).where(eq(databases.workspaceId, workspaceId)).limit(1),
         ),
@@ -98,6 +106,16 @@ export class OnboardingController {
         this.exists(
           this.db.select({ one: sql`1` }).from(apiTokens).where(eq(apiTokens.workspaceId, workspaceId)).limit(1),
         ),
+        // "Install a Business Pack" (MN-219 / #161): any tracked install still
+        // standing — an uninstalled pack no longer counts, the same way a
+        // sample record stops counting once its template is removed.
+        this.exists(
+          this.db
+            .select({ one: sql`1` })
+            .from(packInstalls)
+            .where(and(eq(packInstalls.workspaceId, workspaceId), isNull(packInstalls.uninstalledAt)))
+            .limit(1),
+        ),
       ]);
 
     return {
@@ -107,6 +125,7 @@ export class OnboardingController {
       board_view_built,
       relation_created,
       ai_connected,
+      business_pack_installed,
     };
   }
 }

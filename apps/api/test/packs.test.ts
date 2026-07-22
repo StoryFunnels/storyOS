@@ -1098,3 +1098,223 @@ describe('skills (#40)', () => {
     expect(res.statusCode, res.body).toBe(422);
   }, 60_000);
 });
+
+// ── collisions, uninstall, installed listing (MN-219 / #161) ────────────────
+
+async function installWith(wsId: string, manifest: unknown, resolutions: Record<string, unknown>) {
+  return as(admin.token, 'POST', `/workspaces/${wsId}/packs/install`, { manifest, resolutions });
+}
+
+async function listInstalled(wsId: string) {
+  const res = await as(admin.token, 'GET', `/workspaces/${wsId}/packs/installed`);
+  expect(res.statusCode, res.body).toBe(200);
+  return res.json() as Array<{ id: string; slug: string; name: string; version: string }>;
+}
+
+async function uninstallPack(wsId: string, installId: string) {
+  return as(admin.token, 'POST', `/workspaces/${wsId}/packs/${installId}/uninstall`);
+}
+
+interface CollisionPreviewItem {
+  name: string;
+  action: 'create' | 'reuse' | 'collision';
+}
+
+/**
+ * Collision handling (#161): a name a pack wants to use that already exists,
+ * but was NOT left behind by a previous install of the *same* pack —
+ * `preview`'s `collision` vs `reuse` distinction (`computeCollisions`, backed
+ * by the new `pack_installs`/`pack_install_items` tables), and `install`
+ * refusing to guess.
+ */
+describe('collisions (#161)', () => {
+  let manifest: PackManifest;
+
+  beforeAll(async () => {
+    const sourceWs = await newWorkspace('Collision Source');
+    await buildSourceBusinessViaApi(sourceWs);
+    manifest = (
+      await exportPack(sourceWs, {
+        slug: 'sales-os-collide',
+        name: 'Sales OS',
+        version: '1.0.0',
+        summary: 'Leads and tasks',
+        space: 'Sales',
+      })
+    ).json() as PackManifest;
+  }, 90_000);
+
+  it('a database that already exists (and isn\'t from this pack) previews as a collision', async () => {
+    const wsId = await newWorkspace('Collision Target Db');
+    // A database the pack did NOT make — an ordinary user action.
+    await as(admin.token, 'POST', `/workspaces/${wsId}/spaces`, { name: 'Sales' });
+    await as(admin.token, 'POST', `/workspaces/${wsId}/databases`, {
+      space_id: (await as(admin.token, 'GET', `/workspaces/${wsId}/spaces`)).json()[0].id,
+      name: 'Leads',
+    });
+
+    const result = await previewOk(wsId, manifest);
+    const leads = result.databases.find((d: CollisionPreviewItem) => d.name === 'Leads');
+    expect(leads?.action).toBe('collision');
+    const tasks = result.databases.find((d: CollisionPreviewItem) => d.name === 'Tasks');
+    expect(tasks?.action).toBe('create');
+  }, 60_000);
+
+  it('install refuses an unresolved collision — 409, not a guess', async () => {
+    const wsId = await newWorkspace('Collision Unresolved');
+    await as(admin.token, 'POST', `/workspaces/${wsId}/spaces`, { name: 'Sales' });
+    await as(admin.token, 'POST', `/workspaces/${wsId}/databases`, {
+      space_id: (await as(admin.token, 'GET', `/workspaces/${wsId}/spaces`)).json()[0].id,
+      name: 'Leads',
+    });
+
+    const res = await installPack(wsId, manifest);
+    expect(res.statusCode, res.body).toBe(409);
+  }, 60_000);
+
+  it('a database collision resolved as "reuse" installs — the only supported resolution', async () => {
+    const wsId = await newWorkspace('Collision Reuse');
+    await as(admin.token, 'POST', `/workspaces/${wsId}/spaces`, { name: 'Sales' });
+    const preexisting = (
+      await as(admin.token, 'POST', `/workspaces/${wsId}/databases`, {
+        space_id: (await as(admin.token, 'GET', `/workspaces/${wsId}/spaces`)).json()[0].id,
+        name: 'Leads',
+      })
+    ).json().id as string;
+
+    const res = await installWith(wsId, manifest, { Leads: { action: 'reuse' } });
+    expect(res.statusCode, res.body).toBe(201);
+    const result = res.json();
+    const leads = result.databases.find((d: { name: string }) => d.name === 'Leads');
+    expect(leads.action).toBe('reused');
+    expect(leads.id).toBe(preexisting); // the pre-existing database, not a new one
+
+    // Once tracked, a re-preview no longer calls it a collision.
+    const second = await previewOk(wsId, manifest);
+    expect(second.databases.find((d: CollisionPreviewItem) => d.name === 'Leads')?.action).toBe('reuse');
+  }, 60_000);
+
+  it('a database collision resolved as "rename" is refused — not supported for databases', async () => {
+    const wsId = await newWorkspace('Collision Rename Refused');
+    await as(admin.token, 'POST', `/workspaces/${wsId}/spaces`, { name: 'Sales' });
+    await as(admin.token, 'POST', `/workspaces/${wsId}/databases`, {
+      space_id: (await as(admin.token, 'GET', `/workspaces/${wsId}/spaces`)).json()[0].id,
+      name: 'Leads',
+    });
+
+    const res = await installWith(wsId, manifest, { Leads: { action: 'rename', rename_to: 'Leads (pack)' } });
+    expect(res.statusCode, res.body).toBe(422);
+  }, 60_000);
+
+  it('an agent name collision can be renamed or skipped', async () => {
+    const wsId = await newWorkspace('Collision Agent');
+    // Provoke the Agents system database into existing with a same-named agent.
+    await as(admin.token, 'POST', `/workspaces/${wsId}/agents/ensure`);
+    const agentsDbId = (await dbNamed(wsId, 'Agents')).id;
+    await as(admin.token, 'POST', `/workspaces/${wsId}/databases/${agentsDbId}/records`, {
+      values: { name: 'Sales Assistant' },
+    });
+
+    const withAgent: PackManifest = {
+      ...manifest,
+      agents: [
+        {
+          name: 'Sales Assistant',
+          goal: 'Follow up on new leads',
+          scopes: ['read'],
+          approval_policy: [],
+          target_databases: ['Leads'],
+          skills: [],
+        },
+      ],
+      triggers: [],
+    };
+
+    const skip = await installWith(wsId, withAgent, { 'Sales Assistant': { action: 'skip' } });
+    expect(skip.statusCode, skip.body).toBe(201);
+    const skipResult = skip.json();
+    expect(
+      skipResult.agents.find((a: { name: string }) => a.name === 'Sales Assistant')?.action,
+    ).toBe('skipped');
+  }, 60_000);
+});
+
+/**
+ * Uninstall (#161): removes what this install made and is unchanged since;
+ * keeps anything a person has since edited, with a reason. Schema is never
+ * touched (see `PacksService.uninstall`'s doc) — only views, automations,
+ * agents and skills are in scope.
+ */
+describe('uninstall (#161)', () => {
+  let manifest: PackManifest;
+
+  beforeAll(async () => {
+    const sourceWs = await newWorkspace('Uninstall Source');
+    await buildSourceBusinessViaApi(sourceWs);
+    manifest = (
+      await exportPack(sourceWs, {
+        slug: 'sales-os-uninstall',
+        name: 'Sales OS',
+        version: '1.0.0',
+        summary: 'Leads and tasks',
+        space: 'Sales',
+      })
+    ).json() as PackManifest;
+  }, 90_000);
+
+  it('shows up in the installed list, and removes unmodified objects cleanly', async () => {
+    const wsId = await newWorkspace('Uninstall Clean');
+    const installResult = await installOk(wsId, manifest);
+
+    const installs = await listInstalled(wsId);
+    const tracked = installs.find((i) => i.slug === 'sales-os-uninstall');
+    expect(tracked).toBeTruthy();
+
+    const res = await uninstallPack(wsId, tracked!.id);
+    expect(res.statusCode, res.body).toBe(201);
+    const { removed, kept } = res.json() as {
+      removed: Array<{ kind: string; name: string }>;
+      kept: Array<{ kind: string; name: string }>;
+    };
+    expect(kept).toEqual([]);
+    expect(removed.some((r) => r.kind === 'automation')).toBe(true);
+
+    // The rule this install created no longer exists.
+    const leadsId = (await dbNamed(wsId, 'Leads')).id;
+    const rules = await as(admin.token, 'GET', `/workspaces/${wsId}/databases/${leadsId}/automations`);
+    expect(rules.json().data.find((r: { name: string }) => r.name === installResult.automations[0]?.name)).toBeUndefined();
+
+    // No longer listed as installed.
+    expect((await listInstalled(wsId)).find((i) => i.id === tracked!.id)).toBeUndefined();
+  }, 60_000);
+
+  it('keeps a view the user changed since install, with a reason', async () => {
+    const wsId = await newWorkspace('Uninstall Modified');
+    await installOk(wsId, manifest);
+    const tracked = (await listInstalled(wsId)).find((i) => i.slug === 'sales-os-uninstall')!;
+
+    const leadsId = (await dbNamed(wsId, 'Leads')).id;
+    const leads = await detailOf(wsId, leadsId);
+    const pipelineView = leads.views.find((v) => v.name === 'Pipeline')!;
+    expect(pipelineView).toBeTruthy();
+
+    // A person renames the view after install.
+    const rename = await as(
+      admin.token,
+      'PATCH',
+      `/workspaces/${wsId}/databases/${leadsId}/views/${pipelineView.id}`,
+      { name: 'Pipeline (renamed)' },
+    );
+    expect(rename.statusCode, rename.body).toBe(200);
+
+    const res = await uninstallPack(wsId, tracked.id);
+    expect(res.statusCode, res.body).toBe(201);
+    const { kept } = res.json() as { kept: Array<{ kind: string; name: string; reason?: string }> };
+    const keptView = kept.find((k) => k.kind === 'view' && k.name === `Leads.${pipelineView.name}`);
+    expect(keptView?.reason).toBeTruthy();
+
+    // Still there — untouched.
+    const after = await detailOf(wsId, leadsId);
+    expect(after.views.some((v) => v.id === pipelineView.id)).toBe(true);
+  }, 60_000);
+});
