@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  BRAND_ICON_META,
+  brandIconSlug,
   EMOJI_ICON_MIGRATION,
   ICON_NAMES,
   ICON_SET_META,
   inferIconFromName,
+  isBrandIconRef,
   isEmojiShaped,
   normalizeIconInput,
   resolveMigratedIcon,
@@ -146,5 +149,43 @@ describe('isEmojiShaped (#251 scan predicate)', () => {
     }
     const inferred = resolveMigratedIcon('👍', 'Clients')!;
     expect(isEmojiShaped(inferred.icon)).toBe(false);
+  });
+
+  it('is false for a brand: ref too', () => {
+    expect(isEmojiShaped('brand:github')).toBe(false);
+    expect(isEmojiShaped('brand:doesnotexist')).toBe(false);
+  });
+});
+
+describe('brand icon set (#298)', () => {
+  it('has no duplicate slugs', () => {
+    const slugs = BRAND_ICON_META.map((d) => d.slug);
+    expect(new Set(slugs).size).toBe(slugs.length);
+  });
+
+  it('has ~100 third-party marks plus the 2 hand-recreated StoryOS-sibling products', () => {
+    expect(BRAND_ICON_META.length).toBeGreaterThanOrEqual(100);
+    const slugs = BRAND_ICON_META.map((d) => d.slug);
+    expect(slugs).toContain('storyfunnels');
+    expect(slugs).toContain('storypages');
+  });
+
+  it('every entry resolves back through brandIconSlug — no drift between the data and what the icon param accepts', () => {
+    for (const { slug } of BRAND_ICON_META) {
+      expect(brandIconSlug(`brand:${slug}`)).toBe(slug);
+    }
+  });
+
+  it('brandIconSlug rejects an unrecognized slug and a non-brand ref', () => {
+    expect(brandIconSlug('brand:this-does-not-exist')).toBeNull();
+    expect(brandIconSlug('set:rocket')).toBeNull();
+    expect(brandIconSlug(null)).toBeNull();
+  });
+
+  it('isBrandIconRef is true for any brand: prefix, recognized or not', () => {
+    expect(isBrandIconRef('brand:github')).toBe(true);
+    expect(isBrandIconRef('brand:this-does-not-exist')).toBe(true);
+    expect(isBrandIconRef('set:rocket')).toBe(false);
+    expect(isBrandIconRef(null)).toBe(false);
   });
 });

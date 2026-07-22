@@ -202,6 +202,168 @@ export function isSetIconRef(value?: string | null): boolean {
   return Boolean(value && value.startsWith(ICON_SET_PREFIX));
 }
 
+export interface BrandIconMeta {
+  /** File-name-safe slug, e.g. "x-twitter" — also the vendored SVG's filename
+   * under apps/web/public/brand-icons/<slug>.svg. */
+  slug: string;
+  /** Human-readable display name shown in the picker/tooltips. */
+  name: string;
+  /** Space-separated search terms (lowercase) — matched the same way as
+   * ICON_SET_META.keywords: substring match against the search query. */
+  keywords: string;
+}
+
+/**
+ * Third-party platform logos (#298) — a second namespace alongside the
+ * curated lucide `set:` icons, for "this is our LinkedIn workspace" / "this
+ * connects to Notion" style use cases that a generic glyph can't express.
+ *
+ * ~100 marks sourced from Simple Icons (simpleicons.org, npm package
+ * `simple-icons`, CC0-licensed — https://github.com/simple-icons/simple-icons/blob/develop/LICENSE.md),
+ * vendored as static SVGs one-per-file under apps/web/public/brand-icons/,
+ * named by slug. Curated for a work-OS / marketing-agency audience: social,
+ * dev/eng, productivity, business/marketing, web/CMS, infra/AI, and CRM/ops
+ * tooling. A handful of well-known marks (LinkedIn, Slack, Microsoft's and
+ * Adobe's product suites, AWS, Salesforce) are NOT in this set because Simple
+ * Icons no longer ships them (brand-requested removals, per its own
+ * DISCLAIMER.md) — rather than hand-draw those trademarked logos from
+ * scratch, they were substituted with other real, CC0-licensed marks in the
+ * same category.
+ *
+ * Plus two hand-recreated entries for StoryOS's own sibling products —
+ * storyfunnels and storypages — drawn fresh from their public marketing
+ * sites (not traced/scraped from a source file) since neither is in any
+ * public icon library.
+ *
+ * Same zod-free-module reasoning as ICON_SET_META above: this is the single
+ * source of truth for both apps/web's picker (icon-picker.tsx) and
+ * packages/mcp's list_icon_set tool (buildIconCatalog in tools.ts), so the
+ * two never drift.
+ */
+export const BRAND_ICON_META: BrandIconMeta[] = [
+  { slug: 'x-twitter', name: 'X (Twitter)', keywords: 'x twitter social tweet' },
+  { slug: 'facebook', name: 'Facebook', keywords: 'facebook meta social' },
+  { slug: 'instagram', name: 'Instagram', keywords: 'instagram ig social photo' },
+  { slug: 'tiktok', name: 'TikTok', keywords: 'tiktok social video short-form' },
+  { slug: 'youtube', name: 'YouTube', keywords: 'youtube video social google' },
+  { slug: 'pinterest', name: 'Pinterest', keywords: 'pinterest social pins boards' },
+  { slug: 'reddit', name: 'Reddit', keywords: 'reddit social forum community' },
+  { slug: 'discord', name: 'Discord', keywords: 'discord chat community voice' },
+  { slug: 'telegram', name: 'Telegram', keywords: 'telegram chat messaging' },
+  { slug: 'whatsapp', name: 'WhatsApp', keywords: 'whatsapp chat messaging meta' },
+  { slug: 'threads', name: 'Threads', keywords: 'threads meta social' },
+  { slug: 'snapchat', name: 'Snapchat', keywords: 'snapchat social' },
+  { slug: 'github', name: 'GitHub', keywords: 'github git code repo version-control' },
+  { slug: 'gitlab', name: 'GitLab', keywords: 'gitlab git code repo ci-cd' },
+  { slug: 'bitbucket', name: 'Bitbucket', keywords: 'bitbucket git atlassian repo' },
+  { slug: 'linear', name: 'Linear', keywords: 'linear issues project-management engineering' },
+  { slug: 'jira', name: 'Jira', keywords: 'jira atlassian issues project-management' },
+  { slug: 'confluence', name: 'Confluence', keywords: 'confluence atlassian docs wiki' },
+  { slug: 'docker', name: 'Docker', keywords: 'docker container devops' },
+  { slug: 'vercel', name: 'Vercel', keywords: 'vercel hosting deploy nextjs' },
+  { slug: 'netlify', name: 'Netlify', keywords: 'netlify hosting deploy jamstack' },
+  { slug: 'cloudflare', name: 'Cloudflare', keywords: 'cloudflare cdn dns security' },
+  { slug: 'npm', name: 'npm', keywords: 'npm node package javascript' },
+  { slug: 'postgresql', name: 'PostgreSQL', keywords: 'postgres postgresql database sql' },
+  { slug: 'mongodb', name: 'MongoDB', keywords: 'mongodb mongo database nosql' },
+  { slug: 'redis', name: 'Redis', keywords: 'redis cache database' },
+  { slug: 'notion', name: 'Notion', keywords: 'notion docs wiki workspace' },
+  { slug: 'figma', name: 'Figma', keywords: 'figma design ui ux' },
+  { slug: 'airtable', name: 'Airtable', keywords: 'airtable database spreadsheet' },
+  { slug: 'asana', name: 'Asana', keywords: 'asana tasks project-management' },
+  { slug: 'trello', name: 'Trello', keywords: 'trello board kanban tasks' },
+  { slug: 'clickup', name: 'ClickUp', keywords: 'clickup tasks project-management' },
+  { slug: 'coda', name: 'Coda', keywords: 'coda docs workspace' },
+  { slug: 'miro', name: 'Miro', keywords: 'miro whiteboard collaboration' },
+  { slug: 'loom', name: 'Loom', keywords: 'loom video recording screen-record' },
+  { slug: 'zoom', name: 'Zoom', keywords: 'zoom video call meeting' },
+  { slug: 'googledrive', name: 'Google Drive', keywords: 'google drive storage files' },
+  { slug: 'googlesheets', name: 'Google Sheets', keywords: 'google sheets spreadsheet' },
+  { slug: 'googledocs', name: 'Google Docs', keywords: 'google docs document' },
+  { slug: 'googlecalendar', name: 'Google Calendar', keywords: 'google calendar schedule' },
+  { slug: 'gmail', name: 'Gmail', keywords: 'gmail google email mail' },
+  { slug: 'googlemeet', name: 'Google Meet', keywords: 'google meet video call' },
+  { slug: 'hubspot', name: 'HubSpot', keywords: 'hubspot crm marketing sales' },
+  { slug: 'stripe', name: 'Stripe', keywords: 'stripe payments billing' },
+  { slug: 'shopify', name: 'Shopify', keywords: 'shopify ecommerce store' },
+  { slug: 'mailchimp', name: 'Mailchimp', keywords: 'mailchimp email marketing newsletter' },
+  { slug: 'zapier', name: 'Zapier', keywords: 'zapier automation integration workflow' },
+  { slug: 'googleanalytics', name: 'Google Analytics', keywords: 'google analytics ga traffic' },
+  { slug: 'semrush', name: 'Semrush', keywords: 'semrush seo marketing' },
+  { slug: 'googleads', name: 'Google Ads', keywords: 'google ads advertising ppc' },
+  { slug: 'quickbooks', name: 'QuickBooks', keywords: 'quickbooks accounting finance' },
+  { slug: 'xero', name: 'Xero', keywords: 'xero accounting finance' },
+  { slug: 'paypal', name: 'PayPal', keywords: 'paypal payments' },
+  { slug: 'braintree', name: 'Braintree', keywords: 'braintree payments' },
+  { slug: 'visa', name: 'Visa', keywords: 'visa card payment' },
+  { slug: 'mastercard', name: 'Mastercard', keywords: 'mastercard card payment' },
+  { slug: 'buffer', name: 'Buffer', keywords: 'buffer social media scheduling' },
+  { slug: 'hootsuite', name: 'Hootsuite', keywords: 'hootsuite social media scheduling' },
+  { slug: 'typeform', name: 'Typeform', keywords: 'typeform forms survey' },
+  { slug: 'surveymonkey', name: 'SurveyMonkey', keywords: 'surveymonkey survey forms' },
+  { slug: 'webflow', name: 'Webflow', keywords: 'webflow website builder cms' },
+  { slug: 'wordpress', name: 'WordPress', keywords: 'wordpress cms blog website' },
+  { slug: 'squarespace', name: 'Squarespace', keywords: 'squarespace website builder' },
+  { slug: 'wix', name: 'Wix', keywords: 'wix website builder' },
+  { slug: 'framer', name: 'Framer', keywords: 'framer design website prototyping' },
+  { slug: 'ghost', name: 'Ghost', keywords: 'ghost blog cms publishing' },
+  { slug: 'googlecloud', name: 'Google Cloud', keywords: 'google cloud gcp infrastructure' },
+  { slug: 'kubernetes', name: 'Kubernetes', keywords: 'kubernetes k8s container orchestration' },
+  { slug: 'grafana', name: 'Grafana', keywords: 'grafana monitoring dashboard metrics' },
+  { slug: 'sentry', name: 'Sentry', keywords: 'sentry error-tracking monitoring' },
+  { slug: 'datadog', name: 'Datadog', keywords: 'datadog monitoring observability' },
+  { slug: 'auth0', name: 'Auth0', keywords: 'auth0 authentication identity' },
+  { slug: 'digitalocean', name: 'DigitalOcean', keywords: 'digitalocean cloud hosting' },
+  { slug: 'okta', name: 'Okta', keywords: 'okta identity sso authentication' },
+  { slug: 'anthropic', name: 'Anthropic', keywords: 'anthropic ai claude' },
+  { slug: 'googlegemini', name: 'Google Gemini', keywords: 'google gemini ai' },
+  { slug: 'perplexity', name: 'Perplexity', keywords: 'perplexity ai search' },
+  { slug: 'huggingface', name: 'Hugging Face', keywords: 'huggingface ai machine-learning models' },
+  { slug: 'mistralai', name: 'Mistral AI', keywords: 'mistral ai llm' },
+  { slug: 'cursor', name: 'Cursor', keywords: 'cursor ai code editor' },
+  { slug: 'langchain', name: 'LangChain', keywords: 'langchain ai llm framework' },
+  { slug: 'deepseek', name: 'DeepSeek', keywords: 'deepseek ai llm' },
+  { slug: 'dropbox', name: 'Dropbox', keywords: 'dropbox storage files' },
+  { slug: 'box', name: 'Box', keywords: 'box storage files enterprise' },
+  { slug: 'calendly', name: 'Calendly', keywords: 'calendly scheduling booking' },
+  { slug: 'intercom', name: 'Intercom', keywords: 'intercom support chat customer' },
+  { slug: 'zendesk', name: 'Zendesk', keywords: 'zendesk support helpdesk customer' },
+  { slug: 'mixpanel', name: 'Mixpanel', keywords: 'mixpanel analytics product' },
+  { slug: 'greenhouse', name: 'Greenhouse', keywords: 'greenhouse recruiting hiring ats' },
+  { slug: 'gusto', name: 'Gusto', keywords: 'gusto payroll hr' },
+  { slug: 'zoho', name: 'Zoho', keywords: 'zoho crm suite business' },
+  { slug: 'basecamp', name: 'Basecamp', keywords: 'basecamp project-management tasks' },
+  { slug: 'todoist', name: 'Todoist', keywords: 'todoist tasks todo' },
+  { slug: 'clockify', name: 'Clockify', keywords: 'clockify time-tracking' },
+  { slug: 'toggl', name: 'Toggl', keywords: 'toggl time-tracking' },
+  { slug: '1password', name: '1Password', keywords: 'password manager security' },
+  { slug: 'twitch', name: 'Twitch', keywords: 'twitch streaming video live' },
+  { slug: 'spotify', name: 'Spotify', keywords: 'spotify music audio' },
+  { slug: 'medium', name: 'Medium', keywords: 'medium blog publishing writing' },
+  { slug: 'producthunt', name: 'Product Hunt', keywords: 'product hunt launch community' },
+  { slug: 'storyfunnels', name: 'StoryFunnels', keywords: 'storyfunnels storyos podcast marketing' },
+  { slug: 'storypages', name: 'StoryPages', keywords: 'storypages storyos landing pages ai' },
+];
+
+export const BRAND_SLUGS: Set<string> = new Set(BRAND_ICON_META.map((d) => d.slug));
+
+/** Stored-value convention for brand marks: `brand:<slug>` — parallel to
+ * `set:<name>` above, e.g. "brand:github". */
+export const BRAND_ICON_PREFIX = 'brand:';
+
+/** Extract the brand slug from a stored icon value, or null if it's not a
+ * (recognized) brand ref. */
+export function brandIconSlug(value?: string | null): string | null {
+  if (!value || !value.startsWith(BRAND_ICON_PREFIX)) return null;
+  const slug = value.slice(BRAND_ICON_PREFIX.length);
+  return BRAND_SLUGS.has(slug) ? slug : null;
+}
+
+/** True for any `brand:<slug>` ref, recognized or not. */
+export function isBrandIconRef(value?: string | null): boolean {
+  return Boolean(value && value.startsWith(BRAND_ICON_PREFIX));
+}
+
 /**
  * True when `value` contains emoji-shaped content: pictographic characters,
  * ZWJ sequences, variation selectors, or keycap combiners. Used to (a) detect
@@ -214,7 +376,7 @@ export function isSetIconRef(value?: string | null): boolean {
 // eslint-disable-next-line no-misleading-character-class
 const EMOJI_SHAPE_RE = /[\p{Extended_Pictographic}\u200d\ufe0f\u20e3]/u;
 export function isEmojiShaped(value?: string | null): boolean {
-  if (!value || isSetIconRef(value)) return false;
+  if (!value || isSetIconRef(value) || isBrandIconRef(value)) return false;
   return EMOJI_SHAPE_RE.test(value);
 }
 
