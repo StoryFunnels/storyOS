@@ -467,6 +467,33 @@ export const packRegistryEntrySchema = z.object({
 });
 export type PackRegistryEntry = z.infer<typeof packRegistryEntrySchema>;
 
+/**
+ * A public, pre-signup preview of a registry pack (#272).
+ *
+ * Deliberately not the manifest: a manifest is an install *recipe* (view
+ * configs, automation trigger/action blobs, agent instructions) meant for the
+ * authenticated install path, not a marketing surface. `contents` is the
+ * shallow, human-readable shape of that same recipe — names only, grouped by
+ * kind — enough for someone who has never logged in to see what they'd get
+ * without exposing anything workspace-specific (there is none; the registry
+ * is static, built-in metadata to begin with).
+ */
+export const packPublicPreviewSchema = z.object({
+  slug: z.string(),
+  name: z.string(),
+  summary: z.string(),
+  highlights: z.array(z.string()).default([]),
+  requires: packRequiresSchema,
+  contents: z.object({
+    databases: z.array(z.string()),
+    views: z.array(z.string()),
+    automations: z.array(z.string()),
+    agents: z.array(z.string()),
+    skills: z.array(z.string()),
+  }),
+});
+export type PackPublicPreview = z.infer<typeof packPublicPreviewSchema>;
+
 /** What to export: a space by name, or an explicit list of database ids. */
 export const packExportRequestSchema = z
   .object({

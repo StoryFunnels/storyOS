@@ -5889,6 +5889,45 @@
         ]
       }
     },
+    "/api/v1/public/packs/registry": {
+      "get": {
+        "operationId": "PublicPacksController_registry",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "The built-in Business Pack gallery — public, pre-signup",
+        "tags": [
+          "public"
+        ]
+      }
+    },
+    "/api/v1/public/packs/registry/{slug}": {
+      "get": {
+        "operationId": "PublicPacksController_entry",
+        "parameters": [
+          {
+            "name": "slug",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "One built-in pack — public, pre-signup preview",
+        "tags": [
+          "public"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/favorites": {
       "get": {
         "operationId": "FavoritesController_list",

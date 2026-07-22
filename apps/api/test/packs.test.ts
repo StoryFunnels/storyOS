@@ -1318,3 +1318,59 @@ describe('uninstall (#161)', () => {
     expect(after.views.some((v) => v.id === pipelineView.id)).toBe(true);
   }, 60_000);
 });
+
+/**
+ * Public, pre-signup preview (#272) — finding: `PacksRegistryController`
+ * requires `AuthGuard`, so a shared pack link hit a login wall. These routes
+ * are the fix; `pub` deliberately sends no auth headers at all, the same way
+ * `forms.test.ts` verifies its public form routes.
+ */
+describe('public preview (#272)', () => {
+  async function pub(method: string, url: string) {
+    return app.inject({ method: method as never, url: `/api/v1${url}` });
+  }
+
+  it('lists the gallery with no auth, without the manifest', async () => {
+    const res = await pub('GET', '/public/packs/registry');
+    expect(res.statusCode, res.body).toBe(200);
+    const cards = res.json() as Array<Record<string, unknown>>;
+    expect(cards.length).toBeGreaterThan(0);
+    const card = cards.find((c) => c.slug === 'support-inbox')!;
+    expect(card).toBeTruthy();
+    expect(card.name).toBeTruthy();
+    expect(card.manifest).toBeUndefined();
+  });
+
+  it('previews one pack with no auth — names, not the ref-encoded manifest', async () => {
+    const res = await pub('GET', '/public/packs/registry/support-inbox');
+    expect(res.statusCode, res.body).toBe(200);
+    const preview = res.json() as {
+      slug: string;
+      name: string;
+      manifest?: unknown;
+      requires: { connections: string[]; ai: string };
+      contents: {
+        databases: string[];
+        views: string[];
+        automations: string[];
+        agents: string[];
+        skills: string[];
+      };
+    };
+    expect(preview.slug).toBe('support-inbox');
+    expect(preview.manifest).toBeUndefined();
+    expect(preview.contents.databases).toContain('Tickets');
+    expect(preview.contents.views).toContain('Board');
+    expect(preview.contents.agents).toContain('Triage');
+    expect(preview.requires.ai).toBe('byo');
+    // No symbolic refs (`$field:…`, `$option:…`) leak into the public shape —
+    // those live in view/automation configs, which `contents` never carries.
+    expect(rawUuidsIn(preview).length).toBe(0);
+    expect(JSON.stringify(preview)).not.toMatch(/\$(db|field|option):/);
+  });
+
+  it('404s a slug that is not in the registry, same as the authed route', async () => {
+    const res = await pub('GET', '/public/packs/registry/does-not-exist');
+    expect(res.statusCode).toBe(404);
+  });
+});
