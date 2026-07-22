@@ -152,6 +152,10 @@ interface DisplayProps {
    * When set, text-carrying types wrap and break instead of truncating.
    */
   wrap?: boolean;
+  /** #293: workspace slug, threaded down so a relation chip can build a link to
+   * the linked record's own page. Omit to keep relation chips non-navigable
+   * (matches every call site that hasn't been wired up yet). */
+  ws?: string;
 }
 
 // Pure text helpers moved to cell-text.ts so they're testable without React
@@ -160,7 +164,7 @@ interface DisplayProps {
 import { cellToText, richTextPreview } from './cell-text';
 export { cellToText, richTextPreview };
 
-export function CellDisplay({ field, value, memberNames, memberImages, wrap }: DisplayProps) {
+export function CellDisplay({ field, value, memberNames, memberImages, wrap, ws }: DisplayProps) {
   const fmt = useDateFormat();
   // The prose class: wrap+break in the sidebar (MN-132), truncate in a grid row.
   const prose = wrap ? 'whitespace-pre-wrap break-words' : 'truncate';
@@ -197,7 +201,13 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap }: D
       return <span className="truncate text-[13px] text-ink-secondary">{text}</span>;
     }
     case 'relation':
-      return <RelationChips chips={(value as LinkChip[]) ?? []} />;
+      return (
+        <RelationChips
+          chips={(value as LinkChip[]) ?? []}
+          ws={ws}
+          targetDb={field.relation?.target_database_id}
+        />
+      );
     case 'checkbox':
       return <input type="checkbox" checked={Boolean(value)} readOnly className="pointer-events-none" />;
     case 'select': {

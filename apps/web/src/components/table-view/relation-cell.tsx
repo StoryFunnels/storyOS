@@ -6,8 +6,9 @@ import { Check, Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { recordHref } from '@/lib/records';
 import { Popover, PopoverContent, PopoverParentAnchor } from '@/components/ui/popover';
-import type { Field } from './use-table-data';
+import type { Field, RecordRow } from './use-table-data';
 
 export interface LinkChip {
   id: string;
@@ -22,15 +23,43 @@ export interface LinkChip {
  * outline-only in a neutral/faint border with normal-case body-size text and no
  * fill or letter-spacing, so a reference to another record (Blocked By, Blocker
  * for, board relation groups, …) is never confused with a category value.
+ *
+ * #293: when `href` is given, the chip is a real link to the record's own page
+ * (new tab — full split-screen is #282's job). Kept optional so call sites that
+ * can't yet supply ws/target-database context (e.g. board cards) render exactly
+ * as before.
  */
-export function RelationChip({ title, className }: { title: string; className?: string }) {
+export function RelationChip({
+  title,
+  href,
+  className,
+}: {
+  title: string;
+  href?: string;
+  className?: string;
+}) {
+  const shared = cn(
+    'inline-flex max-w-40 shrink-0 items-center truncate rounded-[var(--radius-chip)] border-[1.4px] border-border-strong px-1.5 py-0.5 text-[13px] text-ink',
+    className,
+  );
+  if (href) {
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noreferrer"
+        // The cell/row this chip sits in usually has its own click handling
+        // (select the cell, open the record on row click, …) — stop the click
+        // there so opening the chip's own link doesn't also fire that.
+        onClick={(e) => e.stopPropagation()}
+        className={cn(shared, 'hover:border-border-strong hover:bg-hover hover:underline')}
+      >
+        <span className="truncate">{title || 'Untitled'}</span>
+      </a>
+    );
+  }
   return (
-    <span
-      className={cn(
-        'inline-flex max-w-40 shrink-0 items-center truncate rounded-[var(--radius-chip)] border-[1.4px] border-border-strong px-1.5 py-0.5 text-[13px] text-ink',
-        className,
-      )}
-    >
+    <span className={shared}>
       <span className="truncate">{title || 'Untitled'}</span>
     </span>
   );
@@ -38,13 +67,31 @@ export function RelationChip({ title, className }: { title: string; className?: 
 
 /** Compact relation display (MN-16): cap visible chips so a heavily-linked cell
  * never blows up the row; the rest collapse into a "+N" pill (tooltip lists them). */
-export function RelationChips({ chips, max = 3 }: { chips: LinkChip[]; max?: number }) {
+export function RelationChips({
+  chips,
+  max = 3,
+  ws,
+  targetDb,
+}: {
+  chips: LinkChip[];
+  max?: number;
+  /** #293: workspace + the relation's target database — together with each
+   * chip's own {id,title,number} these build the linked record's own-page URL
+   * via recordHref (the same helper the record page's own relation display
+   * already uses). Omit either to keep chips non-navigable (unchanged). */
+  ws?: string;
+  targetDb?: string;
+}) {
   const shown = chips.slice(0, max);
   const rest = chips.slice(max);
   return (
     <span className="flex items-center gap-1 overflow-hidden">
       {shown.map((chip) => (
-        <RelationChip key={chip.id} title={chip.title} />
+        <RelationChip
+          key={chip.id}
+          title={chip.title}
+          href={ws && targetDb ? recordHref(ws, targetDb, chip) : undefined}
+        />
       ))}
       {rest.length > 0 && (
         <span
@@ -54,6 +101,48 @@ export function RelationChips({ chips, max = 3 }: { chips: LinkChip[]; max?: num
           +{rest.length}
         </span>
       )}
+    </span>
+  );
+}
+
+/**
+ * One chip in the picker's "currently selected" row (#293): the title links to
+ * the record's own page (new tab), the × removes it. The × is a SIBLING of the
+ * link, never nested inside it, so a click on one can't structurally reach the
+ * other — `stopPropagation` on both is defense in depth against the cell/row's
+ * own click handling underneath the popover, not against each other.
+ */
+export function SelectedRelationChip({
+  chip,
+  ws,
+  targetDb,
+  onRemove,
+}: {
+  chip: LinkChip;
+  ws: string;
+  targetDb: string;
+  onRemove: (chip: LinkChip) => void;
+}) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded border border-border-default bg-hover px-1.5 py-0.5 text-[12px] text-ink">
+      <a
+        href={recordHref(ws, targetDb, chip)}
+        target="_blank"
+        rel="noreferrer"
+        onClick={(e) => e.stopPropagation()}
+        className="max-w-40 truncate hover:underline"
+      >
+        {chip.title || 'Untitled'}
+      </a>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onRemove(chip);
+        }}
+        className="text-faint hover:text-error"
+      >
+        <X className="h-3 w-3" />
+      </button>
     </span>
   );
 }
@@ -98,7 +187,7 @@ export function RelationEditor({
   });
 
   const save = useMutation({
-    mutationFn: async (ids: string[]) => {
+    mutationFn: async ({ ids }: { ids: string[]; chips: LinkChip[] }) => {
       const { error } = await api.PUT(
         '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/links/{field}',
         {
@@ -108,12 +197,51 @@ export function RelationEditor({
       );
       if (error) throw error;
     },
-    onSuccess: () => {
+    // #293 (investigated, not live-reproducible — see PR description): every
+    // OTHER field type's edit (useRecordMutations' updateRecord) patches the
+    // records-list cache optimistically in onMutate, so CellDisplay shows the
+    // new value the instant the editor closes. This mutation had no such
+    // patch — it only invalidated on success, an async refetch the editor's
+    // close path (onDone, fired from the mutate() call's own onSuccess) never
+    // waited on. That's a real race: the popover can close and hand the cell
+    // back to CellDisplay (reading the still-stale records-list cache) before
+    // the invalidated refetch resolves. Patching optimistically here removes
+    // the race entirely, the same way every other field type already avoids
+    // it, regardless of network timing.
+    onMutate: async ({ chips }) => {
+      const recordsKey = ['records', ws, db];
+      await qc.cancelQueries({ queryKey: recordsKey });
+      const previous = qc.getQueriesData({ queryKey: recordsKey });
+      qc.setQueriesData(
+        { queryKey: recordsKey },
+        (old: { pages: Array<{ data: RecordRow[] }> } | undefined) => {
+          if (!old) return old;
+          return {
+            ...old,
+            pages: old.pages.map((page) => ({
+              ...page,
+              data: page.data.map((row) =>
+                row.id === recordId
+                  ? { ...row, values: { ...row.values, [field.apiName]: chips } }
+                  : row,
+              ),
+            })),
+          };
+        },
+      );
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      for (const [k, v] of (context?.previous ?? []) as Array<[unknown, unknown]>) {
+        qc.setQueryData(k as never, v as never);
+      }
+      toast.error('Could not update links');
+    },
+    onSettled: () => {
       void qc.invalidateQueries({ queryKey: ['records', ws, db] });
       void qc.invalidateQueries({ queryKey: ['records', ws, targetDb] });
       void qc.invalidateQueries({ queryKey: ['record', ws, db, recordId] });
     },
-    onError: () => toast.error('Could not update links'),
   });
 
   const createTarget = useMutation({
@@ -135,7 +263,7 @@ export function RelationEditor({
   function pick(chip: LinkChip) {
     if (single) {
       // Single-pick saves and closes immediately — unchanged.
-      save.mutate([chip.id], { onSuccess: onDone });
+      save.mutate({ ids: [chip.id], chips: [chip] }, { onSuccess: onDone });
       return;
     }
     // MN-279: multi-select used to only update local state here and wait for
@@ -147,7 +275,7 @@ export function RelationEditor({
       ? selected.filter((c) => c.id !== chip.id)
       : [...selected, chip];
     setSelected(next);
-    save.mutate(next.map((c) => c.id));
+    save.mutate({ ids: next.map((c) => c.id), chips: next });
   }
 
   // MN-230d: closing (outside click, Escape) resolves the same way the old
@@ -158,7 +286,7 @@ export function RelationEditor({
   function handleOpenChange(open: boolean) {
     if (open) return;
     if (single) onDone();
-    else save.mutate(selected.map((c) => c.id), { onSuccess: onDone });
+    else save.mutate({ ids: selected.map((c) => c.id), chips: selected }, { onSuccess: onDone });
   }
 
   const selectedIds = useMemo(() => new Set(selected.map((c) => c.id)), [selected]);
@@ -188,15 +316,7 @@ export function RelationEditor({
         {!single && selected.length > 0 && (
           <div className="flex flex-wrap gap-1 border-b border-border-default p-2">
             {selected.map((chip) => (
-              <span
-                key={chip.id}
-                className="inline-flex items-center gap-1 rounded border border-border-default bg-hover px-1.5 py-0.5 text-[12px] text-ink"
-              >
-                {chip.title || 'Untitled'}
-                <button onClick={() => pick(chip)} className="text-faint hover:text-error">
-                  <X className="h-3 w-3" />
-                </button>
-              </span>
+              <SelectedRelationChip key={chip.id} chip={chip} ws={ws} targetDb={targetDb} onRemove={pick} />
             ))}
           </div>
         )}
@@ -261,14 +381,16 @@ export function RelationEditor({
         <div className="flex justify-between border-t border-border-default px-2 py-1.5">
           <button
             className="text-[12px] text-muted hover:text-ink"
-            onClick={() => save.mutate([], { onSuccess: onDone })}
+            onClick={() => save.mutate({ ids: [], chips: [] }, { onSuccess: onDone })}
           >
             Clear
           </button>
           {!single && (
             <button
               className="text-[12px] text-ink underline"
-              onClick={() => save.mutate(selected.map((c) => c.id), { onSuccess: onDone })}
+              onClick={() =>
+                save.mutate({ ids: selected.map((c) => c.id), chips: selected }, { onSuccess: onDone })
+              }
             >
               Done
             </button>

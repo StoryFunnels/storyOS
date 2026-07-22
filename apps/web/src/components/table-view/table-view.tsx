@@ -88,6 +88,10 @@ export function TableView({
   );
   const memberNames = useMemo(() => new Map(memberList.map((m) => [m.id, m.name])), [memberList]);
   const memberImages = useMemo(() => new Map(memberList.map((m) => [m.id, m.image])), [memberList]);
+  // MN-294: cellToText (copy-to-clipboard) has no member data of its own — it's a
+  // pure {field,value} function — so resolve a user id to the same display name
+  // CellDisplay already shows on screen, via the same memberNames map.
+  const resolveMemberName = useCallback((id: string) => memberNames.get(id) ?? id, [memberNames]);
 
   const rows = useMemo(
     () => (records.data?.pages ?? []).flatMap((page) => page.data),
@@ -259,7 +263,7 @@ export function TableView({
     if (!row || !field) return;
     const value = valueOf(row, field) ?? null;
     copiedRef.current = { field, value };
-    void navigator.clipboard?.writeText(cellToText(field, value)).catch(() => {});
+    void navigator.clipboard?.writeText(cellToText(field, value, resolveMemberName)).catch(() => {});
     toast.success('Copied');
   }
 
@@ -310,7 +314,7 @@ export function TableView({
         if (!row || !field) continue;
         const value = valueOf(row, field) ?? null;
         gridRow.push({ field, value });
-        textCols.push(cellToText(field, value));
+        textCols.push(cellToText(field, value, resolveMemberName));
       }
       grid.push(gridRow);
       textRows.push(textCols.join('\t'));
@@ -712,7 +716,7 @@ export function TableView({
                           />
                         ) : (
                           <>
-                            <CellDisplay field={field} value={valueOf(row, field)} memberNames={memberNames} memberImages={memberImages} />
+                            <CellDisplay field={field} value={valueOf(row, field)} memberNames={memberNames} memberImages={memberImages} ws={ws} />
                             {field.type === 'title' && (
                               <Link
                                 href={recordHref(ws, db, row)}
