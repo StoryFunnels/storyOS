@@ -45,4 +45,10 @@ export interface ProviderDescriptor {
    * the caller decides what that means (block a create vs. flip a connection's status).
    */
   healthCheck(auth: unknown, fetcher?: ConnectionFetcher): Promise<void>;
+  /**
+   * MN-253 — default per-connection token-bucket budget for jobs run against
+   * this provider (e.g. `{ capacity: 50, refillMs: 86_400_000 }` for "50/24h").
+   * Absent means JobRunnerService applies no rate limit for this provider.
+   */
+  rateLimit?: { capacity: number; refillMs: number };
 }

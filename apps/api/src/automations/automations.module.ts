@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { WebhooksModule } from '../webhooks/webhooks.module';
 import { BillingModule } from '../billing/billing.module';
 import { CollaborationModule } from '../comments/collaboration.module';
+import { ConnectionsModule } from '../connections/connections.module';
 import { DatabasesModule } from '../databases/databases.module';
 import { IntegrationsModule } from '../integrations/integrations.module';
 import { NotificationsModule } from '../notifications/notifications.module';
@@ -13,6 +14,7 @@ import { AutomationsController } from './automations.controller';
 import { AutomationsService } from './automations.service';
 import { HooksController } from './hooks.controller';
 import { HookRateLimiterService } from './hook-rate-limiter.service';
+import { JobRunnerService } from './job-runner.service';
 
 @Module({
   imports: [
@@ -24,9 +26,10 @@ import { HookRateLimiterService } from './hook-rate-limiter.service';
     NotificationsModule,
     IntegrationsModule,
     BillingModule,
+    ConnectionsModule,
   ],
   controllers: [ButtonsController, AutomationsController, HooksController],
-  providers: [AutomationActionsService, AutomationsService, HookRateLimiterService],
-  exports: [AutomationActionsService, AutomationsService],
+  providers: [AutomationActionsService, AutomationsService, HookRateLimiterService, JobRunnerService],
+  exports: [AutomationActionsService, AutomationsService, JobRunnerService],
 })
 export class AutomationsModule {}

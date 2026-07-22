@@ -185,6 +185,18 @@ export class ConnectionsService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /**
+   * MN-253 — the `connectionAuth` helper handed to every JobRunnerService
+   * executor. Throws NotFoundException if the connection is gone or belongs
+   * to a different workspace; executors re-validate at run time since a
+   * connection can be deleted after a rule was saved (validate() only checks
+   * at save time).
+   */
+  async getDecryptedAuth(workspaceId: string, connectionId: string): Promise<{ provider: string; auth: unknown }> {
+    const row = await this.requireRow(workspaceId, connectionId);
+    return { provider: row.provider, auth: JSON.parse(open(row.authSealed)) };
+  }
+
   private async requireRow(workspaceId: string, id: string): Promise<ConnectionRow> {
     const row = await this.db.query.connections.findFirst({
       where: and(eq(connections.id, id), eq(connections.workspaceId, workspaceId)),
