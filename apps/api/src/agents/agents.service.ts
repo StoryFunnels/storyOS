@@ -1232,6 +1232,51 @@ export class AgentsService implements OnModuleInit {
     return this.resolveGate(membership, runRef, 'reject');
   }
 
+  /**
+   * Superadmin kill-switch (#300, MN-216c) — cancel a run in ANY workspace,
+   * not just one the caller belongs to. This is the one piece #158/MN-216 was
+   * still missing (see #300's own split note): every other run mutation
+   * above is workspace-scoped, membership-gated. This one is neither — the
+   * caller is AdminController, already behind PlatformAdminGuard, reaching
+   * across workspaces by design.
+   *
+   * A pure status flip to Canceled, same status-id lookup as resolveGate
+   * above — nothing else changes. Deliberately does NOT run reject's "apply
+   * nothing" step-log entry and does NOT clear `pending_action`: this is an
+   * operator stopping a runaway/abusive run from outside the workspace, not
+   * its owner resolving their own gate, and the ticket is explicit that this
+   * is a status flip, not a mutation of what the run already applied. Leaving
+   * `pending_action` untouched is still safe: resolveGate's own guard only
+   * resolves a run whose status IS "Waiting approval", so a Canceled run can
+   * never be approved/rejected afterward and double-apply its staged action.
+   */
+  async adminCancelRun(workspaceId: string, runRef: string, actorId: string): Promise<ProjectedRecord> {
+    const { runsDb } = await this.findPackDbs(workspaceId);
+    if (!runsDb) throw new NotFoundException('This workspace has no Runs database');
+    const run = await this.resolveRun(runsDb.id, runRef);
+
+    const statusIds = await this.optionIdsByLabel(runsDb.id, 'status');
+    const cancelableIds = new Set(
+      ['Queued', 'Running', 'Waiting approval']
+        .map((label) => statusIds.get(label))
+        .filter((id): id is string => Boolean(id)),
+    );
+    const currentStatus = run.values['status'];
+    if (typeof currentStatus !== 'string' || !cancelableIds.has(currentStatus)) {
+      throw new UnprocessableEntityException(
+        'This run is not queued, running, or waiting for approval — it cannot be canceled',
+      );
+    }
+
+    return this.recordsService.update(
+      workspaceId,
+      runsDb.id,
+      run.id,
+      { status: statusIds.get('Canceled') ?? null },
+      actorId,
+    );
+  }
+
   // ── Trigger bindings (#211, ADR-0010 §5) ────────────────────────────────────
 
   /**

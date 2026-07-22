@@ -1,13 +1,17 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 
 /**
  * MN-104's first (and so far only) superadmin surface — this page is the read
- * side of /admin/overview, /admin/workspaces, and MN-194's new /admin/costs.
- * There is no separate admin shell yet, so this one page covers all three
+ * side of /admin/overview, /admin/workspaces, and MN-194's new /admin/costs,
+ * plus #300/MN-216c's cross-workspace Runs view (the one mutation this page
+ * has: Cancel).
+ *
+ * There is no separate admin shell yet, so this one page covers all of it
  * rather than standing up a second, parallel admin surface.
  *
  * Access is enforced entirely server-side (PlatformAdminGuard, 403 for a
@@ -39,6 +43,23 @@ interface WorkspaceCostRow {
   marginPercent: number | null;
   belowMarginFloor: boolean;
 }
+
+interface AdminRunRow {
+  id: string;
+  number: number | null;
+  title: string;
+  workspaceId: string;
+  workspaceName: string;
+  agent: { id: string; title: string } | null;
+  status: string | null;
+  runClass: string | null;
+  trigger: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+
+/** The only statuses AgentsService.adminCancelRun will actually flip — matches the API's own guard. */
+const CANCELABLE_STATUSES = new Set(['Queued', 'Running', 'Waiting approval']);
 
 interface PlanBlendedMargin {
   plan: string;
@@ -117,6 +138,9 @@ function downloadCsv(rows: WorkspaceCostRow[]) {
 }
 
 export default function AdminPage() {
+  const qc = useQueryClient();
+  const [cancelingId, setCancelingId] = useState<string | null>(null);
+
   const overview = useQuery({
     queryKey: ['admin-overview'],
     queryFn: async () => {
@@ -135,6 +159,27 @@ export default function AdminPage() {
       return data as unknown as CostOverview;
     },
     retry: false,
+  });
+
+  const runs = useQuery({
+    queryKey: ['admin-runs'],
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/admin/runs', {} as never);
+      if (error) throw error;
+      return data as unknown as AdminRunRow[];
+    },
+    retry: false,
+  });
+
+  const cancelRun = useMutation({
+    mutationFn: async (row: AdminRunRow) => {
+      setCancelingId(row.id);
+      await api.POST(`/api/v1/admin/runs/${row.workspaceId}/${row.id}/cancel` as never, {} as never);
+    },
+    onSettled: () => {
+      setCancelingId(null);
+      void qc.invalidateQueries({ queryKey: ['admin-runs'] });
+    },
   });
 
   if (overview.isLoading || costs.isLoading) {
@@ -273,8 +318,90 @@ export default function AdminPage() {
           </table>
         </div>
       </section>
+
+      <section className="mb-8">
+        <div className="mb-2 flex items-baseline justify-between">
+          <h2 className="text-sm font-medium text-ink">Runs</h2>
+          <span className="text-[12px] text-faint">#300/MN-216c — every workspace, read-only + kill-switch</span>
+        </div>
+        <p className="mb-3 text-[13px] text-muted">
+          Agent runs across every workspace. Cancel is a status flip only — it never touches what the
+          run has already applied.
+        </p>
+
+        {runs.isLoading && <p className="text-[13px] text-muted">Loading…</p>}
+        {runs.isError && <p className="text-[13px] text-muted">Could not load runs.</p>}
+        {runs.data && (
+          <div className="overflow-x-auto rounded-[var(--radius-control)] border border-border-default">
+            <table className="w-full text-left text-[13px]">
+              <thead className="bg-hover text-ink-secondary">
+                <tr>
+                  <Th>Workspace</Th>
+                  <Th>Agent</Th>
+                  <Th>Run</Th>
+                  <Th>Status</Th>
+                  <Th>Run class</Th>
+                  <Th>Trigger</Th>
+                  <Th>Started</Th>
+                  <Th>Finished</Th>
+                  <Th>Action</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {runs.data.length === 0 && (
+                  <tr>
+                    <Td className="text-faint">No runs on this instance yet.</Td>
+                  </tr>
+                )}
+                {runs.data.map((r) => {
+                  const cancelable = r.status !== null && CANCELABLE_STATUSES.has(r.status);
+                  return (
+                    <tr key={r.id} className="border-t border-border-default">
+                      <Td>{r.workspaceName}</Td>
+                      <Td>{r.agent?.title ?? '—'}</Td>
+                      <Td>{r.title}</Td>
+                      <Td>
+                        <StatusBadge status={r.status} />
+                      </Td>
+                      <Td>{r.runClass ?? '—'}</Td>
+                      <Td>{r.trigger ?? '—'}</Td>
+                      <Td>{r.startedAt ? new Date(r.startedAt).toLocaleString() : '—'}</Td>
+                      <Td>{r.finishedAt ? new Date(r.finishedAt).toLocaleString() : '—'}</Td>
+                      <Td>
+                        {cancelable && (
+                          <button
+                            type="button"
+                            disabled={cancelRun.isPending && cancelingId === r.id}
+                            onClick={() => cancelRun.mutate(r)}
+                            className="rounded-[var(--radius-control)] border border-border-default px-2 py-1 text-[12px] text-ink-secondary hover:bg-hover disabled:opacity-50"
+                          >
+                            {cancelRun.isPending && cancelingId === r.id ? 'Canceling…' : 'Cancel'}
+                          </button>
+                        )}
+                      </Td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
     </div>
   );
+}
+
+function StatusBadge({ status }: { status: string | null }) {
+  if (!status) return <span className="text-faint">—</span>;
+  const tone =
+    status === 'Failed'
+      ? 'bg-error/10 text-error'
+      : status === 'Succeeded'
+        ? 'bg-success/10 text-success'
+        : status === 'Canceled'
+          ? 'bg-hover text-ink-secondary'
+          : 'bg-warning/10 text-warning';
+  return <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${tone}`}>{status}</span>;
 }
 
 function Stat({ label, value }: { label: string; value: string }) {

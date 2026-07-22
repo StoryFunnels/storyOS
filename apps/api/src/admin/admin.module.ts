@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
+import { AgentsModule } from '../agents/agents.module';
+import { RecordsModule } from '../records/records.module';
 import { AdminController } from './admin.controller';
 import { AdminOverviewService } from './admin-overview.service';
+import { AdminRunsService } from './admin-runs.service';
 import { CostAttributionService } from './cost-attribution.service';
 import { PlatformAdminGuard } from './platform-admin.guard';
 import { PlatformAdminService } from './platform-admin.service';
@@ -12,10 +15,22 @@ import { PlatformAdminService } from './platform-admin.service';
  * BillingModule — CostAttributionService (MN-194) only needs pure exports
  * from billing/plans.ts and billing/usage-metering.ts, not any of its
  * injectable services, so no import edge to BillingModule is needed either.
+ *
+ * RecordsModule and AgentsModule ARE real edges (#300, MN-216c): the
+ * cross-workspace runs read goes through RecordsService (AdminRunsService),
+ * and the cancel kill-switch is a method on AgentsService itself
+ * (`adminCancelRun`) — reused here rather than duplicated.
  */
 @Module({
+  imports: [AgentsModule, RecordsModule],
   controllers: [AdminController],
-  providers: [PlatformAdminService, PlatformAdminGuard, AdminOverviewService, CostAttributionService],
+  providers: [
+    PlatformAdminService,
+    PlatformAdminGuard,
+    AdminOverviewService,
+    CostAttributionService,
+    AdminRunsService,
+  ],
   exports: [PlatformAdminService],
 })
 export class AdminModule {}

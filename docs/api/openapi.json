@@ -6212,6 +6212,65 @@
           "admin"
         ]
       }
+    },
+    "/api/v1/admin/runs": {
+      "get": {
+        "operationId": "AdminController_listRuns",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "#300/MN-216c — agent runs across every workspace: workspace, agent, status, run_class, trigger, started/finished. Read-only.",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/runs/{workspaceId}/{run}/cancel": {
+      "post": {
+        "operationId": "AdminController_cancelRun",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "required": true,
+            "in": "path",
+            "description": "The run's workspace id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "run",
+            "required": true,
+            "in": "path",
+            "description": "The run record's id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "#300/MN-216c — kill switch: cancel a queued/running/waiting-approval run in any workspace. A status flip to Canceled only — no other side effects.",
+        "tags": [
+          "admin"
+        ]
+      }
     }
   },
   "info": {
