@@ -9,6 +9,7 @@ import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { api } from '@/lib/api';
+import { FreeGuestTip } from '@/components/free-guest-tip';
 import { useDatabase, useMembers, useRecordMutations } from '../table-view/use-table-data';
 import type { Field } from '../table-view/use-table-data';
 import type { ViewConfig } from './use-view-state';
@@ -97,7 +98,7 @@ export function FormView({
                 Fields {fields.length > 0 && <span className="text-muted">({fields.length})</span>}
               </button>
             </div>
-            <FormBuilder config={config} fields={fields} onPatch={onPatch} />
+            <FormBuilder ws={ws} db={db} config={config} fields={fields} onPatch={onPatch} />
           </div>
         )}
         <h1 className="text-2xl font-bold text-ink">{heading}</h1>
@@ -374,10 +375,14 @@ function RelationInput({
  * (title/description/submit/success text). Per-field required/label/help and
  * membership/order now live in FormFieldsSidebar (#224). Writes into config.form. */
 function FormBuilder({
+  ws,
+  db,
   config,
   fields,
   onPatch,
 }: {
+  ws: string;
+  db: string;
   config: ViewConfig;
   fields: Field[];
   onPatch: (updates: Partial<ViewConfig>) => void;
@@ -421,6 +426,10 @@ function FormBuilder({
           {/* Sharing */}
           <section className="flex flex-col gap-2">
             <p className="text-[11px] font-medium uppercase tracking-wider text-faint">Sharing</p>
+            <FreeGuestTip dismissKey={`form-share-${db}`} href={`/w/${ws}/settings/members?invite=guest`}>
+              Sharing with one specific client or collaborator? Invite them as a guest instead —
+              viewer and commenter access is free, always, not a trial.
+            </FreeGuestTip>
             {!token ? (
               <button
                 type="button"
