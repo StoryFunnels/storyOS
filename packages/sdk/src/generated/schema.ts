@@ -1846,6 +1846,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/integrations/github/disconnect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Disconnect GitHub — clears token, App installation and watched repos */
+        post: operations["IntegrationsController_disconnect"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/integrations/github/webhook": {
         parameters: {
             query?: never;
@@ -1932,6 +1949,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/integrations/linear/disconnect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Disconnect Linear — clears the stored API key and team-key filter */
+        post: operations["LinearIntegrationsController_disconnect"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/integrations/slack": {
         parameters: {
             query?: never;
@@ -1961,6 +1995,23 @@ export interface paths {
         put?: never;
         /** Send a test message using the saved Slack config, to verify the connection */
         post: operations["SlackIntegrationsController_sendTest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/integrations/slack/disconnect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Disconnect Slack — clears the stored bot token, webhook and default channel */
+        post: operations["SlackIntegrationsController_disconnect"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6395,6 +6446,23 @@ export interface operations {
             };
         };
     };
+    IntegrationsController_disconnect: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     GithubWebhookController_receive: {
         parameters: {
             query?: never;
@@ -6508,6 +6576,23 @@ export interface operations {
             };
         };
     };
+    LinearIntegrationsController_disconnect: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     SlackIntegrationsController_getConfig: {
         parameters: {
             query?: never;
@@ -6547,6 +6632,23 @@ export interface operations {
         };
     };
     SlackIntegrationsController_sendTest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SlackIntegrationsController_disconnect: {
         parameters: {
             query?: never;
             header?: never;

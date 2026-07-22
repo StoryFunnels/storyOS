@@ -4730,6 +4730,21 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/integrations/github/disconnect": {
+      "post": {
+        "operationId": "IntegrationsController_disconnect",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Disconnect GitHub — clears token, App installation and watched repos",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
     "/api/v1/integrations/github/webhook": {
       "post": {
         "operationId": "GithubWebhookController_receive",
@@ -4870,6 +4885,21 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/integrations/linear/disconnect": {
+      "post": {
+        "operationId": "LinearIntegrationsController_disconnect",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Disconnect Linear — clears the stored API key and team-key filter",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/integrations/slack": {
       "get": {
         "operationId": "SlackIntegrationsController_getConfig",
@@ -4918,6 +4948,21 @@
           }
         },
         "summary": "Send a test message using the saved Slack config, to verify the connection",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/integrations/slack/disconnect": {
+      "post": {
+        "operationId": "SlackIntegrationsController_disconnect",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Disconnect Slack — clears the stored bot token, webhook and default channel",
         "tags": [
           "integrations"
         ]

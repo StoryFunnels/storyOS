@@ -10,6 +10,17 @@ function dbWithSlack(slack: Record<string, unknown> | undefined): Db {
   } as unknown as Db;
 }
 
+/** Same as `dbWithSlack`, plus a spyable `update().set().where()` chain for write paths. */
+function dbWithSlackAndUpdate(slack: Record<string, unknown> | undefined) {
+  const set = vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) });
+  const update = vi.fn().mockReturnValue({ set });
+  const db = {
+    query: { workspaces: { findFirst: vi.fn().mockResolvedValue(slack ? { settings: { slack } } : { settings: {} }) } },
+    update,
+  } as unknown as Db;
+  return { db, set };
+}
+
 /** Captures the last request and returns a canned Slack response. */
 function fetcherReturning(status: number, body: string) {
   const calls: Array<{ url: string; headers: Record<string, string>; body: string }> = [];
@@ -86,5 +97,21 @@ describe('SlackService.getConfig', () => {
     const cfg = await service.getConfig('ws1');
     expect(cfg).toEqual({ has_token: true, has_webhook: true, default_channel: '#ops' });
     expect(JSON.stringify(cfg)).not.toContain('xoxb-abc');
+  });
+});
+
+describe('SlackService.disconnect (MN-249)', () => {
+  it('clears the stored bot token, webhook and default channel', async () => {
+    const { db, set } = dbWithSlackAndUpdate({
+      bot_token: 'xoxb-abc',
+      webhook_url: 'https://hooks.slack.com/x',
+      default_channel: '#ops',
+    });
+    const service = new SlackService(db);
+
+    const result = await service.disconnect('ws1');
+
+    expect(result).toEqual({ has_token: false, has_webhook: false, default_channel: null });
+    expect(set).toHaveBeenCalledWith({ settings: { slack: {} } });
   });
 });

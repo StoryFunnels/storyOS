@@ -4,14 +4,25 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDownToLine, ArrowLeft } from 'lucide-react';
+import { ArrowDownToLine, ArrowLeft, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
-/** Linear import setup (MN-099) — its own page under the integrations directory. */
+/**
+ * Linear import setup (MN-099) — its own page under the integrations directory.
+ *
+ * MN-249: a founder had this already configured (API key saved), came back
+ * later, saw an *empty* key field — the key is write-only and never
+ * round-trips — and didn't realize nothing further needed typing: clicking
+ * "Preview import" was the whole next step. The banner below only shows once
+ * `has_key` is true, so it can't mislead a not-yet-connected visitor, and the
+ * preview button it drives is the same `dryRun` mutation as the one further
+ * down the page — one obvious primary action instead of a wall of form
+ * fields that looks unfinished.
+ */
 export default function LinearIntegrationPage() {
   const { ws } = useParams<{ ws: string }>();
   const qc = useQueryClient();
@@ -95,6 +106,24 @@ export default function LinearIntegrationPage() {
         Preview first, then import.
       </p>
 
+      {/* MN-249: obvious next step for an already-connected integration — the key
+          field below looks empty (write-only, never round-trips), so without this
+          it's easy to assume there's more setup to do before anything can happen. */}
+      {config.data?.has_key && !preview && !imported && (
+        <div className="mb-5 flex flex-col gap-3 rounded-[var(--radius-card)] border border-border-default bg-accent-soft p-4 sm:flex-row sm:items-center">
+          <Sparkles className="h-5 w-5 shrink-0 text-ink" />
+          <div className="flex-1">
+            <p className="text-[13px] font-semibold text-ink">You&apos;re already connected.</p>
+            <p className="text-[13px] text-ink-secondary">
+              Nothing else to fill in — click Preview import to see what would come in from Linear.
+            </p>
+          </div>
+          <Button size="sm" onClick={() => dryRun.mutate()} disabled={dryRun.isPending} className="shrink-0">
+            {dryRun.isPending ? 'Checking…' : 'Preview import →'}
+          </Button>
+        </div>
+      )}
+
       <div className="flex flex-col gap-3">
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="lin-key">API key {config.data?.has_key && '(saved — enter to replace)'}</Label>
@@ -106,10 +135,22 @@ export default function LinearIntegrationPage() {
         </div>
         <div className="flex gap-2">
           <Button size="sm" variant="secondary" onClick={() => save.mutate()} disabled={save.isPending}>Save</Button>
-          <Button size="sm" variant="secondary" onClick={() => dryRun.mutate()} disabled={dryRun.isPending || !config.data?.has_key}>
+          {/* MN-249: whichever of Preview/Import is the obvious next step stays primary —
+              Preview first (nothing to lose from clicking it), then Import once a preview exists. */}
+          <Button
+            size="sm"
+            variant={preview ? 'secondary' : 'primary'}
+            onClick={() => dryRun.mutate()}
+            disabled={dryRun.isPending || !config.data?.has_key}
+          >
             {dryRun.isPending ? 'Checking…' : 'Preview import'}
           </Button>
-          <Button size="sm" onClick={() => run.mutate()} disabled={run.isPending || !config.data?.has_key}>
+          <Button
+            size="sm"
+            variant={preview ? 'primary' : 'secondary'}
+            onClick={() => run.mutate()}
+            disabled={run.isPending || !config.data?.has_key}
+          >
             {run.isPending ? 'Importing…' : 'Import'}
           </Button>
         </div>
