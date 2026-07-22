@@ -5,6 +5,7 @@ import { DatabasesModule } from '../databases/databases.module';
 import { FieldsModule } from '../fields/fields.module';
 import { RecordsModule } from '../records/records.module';
 import { RelationsModule } from '../relations/relations.module';
+import { SkillsModule } from '../skills/skills.module';
 import { ViewsModule } from '../views/views.module';
 import { WorkspacesModule } from '../workspaces/workspaces.module';
 import { PacksController } from './packs.controller';
@@ -14,10 +15,11 @@ import { PacksService } from './packs.service';
  * Business Packs (MN-218 / #160).
  *
  * Imports rather than reimplements: the schema half of an install is
- * `ArchitectService.build` from AgentsModule, and everything else goes through
- * the same views/automations/records services a person's HTTP client drives.
- * Like the Architect, this module adds no engine privilege the CRUD API does not
- * already expose — a pack can only build what you could build by hand.
+ * `ArchitectService.build` from AgentsModule, everything else goes through
+ * the same views/automations/records/skills services a person's HTTP client
+ * drives. Like the Architect, this module adds no engine privilege the CRUD
+ * API does not already expose — a pack can only build what you could build
+ * by hand.
  */
 @Module({
   imports: [
@@ -27,6 +29,7 @@ import { PacksService } from './packs.service';
     FieldsModule,
     RecordsModule,
     RelationsModule,
+    SkillsModule,
     ViewsModule,
     WorkspacesModule,
   ],

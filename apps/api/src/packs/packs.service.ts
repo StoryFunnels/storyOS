@@ -9,6 +9,7 @@ import {
   packManifestSchema,
 } from '@storyos/schemas';
 import type {
+  PackAgent,
   PackAiNeed,
   PackConnection,
   PackDerivedField,
@@ -17,6 +18,7 @@ import type {
   PackManifest,
   PackPreviewItem,
   PackPreviewResult,
+  PackSkill,
   PackUnmetRequirement,
   PlanAgent,
   PlanDatabase,
@@ -35,6 +37,7 @@ import { DatabasesService } from '../databases/databases.service';
 import { FieldsService } from '../fields/fields.service';
 import { RecordsService } from '../records/records.service';
 import { RelationsService } from '../relations/relations.service';
+import { SkillsService } from '../skills/skills.service';
 import { ViewsService } from '../views/views.service';
 import { SpacesService } from '../workspaces/spaces.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
@@ -149,6 +152,7 @@ export class PacksService {
     private readonly automations: AutomationsService,
     private readonly agents: AgentsService,
     private readonly architect: ArchitectService,
+    private readonly skills: SkillsService,
   ) {}
 
   // ── export ─────────────────────────────────────────────────────────────────
@@ -258,6 +262,7 @@ export class PacksService {
     const sampleRecords = request.include_sample_records
       ? await this.exportSampleRecords(slice, idToRef, request.sample_limit)
       : [];
+    const skills = await this.exportSkills(membership, request.skill_ids);
 
     const manifest: PackManifest = packManifestSchema.parse({
       format_version: 1,
@@ -279,8 +284,7 @@ export class PacksService {
       views,
       automations,
       sample_records: sampleRecords,
-      // TODO(#40): no Skills system exists to export from — see packs.ts.
-      skills: [],
+      skills,
     });
 
     const leaked = findRawUuids(manifest);
@@ -294,6 +298,42 @@ export class PacksService {
       );
     }
     return manifest;
+  }
+
+  /**
+   * Skills (#40) explicitly requested for this pack, by id.
+   *
+   * Not derived from the slice — a skill is workspace-wide, not attached to a
+   * space or a list of database ids (see `packExportRequestSchema.skill_ids`'s
+   * doc) — so this is a straight lookup-and-translate: `SkillsService`'s
+   * visible-to-caller rules decide what a caller may even name here (a
+   * personal skill of someone else's is a 404, same as everywhere else that
+   * service is used), and the result is #40's own portable shape, unchanged —
+   * a skill carries no ids to rewrite.
+   */
+  private async exportSkills(membership: Membership, ids: string[]): Promise<PackSkill[]> {
+    const out: PackSkill[] = [];
+    const seenNames = new Set<string>();
+    for (const id of ids) {
+      const skill = await this.skills.get(membership, membership.userId, id);
+      const key = norm(skill.name);
+      if (seenNames.has(key)) {
+        throw new UnprocessableEntityException(
+          `Two requested skills both named "${skill.name}" (case/whitespace-insensitively) — ` +
+            `rename one. A pack cannot contain two skills a re-install could not tell apart.`,
+        );
+      }
+      seenNames.add(key);
+      out.push({
+        name: skill.name,
+        description: skill.description,
+        when_to_use: skill.when_to_use,
+        instructions: skill.instructions,
+        examples: skill.examples,
+        allowed_tools: skill.allowed_tools,
+      });
+    }
+    return out;
   }
 
   /** The plain (ref-free) part of a field's config, or undefined if empty. */
@@ -445,7 +485,7 @@ export class PacksService {
     slice: SliceDb[],
     agentsDbId: string,
     bindings: Array<{ id: string; values: Record<string, unknown> }>,
-  ): Promise<{ agents: PlanAgent[]; triggers: PlanTrigger[] }> {
+  ): Promise<{ agents: PackAgent[]; triggers: PlanTrigger[] }> {
     const byId = new Map(slice.map((d) => [d.id, d]));
     const agentRows = await this.records.list(agentsDbId, { limit: MAX_SCAN });
     const agentById = new Map(agentRows.data.map((r) => [r.id, r]));
@@ -483,7 +523,7 @@ export class PacksService {
       });
     }
 
-    const agents: PlanAgent[] = [];
+    const agents: PackAgent[] = [];
     for (const id of wantedAgentIds) {
       const row = agentById.get(id)!;
       const targets = String(row.values['target_databases'] ?? '')
@@ -507,6 +547,12 @@ export class PacksService {
             ['delete', 'webhook', 'email', 'run_button', 'outward'].includes(l ?? ''),
           ),
         target_databases: targets,
+        // No live agent↔skill relation exists yet (see packAgentSchema's
+        // doc) — an Agent record has nowhere to have recorded this, so it is
+        // always empty coming out of export. Hand-editing the manifest to
+        // add names here (matched against `skills[].name`) is what the field
+        // is for; install validates them either way.
+        skills: [],
       });
     }
     return { agents, triggers };
@@ -738,6 +784,11 @@ export class PacksService {
       );
     }
     const manifest = parsed.data;
+    // Fail fast, before anything is built: a manifest whose agent declares a
+    // skill it does not bundle is malformed the same way a dangling `$ref`
+    // is, and the same rule applies — a broken promise about the manifest's
+    // own contents is a 422, not a partial install.
+    this.validateAgentSkillNames(manifest);
     const unmet = await this.checkRequirements(membership, manifest);
 
     // ── The reuse: a PackManifest IS an ArchitectPlan ────────────────────────
@@ -762,6 +813,7 @@ export class PacksService {
       views: [],
       automations: [],
       sample_records: [],
+      skills: [],
     };
 
     const dbIds = new Map(built.databases.map((d) => [norm(d.name), d.id]));
@@ -774,6 +826,7 @@ export class PacksService {
     await this.installViews(membership, manifest, dbIds, refToId, result);
     await this.installAutomations(membership, manifest, dbIds, refToId, result);
     await this.installSampleRecords(membership, manifest, dbIds, refToId, result);
+    await this.installSkills(membership, manifest, result);
 
     return result;
   }
@@ -1034,6 +1087,72 @@ export class PacksService {
       );
       known.set(norm(title), created.id);
       result.sample_records.push({ name: label, action: 'created', id: created.id });
+    }
+  }
+
+  /**
+   * Every `agents[].skills` name must resolve to a bundled `skills[].name`.
+   *
+   * A manifest is meant to be edited by hand between export and install (that
+   * is the whole point of it being plain JSON/YAML), and `agents[].skills` is
+   * exactly the kind of thing an author adds after the fact — export always
+   * emits it empty (see `exportAgents`), since there is no live relation to
+   * read it from. Checked up front, before anything is built, for the same
+   * reason `deref` throws on an unresolved `$ref`: a name that does not
+   * resolve is the manifest lying about its own contents, not a soft warning.
+   */
+  private validateAgentSkillNames(manifest: PackManifest): void {
+    const bundled = new Set(manifest.skills.map((s) => norm(s.name)));
+    for (const agent of manifest.agents) {
+      for (const name of agent.skills) {
+        if (!bundled.has(norm(name))) {
+          throw new UnprocessableEntityException(
+            `Agent "${agent.name}" declares skill "${name}", which this pack does not bundle. ` +
+              `Every name in an agent's \`skills\` must match a \`skills[].name\` in the same manifest.`,
+          );
+        }
+      }
+    }
+  }
+
+  /**
+   * Skills (#40), matched and installed by name.
+   *
+   * Workspace-wide rather than per-database like everything else install
+   * touches, so idempotency is a single name lookup rather than a per-database
+   * scan (contrast `installSampleRecords`'s `titlesFor`): visible-to-caller
+   * skills are read once, and a bundled skill whose name already exists —
+   * personal or shared, owned by anyone — is reused rather than duplicated.
+   * Installed as `shared`: a pack is a team artifact, and a skill nobody but
+   * the installing admin could see would defeat the point of bundling it.
+   */
+  private async installSkills(
+    membership: Membership,
+    manifest: PackManifest,
+    result: PackInstallResult,
+  ): Promise<void> {
+    if (manifest.skills.length === 0) return;
+
+    const { data: visible } = await this.skills.list(membership, membership.userId);
+    const byName = new Map(visible.map((s) => [norm(s.name), s.id] as const));
+
+    for (const planned of manifest.skills) {
+      const existing = byName.get(norm(planned.name));
+      if (existing) {
+        result.skills.push({ name: planned.name, action: 'reused', id: existing });
+        continue;
+      }
+      const created = await this.skills.create(membership, membership.userId, {
+        name: planned.name,
+        description: planned.description,
+        when_to_use: planned.when_to_use,
+        instructions: planned.instructions,
+        examples: planned.examples,
+        allowed_tools: planned.allowed_tools,
+        visibility: 'shared',
+      });
+      byName.set(norm(created.name), created.id);
+      result.skills.push({ name: planned.name, action: 'created', id: created.id });
     }
   }
 }

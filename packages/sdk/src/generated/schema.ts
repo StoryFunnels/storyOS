@@ -3486,6 +3486,8 @@ export interface components {
             ai?: "none" | "byo" | "storyos";
             /** @default [] */
             connections: ("slack" | "github" | "linear" | "email")[];
+            /** @default [] */
+            skill_ids: string[];
         };
         InstallDto: {
             manifest?: unknown;
