@@ -97,6 +97,24 @@ describe('renderEmail — branded HTML (MN-147)', () => {
     expect(email.html).toMatch(/\.eo-card\s*\{\s*background:\s*#171c26/);
   });
 
+  it('renders the StoryOS logo as an <img> pointing at WEB_URL, with the wordmark kept as alt text (MN-284)', () => {
+    const email = renderEmail({
+      kind: 'reset-password',
+      to: 'a@b.com',
+      url: 'https://x/reset',
+    });
+    // Light-mode logo: a plain-path PNG under WEB_URL (no protocol assumptions
+    // baked in beyond what env().WEB_URL already resolves to), with a retina
+    // srcset and the wordmark as alt text for image-blocking clients.
+    expect(email.html).toMatch(/<img[^>]*src="http:\/\/localhost:3000\/brand\/logo\.png"[^>]*alt="StoryOS"/);
+    expect(email.html).toContain('logo@2x.png 2x');
+    // Dark-mode logo swap: a second <img> hidden by default, shown under the
+    // same prefers-color-scheme: dark override as the rest of the theme.
+    expect(email.html).toMatch(/<img[^>]*src="http:\/\/localhost:3000\/brand\/logo-dark\.png"[^>]*alt="StoryOS"/);
+    expect(email.html).toMatch(/\.eo-logo-light\s*\{\s*display:\s*none\s*!important;/);
+    expect(email.html).toMatch(/\.eo-logo-dark\s*\{\s*display:\s*inline-block\s*!important;/);
+  });
+
   it('escapes an untrusted workspace name before it reaches the HTML body (HTML-injection guard)', () => {
     const email = renderEmail({
       kind: 'invite',
