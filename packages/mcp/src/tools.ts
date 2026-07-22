@@ -11,7 +11,7 @@ import { BRAND_ICON_META, BRAND_ICON_PREFIX, ICON_CATEGORIES, ICON_SET_META, ICO
 // Type-only — erased at compile time, so unlike a value import this does NOT pull
 // the zod-bearing barrel into the bundle (see note above).
 import type { FilterOp } from '@storyos/schemas';
-import { listDatabases, listWorkspaces, resolveDatabase, resolveWorkspace } from './resolve.js';
+import { listDatabases, listSkills, listWorkspaces, resolveDatabase, resolveSkill, resolveWorkspace } from './resolve.js';
 import { databaseUrl, recordUrl, viewUrl } from './links.js';
 
 /** Icon param description shared by create_database/update_database/create_space
@@ -232,6 +232,7 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   list_spaces: 'read',
   list_icon_set: 'read',
   get_record_description: 'read',
+  list_skills: 'read',
   // write (record + content mutations)
   create_record: 'write',
   update_record: 'write',
@@ -243,6 +244,7 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   attach_file: 'write',
   delete_attachment: 'write',
   run_button: 'write',
+  run_skill: 'write',
   // admin (schema mutations)
   create_database: 'admin',
   update_database: 'admin',
@@ -1635,6 +1637,75 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       const db = await resolveDatabase(client, ws.id, database);
       const detail = await reorder(ws.id, db.id, order, (d, ref) => resolveView(d, ref).id, '/api/v1/workspaces/{ws}/databases/{db}/views/{view}', 'view');
       return text((detail.views ?? []).map((v) => v.name));
+    }),
+  );
+
+  // ============ Skills (#41): discover + run a workspace's saved skills ============
+  // Both tools ride the exact GET/POST the in-app Skills UI uses (SkillsController),
+  // so visibility (personal vs shared) and the run/last-run bookkeeping are never
+  // reimplemented here — see resolve.ts's listSkills/resolveSkill.
+
+  reg(
+    'list_skills',
+    {
+      title: 'List skills',
+      description:
+        "List the skills visible to the caller in a workspace: their own personal skills, plus every " +
+        'shared one (the same visibility rule the in-app Skills list enforces — this never widens it). ' +
+        'Each entry carries when_to_use and allowed_tools so you can pick the right one, then call ' +
+        'run_skill with its name or id.',
+      inputSchema: { workspace: z.string().describe('Workspace name or id.') },
+    },
+    handle<{ workspace: string }>(async ({ workspace }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const skills = await listSkills(client, ws.id);
+      return text(
+        skills.map((s) => ({
+          id: s.id,
+          name: s.name,
+          description: s.description,
+          when_to_use: s.when_to_use,
+          visibility: s.visibility,
+          allowed_tools: s.allowed_tools,
+          editable: s.editable,
+        })),
+      );
+    }),
+  );
+
+  reg(
+    'run_skill',
+    {
+      title: 'Run skill',
+      description:
+        'Run a saved skill by name or id (from list_skills). StoryOS has no managed AI runtime yet ' +
+        "(BYO-AI, never metered) — this resolves the skill's instructions/when_to_use/allowed_tools and " +
+        'records the run (same bookkeeping as pressing "Run" in-app: last_run_at/last_run_status), but ' +
+        'YOU are the model that actually carries out `instructions` against `inputs`. `inputs` is free-form ' +
+        'and is only echoed back for you to act on — there is no server-side execution to send it to yet. ' +
+        'If the skill declares allowed_tools, prefer those tools while following it.',
+      inputSchema: {
+        workspace: z.string().describe('Workspace name or id.'),
+        name: z.string().describe('Skill name or id (from list_skills).'),
+        inputs: z
+          .record(z.string(), z.any())
+          .optional()
+          .describe('Free-form inputs this run should apply the skill to — returned alongside the instructions for you to act on, not sent to the API.'),
+      },
+    },
+    handle<{ workspace: string; name: string; inputs?: Record<string, unknown> }>(async ({ workspace, name, inputs }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const skill = await resolveSkill(client, ws.id, name);
+      const run = await unwrap<{ run_class: string; steps: Array<{ tool: string; summary: string; detail?: string }>; ran_at: string }>(
+        client.POST('/api/v1/workspaces/{ws}/skills/{id}/run', { params: { path: { ws: ws.id, id: skill.id } } } as never),
+      );
+      return text({
+        skill: { id: skill.id, name: skill.name, when_to_use: skill.when_to_use, allowed_tools: skill.allowed_tools },
+        instructions: skill.instructions,
+        inputs: inputs ?? {},
+        note: 'No model was invoked server-side — apply `instructions` to `inputs` yourself, preferring tools named in allowed_tools when the skill declares any.',
+        run_log: run,
+      });
     }),
   );
 }

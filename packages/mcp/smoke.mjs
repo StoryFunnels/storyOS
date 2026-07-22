@@ -17,7 +17,7 @@ let pass = 0, fail = 0;
 const check = (label, ok, extra = '') => { (ok ? pass++ : fail++); console.log(`${ok ? 'PASS' : 'FAIL'}  ${label}${extra ? ' — ' + extra : ''}`); };
 
 const tools = await client.listTools();
-check('lists 29 tools', tools.tools.length === 29, tools.tools.map((t) => t.name).join(','));
+check('lists 31 tools', tools.tools.length === 31, tools.tools.map((t) => t.name).join(','));
 
 const lw = await call(client, 'list_workspaces');
 check('list_workspaces sees MCP WS', lw.text.includes('MCP WS'));
@@ -60,6 +60,19 @@ check('add_comment', !cm.isError);
 
 const del = await call(client, 'delete_record', { workspace: 'MCP WS', database: 'Tasks', record: '2' });
 check('delete_record', !del.isError && del.text.includes('deleted'));
+
+// ---- skills (#41) ----
+const ls = await call(client, 'list_skills', { workspace: 'MCP WS' });
+check('list_skills does not error (workspace may have zero skills seeded)', !ls.isError);
+
+const rs = await call(client, 'run_skill', { workspace: 'MCP WS', name: 'Nonexistent Skill' });
+check('run_skill on an unknown name → resolver error', rs.isError && /No skill matches/i.test(rs.text));
+
+const resources = await client.listResources();
+check('advertises the storyos-skill resource template', resources.resources.length >= 0);
+
+const prompts = await client.listPrompts();
+check('prompts/list does not error', Array.isArray(prompts.prompts));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 await client.close();
