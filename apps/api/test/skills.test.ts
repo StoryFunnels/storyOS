@@ -54,11 +54,11 @@ describe('skills framework (#40)', () => {
     expect(ids).toContain('lead-triage-reply');
   });
 
-  it('rejects create with a missing required field (400)', async () => {
+  it('rejects create with a missing required field (422)', async () => {
     const res = await inject('POST', `/workspaces/${wsId}/skills`, {
       description: 'no name or instructions',
     });
-    expect(res.statusCode).toBe(400);
+    expect(res.statusCode).toBe(422);
   });
 
   it('creates a personal skill visible only to its owner', async () => {
