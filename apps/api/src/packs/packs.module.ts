@@ -8,7 +8,7 @@ import { RelationsModule } from '../relations/relations.module';
 import { SkillsModule } from '../skills/skills.module';
 import { ViewsModule } from '../views/views.module';
 import { WorkspacesModule } from '../workspaces/workspaces.module';
-import { PacksController } from './packs.controller';
+import { PacksController, PacksRegistryController } from './packs.controller';
 import { PacksService } from './packs.service';
 
 /**
@@ -33,7 +33,7 @@ import { PacksService } from './packs.service';
     ViewsModule,
     WorkspacesModule,
   ],
-  controllers: [PacksController],
+  controllers: [PacksController, PacksRegistryController],
   providers: [PacksService],
   exports: [PacksService],
 })

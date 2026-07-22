@@ -38,6 +38,7 @@ describe('live Getting-Started state (MN-213)', () => {
       board_view_built: false,
       relation_created: false,
       ai_connected: false,
+      business_pack_installed: false,
     });
   });
 
@@ -77,5 +78,20 @@ describe('live Getting-Started state (MN-213)', () => {
 
     await inject('POST', '/me/tokens', { name: 'AI', workspace_id: ws });
     expect((await state()).ai_connected).toBe(true);
+  });
+
+  it('flips business_pack_installed once a pack is installed, and back once fully uninstalled (MN-219 / #161)', async () => {
+    const entry = (await inject('GET', '/packs/registry/support-inbox')).json();
+    const install = await inject('POST', `/workspaces/${ws}/packs/install`, { manifest: entry.manifest });
+    expect(install.statusCode, install.body).toBe(201);
+    expect((await state()).business_pack_installed).toBe(true);
+
+    const installs = (await inject('GET', `/workspaces/${ws}/packs/installed`)).json() as Array<{
+      id: string;
+      slug: string;
+    }>;
+    const tracked = installs.find((i) => i.slug === 'support-inbox')!;
+    await inject('POST', `/workspaces/${ws}/packs/${tracked.id}/uninstall`);
+    expect((await state()).business_pack_installed).toBe(false);
   });
 });
