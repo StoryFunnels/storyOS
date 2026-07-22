@@ -19,6 +19,25 @@ export interface CopiedCell {
   value: unknown;
 }
 
+/**
+ * MN-292: the fill-down source grid for a range paste. `pasteRange` used to
+ * look only at the multi-cell range copy and silently drop a plain single-
+ * cell copy (`copyCell`, not `copyRange`) the moment a range was selected
+ * afterwards (e.g. copy one relation/select cell, shift+arrow down to select
+ * the rows below, paste to fill them all) — falling back to lossy clipboard
+ * text instead. That's a guaranteed no-op for relation targets (`coercePaste`
+ * deliberately refuses a plain-text relation paste below) and a fragile
+ * label-text match for select targets. Folding the single-cell copy into a
+ * 1x1 grid here gives a range fill-down the same full field fidelity a
+ * single-cell paste already has.
+ */
+export function resolvePasteSource(
+  rangeCopy: CopiedCell[][] | null,
+  singleCopy: CopiedCell | null,
+): CopiedCell[][] | null {
+  return rangeCopy ?? (singleCopy ? [[singleCopy]] : null);
+}
+
 export function coercePaste(target: Field, text: string, copied: CopiedCell | null): unknown {
   const optId = (label: string) =>
     target.options?.find((o) => o.label.toLowerCase() === label.trim().toLowerCase())?.id;

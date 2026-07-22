@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { ChevronDown, ChevronUp, Plus } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -676,21 +676,26 @@ function OptionList({
               <button
                 key={option.id}
                 className={cn(
-                  'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[13px] hover:bg-hover',
+                  'flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-[13px] hover:bg-hover',
                   (isSelected || idx === active) && 'bg-hover',
                 )}
                 onMouseEnter={() => setActive(idx)}
                 onClick={() => pickIndex(idx)}
               >
-                {multi && <input type="checkbox" readOnly checked={isSelected} />}
-                {option.image !== undefined ? (
-                  <span className="flex items-center gap-1.5 text-[13px] text-ink">
-                    <Avatar userId={option.id} name={option.label} image={option.image} size={16} />
-                    {option.label}
-                  </span>
-                ) : (
-                  <OptionChip option={option} />
-                )}
+                <span className="flex min-w-0 items-center gap-2">
+                  {multi && <input type="checkbox" readOnly checked={isSelected} />}
+                  {option.image !== undefined ? (
+                    <span className="flex items-center gap-1.5 text-[13px] text-ink">
+                      <Avatar userId={option.id} name={option.label} image={option.image} size={16} />
+                      {option.label}
+                    </span>
+                  ) : (
+                    <OptionChip option={option} />
+                  )}
+                </span>
+                {/* MN-292: mark the current value(s) so a picker opened on an
+                    already-set cell shows what's selected, not just a bare list. */}
+                {!multi && isSelected && <Check className="h-3.5 w-3.5 shrink-0 text-accent" />}
               </button>
             );
           })}

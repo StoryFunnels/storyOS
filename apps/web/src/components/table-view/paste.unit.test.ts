@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PASTE_WRONG_TARGET, coercePaste, type CopiedCell } from './paste';
+import { PASTE_WRONG_TARGET, coercePaste, resolvePasteSource, type CopiedCell } from './paste';
 import type { Field } from './use-table-data';
 
 /**
@@ -116,5 +116,39 @@ describe('external text', () => {
     const sel = field({ type: 'select', id: 's', options: [{ id: 'o1', label: 'Done', color: 'green' }] as never });
     expect(coercePaste(sel, 'done', null)).toBe('o1');
     expect(coercePaste(sel, 'Nonexistent', null)).toBeUndefined();
+  });
+});
+
+describe('resolvePasteSource (MN-292)', () => {
+  // Copy ONE relation cell (copyCell, not copyRange), then extend a range
+  // (e.g. shift+arrow down) before pasting — reproduces the live report
+  // "shift-down selects but doesn't paste": pasteRange used to only look at
+  // the multi-cell range copy, so a lone single-cell copy vanished the
+  // moment a range existed, and the resulting plain-text fallback is a
+  // guaranteed PASTE_WRONG_TARGET for relation columns (see the "external
+  // text into a relation field" case above).
+  const relField = field({ type: 'relation', id: 'r1', relation: { target_database_id: 'db-A' } as never });
+  const singleCopy: CopiedCell = { field: relField, value: [{ id: 'rec-1' }] };
+
+  it('a range copy always wins, unchanged', () => {
+    const rangeCopy: CopiedCell[][] = [[{ field: relField, value: [{ id: 'rec-9' }] }]];
+    expect(resolvePasteSource(rangeCopy, singleCopy)).toBe(rangeCopy);
+  });
+
+  it('folds a lone single-cell copy into a 1x1 grid instead of vanishing', () => {
+    expect(resolvePasteSource(null, singleCopy)).toEqual([[singleCopy]]);
+  });
+
+  it('is null when neither a range nor a single cell was copied', () => {
+    expect(resolvePasteSource(null, null)).toBeNull();
+  });
+
+  it('end to end: the folded single-cell copy round-trips through coercePaste for a relation target, where raw clipboard text never could', () => {
+    const sameDb = field({ type: 'relation', id: 'r2', relation: { target_database_id: 'db-A' } as never });
+    const copiedCell = resolvePasteSource(null, singleCopy)![0]![0]!;
+    expect(coercePaste(sameDb, '', copiedCell)).toEqual(['rec-1']);
+    // The bug's failure mode: same paste, but with only clipboard text (no
+    // in-session copy) — always refused for a relation target.
+    expect(coercePaste(sameDb, 'Some Title', null)).toBe(PASTE_WRONG_TARGET);
   });
 });

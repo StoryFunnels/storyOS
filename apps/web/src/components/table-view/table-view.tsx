@@ -17,7 +17,7 @@ import { CellDisplay, CellEditor, PressButton, cellToText, fieldValue } from './
 import { AddFieldDialog } from './add-field-dialog';
 import { BatchBar } from './batch-bar';
 import { HeaderCell } from './header-cell';
-import { PASTE_WRONG_TARGET, coercePaste } from './paste';
+import { PASTE_WRONG_TARGET, coercePaste, resolvePasteSource } from './paste';
 import { RelationEditor } from './relation-cell';
 import {
   useDatabase,
@@ -329,7 +329,10 @@ export function TableView({
   // the single-cell path above is what still surfaces a precise per-field error.
   async function pasteRange() {
     if (!cursor || readOnly) return;
-    const inSession = copiedRangeRef.current;
+    // MN-292: see resolvePasteSource — folds a lone single-cell copy in as a
+    // 1x1 grid so a range fill-down keeps full field fidelity instead of
+    // silently dropping to lossy clipboard text.
+    const inSession = resolvePasteSource(copiedRangeRef.current, copiedRef.current);
     let clipboardGrid: string[][] | null = null;
     if (!inSession) {
       let text = '';
@@ -645,14 +648,28 @@ export function TableView({
                           if (readOnly) return;
                           if (field.type === 'checkbox') {
                             commitEdit(row, field, !(valueOf(row, field) === true));
-                          } else if (field.type !== 'title' && field.type !== 'id' && !NO_EDITOR.has(field.type)) {
+                          } else if (
+                            field.type !== 'title' &&
+                            field.type !== 'id' &&
+                            // MN-292: select/relation single click also just selects — it
+                            // used to pop the picker open immediately, leaving no way to
+                            // reach a copyable "selected, not editing" state (Cmd+C bailed
+                            // out while editing). Double-click or Enter opens the editor.
+                            field.type !== 'select' &&
+                            field.type !== 'relation' &&
+                            !NO_EDITOR.has(field.type)
+                          ) {
                             setEditing(true);
                           }
                         }}
                         onDoubleClick={() => {
-                          // Title edits on double-click; single click selects so the
-                          // hover "Open" affordance stays reachable.
-                          if (!readOnly && field.type === 'title') {
+                          // Title/select/relation edit on double-click; single click
+                          // selects so the hover "Open" affordance (title) and Cmd+C
+                          // (select/relation, MN-292) stay reachable.
+                          if (
+                            !readOnly &&
+                            (field.type === 'title' || field.type === 'select' || field.type === 'relation')
+                          ) {
                             setRangeEnd(null);
                             setCursor({ row: item.index, col: colIndex });
                             setEditing(true);
