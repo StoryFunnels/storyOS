@@ -28,3 +28,4 @@ export * from './architect';
 export * from './packs';
 export * from './icons';
 export * from './connections';
+export * from './skills';

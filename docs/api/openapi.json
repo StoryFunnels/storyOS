@@ -5283,6 +5283,203 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/skills": {
+      "get": {
+        "operationId": "SkillsController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "List skills visible to the caller: their own, plus every shared one",
+        "tags": [
+          "skills"
+        ]
+      },
+      "post": {
+        "operationId": "SkillsController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSkillDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Create a skill — personal by default; pass visibility: \"shared\" to publish it to the workspace",
+        "tags": [
+          "skills"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/skills/templates": {
+      "get": {
+        "operationId": "SkillsController_templates",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Starter scaffolds for the \"new skill\" flow (AC #2, not-from-scratch)",
+        "tags": [
+          "skills"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/skills/{id}": {
+      "get": {
+        "operationId": "SkillsController_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "The skill record id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Read one skill",
+        "tags": [
+          "skills"
+        ]
+      },
+      "patch": {
+        "operationId": "SkillsController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "The skill record id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSkillDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Edit a skill — owner-only, even if it's shared",
+        "tags": [
+          "skills"
+        ]
+      },
+      "delete": {
+        "operationId": "SkillsController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "The skill record id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Delete a skill — owner-only",
+        "tags": [
+          "skills"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/skills/{id}/export": {
+      "get": {
+        "operationId": "SkillsController_export",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "The skill record id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "format",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "enum": [
+                "markdown",
+                "claude_skill",
+                "chatgpt"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Export a skill as portable instructions (Markdown / Claude Skill SKILL.md / ChatGPT)",
+        "tags": [
+          "skills"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/skills/{id}/run": {
+      "post": {
+        "operationId": "SkillsController_run",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "The skill record id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Run a skill manually; returns its step log (no model invoked yet)",
+        "tags": [
+          "skills"
+        ]
+      }
+    },
     "/api/v1/templates": {
       "get": {
         "operationId": "TemplatesController_list",
@@ -8584,6 +8781,147 @@
         "type": "object",
         "properties": {
           "plan": {}
+        }
+      },
+      "CreateSkillDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "when_to_use": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "instructions": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000
+          },
+          "examples": {
+            "default": [],
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "input": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2000
+                },
+                "output": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4000
+                }
+              },
+              "required": [
+                "input",
+                "output"
+              ]
+            }
+          },
+          "allowed_tools": {
+            "default": [],
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            }
+          },
+          "visibility": {
+            "default": "personal",
+            "type": "string",
+            "enum": [
+              "personal",
+              "shared"
+            ]
+          },
+          "source_template": {
+            "type": "string",
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "when_to_use",
+          "instructions"
+        ]
+      },
+      "UpdateSkillDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "when_to_use": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "instructions": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000
+          },
+          "examples": {
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "input": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2000
+                },
+                "output": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4000
+                }
+              },
+              "required": [
+                "input",
+                "output"
+              ]
+            }
+          },
+          "allowed_tools": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            }
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "personal",
+              "shared"
+            ]
+          }
         }
       },
       "ApplyTemplateDto": {
