@@ -64,10 +64,20 @@ async function createRecordAndSettle(name: string) {
   return rec as { id: string };
 }
 
-async function pendingApprovalFor(recordId: string) {
+/**
+ * Scoped by ruleId, not just recordId: every test's `createRule()` adds
+ * another `record_created` rule to the SAME shared `dbId`, and none of them
+ * are ever disabled — so by the Nth test, a fresh record fires N enabled
+ * rules and accumulates N pending approvals. Picking "the first pending
+ * approval for this record" without also pinning it to the rule THIS test
+ * created is ambiguous the moment more than one rule exists (which is every
+ * test after the first) — it silently returns an arbitrary earlier test's
+ * approval instead of this one's.
+ */
+async function pendingApprovalFor(recordId: string, ruleId: string) {
   const rows = await db.query.approvals.findMany({ where: eq(approvals.recordId, recordId) });
-  const pending = rows.find((a) => a.status === 'pending');
-  if (!pending) throw new Error(`no pending approval for record ${recordId}`);
+  const pending = rows.find((a) => a.status === 'pending' && a.ruleId === ruleId);
+  if (!pending) throw new Error(`no pending approval for record ${recordId} / rule ${ruleId}`);
   return pending;
 }
 
@@ -97,9 +107,9 @@ afterAll(async () => {
 
 describe('approval gate (MN-255)', () => {
   it('a require_approval action creates a pending approval (rendered preview) + notifies the approver — no job, no inline run', async () => {
-    await createRule();
+    const rule = await createRule();
     const rec = await createRecordAndSettle('Widget');
-    const approval = await pendingApprovalFor(rec.id);
+    const approval = await pendingApprovalFor(rec.id, rule.id);
 
     expect(approval.status).toBe('pending');
     expect(approval.previewText).toContain('Widget'); // {Name} was rendered NOW, at gate time
@@ -116,9 +126,9 @@ describe('approval gate (MN-255)', () => {
   });
 
   it('approve enqueues exactly one MN-253 job from the frozen snapshot — idempotent under a concurrent double-approve', async () => {
-    await createRule();
+    const rule = await createRule();
     const rec = await createRecordAndSettle('Gadget');
-    const approval = await pendingApprovalFor(rec.id);
+    const approval = await pendingApprovalFor(rec.id, rule.id);
 
     let calls = 0;
     jobs.registerExecutor('add_comment', async (payload) => {
@@ -148,9 +158,9 @@ describe('approval gate (MN-255)', () => {
   });
 
   it('reject never enqueues a job and records the reason on an audit comment', async () => {
-    await createRule();
+    const rule = await createRule();
     const rec = await createRecordAndSettle('Do not ship');
-    const approval = await pendingApprovalFor(rec.id);
+    const approval = await pendingApprovalFor(rec.id, rule.id);
 
     const res = await inject('POST', `/workspaces/${wsId}/approvals/${approval.id}/reject`, { reason: 'not ready yet' });
     expect(res.statusCode).toBeLessThan(300);
@@ -169,9 +179,9 @@ describe('approval gate (MN-255)', () => {
   });
 
   it('frozen snapshot: editing the record after gating does not change what eventually runs', async () => {
-    await createRule();
+    const rule = await createRule();
     const rec = await createRecordAndSettle('Original Name');
-    const approval = await pendingApprovalFor(rec.id);
+    const approval = await pendingApprovalFor(rec.id, rule.id);
 
     await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/records/${rec.id}`, { values: { name: 'Changed Name' } });
 
@@ -185,18 +195,18 @@ describe('approval gate (MN-255)', () => {
   });
 
   it('a write-scope PAT cannot approve (needs admin scope)', async () => {
-    await createRule();
+    const rule = await createRule();
     const rec = await createRecordAndSettle('PAT write');
-    const approval = await pendingApprovalFor(rec.id);
+    const approval = await pendingApprovalFor(rec.id, rule.id);
     const pat = await mint('write', admin.token);
     const res = await inject('POST', `/workspaces/${wsId}/approvals/${approval.id}/approve`, {}, pat);
     expect(res.statusCode).toBe(403);
   });
 
   it('an admin-scope PAT still 403s when it belongs to a non-admin, non-approver member', async () => {
-    await createRule(); // approver defaults to admin (the rule owner)
+    const rule = await createRule(); // approver defaults to admin (the rule owner)
     const rec = await createRecordAndSettle('PAT admin, wrong owner');
-    const approval = await pendingApprovalFor(rec.id);
+    const approval = await pendingApprovalFor(rec.id, rule.id);
     const pat = await mint('admin', member.token); // admin-scoped, but minted by a workspace 'member'
     const res = await inject('POST', `/workspaces/${wsId}/approvals/${approval.id}/approve`, {}, pat);
     expect(res.statusCode).toBe(403);
@@ -205,7 +215,7 @@ describe('approval gate (MN-255)', () => {
   it('a session caller who is a workspace admin can decide even when a different user is the named approver', async () => {
     const rule = await createRule({ approverId: memberId });
     const rec = await createRecordAndSettle('Admin overrides approver');
-    const approval = await pendingApprovalFor(rec.id);
+    const approval = await pendingApprovalFor(rec.id, rule.id);
     expect(approval.approverId).toBe(memberId);
     expect(approval.ruleId).toBe(rule.id);
 
@@ -216,9 +226,9 @@ describe('approval gate (MN-255)', () => {
   });
 
   it('the named approver (a non-admin member) can decide via their own session', async () => {
-    await createRule({ approverId: memberId });
+    const rule = await createRule({ approverId: memberId });
     const rec = await createRecordAndSettle('Member is the approver');
-    const approval = await pendingApprovalFor(rec.id);
+    const approval = await pendingApprovalFor(rec.id, rule.id);
 
     const res = await inject('POST', `/workspaces/${wsId}/approvals/${approval.id}/reject`, {}, member.token);
     expect(res.statusCode).toBeLessThan(300);
@@ -228,9 +238,9 @@ describe('approval gate (MN-255)', () => {
   });
 
   it('expiry sweep flips a stale pending approval to expired, posts an audit comment, and never enqueues a job', async () => {
-    await createRule();
+    const rule = await createRule();
     const rec = await createRecordAndSettle('Will expire');
-    const approval = await pendingApprovalFor(rec.id);
+    const approval = await pendingApprovalFor(rec.id, rule.id);
 
     await db.update(approvals).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(approvals.id, approval.id));
     await approvalsService.expireStale();
@@ -244,9 +254,9 @@ describe('approval gate (MN-255)', () => {
   });
 
   it('approving (or rejecting) an already-decided approval is a no-op, not an error', async () => {
-    await createRule();
+    const rule = await createRule();
     const rec = await createRecordAndSettle('Already decided');
-    const approval = await pendingApprovalFor(rec.id);
+    const approval = await pendingApprovalFor(rec.id, rule.id);
     const first = await inject('POST', `/workspaces/${wsId}/approvals/${approval.id}/reject`);
     expect(first.statusCode).toBeLessThan(300);
     const second = await inject('POST', `/workspaces/${wsId}/approvals/${approval.id}/approve`);
@@ -259,9 +269,9 @@ describe('approval gate (MN-255)', () => {
   });
 
   it('GET .../approvals lists and filters by status', async () => {
-    await createRule();
+    const rule = await createRule();
     const rec = await createRecordAndSettle('Listable');
-    const approval = await pendingApprovalFor(rec.id);
+    const approval = await pendingApprovalFor(rec.id, rule.id);
     const all = (await inject('GET', `/workspaces/${wsId}/approvals`)).json();
     expect(all.some((a: { id: string }) => a.id === approval.id)).toBe(true);
     const pendingOnly = (await inject('GET', `/workspaces/${wsId}/approvals?status=pending`)).json();
