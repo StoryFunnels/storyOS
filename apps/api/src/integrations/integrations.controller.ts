@@ -78,7 +78,19 @@ export class IntegrationsDirectoryController {
       // Built-in and always available; there is nothing to "connect".
       'delegate-agent': true,
     };
-    const data = INTEGRATION_REGISTRY.map((d) => ({ ...d, connected: connected[d.id] ?? false }));
+    // Wire shape is snake_case (`built_by`/`auth_kind`), matching every other
+    // response in this file (has_token, default_channel, …) — the registry
+    // descriptor itself stays camelCase (ordinary TS convention) because it
+    // never leaves the server as-is.
+    const data = INTEGRATION_REGISTRY.map((d) => ({
+      id: d.id,
+      label: d.label,
+      built_by: d.builtBy,
+      description: d.description,
+      auth_kind: d.authKind,
+      status: d.status,
+      connected: connected[d.id] ?? false,
+    }));
     return { data: redactSecrets(data) };
   }
 }

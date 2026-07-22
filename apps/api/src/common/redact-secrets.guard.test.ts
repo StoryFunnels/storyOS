@@ -102,6 +102,13 @@ const DECLARED_SAFE: Record<string, string> = {
   // opposite of something that should be hidden from the code that needs it.
   idempotencyKey:
     'apps/api/src/automations/job-runner.service.ts (MN-253) — a dedup key (ruleId:recordId:runId:actionIndex), not a credential',
+  // apps/api/src/integrations/integration-registry.ts (#44) — the camelCase
+  // sibling of auth_kind above: the integrations-directory registry's own
+  // auth-mechanism discriminator ('oauth2' | 'config' | 'delegate'), not a
+  // credential. Same reasoning, just camelCase to match that file's plain-TS
+  // descriptor shape rather than a settings-blob/zod-schema shape.
+  authKind:
+    "apps/api/src/integrations/integration-registry.ts (#44) — the integration registry's auth-mechanism discriminator, not a credential",
 };
 
 function propertyNames(): Map<string, Set<string>> {
