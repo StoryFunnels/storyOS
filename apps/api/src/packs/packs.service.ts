@@ -15,6 +15,8 @@ import type {
   PackExportRequest,
   PackInstallResult,
   PackManifest,
+  PackPreviewItem,
+  PackPreviewResult,
   PackUnmetRequirement,
   PlanAgent,
   PlanDatabase,
@@ -619,6 +621,97 @@ export class PacksService {
   private deriveAiNeed(agents: PlanAgent[], override?: PackAiNeed): PackAiNeed {
     if (override) return override;
     return agents.length > 0 ? 'byo' : 'none';
+  }
+
+  // ── preview ────────────────────────────────────────────────────────────────
+
+  /**
+   * What `install` would do, without doing it (MN-219 / #161).
+   *
+   * The same split `ArchitectService` already draws between `propose` (reads,
+   * writes nothing) and `build` (executes) — here between `preview` and
+   * `install`. Deliberately does NOT call `agents.ensurePack()`: that
+   * provisions the Agents/Runs/Agent Triggers databases, and calling it from a
+   * preview would make "preview creates nothing" false the first time anyone
+   * previewed a pack with agents in it. If the Agents database has never been
+   * provisioned, every agent in the manifest previews as `create` — which is
+   * correct, since that is exactly what installing it would do.
+   */
+  async preview(membership: Membership, rawManifest: unknown): Promise<PackPreviewResult> {
+    const parsed = packManifestSchema.safeParse(rawManifest);
+    if (!parsed.success) {
+      throw new UnprocessableEntityException(
+        `This is not a valid pack manifest: ${parsed.error.issues
+          .map((i) => `${i.path.join('.') || '(root)'} ${i.message}`)
+          .join('; ')}`,
+      );
+    }
+    const manifest = parsed.data;
+    const unmet = await this.checkRequirements(membership, manifest);
+
+    const liveDbs = await this.databases.list(membership);
+    const liveByName = new Map(liveDbs.map((d) => [norm(d.name), d]));
+
+    const databases: PackPreviewItem[] = manifest.databases.map((d) => ({
+      name: d.name,
+      action: liveByName.has(norm(d.name)) ? 'reuse' : 'create',
+    }));
+
+    // Views/automations only exist once their database does — a planned
+    // database that isn't live yet previews all of its views and automations
+    // as `create` without ever asking a database id that doesn't exist for
+    // its children.
+    const viewNamesByDb = new Map<string, Set<string>>();
+    const automationNamesByDb = new Map<string, Set<string>>();
+
+    const views: PackPreviewItem[] = [];
+    for (const planned of manifest.views) {
+      const label = `${planned.database}.${planned.name}`;
+      const live = liveByName.get(norm(planned.database));
+      if (!live) {
+        views.push({ name: label, action: 'create' });
+        continue;
+      }
+      let names = viewNamesByDb.get(live.id);
+      if (!names) {
+        const detail = await this.databases.get(membership, live.id);
+        names = new Set(
+          ((detail as unknown as { views: { name: string }[] }).views ?? []).map((v) => norm(v.name)),
+        );
+        viewNamesByDb.set(live.id, names);
+      }
+      views.push({ name: label, action: names.has(norm(planned.name)) ? 'reuse' : 'create' });
+    }
+
+    const automations: PackPreviewItem[] = [];
+    for (const planned of manifest.automations) {
+      const label = `${planned.database}.${planned.name}`;
+      const live = liveByName.get(norm(planned.database));
+      if (!live) {
+        automations.push({ name: label, action: 'create' });
+        continue;
+      }
+      let names = automationNamesByDb.get(live.id);
+      if (!names) {
+        const { data } = await this.automations.list(live.id);
+        names = new Set(data.map((r) => norm(r.name)));
+        automationNamesByDb.set(live.id, names);
+      }
+      automations.push({ name: label, action: names.has(norm(planned.name)) ? 'reuse' : 'create' });
+    }
+
+    const { agentsDb } = await this.agents.findPackDbs(membership.workspaceId);
+    let agentTitles: Set<string> | undefined;
+    if (agentsDb) {
+      const { data } = await this.records.list(agentsDb.id, { limit: MAX_SCAN });
+      agentTitles = new Set(data.map((r) => norm(r.title)));
+    }
+    const agents: PackPreviewItem[] = manifest.agents.map((a) => ({
+      name: a.name,
+      action: agentTitles?.has(norm(a.name)) ? 'reuse' : 'create',
+    }));
+
+    return { slug: manifest.slug, name: manifest.name, version: manifest.version, unmet, databases, views, automations, agents };
   }
 
   // ── install ────────────────────────────────────────────────────────────────

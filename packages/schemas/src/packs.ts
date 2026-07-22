@@ -293,6 +293,34 @@ export const packInstallResultSchema = z.object({
 });
 export type PackInstallResult = z.infer<typeof packInstallResultSchema>;
 
+/** One planned item's install fate, as `preview` reports it — the same `create`/`reuse` vocabulary `install` itself uses (see `installedEntitySchema`). */
+export const packPreviewItemSchema = z.object({
+  name: z.string(),
+  action: z.enum(['create', 'reuse']),
+});
+export type PackPreviewItem = z.infer<typeof packPreviewItemSchema>;
+
+/**
+ * What `install` would do, without doing it (MN-219 / #161).
+ *
+ * Scoped to the four categories a person actually reviews before clicking
+ * install — databases, views, automations, agents — not the full
+ * `PackInstallResult` breakdown (fields/relations/states/derived_fields/
+ * sample_records ride along with their database and aren't independently
+ * interesting at preview time).
+ */
+export const packPreviewResultSchema = z.object({
+  slug: z.string(),
+  name: z.string(),
+  version: z.string(),
+  unmet: z.array(packUnmetRequirementSchema),
+  databases: z.array(packPreviewItemSchema),
+  views: z.array(packPreviewItemSchema),
+  automations: z.array(packPreviewItemSchema),
+  agents: z.array(packPreviewItemSchema),
+});
+export type PackPreviewResult = z.infer<typeof packPreviewResultSchema>;
+
 /** What to export: a space by name, or an explicit list of database ids. */
 export const packExportRequestSchema = z
   .object({

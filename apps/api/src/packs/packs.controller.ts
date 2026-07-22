@@ -69,4 +69,17 @@ export class PacksController {
   install(@Req() req: WorkspaceRequest, @Body() body: InstallDto) {
     return this.packs.install(req.membership, body.manifest);
   }
+
+  /**
+   * Preview a manifest: which databases/views/automations/agents would be
+   * created vs. reused, and what's unmet — without installing anything
+   * (MN-219 / #161). Same input contract as install — a manifest that has
+   * been out of the building — so it gets the same `unknown` + service-level
+   * 422, not a DTO-level 400.
+   */
+  @Post('preview')
+  @ApiOperation({ summary: 'Preview what installing a manifest would do; creates nothing' })
+  preview(@Req() req: WorkspaceRequest, @Body() body: InstallDto) {
+    return this.packs.preview(req.membership, body.manifest);
+  }
 }
