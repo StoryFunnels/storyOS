@@ -116,6 +116,25 @@ async function installOk(wsId: string, manifest: unknown) {
   return res.json();
 }
 
+async function previewPack(wsId: string, manifest: unknown) {
+  return as(admin.token, 'POST', `/workspaces/${wsId}/packs/preview`, { manifest });
+}
+
+async function previewOk(wsId: string, manifest: unknown) {
+  const res = await previewPack(wsId, manifest);
+  expect(res.statusCode, res.body).toBe(201);
+  return res.json();
+}
+
+interface PreviewItem {
+  name: string;
+  action: 'create' | 'reuse';
+}
+
+function actionsOf(items: PreviewItem[]): string[] {
+  return items.map((i) => i.action);
+}
+
 /**
  * Builds a small but *complete* business in a workspace: schema, a relation, a
  * board view whose config is full of raw field ids, an automation keyed on a
@@ -834,6 +853,81 @@ describe('requirements and validation', () => {
       summary: 'x',
       space: 'Sales',
     });
+    expect([403, 404]).toContain(res.statusCode);
+  });
+});
+
+// ── preview (MN-219 / #161) ─────────────────────────────────────────────────
+
+describe('preview', () => {
+  let targetWs: string;
+  let manifest: PackManifest;
+
+  beforeAll(async () => {
+    const sourceWs = await newWorkspace('Preview Source');
+    await buildSourceBusinessViaApi(sourceWs);
+    manifest = (
+      await exportPack(sourceWs, {
+        slug: 'sales-os',
+        name: 'Sales OS',
+        version: '1.0.0',
+        summary: 'Leads and tasks',
+        space: 'Sales',
+      })
+    ).json() as PackManifest;
+    targetWs = await newWorkspace('Preview Target');
+  }, 90_000);
+
+  it('a clean workspace previews everything as create, and creates nothing', async () => {
+    const result = await previewOk(targetWs, manifest);
+
+    expect(result.databases).toHaveLength(manifest.databases.length);
+    expect(actionsOf(result.databases).every((a) => a === 'create')).toBe(true);
+    expect(result.databases.map((d: PreviewItem) => d.name).sort()).toEqual(['Leads', 'Tasks']);
+
+    // Views/automations/agents counts follow whatever the export produced
+    // (databases carry their own default views along) — the thing under test
+    // is that every one of them previews as `create`, not the exact count.
+    expect(result.views.length).toBeGreaterThan(0);
+    expect(actionsOf(result.views).every((a) => a === 'create')).toBe(true);
+    expect(result.automations).toHaveLength(manifest.automations.length);
+    expect(actionsOf(result.automations).every((a) => a === 'create')).toBe(true);
+    expect(result.agents).toHaveLength(manifest.agents.length);
+    expect(actionsOf(result.agents).every((a) => a === 'create')).toBe(true);
+    expect(result.unmet).toEqual([]);
+
+    // The whole point: nothing installed.
+    expect(await listDatabases(targetWs)).toEqual([]);
+  }, 60_000);
+
+  it('after installing, the same manifest previews everything as reuse', async () => {
+    await installOk(targetWs, manifest);
+    const result = await previewOk(targetWs, manifest);
+
+    expect(actionsOf(result.databases).every((a) => a === 'reuse')).toBe(true);
+    expect(actionsOf(result.views).every((a) => a === 'reuse')).toBe(true);
+    expect(actionsOf(result.automations).every((a) => a === 'reuse')).toBe(true);
+    expect(actionsOf(result.agents).every((a) => a === 'reuse')).toBe(true);
+  }, 60_000);
+
+  it('surfaces unmet requirements exactly like install, without installing them', async () => {
+    const ws = await newWorkspace('Preview Unmet');
+    const result = await previewOk(ws, { ...manifest, requires: { connections: ['slack'], ai: 'storyos' } });
+
+    expect(result.unmet.map((u: { kind: string }) => u.kind).sort()).toEqual(['ai', 'connection']);
+    expect(await listDatabases(ws)).toEqual([]);
+  }, 60_000);
+
+  it('a malformed manifest is a 422, not a 500', async () => {
+    for (const bad of [undefined, null, 'nope', {}, { format_version: 9 }]) {
+      const res = await previewPack(targetWs, bad);
+      expect(res.statusCode, `payload ${JSON.stringify(bad)}`).toBe(422);
+    }
+  });
+
+  it('is admin-gated', async () => {
+    const member = await signUpUser(app, 'PackPreviewMember');
+    const res = await as(member.token, 'POST', `/workspaces/${targetWs}/packs/preview`, { manifest });
     expect([403, 404]).toContain(res.statusCode);
   });
 });
