@@ -329,6 +329,17 @@ export class AutomationActionsService {
           : action.body_template;
         return { snapshot: { ...action, url, body_template }, previewText: `Webhook → ${url}` };
       }
+      case 'run_agent': {
+        // MN-109: no {Field} interpolation on `prompt` yet (Phase A keeps it
+        // a static override) and no DB lookup here for the agent's display
+        // name — same best-effort shape create_record's preview uses when it
+        // has no record to read a title off of — so the snapshot is the
+        // action verbatim and the preview shows the raw agent reference.
+        return {
+          snapshot: action,
+          previewText: `Run agent ${action.agent}${action.prompt ? `: ${action.prompt.slice(0, 200)}` : ''}`,
+        };
+      }
     }
   }
 

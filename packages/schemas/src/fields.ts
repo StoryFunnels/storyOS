@@ -124,13 +124,13 @@ export const actionSchema = z.discriminatedUnion('type', [
    * job-runner.service.ts's registered 'run_agent' executor, which calls the
    * SAME AgentsService.dispatchRun() every other trigger uses.
    *
-   * NOTE (MN-255 integration point): once the approval-gate PR lands, spread
-   * `...gated` (its `{ require_approval }` flag) onto this variant like every
-   * other action — gating whether the run LAUNCHES. That is independent of
-   * an agent's own "Approval policy" (agent-runtime.ts's APPROVAL_POLICY_KINDS),
-   * which gates what a launched run's steps may do.
+   * MN-255 landed (#152): `...gated`'s `require_approval` flag below gates
+   * whether the run LAUNCHES. That is independent of an agent's own
+   * "Approval policy" (agent-runtime.ts's APPROVAL_POLICY_KINDS), which gates
+   * what a launched run's steps may do once it's running.
    */
   z.object({
+    ...gated,
     type: z.literal('run_agent'),
     /** Agent record's uuid or public number — resolved the same way manual runs are. */
     agent: z.string().min(1).max(100),

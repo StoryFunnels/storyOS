@@ -8475,6 +8475,9 @@
                 {
                   "type": "object",
                   "properties": {
+                    "require_approval": {
+                      "type": "boolean"
+                    },
                     "type": {
                       "type": "string",
                       "enum": [
@@ -8887,6 +8890,9 @@
                 {
                   "type": "object",
                   "properties": {
+                    "require_approval": {
+                      "type": "boolean"
+                    },
                     "type": {
                       "type": "string",
                       "enum": [

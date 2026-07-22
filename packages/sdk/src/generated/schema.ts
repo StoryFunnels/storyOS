@@ -3274,6 +3274,7 @@ export interface components {
                     };
                 };
             } | {
+                require_approval?: boolean;
                 /** @enum {string} */
                 type: "run_agent";
                 agent: string;
@@ -3376,6 +3377,7 @@ export interface components {
                     };
                 };
             } | {
+                require_approval?: boolean;
                 /** @enum {string} */
                 type: "run_agent";
                 agent: string;
