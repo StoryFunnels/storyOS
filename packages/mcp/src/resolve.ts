@@ -53,6 +53,54 @@ export async function listDatabases(client: Client, workspaceId: string): Promis
 /** How a candidate reads back to the model when it must disambiguate (MN-153). */
 const qualify = (d: DatabaseRef) => d.qualifiedSlug ?? (d.spaceSlug ? `${d.spaceSlug}/${d.apiSlug ?? d.name}` : d.name);
 
+/**
+ * A workspace's saved skill (#41), as returned by the skills API (SkillsService.list /
+ * .get already enforce personal-vs-shared visibility server-side — this is just the
+ * client-side read shape, same fields as @storyos/schemas' SkillSummary but declared
+ * locally so this module doesn't need a value import from the zod-bearing barrel).
+ */
+export interface SkillRef {
+  id: string;
+  name: string;
+  description: string;
+  when_to_use: string;
+  instructions: string;
+  examples: Array<{ input: string; output: string }>;
+  allowed_tools: string[];
+  visibility: 'personal' | 'shared';
+  editable: boolean;
+  source_template: string | null;
+}
+
+export async function listSkills(client: Client, workspaceId: string): Promise<SkillRef[]> {
+  const res = await unwrap<{ data: SkillRef[] }>(
+    client.GET('/api/v1/workspaces/{ws}/skills', { params: { path: { ws: workspaceId } } } as never),
+  );
+  return res.data;
+}
+
+/** Name-or-id resolution for a skill (MN-076 convention): ids only ever come from a
+ * prior list_skills call; a bare name must be unambiguous among what this caller can see. */
+export async function resolveSkill(client: Client, workspaceId: string, ref: string): Promise<SkillRef> {
+  const list = await listSkills(client, workspaceId);
+  const byId = list.find((s) => s.id === ref);
+  if (byId) return byId;
+
+  const lower = ref.trim().toLowerCase();
+  const bare = list.filter((s) => s.name.toLowerCase() === lower);
+  if (bare.length === 1) return bare[0]!;
+  if (bare.length > 1) {
+    throw new Error(`"${ref}" matches ${bare.length} skills. Use its id (from list_skills) to disambiguate.`);
+  }
+
+  const partial = list.filter((s) => s.name.toLowerCase().includes(lower));
+  if (partial.length === 1) return partial[0]!;
+  if (partial.length > 1) {
+    throw new Error(`"${ref}" matches multiple skills: ${partial.map((s) => s.name).join(', ')}. Be more specific, or pass its id.`);
+  }
+  throw new Error(`No skill matches "${ref}" in this workspace. Available: ${list.map((s) => s.name).join(', ') || '(none)'}.`);
+}
+
 export async function resolveDatabase(client: Client, workspaceId: string, ref: string): Promise<DatabaseRef> {
   const list = await listDatabases(client, workspaceId);
   const lower = ref.trim().toLowerCase();

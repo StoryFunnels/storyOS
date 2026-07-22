@@ -705,3 +705,121 @@ describe('create_view / update_view (#270)', () => {
     expect(patched[0]!.body).toEqual({ name: 'Renamed' });
   });
 });
+
+/**
+ * list_skills / run_skill (#41): both ride the real GET/POST the in-app Skills UI
+ * uses (SkillsController), so these tests drive the registerTools()-produced
+ * handlers against a fake client stubbing exactly those two routes — proving the
+ * tools resolve a skill by name (not just id), never reimplement visibility
+ * (the fake simply returns whatever the "server" would already have filtered),
+ * and echo `inputs` back rather than posting them anywhere (there is nowhere on
+ * the real endpoint for them to go yet).
+ */
+describe('list_skills / run_skill (#41)', () => {
+  const WORKSPACE = { id: 'ws-1', name: 'JCM Agency' };
+  const SKILLS = [
+    {
+      id: 'skill-1',
+      name: 'Weekly Status Digest',
+      description: 'Summarizes the week.',
+      when_to_use: 'Every Friday.',
+      instructions: 'List records changed this week.',
+      examples: [],
+      allowed_tools: ['records.read'],
+      visibility: 'shared',
+      editable: false,
+      source_template: 'weekly-digest',
+    },
+    {
+      id: 'skill-2',
+      name: 'Lead Triage Reply',
+      description: 'Drafts a first-touch reply.',
+      when_to_use: 'A new lead lands.',
+      instructions: 'Draft a friendly reply.',
+      examples: [],
+      allowed_tools: [],
+      visibility: 'personal',
+      editable: true,
+      source_template: null,
+    },
+  ];
+
+  function fakeServer() {
+    const handlers = new Map<string, (args: unknown) => Promise<ToolResult>>();
+    return {
+      server: { registerTool: (name: string, _c: unknown, handler: (args: unknown) => Promise<ToolResult>) => handlers.set(name, handler) } as unknown as McpServer,
+      handlers,
+    };
+  }
+
+  function fakeClient() {
+    const posted: Array<{ path: string; params?: unknown }> = [];
+    const GET = async (path: string) => {
+      if (path === '/api/v1/workspaces') return { data: [WORKSPACE] };
+      // SkillsController_list's real JSON body is `{ data: [...] }` (SkillsService.list),
+      // so the fake client's own `{data, error}` envelope wraps that body directly:
+      // one extra level vs. e.g. list_databases, whose endpoint returns a bare array.
+      if (path === '/api/v1/workspaces/{ws}/skills') return { data: { data: SKILLS } };
+      throw new Error(`unmocked GET ${path}`);
+    };
+    const POST = async (path: string, opts: { params?: { path?: { id?: string } } }) => {
+      posted.push({ path, params: opts.params });
+      if (path === '/api/v1/workspaces/{ws}/skills/{id}/run') {
+        return { data: { run_class: 'non_ai', steps: [{ tool: 'principal.resolve', summary: 'ok' }], ran_at: '2026-01-01T00:00:00.000Z' } };
+      }
+      throw new Error(`unmocked POST ${path}`);
+    };
+    return { client: { GET, POST } as never, posted };
+  }
+
+  function registerAndGet() {
+    const { server, handlers } = fakeServer();
+    const { client, posted } = fakeClient();
+    registerTools(server, { client, baseUrl: 'http://x', token: 't' } as Ctx, { scope: 'admin', allowRunButton: true });
+    return { handlers, posted };
+  }
+
+  it('list_skills returns every skill the fake client hands back, personal and shared alike', async () => {
+    const { handlers } = registerAndGet();
+    const res = await callTool(handlers, 'list_skills', { workspace: 'JCM Agency' });
+    expect(res).toHaveLength(2);
+    expect(res.map((s: { name: string }) => s.name)).toEqual(['Weekly Status Digest', 'Lead Triage Reply']);
+    expect(res[0].allowed_tools).toEqual(['records.read']);
+  });
+
+  it('run_skill resolves a skill by name (not just id), posts the run, and echoes instructions + inputs back', async () => {
+    const { handlers, posted } = registerAndGet();
+    const res = await callTool(handlers, 'run_skill', {
+      workspace: 'JCM Agency',
+      name: 'Weekly Status Digest',
+      inputs: { database: 'Tasks' },
+    });
+    expect(posted).toEqual([{ path: '/api/v1/workspaces/{ws}/skills/{id}/run', params: { path: { ws: 'ws-1', id: 'skill-1' } } }]);
+    expect(res.skill.id).toBe('skill-1');
+    expect(res.instructions).toBe('List records changed this week.');
+    expect(res.inputs).toEqual({ database: 'Tasks' });
+    expect(res.run_log.run_class).toBe('non_ai');
+  });
+
+  it('run_skill also resolves by id', async () => {
+    const { handlers } = registerAndGet();
+    const res = await callTool(handlers, 'run_skill', { workspace: 'JCM Agency', name: 'skill-2' });
+    expect(res.skill.name).toBe('Lead Triage Reply');
+    expect(res.inputs).toEqual({});
+  });
+
+  it('run_skill surfaces a helpful error for an unknown name instead of a bare failure', async () => {
+    const { handlers } = registerAndGet();
+    const result = await handlers.get('run_skill')!({ workspace: 'JCM Agency', name: 'Nonexistent Skill' });
+    expect(result.isError).toBe(true);
+    expect(result.content[0]!.text).toMatch(/No skill matches "Nonexistent Skill"/);
+  });
+
+  it('a read-scoped token sees list_skills but not run_skill (MN-134 parity)', async () => {
+    const { server, handlers } = fakeServer();
+    const { client } = fakeClient();
+    registerTools(server, { client, baseUrl: 'http://x', token: 't' } as Ctx, { scope: 'read', allowRunButton: true });
+    expect(handlers.has('list_skills')).toBe(true);
+    expect(handlers.has('run_skill')).toBe(false);
+  });
+});

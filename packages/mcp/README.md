@@ -46,6 +46,27 @@ Ticket: [MN-076](../../tickets/MN-076-mcp-server.md).
 | `create_relation` / `delete_relation` | Link two databases (one_to_many / many_to_many) — paired relation fields. |
 | `reorder_fields` / `reorder_views` | Set field / view order by name. |
 
+**Skills** (a workspace's saved skills, over MCP)
+| Tool | What it does |
+|---|---|
+| `list_skills` | Skills visible to the caller — their own personal ones, plus every shared one (same visibility rule the in-app Skills list enforces). |
+| `run_skill` | Resolve a skill's instructions/when_to_use/allowed_tools by name or id, and record the run (same bookkeeping as pressing "Run" in-app). StoryOS has no managed AI runtime yet, so **you** — the connected agent — carry out the instructions against the `inputs` you pass; they're echoed back, not executed server-side. |
+
+A workspace's skills are also exposed as native MCP **resources** and **prompts**,
+for clients that understand those primitives (not just tools):
+
+- **Resources**: a `storyos-skill://{workspace}/{skill}` template. `resources/list`
+  returns one entry per visible skill (across every workspace the token can see);
+  reading one returns the skill rendered as portable Markdown — the exact shape
+  `GET /skills/:id/export?format=markdown` produces.
+- **Prompts**: one named prompt per visible skill (e.g. `skill_weekly_status_digest`),
+  disambiguated by workspace name on a name collision. `prompts/get` returns the
+  skill's instructions as a single user-role message, ready to paste into context.
+
+Both are read-only and best-effort: a catalog fetch failing for one workspace
+never blanks out another's, and a failure registering them never breaks the
+tools (see `server.ts`).
+
 Conveniences: `query_records` / `get_record` return select values as **labels** (not option ids) and rich_text as **Markdown**; `create_record` / `update_record` accept **Markdown** on a rich_text field (headings, lists, links, code → parsed to blocks) and select **labels**; `create_record` reports any **unset** template fields. `get_record` / `query_records` / `create_record` / `update_record` all include a `url` — a clickable web-app link for that record — so an agent never has to describe a manual navigation path.
 
 Hosted Streamable HTTP (for ChatGPT / claude.ai connectors without a local process)
