@@ -46,12 +46,32 @@ export function coercePaste(target: Field, text: string, copied: CopiedCell | nu
 
   // relation -> relation: only when both point at the same database, or the ids
   // mean nothing in the target. Chips are {id,title}; the API takes ids (MN-080).
+  //
+  // MN-291: `copied.value` is supposed to always be real {id,title} chips (what
+  // the server attaches when it resolves a relation field), but a relation
+  // paste's own optimistic cache update writes the mutation payload straight
+  // into the cache — a plain array of id strings, not chip objects — until the
+  // mutation settles and a refetch corrects it. Copy that same cell during
+  // that window and `copied.value` is `string[]`, not `{id}[]`; blindly
+  // mapping `.id` over it yields `[undefined, ...]`, which JSON-serializes to
+  // `[null, ...]` on the wire and trips the backend's raw "expected an array
+  // of record ids or numbers" validation instead of either succeeding or
+  // refusing cleanly. Filter to real, non-empty string ids so only a
+  // well-shaped value (or a clean refusal) ever reaches the mutation; a
+  // non-empty source that yields nothing valid refuses outright rather than
+  // silently sending a partial/empty relation set.
   if (copied && copied.field.type === 'relation' && target.type === 'relation') {
     const from = copied.field.relation?.target_database_id;
     const to = target.relation?.target_database_id;
     if (!from || !to || from !== to) return PASTE_WRONG_TARGET;
-    const chips = (copied.value as Array<{ id: string }> | null) ?? [];
-    return chips.map((c) => c.id);
+    const raw = copied.value;
+    if (raw != null && !Array.isArray(raw)) return PASTE_WRONG_TARGET;
+    const chips = (raw as unknown[] | null) ?? [];
+    const ids = chips
+      .map((c) => (c && typeof c === 'object' ? (c as { id?: unknown }).id : undefined))
+      .filter((id): id is string => typeof id === 'string' && id.length > 0);
+    if (ids.length === 0 && chips.length > 0) return PASTE_WRONG_TARGET;
+    return ids;
   }
 
   const t = (copied ? cellToText(copied.field, copied.value) : text).trim();

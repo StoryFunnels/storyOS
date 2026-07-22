@@ -54,6 +54,45 @@ describe('relation → relation only within the same target database', () => {
   it('refuses a paste across different databases', () => {
     expect(coercePaste(otherDb, '', copied(fromField, [{ id: 'rec-1' }]))).toBe(PASTE_WRONG_TARGET);
   });
+
+  it('clears the target when the copied relation cell was empty', () => {
+    expect(coercePaste(sameDb, '', copied(fromField, null))).toEqual([]);
+    expect(coercePaste(sameDb, '', copied(fromField, []))).toEqual([]);
+  });
+
+  // MN-291: a live user report showed the backend's raw validation string
+  // ("expected an array of record ids or numbers") instead of either success
+  // or a clean refusal. Root-caused to `useRecordMutations`' optimistic cache
+  // update (use-table-data.ts) writing a relation paste's own mutation
+  // payload — a plain `string[]` of ids — straight into `row.values`, in the
+  // shape the mutation *sends*, not the `{id,title}[]` chip shape the server
+  // *returns*. Copying that same cell again before the mutation settles and
+  // the query refetches hands `coercePaste` a `copied.value` of `string[]`
+  // instead of chip objects.
+  it('refuses when the copied "chips" are actually plain id strings (stale optimistic cache, MN-291)', () => {
+    // Mapping `.id` over bare strings gives `undefined` for every entry —
+    // exactly the malformed shape that used to slip through uncaught and
+    // reach the mutation (surfacing the backend's raw error after JSON
+    // serialized `undefined` array entries into `null`).
+    const staleCacheValue = ['rec-1', 'rec-2'] as unknown;
+    expect(coercePaste(sameDb, '', copied(fromField, staleCacheValue))).toBe(PASTE_WRONG_TARGET);
+  });
+
+  it('refuses when copied chips are malformed in other ways rather than sending undefined/null ids', () => {
+    expect(coercePaste(sameDb, '', copied(fromField, [null, undefined, 42, 'bare-string']))).toBe(
+      PASTE_WRONG_TARGET,
+    );
+    expect(coercePaste(sameDb, '', copied(fromField, 'not-an-array'))).toBe(PASTE_WRONG_TARGET);
+  });
+
+  it('keeps only the well-formed ids out of a partially malformed chip array', () => {
+    // Filters rather than refuses when at least one entry is a genuine chip —
+    // matches the documented "filter, don't blanket-refuse" rule for a
+    // non-empty result.
+    expect(
+      coercePaste(sameDb, '', copied(fromField, [{ id: 'rec-1' }, { id: '' }, { title: 'no id' }, null])),
+    ).toEqual(['rec-1']);
+  });
 });
 
 describe('external text', () => {
