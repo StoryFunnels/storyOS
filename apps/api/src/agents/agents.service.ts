@@ -1,10 +1,17 @@
-import { Inject, Injectable, NotFoundException, OnModuleInit, UnprocessableEntityException } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  NotFoundException,
+  OnModuleInit,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import { and, eq, isNull } from 'drizzle-orm';
-import { markdownToBlocks } from '@storyos/schemas';
+import { blocksToMarkdown, markdownToBlocks } from '@storyos/schemas';
 import type { AutomationAction, TokenScope } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import {
+  apiTokens,
   databases as databasesTable,
   fields as fieldsTable,
   memberships as membershipsTable,
@@ -25,11 +32,15 @@ import { EntitlementsService } from '../billing/entitlements.service';
 import { AiCreditsService } from '../billing/ai-credits.service';
 import { CommentsService } from '../comments/comments.service';
 import type { CommentSegment } from '../comments/comments.service';
-import { AI_CREDIT_MARKUP_MULTIPLIER, STORYOS_AI_RUN_PLACEHOLDER_COST_CENTS } from '../billing/plans';
+import {
+  AI_CREDIT_MARKUP_MULTIPLIER,
+  STORYOS_AI_RUN_PLACEHOLDER_COST_CENTS,
+} from '../billing/plans';
 import { deriveAgentPrincipal, scopeForRole } from './agent-principal';
 import {
   pickRuntime,
   proposedActionPayloadSchema,
+  RUN_CLASS_BY_LABEL,
   RUN_CLASS_LABEL,
   stepsToMarkdown,
 } from './agent-runtime';
@@ -257,7 +268,10 @@ export class AgentsService implements OnModuleInit {
   }
 
   /** label → option id for a select/multi_select field, for writing values. */
-  private async optionIdsByLabel(databaseId: string, apiName: string): Promise<Map<string, string>> {
+  private async optionIdsByLabel(
+    databaseId: string,
+    apiName: string,
+  ): Promise<Map<string, string>> {
     const field = await this.db.query.fields.findFirst({
       where: and(eq(fieldsTable.databaseId, databaseId), eq(fieldsTable.apiName, apiName)),
     });
@@ -268,7 +282,10 @@ export class AgentsService implements OnModuleInit {
   }
 
   /** option id → label, for reading multi_select values back off a record. */
-  private async optionLabelsById(databaseId: string, apiName: string): Promise<Map<string, string>> {
+  private async optionLabelsById(
+    databaseId: string,
+    apiName: string,
+  ): Promise<Map<string, string>> {
     const byLabel = await this.optionIdsByLabel(databaseId, apiName);
     return new Map([...byLabel].map(([label, id]) => [id, label]));
   }
@@ -342,6 +359,23 @@ export class AgentsService implements OnModuleInit {
         // now. Replace with a richer target-picker once databases are addressable.
         { display_name: 'Target databases', type: 'text', config: {} },
         {
+          // #205 item 1: the owner's own choice of driver — the field
+          // pickRuntime reads via dispatchRun's runtimeFor(agent) call. Same
+          // three labels as Runs."Run class" (RUN_CLASS_LABEL) so a run's
+          // stamped class always reads back as what the agent asked for.
+          // Unset (or missing on a workspace whose Agents database predates
+          // this field) means exactly what every agent has always done:
+          // Non-AI.
+          display_name: 'AI mode',
+          type: 'select',
+          config: {},
+          options: [
+            { label: 'Non-AI', color: 'gray' },
+            { label: 'Your own AI', color: 'green' },
+            { label: 'StoryOS AI', color: 'purple' },
+          ],
+        },
+        {
           display_name: 'Approval policy',
           type: 'multi_select',
           config: {},
@@ -357,6 +391,21 @@ export class AgentsService implements OnModuleInit {
       ];
       for (const f of agentFields) await this.fields.create(agentsDb.id, f);
     }
+
+    // #205 ships after the Agents database (MN-214a), so a pack provisioned
+    // before it has every field above except "AI mode". Back-fill it the same
+    // way Runs."Pending action" is back-filled below — idempotent, and a
+    // no-op on an agentsDb just created above.
+    await this.ensureField(agentsDb.id, 'ai_mode', {
+      display_name: 'AI mode',
+      type: 'select',
+      config: {},
+      options: [
+        { label: 'Non-AI', color: 'gray' },
+        { label: 'Your own AI', color: 'green' },
+        { label: 'StoryOS AI', color: 'purple' },
+      ],
+    });
 
     let runsDb = existing.runsDb;
     if (!runsDb) {
@@ -574,6 +623,22 @@ export class AgentsService implements OnModuleInit {
     );
   }
 
+  /**
+   * The real precondition YourOwnAiRuntime checks (#205 item 1): does this
+   * workspace have at least one live (non-revoked) API token — the same
+   * "Connect your AI" on-ramp onboarding.controller.ts's `ai_connected`
+   * signals, i.e. a credential an external MCP client could actually use to
+   * reach this workspace. A revoked token doesn't count — it isn't a working
+   * on-ramp any more, whatever onboarding's separate progress checklist says.
+   */
+  private async hasLiveApiToken(workspaceId: string): Promise<boolean> {
+    const row = await this.db.query.apiTokens.findFirst({
+      columns: { id: true },
+      where: and(eq(apiTokens.workspaceId, workspaceId), isNull(apiTokens.revokedAt)),
+    });
+    return Boolean(row);
+  }
+
   /** Resolve an agent record by uuid or public number (MN-087 pretty handles). */
   private async resolveAgent(agentsDbId: string, ref: string): Promise<ProjectedRecord> {
     if (UUID_RE.test(ref)) return this.recordsService.get(agentsDbId, ref);
@@ -597,7 +662,10 @@ export class AgentsService implements OnModuleInit {
     const ownerUserId = agentRecord.created_by;
     if (!ownerUserId) return null;
     const membership = await this.db.query.memberships.findFirst({
-      where: and(eq(membershipsTable.workspaceId, workspaceId), eq(membershipsTable.userId, ownerUserId)),
+      where: and(
+        eq(membershipsTable.workspaceId, workspaceId),
+        eq(membershipsTable.userId, ownerUserId),
+      ),
     });
     if (!membership || membership.status !== 'active') return null;
     return { userId: ownerUserId, scope: scopeForRole(membership.role) };
@@ -710,14 +778,35 @@ export class AgentsService implements OnModuleInit {
     // #207 / ADR-0010 §2: the run acts as its owner, capped by what the agent declares.
     const principal = deriveAgentPrincipal(owner.userId, owner.scope, effectiveScopes);
 
+    // #205 item 1: the owner's own driver choice, read the same way scopes and
+    // approval_policy are — a select stores an option id, resolved to its
+    // label, then mapped back to the RunClass pickRuntime switches on. Missing
+    // entirely (unset field, or a pre-#205 Agents database that hasn't been
+    // re-ensured yet) falls through to undefined, which pickRuntime treats as
+    // non_ai — the behavior every agent has always had.
+    const aiModeLabels = await this.optionLabelsById(agentsDb.id, 'ai_mode');
+    const aiModeLabel = aiModeLabels.get(
+      (agentRecord.values['ai_mode'] as string | undefined) ?? '',
+    );
+    const aiMode = aiModeLabel ? RUN_CLASS_BY_LABEL[aiModeLabel] : undefined;
+
     const agent: AgentRunAgent = {
       id: agentRecord.id,
       name: agentRecord.title,
       // MN-109 Phase A: a run_agent action's `prompt` overrides the agent's
-      // own Goal for this run only. Undefined for every pre-existing caller.
-      goal: input.promptOverride,
+      // own Goal for this run only. Otherwise use the agent's stored Goal.
+      // rich_text fields store BlockNote documents — flattened to plain text so
+      // a runtime (and, for BYO-AI, an external AI client reading the handoff)
+      // gets the same goal/instructions a person reading the record would.
+      goal:
+        input.promptOverride ??
+        (agentRecord.values['goal'] ? blocksToMarkdown(agentRecord.values['goal']) : undefined),
+      instructions: agentRecord.values['instructions']
+        ? blocksToMarkdown(agentRecord.values['instructions'])
+        : undefined,
       scopes: effectiveScopes,
       targetDatabases: (agentRecord.values['target_databases'] as string | undefined) ?? undefined,
+      aiMode,
     };
 
     // ── Dispatch ──────────────────────────────────────────────────────────────
@@ -728,6 +817,12 @@ export class AgentsService implements OnModuleInit {
     // This holds for state-change dispatch exactly as it does for manual runs.
     const runtime = this.runtimeFor(agent);
     const runClassLabel = RUN_CLASS_LABEL[runtime.runClass];
+
+    // #205 item 1: the real precondition a your_own_ai run's step log reports
+    // on (YourOwnAiRuntime). Only queried for that runtime — every other run
+    // class has no use for it, so it never costs them a query.
+    const aiConnected =
+      runtime.runClass === 'your_own_ai' ? await this.hasLiveApiToken(workspaceId) : false;
 
     const triggerIds = await this.optionIdsByLabel(runsDb.id, 'trigger');
     const statusIds = await this.optionIdsByLabel(runsDb.id, 'status');
@@ -740,7 +835,8 @@ export class AgentsService implements OnModuleInit {
     // A blocked run still becomes a real, visible Run record (graceful
     // degradation, never a silent no-op) — it just never invokes the runtime.
     const overAllowance =
-      runtime.runClass === 'non_ai' && !(await this.entitlements.can(workspaceId, 'automation_run'));
+      runtime.runClass === 'non_ai' &&
+      !(await this.entitlements.can(workspaceId, 'automation_run'));
 
     // MN-109 Phase A cost-cap guardrail: refuse to even start a run whose
     // classified cost is already known to exceed the configured ceiling.
@@ -751,7 +847,8 @@ export class AgentsService implements OnModuleInit {
     const costCapExceeded =
       runtime.runClass === 'storyos_ai' &&
       input.guardrails?.maxCostCents !== undefined &&
-      STORYOS_AI_RUN_PLACEHOLDER_COST_CENTS * AI_CREDIT_MARKUP_MULTIPLIER > input.guardrails.maxCostCents;
+      STORYOS_AI_RUN_PLACEHOLDER_COST_CENTS * AI_CREDIT_MARKUP_MULTIPLIER >
+        input.guardrails.maxCostCents;
 
     const blockedBeforeExecution = overAllowance || costCapExceeded;
 
@@ -808,6 +905,7 @@ export class AgentsService implements OnModuleInit {
           agent,
           principal,
           inputRecordId: input.inputRecordId,
+          aiConnected,
         })) {
           attemptSteps.push(step);
 
@@ -839,7 +937,8 @@ export class AgentsService implements OnModuleInit {
           // staged for approval rather than refused outright, so a narrower
           // run_agent action can still make forward progress under supervision.
           const blockedByAllowlist = Boolean(
-            input.guardrails?.allowedActionKinds && !input.guardrails.allowedActionKinds.includes(kind),
+            input.guardrails?.allowedActionKinds &&
+            !input.guardrails.allowedActionKinds.includes(kind),
           );
 
           // ── The gate (ADR-0010 §4) ──────────────────────────────────────────
@@ -861,7 +960,12 @@ export class AgentsService implements OnModuleInit {
           // it applies inline and the run continues. A failure here is a run
           // failure like any other — it falls through to the catch below.
           attemptSteps.push(
-            await this.applyProposedAction(workspaceId, step.action, owner.userId, input.depth ?? 0),
+            await this.applyProposedAction(
+              workspaceId,
+              step.action,
+              owner.userId,
+              input.depth ?? 0,
+            ),
           );
         }
         steps.push(...attemptSteps);
@@ -935,7 +1039,8 @@ export class AgentsService implements OnModuleInit {
     // MN-168: count only a run that actually succeeded and was classified
     // non_ai — mirrors automations.service.ts's choice not to charge the
     // allowance for a run that errored out before doing anything useful.
-    if (!failure && runtime.runClass === 'non_ai') await this.entitlements.recordNonAiRun(workspaceId);
+    if (!failure && runtime.runClass === 'non_ai')
+      await this.entitlements.recordNonAiRun(workspaceId);
     // MN-188: the storyos_ai mirror of the above — only a run that actually
     // succeeded is charged. A run that errored out cost nothing worth billing.
     if (!failure && runtime.runClass === 'storyos_ai') {
@@ -959,7 +1064,9 @@ export class AgentsService implements OnModuleInit {
     // A disabled agent is a definition, not a runnable thing. An unset checkbox
     // is not enabled either — least privilege beats convenience here.
     if (agentRecord.values['enabled'] !== true) {
-      throw new UnprocessableEntityException('This agent is disabled — enable it before running it');
+      throw new UnprocessableEntityException(
+        'This agent is disabled — enable it before running it',
+      );
     }
 
     return this.dispatchRun({
@@ -1003,7 +1110,9 @@ export class AgentsService implements OnModuleInit {
     const agentRecord = await this.resolveAgent(agentsDb.id, agentRef);
 
     if (agentRecord.values['enabled'] !== true) {
-      throw new UnprocessableEntityException('This agent is disabled — enable it before delegating to it');
+      throw new UnprocessableEntityException(
+        'This agent is disabled — enable it before delegating to it',
+      );
     }
     await this.requireLiveRecord(membership.workspaceId, recordId);
 
@@ -1018,7 +1127,14 @@ export class AgentsService implements OnModuleInit {
       retries: 0,
     });
 
-    await this.postDelegationComment(membership.workspaceId, runsDb.id, run, agentRecord.title, recordId, membership.userId);
+    await this.postDelegationComment(
+      membership.workspaceId,
+      runsDb.id,
+      run,
+      agentRecord.title,
+      recordId,
+      membership.userId,
+    );
     return run;
   }
 
@@ -1216,7 +1332,12 @@ export class AgentsService implements OnModuleInit {
       if (run.values['run_class'] === runClassIds.get('Non-AI')) {
         await this.entitlements.recordNonAiRun(membership.workspaceId);
       } else if (run.values['run_class'] === runClassIds.get('StoryOS AI')) {
-        resolved = await this.chargeStoryOsAiRun(membership.workspaceId, runsDb.id, resolved, actorId);
+        resolved = await this.chargeStoryOsAiRun(
+          membership.workspaceId,
+          runsDb.id,
+          resolved,
+          actorId,
+        );
       }
     }
     return resolved;
@@ -1250,7 +1371,11 @@ export class AgentsService implements OnModuleInit {
    * resolves a run whose status IS "Waiting approval", so a Canceled run can
    * never be approved/rejected afterward and double-apply its staged action.
    */
-  async adminCancelRun(workspaceId: string, runRef: string, actorId: string): Promise<ProjectedRecord> {
+  async adminCancelRun(
+    workspaceId: string,
+    runRef: string,
+    actorId: string,
+  ): Promise<ProjectedRecord> {
     const { runsDb } = await this.findPackDbs(workspaceId);
     if (!runsDb) throw new NotFoundException('This workspace has no Runs database');
     const run = await this.resolveRun(runsDb.id, runRef);

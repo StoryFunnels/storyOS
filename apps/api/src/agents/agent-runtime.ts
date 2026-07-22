@@ -116,6 +116,18 @@ export const RUN_CLASS_LABEL: Record<RunClass, string> = {
   storyos_ai: 'StoryOS AI',
 };
 
+/**
+ * The reverse of RUN_CLASS_LABEL — an agent's own "AI mode" field stores the
+ * same three labels (see AgentsService.ensurePack), and dispatch needs to turn
+ * that label back into the RunClass pickRuntime switches on (#205 item 1).
+ */
+export const RUN_CLASS_BY_LABEL: Record<string, RunClass> = Object.fromEntries(
+  (Object.entries(RUN_CLASS_LABEL) as Array<[RunClass, string]>).map(([runClass, label]) => [
+    label,
+    runClass,
+  ]),
+);
+
 /** The agent definition a runtime needs — read off the agent record. */
 export interface AgentRunAgent {
   id: string;
@@ -124,6 +136,12 @@ export interface AgentRunAgent {
   instructions?: string;
   scopes: string[];
   targetDatabases?: string;
+  /**
+   * The agent's own "AI mode" field (#205 item 1) — what pickRuntime switches
+   * on. Undefined (an unset field, or a workspace whose Agents database
+   * predates this field) means exactly what it always has: non_ai.
+   */
+  aiMode?: RunClass;
 }
 
 export interface AgentRunContext {
@@ -132,6 +150,13 @@ export interface AgentRunContext {
   principal: AgentPrincipal;
   /** The record that triggered the run, for state-change runs (#215, later). */
   inputRecordId?: string;
+  /**
+   * Whether this workspace has a live API token — the "Connect your AI"
+   * on-ramp (onboarding.controller.ts's `ai_connected`) that lets an external
+   * MCP client actually reach this workspace. Only computed for a your_own_ai
+   * dispatch (see AgentsService.dispatchRun) — every other runtime ignores it.
+   */
+  aiConnected?: boolean;
 }
 
 /**
@@ -179,9 +204,77 @@ export class NonAiRuntime implements AgentRuntime {
       tool: 'runtime.note',
       summary: 'Non-AI run — no model was invoked, so nothing was metered',
       detail:
-        'This runtime performs no LLM calls. With BYO-AI, your own model drives this agent\'s ' +
+        "This runtime performs no LLM calls. With BYO-AI, your own model drives this agent's " +
         'tools over MCP and is never metered by StoryOS (MN-188). A managed runtime is the ' +
         'seam behind ManagedAiRuntime.',
+    };
+  }
+}
+
+/**
+ * The BYO-AI/MCP driver (#205's genuinely remaining item 1).
+ *
+ * Selected the moment an agent's own "AI mode" field says `your_own_ai` —
+ * before this, `pickRuntime` could never produce anything but NonAiRuntime, so
+ * that option existed on the Run's `Run class` select and in RUN_CLASS_LABEL
+ * but nothing in dispatch could ever actually stamp it in production (only
+ * tests injected it directly via `runtimeFor`).
+ *
+ * It still makes NO model call — by construction, that absence is the entire
+ * reason your-own-AI is unmetered (MN-188): the tool-driving loop runs
+ * entirely in an external MCP client (Claude Desktop, ChatGPT connectors, or
+ * any MCP-compatible client) that the workspace has connected with its own
+ * API token, never in this process. What is real here, versus NonAiRuntime's
+ * generic advisory, is that it checks the actual precondition that on-ramp
+ * requires (`ctx.aiConnected` — a live workspace API token) and reports
+ * honestly on which side of it the workspace is: either exactly what is
+ * missing before an external AI can drive this agent at all, or the concrete
+ * goal/instructions/scope handoff that AI needs once it is connected.
+ */
+export class YourOwnAiRuntime implements AgentRuntime {
+  readonly runClass: RunClass = 'your_own_ai';
+
+  async *execute(ctx: AgentRunContext): AsyncIterable<AgentStep> {
+    yield {
+      tool: 'principal.resolve',
+      summary: `Resolved principal — acting as the owner with \`${ctx.principal.scope}\` scope`,
+      detail:
+        `Declared scopes: ${ctx.agent.scopes.length ? ctx.agent.scopes.join(', ') : '(none — defaulted to read)'}. ` +
+        `The effective scope is capped at the owner's own (ADR-0010 §2) — that cap holds whether ` +
+        `a human or a connected external AI client is the one calling the tools.`,
+    };
+
+    const targets = ctx.agent.targetDatabases?.trim();
+    yield {
+      tool: 'targets.resolve',
+      summary: targets ? `Target databases: ${targets}` : 'No target databases configured',
+      detail: targets
+        ? undefined
+        : 'Set "Target databases" on the agent record to scope which data your own AI may act on.',
+    };
+
+    if (!ctx.aiConnected) {
+      yield {
+        tool: 'byo_ai.not_connected',
+        summary: 'No workspace API token found — your own AI has nothing to connect to yet',
+        detail:
+          'This agent is set to "Your own AI", but this workspace has no live API token ' +
+          '(Settings → API tokens — "Connect your AI"). Create one and point an MCP client at it ' +
+          '(Claude Desktop, ChatGPT connectors, or any MCP-compatible client) before this agent can ' +
+          'actually be driven. Nothing was invoked — creating the token is the next real step.',
+      };
+      return;
+    }
+
+    yield {
+      tool: 'byo_ai.handoff',
+      summary: 'Connected — an external AI client can now drive this agent over MCP',
+      detail:
+        `Goal: ${ctx.agent.goal?.trim() || '(none set — add one to the agent record)'}.` +
+        (ctx.agent.instructions?.trim() ? ` Instructions: ${ctx.agent.instructions.trim()}.` : '') +
+        ' Point the connected MCP client at that goal, capped to the scope and target databases ' +
+        'resolved above. Nothing runs here — a your-own-AI run is never metered by StoryOS ' +
+        '(MN-188) precisely because the tool-driving happens entirely in the client, not in this process.',
     };
   }
 }
@@ -190,6 +283,16 @@ export class NonAiRuntime implements AgentRuntime {
  * The seam for StoryOS's managed model (metered, decrements prepaid credits,
  * records `cost`). Not configured yet — it throws rather than silently
  * degrading to the non-AI path, which would misreport what a run actually did.
+ *
+ * Deliberately still a stub even though MN-189's prepaid-credit ledger
+ * (AiCreditsService) is real and load-bearing today (canUseManagedAi,
+ * recordUsage, the whole balance/expiry/auto-reload machinery) — see #205's
+ * CORRECTION. What's missing is not the ledger; it's a model-calling
+ * boundary: this codebase has no LLM client, no provider choice, and no
+ * prompt/tool-loop shape anywhere yet. Building one now, with no ADR behind
+ * it, would be inventing a second seam under cover of "finishing" this one.
+ * Wiring a real managed runtime to a real model belongs in its own ticket
+ * once that boundary is actually decided.
  */
 export class ManagedAiRuntime implements AgentRuntime {
   readonly runClass: RunClass = 'storyos_ai';
@@ -208,11 +311,23 @@ export class ManagedAiRuntime implements AgentRuntime {
  * your-own-AI run is therefore provably never metered — classification cannot
  * drift as a consequence of what the run happens to do.
  *
- * Today every agent gets the non-AI runtime; selecting the BYO-AI/managed
- * drivers arrives with the runtimes themselves.
+ * Switches on the agent's own "AI mode" field (#205 item 1). An agent that
+ * never set it — or a workspace whose Agents database predates the field —
+ * gets exactly the behavior every agent has always had: NonAiRuntime.
+ * `storyos_ai` still resolves to ManagedAiRuntime, which still throws (see its
+ * doc comment) — picking it is honest about what the owner asked for even
+ * though the driver behind it isn't built yet.
  */
-export function pickRuntime(_agent: AgentRunAgent): AgentRuntime {
-  return new NonAiRuntime();
+export function pickRuntime(agent: AgentRunAgent): AgentRuntime {
+  switch (agent.aiMode) {
+    case 'your_own_ai':
+      return new YourOwnAiRuntime();
+    case 'storyos_ai':
+      return new ManagedAiRuntime();
+    case 'non_ai':
+    default:
+      return new NonAiRuntime();
+  }
 }
 
 /** The step log, rendered as the markdown list stored in the Run's `Steps`. */
