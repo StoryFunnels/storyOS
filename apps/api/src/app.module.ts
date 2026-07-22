@@ -29,6 +29,7 @@ import { ConnectionsModule } from './connections/connections.module';
 import { EventsModule } from './events/events.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { AgentsModule } from './agents/agents.module';
+import { SkillsModule } from './skills/skills.module';
 import { TemplatesModule } from './templates/templates.module';
 import { PacksModule } from './packs/packs.module';
 import { AccessModule } from './access/access.module';
@@ -103,6 +104,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     EventsModule,
     IntegrationsModule,
     AgentsModule,
+    SkillsModule,
     TemplatesModule,
     PacksModule,
     AccessModule,

@@ -1148,3 +1148,55 @@ export const automationJobs = pgTable(
     index('automation_jobs_connection_idx').on(t.connectionId),
   ],
 );
+
+/** Personal vs team-shared (#40 AC #1): 'personal' is visible only to its
+ * owner, 'shared' to every active member of the workspace. There is no
+ * separate teams table yet, so "team-shared" today means "workspace-shared" —
+ * the same granularity `connections`/`automations` already use for
+ * workspace-wide config. */
+export const skillVisibility = pgEnum('skill_visibility', ['personal', 'shared']);
+
+/**
+ * #40 — the Skills framework: named, reusable instruction+workflow bundles for
+ * the StoryOS agent. Deliberately its own table rather than a provisioned
+ * "pack" database (contrast AgentsService.ensurePack): a skill is portable,
+ * hand-authored prose meant to round-trip through Markdown/SKILL.md/ChatGPT
+ * export, not a schema of typed fields a person would browse as records.
+ *
+ * `lastRun*` is bookkeeping for the manual-run surface (ADR-0010 §3's runtime
+ * seam, reused rather than duplicated — see skills.service.ts) — a skill run
+ * is ad hoc and synchronous, so it has no Run record of its own to read this
+ * off of the way an agent run does.
+ */
+export const skills = pgTable(
+  'skills',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    /** The author — always set, regardless of visibility (better-auth id, text). */
+    ownerId: text('owner_id').notNull(),
+    visibility: skillVisibility('visibility').notNull().default('personal'),
+    name: text('name').notNull(),
+    description: text('description').notNull(),
+    whenToUse: text('when_to_use').notNull(),
+    instructions: text('instructions').notNull(),
+    /** Array of { input, output } — see skillExampleSchema. */
+    examples: jsonb('examples').notNull().default([]),
+    /** Tool identifiers the skill may use when run (#41's future MCP allowlist
+     * reads straight off this column — see skills.service.ts's header note). */
+    allowedTools: jsonb('allowed_tools').notNull().default([]),
+    /** Which SKILL_TEMPLATES scaffold this was authored from, `'chat'` once #39
+     * lands, or null for a from-scratch skill. Provenance only. */
+    sourceTemplate: text('source_template'),
+    lastRunAt: timestamp('last_run_at', { withTimezone: true }),
+    lastRunStatus: text('last_run_status'), // 'ok' | 'error'
+    lastRunSteps: jsonb('last_run_steps'),
+    ...timestamps,
+  },
+  (t) => [
+    index('skills_workspace_visibility_idx').on(t.workspaceId, t.visibility),
+    index('skills_owner_idx').on(t.workspaceId, t.ownerId),
+  ],
+);
