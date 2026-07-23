@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
+import posthog from 'posthog-js';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDownToLine, Bot, CalendarDays, GitBranch, MessageSquare, Sparkles, Target } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -109,6 +110,7 @@ export default function IntegrationsPage() {
     onSuccess: (_data, id) => {
       const label = integrations.data?.find((e) => e.id === id)?.label ?? id;
       toast.success(`Disconnected ${label}`);
+      posthog.capture('integration_disconnected', { integration_id: id });
       void qc.invalidateQueries({ queryKey: ['integrations-directory', ws] });
     },
     onError: () => toast.error('Could not disconnect — try again'),

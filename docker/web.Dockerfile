@@ -11,6 +11,13 @@ WORKDIR /app
 FROM base AS build
 ARG NEXT_PUBLIC_API_URL=
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+# PostHog analytics — NEXT_PUBLIC_* are inlined into the client bundle at BUILD
+# time (Next.js constraint), so the values must be present here, not just at
+# runtime. Passed through from docker-compose (see the web service build args).
+ARG NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN=
+ENV NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN=$NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN
+ARG NEXT_PUBLIC_POSTHOG_HOST=
+ENV NEXT_PUBLIC_POSTHOG_HOST=$NEXT_PUBLIC_POSTHOG_HOST
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json turbo.json ./
 COPY packages/config ./packages/config
 COPY packages/schemas ./packages/schemas

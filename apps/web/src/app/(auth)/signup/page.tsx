@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useState } from 'react';
+import posthog from 'posthog-js';
 import { authClient } from '@/lib/auth-client';
 import { attributeCapturedReferral } from '@/lib/referral';
 import { AuthCard } from '../auth-card';
@@ -29,6 +30,7 @@ function SignupForm() {
       setError(result.error.message ?? 'Sign-up failed');
       return;
     }
+    posthog.capture('user_signed_up', { method: 'email' });
     // #33 — best-effort, never blocks the redirect: an unattributed sign-up
     // is a missed reward, not a broken account.
     await attributeCapturedReferral();

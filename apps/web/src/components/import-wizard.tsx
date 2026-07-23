@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import posthog from 'posthog-js';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { API_URL } from '@/lib/api';
@@ -103,6 +104,10 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
       const res = await post(ws, db, file!, mappingArray(), false);
       setResult(res);
       void qc.invalidateQueries();
+      posthog.capture('csv_import_completed', {
+        records_created: res.created,
+        warnings_total: res.warnings_total,
+      });
     } catch (error) {
       toast.error((error as Error).message);
     } finally {
