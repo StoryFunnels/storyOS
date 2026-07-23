@@ -14,6 +14,7 @@ import { api } from '@/lib/api';
 import { authClient } from '@/lib/auth-client';
 import { AutomationsPanel } from '@/components/automations-panel';
 import { ImportWizard } from '@/components/import-wizard';
+import { SourcesDialog } from '@/components/sources-dialog';
 import { InboxPanel, useUnreadCount } from '@/components/inbox-panel';
 import { openPalette } from '@/lib/shortcuts';
 import { useDatabases, useSidebarMutations, useSpaces, useWorkspace } from '@/lib/queries';
@@ -865,6 +866,7 @@ function DatabaseRow({
   const [sharing, setSharing] = useState(false);
   const [iconing, setIconing] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [automating, setAutomating] = useState(false);
   const { hide } = useHidden(ws);
 
@@ -906,6 +908,7 @@ function DatabaseRow({
             <DropdownMenuItem onSelect={() => setRenaming(true)}>Rename</DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setIconing(true)}>Icon & color</DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setImporting(true)}>Import CSV…</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setSyncing(true)}>Sync from…</DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setAutomating(true)}>Buttons & automations</DropdownMenuItem>
             {isAdmin && (
               <DropdownMenuItem onSelect={() => setSharing(true)}>Manage access</DropdownMenuItem>
@@ -956,6 +959,9 @@ function DatabaseRow({
       </Dialog>
       <Dialog open={importing} onOpenChange={setImporting}>
         {importing && <ImportWizard ws={ws} db={db.id} onDone={() => setImporting(false)} />}
+      </Dialog>
+      <Dialog open={syncing} onOpenChange={setSyncing}>
+        {syncing && <SourcesDialog ws={ws} db={db.id} onDone={() => setSyncing(false)} />}
       </Dialog>
       <Dialog open={automating} onOpenChange={setAutomating}>
         {automating && <AutomationsPanel ws={ws} db={db.id} onClose={() => setAutomating(false)} />}

@@ -109,6 +109,12 @@ const DECLARED_SAFE: Record<string, string> = {
   // descriptor shape rather than a settings-blob/zod-schema shape.
   authKind:
     "apps/api/src/integrations/integration-registry.ts (#44) — the integration registry's auth-mechanism discriminator, not a credential",
+  // packages/schemas/src/sources.ts (#239) — the field UUID a source's upsert
+  // engine matches external items against (must also appear as one of
+  // field_mapping's values). "key" here means "the upsert key column", the
+  // same non-secret sense as a database primary/unique key, not a credential.
+  external_key_field_id:
+    "packages/schemas/src/sources.ts (#239) — the source's upsert-key field id, not a credential",
 };
 
 function propertyNames(): Map<string, Set<string>> {
