@@ -84,7 +84,7 @@ export class AutomationsController {
   }
 
   @Get(':id/runs')
-  @ApiOperation({ summary: 'Run history (30-day retention)' })
+  @ApiOperation({ summary: 'Run history (90-day retention, MN-264)' })
   async runs(
     @Req() req: WorkspaceRequest,
     @Param('db') databaseId: string,

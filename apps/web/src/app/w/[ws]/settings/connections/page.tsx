@@ -21,6 +21,9 @@ interface Connection {
   scopes: string[];
   last_ok_at: string | null;
   created_at: string;
+  /** MN-264: last-24h failed-job count + circuit-breaker state. */
+  error_count_24h: number;
+  breaker_open_until: string | null;
 }
 
 interface ProviderDescriptor {
@@ -105,6 +108,20 @@ export default function ConnectionsSettingsPage() {
     onError: () => toast.error('Could not disconnect'),
   });
 
+  const resume = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await api.POST('/api/v1/workspaces/{ws}/connections/{id}/resume', {
+        params: { path: { ws, id } },
+      } as never);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success('Circuit breaker closed — jobs will resume claiming');
+      void qc.invalidateQueries({ queryKey: ['connections', ws] });
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, 'Could not resume this connection')),
+  });
+
   function reconnect(providerId: string) {
     window.location.href = `${API_URL}/api/v1/workspaces/${ws}/connections/oauth/${providerId}/start`;
   }
@@ -137,6 +154,19 @@ export default function ConnectionsSettingsPage() {
                 <StatusPill status={c.status} />
                 {c.last_ok_at ? ` · last ok ${fmt.dateTime(c.last_ok_at)}` : ''}
               </p>
+              {/* MN-264: connection health strip. */}
+              <p className="mt-0.5 text-[12px] text-muted">
+                {c.error_count_24h > 0 && (
+                  <span className={c.error_count_24h >= 5 ? 'text-error' : 'text-warning'}>
+                    {c.error_count_24h} failed job{c.error_count_24h === 1 ? '' : 's'} in the last 24h
+                  </span>
+                )}
+                {c.breaker_open_until && (
+                  <span className="ml-1.5 rounded bg-hover px-1.5 py-0.5 text-[11px] text-error">
+                    circuit open until {fmt.dateTime(c.breaker_open_until)}
+                  </span>
+                )}
+              </p>
               {c.provider === 'resend' && c.scopes.some((s) => s.startsWith('from:')) && (
                 <p className="mt-1 truncate text-[11px] text-faint">
                   Bounce webhook: {API_URL}/api/v1/providers/resend/webhook/{c.id}
@@ -147,6 +177,11 @@ export default function ConnectionsSettingsPage() {
               <Button variant="ghost" size="sm" onClick={() => test.mutate(c.id)} disabled={test.isPending}>
                 Test
               </Button>
+              {c.breaker_open_until && (
+                <Button variant="ghost" size="sm" onClick={() => resume.mutate(c.id)} disabled={resume.isPending}>
+                  Resume
+                </Button>
+              )}
               {c.status !== 'active' && providers.data?.find((p) => p.id === c.provider)?.auth_kind === 'oauth2' && (
                 <Button variant="ghost" size="sm" onClick={() => reconnect(c.provider)}>
                   Reconnect
