@@ -1,5 +1,6 @@
 import { apifyProvider } from './apify';
 import { googleProvider } from './google';
+import { httpProvider } from './http';
 import { resendProvider } from './resend';
 import { smtpProvider } from './smtp';
 import type { ProviderDescriptor } from './types';
@@ -13,6 +14,8 @@ export { googleProvider } from './google';
 export type { GoogleAuth } from './google';
 export { smtpProvider } from './smtp';
 export type { SmtpConnectionAuth } from './smtp';
+export { httpProvider } from './http';
+export type { HttpConnectionAuth } from './http';
 
 /**
  * The provider registry (MN-252 Step 2). Adding a provider is exactly: a new
@@ -20,5 +23,5 @@ export type { SmtpConnectionAuth } from './smtp';
  * below — never a schema change (`connections.provider` is free text).
  */
 export const PROVIDER_REGISTRY: ReadonlyMap<string, ProviderDescriptor> = new Map(
-  [apifyProvider, resendProvider, googleProvider, smtpProvider].map((p) => [p.id, p]),
+  [apifyProvider, resendProvider, googleProvider, smtpProvider, httpProvider].map((p) => [p.id, p]),
 );

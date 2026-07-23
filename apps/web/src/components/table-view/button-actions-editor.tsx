@@ -1,9 +1,12 @@
 'use client';
 
+import { useState } from 'react';
 import { Info, Plus, ShieldCheck, Trash2 } from 'lucide-react';
 import Link from 'next/link';
-import { useDatabases } from '@/lib/queries';
+import { api, apiErrorMessage } from '@/lib/api';
+import { useDatabases, useHttpConnections } from '@/lib/queries';
 import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useDatabase, useMailConnections, useMembers } from './use-table-data';
 import type { Field } from './use-table-data';
@@ -40,6 +43,17 @@ export type ButtonAction =
       subject: string;
       body_markdown: string;
       require_approval?: boolean;
+    }
+  // MN-263: call any API and (optionally) capture the response back onto
+  // fields. `headers` is write-only the same way send_webhook's is (#249).
+  | {
+      type: 'http_request';
+      method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+      url: string;
+      headers?: Record<string, string | { __keep: true }>;
+      body_template?: string;
+      connection_id?: string;
+      capture?: { path: string; target_field_id: string }[];
     };
 
 /** MN-254: the only actions a webhook_received rule can run — no triggering record. */
@@ -60,6 +74,7 @@ export function ButtonActionsEditor({
   actions,
   onChange,
   restrictToWebhookSafe,
+  ruleId,
 }: {
   ws: string;
   db: string;
@@ -69,6 +84,11 @@ export function ButtonActionsEditor({
   /** MN-254: true when the parent rule's trigger is "webhook_received" — there's no
    * triggering record, so only actions that don't need one are offered. */
   restrictToWebhookSafe?: boolean;
+  /** MN-263: the saved automation rule's id — enables http_request's "Send test
+   * request" (it POSTs .../automations/{ruleId}/test, which needs a saved rule).
+   * Undefined for a brand-new unsaved rule, or when editing a button's config
+   * (buttons have no test endpoint). */
+  ruleId?: string;
 }) {
   const databases = useDatabases(ws);
   const mailConnections = useMailConnections(ws);
@@ -140,6 +160,8 @@ export function ButtonActionsEditor({
                     subject: '',
                     body_markdown: '',
                   });
+                else if (t === 'http_request')
+                  patch(i, { type: 'http_request', method: 'GET', url: '' });
                 else patch(i, { type: 'add_comment', body_template: '' });
               }}
             >
@@ -158,6 +180,9 @@ export function ButtonActionsEditor({
               <option value="send_slack_message">Send a Slack message</option>
               <option value="send_webhook">Send a webhook</option>
               {offersAction('send_email') && <option value="send_email">Send an email</option>}
+              {offersAction('http_request') && (
+                <option value="http_request">Call an API (HTTP request)</option>
+              )}
             </select>
             <button
               type="button"
@@ -288,6 +313,19 @@ export function ButtonActionsEditor({
               ws={ws}
               connections={mailConnections.data ?? []}
               action={action}
+              onChange={(next) => patch(i, next)}
+            />
+          )}
+
+          {action.type === 'http_request' && (
+            <HttpRequestEditor
+              ws={ws}
+              db={db}
+              settable={settable}
+              action={action}
+              ruleId={ruleId}
+              actionIndex={i}
+              payloadHint={payloadHint}
               onChange={(next) => patch(i, next)}
             />
           )}
@@ -712,6 +750,297 @@ function SendEmailEditor({
           <option value="never">Never (admin-only setting)</option>
         </select>
       </div>
+    </div>
+  );
+}
+
+type HttpRequestAction = Extract<ButtonAction, { type: 'http_request' }>;
+
+/**
+ * MN-263 — the http_request action editor: method/url/headers/body, an
+ * optional 'http' connection for auth, response-capture rows, and "Send test
+ * request" (a REAL network call — only offered once the rule is saved, since
+ * it hits .../automations/{ruleId}/test).
+ */
+function HttpRequestEditor({
+  ws,
+  db,
+  settable,
+  action,
+  ruleId,
+  actionIndex,
+  payloadHint,
+  onChange,
+}: {
+  ws: string;
+  db: string;
+  settable: Field[];
+  action: HttpRequestAction;
+  ruleId?: string;
+  actionIndex: number;
+  payloadHint: string;
+  onChange: (next: HttpRequestAction) => void;
+}) {
+  const connections = useHttpConnections(ws);
+  const headers = action.headers ?? {};
+  const capture = action.capture ?? [];
+
+  function setHeader(name: string, value: string) {
+    onChange({ ...action, headers: { ...headers, [name]: value } });
+  }
+  function removeHeader(name: string) {
+    const next = { ...headers };
+    delete next[name];
+    onChange({ ...action, headers: next });
+  }
+  function addHeader() {
+    let name = 'X-Header';
+    let n = 2;
+    while (name in headers) name = `X-Header-${n++}`;
+    onChange({ ...action, headers: { ...headers, [name]: '' } });
+  }
+  function renameHeader(oldName: string, newName: string) {
+    if (!newName || newName === oldName || newName in headers) return;
+    const next: typeof headers = {};
+    for (const [k, v] of Object.entries(headers)) next[k === oldName ? newName : k] = v;
+    onChange({ ...action, headers: next });
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex gap-1.5">
+        <select
+          className="h-7 w-24 shrink-0 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+          value={action.method}
+          onChange={(e) => onChange({ ...action, method: e.target.value as HttpRequestAction['method'] })}
+        >
+          {(['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const).map((m) => (
+            <option key={m} value={m}>
+              {m}
+            </option>
+          ))}
+        </select>
+        <Input
+          className="h-7 flex-1"
+          type="url"
+          placeholder={`https://api.example.com/... — {Field Name} interpolates${payloadHint}`}
+          value={action.url}
+          onChange={(e) => onChange({ ...action, url: e.target.value })}
+        />
+      </div>
+
+      <div className="flex flex-col gap-1 rounded border border-border-default p-1.5">
+        <p className="text-[11px] font-medium text-muted">Headers</p>
+        {Object.entries(headers).map(([name, value]) => {
+          const isSecret = typeof value !== 'string'; // { __keep: true }
+          return (
+            <div key={name} className="flex items-center gap-1">
+              <Input
+                className="h-6 w-32 shrink-0 text-[11px]"
+                value={name}
+                onChange={(e) => renameHeader(name, e.target.value)}
+              />
+              <Input
+                className="h-6 flex-1 text-[11px]"
+                type={isSecret ? 'password' : 'text'}
+                placeholder={isSecret ? '(unchanged — type to replace)' : ''}
+                value={isSecret ? '' : value}
+                onChange={(e) => setHeader(name, e.target.value)}
+              />
+              <button type="button" className="p-0.5 text-faint hover:text-error" onClick={() => removeHeader(name)}>
+                <Trash2 className="h-3 w-3" />
+              </button>
+            </div>
+          );
+        })}
+        <button
+          type="button"
+          className="flex items-center gap-1 self-start text-[11px] text-muted hover:text-ink"
+          onClick={addHeader}
+        >
+          <Plus className="h-3 w-3" /> Add header
+        </button>
+      </div>
+
+      {action.method !== 'GET' && (
+        <textarea
+          className="min-h-[56px] rounded border border-border-default bg-card px-2 py-1 font-mono text-[12px] text-ink"
+          placeholder={`Body (optional) — JSON is sent as-is, {Field Name} interpolates${payloadHint}`}
+          value={action.body_template ?? ''}
+          onChange={(e) => onChange({ ...action, body_template: e.target.value || undefined })}
+        />
+      )}
+
+      <div className="flex flex-col gap-1">
+        <label className="text-[11px] font-medium text-muted">Auth (optional)</label>
+        <select
+          className="h-7 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+          value={action.connection_id ?? ''}
+          onChange={(e) => onChange({ ...action, connection_id: e.target.value || undefined })}
+        >
+          <option value="">No auth</option>
+          {(connections.data ?? []).map((c: { id: string; name: string }) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+        {(connections.data ?? []).length === 0 && (
+          <p className="text-[11px] text-faint">
+            No HTTP connections yet —{' '}
+            <Link href={`/w/${ws}/settings/connections`} target="_blank" className="underline underline-offset-2 hover:no-underline">
+              add one
+            </Link>{' '}
+            to send an Authorization header without typing it here.
+          </p>
+        )}
+      </div>
+
+      <CaptureRowsEditor
+        settable={settable}
+        capture={capture}
+        onChange={(next) => onChange({ ...action, capture: next })}
+      />
+
+      <p className="text-[11px] text-faint">
+        Response captured via json-path (e.g. <code>id</code> or <code>items.0.id</code>) onto the
+        fields above. Secrets from the connection are never shown in run results.
+      </p>
+
+      {ruleId && <SendTestRequestButton ws={ws} db={db} ruleId={ruleId} actionIndex={actionIndex} />}
+    </div>
+  );
+}
+
+/** MN-263 — response-capture rows: a json-path plus the field it lands on. */
+function CaptureRowsEditor({
+  settable,
+  capture,
+  onChange,
+}: {
+  settable: Field[];
+  capture: { path: string; target_field_id: string }[];
+  onChange: (next: { path: string; target_field_id: string }[]) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-1 rounded border border-border-default p-1.5">
+      <p className="text-[11px] font-medium text-muted">Capture response into fields</p>
+      {capture.map((row, i) => (
+        <div key={i} className="flex items-center gap-1">
+          <Input
+            className="h-6 w-32 shrink-0 font-mono text-[11px]"
+            placeholder="json path, e.g. id"
+            value={row.path}
+            onChange={(e) =>
+              onChange(capture.map((r, j) => (j === i ? { ...r, path: e.target.value } : r)))
+            }
+          />
+          <span className="text-[11px] text-faint">→</span>
+          <select
+            className="h-6 flex-1 rounded border border-border-default bg-card px-1 text-[11px] text-ink"
+            value={row.target_field_id}
+            onChange={(e) =>
+              onChange(capture.map((r, j) => (j === i ? { ...r, target_field_id: e.target.value } : r)))
+            }
+          >
+            <option value="">field…</option>
+            {settable.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.displayName}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="p-0.5 text-faint hover:text-error"
+            onClick={() => onChange(capture.filter((_, j) => j !== i))}
+          >
+            <Trash2 className="h-3 w-3" />
+          </button>
+        </div>
+      ))}
+      {capture.length < 10 && (
+        <button
+          type="button"
+          className="flex items-center gap-1 self-start text-[11px] text-muted hover:text-ink"
+          onClick={() => onChange([...capture, { path: '', target_field_id: settable[0]?.id ?? '' }])}
+        >
+          <Plus className="h-3 w-3" /> Add capture
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * MN-263 — "Send test request": a real network call against a sample record,
+ * via .../automations/{ruleId}/test with { record_id, action_index }. Confirms
+ * with the user first since this is not a dry run.
+ */
+function SendTestRequestButton({
+  ws,
+  db,
+  ruleId,
+  actionIndex,
+}: {
+  ws: string;
+  db: string;
+  ruleId: string;
+  actionIndex: number;
+}) {
+  const [recordRef, setRecordRef] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ status: number; body: string; available_paths: string[] } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function send() {
+    if (!recordRef.trim()) return;
+    if (!window.confirm('This sends a REAL request to the URL above, right now. Continue?')) return;
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    try {
+      const { data, error: err } = await api.POST(
+        '/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/test',
+        {
+          params: { path: { ws, db, id: ruleId } },
+          body: { record_id: recordRef.trim(), action_index: actionIndex } as never,
+        } as never,
+      );
+      if (err) throw err;
+      setResult(data as unknown as { status: number; body: string; available_paths: string[] });
+    } catch (e) {
+      setError(apiErrorMessage(e, 'Test request failed'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5 rounded border border-border-default p-1.5">
+      <p className="text-[11px] font-medium text-muted">Send test request</p>
+      <div className="flex items-center gap-1.5">
+        <Input
+          className="h-7 flex-1"
+          placeholder="Record id to test against (from its URL)"
+          value={recordRef}
+          onChange={(e) => setRecordRef(e.target.value)}
+        />
+        <Button variant="secondary" size="sm" disabled={busy || !recordRef.trim()} onClick={send}>
+          {busy ? 'Sending…' : 'Send test request'}
+        </Button>
+      </div>
+      {error && <p className="text-[11px] text-error">{error}</p>}
+      {result && (
+        <div className="flex flex-col gap-1">
+          <p className="text-[11px] text-muted">
+            HTTP {result.status} {result.status >= 200 && result.status < 300 ? '✓' : ''}
+          </p>
+          <pre className="max-h-32 overflow-auto rounded bg-card p-1.5 text-[11px] text-ink">
+            {result.body}
+          </pre>
+        </div>
+      )}
     </div>
   );
 }

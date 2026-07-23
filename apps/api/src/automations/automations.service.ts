@@ -21,6 +21,7 @@ import type { DomainEvent } from '../events/domain-events.service';
 import { EntitlementsService } from '../billing/entitlements.service';
 import { AutomationActionsService } from './actions.service';
 import { ApprovalsService } from './approvals.service';
+import { HttpRequestActionService } from './http-request-action.service';
 import { env } from '../config/env';
 import { presentActionHeaders, restoreActionHeaders } from '../common/webhook-headers';
 import { redactSecrets } from '../common/redact-secrets';
@@ -61,6 +62,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
     private readonly domainEvents: DomainEventsService,
     private readonly entitlements: EntitlementsService,
     private readonly approvalsService: ApprovalsService,
+    private readonly httpRequestAction: HttpRequestActionService,
   ) {}
 
   onModuleInit() {
@@ -242,28 +244,56 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
     return { data: rows };
   }
 
-  /** Dry run against one record: condition verdict + would-run actions. */
+  /**
+   * Dry run against one record: condition verdict + would-run actions.
+   *
+   * MN-263: `actionIndex` switches to a different mode entirely — rather than
+   * a dry-run summary, it renders that ONE action's templates against
+   * `recordId` and, when it's an http_request, actually sends it (the
+   * editor's "send test request"; a real network call, so the caller must
+   * confirm with the user first — see button-actions-editor.tsx). Any other
+   * action type at that index 400s: test-request only exists for http_request.
+   */
   async test(
     workspaceId: string,
     databaseId: string,
     ruleId: string,
     recordId: string,
     actorId: string,
+    actionIndex?: number,
   ) {
     const rule = await this.getRule(databaseId, ruleId);
+    const actions = rule.actions as AutomationAction[];
+    if (actionIndex !== undefined) {
+      const action = actions[actionIndex];
+      if (!action) throw new NotFoundException(`No action at index ${actionIndex}`);
+      if (action.type !== 'http_request') {
+        throw new UnprocessableEntityException('Send test request is only supported for http_request actions');
+      }
+      const record = await this.recordsService.get(databaseId, recordId);
+      const rendered = await this.actions.renderForTest(databaseId, action, {
+        workspaceId,
+        databaseId,
+        record,
+        actorId,
+        depth: 0,
+      });
+      return this.httpRequestAction.sendForTest(
+        workspaceId,
+        databaseId,
+        recordId,
+        actorId,
+        rendered as Extract<AutomationAction, { type: 'http_request' }>,
+      );
+    }
     const matches = rule.condition
       ? await this.conditionMatches(databaseId, rule.condition as FilterNode, recordId, actorId)
       : true;
-    await this.actions.validate(
-      databaseId,
-      workspaceId,
-      rule.actions as AutomationAction[],
-      (rule.trigger as Trigger).type,
-    );
+    await this.actions.validate(databaseId, workspaceId, actions, (rule.trigger as Trigger).type);
     return {
       condition_matches: matches,
       would_run: matches,
-      actions: (rule.actions as AutomationAction[]).map((a) => a.type),
+      actions: actions.map((a) => a.type),
     };
   }
 

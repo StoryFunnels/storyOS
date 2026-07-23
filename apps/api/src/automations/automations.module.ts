@@ -16,6 +16,7 @@ import { AutomationsController } from './automations.controller';
 import { AutomationsService } from './automations.service';
 import { HooksController } from './hooks.controller';
 import { HookRateLimiterService } from './hook-rate-limiter.service';
+import { HttpRequestActionService } from './http-request-action.service';
 import { JobRunnerService } from './job-runner.service';
 import { SendEmailActionService } from './send-email.action';
 
@@ -39,7 +40,11 @@ import { SendEmailActionService } from './send-email.action';
     JobRunnerService,
     ApprovalsService,
     SendEmailActionService,
+    // MN-263: registers the 'http_request' executor with JobRunnerService at
+    // boot (onModuleInit) — never referenced directly outside this module
+    // except by AutomationsService for the editor's "send test request".
+    HttpRequestActionService,
   ],
-  exports: [AutomationActionsService, AutomationsService, JobRunnerService, ApprovalsService],
+  exports: [AutomationActionsService, AutomationsService, JobRunnerService, ApprovalsService, HttpRequestActionService],
 })
 export class AutomationsModule {}

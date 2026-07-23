@@ -196,6 +196,40 @@ export const actionSchema = z.discriminatedUnion('type', [
     subject: z.string().min(1).max(200),
     body_markdown: z.string().min(1).max(10_000),
   }),
+  /**
+   * MN-263 — call any API from a rule and (optionally) capture the response
+   * back onto the record. Durable-queued like run_agent (job-runner.service.ts's
+   * registered 'http_request' executor) — never runs inline, so a slow or
+   * flaky endpoint retries with backoff instead of stalling the triggering
+   * write. url/headers/body_template are {Field}-templated the same way
+   * send_webhook's are; `connection_id` (optional) supplies auth merged into
+   * the request at SEND TIME ONLY — never stored in this rendered config, see
+   * http-request-action.service.ts. `capture` reads named json-paths out of a
+   * 2xx JSON response and set_values()s them onto the target fields.
+   */
+  z.object({
+    ...gated,
+    type: z.literal('http_request'),
+    method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']),
+    // Not webhookUrlSchema: a template like "https://api.example.com/{payload.id}"
+    // isn't a valid absolute URL until rendered, so host validation happens at
+    // send time (net-guard.ts's assertPublicHost), not save time here.
+    url: z.string().min(1).max(2000),
+    headers: z.record(z.string().max(100), z.string().max(1000)).optional(),
+    body_template: z.string().max(10_000).optional(),
+    connection_id: z.uuid().optional(),
+    capture: z
+      .array(
+        z.object({
+          /** A common/json-path.ts dot/array path into the parsed JSON response;
+           * a leading "$." is stripped for familiarity with jq/JSONPath syntax. */
+          path: z.string().max(200),
+          target_field_id: z.uuid(),
+        }),
+      )
+      .max(10)
+      .optional(),
+  }),
 ]);
 export type AutomationAction = z.infer<typeof actionSchema>;
 

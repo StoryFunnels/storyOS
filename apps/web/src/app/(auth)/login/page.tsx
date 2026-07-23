@@ -8,6 +8,7 @@ import { authClient, useSession } from '@/lib/auth-client';
 import { api } from '@/lib/api';
 import { AuthCard } from '../auth-card';
 import { Button } from '@/components/ui/button';
+import { GoogleIcon } from '@/components/ui/google-icon';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
@@ -61,6 +62,7 @@ function LoginForm() {
             variant="secondary"
             onClick={() => authClient.signIn.social({ provider: 'google', callbackURL: '/' })}
           >
+            <GoogleIcon className="h-[18px] w-[18px]" />
             Continue with Google
           </Button>
         )}
