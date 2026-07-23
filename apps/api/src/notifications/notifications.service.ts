@@ -67,7 +67,16 @@ export type NotificationType =
    * once/24h (a manual check, not this service's own 60s burst-collapse —
    * see its own comment for why).
    */
-  | 'send_email_cap_reached';
+  | 'send_email_cap_reached'
+  /**
+   * MN-262 — a source's own monthly run cap (e.g. Apify's `monthly_run_cap`
+   * config) was reached; SourcesService.checkMonthlyCap skips scheduling
+   * until next month. Sent to the source's creator only; not an opt-out
+   * ping, same reasoning as `automation_disabled` — it explains why syncing
+   * silently stopped. Deduped to once/calendar-month via the source's own
+   * `cursor.cap_notified_month`, not this service's 60s burst-collapse.
+   */
+  | 'source_run_cap_reached';
 
 /**
  * The types a user can switch off (#31). `notifications.type` is a plain text

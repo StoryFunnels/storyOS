@@ -36,6 +36,8 @@ export class NotificationsController {
       'trial_reminder_29',
       // MN-252: a connection's refresh failure, also bare and never opt-out-able.
       'connection_error',
+      // MN-262: a source's own monthly run cap was reached, also never opt-out-able.
+      'source_run_cap_reached',
     ]);
     return this.notifications.list(req.membership.workspaceId, req.user.id, unreadOnly === 'true', cursor, {
       type: type && allowed.has(type) ? (type as NotificationType) : undefined,

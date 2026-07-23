@@ -6014,6 +6014,45 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/databases/{db}/sources/discover": {
+      "post": {
+        "operationId": "SourcesController_discover",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DiscoverSourceDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "MN-262: preview a provider's field keys before creating a source (point-and-click mapping)",
+        "tags": [
+          "sources"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/databases/{db}/sources/{id}": {
       "patch": {
         "operationId": "SourcesController_update",
@@ -10784,6 +10823,30 @@
           "provider",
           "name",
           "auth"
+        ]
+      },
+      "DiscoverSourceDto": {
+        "type": "object",
+        "properties": {
+          "connection_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "provider_source": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "config": {
+            "default": {},
+            "type": "object",
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "connection_id",
+          "provider_source"
         ]
       },
       "CreateSourceDto": {

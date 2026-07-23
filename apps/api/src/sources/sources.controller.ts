@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
-import { createSourceSchema, updateSourceSchema } from '@storyos/schemas';
+import { createSourceSchema, sourceDiscoverRequestSchema, updateSourceSchema } from '@storyos/schemas';
 import { AuthGuard } from '../auth/auth.guard';
 import { RequiresScope } from '../auth/token-scope.guard';
 import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
@@ -11,6 +11,7 @@ import { SourcesService } from './sources.service';
 
 class CreateSourceDto extends createZodDto(createSourceSchema) {}
 class UpdateSourceDto extends createZodDto(updateSourceSchema) {}
+class DiscoverSourceDto extends createZodDto(sourceDiscoverRequestSchema) {}
 
 /**
  * #239 — CUD (schema-adjacent: a source's field mapping shapes the target
@@ -50,6 +51,14 @@ export class SourcesController {
   async providers(@Req() req: WorkspaceRequest, @Param('db') databaseId: string) {
     await this.dbAsViewer(req, databaseId);
     return this.sourcesService.listProviders();
+  }
+
+  @Post('discover')
+  @RequiresScope('write')
+  @ApiOperation({ summary: 'MN-262: preview a provider\'s field keys before creating a source (point-and-click mapping)' })
+  async discover(@Req() req: WorkspaceRequest, @Param('db') databaseId: string, @Body() body: DiscoverSourceDto) {
+    await this.dbAsCreator(req, databaseId);
+    return this.sourcesService.discover(req.membership.workspaceId, body);
   }
 
   @Post()
