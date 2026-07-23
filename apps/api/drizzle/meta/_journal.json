@@ -435,6 +435,13 @@
       "when": 1784774580005,
       "tag": "0061_robust_trauma",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1784847469740,
+      "tag": "0062_bright_hawkeye",
+      "breakpoints": true
     }
   ]
 }

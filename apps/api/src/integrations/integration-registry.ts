@@ -17,13 +17,9 @@
  * The workspace credential registry two doors down (`connections/providers`,
  * MN-252) is a deliberately different, narrower thing: a generic OAuth2/api_key
  * credential store with no per-provider UI or workflow logic (Apify, Resend,
- * and — today — a YouTube-scoped Google connection). When Google Calendar
- * (this registry's `google-calendar`, still `soon`) actually ships, the plan
- * is for it to connect THROUGH that credential store (widen `googleProvider`'s
- * scopes or register a calendar-scoped sibling) rather than growing its own
- * OAuth plumbing — at which point its entry here gets `authKind: 'oauth2'`
- * backed by a connections provider id instead of a bespoke controller. See the
- * #44 PR description for the full reasoning.
+ * and a YouTube-scoped Google connection). Google Calendar connects through a
+ * dedicated calendar-scoped sibling in that credential store, so granting
+ * Calendar write access never widens an existing YouTube credential.
  */
 
 export type IntegrationAuthKind = 'oauth2' | 'config' | 'delegate';
@@ -60,7 +56,8 @@ export const INTEGRATION_REGISTRY: readonly IntegrationDescriptor[] = [
     id: 'slack',
     label: 'Slack',
     builtBy: 'StoryOS',
-    description: 'Send messages to Slack from automations — post updates to a channel when records change.',
+    description:
+      'Send messages to Slack from automations — post updates to a channel when records change.',
     authKind: 'config',
     status: 'available',
   },
@@ -70,7 +67,7 @@ export const INTEGRATION_REGISTRY: readonly IntegrationDescriptor[] = [
     builtBy: 'StoryOS',
     description: 'Two-way sync between date fields and your calendar.',
     authKind: 'oauth2',
-    status: 'soon',
+    status: 'available',
   },
   {
     id: 'delegate-agent',

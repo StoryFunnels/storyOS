@@ -29,7 +29,9 @@ describe('ConnectionsService OAuth state (MN-252)', () => {
     const state = new URL(url).searchParams.get('state')!;
 
     const verified = service.verifyOAuthState(state);
-    expect(verified).toEqual(expect.objectContaining({ ws: 'ws-1', provider: 'google', uid: 'user-1' }));
+    expect(verified).toEqual(
+      expect.objectContaining({ ws: 'ws-1', provider: 'google', uid: 'user-1' }),
+    );
   });
 
   it('builds the authorize URL with the client id, scopes and extra params', () => {
@@ -42,9 +44,25 @@ describe('ConnectionsService OAuth state (MN-252)', () => {
     expect(url.searchParams.get('scope')).toContain('openid');
   });
 
+  it('keeps Calendar write access on a dedicated provider', () => {
+    const service = newService();
+    const calendarUrl = new URL(service.authorizeUrl('ws-1', 'google-calendar', 'user-1'));
+    const youtubeUrl = new URL(service.authorizeUrl('ws-1', 'google', 'user-1'));
+
+    expect(calendarUrl.searchParams.get('scope')).toContain(
+      'https://www.googleapis.com/auth/calendar',
+    );
+    expect(calendarUrl.searchParams.get('include_granted_scopes')).toBe('true');
+    expect(youtubeUrl.searchParams.get('scope')).not.toContain(
+      'https://www.googleapis.com/auth/calendar',
+    );
+  });
+
   it('rejects an unknown provider', () => {
     const service = newService();
-    expect(() => service.authorizeUrl('ws-1', 'not-a-provider', 'user-1')).toThrow(NotFoundException);
+    expect(() => service.authorizeUrl('ws-1', 'not-a-provider', 'user-1')).toThrow(
+      NotFoundException,
+    );
   });
 
   it('rejects a provider that does not support OAuth (e.g. apify)', () => {
@@ -76,9 +94,9 @@ describe('ConnectionsService OAuth state (MN-252)', () => {
     const state = new URL(url).searchParams.get('state')!;
     const dot = state.lastIndexOf('.');
     const payload = JSON.parse(Buffer.from(state.slice(0, dot), 'base64url').toString('utf8'));
-    const tamperedData = Buffer.from(JSON.stringify({ ...payload, ws: 'someone-elses-workspace' })).toString(
-      'base64url',
-    );
+    const tamperedData = Buffer.from(
+      JSON.stringify({ ...payload, ws: 'someone-elses-workspace' }),
+    ).toString('base64url');
     // Re-using the original (now-mismatched) signature — this is exactly what
     // an attacker who can't compute a valid HMAC would try.
     expect(service.verifyOAuthState(`${tamperedData}.${state.slice(dot + 1)}`)).toBeNull();

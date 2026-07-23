@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
 export interface DomainEvent {
-  type: 'record_created' | 'record_updated' | 'record_linked';
+  type: 'record_created' | 'record_updated' | 'record_linked' | 'record_deleted';
   workspaceId: string;
   databaseId: string;
   recordId: string;

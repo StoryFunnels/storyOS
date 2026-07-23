@@ -7,6 +7,7 @@ import { RelationsModule } from '../relations/relations.module';
 import { UsersModule } from '../users/users.module';
 import { WorkspacesModule } from '../workspaces/workspaces.module';
 import { MigrationFrameworkModule } from '../migration-framework/migration-framework.module';
+import { ConnectionsModule } from '../connections/connections.module';
 import { GithubAppService } from './github-app.service';
 import { GithubService } from './github.service';
 import { GithubReviewsService } from './github-reviews.service';
@@ -34,6 +35,7 @@ import { SlackService } from './slack.service';
     UsersModule,
     WorkspacesModule,
     MigrationFrameworkModule,
+    ConnectionsModule,
   ],
   controllers: [
     IntegrationsDirectoryController,
@@ -45,7 +47,21 @@ import { SlackService } from './slack.service';
     LinearIntegrationsController,
     SlackIntegrationsController,
   ],
-  providers: [GithubAppService, GithubService, GithubReviewsService, GithubWebhookService, LinearService, SlackService],
-  exports: [GithubAppService, GithubService, GithubReviewsService, GithubWebhookService, LinearService, SlackService],
+  providers: [
+    GithubAppService,
+    GithubService,
+    GithubReviewsService,
+    GithubWebhookService,
+    LinearService,
+    SlackService,
+  ],
+  exports: [
+    GithubAppService,
+    GithubService,
+    GithubReviewsService,
+    GithubWebhookService,
+    LinearService,
+    SlackService,
+  ],
 })
 export class IntegrationsModule {}

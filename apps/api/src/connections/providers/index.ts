@@ -1,5 +1,6 @@
 import { apifyProvider } from './apify';
 import { googleProvider } from './google';
+import { googleCalendarProvider } from './google-calendar';
 import { httpProvider } from './http';
 import { resendProvider } from './resend';
 import { smtpProvider } from './smtp';
@@ -12,6 +13,7 @@ export { resendProvider } from './resend';
 export type { ResendAuth } from './resend';
 export { googleProvider } from './google';
 export type { GoogleAuth } from './google';
+export { googleCalendarProvider } from './google-calendar';
 export { smtpProvider } from './smtp';
 export type { SmtpConnectionAuth } from './smtp';
 export { httpProvider } from './http';
@@ -23,5 +25,12 @@ export type { HttpConnectionAuth } from './http';
  * below — never a schema change (`connections.provider` is free text).
  */
 export const PROVIDER_REGISTRY: ReadonlyMap<string, ProviderDescriptor> = new Map(
-  [apifyProvider, resendProvider, googleProvider, smtpProvider, httpProvider].map((p) => [p.id, p]),
+  [
+    apifyProvider,
+    resendProvider,
+    googleProvider,
+    googleCalendarProvider,
+    smtpProvider,
+    httpProvider,
+  ].map((p) => [p.id, p]),
 );

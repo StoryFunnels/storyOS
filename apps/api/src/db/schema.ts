@@ -65,7 +65,14 @@ export const fieldType = pgEnum('field_type', [
 ]);
 
 export const viewType = pgEnum('view_type', [
-  'table', 'board', 'calendar', 'gallery', 'list', 'feed', 'timeline', 'form',
+  'table',
+  'board',
+  'calendar',
+  'gallery',
+  'list',
+  'feed',
+  'timeline',
+  'form',
 ]);
 
 /** Side "a" is the "many" side for one_to_many (meta-model §Relation). */
@@ -161,10 +168,7 @@ export const accessGrants = pgTable(
       .on(t.userId, t.databaseId)
       .where(sql`${t.databaseId} IS NOT NULL`),
     /** The scope XOR the service always claimed, now actually enforced. */
-    check(
-      'access_grants_scope_xor',
-      sql`(${t.spaceId} IS NULL) <> (${t.databaseId} IS NULL)`,
-    ),
+    check('access_grants_scope_xor', sql`(${t.spaceId} IS NULL) <> (${t.databaseId} IS NULL)`),
   ],
 );
 
@@ -861,9 +865,7 @@ export const usageCounters = pgTable(
     metric: text('metric').notNull(),
     count: integer('count').notNull().default(0),
   },
-  (t) => [
-    uniqueIndex('usage_counters_uq').on(t.workspaceId, t.periodStart, t.metric),
-  ],
+  (t) => [uniqueIndex('usage_counters_uq').on(t.workspaceId, t.periodStart, t.metric)],
 );
 
 /**
@@ -979,7 +981,13 @@ export const abuseFlags = pgTable(
     threshold: integer('threshold').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex('abuse_flags_workspace_metric_window_uq').on(t.workspaceId, t.metric, t.windowStart)],
+  (t) => [
+    uniqueIndex('abuse_flags_workspace_metric_window_uq').on(
+      t.workspaceId,
+      t.metric,
+      t.windowStart,
+    ),
+  ],
 );
 
 /**
@@ -1112,6 +1120,69 @@ export const connections = pgTable(
     ...timestamps,
   },
   (t) => [index('connections_workspace_provider_idx').on(t.workspaceId, t.provider)],
+);
+
+/**
+ * #20 — one database ↔ Google Calendar mapping. Credentials stay in
+ * `connections`; this table contains only non-secret mapping/config state.
+ */
+export const calendarSyncBindings = pgTable(
+  'calendar_sync_bindings',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    connectionId: uuid('connection_id')
+      .notNull()
+      .references(() => connections.id, { onDelete: 'cascade' }),
+    databaseId: uuid('database_id')
+      .notNull()
+      .references(() => databases.id, { onDelete: 'cascade' }),
+    calendarId: text('calendar_id').notNull(),
+    calendarName: text('calendar_name').notNull(),
+    startFieldId: uuid('start_field_id')
+      .notNull()
+      .references(() => fields.id, { onDelete: 'cascade' }),
+    endFieldId: uuid('end_field_id').references(() => fields.id, { onDelete: 'set null' }),
+    descriptionFieldId: uuid('description_field_id').references(() => fields.id, {
+      onDelete: 'set null',
+    }),
+    /** push is the shipped first vertical; pull/two_way are reserved follow-ups. */
+    direction: text('direction').notNull().default('push'),
+    status: text('status').notNull().default('active'),
+    lastSyncAt: timestamp('last_sync_at', { withTimezone: true }),
+    lastError: text('last_error'),
+    createdBy: text('created_by'),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('calendar_sync_bindings_database_calendar_uq').on(t.databaseId, t.calendarId),
+    index('calendar_sync_bindings_workspace_idx').on(t.workspaceId),
+  ],
+);
+
+/** Stable record↔event identity for idempotent create/update/delete push sync. */
+export const calendarEventLinks = pgTable(
+  'calendar_event_links',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    bindingId: uuid('binding_id')
+      .notNull()
+      .references(() => calendarSyncBindings.id, { onDelete: 'cascade' }),
+    recordId: uuid('record_id')
+      .notNull()
+      .references(() => records.id, { onDelete: 'cascade' }),
+    externalEventId: text('external_event_id').notNull(),
+    externalUpdatedAt: timestamp('external_updated_at', { withTimezone: true }),
+    contentHash: text('content_hash'),
+    lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }).notNull().defaultNow(),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('calendar_event_links_binding_record_uq').on(t.bindingId, t.recordId),
+    uniqueIndex('calendar_event_links_binding_external_uq').on(t.bindingId, t.externalEventId),
+  ],
 );
 
 /**
