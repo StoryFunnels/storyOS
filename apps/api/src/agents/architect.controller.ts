@@ -10,6 +10,17 @@ import { ArchitectService } from './architect.service';
 const proposeSchema = z.object({
   /** The plain-language goal, e.g. "when a lead arrives, draft a reply and follow up". */
   goal: z.string().min(1).max(2000),
+  /**
+   * Which proposer plans this goal (#246, mirrors the agent runtime seam's
+   * "AI mode"). Omitted, or "non_ai" — the free, deterministic scenario-
+   * template matcher (#213; the only behavior that existed before #246).
+   * "storyos_ai" — StoryOS's managed model, metered against this workspace's
+   * AI credit balance. "your_own_ai" — never metered; requires `draft`, the
+   * plan your own connected AI already reasoned out.
+   */
+  mode: z.enum(['non_ai', 'your_own_ai', 'storyos_ai']).optional(),
+  /** mode "your_own_ai" only: your own AI's already-reasoned plan, submitted verbatim. */
+  draft: z.unknown().optional(),
 });
 class ProposeDto extends createZodDto(proposeSchema) {}
 
@@ -55,7 +66,10 @@ export class ArchitectController {
   @Post('propose')
   @ApiOperation({ summary: 'Propose a plan from a plain-language goal; creates nothing' })
   propose(@Req() req: WorkspaceRequest, @Body() body: ProposeDto) {
-    return this.architect.propose(req.membership, body.goal);
+    return this.architect.propose(req.membership, body.goal, {
+      mode: body.mode,
+      suppliedDraft: body.draft,
+    });
   }
 
   /**

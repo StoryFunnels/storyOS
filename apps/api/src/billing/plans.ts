@@ -86,6 +86,19 @@ export const AI_CREDIT_AUTO_RELOAD_BACKOFF_MINUTES = [60, 360, 1440] as const;
  */
 export const STORYOS_AI_RUN_PLACEHOLDER_COST_CENTS = 1;
 
+/**
+ * MN-217c (#246) — the same honest-placeholder treatment as
+ * STORYOS_AI_RUN_PLACEHOLDER_COST_CENTS above, for `ManagedAiProposer`
+ * (architect-proposer.ts). Unlike the run placeholder, a propose call DOES
+ * have real tokensIn/tokensOut from the model provider's response — those are
+ * recorded on the ledger row for observability — but the dollar cost per call
+ * is a flat cent rather than computed from a per-model price table, because a
+ * real price table is a second thing to keep in sync with the provider and
+ * isn't worth building for a fractional-cent-per-call feature yet. Revisit
+ * once real invoiced provider cost needs attributing precisely.
+ */
+export const MANAGED_AI_PROPOSE_PLACEHOLDER_COST_CENTS = 1;
+
 export const PLANS: Record<PlanId, PlanDef> = {
   free: { id: 'free', name: 'Free', priceUsd: 0, includedSeats: 2, automationRuns: 100 },
   pro: {

@@ -283,6 +283,17 @@ export const envSchema = z.object({
    * just no-ops until they do, then takes effect on the next restart.
    */
   PLATFORM_ADMIN_EMAIL: z.string().optional(),
+  /**
+   * MN-217c (#246) — the Architect's managed proposer (`ManagedAiProposer`,
+   * managed-ai-client.ts) calls OpenAI's Chat Completions API directly over
+   * `fetch` (no SDK). Unset means the proposer throws a clear "not
+   * configured" 422 rather than silently degrading to template matching —
+   * same honesty as RESEND_API_KEY/STRIPE_SECRET_KEY above, and the same
+   * reasoning `ManagedAiRuntime`'s stub documents for the sibling runtime seam.
+   */
+  OPENAI_API_KEY: z.string().optional(),
+  /** Model id for the managed proposer's completion call. */
+  OPENAI_MODEL: z.string().default('gpt-4o-mini'),
 });
 
 export type Env = Omit<
