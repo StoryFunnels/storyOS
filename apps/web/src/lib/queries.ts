@@ -57,6 +57,27 @@ export function useDatabases(ws: string) {
   });
 }
 
+export interface ConnectionSummary {
+  id: string;
+  provider: string;
+  name: string;
+  status: 'active' | 'expired' | 'revoked' | 'error';
+}
+
+/** MN-263: the http_request action's connection picker needs just the 'http'-
+ * provider subset — shared here (rather than duplicating settings/connections'
+ * local hook) so both call sites invalidate the same react-query cache key. */
+export function useHttpConnections(ws: string) {
+  return useQuery({
+    queryKey: ['connections', ws],
+    queryFn: async () =>
+      unwrap<{ data: ConnectionSummary[] }>(
+        await api.GET('/api/v1/workspaces/{ws}/connections', { params: { path: { ws } } }),
+      ).data,
+    select: (rows: ConnectionSummary[]) => rows.filter((c) => c.provider === 'http'),
+  });
+}
+
 export function useSidebarMutations(ws: string) {
   const qc = useQueryClient();
   const invalidate = () => {

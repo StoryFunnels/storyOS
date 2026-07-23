@@ -201,6 +201,25 @@ export const envSchema = z.object({
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   /**
+   * MN-263 — extra comma-separated CIDRs (v4 or v6) net-guard.ts always
+   * refuses, on top of its built-in private/reserved/metadata blocklist.
+   * For hosted-infra ranges specific to a deployment (e.g. a VPC CIDR the
+   * API itself lives in) that aren't covered by the generic private-address
+   * check. Empty by default.
+   */
+  BLOCKED_CIDRS: z.string().optional().default(''),
+  /**
+   * MN-263 — self-host escape hatch: comma-separated CIDRs allowed to bypass
+   * net-guard's private-address refusal, but ONLY on the http_request
+   * automation action's send path (net-guard.ts's assertPublicHost takes this
+   * as an explicit opt-in list, never a global toggle). Lets a self-hosted
+   * StoryOS call an intranet API (e.g. 10.0.5.20) from a rule. Never bypasses
+   * BLOCKED_CIDRS or the metadata-address blocklist — those stay refused even
+   * when a CIDR here would otherwise cover them. Empty by default (nothing is
+   * private-allowed until an operator opts in).
+   */
+  HTTP_ACTION_ALLOW_PRIVATE_CIDRS: z.string().optional().default(''),
+  /**
    * Billing (MN-165). All optional: with STRIPE_SECRET_KEY unset the billing
    * module runs in "disabled" mode — every workspace is Free, checkout/portal
    * endpoints 503, and the webhook no-ops. Self-hosters never touch Stripe.

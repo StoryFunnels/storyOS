@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { redactSecrets } from './redact-secrets';
+import { redactLiteralValues, redactSecrets } from './redact-secrets';
 
 describe('redactSecrets', () => {
   it('masks integration secrets but keeps non-secret siblings', () => {
@@ -146,5 +146,31 @@ describe('redactSecrets', () => {
       url: 'https://[redacted]@ci.example.com/hook?x=1',
       note: 'no creds here',
     });
+  });
+});
+
+/** MN-263 — the http_request action's defense against a connection token echoed
+ * back verbatim inside someone else's response JSON, where no key-shape exists
+ * to redact by. */
+describe('redactLiteralValues', () => {
+  it('scrubs every occurrence of a known secret value, wherever it appears', () => {
+    const body = '{"echoed_auth":"Bearer sekrit-tok-123","ok":true,"again":"sekrit-tok-123 in prose too"}';
+    expect(redactLiteralValues(body, ['sekrit-tok-123'])).toBe(
+      '{"echoed_auth":"Bearer [redacted]","ok":true,"again":"[redacted] in prose too"}',
+    );
+  });
+
+  it('redacts multiple distinct secrets in one pass', () => {
+    expect(redactLiteralValues('user=alice pass=hunter2', ['alice', 'hunter2'])).toBe(
+      'user=[redacted] pass=[redacted]',
+    );
+  });
+
+  it('ignores empty/undefined/too-short entries rather than mangling the text', () => {
+    expect(redactLiteralValues('the cat sat', [undefined, '', 'a', 'at'])).toBe('the cat sat');
+  });
+
+  it('leaves text with no matching secret untouched', () => {
+    expect(redactLiteralValues('nothing secret here', ['totally-different-token'])).toBe('nothing secret here');
   });
 });
