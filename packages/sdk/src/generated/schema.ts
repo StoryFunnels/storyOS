@@ -3354,6 +3354,24 @@ export interface components {
                 max_steps?: number;
                 max_cost_cents?: number;
                 dry_run?: boolean;
+            } | {
+                require_approval?: boolean;
+                /** @enum {string} */
+                type: "http_request";
+                /** @enum {string} */
+                method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+                url: string;
+                headers?: {
+                    [key: string]: string;
+                };
+                body_template?: string;
+                /** Format: uuid */
+                connection_id?: string;
+                capture?: {
+                    path: string;
+                    /** Format: uuid */
+                    target_field_id: string;
+                }[];
             })[];
             /** @default true */
             enabled: boolean;
@@ -3457,6 +3475,24 @@ export interface components {
                 max_steps?: number;
                 max_cost_cents?: number;
                 dry_run?: boolean;
+            } | {
+                require_approval?: boolean;
+                /** @enum {string} */
+                type: "http_request";
+                /** @enum {string} */
+                method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+                url: string;
+                headers?: {
+                    [key: string]: string;
+                };
+                body_template?: string;
+                /** Format: uuid */
+                connection_id?: string;
+                capture?: {
+                    path: string;
+                    /** Format: uuid */
+                    target_field_id: string;
+                }[];
             })[];
             enabled?: boolean;
             approverId?: string | null;
@@ -3464,6 +3500,7 @@ export interface components {
         TestAutomationDto: {
             /** Format: uuid */
             record_id: string;
+            action_index?: number;
         };
         RejectApprovalDto: {
             reason?: string;

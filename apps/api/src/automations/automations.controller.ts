@@ -12,7 +12,14 @@ import { AutomationsService } from './automations.service';
 
 class CreateAutomationDto extends createZodDto(createAutomationSchema) {}
 class UpdateAutomationDto extends createZodDto(updateAutomationSchema) {}
-class TestAutomationDto extends createZodDto(z.object({ record_id: z.uuid() })) {}
+class TestAutomationDto extends createZodDto(
+  z.object({
+    record_id: z.uuid(),
+    /** MN-263: when set, "send test request" mode — renders + actually sends
+     * ONE action (must be http_request) instead of a dry-run summary. */
+    action_index: z.number().int().min(0).optional(),
+  }),
+) {}
 
 /** Automation rules CRUD + runs + dry-run (MN-047). Creator-gated. */
 @ApiTags('automations')
@@ -107,6 +114,7 @@ export class AutomationsController {
       id,
       body.record_id,
       req.user.id,
+      body.action_index,
     );
   }
 

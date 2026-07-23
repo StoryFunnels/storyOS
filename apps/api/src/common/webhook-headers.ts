@@ -54,8 +54,11 @@ export function isSecretHeaderName(name: string): boolean {
 
 type UnknownAction = Record<string, unknown>;
 
+/** MN-263: http_request carries the same shape of caller-supplied `headers` map
+ * (an Authorization/X-Api-Key value typed by hand, not via a connection) — same
+ * write-only treatment as send_webhook's, one classifier for both. */
 function webhookHeaders(action: UnknownAction): Record<string, unknown> | undefined {
-  if (action.type !== 'send_webhook') return undefined;
+  if (action.type !== 'send_webhook' && action.type !== 'http_request') return undefined;
   const headers = action.headers;
   if (!headers || typeof headers !== 'object' || Array.isArray(headers)) return undefined;
   return headers as Record<string, unknown>;
@@ -90,7 +93,7 @@ function matchStoredHeaders(
   const atIndex = stored[index];
   const fromIndex = atIndex ? webhookHeaders(atIndex) : undefined;
   if (fromIndex) return fromIndex;
-  const byUrl = stored.find((s) => s?.type === 'send_webhook' && s.url === action.url);
+  const byUrl = stored.find((s) => s?.type === action.type && s.url === action.url);
   return byUrl ? webhookHeaders(byUrl) : undefined;
 }
 

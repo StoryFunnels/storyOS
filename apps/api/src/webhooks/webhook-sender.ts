@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { lookup } from 'node:dns/promises';
-import { isIP } from 'node:net';
+import { assertPublicHost, defaultWebhookFetcher, isPrivateAddress } from '../common/net-guard';
+import type { WebhookFetcher } from '../common/net-guard';
 
 /**
  * The one HTTP path every outgoing webhook takes (MN-032, MN-088).
@@ -8,16 +8,14 @@ import { isIP } from 'node:net';
  * Kept free of Nest and the db so both callers — the activity-event dispatcher and
  * the button's `send_webhook` action — share exactly one sender, one signature
  * scheme and one backoff schedule, per MN-088's "don't build a second HTTP path".
+ *
+ * MN-263: `isPrivateAddress`/`assertPublicHost` moved to common/net-guard.ts (the
+ * http_request action's send path needed the same guard, hardened with a redirect
+ * chase and a self-host allowlist neither of which applies here) — re-exported so
+ * every existing import of them from this module keeps working unchanged.
  */
-
-/** Minimal fetch surface so delivery is testable without a network (mirrors SlackFetcher). */
-export type WebhookFetcher = (
-  url: string,
-  init: { method: string; headers: Record<string, string>; body: string; signal?: AbortSignal },
-) => Promise<{ status: number }>;
-
-export const defaultWebhookFetcher: WebhookFetcher = (url, init) =>
-  fetch(url, init) as unknown as Promise<{ status: number }>;
+export { assertPublicHost, defaultWebhookFetcher, isPrivateAddress };
+export type { WebhookFetcher };
 
 export const MAX_ATTEMPTS = 5;
 const TIMEOUT_MS = 10_000;
@@ -61,47 +59,6 @@ export interface DeliveryResult {
   ok: boolean;
   statusCode?: number;
   error?: string;
-}
-
-/** True for loopback, private, link-local and unique-local addresses. */
-export function isPrivateAddress(address: string): boolean {
-  const v = isIP(address);
-  if (v === 4) {
-    const [a, b] = address.split('.').map(Number) as [number, number];
-    return (
-      a === 127 || a === 10 || a === 0 || (a === 192 && b === 168) || (a === 169 && b === 254) ||
-      (a === 172 && b >= 16 && b <= 31)
-    );
-  }
-  const host = address.toLowerCase().replace(/^\[|\]$/g, '');
-  return (
-    host === '::1' ||
-    host === '::' ||
-    host.startsWith('fe80:') ||
-    host.startsWith('fc') ||
-    host.startsWith('fd') ||
-    // ::ffff:10.0.0.1 — an IPv4 address wearing an IPv6 hat
-    (host.startsWith('::ffff:') && isPrivateAddress(host.slice(7)))
-  );
-}
-
-/**
- * The URL schema rejects literal private hosts at save time, but a *name* can
- * resolve into private space (or be re-pointed after saving). Since the server
- * makes this request, resolving before each send is what stops a webhook from
- * becoming an SSRF probe into our own network.
- */
-export async function assertPublicHost(hostname: string): Promise<void> {
-  if (isIP(hostname)) {
-    if (isPrivateAddress(hostname)) throw new Error(`refusing to call private address ${hostname}`);
-    return;
-  }
-  const results = await lookup(hostname, { all: true });
-  for (const { address } of results) {
-    if (isPrivateAddress(address)) {
-      throw new Error(`refusing to call ${hostname} — it resolves to private address ${address}`);
-    }
-  }
 }
 
 export async function deliverWebhook(
