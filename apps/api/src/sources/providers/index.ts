@@ -1,8 +1,15 @@
 import { youtubeCommentsProvider, youtubeMetricsProvider, youtubeVideosProvider } from './youtube';
+import { metaEngagementProvider } from './meta_engagement';
+import { xEngagementProvider } from './x_engagement';
+import { linkedinEngagementProvider } from './linkedin_engagement';
 import type { SourceProviderDescriptor } from './types';
 
 export * from './types';
+export * from './engagement';
 export { youtubeVideosProvider, youtubeCommentsProvider, youtubeMetricsProvider } from './youtube';
+export { metaEngagementProvider, metaEngagementConfigSchema } from './meta_engagement';
+export { xEngagementProvider, xEngagementConfigSchema } from './x_engagement';
+export { linkedinEngagementProvider, linkedinEngagementConfigSchema } from './linkedin_engagement';
 
 /**
  * The source provider registry (#239 Step 2). Adding a provider — MN-261's
@@ -11,5 +18,12 @@ export { youtubeVideosProvider, youtubeCommentsProvider, youtubeMetricsProvider 
  * below. Never a schema change (`sources.providerSource` is free text).
  */
 export const SOURCE_PROVIDER_REGISTRY: ReadonlyMap<string, SourceProviderDescriptor> = new Map(
-  [youtubeVideosProvider, youtubeCommentsProvider, youtubeMetricsProvider].map((p) => [p.id, p]),
+  [
+    youtubeVideosProvider,
+    youtubeCommentsProvider,
+    youtubeMetricsProvider,
+    metaEngagementProvider,
+    xEngagementProvider,
+    linkedinEngagementProvider,
+  ].map((p) => [p.id, p]),
 );
