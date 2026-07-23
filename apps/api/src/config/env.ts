@@ -240,6 +240,21 @@ export const envSchema = z.object({
    */
   YOUTUBE_DAILY_QUOTA_UNITS: z.coerce.number().int().positive().default(10_000),
   /**
+   * MN-261 — kill-switch for the `linkedin.org_engagement` source, mirroring
+   * the same LinkedIn app-review gate MN-257's post_social executor will need
+   * (`r_organization_social` is a restricted-review scope). OFF by default:
+   * the provider is registered (so config validates, tests run) but its
+   * `sync()` refuses to call out until an operator has actually cleared
+   * LinkedIn's review and flips this on.
+   *
+   * NOT z.coerce.boolean(): Boolean("false") is true — see STRIPE_TAX_ENABLED
+   * above for the same trap.
+   */
+  LINKEDIN_ACTIONS_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  /**
    * Billing (MN-165). All optional: with STRIPE_SECRET_KEY unset the billing
    * module runs in "disabled" mode — every workspace is Free, checkout/portal
    * endpoints 503, and the webhook no-ops. Self-hosters never touch Stripe.
