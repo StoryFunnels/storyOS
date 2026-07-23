@@ -7,7 +7,7 @@ import {
   OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
-import { and, desc, eq, isNull, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, or, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { records, sourceRuns, sources } from '../db/schema';
@@ -18,6 +18,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { defaultConnectionFetcher } from '../connections/providers/types';
 import type { ConnectionFetcher } from '../connections/providers/types';
 import { SOURCE_PROVIDER_REGISTRY } from './providers';
+import { SourceSyncError } from './providers';
 import type { SourceProviderDescriptor, SourceSyncContext } from './providers';
 
 type SourceRow = typeof sources.$inferSelect;
@@ -73,9 +74,29 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
         id: p.id,
         label: p.label,
         connection_provider: p.connectionProvider,
+        description: p.description ?? null,
+        supports_discover: Boolean(p.discover),
         config_schema: zodShapeToFormSpec(p.configSchema),
       })),
     };
+  }
+
+  /** MN-262 — a one-off `discover()` call before any source exists, so the
+   * "Sync from…" dialog can offer point-and-click field mapping instead of
+   * asking the user to read the provider's docs. Config is parsed loosely
+   * (safeParse, ignoring failures) since discovery commonly runs on a
+   * still-being-filled-in config — a provider's discover() must cope with
+   * defaults the same way a fresh, un-configured source would. */
+  async discover(workspaceId: string, input: { connection_id: string; provider_source: string; config: Record<string, unknown> }) {
+    const descriptor = this.requireProvider(input.provider_source);
+    if (!descriptor.discover) {
+      throw new BadRequestException(`"${descriptor.id}" does not support field discovery`);
+    }
+    await this.requireConnectionForProvider(workspaceId, input.connection_id, descriptor);
+    const { auth } = await this.connectionsService.getDecryptedAuth(workspaceId, input.connection_id);
+    const parsed = descriptor.configSchema.safeParse(input.config ?? {});
+    const config = parsed.success ? parsed.data : (input.config ?? {});
+    return descriptor.discover(auth, config, this.fetcher);
   }
 
   // ── CRUD ─────────────────────────────────────────────────────────────────
@@ -255,6 +276,7 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
       error: row.error,
       started_at: row.startedAt.toISOString(),
       finished_at: row.finishedAt ? row.finishedAt.toISOString() : null,
+      stats: (row.stats as Record<string, unknown> | null) ?? null,
     };
   }
 
@@ -349,6 +371,9 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
       });
     }
 
+    const capSkip = await this.checkMonthlyCap(source, startedAt);
+    if (capSkip) return capSkip;
+
     const budgetFor = QUOTA_BUDGET_BY_CONNECTION_PROVIDER[connectionProvider];
     if (budgetFor) {
       const estimate = descriptor.estimateQuotaUnits?.(source.config as Record<string, unknown>) ?? 1;
@@ -392,11 +417,67 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
         .update(sources)
         .set({ lastSyncAt: new Date(), cursor: result.cursor })
         .where(eq(sources.id, source.id));
-      return this.finishRun(source, startedAt, 'ok', null, stats);
+      return this.finishRun(source, startedAt, 'ok', null, stats, result.stats);
     } catch (error) {
       const message = (error as Error).message?.slice(0, 500) ?? 'sync failed';
+      if (error instanceof SourceSyncError && error.cursor) {
+        await this.db.update(sources).set({ cursor: error.cursor }).where(eq(sources.id, source.id));
+      }
       return this.finishRun(source, startedAt, 'error', message, stats);
     }
+  }
+
+  /**
+   * MN-262 — a source-level monthly run cap (e.g. Apify's `monthly_run_cap`
+   * config; opt-in per source, absent for every provider that doesn't set
+   * one). Counts this calendar month's actually-attempted runs ('ok'/'error'
+   * — a quota/cap skip never itself counts against the cap) against the
+   * source; once at or over, returns a 'skipped_cap' run instead of letting
+   * `runOne` call `descriptor.sync()`. Notifies the source's creator once per
+   * month (tracked in `cursor.cap_notified_month`, not a new column) rather
+   * than once per scheduler tick.
+   */
+  private async checkMonthlyCap(
+    source: SourceRow,
+    startedAt: Date,
+  ): Promise<typeof sourceRuns.$inferSelect | null> {
+    const cap = (source.config as Record<string, unknown>)['monthly_run_cap'];
+    if (typeof cap !== 'number' || !Number.isFinite(cap) || cap <= 0) return null;
+
+    const monthStart = new Date(Date.UTC(startedAt.getUTCFullYear(), startedAt.getUTCMonth(), 1));
+    const monthKey = monthStart.toISOString().slice(0, 7);
+    const [row] = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(sourceRuns)
+      .where(
+        and(
+          eq(sourceRuns.sourceId, source.id),
+          gte(sourceRuns.startedAt, monthStart),
+          inArray(sourceRuns.status, ['ok', 'error']),
+        ),
+      );
+    if ((row?.count ?? 0) < cap) return null;
+
+    const cursor = (source.cursor as Record<string, unknown>) ?? {};
+    if (cursor['cap_notified_month'] !== monthKey) {
+      await this.db
+        .update(sources)
+        .set({ cursor: { ...cursor, cap_notified_month: monthKey } })
+        .where(eq(sources.id, source.id));
+      if (source.createdBy) {
+        await this.notifications
+          .notify({
+            workspaceId: source.workspaceId,
+            actorId: source.createdBy,
+            type: 'source_run_cap_reached',
+            recipients: [source.createdBy],
+            snippet: `Source "${source.name}" hit its monthly run cap (${cap}) — syncing is paused until next month`,
+            allowSelf: true,
+          })
+          .catch(() => undefined);
+      }
+    }
+    return this.finishRun(source, startedAt, 'skipped_cap', null, { fetched: 0, created: 0, updated: 0 });
   }
 
   private async finishRun(
@@ -405,6 +486,7 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
     status: string,
     error: string | null,
     stats: { fetched: number; created: number; updated: number },
+    providerStats?: Record<string, unknown>,
   ) {
     const [row] = await this.db
       .insert(sourceRuns)
@@ -418,6 +500,7 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
         created: stats.created,
         updated: stats.updated,
         error,
+        stats: providerStats ?? null,
       })
       .returning();
     return row!;
@@ -522,13 +605,38 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
 /** Best-effort ZodObject → plain-JSON form spec, for the web dialog's generic
  * config-form renderer (GET .../sources/providers). Loose by design — every
  * provider's configSchema here is a flat object of optional strings/arrays. */
+type ZodIntrospectable = { description?: string; isOptional?: () => boolean; _def?: { type?: string; innerType?: ZodIntrospectable } };
+
+/** Unwraps ZodDefault/ZodOptional wrappers to the underlying base type, e.g.
+ * `z.boolean().default(false)` → the `z.boolean()` inside — so `kindOf` sees
+ * "boolean", not the wrapper's own def. */
+function unwrapZodType(field: ZodIntrospectable): ZodIntrospectable {
+  let cur = field;
+  while (cur?._def?.innerType) cur = cur._def.innerType;
+  return cur;
+}
+
+/** Best-effort "what kind of input does this need" for the web dialog's
+ * generic config-form renderer — MN-262's `input` (record) and `include_raw`
+ * (boolean) are the first fields needing anything other than a plain text
+ * box. Loose by design, same spirit as the rest of this function. */
+function kindOfZodType(field: ZodIntrospectable): 'string' | 'number' | 'boolean' | 'array' | 'json' {
+  const base = unwrapZodType(field)?._def?.type;
+  if (base === 'boolean') return 'boolean';
+  if (base === 'number') return 'number';
+  if (base === 'array') return 'array';
+  if (base === 'record' || base === 'object') return 'json';
+  return 'string';
+}
+
 function zodShapeToFormSpec(schema: { shape?: Record<string, unknown> }): Record<string, unknown> {
-  const shape = (schema as { shape: Record<string, { description?: string; isOptional?: () => boolean }> }).shape ?? {};
+  const shape = (schema as { shape: Record<string, ZodIntrospectable> }).shape ?? {};
   const spec: Record<string, unknown> = {};
   for (const [key, field] of Object.entries(shape)) {
     spec[key] = {
       description: field?.description ?? null,
       required: field?.isOptional ? !field.isOptional() : true,
+      kind: kindOfZodType(field),
     };
   }
   return spec;

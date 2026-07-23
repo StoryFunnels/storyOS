@@ -13,7 +13,10 @@ export type SourceSchedule = z.infer<typeof sourceScheduleSchema>;
 export const sourceStatusSchema = z.enum(['active', 'paused', 'error']);
 export type SourceStatus = z.infer<typeof sourceStatusSchema>;
 
-export const sourceRunStatusSchema = z.enum(['running', 'ok', 'error', 'skipped_quota']);
+/** `skipped_cap` (MN-262): a source-level monthly run cap (e.g. Apify's
+ * `monthly_run_cap` config) was reached — distinct from `skipped_quota`,
+ * which is the shared per-connection API budget from `checkAndConsumeQuota`. */
+export const sourceRunStatusSchema = z.enum(['running', 'ok', 'error', 'skipped_quota', 'skipped_cap']);
 export type SourceRunStatus = z.infer<typeof sourceRunStatusSchema>;
 
 /** `{ external_key: field_id }` — which provider-emitted key writes which field. */
@@ -70,8 +73,24 @@ export const sourceRunSummarySchema = z.object({
   error: z.string().nullable(),
   started_at: z.string(),
   finished_at: z.string().nullable(),
+  /** Provider-owned run metadata (MN-262: `{ compute_units, apify_run_id,
+   * apify_dataset_id }`) — null for providers whose `sync()` returns none. */
+  stats: z.record(z.string(), z.unknown()).nullable(),
 });
 export type SourceRunSummary = z.infer<typeof sourceRunSummarySchema>;
+
+/** MN-262 — a one-off call into a provider's `discover()` before any source
+ * exists yet, so the "Sync from…" dialog can offer point-and-click field
+ * mapping instead of asking the user to read the provider's docs. */
+export const sourceDiscoverRequestSchema = z.object({
+  connection_id: z.uuid(),
+  provider_source: z.string().min(1).max(100),
+  config: z.record(z.string(), z.unknown()).default({}),
+});
+export type SourceDiscoverInput = z.infer<typeof sourceDiscoverRequestSchema>;
+
+export const sourceDiscoverResponseSchema = z.object({ keys: z.array(z.string()) });
+export type SourceDiscoverResponse = z.infer<typeof sourceDiscoverResponseSchema>;
 
 /** One entry in the "Sync from…" provider catalog. */
 export const sourceProviderDescriptorSchema = z.object({

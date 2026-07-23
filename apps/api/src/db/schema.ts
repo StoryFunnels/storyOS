@@ -1513,11 +1513,17 @@ export const sourceRuns = pgTable(
       .references(() => workspaces.id, { onDelete: 'cascade' }),
     startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
     finishedAt: timestamp('finished_at', { withTimezone: true }),
-    status: text('status').notNull(), // running | ok | error | skipped_quota
+    status: text('status').notNull(), // running | ok | error | skipped_quota | skipped_cap
     fetched: integer('fetched').notNull().default(0),
     created: integer('created').notNull().default(0),
     updated: integer('updated').notNull().default(0),
     error: text('error'),
+    /** Provider-owned run metadata that isn't a universal fetched/created/
+     * updated count — MN-262's Apify source uses this for
+     * `{ compute_units, apify_run_id, apify_dataset_id }` so compute-unit
+     * usage is visible per run without a provider-specific column. Null for
+     * every provider that doesn't return `stats` from `sync()`. */
+    stats: jsonb('stats'),
   },
   (t) => [
     index('source_runs_source_idx').on(t.sourceId, t.startedAt),

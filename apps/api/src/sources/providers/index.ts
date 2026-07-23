@@ -1,3 +1,4 @@
+import { apifyActorProvider } from './apify';
 import { youtubeCommentsProvider, youtubeMetricsProvider, youtubeVideosProvider } from './youtube';
 import { metaEngagementProvider } from './meta_engagement';
 import { xEngagementProvider } from './x_engagement';
@@ -10,6 +11,8 @@ export { youtubeVideosProvider, youtubeCommentsProvider, youtubeMetricsProvider 
 export { metaEngagementProvider, metaEngagementConfigSchema } from './meta_engagement';
 export { xEngagementProvider, xEngagementConfigSchema } from './x_engagement';
 export { linkedinEngagementProvider, linkedinEngagementConfigSchema } from './linkedin_engagement';
+export { apifyActorProvider, apifyActorConfigSchema } from './apify';
+export type { ApifyActorConfig } from './apify';
 
 /**
  * The source provider registry (#239 Step 2). Adding a provider — MN-261's
@@ -25,5 +28,6 @@ export const SOURCE_PROVIDER_REGISTRY: ReadonlyMap<string, SourceProviderDescrip
     metaEngagementProvider,
     xEngagementProvider,
     linkedinEngagementProvider,
+    apifyActorProvider,
   ].map((p) => [p.id, p]),
 );

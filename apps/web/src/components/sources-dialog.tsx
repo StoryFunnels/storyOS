@@ -29,20 +29,30 @@ interface SourceSummary {
 
 interface SourceRunSummary {
   id: string;
-  status: 'running' | 'ok' | 'error' | 'skipped_quota';
+  status: 'running' | 'ok' | 'error' | 'skipped_quota' | 'skipped_cap';
   fetched: number;
   created: number;
   updated: number;
   error: string | null;
   started_at: string;
   finished_at: string | null;
+  /** Provider-owned run metadata (MN-262: Apify's compute-unit usage). */
+  stats: Record<string, unknown> | null;
 }
+
+type ConfigFieldKind = 'string' | 'number' | 'boolean' | 'array' | 'json';
 
 interface SourceProviderSummary {
   id: string;
   label: string;
   connection_provider: string;
-  config_schema: Record<string, { description: string | null; required: boolean }>;
+  /** MN-262: the responsibility-framing text shown under the provider picker
+   * for providers that run under the user's own third-party account. */
+  description: string | null;
+  /** MN-262: this provider implements `discover()` — the dialog can offer a
+   * "Discover fields" button instead of requiring a static field catalog. */
+  supports_discover: boolean;
+  config_schema: Record<string, { description: string | null; required: boolean; kind: ConfigFieldKind }>;
 }
 
 interface ConnectionSummary {
@@ -174,13 +184,26 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
   const [mapping, setMapping] = useState<Map<string, MappingDestination>>(new Map());
   const [keyExternalKey, setKeyExternalKey] = useState<string>('');
   const [busy, setBusy] = useState(false);
+  /** MN-262: filled in by "Discover fields" for providers with no static
+   * PROVIDER_FIELD_CATALOG entry (e.g. apify.actor — the actor decides the
+   * shape, not the provider). */
+  const [discoveredCatalog, setDiscoveredCatalog] = useState<
+    Array<{ key: string; label: string; suggestedType: string; isKey?: boolean }> | null
+  >(null);
 
   const provider = providers.data?.find((p) => p.id === providerId);
-  const catalog = providerId ? PROVIDER_FIELD_CATALOG[providerId] ?? [] : [];
+  const catalog = providerId ? PROVIDER_FIELD_CATALOG[providerId] ?? discoveredCatalog ?? [] : [];
   const eligibleConnections = (connections.data ?? []).filter((c) => c.provider === provider?.connection_provider);
   const existingFields = (database.data?.fields ?? []).filter(
     (f) => !f.isSystem && !['title', 'lookup', 'button', 'relation', 'created_at', 'updated_at', 'created_by'].includes(f.type),
   );
+
+  function applyCatalog(cat: Array<{ key: string; label: string; suggestedType: string; isKey?: boolean }>) {
+    const initial = new Map<string, MappingDestination>();
+    cat.forEach((c) => initial.set(c.key, { kind: 'new', type: c.suggestedType }));
+    setMapping(initial);
+    setKeyExternalKey(cat.find((c) => c.isKey)?.key ?? cat[0]?.key ?? '');
+  }
 
   function resetWizard() {
     setName('');
@@ -190,17 +213,55 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
     setSchedule('15m');
     setMapping(new Map());
     setKeyExternalKey('');
+    setDiscoveredCatalog(null);
   }
 
   function selectProvider(id: string) {
     setProviderId(id);
     setConnectionId('');
     setConfig({});
-    const cat = PROVIDER_FIELD_CATALOG[id] ?? [];
-    const initial = new Map<string, MappingDestination>();
-    cat.forEach((c) => initial.set(c.key, { kind: 'new', type: c.suggestedType }));
-    setMapping(initial);
-    setKeyExternalKey(cat.find((c) => c.isKey)?.key ?? cat[0]?.key ?? '');
+    setDiscoveredCatalog(null);
+    applyCatalog(PROVIDER_FIELD_CATALOG[id] ?? []);
+  }
+
+  const discoverFields = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await api.POST('/api/v1/workspaces/{ws}/databases/{db}/sources/discover', {
+        params: { path: { ws, db } },
+        body: { connection_id: connectionId, provider_source: providerId, config: rawConfigToRecord() },
+      } as never);
+      if (error) throw error;
+      return (data as unknown as { keys: string[] }).keys;
+    },
+    onSuccess: (keys) => {
+      const cat = keys.map((key) => ({ key, label: key, suggestedType: 'text' }));
+      setDiscoveredCatalog(cat);
+      applyCatalog(cat);
+      toast.success(`Found ${cat.length} field${cat.length === 1 ? '' : 's'} — map them below`);
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, 'Could not discover fields')),
+  });
+
+  /** Best-effort config parse shared by "Discover fields" and source creation
+   * — a JSON-kind field (e.g. apify.actor's `input`) is parsed, not sent as a
+   * raw string, or the provider's own configSchema would reject it. */
+  function rawConfigToRecord(): Record<string, unknown> {
+    const parsed: Record<string, unknown> = {};
+    for (const [key, raw] of Object.entries(config)) {
+      if (!raw.trim()) continue;
+      const kind = provider?.config_schema[key]?.kind ?? (key.endsWith('_ids') ? 'array' : 'string');
+      if (kind === 'boolean') parsed[key] = raw === 'true';
+      else if (kind === 'number') parsed[key] = Number(raw);
+      else if (kind === 'json') {
+        try {
+          parsed[key] = JSON.parse(raw);
+        } catch {
+          throw new Error(`"${key}" must be valid JSON`);
+        }
+      } else if (kind === 'array') parsed[key] = raw.split(',').map((v) => v.trim()).filter(Boolean);
+      else parsed[key] = raw.trim();
+    }
+    return parsed;
   }
 
   const createField = useMutation({
@@ -233,11 +294,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
       const externalKeyFieldId = fieldIdByKey.get(keyExternalKey);
       if (!externalKeyFieldId) throw new Error('Pick a field for the external key column before saving.');
 
-      const parsedConfig: Record<string, unknown> = {};
-      for (const [key, raw] of Object.entries(config)) {
-        if (!raw.trim()) continue;
-        parsedConfig[key] = key.endsWith('_ids') ? raw.split(',').map((v) => v.trim()).filter(Boolean) : raw.trim();
-      }
+      const parsedConfig = rawConfigToRecord();
 
       const { error } = await api.POST('/api/v1/workspaces/{ws}/databases/{db}/sources', {
         params: { path: { ws, db } },
@@ -276,7 +333,9 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
           ? `Synced — ${run.created} created, ${run.updated} updated`
           : run.status === 'skipped_quota'
             ? 'Skipped — today\'s API quota is used up'
-            : `Sync failed${run.error ? `: ${run.error}` : ''}`;
+            : run.status === 'skipped_cap'
+              ? 'Skipped — this month\'s run cap is used up'
+              : `Sync failed${run.error ? `: ${run.error}` : ''}`;
       if (run.status === 'ok') toast.success(summary);
       else toast.error(summary);
       void qc.invalidateQueries({ queryKey: ['sources', ws, db] });
@@ -321,12 +380,17 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
             <div key={r.id} className="rounded-[var(--radius-card)] border border-border-default px-3 py-2 text-[13px]">
               <div className="flex items-center justify-between">
                 <span className={cn('font-medium', r.status === 'ok' ? 'text-ink' : 'text-error')}>
-                  {r.status === 'skipped_quota' ? 'skipped (quota)' : r.status}
+                  {r.status === 'skipped_quota'
+                    ? 'skipped (quota)'
+                    : r.status === 'skipped_cap'
+                      ? 'skipped (monthly cap)'
+                      : r.status}
                 </span>
                 <span className="text-[11px] text-faint">{fmt.dateTime(r.started_at)}</span>
               </div>
               <p className="mt-0.5 text-[12px] text-muted">
                 fetched {r.fetched} · created {r.created} · updated {r.updated}
+                {typeof r.stats?.['compute_units'] === 'number' && ` · ${r.stats['compute_units']} compute units`}
               </p>
               {r.error && <p className="mt-0.5 text-[12px] text-error">{r.error}</p>}
             </div>
@@ -360,6 +424,12 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
               ))}
             </select>
           </div>
+
+          {provider?.description && (
+            <p className="rounded-[var(--radius-card)] border border-border-default bg-card px-3 py-2 text-[12px] text-muted">
+              {provider.description}
+            </p>
+          )}
 
           {providerId && (
             <div className="flex flex-col gap-1.5">
@@ -400,18 +470,62 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
           {providerId &&
             Object.entries(provider?.config_schema ?? {}).map(([key, spec]) => (
               <div key={key} className="flex flex-col gap-1.5">
-                <Label htmlFor={`src-config-${key}`}>
-                  {key}
-                  {spec.required ? '' : ' (optional)'}
-                </Label>
-                <Input
-                  id={`src-config-${key}`}
-                  placeholder={spec.description ?? undefined}
-                  value={config[key] ?? ''}
-                  onChange={(e) => setConfig((prev) => ({ ...prev, [key]: e.target.value }))}
-                />
+                {spec.kind === 'boolean' ? (
+                  <label className="flex items-center gap-2 text-[13px] text-ink">
+                    <input
+                      type="checkbox"
+                      checked={config[key] === 'true'}
+                      onChange={(e) => setConfig((prev) => ({ ...prev, [key]: e.target.checked ? 'true' : 'false' }))}
+                    />
+                    {key}
+                    {spec.description ? <span className="text-[11px] text-faint">— {spec.description}</span> : null}
+                  </label>
+                ) : (
+                  <>
+                    <Label htmlFor={`src-config-${key}`}>
+                      {key}
+                      {spec.required ? '' : ' (optional)'}
+                    </Label>
+                    {spec.kind === 'json' ? (
+                      <textarea
+                        id={`src-config-${key}`}
+                        rows={4}
+                        placeholder={spec.description ? `${spec.description} (JSON)` : '{}'}
+                        className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1.5 font-mono text-[12px] text-ink"
+                        value={config[key] ?? ''}
+                        onChange={(e) => setConfig((prev) => ({ ...prev, [key]: e.target.value }))}
+                      />
+                    ) : (
+                      <Input
+                        id={`src-config-${key}`}
+                        type={spec.kind === 'number' ? 'number' : 'text'}
+                        placeholder={spec.description ?? undefined}
+                        value={config[key] ?? ''}
+                        onChange={(e) => setConfig((prev) => ({ ...prev, [key]: e.target.value }))}
+                      />
+                    )}
+                  </>
+                )}
               </div>
             ))}
+
+          {providerId && provider?.supports_discover && (
+            <div className="flex flex-col gap-1.5">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={!connectionId || discoverFields.isPending}
+                onClick={() => discoverFields.mutate()}
+              >
+                {discoverFields.isPending ? 'Discovering…' : 'Discover fields'}
+              </Button>
+              <p className="text-[11px] text-faint">
+                Runs the actor once (or reads its last successful run) to read a sample item's keys, so mapping is
+                point-and-click instead of reading the actor's docs.
+              </p>
+            </div>
+          )}
 
           {providerId && (
             <div className="flex flex-col gap-1.5">

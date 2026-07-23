@@ -2481,6 +2481,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/databases/{db}/sources/discover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** MN-262: preview a provider's field keys before creating a source (point-and-click mapping) */
+        post: operations["SourcesController_discover"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/databases/{db}/sources/{id}": {
         parameters: {
             query?: never;
@@ -4112,6 +4129,15 @@ export interface components {
             provider: string;
             name: string;
             auth: {
+                [key: string]: unknown;
+            };
+        };
+        DiscoverSourceDto: {
+            /** Format: uuid */
+            connection_id: string;
+            provider_source: string;
+            /** @default {} */
+            config: {
                 [key: string]: unknown;
             };
         };
@@ -8135,6 +8161,29 @@ export interface operations {
         requestBody?: never;
         responses: {
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SourcesController_discover: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DiscoverSourceDto"];
+            };
+        };
+        responses: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
