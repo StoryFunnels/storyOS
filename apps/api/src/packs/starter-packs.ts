@@ -68,6 +68,8 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
     ],
     manifest: {
       format_version: 1,
+      license: 'All rights reserved',
+      attribution: 'StoryOS',
       slug: 'agency-os',
       name: 'Agency OS',
       version: '1.0.0',
@@ -274,6 +276,8 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
     ],
     manifest: {
       format_version: 1,
+      license: 'All rights reserved',
+      attribution: 'StoryOS',
       slug: 'client-portal',
       name: 'Client Portal',
       version: '1.0.0',
@@ -463,6 +467,8 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
     ],
     manifest: {
       format_version: 1,
+      license: 'All rights reserved',
+      attribution: 'StoryOS',
       slug: 'dev-project-os',
       name: 'Dev Project OS',
       version: '1.0.0',
@@ -672,6 +678,8 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
     ],
     manifest: {
       format_version: 1,
+      license: 'All rights reserved',
+      attribution: 'StoryOS',
       slug: 'content-engine',
       name: 'Content Engine',
       version: '1.0.0',
@@ -844,6 +852,8 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
     ],
     manifest: {
       format_version: 1,
+      license: 'All rights reserved',
+      attribution: 'StoryOS',
       slug: 'book-launch',
       name: 'Book Launch',
       version: '1.0.0',
@@ -1058,6 +1068,8 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
     ],
     manifest: {
       format_version: 1,
+      license: 'All rights reserved',
+      attribution: 'StoryOS',
       slug: 'coaching-os',
       name: 'Coaching OS',
       version: '1.0.0',
@@ -1240,6 +1252,8 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
     ],
     manifest: {
       format_version: 1,
+      license: 'All rights reserved',
+      attribution: 'StoryOS',
       slug: 'consulting-os',
       name: 'Consulting OS',
       version: '1.0.0',

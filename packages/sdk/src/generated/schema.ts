@@ -2910,6 +2910,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/packs/submissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List this workspace's marketplace submissions */
+        get: operations["PacksController_mySubmissions"];
+        put?: never;
+        /** Submit a pack manifest to the marketplace for review */
+        post: operations["PacksController_submit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/packs/registry": {
         parameters: {
             query?: never;
@@ -2970,6 +2988,40 @@ export interface paths {
         };
         /** One built-in pack — public, pre-signup preview */
         get: operations["PublicPacksController_entry"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/packs/marketplace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Browse published Community Marketplace packs */
+        get: operations["MarketplaceController_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/packs/marketplace/{slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One published pack — manifest, changelog, versions */
+        get: operations["MarketplaceController_entry"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3162,6 +3214,40 @@ export interface paths {
         put?: never;
         /** #300/MN-216c — kill switch: cancel a queued/running/waiting-approval run in any workspace. A status flip to Canceled only — no other side effects. */
         post: operations["AdminController_cancelRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/packs/submissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** MN-220 — pack marketplace submissions awaiting (or having had) review */
+        get: operations["AdminController_listPackSubmissions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/packs/submissions/{id}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** MN-220 — approve or reject a pending pack submission */
+        post: operations["AdminController_reviewPackSubmission"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4134,6 +4220,9 @@ export interface components {
             /** @default Exported workspace slice */
             summary: string;
             upgrade_notes?: string;
+            /** @default All rights reserved */
+            license: string;
+            attribution?: string;
             space?: string;
             database_ids?: string[];
             /** @default false */
@@ -4157,6 +4246,13 @@ export interface components {
                 };
             };
         };
+        SubmitDto: {
+            /** @enum {string} */
+            vertical: "sales" | "marketing" | "support" | "engineering" | "hr" | "finance" | "agency" | "ops" | "other";
+            /** @default [] */
+            screenshots: string[];
+            manifest?: unknown;
+        };
         FavoriteDto: {
             /** @enum {string} */
             target_type: "record" | "database";
@@ -4172,6 +4268,11 @@ export interface components {
         };
         CreateRelationTargetDto: {
             title: string;
+        };
+        ReviewSubmissionDto: {
+            /** @enum {string} */
+            action: "approve" | "reject";
+            notes?: string;
         };
     };
     responses: never;
@@ -8625,6 +8726,44 @@ export interface operations {
             };
         };
     };
+    PacksController_mySubmissions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PacksController_submit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubmitDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     PacksRegistryController_registry: {
         parameters: {
             query?: never;
@@ -8679,6 +8818,42 @@ export interface operations {
         };
     };
     PublicPacksController_entry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    MarketplaceController_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    MarketplaceController_entry: {
         parameters: {
             query?: never;
             header?: never;
@@ -8962,6 +9137,49 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AdminController_listPackSubmissions: {
+        parameters: {
+            query: {
+                status: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AdminController_reviewPackSubmission: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The submission id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewSubmissionDto"];
+            };
+        };
         responses: {
             201: {
                 headers: {

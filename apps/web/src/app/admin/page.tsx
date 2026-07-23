@@ -3,7 +3,8 @@
 import type { ReactNode } from 'react';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { toast } from 'sonner';
+import { api, apiErrorMessage } from '@/lib/api';
 
 /**
  * MN-104's first (and so far only) superadmin surface — this page is the read
@@ -60,6 +61,22 @@ interface AdminRunRow {
 
 /** The only statuses AgentsService.adminCancelRun will actually flip — matches the API's own guard. */
 const CANCELABLE_STATUSES = new Set(['Queued', 'Running', 'Waiting approval']);
+
+/** MN-220 — the Community Marketplace moderation queue. */
+interface PackSubmissionRow {
+  id: string;
+  slug: string;
+  name: string;
+  version: string;
+  summary: string;
+  vertical: string;
+  license: string;
+  attribution?: string;
+  status: 'pending' | 'approved' | 'rejected';
+  review_notes?: string;
+  submitted_by: string;
+  submitted_at: string;
+}
 
 interface PlanBlendedMargin {
   plan: string;
@@ -180,6 +197,30 @@ export default function AdminPage() {
       setCancelingId(null);
       void qc.invalidateQueries({ queryKey: ['admin-runs'] });
     },
+  });
+
+  const packSubmissions = useQuery({
+    queryKey: ['admin-pack-submissions'],
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/admin/packs/submissions', {} as never);
+      if (error) throw error;
+      return data as unknown as PackSubmissionRow[];
+    },
+    retry: false,
+  });
+
+  const reviewSubmission = useMutation({
+    mutationFn: async (input: { id: string; action: 'approve' | 'reject'; notes?: string }) => {
+      const { error } = await api.POST(`/api/v1/admin/packs/submissions/${input.id}/review` as never, {
+        body: { action: input.action, notes: input.notes },
+      } as never);
+      if (error) throw error;
+    },
+    onSuccess: (_data, input) => {
+      toast.success(input.action === 'approve' ? 'Published' : 'Rejected');
+      void qc.invalidateQueries({ queryKey: ['admin-pack-submissions'] });
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, 'Review failed')),
   });
 
   if (overview.isLoading || costs.isLoading) {
@@ -387,8 +428,80 @@ export default function AdminPage() {
           </div>
         )}
       </section>
+
+      <section className="mb-8">
+        <div className="mb-2 flex items-baseline justify-between">
+          <h2 className="text-sm font-medium text-ink">Pack Marketplace</h2>
+          <span className="text-[12px] text-faint">MN-220 — submissions awaiting (or having had) review</span>
+        </div>
+        <p className="mb-3 text-[13px] text-muted">
+          v1 is curated: nothing here is listed on the marketplace until approved.
+        </p>
+
+        {packSubmissions.isLoading && <p className="text-[13px] text-muted">Loading…</p>}
+        {packSubmissions.isError && <p className="text-[13px] text-muted">Could not load submissions.</p>}
+        {packSubmissions.data && (
+          <div className="flex flex-col gap-2">
+            {packSubmissions.data.length === 0 && (
+              <p className="text-[13px] text-faint">No submissions yet.</p>
+            )}
+            {packSubmissions.data.map((s) => (
+              <div key={s.id} className="rounded-[var(--radius-control)] border border-border-default bg-card p-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-[13px] font-medium text-ink">
+                    {s.name} v{s.version} <span className="text-faint">({s.slug})</span>
+                  </p>
+                  <SubmissionStatusBadge status={s.status} />
+                </div>
+                <p className="mt-0.5 text-[12px] text-muted">{s.summary}</p>
+                <p className="mt-1 text-[12px] text-faint">
+                  {s.vertical} · {s.license}
+                  {s.attribution ? ` · by ${s.attribution}` : ''} · submitted{' '}
+                  {new Date(s.submitted_at).toLocaleDateString()}
+                </p>
+                {s.review_notes && (
+                  <p className="mt-1 text-[12px] text-ink-secondary">&ldquo;{s.review_notes}&rdquo;</p>
+                )}
+                {s.status === 'pending' && (
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      type="button"
+                      disabled={reviewSubmission.isPending}
+                      onClick={() => reviewSubmission.mutate({ id: s.id, action: 'approve' })}
+                      className="rounded-[var(--radius-control)] bg-success/10 px-2 py-1 text-[12px] font-medium text-success hover:bg-success/20 disabled:opacity-50"
+                    >
+                      Approve &amp; publish
+                    </button>
+                    <button
+                      type="button"
+                      disabled={reviewSubmission.isPending}
+                      onClick={() => {
+                        const notes = window.prompt('Reason for rejecting (shown to the author):') ?? undefined;
+                        reviewSubmission.mutate({ id: s.id, action: 'reject', notes });
+                      }}
+                      className="rounded-[var(--radius-control)] border border-border-default px-2 py-1 text-[12px] text-ink-secondary hover:bg-hover disabled:opacity-50"
+                    >
+                      Reject
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   );
+}
+
+function SubmissionStatusBadge({ status }: { status: PackSubmissionRow['status'] }) {
+  const tone =
+    status === 'approved'
+      ? 'bg-success/10 text-success'
+      : status === 'rejected'
+        ? 'bg-error/10 text-error'
+        : 'bg-warning/10 text-warning';
+  return <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${tone}`}>{status}</span>;
 }
 
 function StatusBadge({ status }: { status: string | null }) {

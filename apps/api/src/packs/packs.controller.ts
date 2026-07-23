@@ -2,10 +2,15 @@ import { Body, Controller, Get, NotFoundException, Param, Post, Req, UseGuards }
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
-import { packExportRequestSchema, packInstallResolutionsSchema } from '@storyos/schemas';
+import {
+  packExportRequestSchema,
+  packInstallResolutionsSchema,
+  packListingMetaSchema,
+} from '@storyos/schemas';
 import { AuthGuard } from '../auth/auth.guard';
 import { MinRole, WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
+import { MarketplaceService } from './marketplace.service';
 import { PACK_REGISTRY } from './registry';
 import { PacksService } from './packs.service';
 
@@ -35,6 +40,16 @@ const installSchema = z.object({
   resolutions: packInstallResolutionsSchema.optional(),
 });
 class InstallDto extends createZodDto(installSchema) {}
+
+/**
+ * A submission (MN-220): same `unknown` + service-level 422 contract as
+ * `InstallDto` for the manifest half — see that class's doc — plus the
+ * listing metadata (`packListingMetaSchema`), which IS an ordinary validated
+ * DTO field, because it's plain author input, not something that's been out
+ * of the building.
+ */
+const submitSchema = packListingMetaSchema.extend({ manifest: z.unknown().optional() });
+class SubmitDto extends createZodDto(submitSchema) {}
 
 /**
  * The built-in gallery (MN-219 / #161) is static, workspace-independent
@@ -73,7 +88,10 @@ export class PacksRegistryController {
 @MinRole('admin')
 @Controller('workspaces/:ws/packs')
 export class PacksController {
-  constructor(private readonly packs: PacksService) {}
+  constructor(
+    private readonly packs: PacksService,
+    private readonly marketplace: MarketplaceService,
+  ) {}
 
   /**
    * Export a slice of this workspace as a pack manifest. Reads only.
@@ -132,5 +150,57 @@ export class PacksController {
   @ApiOperation({ summary: 'Uninstall a tracked pack install' })
   uninstall(@Req() req: WorkspaceRequest, @Param('installId') installId: string) {
     return this.packs.uninstall(req.membership, installId);
+  }
+
+  /**
+   * Submit an exported manifest to the community marketplace for review
+   * (MN-220). Creates a `pending` submission — nothing is published until a
+   * platform admin approves it (`admin.controller.ts`).
+   */
+  @Post('submissions')
+  @ApiOperation({ summary: 'Submit a pack manifest to the marketplace for review' })
+  submit(@Req() req: WorkspaceRequest, @Body() body: SubmitDto) {
+    const { manifest, ...meta } = body;
+    return this.marketplace.submit(req.membership, manifest, meta);
+  }
+
+  /** This workspace's own submissions and their review status (MN-220). */
+  @Get('submissions')
+  @ApiOperation({ summary: "List this workspace's marketplace submissions" })
+  mySubmissions(@Req() req: WorkspaceRequest) {
+    return this.marketplace.listMySubmissions(req.membership);
+  }
+}
+
+/**
+ * The Community Marketplace browse view (MN-220) — published, curated packs,
+ * in-app. Same authenticated-but-not-admin gate as `PacksRegistryController`:
+ * browsing is not schema work, installing is (that stays behind
+ * `PacksController.install`, given the manifest `entry` returns here).
+ *
+ * Deliberately separate from `PacksRegistryController`: the built-in gallery
+ * is static, hand-authored, code-shipped content (`registry.ts`'s doc);
+ * this is community-submitted, database-backed, and versioned. Folding them
+ * into one endpoint would need a "source" flag on every card for no benefit —
+ * nothing reads them as a single list today, and `PacksService.listInstalls`
+ * (the one place that treats them uniformly) does so through
+ * `MarketplaceService.latestVersionOf`, which already checks both.
+ */
+@ApiTags('packs')
+@UseGuards(AuthGuard)
+@Controller('packs/marketplace')
+export class MarketplaceController {
+  constructor(private readonly marketplace: MarketplaceService) {}
+
+  @Get()
+  @ApiOperation({ summary: 'Browse published Community Marketplace packs' })
+  list() {
+    return this.marketplace.listPublished();
+  }
+
+  @Get(':slug')
+  @ApiOperation({ summary: 'One published pack — manifest, changelog, versions' })
+  entry(@Param('slug') slug: string) {
+    return this.marketplace.getPublished(slug);
   }
 }

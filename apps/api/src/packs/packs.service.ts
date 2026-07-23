@@ -2,6 +2,7 @@ import { ConflictException, Inject, Injectable, UnprocessableEntityException } f
 import { createHash } from 'node:crypto';
 import { and, eq, isNull } from 'drizzle-orm';
 import {
+  compareSemver,
   creatableFieldTypeSchema,
   dbRef,
   fieldRef,
@@ -45,6 +46,7 @@ import { SkillsService } from '../skills/skills.service';
 import { ViewsService } from '../views/views.service';
 import { SpacesService } from '../workspaces/spaces.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
+import { MarketplaceService } from './marketplace.service';
 import { deref, findRawUuids, refify } from './pack-refs';
 
 /** How many records a scan of a system database reads. Mirrors ArchitectService. */
@@ -164,6 +166,7 @@ export class PacksService {
     private readonly agents: AgentsService,
     private readonly architect: ArchitectService,
     private readonly skills: SkillsService,
+    private readonly marketplace: MarketplaceService,
   ) {}
 
   // ── export ─────────────────────────────────────────────────────────────────
@@ -282,6 +285,8 @@ export class PacksService {
       version: request.version,
       upgrade_notes: request.upgrade_notes,
       summary: request.summary,
+      license: request.license,
+      attribution: request.attribution,
       requires: {
         connections: this.deriveConnections(automations, request.connections),
         ai: this.deriveAiNeed(agents, request.ai),
@@ -1168,20 +1173,35 @@ export class PacksService {
     if (rows.length > 0) await this.db.insert(packInstallItems).values(rows);
   }
 
-  /** Every tracked install in this workspace, newest first (MN-219 / #161). */
+  /**
+   * Every tracked install in this workspace, newest first (MN-219 / #161),
+   * each carrying whether a newer version exists (MN-220).
+   *
+   * `latest_version` is looked up live via `MarketplaceService.latestVersionOf`
+   * rather than read off anything cached on the install row — see that
+   * method's own doc for why that's the one that stays honest when a pack is
+   * updated, or unpublished, out from under an existing install.
+   */
   async listInstalls(membership: Membership): Promise<PackInstallSummary[]> {
     const rows = await this.db.query.packInstalls.findMany({
       where: and(eq(packInstalls.workspaceId, membership.workspaceId), isNull(packInstalls.uninstalledAt)),
       orderBy: (t, { desc }) => [desc(t.createdAt)],
     });
-    return rows.map((r) => ({
-      id: r.id,
-      slug: r.slug,
-      name: r.name,
-      version: r.version,
-      installed_at: r.createdAt.toISOString(),
-      installed_by: r.installedBy,
-    }));
+    return Promise.all(
+      rows.map(async (r) => {
+        const latest = await this.marketplace.latestVersionOf(r.slug);
+        return {
+          id: r.id,
+          slug: r.slug,
+          name: r.name,
+          version: r.version,
+          installed_at: r.createdAt.toISOString(),
+          installed_by: r.installedBy,
+          latest_version: latest,
+          update_available: latest !== null && compareSemver(latest, r.version) > 0,
+        };
+      }),
+    );
   }
 
   /**

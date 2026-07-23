@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, CheckCircle2, Loader2, Package, Trash2 } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Loader2, Package, Sparkles, Trash2, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { useWorkspace } from '@/lib/queries';
@@ -13,14 +13,22 @@ import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 
 /**
- * Business Packs — gallery + one-click install (MN-219 / #161).
+ * Business Packs — gallery + one-click install (MN-219 / #161), the
+ * Community Marketplace browse view, and update-available surfacing
+ * (MN-220).
  *
- * Builds entirely on the #148/#160 API: `GET /packs/registry` (built-in
- * gallery), `POST .../packs/preview` (dry run + collision detection),
- * `POST .../packs/install` (idempotent, collision-aware) and
- * `POST .../packs/:id/uninstall`. Nothing here re-implements install logic —
- * this is the UI the backend has been missing.
+ * Builds entirely on the #148/#160/#161 API plus MN-220's additions:
+ * `GET /packs/registry` (built-in gallery), `GET /packs/marketplace`
+ * (published community packs), `POST .../packs/preview` (dry run + collision
+ * detection), `POST .../packs/install` (idempotent, collision-aware),
+ * `POST .../packs/:id/uninstall`, and `GET .../packs/installed`'s new
+ * `latest_version`/`update_available`. Nothing here re-implements install
+ * logic — a marketplace pack installs through the exact same dialog and the
+ * exact same `install`/`preview` endpoints as a built-in one, just given a
+ * different manifest.
  */
+
+type PackSource = 'registry' | 'marketplace';
 
 interface RegistryCard {
   slug: string;
@@ -30,6 +38,19 @@ interface RegistryCard {
 }
 interface RegistryEntry extends RegistryCard {
   manifest: unknown;
+}
+interface MarketplaceCard {
+  slug: string;
+  name: string;
+  summary: string;
+  vertical: string;
+  license: string;
+  attribution?: string;
+  latest_version: string;
+}
+interface MarketplaceEntry extends MarketplaceCard {
+  manifest: unknown;
+  versions: Array<{ version: string; changelog?: string; published_at: string }>;
 }
 interface PreviewItem {
   name: string;
@@ -80,6 +101,8 @@ interface InstallSummary {
   version: string;
   installed_at: string;
   installed_by: string;
+  latest_version: string | null;
+  update_available: boolean;
 }
 type Resolution = { action: 'reuse' | 'rename' | 'skip'; rename_to?: string };
 
@@ -92,6 +115,18 @@ function useRegistry() {
       return data as unknown as RegistryCard[];
     },
     staleTime: 5 * 60_000,
+  });
+}
+
+function useMarketplace() {
+  return useQuery({
+    queryKey: ['packs-marketplace'],
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/packs/marketplace' as never, {} as never);
+      if (error) throw error;
+      return data as unknown as MarketplaceCard[];
+    },
+    staleTime: 60_000,
   });
 }
 
@@ -198,10 +233,12 @@ function CollisionResolver({
 function InstallDialog({
   ws,
   slug,
+  source = 'registry',
   onOpenChange,
 }: {
   ws: string;
   slug: string;
+  source?: PackSource;
   onOpenChange: (open: boolean) => void;
 }) {
   const qc = useQueryClient();
@@ -209,13 +246,13 @@ function InstallDialog({
   const [result, setResult] = useState<InstallResult | null>(null);
 
   const entry = useQuery({
-    queryKey: ['pack-entry', slug],
+    queryKey: ['pack-entry', source, slug],
     queryFn: async () => {
-      const { data, error } = await api.GET('/api/v1/packs/registry/{slug}' as never, {
-        params: { path: { slug } },
-      } as never);
+      const path =
+        source === 'marketplace' ? '/api/v1/packs/marketplace/{slug}' : '/api/v1/packs/registry/{slug}';
+      const { data, error } = await api.GET(path as never, { params: { path: { slug } } } as never);
       if (error) throw error;
-      return data as unknown as RegistryEntry;
+      return data as unknown as RegistryEntry | MarketplaceEntry;
     },
   });
 
@@ -369,7 +406,17 @@ function InstallDialog({
   );
 }
 
-function InstalledRow({ ws, pack }: { ws: string; pack: InstallSummary }) {
+function InstalledRow({
+  ws,
+  pack,
+  source,
+  onUpdate,
+}: {
+  ws: string;
+  pack: InstallSummary;
+  source: PackSource;
+  onUpdate: (slug: string, source: PackSource) => void;
+}) {
   const qc = useQueryClient();
   const uninstall = useMutation({
     mutationFn: async () => {
@@ -400,28 +447,43 @@ function InstalledRow({ ws, pack }: { ws: string; pack: InstallSummary }) {
           v{pack.version} · installed {new Date(pack.installed_at).toLocaleDateString()}
         </p>
       </div>
-      <Button
-        type="button"
-        variant="secondary"
-        disabled={uninstall.isPending}
-        onClick={() => {
-          if (window.confirm(`Uninstall ${pack.name}? Anything you've changed since install is kept.`)) {
-            uninstall.mutate();
-          }
-        }}
-      >
-        <Trash2 className="h-3.5 w-3.5" />
-      </Button>
+      <div className="flex items-center gap-2">
+        {pack.update_available && (
+          <Button type="button" variant="secondary" size="sm" onClick={() => onUpdate(pack.slug, source)}>
+            <Sparkles className="h-3.5 w-3.5" /> Update to v{pack.latest_version}
+          </Button>
+        )}
+        <Button
+          type="button"
+          variant="secondary"
+          disabled={uninstall.isPending}
+          onClick={() => {
+            if (window.confirm(`Uninstall ${pack.name}? Anything you've changed since install is kept.`)) {
+              uninstall.mutate();
+            }
+          }}
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </Button>
+      </div>
     </div>
   );
+}
+
+/** Every registry slug — used to tell a tracked install's source apart for the "Update" action. */
+function useRegistrySlugs(): Set<string> {
+  const registry = useRegistry();
+  return new Set((registry.data ?? []).map((p) => p.slug));
 }
 
 export default function PacksPage() {
   const { ws } = useParams<{ ws: string }>();
   const workspace = useWorkspace(ws);
   const registry = useRegistry();
+  const marketplace = useMarketplace();
   const installed = useInstalledPacks(ws);
-  const [openSlug, setOpenSlug] = useState<string | null>(null);
+  const registrySlugs = useRegistrySlugs();
+  const [open, setOpen] = useState<{ slug: string; source: PackSource } | null>(null);
   const canInstall = workspace.data?.role === 'admin';
 
   return (
@@ -429,9 +491,19 @@ export default function PacksPage() {
       <Link href={`/w/${ws}`} className="mb-4 flex items-center gap-1 text-[12px] text-muted hover:text-ink">
         <ArrowLeft className="h-3 w-3" /> Home
       </Link>
-      <h1 className="mb-1 flex items-center gap-2 text-xl font-semibold text-ink">
-        <Package className="h-5 w-5" /> Business Packs
-      </h1>
+      <div className="mb-1 flex items-center justify-between">
+        <h1 className="flex items-center gap-2 text-xl font-semibold text-ink">
+          <Package className="h-5 w-5" /> Business Packs
+        </h1>
+        {canInstall && (
+          <Link
+            href={`/w/${ws}/packs/submit`}
+            className="flex items-center gap-1.5 text-[12px] text-muted hover:text-ink"
+          >
+            <Upload className="h-3.5 w-3.5" /> Submit a pack
+          </Link>
+        )}
+      </div>
       <p className="mb-8 text-sm text-muted">
         A whole running system in one click — databases, views, automations and agents, ready to use.
       </p>
@@ -441,14 +513,20 @@ export default function PacksPage() {
           <p className="mb-2 text-[12px] font-semibold uppercase tracking-wider text-faint">Installed</p>
           <div className="flex flex-col gap-2">
             {installed.data!.map((pack) => (
-              <InstalledRow key={pack.id} ws={ws} pack={pack} />
+              <InstalledRow
+                key={pack.id}
+                ws={ws}
+                pack={pack}
+                source={registrySlugs.has(pack.slug) ? 'registry' : 'marketplace'}
+                onUpdate={(slug, source) => setOpen({ slug, source })}
+              />
             ))}
           </div>
         </div>
       )}
 
       <p className="mb-2 text-[12px] font-semibold uppercase tracking-wider text-faint">Gallery</p>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div className="mb-8 grid grid-cols-1 gap-3 sm:grid-cols-2">
         {(registry.data ?? []).map((pack) => (
           <div key={pack.slug} className="flex flex-col gap-2 rounded-[var(--radius-card)] border border-border-default bg-card p-4">
             <p className="text-[14px] font-medium text-ink">{pack.name}</p>
@@ -462,7 +540,7 @@ export default function PacksPage() {
               type="button"
               className="mt-2 self-start"
               disabled={!canInstall}
-              onClick={() => setOpenSlug(pack.slug)}
+              onClick={() => setOpen({ slug: pack.slug, source: 'registry' })}
             >
               {canInstall ? 'View & install' : 'Admin required to install'}
             </Button>
@@ -473,7 +551,47 @@ export default function PacksPage() {
         )}
       </div>
 
-      {openSlug && <InstallDialog ws={ws} slug={openSlug} onOpenChange={(open) => !open && setOpenSlug(null)} />}
+      <p className="mb-1 text-[12px] font-semibold uppercase tracking-wider text-faint">Community Marketplace</p>
+      <p className="mb-2 text-[12px] text-muted">
+        Curated packs published by other builders — reviewed before they&rsquo;re listed here.
+      </p>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {(marketplace.data ?? []).map((pack) => (
+          <div key={pack.slug} className="flex flex-col gap-2 rounded-[var(--radius-card)] border border-border-default bg-card p-4">
+            <div className="flex items-center justify-between">
+              <p className="text-[14px] font-medium text-ink">{pack.name}</p>
+              <span className="rounded-full bg-hover px-2 py-0.5 text-[11px] text-ink-secondary">
+                {pack.vertical}
+              </span>
+            </div>
+            <p className="text-[13px] text-muted">{pack.summary}</p>
+            <p className="text-[11px] text-faint">
+              v{pack.latest_version} · {pack.license}
+              {pack.attribution ? ` · by ${pack.attribution}` : ''}
+            </p>
+            <Button
+              type="button"
+              className="mt-2 self-start"
+              disabled={!canInstall}
+              onClick={() => setOpen({ slug: pack.slug, source: 'marketplace' })}
+            >
+              {canInstall ? 'View & install' : 'Admin required to install'}
+            </Button>
+          </div>
+        ))}
+        {marketplace.data?.length === 0 && (
+          <p className="text-[13px] text-muted">No community packs published yet.</p>
+        )}
+      </div>
+
+      {open && (
+        <InstallDialog
+          ws={ws}
+          slug={open.slug}
+          source={open.source}
+          onOpenChange={(isOpen) => !isOpen && setOpen(null)}
+        />
+      )}
     </div>
   );
 }
