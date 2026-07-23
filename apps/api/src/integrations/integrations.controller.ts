@@ -6,6 +6,8 @@ import {
   Headers,
   HttpCode,
   NotFoundException,
+  Param,
+  ParseIntPipe,
   Post,
   Query,
   Req,
@@ -26,8 +28,11 @@ import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { GithubAppService } from './github-app.service';
 import { GithubService } from './github.service';
 import { GithubWebhookService } from './github-webhook.service';
+import type { ReviewBucket } from './github-reviews.service';
+import { GithubReviewsService } from './github-reviews.service';
 import { INTEGRATION_REGISTRY } from './integration-registry';
 import { LinearService } from './linear.service';
+import { PreferencesService } from '../users/preferences.service';
 import { SlackService } from './slack.service';
 
 /** 302 redirect via the raw Fastify reply (Nest passthrough is off under @Res). */
@@ -207,6 +212,182 @@ export class IntegrationsController {
     if (!this.githubApp.isConfigured()) {
       throw new NotFoundException('GitHub App connect is not configured on this server');
     }
+  }
+}
+
+const reviewCommentSchema = z.object({
+  path: z.string().min(1).max(1024),
+  line: z.number().int().positive(),
+  side: z.enum(['LEFT', 'RIGHT']),
+  body: z.string().min(1).max(65536),
+});
+class ReviewCommentDto extends createZodDto(reviewCommentSchema) {}
+
+class ReviewReplyDto extends createZodDto(z.object({ body: z.string().min(1).max(65536) })) {}
+
+class ReviewReactionDto extends createZodDto(
+  z.object({
+    // GitHub's fixed reaction-content set.
+    content: z.enum(['+1', '-1', 'laugh', 'confused', 'heart', 'hooray', 'rocket', 'eyes']),
+  }),
+) {}
+
+class SubmitReviewDto extends createZodDto(
+  z.object({
+    event: z.enum(['APPROVE', 'REQUEST_CHANGES', 'COMMENT']),
+    body: z.string().max(65536).optional(),
+  }),
+) {}
+
+class ReviewSettingsDto extends createZodDto(
+  z.object({
+    enabled: z.boolean().optional(),
+    auto_convert_draft: z.boolean().optional(),
+    default_merge_strategy: z.enum(['merge', 'squash', 'rebase']).optional(),
+    code_theme: z.enum(['auto', 'light', 'dark']).optional(),
+    code_font: z.enum(['mono', 'mono_lig', 'system']).optional(),
+    notifications: z
+      .object({ review_requests: z.boolean().optional(), comments_mentions: z.boolean().optional() })
+      .partial()
+      .optional(),
+  }),
+) {}
+
+/**
+ * In-app code review (#43): the Reviews sidebar (needs-my-review / authored /
+ * participating), PR detail (files + checks + diff — the diff itself is just
+ * GitHub's own `patch` text per file, rendered client-side), inline comments
+ * synced bi-directionally with GitHub, and Approve/Request-changes/Comment.
+ *
+ * `member`, not `admin` — reviewing code is an ordinary contributor action,
+ * unlike the secret-bearing config above. It still 422s cleanly if GitHub
+ * itself isn't connected/enabled (`GithubReviewsService.token`).
+ */
+@ApiTags('integrations')
+@UseGuards(AuthGuard, WorkspaceAccessGuard)
+@MinRole('member')
+@Controller('workspaces/:ws/integrations/github/reviews')
+export class GithubReviewsController {
+  constructor(
+    private readonly reviews: GithubReviewsService,
+    private readonly preferences: PreferencesService,
+  ) {}
+
+  @Get()
+  @ApiOperation({ summary: 'Reviews sidebar: PRs in one bucket (needs_review/authored/participating)' })
+  async list(@Req() req: WorkspaceRequest, @Query('bucket') bucket?: string) {
+    const login = (await this.preferences.get(req.user.id)).github.login;
+    if (!login) {
+      throw new BadRequestException('Set your GitHub username in preferences before listing reviews');
+    }
+    const b = (['needs_review', 'authored', 'participating'] as const).includes(bucket as ReviewBucket)
+      ? (bucket as ReviewBucket)
+      : 'needs_review';
+    return { data: await this.reviews.list(req.membership, b, login) };
+  }
+
+  @Get(':owner/:repo/:number')
+  @ApiOperation({ summary: 'PR detail: metadata, changed files (with patch), checks' })
+  getPull(
+    @Req() req: WorkspaceRequest,
+    @Param('owner') owner: string,
+    @Param('repo') repo: string,
+    @Param('number', ParseIntPipe) number: number,
+  ) {
+    return this.reviews.getPull(req.membership, owner, repo, number);
+  }
+
+  @Get(':owner/:repo/:number/comments')
+  @ApiOperation({ summary: 'Cached inline review comments for this PR' })
+  listComments(
+    @Req() req: WorkspaceRequest,
+    @Param('owner') owner: string,
+    @Param('repo') repo: string,
+    @Param('number', ParseIntPipe) number: number,
+  ) {
+    return this.reviews.listComments(req.membership, `${owner}/${repo}`, number);
+  }
+
+  @Post(':owner/:repo/:number/comments')
+  @ApiOperation({ summary: 'Post a new inline (file/line-anchored) review comment' })
+  createComment(
+    @Req() req: WorkspaceRequest,
+    @Param('owner') owner: string,
+    @Param('repo') repo: string,
+    @Param('number', ParseIntPipe) number: number,
+    @Body() body: ReviewCommentDto,
+  ) {
+    return this.reviews.createComment(req.membership, owner, repo, number, body);
+  }
+
+  @Post(':owner/:repo/:number/comments/:commentId/replies')
+  @ApiOperation({ summary: 'Reply within an existing comment thread' })
+  reply(
+    @Req() req: WorkspaceRequest,
+    @Param('owner') owner: string,
+    @Param('repo') repo: string,
+    @Param('number', ParseIntPipe) number: number,
+    @Param('commentId') commentId: string,
+    @Body() body: ReviewReplyDto,
+  ) {
+    return this.reviews.replyComment(req.membership, owner, repo, number, commentId, body.body);
+  }
+
+  @Post(':owner/:repo/:number/comments/:commentId/reactions')
+  @ApiOperation({ summary: 'React to a review comment' })
+  react(
+    @Req() req: WorkspaceRequest,
+    @Param('owner') owner: string,
+    @Param('repo') repo: string,
+    @Param('commentId') commentId: string,
+    @Body() body: ReviewReactionDto,
+  ) {
+    return this.reviews.react(req.membership, owner, repo, commentId, body.content);
+  }
+
+  @Post(':owner/:repo/:number/comments/sync')
+  @ApiOperation({ summary: 'Poll GitHub for review comments and refresh the local cache' })
+  async syncComments(
+    @Req() req: WorkspaceRequest,
+    @Param('owner') owner: string,
+    @Param('repo') repo: string,
+    @Param('number', ParseIntPipe) number: number,
+  ) {
+    const synced = await this.reviews.syncComments(req.membership, owner, repo, number);
+    return { synced };
+  }
+
+  @Post(':owner/:repo/:number/reviews')
+  @ApiOperation({ summary: 'Approve / Request changes / Comment — submits a GitHub PR review' })
+  submitReview(
+    @Req() req: WorkspaceRequest,
+    @Param('owner') owner: string,
+    @Param('repo') repo: string,
+    @Param('number', ParseIntPipe) number: number,
+    @Body() body: SubmitReviewDto,
+  ) {
+    return this.reviews.submitReview(req.membership, owner, repo, number, body);
+  }
+}
+
+/** Code & reviews account-level settings (#43 AC 5). Admin-only, like the rest of GitHub config. */
+@ApiTags('integrations')
+@UseGuards(AuthGuard, WorkspaceAccessGuard)
+@MinRole('admin')
+@Controller('workspaces/:ws/integrations/github/review-settings')
+export class GithubReviewSettingsController {
+  constructor(private readonly reviews: GithubReviewsService) {}
+
+  @Get()
+  @ApiOperation({ summary: 'Code & reviews settings (defaulted)' })
+  get(@Req() req: WorkspaceRequest) {
+    return this.reviews.getSettings(req.membership.workspaceId);
+  }
+
+  @Post()
+  @ApiOperation({ summary: 'Save Code & reviews settings' })
+  save(@Req() req: WorkspaceRequest, @Body() body: ReviewSettingsDto) {
+    return this.reviews.saveSettings(req.membership.workspaceId, body);
   }
 }
 

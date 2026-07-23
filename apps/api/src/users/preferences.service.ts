@@ -28,6 +28,7 @@ export class PreferencesService {
       // Merge per-database: a patch replaces the config for the databases it names.
       // (Controller-validated values are full configs, never undefined.)
       myWork: { ...current.myWork, ...(patch.myWork ?? {}) } as UserPreferences['myWork'],
+      github: { ...current.github, ...(patch.github ?? {}) },
       // viewFilters (#259) is never part of this generic patch — it's managed by
       // the dedicated personal-filter endpoint (views/:view/personal-filter) so it
       // gets the view/field existence checks that live there. Carry it through

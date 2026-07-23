@@ -18,6 +18,12 @@ export interface UserPreferences {
     timeFormat: 'system' | '12h' | '24h';
     firstDayOfWeek: 'system' | 'sunday' | 'monday' | 'saturday';
   };
+  /** #43: the reviewer's own GitHub login — there's no per-user GitHub OAuth
+   *  identity, so this is how the Reviews sidebar tells "needs my review" apart
+   *  from "authored by me". */
+  github: {
+    login: string | null;
+  };
 }
 
 type DeepPartial<T> = { [K in keyof T]?: Partial<T[K]> };

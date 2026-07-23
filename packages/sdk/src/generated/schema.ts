@@ -1914,6 +1914,144 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/integrations/github/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Reviews sidebar: PRs in one bucket (needs_review/authored/participating) */
+        get: operations["GithubReviewsController_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/integrations/github/reviews/{owner}/{repo}/{number}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** PR detail: metadata, changed files (with patch), checks */
+        get: operations["GithubReviewsController_getPull"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/integrations/github/reviews/{owner}/{repo}/{number}/comments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Cached inline review comments for this PR */
+        get: operations["GithubReviewsController_listComments"];
+        put?: never;
+        /** Post a new inline (file/line-anchored) review comment */
+        post: operations["GithubReviewsController_createComment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/integrations/github/reviews/{owner}/{repo}/{number}/comments/{commentId}/replies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reply within an existing comment thread */
+        post: operations["GithubReviewsController_reply"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/integrations/github/reviews/{owner}/{repo}/{number}/comments/{commentId}/reactions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** React to a review comment */
+        post: operations["GithubReviewsController_react"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/integrations/github/reviews/{owner}/{repo}/{number}/comments/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Poll GitHub for review comments and refresh the local cache */
+        post: operations["GithubReviewsController_syncComments"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/integrations/github/reviews/{owner}/{repo}/{number}/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve / Request changes / Comment — submits a GitHub PR review */
+        post: operations["GithubReviewsController_submitReview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/integrations/github/review-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Code & reviews settings (defaulted) */
+        get: operations["GithubReviewSettingsController_get"];
+        put?: never;
+        /** Save Code & reviews settings */
+        post: operations["GithubReviewSettingsController_save"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/integrations/github/webhook": {
         parameters: {
             query?: never;
@@ -3349,6 +3487,9 @@ export interface components {
                     sorts_nulls?: "first" | "last";
                 };
             };
+            github?: {
+                login?: string | null;
+            };
         };
         CreateWebhookDto: {
             /** Format: uri */
@@ -3673,6 +3814,39 @@ export interface components {
                 merged?: string | null;
                 closed?: string | null;
                 pushed?: string | null;
+            };
+        };
+        ReviewCommentDto: {
+            path: string;
+            line: number;
+            /** @enum {string} */
+            side: "LEFT" | "RIGHT";
+            body: string;
+        };
+        ReviewReplyDto: {
+            body: string;
+        };
+        ReviewReactionDto: {
+            /** @enum {string} */
+            content: "+1" | "-1" | "laugh" | "confused" | "heart" | "hooray" | "rocket" | "eyes";
+        };
+        SubmitReviewDto: {
+            /** @enum {string} */
+            event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
+            body?: string;
+        };
+        ReviewSettingsDto: {
+            enabled?: boolean;
+            auto_convert_draft?: boolean;
+            /** @enum {string} */
+            default_merge_strategy?: "merge" | "squash" | "rebase";
+            /** @enum {string} */
+            code_theme?: "auto" | "light" | "dark";
+            /** @enum {string} */
+            code_font?: "mono" | "mono_lig" | "system";
+            notifications?: {
+                review_requests?: boolean;
+                comments_mentions?: boolean;
             };
         };
         LinearConfigDto: {
@@ -6878,6 +7052,227 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    GithubReviewsController_list: {
+        parameters: {
+            query: {
+                bucket: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    GithubReviewsController_getPull: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                owner: string;
+                repo: string;
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    GithubReviewsController_listComments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                owner: string;
+                repo: string;
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    GithubReviewsController_createComment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                owner: string;
+                repo: string;
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewCommentDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    GithubReviewsController_reply: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                owner: string;
+                repo: string;
+                number: number;
+                commentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewReplyDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    GithubReviewsController_react: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                owner: string;
+                repo: string;
+                commentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewReactionDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    GithubReviewsController_syncComments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                owner: string;
+                repo: string;
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    GithubReviewsController_submitReview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                owner: string;
+                repo: string;
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubmitReviewDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    GithubReviewSettingsController_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    GithubReviewSettingsController_save: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewSettingsDto"];
+            };
+        };
         responses: {
             201: {
                 headers: {

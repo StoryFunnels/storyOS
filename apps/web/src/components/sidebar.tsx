@@ -7,7 +7,7 @@ import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from 
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Activity, Cable, Check, ChevronRight, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, Home, Inbox, KeyRound, LayoutTemplate, MoreHorizontal, Package, Plug, Plus, Search, Settings, Star, UserRound, Webhook, X } from 'lucide-react';
+import { Activity, Cable, Check, ChevronRight, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, GitPullRequest, Home, Inbox, KeyRound, LayoutTemplate, MoreHorizontal, Package, Plug, Plus, Search, Settings, Star, UserRound, Webhook, X } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -164,6 +164,12 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
           className="flex items-center gap-2 rounded px-2 py-[3px] text-[13px] text-ink-secondary hover:bg-hover"
         >
           <UserRound className="h-3.5 w-3.5" /> My Work
+        </Link>
+        <Link
+          href={`/w/${ws}/reviews`}
+          className="flex items-center gap-2 rounded px-2 py-[3px] text-[13px] text-ink-secondary hover:bg-hover"
+        >
+          <GitPullRequest className="h-3.5 w-3.5" /> Reviews
         </Link>
         <Link
           href={`/w/${ws}/packs`}

@@ -71,6 +71,17 @@ export interface UserPreferences {
    * predates this and forked its own condition type.
    */
   viewFilters: Record<string, FilterNode>;
+  /**
+   * GitHub identity for the Reviews sidebar (#43). There is no per-user GitHub
+   * OAuth identity in this app (the App connect (#247) is workspace-level,
+   * installation-based, with no user-context token) — the reviewer's own
+   * `login` is how "needs my review" / "authored by me" / "participating" are
+   * told apart when querying GitHub's search API (which needs an explicit
+   * `review-requested:<login>`, not `@me`, from an installation token).
+   */
+  github: {
+    login: string | null;
+  };
 }
 
 export const DEFAULT_PREFERENCES: UserPreferences = {
@@ -78,6 +89,7 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   regional: { dateFormat: 'system', timeFormat: 'system', firstDayOfWeek: 'system' },
   myWork: {},
   viewFilters: {},
+  github: { login: null },
 };
 
 /** Merge a stored (possibly partial / legacy) blob over the defaults, so missing
@@ -88,11 +100,13 @@ export function mergePreferences(stored: unknown): UserPreferences {
     regional?: Partial<UserPreferences['regional']>;
     myWork?: UserPreferences['myWork'];
     viewFilters?: UserPreferences['viewFilters'];
+    github?: Partial<UserPreferences['github']>;
   };
   return {
     notifications: { ...DEFAULT_PREFERENCES.notifications, ...(s.notifications ?? {}) },
     regional: { ...DEFAULT_PREFERENCES.regional, ...(s.regional ?? {}) },
     myWork: { ...(s.myWork ?? {}) },
     viewFilters: { ...(s.viewFilters ?? {}) },
+    github: { ...DEFAULT_PREFERENCES.github, ...(s.github ?? {}) },
   };
 }
