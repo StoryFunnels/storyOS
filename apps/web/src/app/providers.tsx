@@ -6,6 +6,7 @@ import type { ReactNode } from 'react';
 import { ThemeProvider } from '@/lib/theme';
 import { ConfirmProvider } from '@/components/ui/confirm-dialog';
 import { registerServiceWorker } from '@/lib/service-worker';
+import { captureReferralCode } from '@/lib/referral';
 
 export function Providers({ children }: { children: ReactNode }) {
   const [queryClient] = useState(
@@ -16,6 +17,7 @@ export function Providers({ children }: { children: ReactNode }) {
   );
   useEffect(() => {
     registerServiceWorker();
+    captureReferralCode();
   }, []);
   return (
     <QueryClientProvider client={queryClient}>

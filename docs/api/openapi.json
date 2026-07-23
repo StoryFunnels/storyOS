@@ -865,6 +865,56 @@
         ]
       }
     },
+    "/api/v1/referrals/me": {
+      "get": {
+        "operationId": "ReferralsController_me",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "This user’s referral link, code, and rewards summary",
+        "tags": [
+          "referrals"
+        ]
+      }
+    },
+    "/api/v1/referrals/attribute": {
+      "post": {
+        "operationId": "ReferralsController_attribute",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AttributeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Attribute the current user as referred by a code (first-touch, one-time, best-effort)",
+        "tags": [
+          "referrals"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/databases": {
       "get": {
         "operationId": "DatabasesController_list",
@@ -7506,6 +7556,19 @@
         "required": [
           "user_id",
           "role"
+        ]
+      },
+      "AttributeDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "code"
         ]
       },
       "CreateDatabaseDto": {

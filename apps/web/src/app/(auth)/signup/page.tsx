@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useState } from 'react';
 import { authClient } from '@/lib/auth-client';
+import { attributeCapturedReferral } from '@/lib/referral';
 import { AuthCard } from '../auth-card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,8 +25,14 @@ function SignupForm() {
     setError(null);
     const result = await authClient.signUp.email({ email, password, name });
     setBusy(false);
-    if (result.error) setError(result.error.message ?? 'Sign-up failed');
-    else router.replace(nextUrl);
+    if (result.error) {
+      setError(result.error.message ?? 'Sign-up failed');
+      return;
+    }
+    // #33 — best-effort, never blocks the redirect: an unattributed sign-up
+    // is a missed reward, not a broken account.
+    await attributeCapturedReferral();
+    router.replace(nextUrl);
   }
 
   return (

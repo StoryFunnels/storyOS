@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AccessModule } from '../access/access.module';
+import { ReferralsModule } from '../referrals/referrals.module';
 import { AiCreditsController } from './ai-credits.controller';
 import { AiCreditsService } from './ai-credits.service';
 import { AutoReloadRetryService } from './auto-reload-retry.service';
@@ -34,9 +35,14 @@ import { TrialRemindersService } from './trial-reminders.service';
  * AutoReloadRetryService (#265) is the backoff-retry sweep for auto-reload's
  * off-session charge — see its own doc comment; it only depends on
  * AiCreditsService (already a provider here) and DB.
+ *
+ * ReferralsModule (#33) is imported so BillingService can call
+ * ReferralsService.recordConversionIfEligible from reconcileSubscription —
+ * the one-directional edge is safe because ReferralsModule does NOT import
+ * BillingModule back (see its own doc comment).
  */
 @Module({
-  imports: [AccessModule],
+  imports: [AccessModule, ReferralsModule],
   controllers: [BillingController, BillingWebhookController, AiCreditsController],
   providers: [
     StripeService,

@@ -7,6 +7,7 @@ import type Stripe from 'stripe';
 import type { Db } from '../db/client';
 import type { AccessService } from '../access/access.service';
 import type { AiCreditsService } from './ai-credits.service';
+import type { ReferralsService } from '../referrals/referrals.service';
 import { BillingService } from './billing.service';
 import type { StripeService } from './stripe.service';
 
@@ -65,6 +66,9 @@ function makeDb(opts: {
 const stripeStub = { client: {} } as unknown as StripeService;
 const accessStub = { billableUserIds: vi.fn().mockResolvedValue([]) } as unknown as AccessService;
 const aiCreditsStub = {} as unknown as AiCreditsService;
+const referralsStub = {
+  recordConversionIfEligible: vi.fn().mockResolvedValue(undefined),
+} as unknown as ReferralsService;
 
 /** A minimal Stripe.Subscription with the fields reconcile actually reads. */
 function subscription(overrides: Partial<Stripe.Subscription> = {}): Stripe.Subscription {
@@ -87,7 +91,7 @@ function subscription(overrides: Partial<Stripe.Subscription> = {}): Stripe.Subs
 describe('BillingService.reconcileSubscription', () => {
   it('projects plan from the base price and seats from the seat line', async () => {
     const { db, upserts } = makeDb({ customerRow: { workspaceId: 'ws1' } });
-    const svc = new BillingService(db, stripeStub, accessStub, aiCreditsStub);
+    const svc = new BillingService(db, stripeStub, accessStub, aiCreditsStub, referralsStub);
 
     await svc.reconcileSubscription(subscription());
 
@@ -104,7 +108,7 @@ describe('BillingService.reconcileSubscription', () => {
 
   it('downgrades a canceled subscription to Free without deleting the row', async () => {
     const { db, upserts } = makeDb({ customerRow: { workspaceId: 'ws1' } });
-    const svc = new BillingService(db, stripeStub, accessStub, aiCreditsStub);
+    const svc = new BillingService(db, stripeStub, accessStub, aiCreditsStub, referralsStub);
 
     await svc.reconcileSubscription(subscription({ status: 'canceled' }));
 
@@ -113,7 +117,7 @@ describe('BillingService.reconcileSubscription', () => {
 
   it('MN-193: a failed payment (past_due) keeps the plan intact — dunning is a grace period, not a punishment', async () => {
     const { db, upserts } = makeDb({ customerRow: { workspaceId: 'ws1' } });
-    const svc = new BillingService(db, stripeStub, accessStub, aiCreditsStub);
+    const svc = new BillingService(db, stripeStub, accessStub, aiCreditsStub, referralsStub);
 
     // Stripe marks a subscription past_due on the FIRST failed charge, well
     // before its own retry schedule exhausts — the workspace keeps its plan,
@@ -126,7 +130,7 @@ describe('BillingService.reconcileSubscription', () => {
 
   it('MN-193: incomplete_expired downgrades to Free exactly like canceled — both are terminal', async () => {
     const { db, upserts } = makeDb({ customerRow: { workspaceId: 'ws1' } });
-    const svc = new BillingService(db, stripeStub, accessStub, aiCreditsStub);
+    const svc = new BillingService(db, stripeStub, accessStub, aiCreditsStub, referralsStub);
 
     await svc.reconcileSubscription(subscription({ status: 'incomplete_expired' }));
 
@@ -135,7 +139,7 @@ describe('BillingService.reconcileSubscription', () => {
 
   it('skips a subscription for a customer that maps to no workspace', async () => {
     const { db, upserts } = makeDb({ customerRow: undefined });
-    const svc = new BillingService(db, stripeStub, accessStub, aiCreditsStub);
+    const svc = new BillingService(db, stripeStub, accessStub, aiCreditsStub, referralsStub);
 
     await svc.reconcileSubscription(subscription());
 
@@ -144,7 +148,7 @@ describe('BillingService.reconcileSubscription', () => {
 
   it('skips a live subscription whose price we do not recognise (no guessing)', async () => {
     const { db, upserts } = makeDb({ customerRow: { workspaceId: 'ws1' } });
-    const svc = new BillingService(db, stripeStub, accessStub, aiCreditsStub);
+    const svc = new BillingService(db, stripeStub, accessStub, aiCreditsStub, referralsStub);
 
     await svc.reconcileSubscription(
       subscription({ items: { data: [{ price: { id: 'price_alien' }, quantity: 1 }] } } as Partial<Stripe.Subscription>),
@@ -163,7 +167,7 @@ describe('BillingService.applyEvent idempotency', () => {
 
   it('handles an event the first time it is seen', async () => {
     const { db, upserts } = makeDb({ customerRow: { workspaceId: 'ws1' }, eventClaim: [{ id: 'evt_1' }] });
-    const svc = new BillingService(db, stripeStub, accessStub, aiCreditsStub);
+    const svc = new BillingService(db, stripeStub, accessStub, aiCreditsStub, referralsStub);
 
     await svc.applyEvent(event);
 
@@ -172,7 +176,7 @@ describe('BillingService.applyEvent idempotency', () => {
 
   it('no-ops when the event id was already claimed (duplicate delivery)', async () => {
     const { db, upserts } = makeDb({ customerRow: { workspaceId: 'ws1' }, eventClaim: [] });
-    const svc = new BillingService(db, stripeStub, accessStub, aiCreditsStub);
+    const svc = new BillingService(db, stripeStub, accessStub, aiCreditsStub, referralsStub);
 
     await svc.applyEvent(event);
 
@@ -200,7 +204,7 @@ describe('BillingService.applyEvent — MN-189 checkout.session.completed routin
   it('routes a one-time AI-credit top-up session to AiCreditsService.applyTopUp', async () => {
     const { db } = makeDb({ customerRow: { workspaceId: 'ws1' } });
     const applyTopUp = vi.fn().mockResolvedValue(undefined);
-    const svc = new BillingService(db, stripeStub, accessStub, { applyTopUp } as unknown as typeof aiCreditsStub);
+    const svc = new BillingService(db, stripeStub, accessStub, { applyTopUp } as unknown as typeof aiCreditsStub, referralsStub);
 
     await svc.applyEvent(checkoutEvent());
 
@@ -210,7 +214,7 @@ describe('BillingService.applyEvent — MN-189 checkout.session.completed routin
   it('ignores a subscription-mode checkout — that plan state comes from customer.subscription.* instead', async () => {
     const { db } = makeDb({ customerRow: { workspaceId: 'ws1' } });
     const applyTopUp = vi.fn();
-    const svc = new BillingService(db, stripeStub, accessStub, { applyTopUp } as unknown as typeof aiCreditsStub);
+    const svc = new BillingService(db, stripeStub, accessStub, { applyTopUp } as unknown as typeof aiCreditsStub, referralsStub);
 
     await svc.applyEvent(checkoutEvent({ mode: 'subscription' }));
 
@@ -220,7 +224,7 @@ describe('BillingService.applyEvent — MN-189 checkout.session.completed routin
   it('ignores a payment-mode checkout without our ai_credit_topup metadata tag', async () => {
     const { db } = makeDb({ customerRow: { workspaceId: 'ws1' } });
     const applyTopUp = vi.fn();
-    const svc = new BillingService(db, stripeStub, accessStub, { applyTopUp } as unknown as typeof aiCreditsStub);
+    const svc = new BillingService(db, stripeStub, accessStub, { applyTopUp } as unknown as typeof aiCreditsStub, referralsStub);
 
     await svc.applyEvent(checkoutEvent({ metadata: { workspaceId: 'ws1' } }));
 
@@ -244,7 +248,7 @@ describe('BillingService.getStatus — MN-192 lazy trial-expiry sweep', () => {
         trialEndsAt: past,
       },
     });
-    const svc = new BillingService(db, stripeStub, accessStub, aiCreditsStub);
+    const svc = new BillingService(db, stripeStub, accessStub, aiCreditsStub, referralsStub);
 
     const status = await svc.getStatus('ws1');
 
@@ -268,7 +272,7 @@ describe('BillingService.getStatus — MN-192 lazy trial-expiry sweep', () => {
         trialEndsAt: future,
       },
     });
-    const svc = new BillingService(db, stripeStub, accessStub, aiCreditsStub);
+    const svc = new BillingService(db, stripeStub, accessStub, aiCreditsStub, referralsStub);
 
     const status = await svc.getStatus('ws1');
 
@@ -289,7 +293,7 @@ describe('BillingService.getStatus — MN-192 lazy trial-expiry sweep', () => {
         trialEndsAt: past, // even though Stripe's own trial_end has elapsed
       },
     });
-    const svc = new BillingService(db, stripeStub, accessStub, aiCreditsStub);
+    const svc = new BillingService(db, stripeStub, accessStub, aiCreditsStub, referralsStub);
 
     const status = await svc.getStatus('ws1');
 
@@ -312,7 +316,7 @@ describe('BillingService.getStatus — MN-192 lazy trial-expiry sweep', () => {
         trialEndsAt: past,
       },
     });
-    const svc = new BillingService(db, stripeStub, accessStub, aiCreditsStub);
+    const svc = new BillingService(db, stripeStub, accessStub, aiCreditsStub, referralsStub);
 
     const status = await svc.getStatus('ws1');
 
