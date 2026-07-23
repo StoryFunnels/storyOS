@@ -34,6 +34,7 @@ import { INTEGRATION_REGISTRY } from './integration-registry';
 import { LinearService } from './linear.service';
 import { PreferencesService } from '../users/preferences.service';
 import { SlackService } from './slack.service';
+import { ConnectionsService } from '../connections/connections.service';
 
 /** 302 redirect via the raw Fastify reply (Nest passthrough is off under @Res). */
 function redirect(reply: FastifyReply, url: string): void {
@@ -62,24 +63,29 @@ export class IntegrationsDirectoryController {
     private readonly github: GithubService,
     private readonly linear: LinearService,
     private readonly slack: SlackService,
+    private readonly connections: ConnectionsService,
   ) {}
 
   @Get()
   @RequiresScope('read')
-  @ApiOperation({ summary: 'Integrations directory — registry metadata + per-integration connected status' })
+  @ApiOperation({
+    summary: 'Integrations directory — registry metadata + per-integration connected status',
+  })
   async list(@Req() req: WorkspaceRequest) {
     const workspaceId = req.membership.workspaceId;
-    const [github, linear, slack] = await Promise.all([
+    const [github, linear, slack, connectionRows] = await Promise.all([
       this.github.getConfig(workspaceId),
       this.linear.getConfig(workspaceId),
       this.slack.getConfig(workspaceId),
+      this.connections.list(workspaceId),
     ]);
     const connected: Record<string, boolean> = {
       github: Boolean(github.connected || github.has_token),
       linear: Boolean(linear.has_key),
       slack: Boolean(slack.has_token || slack.has_webhook),
-      // Not built yet (still `status: 'soon'` in the registry) — never connected.
-      'google-calendar': false,
+      'google-calendar': connectionRows.data.some(
+        (connection) => connection.provider === 'google-calendar' && connection.status === 'active',
+      ),
       // Built-in and always available; there is nothing to "connect".
       'delegate-agent': true,
     };
@@ -106,7 +112,10 @@ const stateLabel = z.string().min(1).max(100).nullable().optional();
 class GithubConfigDto extends createZodDto(
   z.object({
     token: z.string().min(1).max(255).optional(),
-    repos: z.array(z.string().regex(/^[\w.-]+\/[\w.-]+$/)).max(20).optional(),
+    repos: z
+      .array(z.string().regex(/^[\w.-]+\/[\w.-]+$/))
+      .max(20)
+      .optional(),
     /** Write-only (AC 6): accepted here, never returned by any response. */
     webhook_secret: z.string().min(16).max(255).optional(),
     link_database_id: z.string().uuid().optional(),
@@ -196,7 +205,9 @@ export class IntegrationsController {
   }
 
   @Post('sync')
-  @ApiOperation({ summary: 'Import/refresh Issues + PRs; auto-links PRs to issues by #N / branch refs' })
+  @ApiOperation({
+    summary: 'Import/refresh Issues + PRs; auto-links PRs to issues by #N / branch refs',
+  })
   sync(@Req() req: WorkspaceRequest) {
     return this.github.sync(req.membership, req.user.id);
   }
@@ -247,7 +258,10 @@ class ReviewSettingsDto extends createZodDto(
     code_theme: z.enum(['auto', 'light', 'dark']).optional(),
     code_font: z.enum(['mono', 'mono_lig', 'system']).optional(),
     notifications: z
-      .object({ review_requests: z.boolean().optional(), comments_mentions: z.boolean().optional() })
+      .object({
+        review_requests: z.boolean().optional(),
+        comments_mentions: z.boolean().optional(),
+      })
       .partial()
       .optional(),
   }),
@@ -274,13 +288,19 @@ export class GithubReviewsController {
   ) {}
 
   @Get()
-  @ApiOperation({ summary: 'Reviews sidebar: PRs in one bucket (needs_review/authored/participating)' })
+  @ApiOperation({
+    summary: 'Reviews sidebar: PRs in one bucket (needs_review/authored/participating)',
+  })
   async list(@Req() req: WorkspaceRequest, @Query('bucket') bucket?: string) {
     const login = (await this.preferences.get(req.user.id)).github.login;
     if (!login) {
-      throw new BadRequestException('Set your GitHub username in preferences before listing reviews');
+      throw new BadRequestException(
+        'Set your GitHub username in preferences before listing reviews',
+      );
     }
-    const b = (['needs_review', 'authored', 'participating'] as const).includes(bucket as ReviewBucket)
+    const b = (['needs_review', 'authored', 'participating'] as const).includes(
+      bucket as ReviewBucket,
+    )
       ? (bucket as ReviewBucket)
       : 'needs_review';
     return { data: await this.reviews.list(req.membership, b, login) };
@@ -501,7 +521,9 @@ export class LinearIntegrationsController {
   }
 
   @Post('sync')
-  @ApiOperation({ summary: 'Import teams → spaces (Issues/Sprints/Projects), idempotent by Linear ID' })
+  @ApiOperation({
+    summary: 'Import teams → spaces (Issues/Sprints/Projects), idempotent by Linear ID',
+  })
   sync(@Req() req: WorkspaceRequest) {
     return this.linear.sync(req.membership, req.user.id);
   }
@@ -539,14 +561,18 @@ export class SlackIntegrationsController {
 
   /** #256 AC: a "Send test message" button so a user can verify the connection without building an automation. */
   @Post('test')
-  @ApiOperation({ summary: 'Send a test message using the saved Slack config, to verify the connection' })
+  @ApiOperation({
+    summary: 'Send a test message using the saved Slack config, to verify the connection',
+  })
   sendTest(@Req() req: WorkspaceRequest) {
     return this.slack.sendMessage(req.membership.workspaceId, { text: 'StoryOS connected ✅' });
   }
 
   /** MN-249: the directory's per-row "Disconnect" action — clears token/webhook/channel. */
   @Post('disconnect')
-  @ApiOperation({ summary: 'Disconnect Slack — clears the stored bot token, webhook and default channel' })
+  @ApiOperation({
+    summary: 'Disconnect Slack — clears the stored bot token, webhook and default channel',
+  })
   disconnect(@Req() req: WorkspaceRequest) {
     return this.slack.disconnect(req.membership.workspaceId);
   }

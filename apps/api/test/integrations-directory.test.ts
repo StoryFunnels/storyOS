@@ -9,7 +9,12 @@ let member: { token: string; email: string };
 let wsId: string;
 
 async function as(token: string, method: string, url: string, payload?: unknown) {
-  return app.inject({ method: method as never, url: `/api/v1${url}`, headers: authed(token), payload: payload as never });
+  return app.inject({
+    method: method as never,
+    url: `/api/v1${url}`,
+    headers: authed(token),
+    payload: payload as never,
+  });
 }
 
 interface DirectoryEntry {
@@ -32,7 +37,9 @@ beforeAll(async () => {
   admin = await signUpUser(app, 'IntegrationsDirAdmin');
   member = await signUpUser(app, 'IntegrationsDirMember');
 
-  wsId = (await as(admin.token, 'POST', '/workspaces', { name: 'Integrations Directory WS' })).json().id;
+  wsId = (
+    await as(admin.token, 'POST', '/workspaces', { name: 'Integrations Directory WS' })
+  ).json().id;
 
   const invite = await as(admin.token, 'POST', `/workspaces/${wsId}/invites`, {
     email: member.email,
@@ -55,7 +62,7 @@ describe('Integrations directory (#44)', () => {
     expect(byId.get('linear')?.connected).toBe(false);
     expect(byId.get('slack')?.connected).toBe(false);
     // Not built yet — still `status: 'soon'`, never connected regardless of anything else.
-    expect(byId.get('google-calendar')?.status).toBe('soon');
+    expect(byId.get('google-calendar')?.status).toBe('available');
     expect(byId.get('google-calendar')?.connected).toBe(false);
     // Built-in — always available, nothing to connect.
     expect(byId.get('delegate-agent')?.status).toBe('available');
@@ -82,7 +89,9 @@ describe('Integrations directory (#44)', () => {
   });
 
   it('MN-249: disconnect flips a connected platform back to not-connected in the directory', async () => {
-    await as(admin.token, 'POST', `/workspaces/${wsId}/integrations/slack`, { bot_token: 'xoxb-disconnect-me' });
+    await as(admin.token, 'POST', `/workspaces/${wsId}/integrations/slack`, {
+      bot_token: 'xoxb-disconnect-me',
+    });
     expect((await directory(admin.token)).find((d) => d.id === 'slack')?.connected).toBe(true);
 
     const res = await as(admin.token, 'POST', `/workspaces/${wsId}/integrations/slack/disconnect`);
