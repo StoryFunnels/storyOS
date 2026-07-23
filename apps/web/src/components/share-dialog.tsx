@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import posthog from 'posthog-js';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -83,7 +84,11 @@ export function ShareDialog({
       });
       if (error) throw error;
     },
-    onSuccess: () => {
+    onSuccess: (_data, input) => {
+      posthog.capture('share_access_granted', {
+        role: input.role,
+        scope_type: scope.space_id ? 'space' : 'database',
+      });
       void qc.invalidateQueries({ queryKey: ['grants', ws] });
       setUserId('');
     },

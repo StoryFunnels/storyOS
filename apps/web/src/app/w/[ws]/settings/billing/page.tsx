@@ -1,6 +1,7 @@
 'use client';
 
 import { useParams } from 'next/navigation';
+import posthog from 'posthog-js';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -48,6 +49,7 @@ export default function BillingPage() {
 
   const checkout = useMutation({
     mutationFn: async (plan: 'pro' | 'business') => {
+      posthog.capture('plan_upgrade_clicked', { plan });
       const { data, error } = await api.POST('/api/v1/workspaces/{ws}/billing/checkout', {
         params: { path: { ws } },
         body: { plan },
@@ -83,7 +85,10 @@ export default function BillingPage() {
       if (error) throw error;
       return data;
     },
-    onSuccess: () => void billing.refetch(),
+    onSuccess: () => {
+      posthog.capture('trial_started');
+      void billing.refetch();
+    },
     onError: () => toast.error('Could not start the trial'),
   });
 

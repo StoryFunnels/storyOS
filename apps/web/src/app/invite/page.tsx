@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useRef, useState } from 'react';
+import posthog from 'posthog-js';
 import { api } from '@/lib/api';
 import { isErrorEnvelope } from '@storyos/sdk';
 import { useSession } from '@/lib/auth-client';
@@ -28,6 +29,7 @@ function InviteAccept() {
         setError(isErrorEnvelope(apiError) ? apiError.error.message : 'Could not accept the invite');
         return;
       }
+      posthog.capture('invite_accepted');
       router.replace(`/w/${(data as { workspace_id: string }).workspace_id}`);
     })();
   }, [isPending, session, token, router]);

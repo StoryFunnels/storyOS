@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import posthog from 'posthog-js';
 import { Blocks, Square } from 'lucide-react';
 import { api } from '@/lib/api';
 import { isErrorEnvelope } from '@storyos/sdk';
@@ -51,6 +52,11 @@ export default function NewWorkspacePage() {
     const wsId = (data as { id: string }).id;
 
     const slug = activeIntent?.template ?? (choice.startsWith('template:') ? choice.slice(9) : null);
+    posthog.capture('workspace_created', {
+      has_template: !!slug,
+      template_slug: slug ?? null,
+      intent: choice.startsWith('intent:') ? choice.slice(7) : null,
+    });
     if (!slug) {
       router.replace(`/w/${wsId}`);
       return;

@@ -2,6 +2,7 @@
 
 import { useParams, useRouter } from 'next/navigation';
 import { useRef, useState } from 'react';
+import posthog from 'posthog-js';
 import { toast } from 'sonner';
 import { API_URL } from '@/lib/api';
 import { authClient, useSession } from '@/lib/auth-client';
@@ -106,6 +107,7 @@ export function AccountMenu() {
         )}
         <DropdownMenuItem
           onSelect={async () => {
+            posthog.reset();
             await authClient.signOut();
             router.replace('/login');
           }}

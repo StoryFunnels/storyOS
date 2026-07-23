@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import posthog from 'posthog-js';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Blocks, BookOpen, Bug, Kanban, Megaphone, Newspaper, Filter, Users } from 'lucide-react';
 import { toast } from 'sonner';
@@ -252,6 +253,13 @@ export function TemplateGalleryDialog({
       await qc.invalidateQueries();
       for (const note of result.notes) toast.info(note);
       toast.success(`${selected.name} installed`);
+      posthog.capture('template_installed', {
+        template_slug: selected.slug,
+        template_name: selected.name,
+        template_category: selected.category,
+        template_scope: selected.scope,
+        records_created: result.sample_records,
+      });
       onOpenChange(false);
       router.push(postInstallPath(ws, result, intent?.ends_with_invite));
     } catch {

@@ -2,6 +2,7 @@
 
 import { useParams, useSearchParams } from 'next/navigation';
 import { Suspense, useState } from 'react';
+import posthog from 'posthog-js';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -351,6 +352,7 @@ function InviteDialog({
     onSuccess: (data) => {
       setAcceptUrl(data.accept_url);
       void qc.invalidateQueries({ queryKey: ['invites', ws] });
+      posthog.capture('invite_sent', { role });
     },
     onError: (err: unknown) => {
       const message =

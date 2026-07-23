@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
+import posthog from 'posthog-js';
 import { useQuery } from '@tanstack/react-query';
 import { authClient, useSession } from '@/lib/auth-client';
 import { api } from '@/lib/api';
@@ -38,7 +39,10 @@ function LoginForm() {
     const result = await authClient.signIn.email({ email, password });
     setBusy(false);
     if (result.error) setError(result.error.message ?? 'Sign-in failed');
-    else router.replace(nextUrl);
+    else {
+      posthog.capture('user_logged_in', { method: 'email' });
+      router.replace(nextUrl);
+    }
   }
 
   return (
@@ -60,7 +64,10 @@ function LoginForm() {
           <Button
             type="button"
             variant="secondary"
-            onClick={() => authClient.signIn.social({ provider: 'google', callbackURL: '/' })}
+            onClick={() => {
+              posthog.capture('user_logged_in', { method: 'google' });
+              authClient.signIn.social({ provider: 'google', callbackURL: '/' });
+            }}
           >
             <GoogleIcon className="h-[18px] w-[18px]" />
             Continue with Google
