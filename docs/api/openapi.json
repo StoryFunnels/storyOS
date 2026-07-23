@@ -5274,6 +5274,54 @@
         ]
       }
     },
+    "/api/v1/providers/resend/webhook/{connectionId}": {
+      "post": {
+        "operationId": "ResendWebhookController_receive",
+        "parameters": [
+          {
+            "name": "connectionId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "svix-id",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "svix-timestamp",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "svix-signature",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Resend bounce/complaint webhook for one connection — signature-verified, unauthenticated by design",
+        "tags": [
+          "connections"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/runs/quota": {
       "get": {
         "operationId": "RunsController_quota",
@@ -8897,6 +8945,55 @@
                     "type",
                     "agent"
                   ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "require_approval": {
+                      "type": "boolean"
+                    },
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "send_email"
+                      ]
+                    },
+                    "connection_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "to": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 500
+                    },
+                    "cc": {
+                      "type": "string",
+                      "maxLength": 500
+                    },
+                    "reply_to": {
+                      "type": "string",
+                      "maxLength": 200
+                    },
+                    "subject": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "body_markdown": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 10000
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "connection_id",
+                    "to",
+                    "subject",
+                    "body_markdown"
+                  ]
                 }
               ]
             }
@@ -9311,6 +9408,55 @@
                   "required": [
                     "type",
                     "agent"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "require_approval": {
+                      "type": "boolean"
+                    },
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "send_email"
+                      ]
+                    },
+                    "connection_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "to": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 500
+                    },
+                    "cc": {
+                      "type": "string",
+                      "maxLength": 500
+                    },
+                    "reply_to": {
+                      "type": "string",
+                      "maxLength": 200
+                    },
+                    "subject": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "body_markdown": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 10000
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "connection_id",
+                    "to",
+                    "subject",
+                    "body_markdown"
                   ]
                 }
               ]
