@@ -8,7 +8,8 @@ import { RelationsModule } from '../relations/relations.module';
 import { SkillsModule } from '../skills/skills.module';
 import { ViewsModule } from '../views/views.module';
 import { WorkspacesModule } from '../workspaces/workspaces.module';
-import { PacksController, PacksRegistryController } from './packs.controller';
+import { MarketplaceService } from './marketplace.service';
+import { MarketplaceController, PacksController, PacksRegistryController } from './packs.controller';
 import { PacksService } from './packs.service';
 import { PublicPacksController } from './public-packs.controller';
 
@@ -34,8 +35,8 @@ import { PublicPacksController } from './public-packs.controller';
     ViewsModule,
     WorkspacesModule,
   ],
-  controllers: [PacksController, PacksRegistryController, PublicPacksController],
-  providers: [PacksService],
-  exports: [PacksService],
+  controllers: [PacksController, PacksRegistryController, PublicPacksController, MarketplaceController],
+  providers: [PacksService, MarketplaceService],
+  exports: [PacksService, MarketplaceService],
 })
 export class PacksModule {}

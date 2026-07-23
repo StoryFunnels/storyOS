@@ -6783,6 +6783,44 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/packs/submissions": {
+      "post": {
+        "operationId": "PacksController_submit",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Submit a pack manifest to the marketplace for review",
+        "tags": [
+          "packs"
+        ]
+      },
+      "get": {
+        "operationId": "PacksController_mySubmissions",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "List this workspace's marketplace submissions",
+        "tags": [
+          "packs"
+        ]
+      }
+    },
     "/api/v1/packs/registry": {
       "get": {
         "operationId": "PacksRegistryController_registry",
@@ -6858,6 +6896,45 @@
         "summary": "One built-in pack — public, pre-signup preview",
         "tags": [
           "public"
+        ]
+      }
+    },
+    "/api/v1/packs/marketplace": {
+      "get": {
+        "operationId": "MarketplaceController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Browse published Community Marketplace packs",
+        "tags": [
+          "packs"
+        ]
+      }
+    },
+    "/api/v1/packs/marketplace/{slug}": {
+      "get": {
+        "operationId": "MarketplaceController_entry",
+        "parameters": [
+          {
+            "name": "slug",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "One published pack — manifest, changelog, versions",
+        "tags": [
+          "packs"
         ]
       }
     },
@@ -7239,6 +7316,75 @@
           }
         ],
         "summary": "#300/MN-216c — kill switch: cancel a queued/running/waiting-approval run in any workspace. A status flip to Canceled only — no other side effects.",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/packs/submissions": {
+      "get": {
+        "operationId": "AdminController_listPackSubmissions",
+        "parameters": [
+          {
+            "name": "status",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "MN-220 — pack marketplace submissions awaiting (or having had) review",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/packs/submissions/{id}/review": {
+      "post": {
+        "operationId": "AdminController_reviewPackSubmission",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "The submission id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewSubmissionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "MN-220 — approve or reject a pending pack submission",
         "tags": [
           "admin"
         ]
@@ -11008,6 +11154,16 @@
             "type": "string",
             "maxLength": 5000
           },
+          "license": {
+            "default": "All rights reserved",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "attribution": {
+            "type": "string",
+            "maxLength": 200
+          },
           "space": {
             "type": "string",
             "minLength": 1,
@@ -11097,6 +11253,38 @@
           }
         }
       },
+      "SubmitDto": {
+        "type": "object",
+        "properties": {
+          "vertical": {
+            "type": "string",
+            "enum": [
+              "sales",
+              "marketing",
+              "support",
+              "engineering",
+              "hr",
+              "finance",
+              "agency",
+              "ops",
+              "other"
+            ]
+          },
+          "screenshots": {
+            "default": [],
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uri"
+            }
+          },
+          "manifest": {}
+        },
+        "required": [
+          "vertical"
+        ]
+      },
       "FavoriteDto": {
         "type": "object",
         "properties": {
@@ -11142,6 +11330,25 @@
         },
         "required": [
           "title"
+        ]
+      },
+      "ReviewSubmissionDto": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "approve",
+              "reject"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "action"
         ]
       }
     }

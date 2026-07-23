@@ -31,6 +31,8 @@ export const PACK_REGISTRY: PackRegistryEntry[] = [
     ],
     manifest: {
       format_version: 1,
+      license: 'All rights reserved',
+      attribution: 'StoryOS',
       slug: 'support-inbox',
       name: 'Support Inbox',
       version: '1.0.0',

@@ -421,6 +421,13 @@
       "when": 1784771936353,
       "tag": "0059_colossal_echo",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1784773342308,
+      "tag": "0060_sparkling_magneto",
+      "breakpoints": true
     }
   ]
 }

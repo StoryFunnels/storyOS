@@ -1,12 +1,17 @@
-import { Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
+import { createZodDto } from 'nestjs-zod';
+import { packSubmissionReviewRequestSchema, packSubmissionStatusSchema } from '@storyos/schemas';
 import { AuthGuard } from '../auth/auth.guard';
 import type { AuthedRequest } from '../auth/auth.guard';
 import { AgentsService } from '../agents/agents.service';
+import { MarketplaceService } from '../packs/marketplace.service';
 import { PlatformAdminGuard } from './platform-admin.guard';
 import { AdminOverviewService } from './admin-overview.service';
 import { AdminRunsService } from './admin-runs.service';
 import { CostAttributionService } from './cost-attribution.service';
+
+class ReviewSubmissionDto extends createZodDto(packSubmissionReviewRequestSchema) {}
 
 /**
  * MN-104 first cut: read-only, platform-admin-gated. No mutations here yet —
@@ -32,6 +37,7 @@ export class AdminController {
     private readonly costs: CostAttributionService,
     private readonly runs: AdminRunsService,
     private readonly agents: AgentsService,
+    private readonly marketplace: MarketplaceService,
   ) {}
 
   @Get('overview')
@@ -77,5 +83,36 @@ export class AdminController {
     @Param('run') run: string,
   ) {
     return this.agents.adminCancelRun(workspaceId, run, req.user.id);
+  }
+
+  /**
+   * MN-220 — the Community Marketplace moderation queue. `?status=pending`
+   * (the default a reviewer wants) filters to what's actually actionable;
+   * omit it to see the full history including past approve/reject decisions.
+   */
+  @Get('packs/submissions')
+  @ApiOperation({
+    summary: 'MN-220 — pack marketplace submissions awaiting (or having had) review',
+  })
+  listPackSubmissions(@Query('status') status?: string) {
+    const parsed = packSubmissionStatusSchema.optional().safeParse(status);
+    return this.marketplace.listAllSubmissions(parsed.success ? parsed.data : undefined);
+  }
+
+  /**
+   * MN-220 — the one mutation moderation has: approve publishes the
+   * submission (creating or version-bumping its `published_packs` row);
+   * reject just annotates it. Neither ever half-applies — see
+   * `MarketplaceService.review`'s doc.
+   */
+  @Post('packs/submissions/:id/review')
+  @ApiParam({ name: 'id', description: 'The submission id' })
+  @ApiOperation({ summary: 'MN-220 — approve or reject a pending pack submission' })
+  reviewPackSubmission(
+    @Req() req: AuthedRequest,
+    @Param('id') id: string,
+    @Body() body: ReviewSubmissionDto,
+  ) {
+    return this.marketplace.review(req.user.id, id, body.action, body.notes);
   }
 }

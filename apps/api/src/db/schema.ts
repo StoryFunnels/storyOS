@@ -1548,3 +1548,109 @@ export const referralRewardGrants = pgTable(
   },
   (t) => [index('referral_reward_grants_referrer_idx').on(t.referrerUserId)],
 );
+
+/**
+ * MN-220 — Business Packs community marketplace, v1 (curated, not open).
+ *
+ * Three tables, one flow: an admin `POST .../packs/submissions` an exported
+ * manifest plus listing metadata → a `pack_submissions` row, `pending`. A
+ * platform admin reviews it (`admin.controller.ts`); `approve` is the only
+ * path that ever writes to `published_packs`/`published_pack_versions` — see
+ * `MarketplaceService.review`'s doc for why there is deliberately no
+ * self-serve auto-publish. `reject` only annotates the submission.
+ *
+ * `published_packs` is one row per slug (the listing); `published_pack_versions`
+ * is the changelog — one row per approved version, newest queried by
+ * `publishedAt`. Split rather than an array column on `published_packs`
+ * because `PacksService.listInstalls`'s "update available" check only ever
+ * needs the latest row, and a version history a person reads (the changelog)
+ * is exactly the shape a table's insert-only rows are for, not a jsonb blob
+ * that would need its own ordering convention invented.
+ */
+export const packListingVertical = pgEnum('pack_listing_vertical', [
+  'sales',
+  'marketing',
+  'support',
+  'engineering',
+  'hr',
+  'finance',
+  'agency',
+  'ops',
+  'other',
+]);
+
+export const packSubmissionStatus = pgEnum('pack_submission_status', [
+  'pending',
+  'approved',
+  'rejected',
+]);
+
+export const packSubmissions = pgTable(
+  'pack_submissions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    /** The submitting workspace — provenance only; a submission is not workspace data. */
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    submittedBy: text('submitted_by').notNull(),
+    slug: text('slug').notNull(),
+    name: text('name').notNull(),
+    version: text('version').notNull(),
+    vertical: packListingVertical('vertical').notNull(),
+    screenshots: jsonb('screenshots').notNull().default([]),
+    /** The full manifest as submitted — `packManifestSchema`-shaped. */
+    manifest: jsonb('manifest').notNull(),
+    status: packSubmissionStatus('status').notNull().default('pending'),
+    reviewNotes: text('review_notes'),
+    reviewedBy: text('reviewed_by'),
+    reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    index('pack_submissions_status_idx').on(t.status, t.createdAt),
+    index('pack_submissions_workspace_idx').on(t.workspaceId),
+  ],
+);
+
+/** One published pack — the marketplace listing. Slug is the stable identity an upgrade matches on, same as a manifest's own `slug`. */
+export const publishedPacks = pgTable(
+  'published_packs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    slug: text('slug').notNull(),
+    name: text('name').notNull(),
+    summary: text('summary').notNull(),
+    vertical: packListingVertical('vertical').notNull(),
+    license: text('license').notNull(),
+    attribution: text('attribution'),
+    screenshots: jsonb('screenshots').notNull().default([]),
+    /** Denormalized off `published_pack_versions` for a cheap listing read. */
+    latestVersion: text('latest_version').notNull(),
+    submittedByWorkspaceId: uuid('submitted_by_workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex('published_packs_slug_idx').on(t.slug)],
+);
+
+/** One approved version of a published pack — the changelog, and the version `install` actually reads. */
+export const publishedPackVersions = pgTable(
+  'published_pack_versions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    publishedPackId: uuid('published_pack_id')
+      .notNull()
+      .references(() => publishedPacks.id, { onDelete: 'cascade' }),
+    /** SET NULL: the submission is provenance, not a dependency — the version stands on its own once published. */
+    submissionId: uuid('submission_id').references(() => packSubmissions.id, {
+      onDelete: 'set null',
+    }),
+    version: text('version').notNull(),
+    changelog: text('changelog'),
+    manifest: jsonb('manifest').notNull(),
+    publishedAt: timestamp('published_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('published_pack_versions_pack_idx').on(t.publishedPackId, t.publishedAt)],
+);

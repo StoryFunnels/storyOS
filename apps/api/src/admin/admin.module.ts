@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AgentsModule } from '../agents/agents.module';
+import { PacksModule } from '../packs/packs.module';
 import { RecordsModule } from '../records/records.module';
 import { AdminController } from './admin.controller';
 import { AdminOverviewService } from './admin-overview.service';
@@ -20,9 +21,14 @@ import { PlatformAdminService } from './platform-admin.service';
  * cross-workspace runs read goes through RecordsService (AdminRunsService),
  * and the cancel kill-switch is a method on AgentsService itself
  * (`adminCancelRun`) — reused here rather than duplicated.
+ *
+ * PacksModule is MN-220's edge: marketplace moderation (approve/reject a
+ * submission) is a method on `MarketplaceService`, reused here the same way
+ * rather than a second copy of the review logic living under /admin.
+ * PacksModule does not import AdminModule, so this is one-directional.
  */
 @Module({
-  imports: [AgentsModule, RecordsModule],
+  imports: [AgentsModule, RecordsModule, PacksModule],
   controllers: [AdminController],
   providers: [
     PlatformAdminService,

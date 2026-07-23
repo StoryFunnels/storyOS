@@ -148,6 +148,33 @@ export const packVersionSchema = z
     'version must be semver, e.g. "1.0.0"',
   );
 
+/**
+ * Compares two `packVersionSchema`-shaped strings, ignoring build metadata
+ * (`+…`) per semver's own rule that it carries no precedence. Pre-release
+ * (`-…`) is compared as a plain string suffix rather than the full semver
+ * pre-release algorithm — good enough for "is this a newer release", which is
+ * the only question the marketplace ever asks it (MN-220).
+ *
+ * Returns -1/0/1, the `Array.sort` convention, so `a` newer than `b` is `> 0`.
+ */
+export function compareSemver(a: string, b: string): number {
+  const parse = (v: string) => {
+    const [core, pre = ''] = v.split('+')[0]!.split('-', 2);
+    return { parts: core!.split('.').map(Number), pre };
+  };
+  const pa = parse(a);
+  const pb = parse(b);
+  for (let i = 0; i < 3; i++) {
+    const diff = (pa.parts[i] ?? 0) - (pb.parts[i] ?? 0);
+    if (diff !== 0) return diff > 0 ? 1 : -1;
+  }
+  // No pre-release outranks any pre-release (semver §11.3): "1.0.0" > "1.0.0-rc.1".
+  if (pa.pre === pb.pre) return 0;
+  if (pa.pre === '') return 1;
+  if (pb.pre === '') return -1;
+  return pa.pre > pb.pre ? 1 : -1;
+}
+
 /** A saved view, with every id in `config` replaced by a symbolic ref. */
 export const packViewSchema = z.object({
   /** The database it belongs to, by name (as the plan refers to databases). */
@@ -275,6 +302,17 @@ export const packManifestSchema = architectPlanSchema.extend({
   /** What changed since the previous version, for the human deciding to upgrade. */
   upgrade_notes: z.string().max(5000).optional(),
   requires: packRequiresSchema.default({ connections: [], ai: 'none' }),
+
+  /**
+   * License/attribution (MN-220). Free text rather than an SPDX-id enum: a
+   * pack is a business process, not source code, and "License: internal use
+   * only, contact the author to redistribute" is exactly as valid a license
+   * as "MIT" — the marketplace displays it verbatim rather than validating
+   * against a license list built for software.
+   */
+  license: z.string().min(1).max(100).default('All rights reserved'),
+  /** Who to credit — a person or org name, shown on the listing. */
+  attribution: z.string().max(200).optional(),
 
   /**
    * Overrides `ArchitectPlan.agents`'s element type: a pack agent carries the
@@ -417,7 +455,16 @@ export type PackInstallResolution = z.infer<typeof packInstallResolutionSchema>;
 export const packInstallResolutionsSchema = z.record(z.string(), packInstallResolutionSchema);
 export type PackInstallResolutions = z.infer<typeof packInstallResolutionsSchema>;
 
-/** One tracked install of a pack into a workspace, as the "installed" list reports it. */
+/**
+ * One tracked install of a pack into a workspace, as the "installed" list
+ * reports it.
+ *
+ * `latest_version`/`update_available` are MN-220's addition: looked up by
+ * `slug` against whichever catalog the pack came from (the built-in
+ * `PACK_REGISTRY` or a published community pack), never against anything
+ * stored on the install row itself — a pack that has since been unpublished
+ * or renamed simply reports no update, rather than a stale one.
+ */
 export const packInstallSummarySchema = z.object({
   id: z.uuid(),
   slug: z.string(),
@@ -425,6 +472,8 @@ export const packInstallSummarySchema = z.object({
   version: z.string(),
   installed_at: z.string(),
   installed_by: z.string(),
+  latest_version: z.string().nullable(),
+  update_available: z.boolean(),
 });
 export type PackInstallSummary = z.infer<typeof packInstallSummarySchema>;
 
@@ -494,6 +543,119 @@ export const packPublicPreviewSchema = z.object({
 });
 export type PackPublicPreview = z.infer<typeof packPublicPreviewSchema>;
 
+/**
+ * Community Marketplace (MN-220).
+ *
+ * ── v1 is curated, not open ──────────────────────────────────────────────────
+ *
+ * Anyone with a manifest may *submit* it, but nothing a submission does is
+ * live until a platform admin approves it — there is no self-serve
+ * auto-publish path in this format or its endpoints. `PackSubmission` is the
+ * review queue; `published_packs`/`published_pack_versions` (schema.ts) are
+ * what approval writes to, and are the only tables the marketplace listing
+ * endpoints read from.
+ *
+ * The vertical is a closed enum rather than free text: it is the one facet
+ * the in-app browse view filters/groups by, and a typo'd vertical ("Sals")
+ * would silently orphan a listing from its category forever.
+ */
+export const PACK_LISTING_VERTICALS = [
+  'sales',
+  'marketing',
+  'support',
+  'engineering',
+  'hr',
+  'finance',
+  'agency',
+  'ops',
+  'other',
+] as const;
+export const packListingVerticalSchema = z.enum(PACK_LISTING_VERTICALS);
+export type PackListingVertical = z.infer<typeof packListingVerticalSchema>;
+
+export const packSubmissionStatusSchema = z.enum(['pending', 'approved', 'rejected']);
+export type PackSubmissionStatus = z.infer<typeof packSubmissionStatusSchema>;
+
+/**
+ * The listing metadata a submission adds on top of the manifest itself
+ * (which already carries name/summary/version/license/attribution/requires —
+ * see `packManifestSchema`'s doc). Required connections are deliberately NOT
+ * repeated here: `manifest.requires.connections` is already derived from the
+ * pack's real content (`PacksService.deriveConnections`), and a second,
+ * author-typed copy in the listing form would just be a second place for it
+ * to disagree with the pack.
+ */
+export const packListingMetaSchema = z.object({
+  vertical: packListingVerticalSchema,
+  screenshots: z.array(z.url()).max(8).default([]),
+});
+export type PackListingMeta = z.infer<typeof packListingMetaSchema>;
+
+/** `POST .../packs/submissions` — the manifest is `unknown`, validated at the service boundary like install/preview. */
+export const submitPackRequestSchema = packListingMetaSchema.extend({
+  manifest: z.unknown(),
+});
+export type SubmitPackRequest = z.infer<typeof submitPackRequestSchema>;
+
+/** One submission, as an author or a reviewer sees it. */
+export const packSubmissionSchema = z.object({
+  id: z.uuid(),
+  slug: z.string(),
+  name: z.string(),
+  version: z.string(),
+  summary: z.string(),
+  license: z.string(),
+  attribution: z.string().optional(),
+  vertical: packListingVerticalSchema,
+  screenshots: z.array(z.string()),
+  requires: packRequiresSchema,
+  status: packSubmissionStatusSchema,
+  review_notes: z.string().optional(),
+  submitted_by: z.string(),
+  submitted_at: z.string(),
+  reviewed_by: z.string().optional(),
+  reviewed_at: z.string().optional(),
+});
+export type PackSubmission = z.infer<typeof packSubmissionSchema>;
+
+/** `POST /admin/packs/submissions/:id/review` — the one mutation moderation has. */
+export const packSubmissionReviewRequestSchema = z.object({
+  action: z.enum(['approve', 'reject']),
+  notes: z.string().max(2000).optional(),
+});
+export type PackSubmissionReviewRequest = z.infer<typeof packSubmissionReviewRequestSchema>;
+
+/** One published version, as the listing's changelog shows it. */
+export const publishedPackVersionSchema = z.object({
+  version: z.string(),
+  changelog: z.string().optional(),
+  published_at: z.string(),
+});
+export type PublishedPackVersion = z.infer<typeof publishedPackVersionSchema>;
+
+/** A card in the marketplace browse view — no manifest, same shape discipline as `PackPublicPreview`. */
+export const publishedPackCardSchema = z.object({
+  slug: z.string(),
+  name: z.string(),
+  summary: z.string(),
+  vertical: packListingVerticalSchema,
+  license: z.string(),
+  attribution: z.string().optional(),
+  screenshots: z.array(z.string()),
+  latest_version: z.string(),
+  requires: packRequiresSchema,
+  published_at: z.string(),
+  updated_at: z.string(),
+});
+export type PublishedPackCard = z.infer<typeof publishedPackCardSchema>;
+
+/** One published pack, manifest (of the latest version) and full changelog included — the install source. */
+export const publishedPackDetailSchema = publishedPackCardSchema.extend({
+  manifest: packManifestSchema,
+  versions: z.array(publishedPackVersionSchema),
+});
+export type PublishedPackDetail = z.infer<typeof publishedPackDetailSchema>;
+
 /** What to export: a space by name, or an explicit list of database ids. */
 export const packExportRequestSchema = z
   .object({
@@ -506,6 +668,9 @@ export const packExportRequestSchema = z
     version: packVersionSchema.default('1.0.0'),
     summary: z.string().min(1).max(2000).default('Exported workspace slice'),
     upgrade_notes: z.string().max(5000).optional(),
+    /** MN-220 — carried straight onto the manifest; see its own doc there. */
+    license: z.string().min(1).max(100).default('All rights reserved'),
+    attribution: z.string().max(200).optional(),
     /** The slice: a space name, or explicit database ids. Exactly one. */
     space: z.string().min(1).max(200).optional(),
     database_ids: z.array(z.uuid()).optional(),
