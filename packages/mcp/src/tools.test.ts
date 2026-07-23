@@ -823,3 +823,70 @@ describe('list_skills / run_skill (#41)', () => {
     expect(handlers.has('run_skill')).toBe(false);
   });
 });
+
+/**
+ * get_runs (MN-264): rides the real GET the in-app Runs page uses
+ * (RunsController.list), so this proves the tool resolves the workspace,
+ * forwards status/limit as query params, and hands the envelope straight
+ * back — no reshaping, since the API's own shape is already agent-friendly.
+ */
+describe('get_runs (MN-264)', () => {
+  const WORKSPACE = { id: 'ws-1', name: 'JCM Agency' };
+  const RUNS_ENVELOPE = {
+    data: [
+      { id: 'run-1', kind: 'rule', name: 'Escalate urgent', status: 'ok', action_summary: [] },
+      { id: 'run-2', kind: 'rule', name: 'Escalate urgent', status: 'skipped_quota', action_summary: [] },
+    ],
+    next_cursor: null,
+    has_more: false,
+  };
+
+  function fakeServer() {
+    const handlers = new Map<string, (args: unknown) => Promise<ToolResult>>();
+    return {
+      server: {
+        registerTool: (name: string, _c: unknown, handler: (args: unknown) => Promise<ToolResult>) =>
+          handlers.set(name, handler),
+      } as unknown as McpServer,
+      handlers,
+    };
+  }
+
+  function fakeClient() {
+    const gets: Array<{ path: string; params?: unknown }> = [];
+    const GET = async (path: string, opts: { params?: unknown } = {}) => {
+      gets.push({ path, params: opts.params });
+      if (path === '/api/v1/workspaces') return { data: [WORKSPACE] };
+      if (path === '/api/v1/workspaces/{ws}/runs') return { data: RUNS_ENVELOPE };
+      throw new Error(`unmocked GET ${path}`);
+    };
+    return { client: { GET } as never, gets };
+  }
+
+  it('resolves the workspace and returns the envelope untouched', async () => {
+    const { server, handlers } = fakeServer();
+    const { client, gets } = fakeClient();
+    registerTools(server, { client, baseUrl: 'http://x', token: 't' } as Ctx, { scope: 'admin', allowRunButton: true });
+    const res = await callTool(handlers, 'get_runs', { workspace: 'JCM Agency' });
+    expect(res).toEqual(RUNS_ENVELOPE);
+    expect(gets[1]).toEqual({
+      path: '/api/v1/workspaces/{ws}/runs',
+      params: { path: { ws: 'ws-1' }, query: { status: undefined, limit: undefined } },
+    });
+  });
+
+  it('forwards status and limit as query params', async () => {
+    const { server, handlers } = fakeServer();
+    const { client, gets } = fakeClient();
+    registerTools(server, { client, baseUrl: 'http://x', token: 't' } as Ctx, { scope: 'admin', allowRunButton: true });
+    await callTool(handlers, 'get_runs', { workspace: 'JCM Agency', status: 'skipped_quota', limit: 10 });
+    expect(gets[1]!.params).toEqual({ path: { ws: 'ws-1' }, query: { status: 'skipped_quota', limit: 10 } });
+  });
+
+  it('is read-scoped — visible to a read-only token (MN-134 parity)', () => {
+    const { server, handlers } = fakeServer();
+    const { client } = fakeClient();
+    registerTools(server, { client, baseUrl: 'http://x', token: 't' } as Ctx, { scope: 'read', allowRunButton: true });
+    expect(handlers.has('get_runs')).toBe(true);
+  });
+});

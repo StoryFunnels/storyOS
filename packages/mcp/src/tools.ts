@@ -236,6 +236,9 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   // MN-255: read-only by design — approve/reject are Inbox-only in v1, so
   // an agent can queue work for a human to decide but never decide for one.
   list_approvals: 'read',
+  // MN-264: read-only — rerun is an app-only action (permission-checked,
+  // human-confirmed), not exposed to an agent via MCP.
+  get_runs: 'read',
   // write (record + content mutations)
   create_record: 'write',
   update_record: 'write',
@@ -1735,5 +1738,35 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         return text(res);
       },
     ),
+  );
+
+  reg(
+    'get_runs',
+    {
+      title: 'Get runs',
+      description:
+        "MN-264: this is how you answer \"why didn't my automation fire / post go out?\" — every automation rule run in the " +
+        'workspace, newest first, with status (ok/error/skipped/skipped_quota/running), the triggering record, and a per-action ' +
+        "summary (kind + status of each external action attempted). NOTE: this covers RULE runs only — a workspace's source syncs " +
+        "(MN-260) aren't unioned in yet, so this can't yet answer questions about a source's sync history. Read-only: re-running a " +
+        'failed action happens in the app Runs page, not via MCP.',
+      inputSchema: {
+        workspace: z.string().describe('Workspace name or id.'),
+        status: z
+          .enum(['ok', 'error', 'skipped', 'skipped_quota', 'running'])
+          .optional()
+          .describe('Filter by status; omit for all.'),
+        limit: z.number().int().min(1).max(200).optional().describe('Max rows (default 50).'),
+      },
+    },
+    handle<{ workspace: string; status?: string; limit?: number }>(async ({ workspace, status, limit }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/runs', {
+          params: { path: { ws: ws.id }, query: { status, limit } },
+        } as never),
+      );
+      return text(res);
+    }),
   );
 }

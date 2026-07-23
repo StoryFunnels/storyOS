@@ -8,11 +8,11 @@ import {
   OnModuleInit,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { and, desc, eq, isNotNull, isNull, lte, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm';
 import type { AutomationAction } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { automationRuns, automations, databases, records, workspaces } from '../db/schema';
+import { automationJobs, automationRuns, automations, databases, records, workspaces } from '../db/schema';
 import { compileFilter } from '../records/query-compiler';
 import type { FilterNode } from '@storyos/schemas';
 import { RecordsService } from '../records/records.service';
@@ -383,13 +383,17 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
 
     try {
       // MN-168: same non-AI allowance every other automation run counts against.
+      // MN-264: a distinct 'skipped_quota' status (not the generic 'skipped'
+      // used by the depth/record-gone branches) so the Runs page and the quota
+      // meter can tell "hit the allowance" apart from every other skip reason
+      // without parsing `error` text.
       if (!(await this.entitlements.can(workspaceId, 'automation_run'))) {
         await this.db.insert(automationRuns).values({
           id: runId,
           automationId: rule.id,
           workspaceId,
           triggerRecordId: null,
-          status: 'skipped',
+          status: 'skipped_quota',
           error: 'plan automation-run allowance reached for this month',
           depth: 0,
           durationMs: Date.now() - started,
@@ -572,13 +576,15 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
       // there is no LLM anywhere in this path — so every completed run here
       // is gated against, and counts toward, the plan's non-AI allowance.
       // Graceful degradation, never destructive: a workspace over its
-      // allowance gets a clearly-reasoned 'skipped' row, not a crash.
+      // allowance gets a clearly-reasoned row, not a crash. MN-264: status
+      // 'skipped_quota' specifically (see runHookRule's twin branch above)
+      // so this is distinguishable from the depth-guard/record-gone skips.
       if (!(await this.entitlements.can(workspaceId, 'automation_run'))) {
         await this.logRun(
           ruleId,
           workspaceId,
           recordId,
-          'skipped',
+          'skipped_quota',
           'plan automation-run allowance reached for this month',
           null,
           depth,
@@ -737,9 +743,22 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         await this.db.execute(sql`SELECT pg_advisory_unlock(hashtext(${rule.id}))`);
       }
     }
-    // Retention: purge runs older than 30 days (cheap daily-ish pass).
+    // Retention (MN-264): 90 days, up from the original 30 — the Runs page is
+    // now a trust surface people are expected to check back on, not just a
+    // debugging tail. automation_jobs shares the cutoff (terminal statuses
+    // only — a job still queued/running is never purged regardless of age)
+    // so a run's detail view never has a run row with no matching job history.
+    // Monthly usage is unaffected either way: it lives in usage_counters
+    // (MN-168), which this purge never touches.
+    const retentionCutoff = new Date(Date.now() - 90 * 86_400_000);
+    await this.db.delete(automationRuns).where(lte(automationRuns.createdAt, retentionCutoff));
     await this.db
-      .delete(automationRuns)
-      .where(lte(automationRuns.createdAt, new Date(Date.now() - 30 * 86_400_000)));
+      .delete(automationJobs)
+      .where(
+        and(
+          inArray(automationJobs.status, ['succeeded', 'failed']),
+          lte(automationJobs.createdAt, retentionCutoff),
+        ),
+      );
   }
 }
