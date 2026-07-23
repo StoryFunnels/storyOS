@@ -2395,6 +2395,93 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/databases/{db}/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the sources syncing into this database */
+        get: operations["SourcesController_list"];
+        put?: never;
+        /** Configure a new source: provider + connection + field mapping + schedule */
+        post: operations["SourcesController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/sources/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The source provider catalog — what can be synced, and its config shape */
+        get: operations["SourcesController_providers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/sources/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Stop syncing — leaves every record the source created intact */
+        delete: operations["SourcesController_remove"];
+        options?: never;
+        head?: never;
+        /** Reconfigure a source */
+        patch: operations["SourcesController_update"];
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/sources/{id}/sync-now": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run one sync cycle immediately, ignoring the schedule gate */
+        post: operations["SourcesController_syncNow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/sources/{id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Recent sync runs for one source (fetched/created/updated/errors) */
+        get: operations["SourcesController_runs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/agents": {
         parameters: {
             query?: never;
@@ -3865,6 +3952,40 @@ export interface components {
             auth: {
                 [key: string]: unknown;
             };
+        };
+        CreateSourceDto: {
+            name: string;
+            /** Format: uuid */
+            connection_id: string;
+            provider_source: string;
+            /** @default {} */
+            config: {
+                [key: string]: unknown;
+            };
+            field_mapping: {
+                [key: string]: string;
+            };
+            /** Format: uuid */
+            external_key_field_id: string;
+            /** @enum {string} */
+            schedule: "15m" | "hour" | "day";
+        };
+        UpdateSourceDto: {
+            name?: string;
+            /** Format: uuid */
+            connection_id?: string;
+            config?: {
+                [key: string]: unknown;
+            };
+            field_mapping?: {
+                [key: string]: string;
+            };
+            /** Format: uuid */
+            external_key_field_id?: string;
+            /** @enum {string} */
+            schedule?: "15m" | "hour" | "day";
+            /** @enum {string} */
+            status?: "active" | "paused" | "error";
         };
         CreateAgentTriggerDto: {
             agent: string;
@@ -7712,6 +7833,153 @@ export interface operations {
         requestBody?: never;
         responses: {
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SourcesController_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SourcesController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSourceDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SourcesController_providers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SourcesController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SourcesController_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateSourceDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SourcesController_syncNow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SourcesController_runs: {
+        parameters: {
+            query: {
+                limit: string;
+            };
+            header?: never;
+            path: {
+                db: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };

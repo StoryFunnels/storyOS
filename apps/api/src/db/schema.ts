@@ -1097,6 +1097,17 @@ export const connections = pgTable(
      * provider descriptor's `rateLimit` default on first use.
      */
     connectionRateState: jsonb('connection_rate_state'),
+    /**
+     * #239 — daily API-quota budget for read-heavy sources (YouTube: 1 unit/
+     * call). Shape: `{ date: 'YYYY-MM-DD', used: number }`, reset whenever
+     * `date` rolls over. Nullable — untouched by connections that never back
+     * a source. Scoped separately from `connectionRateState` above: that one
+     * is MN-253's action-execution token bucket (retry/circuit-breaker
+     * concern); this is a same-day usage ceiling for scheduled polling, a
+     * different failure mode (silently blowing a provider's daily cap) with a
+     * different owner (SourcesService).
+     */
+    quotaState: jsonb('quota_state'),
     createdBy: text('created_by'),
     ...timestamps,
   },
@@ -1390,5 +1401,84 @@ export const packInstallItems = pgTable(
   (t) => [
     index('pack_install_items_install_idx').on(t.packInstallId),
     index('pack_install_items_entity_idx').on(t.kind, t.entityId),
+  ],
+);
+
+/**
+ * #239 — the Sources framework. A source is NOT a workflow: it's a scheduled
+ * sync that UPSERTS external items into a normal database by an external
+ * key, so a database fed by a source is otherwise a completely ordinary
+ * database — views, record_created automations, agents over MCP all just
+ * work. `providerSource` is a free-text registry key (providers/index.ts, an
+ * "id.subresource" shape like "youtube.comments") — never a schema change to
+ * register a new one, same reasoning as `connections.provider`.
+ *
+ * `fieldMapping` is `{ external_key: field_id }`; `externalKeyFieldId` names
+ * which mapped field_id is the upsert key (must also appear as one of
+ * fieldMapping's values). `cursor` is provider-owned opaque state (page
+ * tokens, watermarks) round-tripped verbatim between sync cycles.
+ */
+export const sources = pgTable(
+  'sources',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    /** SET NULL (not cascade): deleting the connection must not silently
+     * delete the source's config/history — it flips to status 'error'
+     * instead (SourcesService.tick / ConnectionsService.remove), same
+     * "credential gone, history stays" call as automationJobs.connectionId. */
+    connectionId: uuid('connection_id').references(() => connections.id, { onDelete: 'set null' }),
+    name: text('name').notNull(),
+    providerSource: text('provider_source').notNull(),
+    config: jsonb('config').notNull().default({}),
+    targetDatabaseId: uuid('target_database_id')
+      .notNull()
+      .references(() => databases.id, { onDelete: 'cascade' }),
+    fieldMapping: jsonb('field_mapping').notNull().default({}),
+    externalKeyFieldId: uuid('external_key_field_id').notNull(),
+    schedule: text('schedule').notNull(), // '15m' | 'hour' | 'day'
+    status: text('status').notNull().default('active'), // active | paused | error
+    lastSyncAt: timestamp('last_sync_at', { withTimezone: true }),
+    cursor: jsonb('cursor').notNull().default({}),
+    createdBy: text('created_by'),
+    ...timestamps,
+  },
+  (t) => [
+    index('sources_status_schedule_idx').on(t.status, t.schedule, t.lastSyncAt),
+    index('sources_target_database_idx').on(t.targetDatabaseId),
+  ],
+);
+
+/**
+ * One sync attempt of a source (#239). MN-264's Runs & health surface
+ * (runs.service.ts) unions this table with automationRuns once both exist —
+ * `workspaceId` is denormalized here for exactly the reason automationRuns'
+ * doc gives for doing the same off automations->databases: that union (and
+ * usage_counters-style accounting) must never need a join through `sources`
+ * just to scope by workspace.
+ */
+export const sourceRuns = pgTable(
+  'source_runs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    sourceId: uuid('source_id')
+      .notNull()
+      .references(() => sources.id, { onDelete: 'cascade' }),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+    status: text('status').notNull(), // running | ok | error | skipped_quota
+    fetched: integer('fetched').notNull().default(0),
+    created: integer('created').notNull().default(0),
+    updated: integer('updated').notNull().default(0),
+    error: text('error'),
+  },
+  (t) => [
+    index('source_runs_source_idx').on(t.sourceId, t.startedAt),
+    index('source_runs_workspace_idx').on(t.workspaceId, t.startedAt),
   ],
 );

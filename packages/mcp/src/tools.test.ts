@@ -890,3 +890,59 @@ describe('get_runs (MN-264)', () => {
     expect(handlers.has('get_runs')).toBe(true);
   });
 });
+
+/**
+ * list_sources (#239): a thin read over GET .../databases/{db}/sources — this
+ * proves the tool resolves workspace + database by name (not just id), the
+ * same convention every other read tool follows, and simply passes the
+ * service's `data` array through.
+ */
+describe('list_sources (#239)', () => {
+  const WORKSPACE = { id: 'ws-1', name: 'JCM Agency' };
+  const DATABASE = { id: 'db-1', name: 'YouTube Comments', apiSlug: 'youtube_comments', spaceSlug: 'social' };
+  const SOURCES = [
+    {
+      id: 'src-1',
+      name: 'Channel comments',
+      provider_source: 'youtube.comments',
+      schedule: '15m',
+      status: 'active',
+      last_sync_at: '2026-01-01T00:00:00.000Z',
+    },
+  ];
+
+  function fakeServer() {
+    const handlers = new Map<string, (args: unknown) => Promise<ToolResult>>();
+    return {
+      server: {
+        registerTool: (name: string, _c: unknown, handler: (args: unknown) => Promise<ToolResult>) => handlers.set(name, handler),
+      } as unknown as McpServer,
+      handlers,
+    };
+  }
+
+  function fakeClient() {
+    const GET = async (path: string) => {
+      if (path === '/api/v1/workspaces') return { data: [WORKSPACE] };
+      if (path === '/api/v1/workspaces/{ws}/databases') return { data: [DATABASE] };
+      if (path === '/api/v1/workspaces/{ws}/databases/{db}/sources') return { data: { data: SOURCES } };
+      throw new Error(`unmocked GET ${path}`);
+    };
+    return { client: { GET } as never };
+  }
+
+  it('resolves workspace + database by name and returns the sources list', async () => {
+    const { server, handlers } = fakeServer();
+    const { client } = fakeClient();
+    registerTools(server, { client, baseUrl: 'http://x', token: 't' } as Ctx, { scope: 'admin', allowRunButton: true });
+    const res = await callTool(handlers, 'list_sources', { workspace: 'JCM Agency', database: 'YouTube Comments' });
+    expect(res).toEqual(SOURCES);
+  });
+
+  it('is visible to a read-scoped token (visibility only, no write tool exists for it)', async () => {
+    const { server, handlers } = fakeServer();
+    const { client } = fakeClient();
+    registerTools(server, { client, baseUrl: 'http://x', token: 't' } as Ctx, { scope: 'read', allowRunButton: true });
+    expect(handlers.has('list_sources')).toBe(true);
+  });
+});

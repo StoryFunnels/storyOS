@@ -440,6 +440,32 @@ export class ConnectionsService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  // ── quota (#239) ─────────────────────────────────────────────────────────
+
+  /**
+   * #239 — daily API-quota guard shared by every source polling through one
+   * connection (a workspace can point several sources at the same YouTube
+   * connection). Returns false — and leaves `quotaState` untouched — when
+   * consuming `units` would exceed `dailyBudget` for today; otherwise
+   * consumes them and returns true. Scoped separately from the MN-253
+   * `connectionRateState` token bucket on the same row: that one paces
+   * outbound action calls with backoff; this one is a same-day usage ceiling
+   * for scheduled polling, reset by day rollover rather than by refill rate.
+   */
+  async checkAndConsumeQuota(connectionId: string, units: number, dailyBudget: number): Promise<boolean> {
+    const row = await this.db.query.connections.findFirst({ where: eq(connections.id, connectionId) });
+    if (!row) return false;
+    const today = new Date().toISOString().slice(0, 10);
+    const state = (row.quotaState ?? {}) as { date?: string; used?: number };
+    const usedToday = state.date === today ? (state.used ?? 0) : 0;
+    if (usedToday + units > dailyBudget) return false;
+    await this.db
+      .update(connections)
+      .set({ quotaState: { date: today, used: usedToday + units } })
+      .where(eq(connections.id, connectionId));
+    return true;
+  }
+
   private async flagExpired(row: ConnectionRow): Promise<void> {
     await this.db
       .update(connections)

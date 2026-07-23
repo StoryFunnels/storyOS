@@ -220,6 +220,13 @@ export const envSchema = z.object({
    */
   HTTP_ACTION_ALLOW_PRIVATE_CIDRS: z.string().optional().default(''),
   /**
+   * #239 — daily YouTube Data API v3 quota (default 10,000 units, the stock
+   * per-project allocation; reads cost 1 unit/call). SourcesService checks
+   * this before each sync cycle and marks the run 'skipped_quota' instead of
+   * calling the API once a connection's same-day usage would exceed it.
+   */
+  YOUTUBE_DAILY_QUOTA_UNITS: z.coerce.number().int().positive().default(10_000),
+  /**
    * Billing (MN-165). All optional: with STRIPE_SECRET_KEY unset the billing
    * module runs in "disabled" mode — every workspace is Free, checkout/portal
    * endpoints 503, and the webhook no-ops. Self-hosters never touch Stripe.

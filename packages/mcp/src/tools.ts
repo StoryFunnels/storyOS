@@ -239,6 +239,9 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   // MN-264: read-only — rerun is an app-only action (permission-checked,
   // human-confirmed), not exposed to an agent via MCP.
   get_runs: 'read',
+  // #239: visibility only — creating/editing a source stays UI/API-only in v1
+  // (the field-mapping dialog is not something an agent should improvise).
+  list_sources: 'read',
   // write (record + content mutations)
   create_record: 'write',
   update_record: 'write',
@@ -1748,8 +1751,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         "MN-264: this is how you answer \"why didn't my automation fire / post go out?\" — every automation rule run in the " +
         'workspace, newest first, with status (ok/error/skipped/skipped_quota/running), the triggering record, and a per-action ' +
         "summary (kind + status of each external action attempted). NOTE: this covers RULE runs only — a workspace's source syncs " +
-        "(MN-260) aren't unioned in yet, so this can't yet answer questions about a source's sync history. Read-only: re-running a " +
-        'failed action happens in the app Runs page, not via MCP.',
+        "(#239) aren't unioned in yet, so this can't yet answer questions about a source's sync history — see list_sources for " +
+        "that. Read-only: re-running a failed action happens in the app Runs page, not via MCP.",
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
         status: z
@@ -1767,6 +1770,30 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         } as never),
       );
       return text(res);
+    }),
+  );
+
+  reg(
+    'list_sources',
+    {
+      title: 'List sources',
+      description:
+        '#239: the scheduled syncs feeding this database from an external provider (YouTube comments/videos/metrics, more as MN-261/262 land) — provider, schedule, status and last_sync_at for each. ' +
+        'Use this to diagnose data freshness ("is this database still syncing?") before trusting its records as current. Read-only: configuring a source stays UI/API-only in v1.',
+      inputSchema: {
+        workspace: z.string().describe('Workspace name or id.'),
+        database: z.string().describe('Database name, api slug, or id.'),
+      },
+    },
+    handle<{ workspace: string; database: string }>(async ({ workspace, database }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const res = await unwrap<{ data?: Array<Record<string, unknown>> }>(
+        client.GET('/api/v1/workspaces/{ws}/databases/{db}/sources', {
+          params: { path: { ws: ws.id, db: db.id } },
+        } as never),
+      );
+      return text(res.data ?? []);
     }),
   );
 }
