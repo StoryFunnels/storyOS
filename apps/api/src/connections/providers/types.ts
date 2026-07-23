@@ -51,4 +51,18 @@ export interface ProviderDescriptor {
    * Absent means JobRunnerService applies no rate limit for this provider.
    */
   rateLimit?: { capacity: number; refillMs: number };
+  /**
+   * MN-256 — runs immediately AFTER a successful healthCheck (create() and
+   * test() both call it) and its return value becomes `connections.scopes`.
+   * For an api_key/smtp provider this is the one place scope-like facts
+   * living on the LIVE credential (Resend's verified domains, an SMTP
+   * connection's mandatory from-address) get captured — `scopes` already
+   * exists for OAuth2's granted-scope list, so this reuses the same jsonb
+   * column rather than needing a schema change. May throw (same convention as
+   * healthCheck) to reject a credential healthCheck alone can't rule out —
+   * e.g. a configured `from_address` whose domain isn't actually verified.
+   * Absent means scopes stays `[]`, exactly like today for every provider
+   * before MN-256.
+   */
+  resolveScopes?(auth: unknown, fetcher?: ConnectionFetcher): Promise<string[]>;
 }

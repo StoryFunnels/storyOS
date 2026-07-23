@@ -33,8 +33,10 @@ const DARK = {
 /** Escapes caller-supplied strings (display names, workspace names, record
  * titles, comment excerpts) before they're interpolated into `bodyHtml` or a
  * heading. Never apply this to our own static copy/markup below — it isn't
- * user input, and escaping it would just show the entities to the recipient. */
-function escapeHtml(value: string): string {
+ * user input, and escaping it would just show the entities to the recipient.
+ * Exported (MN-256) so send-email.action.ts's markdown-to-HTML render escapes
+ * a rendered {Field}/{payload} token's raw value before it lands in a body. */
+export function escapeHtml(value: string): string {
   return value
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -83,8 +85,12 @@ interface BrandedEmailOptions {
  * swapped with the same `!important` display toggle the dark-mode CSS below
  * already uses for text — image-blocking clients fall back to the `alt`
  * text, styled inline to still resemble the wordmark.
+ *
+ * Exported (MN-256) so send-email.action.ts's automation-sent mail gets the
+ * SAME branded shell every other transactional email uses, instead of a
+ * second, drifting HTML template.
  */
-function renderBrandedEmail(opts: BrandedEmailOptions): string {
+export function renderBrandedEmail(opts: BrandedEmailOptions): string {
   const webUrl = env().WEB_URL.replace(/\/$/, '');
   const preheader = opts.preheader ?? opts.heading;
   const year = new Date().getFullYear();

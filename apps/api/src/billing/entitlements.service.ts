@@ -9,9 +9,11 @@ import {
   workspaceEntitlementOverrides,
 } from '../db/schema';
 import { AccessService } from '../access/access.service';
+import { env } from '../config/env';
 import { BillingService } from './billing.service';
 import { StripeService } from './stripe.service';
 import { PLANS } from './plans';
+import type { PlanId } from './plans';
 
 export interface PlanLimits {
   automationRunsPerMonth: number;
@@ -27,6 +29,21 @@ export interface WorkspaceUsage {
 const UNLIMITED: PlanLimits = { automationRunsPerMonth: Infinity, includedSeats: Infinity };
 
 const AUTOMATION_RUN_METRIC = 'automation_runs';
+
+/** MN-256 — EMAIL_DAILY_CAP_* env vars, keyed by plan. */
+function emailDailyCapFor(plan: PlanId): number {
+  const e = env();
+  switch (plan) {
+    case 'free':
+      return e.EMAIL_DAILY_CAP_FREE;
+    case 'pro':
+      return e.EMAIL_DAILY_CAP_PRO;
+    case 'business':
+      return e.EMAIL_DAILY_CAP_BUSINESS;
+    case 'enterprise':
+      return e.EMAIL_DAILY_CAP_ENTERPRISE;
+  }
+}
 
 /** First-of-month UTC — the natural monthly reset; no cron needed. */
 function currentPeriodStart(): Date {
@@ -91,6 +108,21 @@ export class EntitlementsService {
       automationRunsPerMonth: override?.automationRunsPerMonth ?? plan.automationRuns,
       includedSeats: override?.includedSeats ?? plan.includedSeats,
     };
+  }
+
+  /**
+   * MN-256 — send_email's daily send cap for a workspace's plan. Deliberately
+   * NOT wired through `getLimits`/`PlanLimits`/entitlement overrides: those
+   * are monthly, and per-seat/automation-run scoped in a way a per-DAY email
+   * cap isn't yet a clean fit for — see EMAIL_DAILY_CAP_* env vars' own
+   * comment for the TODO to fold this into a real per-capability entitlement
+   * once the billing epic grows one. Self-host (Stripe disabled) is
+   * unlimited, same as every other entitlement here.
+   */
+  async emailDailyCap(workspaceId: string): Promise<number> {
+    if (!this.stripe.enabled) return Infinity;
+    const status = await this.billing.getStatus(workspaceId);
+    return emailDailyCapFor(status.plan);
   }
 
   /**

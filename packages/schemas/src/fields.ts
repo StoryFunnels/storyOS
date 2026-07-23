@@ -168,6 +168,35 @@ export const actionSchema = z.discriminatedUnion('type', [
     dry_run: z.boolean().optional(),
   }),
   /**
+   * MN-256: a templated 1:1 email through a workspace Resend/SMTP connection
+   * (connections/providers, #231). Durable-queued like every other external
+   * kind (MN-253) — job-runner.service.ts's registered 'send_email' executor
+   * does the actual send. `to`/`cc`/`reply_to`/`subject`/`body_markdown` are
+   * templates — {Field Name}/{payload.…} tokens are interpolated the same way
+   * every other action's text does, rendered once before the job is enqueued
+   * (or before an approval snapshot freezes, when gated) so the executor
+   * itself never touches interpolation.
+   *
+   * `...gated`'s `require_approval` defaults to true here specifically (see
+   * AutomationActionsService.validate()/execute()) UNLESS every rendered
+   * recipient resolves to a workspace member's email at run time — an
+   * explicit `false` (admin-only, see validate()) always skips the gate.
+   */
+  z.object({
+    ...gated,
+    type: z.literal('send_email'),
+    /** A `resend`/`smtp` connection (connections/providers) — its own
+     * verified from-address is what the mail actually sends as; there is no
+     * user-suppliable `from` here (ADR: never spoof storyos.dev). */
+    connection_id: z.uuid(),
+    /** Comma-separated addresses; each interpolated then validated at send. */
+    to: z.string().min(1).max(500),
+    cc: z.string().max(500).optional(),
+    reply_to: z.string().max(200).optional(),
+    subject: z.string().min(1).max(200),
+    body_markdown: z.string().min(1).max(10_000),
+  }),
+  /**
    * MN-263 — call any API from a rule and (optionally) capture the response
    * back onto the record. Durable-queued like run_agent (job-runner.service.ts's
    * registered 'http_request' executor) — never runs inline, so a slow or

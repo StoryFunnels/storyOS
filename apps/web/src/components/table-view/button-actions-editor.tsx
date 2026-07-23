@@ -1,14 +1,14 @@
 'use client';
 
 import { useState } from 'react';
-import { Info, Plus, Trash2 } from 'lucide-react';
+import { Info, Plus, ShieldCheck, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { api, apiErrorMessage } from '@/lib/api';
 import { useDatabases, useHttpConnections } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { useDatabase, useMembers } from './use-table-data';
+import { useDatabase, useMailConnections, useMembers } from './use-table-data';
 import type { Field } from './use-table-data';
 
 export type ButtonAction =
@@ -30,6 +30,19 @@ export type ButtonAction =
       url: string;
       body_template?: string;
       headers?: Record<string, string | { __keep: true }>;
+    }
+  // MN-256: `to`/`cc` are comma-separated address templates; `require_approval`
+  // left undefined means "default" (gated unless every rendered recipient is
+  // an internal workspace member, decided at run time — see actions.service.ts).
+  | {
+      type: 'send_email';
+      connection_id: string;
+      to: string;
+      cc?: string;
+      reply_to?: string;
+      subject: string;
+      body_markdown: string;
+      require_approval?: boolean;
     }
   // MN-263: call any API and (optionally) capture the response back onto
   // fields. `headers` is write-only the same way send_webhook's is (#249).
@@ -78,6 +91,7 @@ export function ButtonActionsEditor({
   ruleId?: string;
 }) {
   const databases = useDatabases(ws);
+  const mailConnections = useMailConnections(ws);
   const membersQuery = useMembers(ws, true);
   const members = (membersQuery.data ?? []).map((m) => ({ id: m.user.id, name: m.user.name }));
   const settable = dbFields.filter(
@@ -138,6 +152,14 @@ export function ButtonActionsEditor({
                 else if (t === 'send_webhook') patch(i, { type: 'send_webhook', url: '' });
                 else if (t === 'send_slack_message')
                   patch(i, { type: 'send_slack_message', text: '' });
+                else if (t === 'send_email')
+                  patch(i, {
+                    type: 'send_email',
+                    connection_id: mailConnections.data?.[0]?.id ?? '',
+                    to: '',
+                    subject: '',
+                    body_markdown: '',
+                  });
                 else if (t === 'http_request')
                   patch(i, { type: 'http_request', method: 'GET', url: '' });
                 else patch(i, { type: 'add_comment', body_template: '' });
@@ -157,6 +179,7 @@ export function ButtonActionsEditor({
               <option value="notify_user">Notify a person</option>
               <option value="send_slack_message">Send a Slack message</option>
               <option value="send_webhook">Send a webhook</option>
+              {offersAction('send_email') && <option value="send_email">Send an email</option>}
               {offersAction('http_request') && (
                 <option value="http_request">Call an API (HTTP request)</option>
               )}
@@ -283,6 +306,15 @@ export function ButtonActionsEditor({
                 Signed with the workspace webhook secret; failures retry automatically.
               </p>
             </div>
+          )}
+
+          {action.type === 'send_email' && (
+            <SendEmailEditor
+              ws={ws}
+              connections={mailConnections.data ?? []}
+              action={action}
+              onChange={(next) => patch(i, next)}
+            />
           )}
 
           {action.type === 'http_request' && (
@@ -616,6 +648,109 @@ function LinkBackPicker({
         </option>
       ))}
     </select>
+  );
+}
+
+/**
+ * send_email action editor (MN-256). Approval badge: shows "Default" (gated
+ * unless every rendered recipient turns out to be an internal member, decided
+ * at run time — the backend's own call, not this UI's), or the two explicit
+ * overrides. Turning approval fully off is admin-only server-side
+ * (actions.service.ts's validate()) — enforced there, not hidden here, since
+ * the wrong role finding out via a clear save-time error is fine.
+ */
+function SendEmailEditor({
+  ws,
+  connections,
+  action,
+  onChange,
+}: {
+  ws: string;
+  connections: Array<{ id: string; name: string; provider: string; status: string }>;
+  action: Extract<ButtonAction, { type: 'send_email' }>;
+  onChange: (next: ButtonAction) => void;
+}) {
+  const approvalValue = action.require_approval === undefined ? 'default' : action.require_approval ? 'always' : 'never';
+  return (
+    <div className="flex flex-col gap-1.5">
+      {connections.length === 0 && (
+        <div className="flex items-start gap-1.5 rounded border border-border-default bg-hover px-2 py-1.5 text-[11px] text-muted">
+          <Info className="mt-0.5 h-3 w-3 shrink-0" />
+          <span>
+            No Resend/SMTP connection yet.{' '}
+            <Link
+              href={`/w/${ws}/settings/connections`}
+              target="_blank"
+              className="underline underline-offset-2 hover:no-underline"
+            >
+              Connect one
+            </Link>
+            {' '}first — it needs a from-address before it can be used here.
+          </span>
+        </div>
+      )}
+      <select
+        className="h-7 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+        value={action.connection_id}
+        onChange={(e) => onChange({ ...action, connection_id: e.target.value })}
+      >
+        <option value="">Choose a connection…</option>
+        {connections.map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.name} ({c.provider}){c.status !== 'active' ? ` — ${c.status}` : ''}
+          </option>
+        ))}
+      </select>
+      <Input
+        className="h-7"
+        placeholder="To — comma-separated, {Field Name} interpolates"
+        value={action.to}
+        onChange={(e) => onChange({ ...action, to: e.target.value })}
+      />
+      <Input
+        className="h-7"
+        placeholder="Cc (optional)"
+        value={action.cc ?? ''}
+        onChange={(e) => onChange({ ...action, cc: e.target.value || undefined })}
+      />
+      <Input
+        className="h-7"
+        placeholder="Reply-To (optional)"
+        value={action.reply_to ?? ''}
+        onChange={(e) => onChange({ ...action, reply_to: e.target.value || undefined })}
+      />
+      <Input
+        className="h-7"
+        placeholder="Subject — {Field Name} interpolates"
+        value={action.subject}
+        onChange={(e) => onChange({ ...action, subject: e.target.value })}
+      />
+      <textarea
+        className="min-h-[80px] rounded border border-border-default bg-card px-2 py-1 text-[12px] text-ink"
+        placeholder="Body (markdown) — {Field Name} interpolates values"
+        value={action.body_markdown}
+        onChange={(e) => onChange({ ...action, body_markdown: e.target.value })}
+      />
+      <div className="flex items-center gap-1.5 text-[11px] text-muted">
+        <ShieldCheck className="h-3 w-3 shrink-0" />
+        <span>Approval:</span>
+        <select
+          className="h-6 rounded border border-border-default bg-card px-1 text-[11px] text-ink"
+          value={approvalValue}
+          onChange={(e) => {
+            const v = e.target.value;
+            onChange({
+              ...action,
+              require_approval: v === 'default' ? undefined : v === 'always',
+            });
+          }}
+        >
+          <option value="default">Default (gated unless all-internal at send time)</option>
+          <option value="always">Always require approval</option>
+          <option value="never">Never (admin-only setting)</option>
+        </select>
+      </div>
+    </div>
   );
 }
 

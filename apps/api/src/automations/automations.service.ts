@@ -104,10 +104,11 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
       approverId?: string;
     },
     actorId: string,
+    actorRole?: string,
   ) {
     // No prior actions to preserve against — this strips any stray presence flags.
     const actions = restoreActionHeaders(input.actions, []);
-    await this.actions.validate(databaseId, workspaceId, actions, input.trigger.type);
+    await this.actions.validate(databaseId, workspaceId, actions, input.trigger.type, actorRole);
     // MN-254: a webhook delivery has no triggering record, so a rule's
     // condition (a record-filter AST) has nothing to evaluate against — v1
     // rejects it outright rather than silently always-match or always-skip.
@@ -148,13 +149,14 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
       approverId?: string | null;
     },
     actorId: string,
+    actorRole?: string,
   ) {
     const rule = await this.getRule(databaseId, ruleId);
     const trigger = (patch.trigger ?? rule.trigger) as Trigger;
     // Resolve write-only header presence flags against the stored actions so editing
     // an unrelated part of the rule can't clobber a secret webhook header (#249).
     const actions = patch.actions ? restoreActionHeaders(patch.actions, rule.actions) : undefined;
-    if (actions) await this.actions.validate(databaseId, workspaceId, actions, trigger.type);
+    if (actions) await this.actions.validate(databaseId, workspaceId, actions, trigger.type, actorRole);
     const condition = patch.condition === undefined ? rule.condition : patch.condition;
     if (trigger.type === 'webhook_received' && condition) {
       throw new UnprocessableEntityException(

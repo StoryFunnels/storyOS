@@ -10,6 +10,7 @@ import { env } from './config/env';
 import { GITHUB_WEBHOOK_PATH } from './integrations/github-webhook.service';
 import { BILLING_WEBHOOK_PATH } from './billing/billing.controller';
 import { HOOKS_PATH_PREFIX } from './automations/hooks.controller';
+import { RESEND_WEBHOOK_PATH_PREFIX } from './connections/resend-webhook.controller';
 
 /**
  * Routes that need the untouched request bytes, because a signature was
@@ -24,12 +25,17 @@ const RAW_BODY_PATHS = new Set<string>([GITHUB_WEBHOOK_PATH, BILLING_WEBHOOK_PAT
 
 /**
  * `RAW_BODY_PATHS` is exact-match, but MN-254's inbound hook route carries
- * `:workspaceSlug/:hookToken` in the path — there's no fixed string to put in
- * the set. A prefix check covers it the same way without weakening the exact
- * matches above (nothing else starts with this prefix).
+ * `:workspaceSlug/:hookToken` in the path (and MN-256's Resend webhook
+ * carries `:connectionId`) — there's no fixed string to put in the set for
+ * either. A prefix check covers both the same way without weakening the
+ * exact matches above (nothing else starts with either prefix).
  */
 function needsRawBody(path: string): boolean {
-  return RAW_BODY_PATHS.has(path) || path.startsWith(HOOKS_PATH_PREFIX);
+  return (
+    RAW_BODY_PATHS.has(path) ||
+    path.startsWith(HOOKS_PATH_PREFIX) ||
+    path.startsWith(RESEND_WEBHOOK_PATH_PREFIX)
+  );
 }
 
 /** A request whose raw bytes were retained because its path is on the allowlist. */

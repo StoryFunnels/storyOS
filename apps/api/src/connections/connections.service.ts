@@ -166,6 +166,10 @@ export class ConnectionsService implements OnModuleInit, OnModuleDestroy {
     }
     // Runs BEFORE insert (MN-252 AC): a connection that never worked is never stored.
     await descriptor.healthCheck(input.auth, this.fetcher);
+    // MN-256: resolveScopes may itself throw (e.g. a from_address whose
+    // domain isn't Resend-verified) — same "never store a bad credential"
+    // rule healthCheck enforces, just for a fact healthCheck alone can't see.
+    const scopes = descriptor.resolveScopes ? await descriptor.resolveScopes(input.auth, this.fetcher) : [];
     const sealed = seal(JSON.stringify(input.auth));
     const [row] = await this.db
       .insert(connections)
@@ -174,7 +178,7 @@ export class ConnectionsService implements OnModuleInit, OnModuleDestroy {
         provider: descriptor.id,
         name: input.name,
         authSealed: sealed,
-        scopes: [],
+        scopes,
         status: 'active',
         lastOkAt: new Date(),
         createdBy: userId,
@@ -216,9 +220,13 @@ export class ConnectionsService implements OnModuleInit, OnModuleDestroy {
     const auth: unknown = JSON.parse(open(row.authSealed));
     try {
       await descriptor.healthCheck(auth, this.fetcher);
+      // MN-256: re-resolve scopes on every re-test too, so a Resend domain
+      // that's since been verified (or a from_address added after the fact
+      // by recreating the connection) is picked up without a separate path.
+      const scopes = descriptor.resolveScopes ? await descriptor.resolveScopes(auth, this.fetcher) : row.scopes;
       await this.db
         .update(connections)
-        .set({ status: 'active', lastOkAt: new Date(), errorStreak: 0 })
+        .set({ status: 'active', lastOkAt: new Date(), errorStreak: 0, scopes })
         .where(eq(connections.id, id));
       return { ok: true };
     } catch (error) {

@@ -23,7 +23,26 @@ export type ResendFetcher = (
 const defaultResendFetcher: ResendFetcher = (url, init) =>
   fetch(url, { method: 'POST', headers: init.headers, body: init.body });
 
-const RESEND_ENDPOINT = 'https://api.resend.com/emails';
+/** Exported (MN-256) so send-email.action.ts's own Resend sender — which needs
+ * to/cc/reply_to fields ResendMailDriver's single-recipient MailMessage shape
+ * doesn't carry — hits the same endpoint without a second copy of the string. */
+export const RESEND_ENDPOINT = 'https://api.resend.com/emails';
+
+/**
+ * MN-256: the nodemailer transport builder SmtpMailDriver already used inline
+ * — pulled out and exported so both the `smtp` connection provider's
+ * healthCheck (connections/providers/smtp.ts) and send-email.action.ts's own
+ * sender build the SAME transport shape from a bag of connection creds,
+ * rather than three copies of this `createTransport(...)` call existing.
+ */
+export function buildSmtpTransport(opts: { host: string; port: number; user?: string; pass?: string }): Transporter {
+  return createTransport({
+    host: opts.host,
+    port: opts.port,
+    secure: opts.port === 465,
+    auth: opts.user ? { user: opts.user, pass: opts.pass } : undefined,
+  });
+}
 
 /** Sends via Resend's HTTP API (MN-103) — the standard transactional-email path
  * going forward. Swappable `fetcher` for tests; never touches a real network key. */
@@ -67,12 +86,7 @@ export class SmtpMailDriver implements MailDriver {
     opts: { host: string; port: number; user?: string; pass?: string },
     private readonly from: string,
   ) {
-    this.transporter = createTransport({
-      host: opts.host,
-      port: opts.port,
-      secure: opts.port === 465,
-      auth: opts.user ? { user: opts.user, pass: opts.pass } : undefined,
-    });
+    this.transporter = buildSmtpTransport(opts);
   }
 
   async send(message: MailMessage): Promise<void> {

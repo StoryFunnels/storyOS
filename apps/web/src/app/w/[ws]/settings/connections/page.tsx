@@ -167,6 +167,11 @@ export default function ConnectionsSettingsPage() {
                   </span>
                 )}
               </p>
+              {c.provider === 'resend' && c.scopes.some((s) => s.startsWith('from:')) && (
+                <p className="mt-1 truncate text-[11px] text-faint">
+                  Bounce webhook: {API_URL}/api/v1/providers/resend/webhook/{c.id}
+                </p>
+              )}
             </div>
             <div className="flex shrink-0 items-center gap-1">
               <Button variant="ghost" size="sm" onClick={() => test.mutate(c.id)} disabled={test.isPending}>
@@ -260,12 +265,45 @@ function ApiKeyConnectDialog({ ws, provider }: { ws: string; provider: ProviderD
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(provider.label);
   const [apiKey, setApiKey] = useState('');
+  // MN-256: Resend-only optional extras — a from_address (required before a
+  // send_email action can use this connection; its domain must already be
+  // verified on this key) and a webhook_secret (enables bounce/complaint
+  // degradation via this connection's own /providers/resend/webhook/:id URL,
+  // shown once the connection exists — see the tip below the fields).
+  const [fromAddress, setFromAddress] = useState('');
+  const [webhookSecret, setWebhookSecret] = useState('');
+  // MN-256: the `smtp` provider's own required shape.
+  const [host, setHost] = useState('');
+  const [port, setPort] = useState('587');
+  const [smtpUser, setSmtpUser] = useState('');
+  const [smtpPass, setSmtpPass] = useState('');
+  const [smtpFrom, setSmtpFrom] = useState('');
+  const isSmtp = provider.auth_kind === 'smtp';
+
+  function reset() {
+    setName(provider.label);
+    setApiKey('');
+    setFromAddress('');
+    setWebhookSecret('');
+    setHost('');
+    setPort('587');
+    setSmtpUser('');
+    setSmtpPass('');
+    setSmtpFrom('');
+  }
 
   const create = useMutation({
     mutationFn: async () => {
+      const auth = isSmtp
+        ? { host, port: Number(port), user: smtpUser || undefined, pass: smtpPass || undefined, from_address: smtpFrom }
+        : {
+            api_key: apiKey,
+            ...(fromAddress.trim() ? { from_address: fromAddress.trim() } : {}),
+            ...(webhookSecret.trim() ? { webhook_secret: webhookSecret.trim() } : {}),
+          };
       const { error } = await api.POST('/api/v1/workspaces/{ws}/connections', {
         params: { path: { ws } },
-        body: { provider: provider.id, name, auth: { api_key: apiKey } } as never,
+        body: { provider: provider.id, name, auth } as never,
       } as never);
       if (error) throw error;
     },
@@ -274,18 +312,19 @@ function ApiKeyConnectDialog({ ws, provider }: { ws: string; provider: ProviderD
       setOpen(false);
       void qc.invalidateQueries({ queryKey: ['connections', ws] });
     },
-    onError: (error) => toast.error(apiErrorMessage(error, `Could not connect ${provider.label} — check the API key`)),
+    onError: (error) => toast.error(apiErrorMessage(error, `Could not connect ${provider.label} — check the details`)),
   });
+
+  const canSubmit = isSmtp
+    ? name.trim() && host.trim() && port.trim() && smtpFrom.trim()
+    : name.trim() && apiKey.trim();
 
   return (
     <Dialog
       open={open}
       onOpenChange={(next) => {
         setOpen(next);
-        if (!next) {
-          setName(provider.label);
-          setApiKey('');
-        }
+        if (!next) reset();
       }}
     >
       <DialogTrigger asChild>
@@ -298,36 +337,109 @@ function ApiKeyConnectDialog({ ws, provider }: { ws: string; provider: ProviderD
           className="flex flex-col gap-4"
           onSubmit={(e) => {
             e.preventDefault();
-            if (!name.trim() || !apiKey.trim()) return;
+            if (!canSubmit) return;
             create.mutate();
           }}
         >
           <p className="text-[13px] text-muted">
-            The key is verified against {provider.label} before saving, then encrypted at rest —
-            it is never shown again.
+            {isSmtp
+              ? 'Verified with transporter.verify() before saving, then encrypted at rest.'
+              : `The key is verified against ${provider.label} before saving, then encrypted at rest — it is never shown again.`}
           </p>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="conn-name">Name</Label>
             <Input id="conn-name" required value={name} onChange={(e) => setName(e.target.value)} />
           </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="conn-key">API key</Label>
-            <Input
-              id="conn-key"
-              autoFocus
-              required
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-            />
-          </div>
+
+          {isSmtp ? (
+            <>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="col-span-2 flex flex-col gap-1.5">
+                  <Label htmlFor="smtp-host">Host</Label>
+                  <Input id="smtp-host" required value={host} onChange={(e) => setHost(e.target.value)} />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="smtp-port">Port</Label>
+                  <Input id="smtp-port" required type="number" value={port} onChange={(e) => setPort(e.target.value)} />
+                </div>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="smtp-user">Username (optional)</Label>
+                <Input id="smtp-user" value={smtpUser} onChange={(e) => setSmtpUser(e.target.value)} />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="smtp-pass">Password (optional)</Label>
+                <Input id="smtp-pass" type="password" value={smtpPass} onChange={(e) => setSmtpPass(e.target.value)} />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="smtp-from">From address</Label>
+                <Input
+                  id="smtp-from"
+                  required
+                  type="email"
+                  placeholder="automations@yourdomain.com"
+                  value={smtpFrom}
+                  onChange={(e) => setSmtpFrom(e.target.value)}
+                />
+                <p className="text-[11px] text-faint">
+                  Fixed at connect time — a send_email action can never override it.
+                </p>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="conn-key">API key</Label>
+                <Input
+                  id="conn-key"
+                  autoFocus
+                  required
+                  type="password"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                />
+              </div>
+              {provider.id === 'resend' && (
+                <>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="conn-from">From address (needed for send_email)</Label>
+                    <Input
+                      id="conn-from"
+                      type="email"
+                      placeholder="automations@yourdomain.com"
+                      value={fromAddress}
+                      onChange={(e) => setFromAddress(e.target.value)}
+                    />
+                    <p className="text-[11px] text-faint">
+                      Must be on a domain already verified on this Resend key.
+                    </p>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="conn-webhook-secret">Webhook signing secret (optional)</Label>
+                    <Input
+                      id="conn-webhook-secret"
+                      type="password"
+                      placeholder="whsec_…"
+                      value={webhookSecret}
+                      onChange={(e) => setWebhookSecret(e.target.value)}
+                    />
+                    <p className="text-[11px] text-faint">
+                      From a Resend webhook pointed at this connection&apos;s own URL (shown after
+                      saving) — enables bounce/complaint status degradation.
+                    </p>
+                  </div>
+                </>
+              )}
+            </>
+          )}
+
           <div className="flex justify-end gap-2">
             <DialogClose asChild>
               <Button type="button" variant="secondary">
                 Cancel
               </Button>
             </DialogClose>
-            <Button type="submit" disabled={create.isPending}>
+            <Button type="submit" disabled={create.isPending || !canSubmit}>
               {create.isPending ? 'Connecting…' : 'Connect'}
             </Button>
           </div>

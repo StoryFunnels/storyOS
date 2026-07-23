@@ -56,6 +56,7 @@ export class AutomationsController {
       databaseId,
       body as never,
       req.user.id,
+      req.membership.role,
     );
   }
 
@@ -74,6 +75,7 @@ export class AutomationsController {
       id,
       body as never,
       req.user.id,
+      req.membership.role,
     );
   }
 

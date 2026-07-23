@@ -104,6 +104,33 @@ export function useUpdateDatabaseIcon(ws: string, db: string) {
   });
 }
 
+export interface MailConnection {
+  id: string;
+  name: string;
+  provider: string;
+  status: 'active' | 'expired' | 'revoked' | 'error';
+  scopes: string[];
+}
+
+/** MN-256: connections a send_email action can reference — Resend/SMTP,
+ * ready (a `from:` scope entry means resolveScopes validated a configured
+ * from-address; see connections/providers/{resend,smtp}.ts). */
+export function useMailConnections(ws: string) {
+  return useQuery({
+    queryKey: ['connections', ws],
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/connections', {
+        params: { path: { ws } },
+      } as never);
+      if (error) throw error;
+      return (data as unknown as { data: MailConnection[] }).data.filter((c) =>
+        ['resend', 'smtp'].includes(c.provider),
+      );
+    },
+    enabled: Boolean(ws),
+  });
+}
+
 export function useMembers(ws: string, enabled: boolean) {
   return useQuery({
     queryKey: ['members', ws],
