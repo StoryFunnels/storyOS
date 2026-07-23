@@ -3,6 +3,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { ConnectionsController } from './connections.controller';
 import { ConnectionsOAuthController } from './oauth.controller';
 import { ConnectionsService } from './connections.service';
+import { ResendWebhookController } from './resend-webhook.controller';
 
 /**
  * MN-252 — the workspace credential registry. Exported (ConnectionsService)
@@ -12,7 +13,7 @@ import { ConnectionsService } from './connections.service';
  */
 @Module({
   imports: [NotificationsModule],
-  controllers: [ConnectionsController, ConnectionsOAuthController],
+  controllers: [ConnectionsController, ConnectionsOAuthController, ResendWebhookController],
   providers: [ConnectionsService],
   exports: [ConnectionsService],
 })

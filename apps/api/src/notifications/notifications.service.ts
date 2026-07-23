@@ -57,7 +57,17 @@ export type NotificationType =
    * can't be confused for one another in the Inbox. Not an opt-out ping, same
    * reasoning as `approval_requested`: it's a gate a run is blocked on.
    */
-  | 'action_approval_requested';
+  | 'action_approval_requested'
+  /**
+   * MN-256 — a workspace hit its plan's send_email daily cap. Sent to the
+   * firing rule's owner (`ctx.actorId`, best available "who to tell" without
+   * a dedicated billing-contact concept); not an opt-out ping, same reasoning
+   * as `automation_disabled` — it's the thing that explains why mail silently
+   * stopped going out today. send-email.action.ts dedupes this itself to
+   * once/24h (a manual check, not this service's own 60s burst-collapse —
+   * see its own comment for why).
+   */
+  | 'send_email_cap_reached';
 
 /**
  * The types a user can switch off (#31). `notifications.type` is a plain text

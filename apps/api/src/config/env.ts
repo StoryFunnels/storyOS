@@ -134,6 +134,19 @@ export const envSchema = z.object({
    * has always had.
    */
   RESEND_API_KEY: z.string().optional(),
+  /**
+   * MN-256 — send_email automation action daily send cap, per plan. Plain
+   * env-tunable numbers (not a PlanDef field in billing/plans.ts) until the
+   * entitlements model grows a per-capability metering key for it — see
+   * billing epic MN-168's follow-up. `entitlements.service.ts`'s
+   * `emailDailyCap()` is the one place these are read; self-host (Stripe
+   * disabled) ignores them entirely (unlimited, same as every other
+   * entitlement there).
+   */
+  EMAIL_DAILY_CAP_FREE: z.coerce.number().int().positive().default(20),
+  EMAIL_DAILY_CAP_PRO: z.coerce.number().int().positive().default(200),
+  EMAIL_DAILY_CAP_BUSINESS: z.coerce.number().int().positive().default(1_000),
+  EMAIL_DAILY_CAP_ENTERPRISE: z.coerce.number().int().positive().default(10_000),
   /** OAuth for the hosted MCP (MN-154). Off by default; requires the oidc tables migrated.
    * When on, better-auth acts as the OAuth authorization server for MCP connectors. PATs
    * keep working either way. */

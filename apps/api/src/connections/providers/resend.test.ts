@@ -33,3 +33,47 @@ describe('resendProvider.healthCheck', () => {
     expect(calls).toHaveLength(0);
   });
 });
+
+/** MN-256 — verified domains become `domain:` scopes; a configured
+ * from_address must be on one of them or resolveScopes rejects it outright. */
+describe('resendProvider.resolveScopes', () => {
+  function domainsFetcher(domains: Array<{ name: string; status: string }>): ConnectionFetcher {
+    return async () => ({
+      status: 200,
+      json: async () => ({ data: domains }),
+      text: async () => '',
+    });
+  }
+
+  it('returns domain: scopes for every verified domain', async () => {
+    const fetcher = domainsFetcher([
+      { name: 'example.com', status: 'verified' },
+      { name: 'pending.example.com', status: 'pending' },
+    ]);
+    const scopes = await resendProvider.resolveScopes!({ api_key: 're_test' }, fetcher);
+    expect(scopes).toEqual(['domain:example.com']);
+  });
+
+  it('adds a from: scope when from_address is on a verified domain', async () => {
+    const fetcher = domainsFetcher([{ name: 'example.com', status: 'verified' }]);
+    const scopes = await resendProvider.resolveScopes!(
+      { api_key: 're_test', from_address: 'automations@example.com' },
+      fetcher,
+    );
+    expect(scopes).toEqual(['domain:example.com', 'from:automations@example.com']);
+  });
+
+  it('rejects a from_address whose domain is not verified on this key', async () => {
+    const fetcher = domainsFetcher([{ name: 'example.com', status: 'verified' }]);
+    await expect(
+      resendProvider.resolveScopes!({ api_key: 're_test', from_address: 'a@other.com' }, fetcher),
+    ).rejects.toBeInstanceOf(UnprocessableEntityException);
+  });
+
+  it('returns [] without a network call when api_key is missing', async () => {
+    const { fetcher, calls } = fetcherReturning(200);
+    const scopes = await resendProvider.resolveScopes!({}, fetcher);
+    expect(scopes).toEqual([]);
+    expect(calls).toHaveLength(0);
+  });
+});

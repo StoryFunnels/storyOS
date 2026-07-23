@@ -2172,6 +2172,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/providers/resend/webhook/{connectionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resend bounce/complaint webhook for one connection — signature-verified, unauthenticated by design */
+        post: operations["ResendWebhookController_receive"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/agents": {
         parameters: {
             query?: never;
@@ -3354,6 +3371,17 @@ export interface components {
                 max_steps?: number;
                 max_cost_cents?: number;
                 dry_run?: boolean;
+            } | {
+                require_approval?: boolean;
+                /** @enum {string} */
+                type: "send_email";
+                /** Format: uuid */
+                connection_id: string;
+                to: string;
+                cc?: string;
+                reply_to?: string;
+                subject: string;
+                body_markdown: string;
             })[];
             /** @default true */
             enabled: boolean;
@@ -3457,6 +3485,17 @@ export interface components {
                 max_steps?: number;
                 max_cost_cents?: number;
                 dry_run?: boolean;
+            } | {
+                require_approval?: boolean;
+                /** @enum {string} */
+                type: "send_email";
+                /** Format: uuid */
+                connection_id: string;
+                to: string;
+                cc?: string;
+                reply_to?: string;
+                subject: string;
+                body_markdown: string;
             })[];
             enabled?: boolean;
             approverId?: string | null;
@@ -7020,6 +7059,29 @@ export interface operations {
             };
             header?: never;
             path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ResendWebhookController_receive: {
+        parameters: {
+            query?: never;
+            header: {
+                "svix-id": string;
+                "svix-timestamp": string;
+                "svix-signature": string;
+            };
+            path: {
+                connectionId: string;
+            };
             cookie?: never;
         };
         requestBody?: never;

@@ -3,7 +3,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import type { AutomationAction } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { databases, fields, relations } from '../db/schema';
+import { connections, databases, fields, memberships, relations, user } from '../db/schema';
 import { CommentsService } from '../comments/comments.service';
 import { WebhooksService } from '../webhooks/webhooks.service';
 import { SlackService } from '../integrations/slack.service';
@@ -31,6 +31,22 @@ const WEBHOOK_SAFE_ACTIONS = new Set([
   'send_webhook',
   'notify_user',
 ]);
+
+/** MN-256: the connection provider ids a send_email action may reference. */
+const MAIL_PROVIDER_IDS = new Set(['resend', 'smtp']);
+
+/**
+ * MN-256: `to`/`cc` are a single comma-separated template string (like
+ * send_webhook's `url`, not a structured list) — split, trim, drop empties.
+ * Not a validity check on its own; callers decide what "valid" means (a save-
+ * time count/shape check in validate(), a real email-syntax check at send).
+ */
+function splitEmailAddresses(raw: string): string[] {
+  return raw
+    .split(',')
+    .map((a) => a.trim())
+    .filter((a) => a.length > 0);
+}
 
 export interface ActionContext {
   workspaceId: string;
@@ -106,6 +122,23 @@ export class AutomationActionsService {
     private readonly approvals: ApprovalsService,
   ) {}
 
+  /**
+   * MN-256: true iff every address is an active workspace member's email —
+   * the run-time check that lets a defaulted send_email approval gate skip
+   * itself (execute()'s own doc comment). Case-insensitive; an empty address
+   * list is never "all internal" by the caller's own guard (never called
+   * with one).
+   */
+  private async allRecipientsInternal(workspaceId: string, addresses: string[]): Promise<boolean> {
+    const rows = await this.db
+      .select({ email: user.email })
+      .from(memberships)
+      .innerJoin(user, eq(memberships.userId, user.id))
+      .where(and(eq(memberships.workspaceId, workspaceId), eq(memberships.status, 'active')));
+    const memberEmails = new Set(rows.map((r) => r.email.toLowerCase()));
+    return addresses.every((a) => memberEmails.has(a.toLowerCase()));
+  }
+
   /** The related database + this record's linked ids through a relation field. */
   private async resolveLinked(
     databaseId: string,
@@ -134,13 +167,19 @@ export class AutomationActionsService {
    * Save-time validation: every reference must exist right now. `triggerType`
    * additionally gates which actions a webhook_received rule may carry (MN-254)
    * — a rule with no triggering record cannot run an action whose only job is
-   * to write back to one.
+   * to write back to one. `actorRole` (MN-256) is ONLY passed by an actual
+   * save (automations.service.ts's create()/update()) — execute()'s own
+   * re-validate and test()'s dry run both omit it, since "only an admin may
+   * turn off send_email's approval gate" is a save-time rule, not a run-time
+   * one (a rule already saved with `require_approval: false` keeps running
+   * that way even if its creator is later demoted).
    */
   async validate(
     databaseId: string,
     workspaceId: string,
     actions: AutomationAction[],
     triggerType?: string,
+    actorRole?: string,
   ): Promise<void> {
     const live = await this.db.query.fields.findMany({
       where: and(eq(fields.databaseId, databaseId), isNull(fields.deletedAt)),
@@ -203,6 +242,34 @@ export class AutomationActionsService {
         if (!relField || relField.type !== 'relation') {
           throw new UnprocessableEntityException(
             'update_linked relation_field_id must be a relation field on this database',
+          );
+        }
+      }
+      if (action.type === 'send_email') {
+        const connection = await this.db.query.connections.findFirst({
+          where: and(eq(connections.id, action.connection_id), eq(connections.workspaceId, workspaceId)),
+        });
+        if (!connection) {
+          throw new UnprocessableEntityException('send_email references an unknown connection');
+        }
+        if (!MAIL_PROVIDER_IDS.has(connection.provider)) {
+          throw new UnprocessableEntityException(
+            `send_email's connection must be a Resend or SMTP connection (got "${connection.provider}")`,
+          );
+        }
+        const scopes = (connection.scopes ?? []) as string[];
+        if (!scopes.some((s) => s.startsWith('from:'))) {
+          throw new UnprocessableEntityException(
+            'This connection has no configured from-address yet — reconnect it with a from_address ' +
+              '(and, for Resend, one on a verified domain) before using it in a send_email action.',
+          );
+        }
+        // MN-256: only an admin may save a send_email action with the
+        // approval gate explicitly turned off — a member can still turn it
+        // ON (require_approval: true), or leave it at the default.
+        if (action.require_approval === false && actorRole !== undefined && actorRole !== 'admin') {
+          throw new UnprocessableEntityException(
+            'Only a workspace admin can turn off approval for a send_email action.',
           );
         }
       }
@@ -340,6 +407,21 @@ export class AutomationActionsService {
           previewText: `Run agent ${action.agent}${action.prompt ? `: ${action.prompt.slice(0, 200)}` : ''}`,
         };
       }
+      case 'send_email': {
+        // MN-256: rendered HERE (once) whether or not this action ends up
+        // gated — see execute()'s queued-job branch, which renders through
+        // this same method for a non-gated send_email so the executor never
+        // touches {Field}/{payload} interpolation itself, only strings.
+        const to = this.interpolate(action.to, ctx, displayToApi);
+        const cc = action.cc ? this.interpolate(action.cc, ctx, displayToApi) : action.cc;
+        const reply_to = action.reply_to ? this.interpolate(action.reply_to, ctx, displayToApi) : action.reply_to;
+        const subject = this.interpolate(action.subject, ctx, displayToApi);
+        const body_markdown = this.interpolate(action.body_markdown, ctx, displayToApi);
+        return {
+          snapshot: { ...action, to, cc, reply_to, subject, body_markdown },
+          previewText: `Email ${to}: ${subject}`,
+        };
+      }
     }
   }
 
@@ -359,12 +441,30 @@ export class AutomationActionsService {
 
     const effects: ActionEffect[] = [];
     for (const [actionIndex, action] of actions.entries()) {
+      // MN-256: send_email defaults to gated UNLESS every rendered recipient
+      // resolves to a workspace member's email — that can only be known at
+      // RUN time (the addresses come from {Field}/{payload} tokens), unlike
+      // every other action's require_approval, which is exactly what was
+      // saved. An explicit `true`/`false` on the action always wins outright:
+      // this defaulting only ever applies when the field was left unset.
+      let requireApproval = action.require_approval;
+      if (action.type === 'send_email' && requireApproval === undefined) {
+        requireApproval = true;
+        const addresses = splitEmailAddresses(
+          [this.interpolate(action.to, ctx, displayToApi), action.cc ? this.interpolate(action.cc, ctx, displayToApi) : '']
+            .filter(Boolean)
+            .join(','),
+        );
+        if (addresses.length > 0 && (await this.allRecipientsInternal(ctx.workspaceId, addresses))) {
+          requireApproval = false;
+        }
+      }
       // MN-255: a gated action stops here — render its tokens now (so the
       // frozen snapshot can't drift from a later record edit), insert an
       // approval + notify its approver, and do NOT enqueue an MN-253 job or
       // run inline. ApprovalsService.approve() enqueues the job later, from
       // the SAME snapshot rendered here.
-      if (action.require_approval) {
+      if (requireApproval) {
         const { snapshot, previewText } = this.renderForApproval(action, ctx, displayToApi);
         const effect = await this.approvals.create({
           workspaceId: ctx.workspaceId,
@@ -380,16 +480,11 @@ export class AutomationActionsService {
         effects.push(effect);
         continue;
       }
-      // MN-253: an action kind with a registered executor (send_email,
-      // post_social.*, http_request, youtube_upload — added by
-      // MN-256/257/258/259/263) never runs inline — it's durable-queued
+      // MN-253: an action kind with a registered executor (run_agent;
+      // send_email as of MN-256; post_social.*/http_request/youtube_upload to
+      // follow, MN-257/258/259/263) never runs inline — it's durable-queued
       // instead, so a flaky provider retries with backoff rather than
-      // stalling this record's save or double-firing on a retry. No such
-      // kind exists on this schema version yet (the registry is empty in
-      // production), so every action below still runs exactly as before;
-      // this branch only fires once a later ticket both adds the action
-      // literal to packages/schemas' actionSchema AND registers an executor
-      // for it.
+      // stalling this record's save or double-firing on a retry.
       if (this.jobs.hasExecutor(action.type)) {
         const runId = ctx.runId ?? 'no-run';
         const idempotencyKey = buildIdempotencyKey({
@@ -405,6 +500,15 @@ export class AutomationActionsService {
           typeof (action as Record<string, unknown>).connection_id === 'string'
             ? ((action as Record<string, unknown>).connection_id as string)
             : null;
+        // MN-256: render {Field}/{payload} tokens NOW, before the job is
+        // enqueued — the same reasoning renderForApproval's own doc comment
+        // gives for the gated path — so the executor (job-runner.service.ts's
+        // registered fn) only ever handles already-resolved strings and never
+        // duplicates this service's own interpolation logic. Harmless no-op
+        // for every other registered kind today (run_agent's own case
+        // returns the action verbatim).
+        const enqueueAction =
+          action.type === 'send_email' ? this.renderForApproval(action, ctx, displayToApi).snapshot : action;
         const { jobId } = await this.jobs.enqueue({
           workspaceId: ctx.workspaceId,
           ruleId: ctx.ruleId ?? null,
@@ -413,7 +517,7 @@ export class AutomationActionsService {
           actionIndex,
           kind: action.type,
           payload: {
-            action,
+            action: enqueueAction,
             ctx: {
               workspaceId: ctx.workspaceId,
               databaseId: ctx.databaseId,

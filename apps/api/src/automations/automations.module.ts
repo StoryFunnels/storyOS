@@ -17,6 +17,7 @@ import { AutomationsService } from './automations.service';
 import { HooksController } from './hooks.controller';
 import { HookRateLimiterService } from './hook-rate-limiter.service';
 import { JobRunnerService } from './job-runner.service';
+import { SendEmailActionService } from './send-email.action';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { JobRunnerService } from './job-runner.service';
     HookRateLimiterService,
     JobRunnerService,
     ApprovalsService,
+    SendEmailActionService,
   ],
   exports: [AutomationActionsService, AutomationsService, JobRunnerService, ApprovalsService],
 })
