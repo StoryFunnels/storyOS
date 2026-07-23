@@ -4043,6 +4043,9 @@ export interface components {
         };
         ProposeDto: {
             goal: string;
+            /** @enum {string} */
+            mode?: "non_ai" | "your_own_ai" | "storyos_ai";
+            draft?: unknown;
         };
         BuildDto: {
             plan?: unknown;

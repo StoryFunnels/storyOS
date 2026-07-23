@@ -10735,7 +10735,16 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 2000
-          }
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "non_ai",
+              "your_own_ai",
+              "storyos_ai"
+            ]
+          },
+          "draft": {}
         },
         "required": [
           "goal"

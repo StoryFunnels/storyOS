@@ -1,15 +1,18 @@
 import { Injectable, UnprocessableEntityException } from '@nestjs/common';
 import { architectPlanSchema, markdownToBlocks } from '@storyos/schemas';
 import type { ArchitectBuildResult, ArchitectPlan, PlanField, PlanState } from '@storyos/schemas';
+import { AiCreditsService } from '../billing/ai-credits.service';
 import { DatabasesService } from '../databases/databases.service';
 import { FieldsService } from '../fields/fields.service';
 import { RecordsService } from '../records/records.service';
 import { RelationsService } from '../relations/relations.service';
 import { SpacesService } from '../workspaces/spaces.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
+import type { RunClass } from './agent-runtime';
 import { AgentsService } from './agents.service';
 import { knownScenarios, pickProposer } from './architect-proposer';
 import type { PlanProposer, ProposeContext } from './architect-proposer';
+import { defaultManagedAiClient } from './managed-ai-client';
 
 /** How many existing agent/binding records a build scans when deduplicating. */
 const MAX_SCAN = 200;
@@ -50,12 +53,19 @@ const norm = (s: string) => s.trim().toLowerCase();
 @Injectable()
 export class ArchitectService {
   /**
-   * The planning seam (#213). Swappable in tests and mirrored on
+   * The planning seam (#213/#246). Swappable in tests and mirrored on
    * `AgentsService.runtimeFor` — see architect-proposer.ts for why the two seams
-   * are shaped alike and what the default proposer honestly is (template
-   * matching, not language understanding).
+   * are shaped alike, what the default proposer honestly is (template
+   * matching, not language understanding), and what `ManagedAiProposer`/
+   * `YourOwnAiProposer` (#246) actually do.
+   *
+   * A bound arrow (not a bare reference to `pickProposer`) so the AI-credits
+   * service and the managed-model client — both real Nest-injected/env-backed
+   * dependencies `pickProposer` itself has no DI access to — are threaded
+   * through on every call.
    */
-  proposerFor: (ctx: ProposeContext) => PlanProposer = pickProposer;
+  proposerFor: (ctx: ProposeContext) => PlanProposer = (ctx) =>
+    pickProposer(ctx, { aiCredits: this.aiCredits, managedAiClient: defaultManagedAiClient() });
 
   constructor(
     private readonly spaces: SpacesService,
@@ -64,6 +74,7 @@ export class ArchitectService {
     private readonly relations: RelationsService,
     private readonly records: RecordsService,
     private readonly agents: AgentsService,
+    private readonly aiCredits: AiCreditsService,
   ) {}
 
   // ── #213: propose ───────────────────────────────────────────────────────────
@@ -74,15 +85,31 @@ export class ArchitectService {
    *
    * "Builds nothing" is the entire reason this is a separate ticket, so it is
    * worth being explicit about how it is achieved rather than merely intended:
-   * every call below is a read (`databases.list`), and the proposer is a pure
-   * function. In particular this does NOT call `agents.ensurePack()` — that
-   * provisions three databases, and calling it here would make the
+   * every call below is a read (`databases.list`), and the DEFAULT proposer is
+   * a pure function. In particular this does NOT call `agents.ensurePack()` —
+   * that provisions three databases, and calling it here would make the
    * propose-builds-nothing AC false the first time anyone previewed a plan.
+   *
+   * `mode`/`suppliedDraft` (#246) are the caller's up-front proposer choice —
+   * see `ProposeContext`'s doc comment for why that has to be the caller's
+   * choice rather than inferred from the goal. Omitted (the default for every
+   * caller before #246) is byte-for-byte the same behavior as before: the free
+   * scenario-template matcher, still exercised by the unmodified lead-intake
+   * e2e test.
    */
-  async propose(membership: Membership, goal: string): Promise<ArchitectPlan> {
-    const ctx: ProposeContext = { workspaceId: membership.workspaceId, goal };
+  async propose(
+    membership: Membership,
+    goal: string,
+    options?: { mode?: RunClass; suppliedDraft?: unknown },
+  ): Promise<ArchitectPlan> {
+    const ctx: ProposeContext = {
+      workspaceId: membership.workspaceId,
+      goal,
+      mode: options?.mode,
+      suppliedDraft: options?.suppliedDraft,
+    };
     const proposer = this.proposerFor(ctx);
-    const draft = proposer.propose(ctx);
+    const draft = await proposer.propose(ctx);
     if (!draft) {
       throw new UnprocessableEntityException(
         `The Architect has no plan for that goal. It matches goals against a small library of ` +

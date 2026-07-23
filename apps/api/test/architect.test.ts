@@ -3,9 +3,11 @@ import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './helpers/app';
 import { authed, signUpUser } from './helpers/users';
 import { AgentsService } from '../src/agents/agents.service';
+import { ArchitectService } from '../src/agents/architect.service';
+import type { PlanProposer } from '../src/agents/architect-proposer';
 import { AgentTriggerSubscriber } from '../src/agents/trigger.subscriber';
 import type { AgentRuntime, ProposedAction } from '../src/agents/agent-runtime';
-import type { ArchitectPlan } from '@storyos/schemas';
+import type { ArchitectPlan, ArchitectPlanDraft } from '@storyos/schemas';
 
 /**
  * The Architect (#213 propose / #214 build, ADR-0010 §6).
@@ -505,6 +507,161 @@ describe('lead-intake, built and then DRIVEN end to end (#214, ADR-0010 §6)', (
       expect(await runsForAgent()).toHaveLength(before);
     } finally {
       service.runtimeFor = original;
+    }
+  });
+});
+
+// ── #246 (MN-217c): the LLM-backed proposers ──────────────────────────────────
+
+describe('mode "your_own_ai" (#246) — never metered, never calls a model', () => {
+  let wsId: string;
+  beforeAll(async () => {
+    wsId = await newWorkspace('Architect BYO-AI WS');
+  });
+
+  const NOVEL_DRAFT = {
+    summary: 'Reconcile the ledger nightly against the bank statement and flag mismatches for review.',
+    scenario: 'ledger-reconciliation',
+    databases: [
+      {
+        name: 'Ledger Entries',
+        space: 'Finance',
+        fields: [
+          { name: 'Amount', type: 'number' },
+          { name: 'Notes', type: 'rich_text' },
+        ],
+      },
+    ],
+    relations: [],
+    states: [
+      {
+        database: 'Ledger Entries',
+        field: 'Status',
+        options: [{ label: 'Unreviewed', color: 'blue' }, { label: 'Flagged', color: 'orange' }],
+      },
+    ],
+    agents: [
+      {
+        name: 'Reconciliation Assistant',
+        goal: 'Flag any ledger entry that does not match the bank statement.',
+        scopes: ['read', 'write'],
+        approval_policy: [],
+        target_databases: ['Ledger Entries'],
+      },
+    ],
+    triggers: [],
+  };
+
+  it('a goal outside the scenario library, with a supplied draft, produces a concrete plan (#246 AC) — not a 422', async () => {
+    const res = await as(admin.token, 'POST', `/workspaces/${wsId}/architect/propose`, {
+      goal: 'reconcile the general ledger against the bank statement every night',
+      mode: 'your_own_ai',
+      draft: NOVEL_DRAFT,
+    });
+    expect(res.statusCode, res.body).toBe(201);
+    const plan = res.json() as ArchitectPlan;
+    expect(plan.scenario).toBe('ledger-reconciliation');
+    // Create-vs-reuse is still resolved here, against live schema — never by the caller.
+    expect(plan.databases[0]!.action).toBe('create');
+  });
+
+  it('requires `draft` — refuses rather than improvising, with a message naming what to supply', async () => {
+    const res = await as(admin.token, 'POST', `/workspaces/${wsId}/architect/propose`, {
+      goal: 'reconcile the ledger',
+      mode: 'your_own_ai',
+    });
+    expect(res.statusCode).toBe(422);
+    expect(res.json().error.message).toContain('requires `draft`');
+  });
+
+  it('422s a malformed supplied draft instead of building anything', async () => {
+    const dbsBefore = await listDatabases(wsId);
+    const res = await as(admin.token, 'POST', `/workspaces/${wsId}/architect/propose`, {
+      goal: 'x',
+      mode: 'your_own_ai',
+      draft: { summary: 'not enough fields' },
+    });
+    expect(res.statusCode).toBe(422);
+    expect(await listDatabases(wsId)).toEqual(dbsBefore);
+  });
+
+  it('a supplied draft that claims `action` on a database is rejected, not honored', async () => {
+    const res = await as(admin.token, 'POST', `/workspaces/${wsId}/architect/propose`, {
+      goal: 'x',
+      mode: 'your_own_ai',
+      draft: {
+        ...NOVEL_DRAFT,
+        databases: [{ action: 'reuse', name: 'Ledger Entries', space: 'Finance', fields: [] }],
+      },
+    });
+    expect(res.statusCode).toBe(422);
+  });
+
+  it('the resulting plan still builds unchanged through the #214 build path', async () => {
+    const propose = await as(admin.token, 'POST', `/workspaces/${wsId}/architect/propose`, {
+      goal: 'reconcile the general ledger against the bank statement every night, second pass',
+      mode: 'your_own_ai',
+      draft: NOVEL_DRAFT,
+    });
+    expect(propose.statusCode, propose.body).toBe(201);
+    const result = await buildOk(wsId, propose.json());
+    expect(result.databases.map((d: { name: string }) => d.name)).toContain('Ledger Entries');
+    expect(result.agents).toHaveLength(1);
+  });
+});
+
+describe('mode "storyos_ai" (#246) — metered, gated before any model call', () => {
+  let wsId: string;
+  beforeAll(async () => {
+    wsId = await newWorkspace('Architect Managed AI WS');
+  });
+
+  it('422s "not configured" in this test deployment (no OPENAI_API_KEY) rather than crashing', async () => {
+    const res = await as(admin.token, 'POST', `/workspaces/${wsId}/architect/propose`, {
+      goal: 'reconcile the general ledger against the bank statement every night',
+      mode: 'storyos_ai',
+    });
+    expect(res.statusCode, res.body).toBe(422);
+    expect(res.json().error.message).toContain('not configured');
+  });
+
+  it('a goal outside the scenario library produces a sensible concrete plan through a real (fake) managed proposer — and still builds', async () => {
+    const architect = app.get(ArchitectService);
+    const original = architect.proposerFor;
+    // Stands in for a real ManagedAiProposer's *output* (the network call and
+    // metering are unit-tested directly in architect-proposer.test.ts) — this
+    // proves the wiring: `mode: "storyos_ai"` reaches whatever `proposerFor`
+    // returns, and that proposer's plan flows unchanged through create/reuse
+    // resolution and the #214 build path, exactly like the template path does.
+    const fakeManagedProposer: PlanProposer = {
+      planClass: 'storyos_ai',
+      async propose(): Promise<ArchitectPlanDraft> {
+        return {
+          summary: 'Reconcile the ledger nightly and flag mismatches.',
+          scenario: 'ledger-reconciliation-managed',
+          databases: [{ name: 'Reconciliations', space: 'Finance', fields: [] }],
+          relations: [],
+          states: [],
+          agents: [],
+          triggers: [],
+        };
+      },
+    };
+    architect.proposerFor = () => fakeManagedProposer;
+    try {
+      const propose = await as(admin.token, 'POST', `/workspaces/${wsId}/architect/propose`, {
+        goal: 'reconcile the general ledger against the bank statement every night',
+        mode: 'storyos_ai',
+      });
+      expect(propose.statusCode, propose.body).toBe(201);
+      const plan = propose.json() as ArchitectPlan;
+      expect(plan.scenario).toBe('ledger-reconciliation-managed');
+      expect(plan.databases[0]!.action).toBe('create');
+
+      const result = await buildOk(wsId, plan);
+      expect(result.databases.map((d: { name: string }) => d.name)).toContain('Reconciliations');
+    } finally {
+      architect.proposerFor = original;
     }
   });
 });

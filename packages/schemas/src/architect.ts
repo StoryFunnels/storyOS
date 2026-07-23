@@ -140,6 +140,29 @@ export const architectPlanSchema = z.object({
 export type ArchitectPlan = z.infer<typeof architectPlanSchema>;
 
 /**
+ * A plan before create-vs-reuse is resolved (#246, MN-217c) — the runtime
+ * (zod) counterpart of `ArchitectPlanDraft` in architect-proposer.ts. `action`
+ * is never a proposer's to claim (see `planDatabaseSchema`'s doc comment), so
+ * this is `architectPlanSchema` with `databases[].action` dropped.
+ *
+ * This is what a real proposer's output gets validated against BEFORE
+ * `ArchitectService.propose` ever resolves create/reuse or a human ever sees
+ * it: `ManagedAiProposer`'s parsed model JSON, and `YourOwnAiProposer`'s
+ * caller-supplied draft alike. A hallucinated or malformed draft 422s right
+ * here — it never reaches live-schema resolution, let alone `build`.
+ *
+ * The per-database entry is `.strict()`: a proposer (or a BYO-AI caller)
+ * that includes an `action` key is REJECTED outright rather than silently
+ * stripped — the #246 AC ("the proposer cannot fabricate create-vs-reuse")
+ * is enforced as a validation failure a proposer can see and fix, not a
+ * quietly-ignored field.
+ */
+export const architectPlanDraftSchema = architectPlanSchema.extend({
+  databases: z.array(planDatabaseSchema.omit({ action: true }).strict()).default([]),
+});
+export type ArchitectPlanDraft = z.infer<typeof architectPlanDraftSchema>;
+
+/**
  * What `build` did — created vs reused, with ids, per entity.
  *
  * `reused` is not a footnote: "reuse, don't duplicate" is an AC, and this is
