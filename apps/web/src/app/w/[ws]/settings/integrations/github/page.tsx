@@ -3,13 +3,15 @@
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
+import type { ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, GitBranch } from 'lucide-react';
+import { ArrowLeft, GitBranch, Info } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, API_URL } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 
 interface GithubConfig {
   repos: string[];
@@ -203,6 +205,168 @@ export default function GitHubIntegrationPage() {
           </p>
         )}
       </div>
+
+      <ReviewSettingsSection ws={ws} />
+    </div>
+  );
+}
+
+interface ReviewSettings {
+  enabled: boolean;
+  auto_convert_draft: boolean;
+  default_merge_strategy: 'merge' | 'squash' | 'rebase';
+  code_theme: 'auto' | 'light' | 'dark';
+  code_font: 'mono' | 'mono_lig' | 'system';
+  notifications: { review_requests: boolean; comments_mentions: boolean };
+}
+
+/** A patch — every field optional, `notifications`' own booleans too. */
+type ReviewSettingsPatch = Partial<Omit<ReviewSettings, 'notifications'>> & {
+  notifications?: Partial<ReviewSettings['notifications']>;
+};
+
+/** Code & reviews settings (#43 AC 5): enable toggle, auto-convert draft PRs,
+ * default merge strategy, code theme/font, review notifications. Plus GitLab,
+ * tracked as an explicit "coming soon" rather than silently absent. */
+function ReviewSettingsSection({ ws }: { ws: string }) {
+  const qc = useQueryClient();
+  const settings = useQuery({
+    queryKey: ['github-review-settings', ws],
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/integrations/github/review-settings', {
+        params: { path: { ws } },
+      } as never);
+      if (error) throw error;
+      return data as unknown as ReviewSettings;
+    },
+  });
+
+  const save = useMutation({
+    mutationFn: async (patch: ReviewSettingsPatch) => {
+      const { data, error } = await api.POST('/api/v1/workspaces/{ws}/integrations/github/review-settings', {
+        params: { path: { ws } },
+        body: patch as never,
+      } as never);
+      if (error) throw error;
+      return data as unknown as ReviewSettings;
+    },
+    onMutate: (patch) => {
+      qc.setQueryData(['github-review-settings', ws], (old: ReviewSettings | undefined) =>
+        old ? { ...old, ...patch, notifications: { ...old.notifications, ...(patch.notifications ?? {}) } } : old,
+      );
+    },
+    onError: () => {
+      toast.error('Could not save Code & reviews settings');
+      void qc.invalidateQueries({ queryKey: ['github-review-settings', ws] });
+    },
+  });
+
+  const s = settings.data;
+  if (!s) return null;
+
+  return (
+    <div className="mt-8 border-t border-border-default pt-6">
+      <h2 className="mb-1 text-[14px] font-semibold text-ink">Code &amp; reviews</h2>
+      <p className="mb-4 text-[13px] text-muted">
+        Settings for the in-app Reviews surface (#43) — approving, requesting changes, and reading diffs without
+        leaving StoryOS.
+      </p>
+
+      <div className="flex flex-col gap-4 rounded-[var(--radius-control)] border border-border-default bg-card p-4">
+        <Row
+          label="Enable Code & reviews"
+          hint="Turns off the Reviews sidebar section and its API for this workspace."
+        >
+          <Switch checked={s.enabled} onCheckedChange={(v) => save.mutate({ enabled: v })} aria-label="Enable Code & reviews" />
+        </Row>
+
+        <Row
+          label="Auto-convert draft PRs"
+          hint="Submitting a review on a draft PR also marks it ready for review on GitHub."
+        >
+          <Switch
+            checked={s.auto_convert_draft}
+            onCheckedChange={(v) => save.mutate({ auto_convert_draft: v })}
+            aria-label="Auto-convert draft PRs"
+          />
+        </Row>
+
+        <Row label="Default merge strategy">
+          <select
+            value={s.default_merge_strategy}
+            onChange={(e) => save.mutate({ default_merge_strategy: e.target.value as ReviewSettings['default_merge_strategy'] })}
+            className="rounded-[var(--radius-control)] border border-border-default bg-surface px-2 py-1 text-[13px] text-ink"
+          >
+            <option value="squash">Squash and merge</option>
+            <option value="merge">Create a merge commit</option>
+            <option value="rebase">Rebase and merge</option>
+          </select>
+        </Row>
+
+        <Row label="Code theme">
+          <select
+            value={s.code_theme}
+            onChange={(e) => save.mutate({ code_theme: e.target.value as ReviewSettings['code_theme'] })}
+            className="rounded-[var(--radius-control)] border border-border-default bg-surface px-2 py-1 text-[13px] text-ink"
+          >
+            <option value="auto">Match system</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select>
+        </Row>
+
+        <Row label="Code font">
+          <select
+            value={s.code_font}
+            onChange={(e) => save.mutate({ code_font: e.target.value as ReviewSettings['code_font'] })}
+            className="rounded-[var(--radius-control)] border border-border-default bg-surface px-2 py-1 text-[13px] text-ink"
+          >
+            <option value="mono">Monospace</option>
+            <option value="mono_lig">Monospace (ligatures)</option>
+            <option value="system">System font</option>
+          </select>
+        </Row>
+
+        <div className="border-t border-border-default pt-3">
+          <p className="mb-2 text-[12px] font-medium uppercase tracking-wider text-faint">Review notifications</p>
+          <Row label="Comments & mentions">
+            <Switch
+              checked={s.notifications.comments_mentions}
+              onCheckedChange={(v) => save.mutate({ notifications: { comments_mentions: v } })}
+              aria-label="Notify on comments and mentions"
+            />
+          </Row>
+          <Row label="Review requests">
+            <Switch
+              checked={s.notifications.review_requests}
+              onCheckedChange={(v) => save.mutate({ notifications: { review_requests: v } })}
+              aria-label="Notify on review requests"
+            />
+          </Row>
+        </div>
+
+        <div className="flex items-center justify-between border-t border-border-default pt-3 opacity-60">
+          <span className="flex items-center gap-1.5 text-[13px] text-ink-secondary">
+            GitLab
+            <span title="GitLab support is planned but not built yet — this toggle is a placeholder.">
+              <Info className="h-3.5 w-3.5 text-faint" />
+            </span>
+          </span>
+          <span className="rounded-full bg-surface px-2 py-0.5 text-[11px] text-muted">Coming soon</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Row({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <span className="flex flex-col">
+        <span className="text-[13px] text-ink-secondary">{label}</span>
+        {hint && <span className="text-[11px] text-faint">{hint}</span>}
+      </span>
+      {children}
     </div>
   );
 }

@@ -16,6 +16,8 @@ import { RecordsService } from '../records/records.service';
 import { RelationsService } from '../relations/relations.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { GithubAppService } from './github-app.service';
+import { GithubReviewsService } from './github-reviews.service';
+import type { RawComment } from './github-reviews.service';
 import { BACKLINK_COMMENT_API, DEFAULT_STATE_AUTOMATION, GithubService } from './github.service';
 import type { GithubConfig, GithubStateAutomation } from './github.service';
 
@@ -68,6 +70,8 @@ interface WebhookPayload {
   commits?: Array<{ message?: string }>;
   /** Present on every GitHub App delivery — the App-native tenant key. */
   installation?: { id?: number };
+  /** Present on `pull_request_review_comment` deliveries (#43). */
+  comment?: RawComment;
 }
 
 /** What a delivery did — the response body, and what the tests assert on. */
@@ -125,6 +129,7 @@ export class GithubWebhookService {
     private readonly githubApp: GithubAppService,
     private readonly recordsService: RecordsService,
     private readonly relationsService: RelationsService,
+    private readonly githubReviews: GithubReviewsService,
   ) {}
 
   /**
@@ -178,7 +183,15 @@ export class GithubWebhookService {
       if (event === 'ping') return { ok: true, event, pong: true };
     }
 
-    if (event !== 'pull_request' && event !== 'pull_request_review' && event !== 'push') {
+    // #43: pull_request_review_comment is a read-only cache refresh (inline
+    // review comment thread), not a state-automation trigger — see the
+    // dedicated branch in `process`, kept separate from the AC 2/3/4 flow below.
+    if (
+      event !== 'pull_request' &&
+      event !== 'pull_request_review' &&
+      event !== 'pull_request_review_comment' &&
+      event !== 'push'
+    ) {
       return { ok: true, event: event ?? 'unknown', skipped: 'unhandled_event' };
     }
 
@@ -252,12 +265,29 @@ export class GithubWebhookService {
 
   private async process(
     workspaceId: string,
-    event: 'pull_request' | 'pull_request_review' | 'push',
+    event: 'pull_request' | 'pull_request_review' | 'pull_request_review_comment' | 'push',
     payload: WebhookPayload,
   ): Promise<WebhookOutcome> {
-    const config = await this.github.readConfig(workspaceId);
     const repo = payload.repository?.full_name;
     if (!repo) return { ok: true, event, skipped: 'no_repository' };
+
+    // #43 inbound sync: cache the comment (created/edited) so it shows up here
+    // without a manual poll, whichever side authored it. Deliberately short:
+    // no state automation, no actor resolution, no repo-filter — a comment
+    // isn't a workflow trigger, just a read cache to keep fresh. `deleted`
+    // removes the cached row rather than leaving a stale comment behind.
+    if (event === 'pull_request_review_comment') {
+      const number = payload.pull_request?.number;
+      if (!number || !payload.comment) return { ok: true, event, skipped: 'no_comment' };
+      if (payload.action === 'deleted') {
+        await this.githubReviews.deleteCached(workspaceId, String(payload.comment.id));
+      } else {
+        await this.githubReviews.cacheFromWebhook(workspaceId, repo, number, payload.comment);
+      }
+      return { ok: true, event };
+    }
+
+    const config = await this.github.readConfig(workspaceId);
 
     // #247 repo picker: once an admin has narrowed the watched set, ignore events
     // from repos outside it. An empty set means "not narrowed" → watch all, which

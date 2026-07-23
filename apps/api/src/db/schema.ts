@@ -1104,6 +1104,50 @@ export const connections = pgTable(
 );
 
 /**
+ * Cached GitHub PR review (inline) comments (#43) — the local half of the
+ * bi-directional sync: outbound writes POST to GitHub first and cache the
+ * result here; inbound arrives via the `pull_request_review_comment` webhook
+ * event or the manual re-sync poll. GitHub, not this table, is the source of
+ * truth — a row here is a read cache, never the only copy of a comment.
+ *
+ * `commentId`/`inReplyToId` are `text`: GitHub comment ids are int64, past
+ * JS's safe-integer range. Unique on (workspaceId, commentId) so a webhook
+ * redelivery or a re-poll upserts instead of duplicating.
+ */
+export const githubReviewComments = pgTable(
+  'github_review_comments',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    /** "owner/name". */
+    repo: text('repo').notNull(),
+    prNumber: integer('pr_number').notNull(),
+    /** GitHub's review-comment id. */
+    commentId: text('comment_id').notNull(),
+    /** The thread parent's GitHub comment id, null for a thread's first comment. */
+    inReplyToId: text('in_reply_to_id'),
+    /** Null for a reply (GitHub's reply payload omits path/line; it belongs to the parent's anchor). */
+    path: text('path'),
+    line: integer('line'),
+    side: text('side'),
+    diffHunk: text('diff_hunk'),
+    authorLogin: text('author_login'),
+    body: text('body').notNull(),
+    /** content → count, refreshed on read/react — a cache, not a ledger. */
+    reactions: jsonb('reactions').notNull().default({}),
+    githubCreatedAt: timestamp('github_created_at', { withTimezone: true }),
+    githubUpdatedAt: timestamp('github_updated_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('github_review_comments_workspace_comment_uq').on(t.workspaceId, t.commentId),
+    index('github_review_comments_pr_idx').on(t.workspaceId, t.repo, t.prNumber),
+  ],
+);
+
+/**
  * MN-253 — the durable action-job queue. One row per external-action attempt
  * chain: `actions.service.ts`'s execute() enqueues a row here instead of
  * running an external action kind (send_email, post_social.*, http_request,

@@ -85,7 +85,46 @@ export interface GithubConfig {
   /** Which database `story-<n>` branch numbers resolve against (numbers are per-database). */
   link_database_id?: string;
   state_automation?: GithubStateAutomation;
+  /** Code & reviews settings (#43) — account-level, not a secret. */
+  reviews_settings?: GithubReviewSettings;
 }
+
+/** Code & reviews settings (#43 AC 5). Workspace-wide, stored alongside the rest
+ *  of the GitHub config — no secret in here, so it round-trips through the client
+ *  untouched (unlike `token`/`webhook_secret`). */
+export interface GithubReviewSettings {
+  /** Master switch — off hides the Reviews sidebar section and its API. */
+  enabled: boolean;
+  /**
+   * Draft PRs don't normally request review; when true, requesting a review (or
+   * submitting one) on a draft PR also marks it "ready for review" on GitHub.
+   */
+  auto_convert_draft: boolean;
+  default_merge_strategy: 'merge' | 'squash' | 'rebase';
+  code_theme: 'auto' | 'light' | 'dark';
+  code_font: 'mono' | 'mono_lig' | 'system';
+  notifications: {
+    review_requests: boolean;
+    comments_mentions: boolean;
+  };
+}
+
+/** A settings PATCH: every field optional, `notifications`' own booleans too —
+ *  unlike `Partial<GithubReviewSettings>`, which would still require the whole
+ *  `notifications` object once present. */
+export type GithubReviewSettingsPatch = Partial<Omit<GithubReviewSettings, 'notifications'>> & {
+  notifications?: Partial<GithubReviewSettings['notifications']>;
+};
+
+export const DEFAULT_REVIEW_SETTINGS: GithubReviewSettings = {
+  enabled: true,
+  auto_convert_draft: false,
+  // Matches this repo's own merge convention (CLAUDE.md: `gh pr merge --squash --auto`).
+  default_merge_strategy: 'squash',
+  code_theme: 'auto',
+  code_font: 'mono',
+  notifications: { review_requests: true, comments_mentions: true },
+};
 
 export type GithubFetcher = (path: string, token: string) => Promise<unknown>;
 
@@ -235,6 +274,45 @@ export class GithubService {
     return this.present(github);
   }
 
+  /** Code & reviews settings (#43 AC 5), defaulted. No secrets — returned as-is. */
+  async getReviewSettings(workspaceId: string): Promise<GithubReviewSettings> {
+    const config = await this.readConfig(workspaceId);
+    return {
+      ...DEFAULT_REVIEW_SETTINGS,
+      ...(config.reviews_settings ?? {}),
+      notifications: {
+        ...DEFAULT_REVIEW_SETTINGS.notifications,
+        ...(config.reviews_settings?.notifications ?? {}),
+      },
+    };
+  }
+
+  /**
+   * Shallow-merge a settings patch and persist. Kept separate from `saveConfig`
+   * (same reasoning as `saveInstallationId`): a settings-only save can never
+   * clobber the token/secret/repo set, and vice versa.
+   */
+  async saveReviewSettings(
+    workspaceId: string,
+    patch: GithubReviewSettingsPatch,
+  ): Promise<GithubReviewSettings> {
+    const ws = await this.db.query.workspaces.findFirst({ where: eq(workspaces.id, workspaceId) });
+    const settings = (ws?.settings ?? {}) as Record<string, unknown>;
+    const existing = (settings.github as GithubConfig) ?? {};
+    const current = await this.getReviewSettings(workspaceId);
+    const next: GithubReviewSettings = {
+      ...current,
+      ...patch,
+      notifications: { ...current.notifications, ...(patch.notifications ?? {}) },
+    };
+    const github: GithubConfig = { ...existing, reviews_settings: next };
+    await this.db
+      .update(workspaces)
+      .set({ settings: { ...settings, github } })
+      .where(eq(workspaces.id, workspaceId));
+    return next;
+  }
+
   /**
    * Client-safe view (AC 6). The token and the webhook secret are write-only:
    * they are reported as presence booleans and never as values. Anything that
@@ -379,7 +457,7 @@ export class GithubService {
     // App-native: a connected installation syncs off its installation token — no
     // PAT required. PAT stays as the fallback when there's no installation (or its
     // token mint fails). Either way `token` is a GitHub bearer the fetcher can use.
-    const token = await this.resolveSyncToken(config);
+    const token = await this.resolveToken(config);
     if (!token) {
       throw new UnprocessableEntityException(
         'Connect the GitHub App or add a personal access token before syncing',
@@ -454,12 +532,13 @@ export class GithubService {
   }
 
   /**
-   * The bearer token the sync fetcher authenticates with. Prefers the connected
+   * The bearer token any GitHub call authenticates with — sync's fetcher and
+   * the Reviews surface (#43) both resolve through here. Prefers the connected
    * GitHub App installation (mint on demand, no PAT needed); falls back to the
    * stored PAT when there's no installation or its token can't be minted (revoked
-   * install, GitHub down). null → neither is available and sync can't run.
+   * install, GitHub down). null → neither is available and the caller can't run.
    */
-  private async resolveSyncToken(config: GithubConfig): Promise<string | null> {
+  async resolveToken(config: GithubConfig): Promise<string | null> {
     if (
       config.installation_id !== undefined &&
       config.installation_id !== null &&

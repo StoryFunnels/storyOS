@@ -57,11 +57,25 @@ const myWorkDbConfigSchema = z.object({
   sorts_nulls: z.enum(['first', 'last']).optional(),
 });
 
+// #43: the reviewer's own GitHub login, used to tell "needs my review" /
+// "authored by me" / "participating" apart when querying GitHub search.
+// Usernames are 1-39 chars, alphanumeric + single hyphens (GitHub's own rule);
+// null clears it.
+const githubPrefsSchema = z
+  .object({
+    login: z
+      .string()
+      .regex(/^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,37}[a-zA-Z0-9])?$/)
+      .nullable(),
+  })
+  .partial();
+
 const preferencesPatchSchema = z.object({
   notifications: notificationTogglesSchema.optional(),
   regional: regionalSchema.optional(),
   /** Per-database My Work config, keyed by database id (MN-072 part 2). */
   myWork: z.record(z.string(), myWorkDbConfigSchema).optional(),
+  github: githubPrefsSchema.optional(),
 });
 class PreferencesPatchDto extends createZodDto(preferencesPatchSchema) {}
 

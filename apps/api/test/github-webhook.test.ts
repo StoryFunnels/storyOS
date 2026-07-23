@@ -758,3 +758,63 @@ describe('other events', () => {
     });
   });
 });
+
+/**
+ * #43 inbound sync: an inline review comment made directly on GitHub (not
+ * through StoryOS) still shows up here — the webhook path of the
+ * bi-directional sync (the other path is the manual `sync` poll, covered in
+ * github-reviews.test.ts). Deliberately separate from the state-automation
+ * flow above: no ticket linking, no actor resolution.
+ */
+describe('pull_request_review_comment (#43 inline comment cache)', () => {
+  function commentPayload(opts: { action: string; number: number; id: number; body: string; deleted?: boolean }) {
+    return {
+      action: opts.action,
+      repository: { full_name: 'acme/site' },
+      pull_request: prPayload({ action: 'x', number: opts.number, branch: 'irrelevant' }).pull_request,
+      comment: {
+        id: opts.id,
+        path: 'src/app.ts',
+        line: 12,
+        side: 'RIGHT',
+        diff_hunk: '@@ -10,3 +10,3 @@',
+        user: { login: 'dana' },
+        body: opts.body,
+        created_at: '2026-07-20T00:00:00Z',
+        updated_at: '2026-07-20T00:00:00Z',
+      },
+    };
+  }
+
+  it('caches a created comment, then removes it on delete', async () => {
+    const created = await deliver('pull_request_review_comment', commentPayload({
+      action: 'created', number: 900, id: 555001, body: 'nit: rename this',
+    }));
+    expect(created.statusCode, created.body).toBe(200);
+
+    const list = await as('GET', `/workspaces/${wsId}/integrations/github/reviews/acme/site/900/comments`);
+    expect(list.statusCode, list.body).toBe(200);
+    expect(list.json()).toHaveLength(1);
+    expect(list.json()[0].body).toBe('nit: rename this');
+    expect(list.json()[0].comment_id).toBe('555001');
+
+    const deleted = await deliver('pull_request_review_comment', commentPayload({
+      action: 'deleted', number: 900, id: 555001, body: 'nit: rename this',
+    }));
+    expect(deleted.statusCode, deleted.body).toBe(200);
+    const after = await as('GET', `/workspaces/${wsId}/integrations/github/reviews/acme/site/900/comments`);
+    expect(after.json()).toHaveLength(0);
+  });
+
+  it('an edit upserts in place rather than duplicating (redelivery-safe)', async () => {
+    await deliver('pull_request_review_comment', commentPayload({
+      action: 'created', number: 901, id: 555002, body: 'first',
+    }));
+    await deliver('pull_request_review_comment', commentPayload({
+      action: 'edited', number: 901, id: 555002, body: 'edited body',
+    }));
+    const list = await as('GET', `/workspaces/${wsId}/integrations/github/reviews/acme/site/901/comments`);
+    expect(list.json()).toHaveLength(1);
+    expect(list.json()[0].body).toBe('edited body');
+  });
+});
