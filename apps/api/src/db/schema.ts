@@ -1159,6 +1159,48 @@ export const githubReviewComments = pgTable(
 );
 
 /**
+ * #33 — the cloud referral program. One row per user who has ever generated
+ * a link; the code is the public, shareable identifier (never the user id).
+ * Gated at the API layer by `StripeService.enabled` (StripeService is the
+ * existing cloud-vs-self-host signal — MN-166's `enabled` flag; no separate
+ * CLOUD_MODE flag exists in this codebase and none is added here), same as
+ * Billing. No FK to `user` — every other user-id column in this schema
+ * (memberships.userId, connections.createdBy, …) is a bare text id, since
+ * better-auth (not drizzle) owns that table.
+ */
+export const referralCodes = pgTable('referral_codes', {
+  userId: text('user_id').primaryKey(),
+  code: text('code').notNull().unique(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * One row per successfully-attributed referred sign-up — first-touch,
+ * one-time: `refereeUserId` is unique so a user can only ever be credited to
+ * the one referrer whose link/cookie got there first, and re-attributing is a
+ * no-op (ReferralsService.attribute uses onConflictDoNothing on this
+ * uniqueness). `convertedAt` flips once, the first time ANY workspace this
+ * referee admins upgrades off Free (BillingService.reconcileSubscription
+ * calls ReferralsService.recordConversionIfEligible) — never re-armed, so a
+ * downgrade-then-upgrade cycle can't be farmed for a second reward.
+ */
+export const referralSignups = pgTable(
+  'referral_signups',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    code: text('code').notNull(),
+    referrerUserId: text('referrer_user_id').notNull(),
+    refereeUserId: text('referee_user_id').notNull(),
+    convertedAt: timestamp('converted_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('referral_signups_referee_uq').on(t.refereeUserId),
+    index('referral_signups_referrer_idx').on(t.referrerUserId),
+  ],
+);
+
+/**
  * MN-253 — the durable action-job queue. One row per external-action attempt
  * chain: `actions.service.ts`'s execute() enqueues a row here instead of
  * running an external action kind (send_email, post_social.*, http_request,
@@ -1481,4 +1523,28 @@ export const sourceRuns = pgTable(
     index('source_runs_source_idx').on(t.sourceId, t.startedAt),
     index('source_runs_workspace_idx').on(t.workspaceId, t.startedAt),
   ],
+);
+
+/**
+ * Append-only reward ledger — an internal account-credit balance, NOT a live
+ * Stripe coupon/promotion-code mutation (deliberately out of scope here; see
+ * ReferralsService doc comment for the human-review follow-up this defers
+ * to). `sum(amountCents) WHERE referrerUserId = X` is the referrer's earned
+ * balance; nothing ever updates or deletes a row, so the ledger itself is the
+ * audit trail a human reviews before any of it is applied against a real
+ * invoice.
+ */
+export const referralRewardGrants = pgTable(
+  'referral_reward_grants',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    signupId: uuid('signup_id')
+      .notNull()
+      .references(() => referralSignups.id, { onDelete: 'cascade' }),
+    referrerUserId: text('referrer_user_id').notNull(),
+    amountCents: integer('amount_cents').notNull(),
+    reason: text('reason').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('referral_reward_grants_referrer_idx').on(t.referrerUserId)],
 );

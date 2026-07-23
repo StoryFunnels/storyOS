@@ -11,6 +11,7 @@ import {
 } from '../db/schema';
 import { env } from '../config/env';
 import { AccessService } from '../access/access.service';
+import { ReferralsService } from '../referrals/referrals.service';
 import { AiCreditsService } from './ai-credits.service';
 import { StripeService } from './stripe.service';
 import {
@@ -49,6 +50,7 @@ export class BillingService {
     private readonly stripe: StripeService,
     private readonly access: AccessService,
     private readonly aiCredits: AiCreditsService,
+    private readonly referrals: ReferralsService,
   ) {}
 
   private settingsUrl(query: string): string {
@@ -281,6 +283,12 @@ export class BillingService {
       this.logger.warn(`No workspace mapped to Stripe customer ${String(sub.customer)}; skipping.`);
       return;
     }
+    // #33 — read the PRIOR plan before we overwrite it below, so we can tell a
+    // genuine free→paid conversion apart from a renewal/seat-quantity update on
+    // an already-paying workspace (both call reconcileSubscription).
+    const priorRow = await this.db.query.billingSubscriptions.findFirst({
+      where: eq(billingSubscriptions.workspaceId, workspaceId),
+    });
 
     const seatPrice = env().STRIPE_PRICE_SEAT;
     let plan: PlanId | undefined;
@@ -315,6 +323,16 @@ export class BillingService {
       .insert(billingSubscriptions)
       .values(values)
       .onConflictDoUpdate({ target: billingSubscriptions.workspaceId, set: values });
+
+    // #33 — a genuine free→paid conversion (never a re-notification of an
+    // already-paying workspace) is the referral program's reward trigger.
+    // Best-effort: a failure here must never fail the webhook (Stripe would
+    // retry the whole delivery, re-running billing state it already applied).
+    if (effectivePlan !== 'free' && (!priorRow || priorRow.plan === 'free')) {
+      await this.referrals.recordConversionIfEligible(workspaceId).catch((err) => {
+        this.logger.warn(`Referral conversion check failed for workspace ${workspaceId}: ${(err as Error).message}`);
+      });
+    }
   }
 
   private async workspaceForCustomer(

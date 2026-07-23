@@ -41,11 +41,24 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
     enabled: isAdmin,
   });
 
+  // #33: same cloud-only signal as Billing above, but user-scoped (not
+  // admin-gated) since a referral link belongs to a person, not a workspace —
+  // every member, not just admins, should see it once it's on.
+  const referrals = useQuery({
+    queryKey: ['referrals-me'],
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/referrals/me');
+      if (error) throw error;
+      return data as unknown as { enabled: boolean };
+    },
+  });
+
   const base = `/w/${ws}/settings`;
   const personal = [
     { href: `${base}/account`, label: 'Account' },
     { href: `${base}/preferences`, label: 'Preferences' },
     { href: `${base}/notifications`, label: 'Notifications' },
+    ...(referrals.data?.enabled ? [{ href: `${base}/referrals`, label: 'Referrals' }] : []),
   ];
   const workspaceLinks = [
     ...(isAdmin ? [{ href: `${base}/members`, label: 'Members' }] : []),
