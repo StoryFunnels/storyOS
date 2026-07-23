@@ -26,6 +26,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { ImportModule } from './import/import.module';
 import { AutomationsModule } from './automations/automations.module';
 import { ConnectionsModule } from './connections/connections.module';
+import { RunsModule } from './runs/runs.module';
 import { EventsModule } from './events/events.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { AgentsModule } from './agents/agents.module';
@@ -101,6 +102,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     ImportModule,
     AutomationsModule,
     ConnectionsModule,
+    RunsModule,
     EventsModule,
     IntegrationsModule,
     AgentsModule,

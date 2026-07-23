@@ -4464,7 +4464,7 @@
             "description": ""
           }
         },
-        "summary": "Run history (30-day retention)",
+        "summary": "Run history (90-day retention, MN-264)",
         "tags": [
           "automations"
         ]
@@ -5176,6 +5176,35 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/connections/{id}/resume": {
+      "post": {
+        "operationId": "ConnectionsController_resume",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "MN-264: manually close the circuit breaker before its cool-down elapses",
+        "tags": [
+          "connections"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/connections/oauth/{provider}/start": {
       "get": {
         "operationId": "ConnectionsController_start",
@@ -5242,6 +5271,165 @@
         "summary": "OAuth2 callback — verifies state, exchanges the code, seals the tokens",
         "tags": [
           "connections"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/runs/quota": {
+      "get": {
+        "operationId": "RunsController_quota",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Monthly automation-run usage vs the plan allowance, with a pace projection",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/runs": {
+      "get": {
+        "operationId": "RunsController_list",
+        "parameters": [
+          {
+            "name": "kind",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "rule_id",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "database_id",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Every automation run in the workspace, newest first — rule runs today (source syncs pending #239)",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/runs/{id}": {
+      "get": {
+        "operationId": "RunsController_detail",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Run detail: trigger context, per-action attempts/artifacts, approval linkage",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/runs/{id}/actions/{index}/rerun": {
+      "post": {
+        "operationId": "RunsController_rerun",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "index",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Re-run one failed action from this run with its original frozen inputs",
+        "tags": [
+          "runs"
         ]
       }
     },

@@ -1,15 +1,20 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { eq } from 'drizzle-orm';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './helpers/app';
 import { authed, signUpUser } from './helpers/users';
 import { ConnectionsService } from '../src/connections/connections.service';
 import type { ConnectionFetcher } from '../src/connections/providers';
+import { DB } from '../src/db/db.module';
+import type { Db } from '../src/db/client';
+import { automationJobs, connections as connectionsTable } from '../src/db/schema';
 
 let app: NestFastifyApplication;
 let admin: { token: string; email: string };
 let member: { token: string; email: string };
 let wsId: string;
 let connections: ConnectionsService;
+let db: Db;
 
 /** Every outbound "call the provider" request the service made — captured
  * instead of touching a real network, exactly like webhooks.test.ts's `sent`. */
@@ -38,6 +43,7 @@ beforeAll(async () => {
   if (accepted.statusCode >= 300) throw new Error(`member invite failed: ${accepted.body}`);
 
   connections = app.get(ConnectionsService);
+  db = app.get(DB);
   const fetcher: ConnectionFetcher = async (url) => {
     calls.push({ url });
     return { status: nextStatus, json: async () => nextJson, text: async () => JSON.stringify(nextJson) };
@@ -270,5 +276,64 @@ describe('connections registry (MN-252)', () => {
     ).toBe(true);
 
     await inject('DELETE', `/workspaces/${wsId}/connections/${conn.id}`);
+  });
+
+  it('MN-264: the list surfaces a 24h failed-job count and the breaker state, and /resume clears the breaker', async () => {
+    nextStatus = 200;
+    const created = await inject('POST', `/workspaces/${wsId}/connections`, {
+      provider: 'apify',
+      name: 'Health strip target',
+      auth: { api_key: 'x' },
+    });
+    expect(created.statusCode).toBe(201);
+    const connId = created.json().id;
+
+    // Two failed jobs inside the 24h window, one outside it — only the two
+    // recent ones should count.
+    const recent = new Date();
+    const stale = new Date(Date.now() - 25 * 60 * 60 * 1000);
+    for (const [i, at] of [recent, recent, stale].entries()) {
+      const [job] = await db
+        .insert(automationJobs)
+        .values({
+          workspaceId: wsId,
+          ruleId: null,
+          runId: null,
+          connectionId: connId,
+          actionIndex: 0,
+          kind: 'test.health-strip',
+          payload: {},
+          idempotencyKey: `health-strip:${connId}:${i}`,
+          status: 'failed',
+        })
+        .returning();
+      // updatedAt is $onUpdate-only (set at insert to now()) — force it to the
+      // intended bucket with a real UPDATE so it reflects "when this failed".
+      await db.update(automationJobs).set({ updatedAt: at }).where(eq(automationJobs.id, job!.id));
+    }
+    await db
+      .update(connectionsTable)
+      .set({ breakerOpenUntil: new Date(Date.now() + 30 * 60_000), errorStreak: 10 })
+      .where(eq(connectionsTable.id, connId));
+
+    const listed = (await inject('GET', `/workspaces/${wsId}/connections`)).json().data;
+    const row = listed.find((c: { id: string }) => c.id === connId);
+    expect(row.error_count_24h).toBe(2);
+    expect(row.breaker_open_until).not.toBeNull();
+
+    // A member can read the health fields (list is read-scope) but not resume.
+    const memberResume = await inject('POST', `/workspaces/${wsId}/connections/${connId}/resume`, undefined, member.token);
+    expect(memberResume.statusCode).toBe(403);
+
+    const resumed = await inject('POST', `/workspaces/${wsId}/connections/${connId}/resume`);
+    expect(resumed.statusCode).toBe(201);
+    expect(resumed.json().breaker_open_until).toBeNull();
+
+    const afterResume = (await inject('GET', `/workspaces/${wsId}/connections`)).json().data.find(
+      (c: { id: string }) => c.id === connId,
+    );
+    expect(afterResume.breaker_open_until).toBeNull();
+
+    await inject('DELETE', `/workspaces/${wsId}/connections/${connId}`);
   });
 });
