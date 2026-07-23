@@ -1627,6 +1627,14 @@ export class RecordsService {
         payload: {},
       });
     });
+    this.domainEvents.emit({
+      type: 'record_deleted',
+      workspaceId,
+      databaseId,
+      recordId,
+      actorId,
+      depth: 0,
+    });
     return { deleted: true };
   }
 
@@ -1667,6 +1675,16 @@ export class RecordsService {
           ids.map((id) => ({ workspaceId, recordId: id, actorId, type: 'record.deleted', payload: {} })),
         );
       });
+      ids.forEach((recordId) =>
+        this.domainEvents.emit({
+          type: 'record_deleted',
+          workspaceId,
+          databaseId,
+          recordId,
+          actorId,
+          depth: 0,
+        }),
+      );
     }
     return { deleted: ids.length, record_ids: ids };
   }

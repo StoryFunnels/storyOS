@@ -49,6 +49,7 @@ import { DocsController } from './docs/docs.controller';
 import { HealthController } from './health/health.controller';
 import { MailModule } from './mail/mail.module';
 import { WorkspacesModule } from './workspaces/workspaces.module';
+import { CalendarSyncModule } from './calendar-sync/calendar-sync.module';
 
 @Module({
   imports: [
@@ -104,6 +105,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     ImportModule,
     AutomationsModule,
     ConnectionsModule,
+    CalendarSyncModule,
     RunsModule,
     SourcesModule,
     EventsModule,

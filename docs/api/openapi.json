@@ -5760,6 +5760,141 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/integrations/google-calendar/calendars": {
+      "get": {
+        "operationId": "CalendarSyncController_calendars",
+        "parameters": [
+          {
+            "name": "connection_id",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List writable calendars for a Calendar connection",
+        "tags": [
+          "google-calendar"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/integrations/google-calendar/bindings": {
+      "get": {
+        "operationId": "CalendarSyncController_bindings",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List database-to-calendar sync bindings",
+        "tags": [
+          "google-calendar"
+        ]
+      },
+      "post": {
+        "operationId": "CalendarSyncController_createBinding",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCalendarBindingDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Bind a database and date fields to a Google Calendar",
+        "tags": [
+          "google-calendar"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/integrations/google-calendar/bindings/{id}/sync": {
+      "post": {
+        "operationId": "CalendarSyncController_sync",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Push all current dated records to Google Calendar now",
+        "tags": [
+          "google-calendar"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/integrations/google-calendar/bindings/{id}": {
+      "delete": {
+        "operationId": "CalendarSyncController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Remove a calendar binding (existing Google events remain)",
+        "tags": [
+          "google-calendar"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/runs/quota": {
       "get": {
         "operationId": "RunsController_quota",
@@ -10971,6 +11106,53 @@
           "provider",
           "name",
           "auth"
+        ]
+      },
+      "CreateCalendarBindingDto": {
+        "type": "object",
+        "properties": {
+          "connection_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "database_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "calendar_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          },
+          "calendar_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "start_field_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "end_field_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "description_field_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "connection_id",
+          "database_id",
+          "calendar_id",
+          "calendar_name",
+          "start_field_id"
         ]
       },
       "DiscoverSourceDto": {
