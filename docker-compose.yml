@@ -92,8 +92,19 @@ services:
         # Empty = same-origin: the web bundle calls /api/v1/* relative to the page,
         # and caddy routes it. Set an absolute URL only for split-origin setups.
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
+        # PostHog analytics. NEXT_PUBLIC_* are baked into the client bundle at
+        # BUILD time, so they must be passed as build args. Defaults point at the
+        # StoryOS PostHog project (the token is a public, client-side key, safe to
+        # ship in the browser). Self-hosters: override both in .env with your own
+        # PostHog project, or set the token empty to disable analytics entirely.
+        NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN: ${NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN:-phc_D9yoofBKnPEhEMHz7adDXGz4wZBGZ5dFCskuS8LY5vSn}
+        NEXT_PUBLIC_POSTHOG_HOST: ${NEXT_PUBLIC_POSTHOG_HOST:-https://us.i.posthog.com}
     image: storyos-web:latest
     restart: unless-stopped
+    environment:
+      # Also exposed at runtime for server-side capture (posthog-node).
+      NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN: ${NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN:-phc_D9yoofBKnPEhEMHz7adDXGz4wZBGZ5dFCskuS8LY5vSn}
+      NEXT_PUBLIC_POSTHOG_HOST: ${NEXT_PUBLIC_POSTHOG_HOST:-https://us.i.posthog.com}
     depends_on:
       - api
 
