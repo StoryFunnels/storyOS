@@ -1,17 +1,28 @@
-import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
-import { packSubmissionReviewRequestSchema, packSubmissionStatusSchema } from '@storyos/schemas';
+import {
+  adminClearEntitlementOverrideRequestSchema,
+  adminSetEntitlementOverrideRequestSchema,
+  adminSetPlanRequestSchema,
+  packSubmissionReviewRequestSchema,
+  packSubmissionStatusSchema,
+} from '@storyos/schemas';
 import { AuthGuard } from '../auth/auth.guard';
 import type { AuthedRequest } from '../auth/auth.guard';
 import { AgentsService } from '../agents/agents.service';
 import { MarketplaceService } from '../packs/marketplace.service';
+import { EntitlementsService } from '../billing/entitlements.service';
 import { PlatformAdminGuard } from './platform-admin.guard';
 import { AdminOverviewService } from './admin-overview.service';
 import { AdminRunsService } from './admin-runs.service';
+import { AdminBillingService } from './admin-billing.service';
 import { CostAttributionService } from './cost-attribution.service';
 
 class ReviewSubmissionDto extends createZodDto(packSubmissionReviewRequestSchema) {}
+class AdminSetPlanDto extends createZodDto(adminSetPlanRequestSchema) {}
+class AdminSetEntitlementOverrideDto extends createZodDto(adminSetEntitlementOverrideRequestSchema) {}
+class AdminClearEntitlementOverrideDto extends createZodDto(adminClearEntitlementOverrideRequestSchema) {}
 
 /**
  * MN-104 first cut: read-only, platform-admin-gated. No mutations here yet —
@@ -26,6 +37,13 @@ class ReviewSubmissionDto extends createZodDto(packSubmissionReviewRequestSchema
  * this doc comment asks for everything else — see AgentsService.
  * adminCancelRun's own doc comment for why it's a pure status flip and
  * nothing more.
+ *
+ * #304 is the "plan-change" piece this doc comment deferred above —
+ * narrowly scoped to exactly what its own ticket specs: setting a
+ * workspace's plan and entitlement overrides in OUR OWN tables (never live
+ * Stripe — see AdminBillingService.setPlan's doc for why), read back via one
+ * read-only billing view. Impersonation/token-revoke/refund/GDPR/audit-log
+ * are still explicitly NOT built here — each remains its own future pass.
  */
 @ApiTags('admin')
 @ApiBearerAuth()
@@ -38,6 +56,8 @@ export class AdminController {
     private readonly runs: AdminRunsService,
     private readonly agents: AgentsService,
     private readonly marketplace: MarketplaceService,
+    private readonly adminBilling: AdminBillingService,
+    private readonly entitlements: EntitlementsService,
   ) {}
 
   @Get('overview')
@@ -114,5 +134,81 @@ export class AdminController {
     @Body() body: ReviewSubmissionDto,
   ) {
     return this.marketplace.review(req.user.id, id, body.action, body.notes);
+  }
+
+  /**
+   * #304 — set a workspace's plan directly, bypassing Stripe entirely (no
+   * subscription created/touched against the real Stripe account). See
+   * AdminBillingService.setPlan's own doc for why stripeSubscriptionId/
+   * status are always cleared, even over an existing Stripe-backed row.
+   */
+  @Post('workspaces/:id/plan')
+  @ApiParam({ name: 'id', description: 'Workspace id' })
+  @ApiOperation({
+    summary: '#304 — set a workspace plan (comp/Enterprise grant); requires a reason; never touches live Stripe',
+  })
+  async setWorkspacePlan(
+    @Req() req: AuthedRequest,
+    @Param('id') id: string,
+    @Body() body: AdminSetPlanDto,
+  ) {
+    await this.adminBilling.setPlan(
+      id,
+      req.user.id,
+      body.plan,
+      body.reason,
+      body.expires_at ? new Date(body.expires_at) : null,
+    );
+    return this.adminBilling.getBillingView(id);
+  }
+
+  /**
+   * #304 — thin wrapper over the EXISTING EntitlementsService.setOverride;
+   * no new override storage, no parallel audit mechanism.
+   */
+  @Post('workspaces/:id/entitlement-overrides')
+  @ApiParam({ name: 'id', description: 'Workspace id' })
+  @ApiOperation({
+    summary: '#304 — set entitlement overrides (e.g. maxWorkspaces) for a workspace; requires a reason',
+  })
+  async setWorkspaceEntitlementOverride(
+    @Req() req: AuthedRequest,
+    @Param('id') id: string,
+    @Body() body: AdminSetEntitlementOverrideDto,
+  ) {
+    const { reason, expires_at, ...patch } = body;
+    await this.entitlements.setOverride(
+      id,
+      req.user.id,
+      patch,
+      reason,
+      expires_at ? new Date(expires_at) : null,
+    );
+    return this.adminBilling.getBillingView(id);
+  }
+
+  /** #304 — thin wrapper over the EXISTING EntitlementsService.clearOverride. */
+  @Delete('workspaces/:id/entitlement-overrides')
+  @ApiParam({ name: 'id', description: 'Workspace id' })
+  @ApiOperation({ summary: '#304 — clear a workspace\'s entitlement overrides; requires a reason' })
+  async clearWorkspaceEntitlementOverride(
+    @Req() req: AuthedRequest,
+    @Param('id') id: string,
+    @Body() body: AdminClearEntitlementOverrideDto,
+  ) {
+    await this.entitlements.clearOverride(id, req.user.id, body.reason);
+    return this.adminBilling.getBillingView(id);
+  }
+
+  /**
+   * #304 — read-only: current plan, active overrides, and the full
+   * entitlement_override_events audit trail for a workspace, so any plan
+   * change made above is always inspectable after the fact.
+   */
+  @Get('workspaces/:id/billing')
+  @ApiParam({ name: 'id', description: 'Workspace id' })
+  @ApiOperation({ summary: '#304 — current plan + overrides + audit trail for a workspace' })
+  async getWorkspaceBilling(@Param('id') id: string) {
+    return this.adminBilling.getBillingView(id);
   }
 }
