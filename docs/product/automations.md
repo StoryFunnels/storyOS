@@ -33,7 +33,7 @@ Rules that run actions when records change or on a schedule. Open them from a da
   (depth 2). Deeper cascades are skipped and logged — a rule can never ping-pong forever.
 - **Auto-disable**: 10 consecutive failures switch a rule off (banner in the panel); editing the
   actions or re-enabling resets the streak.
-- **Run log**: every execution (ok / error / skipped) with duration is kept for 30 days.
+- **Run log**: every execution (ok / error / skipped / skipped_quota) with duration is kept for 90 days (MN-264), and queryable across the whole workspace at `/w/:ws/runs` (or `GET /workspaces/:ws/runs`) alongside quota status.
 - **Dry run**: `POST …/automations/:id/test { record_id }` answers "would this run?" without writing.
 - **CSV imports do not fire automations** (mass-import safety, same choice as Airtable).
 - Scheduled rules process up to 500 matching records per tick and note truncation in the server log.

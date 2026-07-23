@@ -21,6 +21,9 @@ interface Connection {
   scopes: string[];
   last_ok_at: string | null;
   created_at: string;
+  /** MN-264: last-24h failed-job count + circuit-breaker state. */
+  error_count_24h: number;
+  breaker_open_until: string | null;
 }
 
 interface ProviderDescriptor {
@@ -105,6 +108,20 @@ export default function ConnectionsSettingsPage() {
     onError: () => toast.error('Could not disconnect'),
   });
 
+  const resume = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await api.POST('/api/v1/workspaces/{ws}/connections/{id}/resume', {
+        params: { path: { ws, id } },
+      } as never);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success('Circuit breaker closed — jobs will resume claiming');
+      void qc.invalidateQueries({ queryKey: ['connections', ws] });
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, 'Could not resume this connection')),
+  });
+
   function reconnect(providerId: string) {
     window.location.href = `${API_URL}/api/v1/workspaces/${ws}/connections/oauth/${providerId}/start`;
   }
@@ -137,11 +154,29 @@ export default function ConnectionsSettingsPage() {
                 <StatusPill status={c.status} />
                 {c.last_ok_at ? ` · last ok ${fmt.dateTime(c.last_ok_at)}` : ''}
               </p>
+              {/* MN-264: connection health strip. */}
+              <p className="mt-0.5 text-[12px] text-muted">
+                {c.error_count_24h > 0 && (
+                  <span className={c.error_count_24h >= 5 ? 'text-error' : 'text-warning'}>
+                    {c.error_count_24h} failed job{c.error_count_24h === 1 ? '' : 's'} in the last 24h
+                  </span>
+                )}
+                {c.breaker_open_until && (
+                  <span className="ml-1.5 rounded bg-hover px-1.5 py-0.5 text-[11px] text-error">
+                    circuit open until {fmt.dateTime(c.breaker_open_until)}
+                  </span>
+                )}
+              </p>
             </div>
             <div className="flex shrink-0 items-center gap-1">
               <Button variant="ghost" size="sm" onClick={() => test.mutate(c.id)} disabled={test.isPending}>
                 Test
               </Button>
+              {c.breaker_open_until && (
+                <Button variant="ghost" size="sm" onClick={() => resume.mutate(c.id)} disabled={resume.isPending}>
+                  Resume
+                </Button>
+              )}
               {c.status !== 'active' && providers.data?.find((p) => p.id === c.provider)?.auth_kind === 'oauth2' && (
                 <Button variant="ghost" size="sm" onClick={() => reconnect(c.provider)}>
                   Reconnect
@@ -194,6 +229,8 @@ export default function ConnectionsSettingsPage() {
               >
                 {p.oauth?.configured ? 'Connect' : 'Not configured'}
               </Button>
+            ) : p.id === 'http' ? (
+              <HttpConnectDialog ws={ws} provider={p} />
             ) : (
               <ApiKeyConnectDialog ws={ws} provider={p} />
             )}
@@ -291,6 +328,149 @@ function ApiKeyConnectDialog({ ws, provider }: { ws: string; provider: ProviderD
               </Button>
             </DialogClose>
             <Button type="submit" disabled={create.isPending}>
+              {create.isPending ? 'Connecting…' : 'Connect'}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+type HttpAuthStyle = 'bearer' | 'basic' | 'headers';
+
+/**
+ * MN-263 — the 'http' provider's auth shape isn't a bare `{ api_key }` like
+ * Resend/Apify: it's one of bearer/basic/headers (http.ts's HttpConnectionAuth).
+ * healthCheck() never probes the network (there's no universal endpoint to hit
+ * for "any API"), so this just needs to collect a shape-valid credential.
+ */
+function HttpConnectDialog({ ws, provider }: { ws: string; provider: ProviderDescriptor }) {
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('My API');
+  const [style, setStyle] = useState<HttpAuthStyle>('bearer');
+  const [token, setToken] = useState('');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [headerName, setHeaderName] = useState('X-Api-Key');
+  const [headerValue, setHeaderValue] = useState('');
+
+  function reset() {
+    setName('My API');
+    setStyle('bearer');
+    setToken('');
+    setUsername('');
+    setPassword('');
+    setHeaderName('X-Api-Key');
+    setHeaderValue('');
+  }
+
+  const valid =
+    style === 'bearer' ? Boolean(token.trim())
+    : style === 'basic' ? Boolean(username.trim()) && password.length > 0
+    : Boolean(headerName.trim()) && Boolean(headerValue.trim());
+
+  const create = useMutation({
+    mutationFn: async () => {
+      const auth =
+        style === 'bearer' ? { auth_style: 'bearer', token }
+        : style === 'basic' ? { auth_style: 'basic', username, password }
+        : { auth_style: 'headers', headers: { [headerName]: headerValue } };
+      const { error } = await api.POST('/api/v1/workspaces/{ws}/connections', {
+        params: { path: { ws } },
+        body: { provider: provider.id, name, auth } as never,
+      } as never);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success(`${name} connected`);
+      setOpen(false);
+      void qc.invalidateQueries({ queryKey: ['connections', ws] });
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, 'Could not save this connection')),
+  });
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) reset();
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button size="sm" variant="secondary">
+          Add
+        </Button>
+      </DialogTrigger>
+      <DialogContent title="Connect an HTTP API">
+        <form
+          className="flex flex-col gap-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!name.trim() || !valid) return;
+            create.mutate();
+          }}
+        >
+          <p className="text-[13px] text-muted">
+            Used only by the http_request automation action — auth is merged into each request at
+            send time and never stored in the rule config.
+          </p>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="http-conn-name">Name</Label>
+            <Input id="http-conn-name" required value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="http-conn-style">Auth style</Label>
+            <select
+              id="http-conn-style"
+              className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+              value={style}
+              onChange={(e) => setStyle(e.target.value as HttpAuthStyle)}
+            >
+              <option value="bearer">Bearer token</option>
+              <option value="basic">Basic (username/password)</option>
+              <option value="headers">Custom header</option>
+            </select>
+          </div>
+          {style === 'bearer' && (
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="http-conn-token">Token</Label>
+              <Input id="http-conn-token" required type="password" value={token} onChange={(e) => setToken(e.target.value)} />
+            </div>
+          )}
+          {style === 'basic' && (
+            <>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="http-conn-user">Username</Label>
+                <Input id="http-conn-user" required value={username} onChange={(e) => setUsername(e.target.value)} />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="http-conn-pass">Password</Label>
+                <Input id="http-conn-pass" required type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+              </div>
+            </>
+          )}
+          {style === 'headers' && (
+            <>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="http-conn-hname">Header name</Label>
+                <Input id="http-conn-hname" required value={headerName} onChange={(e) => setHeaderName(e.target.value)} />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="http-conn-hvalue">Header value</Label>
+                <Input id="http-conn-hvalue" required type="password" value={headerValue} onChange={(e) => setHeaderValue(e.target.value)} />
+              </div>
+            </>
+          )}
+          <div className="flex justify-end gap-2">
+            <DialogClose asChild>
+              <Button type="button" variant="secondary">
+                Cancel
+              </Button>
+            </DialogClose>
+            <Button type="submit" disabled={create.isPending || !valid}>
               {create.isPending ? 'Connecting…' : 'Connect'}
             </Button>
           </div>

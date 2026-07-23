@@ -1,5 +1,6 @@
 import { fieldRef, optionRef } from '@storyos/schemas';
 import type { PackPublicPreview, PackRegistryEntry } from '@storyos/schemas';
+import { STARTER_PACKS } from './starter-packs';
 
 /**
  * The built-in Business Pack gallery (MN-219 / #161).
@@ -15,6 +16,7 @@ import type { PackPublicPreview, PackRegistryEntry } from '@storyos/schemas';
  * ordinary install path rather than a special "built-in" one.
  */
 export const PACK_REGISTRY: PackRegistryEntry[] = [
+  ...STARTER_PACKS,
   {
     slug: 'support-inbox',
     name: 'Support Inbox',

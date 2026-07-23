@@ -254,8 +254,70 @@ describe('MN-168 — entitlements wiring for the automations engine', () => {
       expect(comments.data).toHaveLength(0); // the gated action never ran
 
       const runs = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}/runs`)).json();
-      const blocked = runs.data.find((r: { status: string; error?: string }) => r.status === 'skipped' && /allowance/i.test(r.error ?? ''));
+      // MN-264: this branch now writes a distinct 'skipped_quota' status (not
+      // the generic 'skipped' the depth-guard/record-gone branches use) so the
+      // Runs page and quota meter can tell "hit the allowance" apart from
+      // every other skip reason without parsing `error` text.
+      const blocked = runs.data.find(
+        (r: { status: string; error?: string }) => r.status === 'skipped_quota' && /allowance/i.test(r.error ?? ''),
+      );
       expect(blocked, JSON.stringify(runs.data)).toBeTruthy();
+    } finally {
+      entitlements.can = originalCan;
+      await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}`, { enabled: false });
+    }
+  });
+
+  /**
+   * MN-264 — the enforcement BOUNDARY itself, proven against the real
+   * runRule() path (not just EntitlementsService.can() in isolation, which
+   * entitlements.service.test.ts already covers at the unit level): the Nth
+   * record-created run must complete 'ok' and count toward the allowance, and
+   * the very next one — N+1 — must be skipped_quota, with no partial/garbled
+   * state in between. Mocks entitlements.can() to flip false after N calls
+   * (same technique the "over its allowance" test above uses), rather than
+   * fighting Stripe-disabled test-env plumbing to get a real plan cap — the
+   * plan-limit MATH itself (usage < limit) is entitlements.service.test.ts's
+   * job, not this file's.
+   */
+  it('enforcement boundary: exactly the Nth run is ok, the N+1th is skipped_quota', async () => {
+    const N = 3;
+    const rule = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/automations`, {
+      name: 'Boundary rule',
+      trigger: { type: 'record_created' },
+      actions: [{ type: 'add_comment', body_template: 'counted' }],
+    })).json();
+    const entitlements = app.get(EntitlementsService);
+    const originalCan = entitlements.can.bind(entitlements);
+    let calls = 0;
+    entitlements.can = vi.fn(async (workspaceId: string, capability) => {
+      if (workspaceId !== wsId) return originalCan(workspaceId, capability);
+      calls += 1;
+      return calls <= N;
+    });
+    try {
+      const recs: { id: string }[] = [];
+      for (let i = 0; i < N + 1; i++) {
+        const rec = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records`, {
+          values: { name: `Boundary ${i}` },
+        })).json();
+        await engine.settle(rec.id);
+        await wait(20);
+        recs.push(rec);
+      }
+
+      const runs = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}/runs`)).json();
+      const ok = runs.data.filter((r: { status: string }) => r.status === 'ok');
+      const quotaSkipped = runs.data.filter((r: { status: string }) => r.status === 'skipped_quota');
+      expect(ok).toHaveLength(N); // exactly the first N — never fewer, never more
+      expect(quotaSkipped).toHaveLength(1); // exactly the N+1th, not silently swallowed or duplicated
+
+      // And the gated action itself only ran N times — proving the skip
+      // happens BEFORE the action, not as an after-the-fact bookkeeping label.
+      const lastRecComments = (
+        await inject('GET', `/workspaces/${wsId}/databases/${dbId}/records/${recs[N]!.id}/comments`)
+      ).json();
+      expect(lastRecComments.data).toHaveLength(0);
     } finally {
       entitlements.can = originalCan;
       await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}`, { enabled: false });

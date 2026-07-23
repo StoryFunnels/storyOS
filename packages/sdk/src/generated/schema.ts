@@ -1682,7 +1682,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Run history (30-day retention) */
+        /** Run history (90-day retention, MN-264) */
         get: operations["AutomationsController_runs"];
         put?: never;
         post?: never;
@@ -2276,6 +2276,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/connections/{id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** MN-264: manually close the circuit breaker before its cool-down elapses */
+        post: operations["ConnectionsController_resume"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/connections/oauth/{provider}/start": {
         parameters: {
             query?: never;
@@ -2304,6 +2321,74 @@ export interface paths {
         get: operations["ConnectionsOAuthController_callback"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/runs/quota": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Monthly automation-run usage vs the plan allowance, with a pace projection */
+        get: operations["RunsController_quota"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every automation run in the workspace, newest first — rule runs today (source syncs pending #239) */
+        get: operations["RunsController_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/runs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Run detail: trigger context, per-action attempts/artifacts, approval linkage */
+        get: operations["RunsController_detail"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/runs/{id}/actions/{index}/rerun": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Re-run one failed action from this run with its original frozen inputs */
+        post: operations["RunsController_rerun"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3563,6 +3648,24 @@ export interface components {
                 max_steps?: number;
                 max_cost_cents?: number;
                 dry_run?: boolean;
+            } | {
+                require_approval?: boolean;
+                /** @enum {string} */
+                type: "http_request";
+                /** @enum {string} */
+                method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+                url: string;
+                headers?: {
+                    [key: string]: string;
+                };
+                body_template?: string;
+                /** Format: uuid */
+                connection_id?: string;
+                capture?: {
+                    path: string;
+                    /** Format: uuid */
+                    target_field_id: string;
+                }[];
             })[];
             /** @default true */
             enabled: boolean;
@@ -3666,6 +3769,24 @@ export interface components {
                 max_steps?: number;
                 max_cost_cents?: number;
                 dry_run?: boolean;
+            } | {
+                require_approval?: boolean;
+                /** @enum {string} */
+                type: "http_request";
+                /** @enum {string} */
+                method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+                url: string;
+                headers?: {
+                    [key: string]: string;
+                };
+                body_template?: string;
+                /** Format: uuid */
+                connection_id?: string;
+                capture?: {
+                    path: string;
+                    /** Format: uuid */
+                    target_field_id: string;
+                }[];
             })[];
             enabled?: boolean;
             approverId?: string | null;
@@ -3673,6 +3794,7 @@ export interface components {
         TestAutomationDto: {
             /** Format: uuid */
             record_id: string;
+            action_index?: number;
         };
         RejectApprovalDto: {
             reason?: string;
@@ -7455,6 +7577,25 @@ export interface operations {
             };
         };
     };
+    ConnectionsController_resume: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     ConnectionsController_start: {
         parameters: {
             query?: never;
@@ -7488,6 +7629,89 @@ export interface operations {
         requestBody?: never;
         responses: {
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RunsController_quota: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RunsController_list: {
+        parameters: {
+            query: {
+                kind: string;
+                status: string;
+                rule_id: string;
+                database_id: string;
+                from: string;
+                to: string;
+                q: string;
+                limit: string;
+                cursor: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RunsController_detail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RunsController_rerun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                index: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };

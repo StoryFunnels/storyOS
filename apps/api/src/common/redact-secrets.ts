@@ -131,6 +131,24 @@ function isRedactable(value: unknown): boolean {
   return typeof value !== 'boolean';
 }
 
+/**
+ * MN-263 — literal-value redaction, for text that isn't a key/value structure
+ * `redactSecrets` can walk: an http_request run's response body. A connection's
+ * bearer token or basic-auth password can never be caught by key-shape matching
+ * (the response is someone else's JSON, with someone else's keys) — the only
+ * defense is scrubbing every literal secret string the caller knows it merged
+ * into the request. Case-sensitive exact-substring match; short/empty values
+ * are skipped so a one-character password can't blank half the response.
+ */
+export function redactLiteralValues(text: string, secrets: readonly (string | undefined)[]): string {
+  let out = text;
+  for (const secret of secrets) {
+    if (!secret || secret.length < 4) continue;
+    out = out.split(secret).join(REDACTED);
+  }
+  return out;
+}
+
 export function redactSecrets<T>(value: T): T {
   if (Array.isArray(value)) {
     return value.map((v) => redactSecrets(v)) as unknown as T;

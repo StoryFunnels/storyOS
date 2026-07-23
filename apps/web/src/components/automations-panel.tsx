@@ -749,6 +749,7 @@ function RuleEditor({
           actions={actions}
           onChange={setActions}
           restrictToWebhookSafe={isWebhookTrigger}
+          ruleId={rule?.id}
         />
       </div>
 

@@ -68,6 +68,14 @@ export class ConnectionsController {
     return this.connections.test(req.membership.workspaceId, id);
   }
 
+  @Post(':id/resume')
+  @MinRole('admin')
+  @RequiresScope('admin')
+  @ApiOperation({ summary: 'MN-264: manually close the circuit breaker before its cool-down elapses' })
+  resume(@Req() req: WorkspaceRequest, @Param('id') id: string) {
+    return this.connections.resume(req.membership.workspaceId, id);
+  }
+
   @Get('oauth/:provider/start')
   @MinRole('admin')
   @RequiresScope('admin')

@@ -9,11 +9,11 @@ import {
   OnModuleInit,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
 import type { ProviderDescriptorSummary } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { connections } from '../db/schema';
+import { automationJobs, connections } from '../db/schema';
 import { env } from '../config/env';
 import { open, seal } from '../common/secretbox';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -107,11 +107,36 @@ export class ConnectionsService implements OnModuleInit, OnModuleDestroy {
       where: eq(connections.workspaceId, workspaceId),
       orderBy: [desc(connections.createdAt)],
     });
-    return { data: rows.map((r) => this.present(r)) };
+    const errorCounts = rows.length
+      ? await this.recentErrorCounts(rows.map((r) => r.id))
+      : new Map<string, number>();
+    return { data: rows.map((r) => this.present(r, errorCounts.get(r.id) ?? 0)) };
+  }
+
+  /**
+   * MN-264 — last-24h failed-job count per connection, for the Connections
+   * health strip. Reads automation_jobs (MN-253's durable queue) rather than
+   * a new counter: `updatedAt` is bumped by `$onUpdate` on every status write,
+   * so a job's `status = 'failed'` row's `updatedAt` IS its failure time.
+   */
+  private async recentErrorCounts(connectionIds: string[]): Promise<Map<string, number>> {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const rows = await this.db
+      .select({ connectionId: automationJobs.connectionId, count: sql<number>`count(*)::int` })
+      .from(automationJobs)
+      .where(
+        and(
+          inArray(automationJobs.connectionId, connectionIds),
+          eq(automationJobs.status, 'failed'),
+          gte(automationJobs.updatedAt, since),
+        ),
+      )
+      .groupBy(automationJobs.connectionId);
+    return new Map(rows.filter((r) => r.connectionId).map((r) => [r.connectionId as string, r.count]));
   }
 
   /** Client-safe view — NEVER includes authSealed (MN-252 AC). */
-  private present(row: ConnectionRow) {
+  private present(row: ConnectionRow, errorCount24h = 0) {
     return {
       id: row.id,
       provider: row.provider,
@@ -120,6 +145,11 @@ export class ConnectionsService implements OnModuleInit, OnModuleDestroy {
       scopes: (row.scopes ?? []) as string[],
       last_ok_at: row.lastOkAt ? row.lastOkAt.toISOString() : null,
       created_at: row.createdAt.toISOString(),
+      // MN-264: circuit-breaker + recent-error visibility for the Connections
+      // health strip. breakerOpenUntil was pre-provisioned by MN-253 but never
+      // surfaced to a client until now.
+      error_count_24h: errorCount24h,
+      breaker_open_until: row.breakerOpenUntil ? row.breakerOpenUntil.toISOString() : null,
     };
   }
 
@@ -149,6 +179,23 @@ export class ConnectionsService implements OnModuleInit, OnModuleDestroy {
         lastOkAt: new Date(),
         createdBy: userId,
       })
+      .returning();
+    return this.present(row!);
+  }
+
+  /**
+   * MN-264 — manual circuit-breaker reset: clears `breakerOpenUntil` (and the
+   * error streak that opened it) so JobRunnerService's claim loop stops
+   * short-circuiting this connection's jobs before the 30-minute cool-down
+   * elapses on its own. Does not touch history — queued/failed jobs are
+   * untouched; the next claim just isn't gated on the breaker anymore.
+   */
+  async resume(workspaceId: string, id: string) {
+    await this.requireRow(workspaceId, id);
+    const [row] = await this.db
+      .update(connections)
+      .set({ breakerOpenUntil: null, errorStreak: 0 })
+      .where(and(eq(connections.id, id), eq(connections.workspaceId, workspaceId)))
       .returning();
     return this.present(row!);
   }

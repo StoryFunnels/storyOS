@@ -3,7 +3,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import type { AutomationAction } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { databases, fields, relations } from '../db/schema';
+import { connections, databases, fields, relations } from '../db/schema';
 import { CommentsService } from '../comments/comments.service';
 import { WebhooksService } from '../webhooks/webhooks.service';
 import { SlackService } from '../integrations/slack.service';
@@ -206,6 +206,29 @@ export class AutomationActionsService {
           );
         }
       }
+      if (action.type === 'http_request') {
+        if (action.connection_id) {
+          const connection = await this.db.query.connections.findFirst({
+            where: and(eq(connections.id, action.connection_id), eq(connections.workspaceId, workspaceId)),
+          });
+          if (!connection) {
+            throw new UnprocessableEntityException('http_request connection_id is not a connection in this workspace');
+          }
+          if (connection.provider !== 'http') {
+            throw new UnprocessableEntityException(
+              `http_request connection_id must be an 'http' connection, not '${connection.provider}'`,
+            );
+          }
+        }
+        for (const capture of action.capture ?? []) {
+          const targetField = live.find((f) => f.id === capture.target_field_id);
+          if (!targetField) {
+            throw new UnprocessableEntityException(
+              `http_request capture targets an unknown field (${capture.target_field_id})`,
+            );
+          }
+        }
+      }
     }
   }
 
@@ -340,7 +363,51 @@ export class AutomationActionsService {
           previewText: `Run agent ${action.agent}${action.prompt ? `: ${action.prompt.slice(0, 200)}` : ''}`,
         };
       }
+      case 'http_request': {
+        const snapshot = { ...action, ...this.renderHttpRequestTemplates(action, ctx, displayToApi) };
+        return { snapshot, previewText: `${action.method} ${snapshot.url}` };
+      }
     }
+  }
+
+  /**
+   * MN-263 — the editor's "send test request": renders a single http_request
+   * action's templates against a real record, for AutomationsService.test()'s
+   * execute-just-this-action mode. A no-op passthrough for any other action
+   * type (test-request only exists for http_request today).
+   */
+  async renderForTest(databaseId: string, action: AutomationAction, ctx: ActionContext): Promise<AutomationAction> {
+    if (action.type !== 'http_request') return action;
+    const live = await this.db.query.fields.findMany({
+      where: and(eq(fields.databaseId, databaseId), isNull(fields.deletedAt)),
+    });
+    const displayToApi = new Map(live.map((f) => [f.displayName, f.apiName]));
+    return { ...action, ...this.renderHttpRequestTemplates(action, ctx, displayToApi) };
+  }
+
+  /**
+   * MN-263 — renders an http_request action's templated url/headers/
+   * body_template NOW, against the record/payload available at this instant.
+   * Shared by renderForApproval() (MN-255's frozen snapshot) and execute()'s
+   * durable-job path below — a queued job's payload carries only ctx.recordId,
+   * not the record's field values, so rendering has to happen here, before
+   * the job is enqueued, not inside the executor.
+   */
+  private renderHttpRequestTemplates(
+    action: Extract<AutomationAction, { type: 'http_request' }>,
+    ctx: ActionContext,
+    displayToApi: Map<string, string>,
+  ): { url: string; headers?: Record<string, string>; body_template?: string } {
+    const url = this.interpolate(action.url, ctx, displayToApi, encodeURIComponent);
+    const headers = action.headers
+      ? Object.fromEntries(
+          Object.entries(action.headers).map(([name, value]) => [name, this.interpolate(value, ctx, displayToApi)]),
+        )
+      : undefined;
+    const body_template = action.body_template
+      ? this.interpolate(action.body_template, ctx, displayToApi, jsonEscape)
+      : action.body_template;
+    return { url, headers, body_template };
   }
 
   /**
@@ -405,6 +472,14 @@ export class AutomationActionsService {
           typeof (action as Record<string, unknown>).connection_id === 'string'
             ? ((action as Record<string, unknown>).connection_id as string)
             : null;
+        // MN-263: http_request's url/headers/body_template are {Field}-templated —
+        // render NOW against ctx.record/ctx.payload, the same as renderForApproval's
+        // frozen snapshot, because the job payload below carries only ctx.recordId,
+        // not the record's field values the executor would need to re-render later.
+        const renderedAction: AutomationAction =
+          action.type === 'http_request'
+            ? { ...action, ...this.renderHttpRequestTemplates(action, ctx, displayToApi) }
+            : action;
         const { jobId } = await this.jobs.enqueue({
           workspaceId: ctx.workspaceId,
           ruleId: ctx.ruleId ?? null,
@@ -413,7 +488,7 @@ export class AutomationActionsService {
           actionIndex,
           kind: action.type,
           payload: {
-            action,
+            action: renderedAction,
             ctx: {
               workspaceId: ctx.workspaceId,
               databaseId: ctx.databaseId,
