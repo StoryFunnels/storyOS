@@ -3271,6 +3271,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/workspaces/{id}/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** #304 — set a workspace plan (comp/Enterprise grant); requires a reason; never touches live Stripe */
+        post: operations["AdminController_setWorkspacePlan"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/workspaces/{id}/entitlement-overrides": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** #304 — set entitlement overrides (e.g. maxWorkspaces) for a workspace; requires a reason */
+        post: operations["AdminController_setWorkspaceEntitlementOverride"];
+        /** #304 — clear a workspace's entitlement overrides; requires a reason */
+        delete: operations["AdminController_clearWorkspaceEntitlementOverride"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/workspaces/{id}/billing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** #304 — current plan + overrides + audit trail for a workspace */
+        get: operations["AdminController_getWorkspaceBilling"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -4299,6 +4351,27 @@ export interface components {
             /** @enum {string} */
             action: "approve" | "reject";
             notes?: string;
+        };
+        AdminSetPlanDto: {
+            /** @enum {string} */
+            plan: "free" | "pro" | "business" | "enterprise";
+            reason: string;
+            /** Format: date-time */
+            expires_at?: string;
+        };
+        AdminSetEntitlementOverrideDto: {
+            includedSeats?: number | null;
+            automationRunsPerMonth?: number | null;
+            maxWorkspaces?: number | null;
+            featureFlags?: {
+                [key: string]: boolean;
+            } | null;
+            reason: string;
+            /** Format: date-time */
+            expires_at?: string;
+        };
+        AdminClearEntitlementOverrideDto: {
+            reason: string;
         };
     };
     responses: never;
@@ -9231,6 +9304,98 @@ export interface operations {
         };
         responses: {
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AdminController_setWorkspacePlan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminSetPlanDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AdminController_setWorkspaceEntitlementOverride: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminSetEntitlementOverrideDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AdminController_clearWorkspaceEntitlementOverride: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminClearEntitlementOverrideDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AdminController_getWorkspaceBilling: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
