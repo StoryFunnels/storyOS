@@ -10,6 +10,7 @@ import { ViewsModule } from '../views/views.module';
 import { WorkspacesModule } from '../workspaces/workspaces.module';
 import { PacksController, PacksRegistryController } from './packs.controller';
 import { PacksService } from './packs.service';
+import { PublicPacksController } from './public-packs.controller';
 
 /**
  * Business Packs (MN-218 / #160).
@@ -33,7 +34,7 @@ import { PacksService } from './packs.service';
     ViewsModule,
     WorkspacesModule,
   ],
-  controllers: [PacksController, PacksRegistryController],
+  controllers: [PacksController, PacksRegistryController, PublicPacksController],
   providers: [PacksService],
   exports: [PacksService],
 })

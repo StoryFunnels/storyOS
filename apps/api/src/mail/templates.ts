@@ -17,7 +17,6 @@ const LIGHT = {
   textMuted: '#6b6658', // --text-muted
   ctaBg: '#0f1729', // --primary (navy) — same pairing button.tsx's `primary` variant uses
   ctaText: '#faf7f1', // --text-on-dark (cream)
-  wordmarkAccent: '#d4a017', // --accent (gold), matches brand/logo.svg's "OS"
 } as const;
 
 const DARK = {
@@ -29,7 +28,6 @@ const DARK = {
   textMuted: '#9a9488', // --text-muted dark
   ctaBg: '#35427a', // --primary dark
   ctaText: '#faf7f1', // --text-on-dark (unchanged across themes)
-  wordmarkAccent: '#e0af2b', // --accent dark
 } as const;
 
 /** Escapes caller-supplied strings (display names, workspace names, record
@@ -74,12 +72,19 @@ interface BrandedEmailOptions {
  * `prefers-color-scheme: dark` override for clients that honor it (Apple
  * Mail, iOS Mail, Gmail's app dark mode). Wordmark header ("Story" in navy/
  * cream, "OS" in gold — matching apps/web/public/brand/logo.svg's own text
- * treatment), optional CTA button, muted footer, hidden preheader text.
+ * treatment) rendered as an `<img>` logo (MN-284), optional CTA button, muted
+ * footer, hidden preheader text.
  *
- * No `<img>` logo: the only StoryOS logo asset that exists at a public path
- * (apps/web/public/brand/logo.svg) is SVG-only, and inline SVG in `<img>`
- * doesn't render reliably across email clients (notably Outlook desktop). A
- * styled text wordmark reproduces the same mark without that risk.
+ * The `<img>` points at PNG rasters exported from the SVG brand assets
+ * (apps/web/public/brand/logo.png / logo-dark.png, `@2x` variants for
+ * retina) — inline SVG in `<img>` doesn't render reliably across email
+ * clients (notably Outlook desktop), so a raster fallback is required. The
+ * PNGs are served as static files from apps/web's `public/` dir at `WEB_URL`,
+ * the same way apps/web/src/app/(auth)/auth-card.tsx references
+ * `/brand/mark.svg` as a plain path. Two `<img>` tags (light/dark) are
+ * swapped with the same `!important` display toggle the dark-mode CSS below
+ * already uses for text — image-blocking clients fall back to the `alt`
+ * text, styled inline to still resemble the wordmark.
  *
  * Exported (MN-256) so send-email.action.ts's automation-sent mail gets the
  * SAME branded shell every other transactional email uses, instead of a
@@ -126,8 +131,8 @@ export function renderBrandedEmail(opts: BrandedEmailOptions): string {
     .eo-footer { color: ${DARK.textMuted} !important; }
     .eo-cta-bg { background: ${DARK.ctaBg} !important; }
     .eo-cta-text { color: ${DARK.ctaText} !important; }
-    .eo-wordmark-os { color: ${DARK.wordmarkAccent} !important; }
-    .eo-wordmark-story { color: ${DARK.textPrimary} !important; }
+    .eo-logo-light { display: none !important; }
+    .eo-logo-dark { display: inline-block !important; }
   }
 </style>
 </head>
@@ -140,7 +145,8 @@ export function renderBrandedEmail(opts: BrandedEmailOptions): string {
           <tr>
             <td align="center" style="padding: 8px 0 20px;">
               <a href="${webUrl}" style="text-decoration: none;">
-                <span class="eo-wordmark-story" style="font-family: ${font}; font-size: 22px; font-weight: 700; color: ${LIGHT.textPrimary};">Story</span><span class="eo-wordmark-os" style="font-family: ${font}; font-size: 22px; font-weight: 700; color: ${LIGHT.wordmarkAccent};">OS</span>
+                <img src="${webUrl}/brand/logo.png" srcset="${webUrl}/brand/logo.png 1x, ${webUrl}/brand/logo@2x.png 2x" width="116" height="32" alt="StoryOS" class="eo-logo-light" style="display: inline-block; border: 0; outline: none; text-decoration: none; font-family: ${font}; font-size: 22px; font-weight: 700; color: ${LIGHT.textPrimary};">
+                <img src="${webUrl}/brand/logo-dark.png" srcset="${webUrl}/brand/logo-dark.png 1x, ${webUrl}/brand/logo-dark@2x.png 2x" width="116" height="32" alt="StoryOS" class="eo-logo-dark" style="display: none; border: 0; outline: none; text-decoration: none; font-family: ${font}; font-size: 22px; font-weight: 700; color: ${DARK.textPrimary};">
               </a>
             </td>
           </tr>

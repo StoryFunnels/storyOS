@@ -5937,6 +5937,45 @@
         ]
       }
     },
+    "/api/v1/public/packs/registry": {
+      "get": {
+        "operationId": "PublicPacksController_registry",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "The built-in Business Pack gallery — public, pre-signup",
+        "tags": [
+          "public"
+        ]
+      }
+    },
+    "/api/v1/public/packs/registry/{slug}": {
+      "get": {
+        "operationId": "PublicPacksController_entry",
+        "parameters": [
+          {
+            "name": "slug",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "One built-in pack — public, pre-signup preview",
+        "tags": [
+          "public"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/favorites": {
       "get": {
         "operationId": "FavoritesController_list",
@@ -6256,6 +6295,65 @@
           }
         ],
         "summary": "MN-194 — per-workspace cost and margin from real usage (hosted calls, storage, email; AI cost estimated pending MN-214r), plus blended margin per plan and the margin-floor flags.",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/runs": {
+      "get": {
+        "operationId": "AdminController_listRuns",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "#300/MN-216c — agent runs across every workspace: workspace, agent, status, run_class, trigger, started/finished. Read-only.",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/runs/{workspaceId}/{run}/cancel": {
+      "post": {
+        "operationId": "AdminController_cancelRun",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "required": true,
+            "in": "path",
+            "description": "The run's workspace id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "run",
+            "required": true,
+            "in": "path",
+            "description": "The run record's id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "#300/MN-216c — kill switch: cancel a queued/running/waiting-approval run in any workspace. A status flip to Canceled only — no other side effects.",
         "tags": [
           "admin"
         ]

@@ -1,5 +1,5 @@
 import { fieldRef, optionRef } from '@storyos/schemas';
-import type { PackRegistryEntry } from '@storyos/schemas';
+import type { PackPublicPreview, PackRegistryEntry } from '@storyos/schemas';
 
 /**
  * The built-in Business Pack gallery (MN-219 / #161).
@@ -111,3 +111,27 @@ export const PACK_REGISTRY: PackRegistryEntry[] = [
     },
   },
 ];
+
+/**
+ * The shallow, public-safe shape of a registry entry (#272) — names only, no
+ * ref-encoded configs. Used by the unauthenticated `public/packs` routes so a
+ * pack link works for someone who has never logged in; see
+ * `packPublicPreviewSchema`'s doc for why this isn't just the manifest.
+ */
+export function toPublicPreview(entry: PackRegistryEntry): PackPublicPreview {
+  const { manifest } = entry;
+  return {
+    slug: entry.slug,
+    name: entry.name,
+    summary: entry.summary,
+    highlights: entry.highlights,
+    requires: manifest.requires,
+    contents: {
+      databases: manifest.databases.map((d) => d.name),
+      views: manifest.views.map((v) => v.name),
+      automations: manifest.automations.map((a) => a.name),
+      agents: manifest.agents.map((a) => a.name),
+      skills: manifest.skills.map((s) => s.name),
+    },
+  };
+}

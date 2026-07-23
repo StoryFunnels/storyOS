@@ -2600,6 +2600,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/public/packs/registry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The built-in Business Pack gallery — public, pre-signup */
+        get: operations["PublicPacksController_registry"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/packs/registry/{slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One built-in pack — public, pre-signup preview */
+        get: operations["PublicPacksController_entry"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/favorites": {
         parameters: {
             query?: never;
@@ -2750,6 +2784,40 @@ export interface paths {
         get: operations["AdminController_getCosts"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** #300/MN-216c — agent runs across every workspace: workspace, agent, status, run_class, trigger, started/finished. Read-only. */
+        get: operations["AdminController_listRuns"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/runs/{workspaceId}/{run}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** #300/MN-216c — kill switch: cancel a queued/running/waiting-approval run in any workspace. A status flip to Canceled only — no other side effects. */
+        post: operations["AdminController_cancelRun"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7628,6 +7696,42 @@ export interface operations {
             };
         };
     };
+    PublicPacksController_registry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PublicPacksController_entry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     FavoritesController_list: {
         parameters: {
             query?: never;
@@ -7856,6 +7960,45 @@ export interface operations {
         requestBody?: never;
         responses: {
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AdminController_listRuns: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AdminController_cancelRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The run's workspace id */
+                workspaceId: string;
+                /** @description The run record's id */
+                run: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };

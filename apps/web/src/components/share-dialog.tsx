@@ -9,6 +9,7 @@ import { GRANT_ROLES } from '@/lib/access';
 import { Button } from '@/components/ui/button';
 import { DialogClose, DialogContent } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
+import { FreeGuestTip } from '@/components/free-guest-tip';
 
 interface Grant {
   id: string;
@@ -102,6 +103,15 @@ export function ShareDialog({
   return (
     <DialogContent title={`Access to “${scopeName}”`}>
       <div className="flex flex-col gap-4">
+        <FreeGuestTip
+          dismissKey={`share-${scope.space_id ?? scope.database_id ?? scopeName}`}
+          href={`/w/${ws}/settings/members?invite=guest${
+            scope.space_id ? `&space=${scope.space_id}&grant=viewer` : ''
+          }`}
+        >
+          Viewer and commenter access is free, always (never a paid seat) — invite your client or
+          collaborator here rather than adding them as a member.
+        </FreeGuestTip>
         <div className="flex flex-col gap-1.5">
           {scopeGrants.length === 0 && (
             <p className="text-[13px] text-muted">No guest access yet. Members and admins always have access.</p>
