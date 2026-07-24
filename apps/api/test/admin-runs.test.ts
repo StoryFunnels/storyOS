@@ -54,7 +54,9 @@ async function createAgent(token: string, ws: string, agentsDb: string, name: st
     values: {
       name,
       enabled: true,
-      scopes: [optionId(fields.get('scopes'), 'write')],
+      // The fixture parks a delete proposal. #330 correctly requires the
+      // derived principal to be admin for that destructive operation.
+      scopes: [optionId(fields.get('scopes'), 'admin')],
       ...(policy.length
         ? { approval_policy: policy.map((p) => optionId(fields.get('approval_policy'), p)) }
         : {}),
