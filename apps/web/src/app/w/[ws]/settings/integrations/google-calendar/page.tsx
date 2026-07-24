@@ -41,6 +41,7 @@ interface Binding {
   database_space_name: string;
   calendar_name: string;
   start_field_name: string;
+  direction: 'push' | 'pull' | 'two_way';
   last_sync_at: string | null;
   last_error: string | null;
 }
@@ -53,6 +54,12 @@ interface CalendarTemplateResult {
     'calendar.description': string;
   };
 }
+
+const DIRECTION_LABELS = {
+  push: 'StoryOS → Google',
+  pull: 'Google → StoryOS',
+  two_way: 'Two-way',
+} as const;
 
 async function calendarApi<T>(ws: string, path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(
@@ -85,6 +92,7 @@ export default function GoogleCalendarIntegrationPage() {
   const [startFieldId, setStartFieldId] = useState('');
   const [endFieldId, setEndFieldId] = useState('');
   const [descriptionFieldId, setDescriptionFieldId] = useState('');
+  const [direction, setDirection] = useState<'push' | 'pull' | 'two_way'>('push');
   const [templateOpen, setTemplateOpen] = useState(false);
   const [templateSpaceId, setTemplateSpaceId] = useState('');
   const [templateName, setTemplateName] = useState('Calendar');
@@ -189,23 +197,23 @@ export default function GoogleCalendarIntegrationPage() {
           start_field_id: startFieldId,
           ...(endFieldId ? { end_field_id: endFieldId } : {}),
           ...(descriptionFieldId ? { description_field_id: descriptionFieldId } : {}),
+          direction,
         }),
       });
-      const result = await calendarApi<{ synced: number; skipped: number }>(
-        ws,
-        `/bindings/${binding.id}/sync`,
-        { method: 'POST' },
-      );
+      const result = await calendarApi<{
+        synced: number;
+        skipped: number;
+        pulled: number;
+        deleted: number;
+        conflicts: number;
+      }>(ws, `/bindings/${binding.id}/sync`, { method: 'POST' });
       return { ...result, id: binding.id };
     },
-    onSuccess: async ({ synced, skipped }) => {
+    onSuccess: async ({ synced, skipped, pulled, deleted, conflicts }) => {
       await queryClient.invalidateQueries({ queryKey: ['google-calendar-bindings', ws] });
-      const summary =
-        synced === 0
-          ? `Mapping saved. No dated records were ready to sync (${skipped} skipped).`
-          : `Initial sync complete: ${synced} event${synced === 1 ? '' : 's'} pushed; ${skipped} skipped.`;
+      const summary = syncResultText({ synced, skipped, pulled, deleted, conflicts }, true);
       setSyncSummary(summary);
-      if (synced === 0) toast.info(summary);
+      if (synced + pulled + deleted === 0) toast.info(summary);
       else toast.success(summary);
     },
     onError: (error) => toast.error(apiErrorMessage(error, 'Could not save mapping')),
@@ -213,16 +221,17 @@ export default function GoogleCalendarIntegrationPage() {
 
   const sync = useMutation({
     mutationFn: (id: string) =>
-      calendarApi<{ synced: number; skipped: number }>(ws, `/bindings/${id}/sync`, {
-        method: 'POST',
-      }),
+      calendarApi<{
+        synced: number;
+        skipped: number;
+        pulled: number;
+        deleted: number;
+        conflicts: number;
+      }>(ws, `/bindings/${id}/sync`, { method: 'POST' }),
     onSuccess: (result) => {
-      const summary =
-        result.synced === 0
-          ? `Nothing new to push; ${result.skipped} unchanged or undated record${result.skipped === 1 ? '' : 's'} skipped.`
-          : `Synced ${result.synced}; skipped ${result.skipped} unchanged or undated.`;
+      const summary = syncResultText(result, false);
       setSyncSummary(summary);
-      if (result.synced === 0) toast.info(summary);
+      if (result.synced + result.pulled + result.deleted === 0) toast.info(summary);
       else toast.success(summary);
       void queryClient.invalidateQueries({ queryKey: ['google-calendar-bindings', ws] });
     },
@@ -336,9 +345,8 @@ export default function GoogleCalendarIntegrationPage() {
       </ol>
 
       <div className="mt-4 rounded-[var(--radius-control)] border border-border-default bg-hover px-4 py-3 text-[12px] text-muted">
-        Current sync direction:{' '}
-        <span className="font-medium text-ink">StoryOS → Google Calendar</span>. New edits and
-        deletions in StoryOS are pushed automatically. Changes made in Google are not imported yet.
+        Choose one-way push, one-way pull, or two-way sync. Pull and two-way mappings poll Google
+        every five minutes; simultaneous edits use last-write-wins and are reported after sync.
       </div>
 
       {activeConnections.length === 0 ? (
@@ -429,6 +437,17 @@ export default function GoogleCalendarIntegrationPage() {
                 }))}
                 help="Example: Description or Notes. This becomes the Google event body."
               />
+              <SelectField
+                label="Sync direction"
+                value={direction}
+                onChange={(value) => setDirection(value as typeof direction)}
+                options={[
+                  { value: 'push', label: 'StoryOS → Google Calendar' },
+                  { value: 'pull', label: 'Google Calendar → StoryOS' },
+                  { value: 'two_way', label: 'Two-way (last write wins)' },
+                ]}
+                help="Pull and two-way sync check Google every five minutes and whenever you press Sync."
+              />
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <Button size="sm" variant="secondary" onClick={openTemplateDialog}>
@@ -480,6 +499,8 @@ export default function GoogleCalendarIntegrationPage() {
                     </p>
                     <p className="text-[12px] text-muted">
                       Start: {binding.start_field_name}
+                      {' · '}
+                      {DIRECTION_LABELS[binding.direction]}
                       {binding.last_sync_at
                         ? ` · synced ${new Date(binding.last_sync_at).toLocaleString()}`
                         : ''}
@@ -603,4 +624,27 @@ function SelectField({
       {help && <p className="text-[11px] leading-4 text-muted">{help}</p>}
     </div>
   );
+}
+
+function syncResultText(
+  result: {
+    synced: number;
+    skipped: number;
+    pulled: number;
+    deleted: number;
+    conflicts: number;
+  },
+  initial: boolean,
+): string {
+  const changes = [
+    result.synced ? `${result.synced} pushed` : null,
+    result.pulled ? `${result.pulled} pulled` : null,
+    result.deleted ? `${result.deleted} removed` : null,
+    result.skipped ? `${result.skipped} unchanged or undated` : null,
+    result.conflicts
+      ? `${result.conflicts} conflict${result.conflicts === 1 ? '' : 's'} resolved`
+      : null,
+  ].filter(Boolean);
+  const prefix = initial ? 'Mapping saved.' : 'Sync complete.';
+  return changes.length ? `${prefix} ${changes.join('; ')}.` : `${prefix} No changes found.`;
 }

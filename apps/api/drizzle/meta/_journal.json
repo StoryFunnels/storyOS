@@ -442,6 +442,13 @@
       "when": 1784847469740,
       "tag": "0062_bright_hawkeye",
       "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1784854129009,
+      "tag": "0063_calendar-all-day-semantics",
+      "breakpoints": true
     }
   ]
 }
