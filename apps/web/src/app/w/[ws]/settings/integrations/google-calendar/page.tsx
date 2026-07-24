@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useParams, useSearchParams } from 'next/navigation';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CalendarDays, CheckCircle2, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -96,12 +96,6 @@ export default function GoogleCalendarIntegrationPage() {
   const [templateSpaceId, setTemplateSpaceId] = useState('');
   const [templateName, setTemplateName] = useState('Calendar');
   const [syncSummary, setSyncSummary] = useState<string | null>(null);
-  const pendingTemplateMapping = useRef<{
-    databaseId: string;
-    start: string;
-    end: string;
-    description: string;
-  } | null>(null);
 
   const connections = useQuery({
     queryKey: ['connections', ws],
@@ -158,19 +152,12 @@ export default function GoogleCalendarIntegrationPage() {
     if (active && !connectionId) setConnectionId(active.id);
   }, [connections.data, connectionId]);
 
-  useEffect(() => {
-    const template = pendingTemplateMapping.current;
-    if (template?.databaseId === databaseId) {
-      setStartFieldId(template.start);
-      setEndFieldId(template.end);
-      setDescriptionFieldId(template.description);
-      pendingTemplateMapping.current = null;
-      return;
-    }
+  function chooseDatabase(value: string) {
+    setDatabaseId(value);
     setStartFieldId('');
     setEndFieldId('');
     setDescriptionFieldId('');
-  }, [databaseId]);
+  }
 
   const dateFields = useMemo(
     () => (fields.data ?? []).filter((field) => field.type === 'date'),
@@ -269,14 +256,14 @@ export default function GoogleCalendarIntegrationPage() {
     },
     onSuccess: async (result) => {
       const newDatabaseId = result.databases.calendar;
-      pendingTemplateMapping.current = {
-        databaseId: newDatabaseId,
-        start: result.fields['calendar.start'],
-        end: result.fields['calendar.end'],
-        description: result.fields['calendar.description'],
-      };
       await queryClient.invalidateQueries({ queryKey: ['databases', ws] });
+      // Set the returned stable field ids directly. The previous effect-based
+      // handoff could clear them again during the database transition, leaving
+      // blank selectors behind a misleading “mapped” toast (#329).
       setDatabaseId(newDatabaseId);
+      setStartFieldId(result.fields['calendar.start']);
+      setEndFieldId(result.fields['calendar.end']);
+      setDescriptionFieldId(result.fields['calendar.description']);
       setTemplateOpen(false);
       toast.success(`${templateName.trim()} is ready and its fields are mapped`);
     },
@@ -365,8 +352,28 @@ export default function GoogleCalendarIntegrationPage() {
         </div>
       ) : (
         <>
+          <section className="mt-6 rounded-[var(--radius-card)] border border-border-strong bg-accent-soft p-5">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+              <div className="flex-1">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">
+                  Recommended
+                </p>
+                <h2 className="mt-1 text-sm font-semibold text-ink">
+                  Create a ready-to-sync Calendar database
+                </h2>
+                <p className="mt-1 text-[12px] text-muted">
+                  Installs Start, End, Description, Status and Location plus Calendar and Upcoming
+                  views. Start, End and Description are selected automatically below.
+                </p>
+              </div>
+              <Button onClick={openTemplateDialog}>
+                <Plus className="h-4 w-4" /> Create Calendar database
+              </Button>
+            </div>
+          </section>
+
           <section className="mt-6 rounded-[var(--radius-card)] border border-border-default bg-card p-5">
-            <h2 className="text-sm font-semibold text-ink">Map a database</h2>
+            <h2 className="text-sm font-semibold text-ink">Or map an existing database</h2>
             <p className="mt-1 text-[12px] text-muted">
               New and edited records with a start date sync automatically. Clearing the date or
               deleting the record removes its event.
@@ -384,7 +391,7 @@ export default function GoogleCalendarIntegrationPage() {
               <SelectField
                 label="Database"
                 value={databaseId}
-                onChange={setDatabaseId}
+                onChange={chooseDatabase}
                 placeholder="Choose database"
                 options={(databases.data ?? []).map((item) => ({
                   value: item.id,
@@ -447,15 +454,6 @@ export default function GoogleCalendarIntegrationPage() {
                 ]}
                 help="Pull and two-way sync check Google every five minutes and whenever you press Sync."
               />
-            </div>
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <Button size="sm" variant="secondary" onClick={openTemplateDialog}>
-                <Plus className="h-3.5 w-3.5" /> Create Calendar database
-              </Button>
-              <span className="text-[12px] text-muted">
-                Installs Start, End, Description, Status and Location fields plus Calendar and
-                Upcoming views.
-              </span>
             </div>
             {databaseId && fields.isSuccess && dateFields.length === 0 && (
               <p className="mt-3 rounded-[var(--radius-control)] bg-hover px-3 py-2 text-[12px] text-ink">

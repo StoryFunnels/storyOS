@@ -10,6 +10,7 @@ import {
   Bot,
   Cable,
   CalendarDays,
+  Clipboard,
   GitBranch,
   MessageSquare,
   Sparkles,
@@ -60,6 +61,7 @@ const ICONS: Record<string, LucideIcon> = {
  * storyfunnels, storypages) have nothing to disconnect.
  */
 const DISCONNECTABLE = new Set(['github', 'linear', 'slack']);
+const MCP_ENDPOINT = 'https://mcp.storyos.dev/mcp';
 
 /**
  * MN-249: the row's primary call-to-action label. Linear gets called out by
@@ -130,8 +132,10 @@ export default function IntegrationsPage() {
   });
 
   const data = integrations.data ?? [];
-  const connectedEntries = data.filter((e) => e.connected);
-  const catalogEntries = data.filter((e) => !e.connected);
+  // MCP is the connection layer for an AI client, not another provider card.
+  // Give it a stable first position instead of sorting it among imports below.
+  const connectedEntries = data.filter((e) => e.id !== 'mcp' && e.connected);
+  const catalogEntries = data.filter((e) => e.id !== 'mcp' && !e.connected);
 
   return (
     <div className="mx-auto max-w-4xl p-4 sm:p-8">
@@ -140,6 +144,58 @@ export default function IntegrationsPage() {
         Connect StoryOS to the tools you already use. Credentials are stored on your server and
         never leave it — that's the point of self-hosting.
       </p>
+
+      <section className="mb-8 overflow-hidden rounded-[var(--radius-card)] border border-border-strong bg-card">
+        <div className="border-b border-border-default bg-accent-soft p-5">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-control)] bg-card">
+              <Cable className="h-5 w-5 text-ink" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-sm font-semibold text-ink">Connect your AI with MCP</h2>
+                <span className="rounded-full bg-card px-2 py-0.5 text-[11px] font-medium text-ink">
+                  Start here
+                </span>
+              </div>
+              <p className="mt-1 text-[13px] text-muted">
+                This is the foundation: connect Claude or ChatGPT once with OAuth, then let it work
+                across StoryOS and the provider integrations below.
+              </p>
+            </div>
+            <Link href={`/w/${ws}/settings/integrations/mcp`}>
+              <Button>Connect Claude or ChatGPT</Button>
+            </Link>
+          </div>
+        </div>
+        <div className="grid gap-4 p-5 sm:grid-cols-[1fr_auto] sm:items-center">
+          <div>
+            <p className="text-[12px] font-medium text-ink">Hosted OAuth endpoint</p>
+            <code className="mt-1 block overflow-x-auto whitespace-nowrap text-[12px] text-muted">
+              {MCP_ENDPOINT}
+            </code>
+            <p className="mt-2 text-[11px] text-faint">
+              No API token to copy for app.storyos.dev. Self-managed deployments and advanced
+              clients can still use PAT authentication from the setup page.
+            </p>
+          </div>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => {
+              void navigator.clipboard.writeText(MCP_ENDPOINT).then(() => {
+                toast.success('MCP endpoint copied');
+                posthog.capture('mcp_endpoint_copied', {
+                  client: 'integrations_directory',
+                  auth_path: 'oauth',
+                });
+              });
+            }}
+          >
+            <Clipboard className="h-3.5 w-3.5" /> Copy endpoint
+          </Button>
+        </div>
+      </section>
 
       {connectedEntries.length > 0 && (
         <section className="mb-8">
