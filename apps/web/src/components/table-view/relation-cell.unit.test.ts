@@ -9,7 +9,34 @@ import { renderToStaticMarkup } from 'react-dom/server';
 // so the module loads under vitest's plain-node ESM evaluation.
 vi.mock('@/lib/api', () => ({ api: {}, apiErrorMessage: () => '' }));
 
-const { RelationChip, RelationChips, SelectedRelationChip, DbColorMarker } = await import('./relation-cell');
+const {
+  RelationChip,
+  RelationChips,
+  SelectedRelationChip,
+  DbColorMarker,
+  patchRelationProjection,
+} = await import('./relation-cell');
+
+describe('#310 relation cache projections', () => {
+  const chips = [{ id: 'linked-1', title: 'Linked now' }];
+
+  it('patches a record-detail projection by the row UUID, independent of its query-key slug', () => {
+    const old = { id: 'record-uuid', title: 'Source', values: { related: [] } };
+    expect(patchRelationProjection(old, 'record-uuid', 'related', chips)).toEqual({
+      ...old,
+      values: { related: chips },
+    });
+  });
+
+  it('patches the same relation in every records-list projection', () => {
+    const other = { id: 'other', title: 'Other', values: { related: [] } };
+    const source = { id: 'record-uuid', title: 'Source', values: { related: [] } };
+    const old = { pages: [{ data: [source, other] }], pageParams: [null] };
+    const next = patchRelationProjection(old, 'record-uuid', 'related', chips) as typeof old;
+    expect(next.pages[0]!.data[0]!.values.related).toEqual(chips);
+    expect(next.pages[0]!.data[1]).toBe(other);
+  });
+});
 
 /**
  * #293: relation chips had no way to open the linked record — only ever a

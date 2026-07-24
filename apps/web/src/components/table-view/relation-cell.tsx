@@ -17,6 +17,40 @@ export interface LinkChip {
   number?: number | null;
 }
 
+/**
+ * Apply one relation value to either a record-detail cache entry or an
+ * infinite records-list cache. Entity URLs may use a pretty slug while the
+ * API row carries a UUID, so callers match the returned row id rather than a
+ * React Query key segment.
+ */
+export function patchRelationProjection(
+  old: unknown,
+  recordId: string,
+  apiName: string,
+  chips: LinkChip[],
+): unknown {
+  if (!old || typeof old !== 'object') return old;
+
+  const record = old as { id?: string; values?: Record<string, unknown> };
+  if (record.id === recordId && record.values) {
+    return { ...record, values: { ...record.values, [apiName]: chips } };
+  }
+
+  const infinite = old as { pages?: Array<{ data?: RecordRow[] }> };
+  if (!Array.isArray(infinite.pages)) return old;
+  return {
+    ...infinite,
+    pages: infinite.pages.map((page) => ({
+      ...page,
+      data: page.data?.map((row) =>
+        row.id === recordId
+          ? { ...row, values: { ...row.values, [apiName]: chips } }
+          : row,
+      ),
+    })),
+  };
+}
+
 /** Same hex values as cells.tsx's OPTION_COLORS — kept as a small local copy
  * (mirrors nextOptionColor's comment there) so this leaf module doesn't
  * import from cells.tsx, which already imports RelationChips from here. */
@@ -261,25 +295,19 @@ export function RelationEditor({
     // it, regardless of network timing.
     onMutate: async ({ chips }) => {
       const recordsKey = ['records', ws, db];
+      const recordKey = ['record', ws, db];
       await qc.cancelQueries({ queryKey: recordsKey });
-      const previous = qc.getQueriesData({ queryKey: recordsKey });
-      qc.setQueriesData(
-        { queryKey: recordsKey },
-        (old: { pages: Array<{ data: RecordRow[] }> } | undefined) => {
-          if (!old) return old;
-          return {
-            ...old,
-            pages: old.pages.map((page) => ({
-              ...page,
-              data: page.data.map((row) =>
-                row.id === recordId
-                  ? { ...row, values: { ...row.values, [field.apiName]: chips } }
-                  : row,
-              ),
-            })),
-          };
-        },
-      );
+      await qc.cancelQueries({ queryKey: recordKey });
+      const previous = [
+        ...qc.getQueriesData({ queryKey: recordsKey }),
+        ...qc.getQueriesData({ queryKey: recordKey }),
+      ];
+      const patch = (old: unknown) =>
+        patchRelationProjection(old, recordId, field.apiName, chips);
+      qc.setQueriesData({ queryKey: recordsKey }, patch);
+      // Patches every detail-key spelling (UUID and pretty slug), which keeps
+      // the entity page's pinned/sidebar/top/body projections in lockstep.
+      qc.setQueriesData({ queryKey: recordKey }, patch);
       return { previous };
     },
     onError: (_err, _vars, context) => {
@@ -292,7 +320,13 @@ export function RelationEditor({
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: ['records', ws, db] });
       void qc.invalidateQueries({ queryKey: ['records', ws, targetDb] });
-      void qc.invalidateQueries({ queryKey: ['record', ws, db, recordId] });
+      void qc.invalidateQueries({ queryKey: ['record', ws, db] });
+      // Linking is bidirectional. Any open inverse record or collection in the
+      // target database must refetch too, not just the edited source record.
+      void qc.invalidateQueries({ queryKey: ['record', ws, targetDb] });
+      void qc.invalidateQueries({ queryKey: ['collection', ws] });
+      void qc.invalidateQueries({ queryKey: ['activity', ws, db] });
+      void qc.invalidateQueries({ queryKey: ['activity', ws, targetDb] });
     },
   });
 

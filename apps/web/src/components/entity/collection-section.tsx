@@ -370,7 +370,7 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
                 <RelationEditor
                   ws={ws}
                   db={db}
-                  recordId={rec}
+                  recordId={record.id}
                   field={field}
                   current={chips}
                   onSaved={invalidateCollection}
