@@ -64,7 +64,15 @@ export class PacksRegistryController {
   @Get('registry')
   @ApiOperation({ summary: 'The built-in Business Pack gallery' })
   registry() {
-    return PACK_REGISTRY.map(({ manifest: _manifest, ...card }) => card);
+    return PACK_REGISTRY.map(({ manifest, ...card }) => ({
+      ...card,
+      preview: {
+        databases: manifest.databases.length,
+        views: manifest.views.length,
+        automations: manifest.automations.length,
+        agents: manifest.agents.length,
+      },
+    }));
   }
 
   @Get('registry/:slug')
