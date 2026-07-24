@@ -1374,3 +1374,119 @@ describe('public preview (#272)', () => {
     expect(res.statusCode).toBe(404);
   });
 });
+
+/**
+ * Support Inbox's 7-state workflow (#306).
+ *
+ * Three states (New/In Progress/Resolved) was too thin for a real support
+ * workflow, so `Tickets.Status` grew to seven. The risk of a change like this
+ * isn't the option list itself — it's the two things wired to a *specific*
+ * option: the Board view's column order (which just follows the select
+ * field's option order — see `board-view.tsx`) and the Triage agent's trigger
+ * binding, which fires on `state_option: 'New'`. 'New' survives the expansion
+ * unchanged, so the binding should keep firing exactly as before; this
+ * installs the actual registry pack (not a hand-built stand-in) and proves it.
+ */
+describe('Support Inbox registry pack (#306): 7-state workflow', () => {
+  let targetWs: string;
+  let ticketsId: string;
+  let status: FieldDetail;
+  let runsDbId: string;
+  let agentRecordId: string;
+  let manifest: PackManifest;
+
+  const EXPECTED_STATES = [
+    { label: 'New', color: 'gray' },
+    { label: 'To Do', color: 'blue' },
+    { label: 'In Progress', color: 'gold' },
+    { label: 'Review', color: 'purple' },
+    { label: 'Done', color: 'green' },
+    { label: 'Blocked', color: 'red' },
+    { label: 'Canceled', color: 'brown' },
+  ];
+
+  beforeAll(async () => {
+    const entry = await as(admin.token, 'GET', '/packs/registry/support-inbox');
+    expect(entry.statusCode, entry.body).toBe(200);
+    manifest = entry.json().manifest as PackManifest;
+
+    targetWs = await newWorkspace('Support Inbox 306');
+    const result = await installOk(targetWs, manifest);
+    agentRecordId = (result.agents as Array<{ name: string; id: string }>).find(
+      (a) => a.name === 'Triage',
+    )!.id;
+
+    ticketsId = (await dbNamed(targetWs, 'Tickets')).id;
+    status = fieldNamed((await detailOf(targetWs, ticketsId)).fields, 'Status');
+    runsDbId = (await dbNamed(targetWs, 'Runs')).id;
+  }, 90_000);
+
+  it('the manifest and the installed field both carry exactly the 7 states, in order, with sensible colors', () => {
+    const manifestState = manifest.states.find(
+      (s) => s.database === 'Tickets' && s.field === 'Status',
+    )!;
+    expect(manifestState.options.map((o) => ({ label: o.label, color: o.color }))).toEqual(
+      EXPECTED_STATES,
+    );
+
+    expect(status.options?.map((o) => ({ label: o.label, color: o.color }))).toEqual(
+      EXPECTED_STATES,
+    );
+  });
+
+  it('the Board view still groups by Status — column order follows the option order installed above', async () => {
+    const board = (await detailOf(targetWs, ticketsId)).views.find((v) => v.name === 'Board')!;
+    expect(board.config.group_by_field_id).toBe(status.id);
+  });
+
+  it('the Triage trigger still fires when a ticket enters New, against the expanded 7-option set', async () => {
+    const service = app.get(AgentsService);
+    const original = service.runtimeFor;
+    service.runtimeFor = () => ({
+      runClass: 'non_ai',
+      async *execute() {
+        yield { tool: 'ticket.read', summary: 'read the new ticket' };
+      },
+    });
+
+    try {
+      const runsForTicket = async () => {
+        const res = (
+          await as(admin.token, 'GET', `/workspaces/${targetWs}/databases/${runsDbId}/records`)
+        ).json().data as Array<{ values: Record<string, unknown> }>;
+        return res.filter((r) =>
+          ((r.values.agent as Array<{ id: string }> | undefined) ?? []).some(
+            (l) => l.id === agentRecordId,
+          ),
+        );
+      };
+
+      // Created stateless (no Status set) — whether creation itself defaults
+      // to New and fires the binding isn't this test's concern; only the
+      // increment caused by the transition below is (same pattern as
+      // architect.test.ts's createLead/runsForAgent).
+      const ticket = (
+        await as(admin.token, 'POST', `/workspaces/${targetWs}/databases/${ticketsId}/records`, {
+          values: { name: 'Cannot log in' },
+        })
+      ).json();
+      const before = (await runsForTicket()).length;
+
+      // The transition the pack's binding watches for: → New.
+      const moved = await as(
+        admin.token,
+        'PATCH',
+        `/workspaces/${targetWs}/databases/${ticketsId}/records/${ticket.id}`,
+        { values: { [status.apiName]: optionId(status, 'New') } },
+      );
+      expect(moved.statusCode, moved.body).toBe(200);
+      await subscriber.settle(ticket.id);
+
+      const mine = await runsForTicket();
+      expect(mine.length, 'the Triage binding dispatched exactly one more run').toBe(before + 1);
+      expect(mine.find((r) => r.values.input_record === ticket.id)).toBeTruthy();
+    } finally {
+      service.runtimeFor = original;
+    }
+  }, 60_000);
+});

@@ -62,6 +62,14 @@ export const INTEGRATION_REGISTRY: readonly IntegrationDescriptor[] = [
     status: 'available',
   },
   {
+    id: 'youtube',
+    label: 'YouTube',
+    builtBy: 'StoryOS',
+    description: 'Import channel videos, comments and performance metrics into StoryOS databases.',
+    authKind: 'oauth2',
+    status: 'available',
+  },
+  {
     id: 'google-calendar',
     label: 'Google Calendar',
     builtBy: 'StoryOS',

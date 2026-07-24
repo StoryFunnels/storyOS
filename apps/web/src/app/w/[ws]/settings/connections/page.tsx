@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useParams, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -82,6 +83,10 @@ export default function ConnectionsSettingsPage() {
   }, [searchParams]);
 
   const providerLabel = (id: string) => providers.data?.find((p) => p.id === id)?.label ?? id;
+  const connectionName = (connection: Connection) =>
+    connection.provider === 'google' && connection.name === 'Google'
+      ? 'YouTube'
+      : connection.name;
 
   const test = useMutation({
     mutationFn: async (id: string) => {
@@ -127,6 +132,9 @@ export default function ConnectionsSettingsPage() {
   }
 
   const connectedProviderIds = new Set((connections.data ?? []).map((c) => c.provider));
+  const providersToAdd = (providers.data ?? []).filter(
+    (provider) => provider.id === 'http' || !connectedProviderIds.has(provider.id),
+  );
 
   return (
     <div className="mx-auto max-w-3xl p-8">
@@ -148,7 +156,8 @@ export default function ConnectionsSettingsPage() {
           >
             <div className="min-w-0">
               <p className="truncate text-sm font-medium text-ink">
-                {c.name} <span className="text-[12px] font-normal text-faint">· {providerLabel(c.provider)}</span>
+                {connectionName(c)}{' '}
+                <span className="text-[12px] font-normal text-faint">· {providerLabel(c.provider)}</span>
               </p>
               <p className="mt-0.5 text-[12px] text-muted">
                 <StatusPill status={c.status} />
@@ -177,6 +186,17 @@ export default function ConnectionsSettingsPage() {
               <Button variant="ghost" size="sm" onClick={() => test.mutate(c.id)} disabled={test.isPending}>
                 Test
               </Button>
+              {(c.provider === 'google-calendar' || c.provider === 'google') && (
+                <Link
+                  href={`/w/${ws}/settings/integrations/${
+                    c.provider === 'google-calendar' ? 'google-calendar' : 'youtube'
+                  }`}
+                >
+                  <Button variant="secondary" size="sm">
+                    Set up
+                  </Button>
+                </Link>
+              )}
               {c.breaker_open_until && (
                 <Button variant="ghost" size="sm" onClick={() => resume.mutate(c.id)} disabled={resume.isPending}>
                   Resume
@@ -188,7 +208,7 @@ export default function ConnectionsSettingsPage() {
                 </Button>
               )}
               <Button
-                variant="ghost"
+                variant="destructive"
                 size="sm"
                 onClick={async () => {
                   if (
@@ -212,7 +232,7 @@ export default function ConnectionsSettingsPage() {
 
       <h2 className="mb-2 text-sm font-semibold text-ink">Add a connection</h2>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        {(providers.data ?? []).map((p) => (
+        {providersToAdd.map((p) => (
           <div
             key={p.id}
             className="flex flex-col justify-between gap-3 rounded-[var(--radius-card)] border border-border-default bg-card p-4"

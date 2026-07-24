@@ -207,6 +207,7 @@ export function RelationEditor({
   field,
   current,
   onDone,
+  onSaved,
 }: {
   ws: string;
   db: string;
@@ -214,6 +215,8 @@ export function RelationEditor({
   field: Field;
   current: LinkChip[];
   onDone: () => void;
+  /** Called after the link write succeeds so embedded relation consumers can refresh. */
+  onSaved?: () => void;
 }) {
   const qc = useQueryClient();
   const relation = field.relation!;
@@ -285,6 +288,7 @@ export function RelationEditor({
       }
       toast.error('Could not update links');
     },
+    onSuccess: () => onSaved?.(),
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: ['records', ws, db] });
       void qc.invalidateQueries({ queryKey: ['records', ws, targetDb] });

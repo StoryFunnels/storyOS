@@ -60,7 +60,6 @@ const DIRECTION_LABELS = {
   pull: 'Google → StoryOS',
   two_way: 'Two-way',
 } as const;
-
 async function calendarApi<T>(ws: string, path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(
     `${API_URL}/api/v1/workspaces/${ws}/integrations/google-calendar${path}`,
