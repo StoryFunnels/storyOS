@@ -64,7 +64,15 @@ describe('Google Calendar pull and two-way sync (#20)', () => {
 
     let externalStatus: 'confirmed' | 'cancelled' = 'confirmed';
     let externalSummary = 'Imported planning session';
-    let externalUpdated = '2026-07-24T08:00:00.000Z';
+    // Conflict resolution is last-write-wins: the service compares the external
+    // event's `updated` time against the local record's real `updatedAt`
+    // (`new Date()`). These stamps must therefore be relative to *now*, not
+    // hardcoded calendar dates — a fixed past timestamp (originally
+    // '2026-07-24T…') silently flips the winner once wall-clock time passes it,
+    // which made this test a time-bomb that failed for every run after that
+    // moment. (Event start/end below stay fixed: the service filters by
+    // `updatedMin`, never by event date, so those are pure data.)
+    let externalUpdated = new Date(Date.now() - 60_000).toISOString();
     const outbound: Array<{ url: string; method: string; body?: string }> = [];
     calendar.fetcher = async (url, init) => {
       const method = init?.method ?? 'GET';
@@ -89,7 +97,7 @@ describe('Google Calendar pull and two-way sync (#20)', () => {
       if (url.includes('/events/') && method === 'PATCH') {
         outbound.push({ url, method, body: init?.body as string | undefined });
         return new Response(
-          JSON.stringify({ id: 'google-event-1', updated: '2026-07-24T09:00:00.000Z' }),
+          JSON.stringify({ id: 'google-event-1', updated: new Date().toISOString() }),
           { status: 200, headers: { 'content-type': 'application/json' } },
         );
       }
@@ -152,7 +160,9 @@ describe('Google Calendar pull and two-way sync (#20)', () => {
       .set({ title: 'Unsynced local edit', updatedAt: new Date() })
       .where(eq(recordsTable.id, recordId));
     externalSummary = 'Newer Google edit';
-    externalUpdated = '2026-07-24T10:00:00.000Z';
+    // Newer than the local edit above (both use real wall-clock now) so
+    // last-write-wins hands the conflict to Google, deterministically.
+    externalUpdated = new Date(Date.now() + 5 * 60_000).toISOString();
     const conflictSync = await inject(
       'POST',
       `/workspaces/${wsId}/integrations/google-calendar/bindings/${binding.json().id}/sync`,
@@ -165,7 +175,9 @@ describe('Google Calendar pull and two-way sync (#20)', () => {
     expect(afterConflict.json().data[0].title).toBe('Newer Google edit');
 
     externalStatus = 'cancelled';
-    externalUpdated = '2026-07-24T12:00:00.000Z';
+    // Later still, so the cancellation registers as an external change past the
+    // previous sync's watermark and the linked record is deleted.
+    externalUpdated = new Date(Date.now() + 10 * 60_000).toISOString();
     const deleteSync = await inject(
       'POST',
       `/workspaces/${wsId}/integrations/google-calendar/bindings/${binding.json().id}/sync`,
