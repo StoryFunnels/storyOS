@@ -5,8 +5,15 @@ import { authed, signUpUser } from './helpers/users';
 import { AgentsService } from '../src/agents/agents.service';
 import { EntitlementsService } from '../src/billing/entitlements.service';
 import { AiCreditsService } from '../src/billing/ai-credits.service';
-import { ManagedAiRuntime, NonAiRuntime, pickRuntime } from '../src/agents/agent-runtime';
+import { TokensService } from '../src/tokens/tokens.service';
+import {
+  ManagedAiRuntime,
+  NonAiRuntime,
+  pickRuntime,
+  YourOwnAiRuntime,
+} from '../src/agents/agent-runtime';
 import type { AgentRuntime } from '../src/agents/agent-runtime';
+import type { ManagedAiClient } from '../src/agents/managed-ai-client';
 
 let app: NestFastifyApplication;
 let admin: { token: string; email: string };
@@ -16,7 +23,12 @@ let agentsDbId: string;
 let runsDbId: string;
 
 async function as(token: string, method: string, url: string, payload?: unknown) {
-  return app.inject({ method: method as never, url: `/api/v1${url}`, headers: authed(token), payload: payload as never });
+  return app.inject({
+    method: method as never,
+    url: `/api/v1${url}`,
+    headers: authed(token),
+    payload: payload as never,
+  });
 }
 
 interface FieldDetail {
@@ -57,15 +69,25 @@ function plainText(blocks: unknown): string {
 }
 
 /** Create an agent record; `scopes` are passed as labels and mapped to option ids. */
-async function createAgent(name: string, opts: { enabled: boolean; scopes?: string[]; targets?: string }) {
+async function createAgent(
+  name: string,
+  opts: { enabled: boolean; scopes?: string[]; targets?: string; aiMode?: string; goal?: string },
+) {
   const fields = await fieldsOf(agentsDbId);
   const scopeField = fields.get('scopes');
+  const aiModeField = fields.get('ai_mode');
   const res = await as(admin.token, 'POST', `/workspaces/${wsId}/databases/${agentsDbId}/records`, {
     values: {
       name,
       enabled: opts.enabled,
       scopes: (opts.scopes ?? []).map((s) => optionId(scopeField, s)),
       ...(opts.targets ? { target_databases: opts.targets } : {}),
+      ...(opts.aiMode ? { ai_mode: optionId(aiModeField, opts.aiMode) } : {}),
+      ...(opts.goal
+        ? {
+            goal: [{ type: 'paragraph', content: [{ type: 'text', text: opts.goal, styles: {} }] }],
+          }
+        : {}),
     },
   });
   expect(res.statusCode, res.body).toBe(201);
@@ -162,13 +184,25 @@ describe('Runs system database (#209, ADR-0010 §1)', () => {
     expect(relationId).toBeTruthy();
     expect(runsField!.config!.relation_id).toBe(relationId);
 
-    const rel = (await as(admin.token, 'GET', `/workspaces/${wsId}/relations/${relationId}`)).json();
+    const rel = (
+      await as(admin.token, 'GET', `/workspaces/${wsId}/relations/${relationId}`)
+    ).json();
     expect(rel.cardinality).toBe('one_to_many');
     // Side A is the "many" side that carries the single reference — a run has one agent.
     expect(rel.database_a_id).toBe(runsDbId);
     expect(rel.database_b_id).toBe(agentsDbId);
     expect(rel.field_a.display_name).toBe('Agent');
     expect(rel.field_b.display_name).toBe('Runs');
+  });
+
+  it('ensure creates the Agents "AI mode" field — the driver an owner picks (#205 item 1)', async () => {
+    const fields = await fieldsOf(agentsDbId);
+    const aiMode = fields.get('ai_mode');
+    expect(aiMode, 'missing field ai_mode').toBeTruthy();
+    expect(aiMode!.type).toBe('select');
+    // Same three labels, same order, as Runs."Run class" (RUN_CLASS_LABEL) —
+    // whatever an owner picks here is exactly what the Run gets stamped with.
+    expect(aiMode!.options!.map((o) => o.label)).toEqual(['Non-AI', 'Your own AI', 'StoryOS AI']);
   });
 
   it('re-ensure is idempotent — no duplicate database, fields or relation', async () => {
@@ -183,6 +217,12 @@ describe('Runs system database (#209, ADR-0010 §1)', () => {
 
     const fields = await fieldsOf(runsDbId);
     for (const expected of EXPECTED_RUN_FIELDS) expect(fields.get(expected.name)).toBeTruthy();
+
+    // The back-filled "AI mode" field isn't duplicated by a second ensure either.
+    const agentFieldsAgain = [...(await fieldsOf(agentsDbId)).values()].filter(
+      (f) => f.apiName === 'ai_mode',
+    );
+    expect(agentFieldsAgain).toHaveLength(1);
 
     // Exactly one relation field per side — no second Agent↔Runs relation.
     const runRelationFields = [...(await fieldsOf(runsDbId)).values()].filter(
@@ -267,11 +307,15 @@ describe('Manual run (#208, ADR-0010 §3)', () => {
   it('a disabled agent is 422 and creates no Run', async () => {
     const agent = await createAgent('Sleeping bot', { enabled: false, scopes: ['read'] });
 
-    const before = (await as(admin.token, 'GET', `/workspaces/${wsId}/databases/${runsDbId}/records`)).json();
+    const before = (
+      await as(admin.token, 'GET', `/workspaces/${wsId}/databases/${runsDbId}/records`)
+    ).json();
     const res = await as(admin.token, 'POST', `/workspaces/${wsId}/agents/${agent.id}/run`);
     expect(res.statusCode, res.body).toBe(422);
 
-    const after = (await as(admin.token, 'GET', `/workspaces/${wsId}/databases/${runsDbId}/records`)).json();
+    const after = (
+      await as(admin.token, 'GET', `/workspaces/${wsId}/databases/${runsDbId}/records`)
+    ).json();
     expect(after.data.length).toBe(before.data.length);
   });
 
@@ -282,7 +326,9 @@ describe('Manual run (#208, ADR-0010 §3)', () => {
       `/workspaces/${wsId}/agents/00000000-0000-4000-8000-000000000000/run`,
     );
     expect(missing.statusCode).toBe(404);
-    expect((await as(admin.token, 'POST', `/workspaces/${wsId}/agents/99999/run`)).statusCode).toBe(404);
+    expect((await as(admin.token, 'POST', `/workspaces/${wsId}/agents/99999/run`)).statusCode).toBe(
+      404,
+    );
   });
 
   it('is admin-only — a non-admin member gets 403', async () => {
@@ -299,7 +345,54 @@ describe('Run classification at dispatch (#205, ADR-0010 §3)', () => {
     expect(runtime.runClass).toBe('non_ai');
   });
 
-  it('the managed runtime is a stub that says so rather than silently degrading', async () => {
+  it('pickRuntime selects the BYO-AI/MCP driver when an agent asks for it (#205 item 1)', () => {
+    const runtime = pickRuntime({ id: 'a', name: 'A', scopes: [], aiMode: 'your_own_ai' });
+    expect(runtime).toBeInstanceOf(YourOwnAiRuntime);
+    expect(runtime.runClass).toBe('your_own_ai');
+  });
+
+  it('pickRuntime selects the managed runtime when an agent asks for storyos_ai', () => {
+    const runtime = pickRuntime({ id: 'a', name: 'A', scopes: [], aiMode: 'storyos_ai' });
+    expect(runtime).toBeInstanceOf(ManagedAiRuntime);
+    expect(runtime.runClass).toBe('storyos_ai');
+  });
+
+  it('YourOwnAiRuntime reports honestly when the workspace has no live API token to connect', async () => {
+    const steps = [];
+    for await (const step of new YourOwnAiRuntime().execute({
+      workspaceId: wsId,
+      agent: { id: 'a', name: 'A', scopes: ['read'], goal: 'Triage new leads' },
+      principal: { userId: 'u', scope: 'read' },
+      aiConnected: false,
+    })) {
+      steps.push(step);
+    }
+    const tools = steps.map((s) => s.tool);
+    expect(tools).toContain('principal.resolve');
+    expect(tools).toContain('byo_ai.not_connected');
+    expect(tools).not.toContain('byo_ai.handoff');
+    const notConnected = steps.find((s) => s.tool === 'byo_ai.not_connected')!;
+    expect(notConnected.detail).toMatch(/no live API token/i);
+  });
+
+  it('YourOwnAiRuntime hands off the goal/instructions once the workspace is connected', async () => {
+    const steps = [];
+    for await (const step of new YourOwnAiRuntime().execute({
+      workspaceId: wsId,
+      agent: { id: 'a', name: 'A', scopes: ['read'], goal: 'Triage new leads' },
+      principal: { userId: 'u', scope: 'read' },
+      aiConnected: true,
+    })) {
+      steps.push(step);
+    }
+    const tools = steps.map((s) => s.tool);
+    expect(tools).toContain('byo_ai.handoff');
+    expect(tools).not.toContain('byo_ai.not_connected');
+    const handoff = steps.find((s) => s.tool === 'byo_ai.handoff')!;
+    expect(handoff.detail).toContain('Triage new leads');
+  });
+
+  it('the managed runtime says what configuration is missing instead of silently degrading', async () => {
     const iterate = async () => {
       for await (const _ of new ManagedAiRuntime().execute({
         workspaceId: wsId,
@@ -310,6 +403,74 @@ describe('Run classification at dispatch (#205, ADR-0010 §3)', () => {
       }
     };
     await expect(iterate()).rejects.toThrow(/managed AI runtime not configured/i);
+  });
+
+  it('the managed runtime calls the model once and yields only schema-validated steps', async () => {
+    const complete = vi.fn<ManagedAiClient['complete']>().mockResolvedValue({
+      text: JSON.stringify({
+        steps: [
+          { tool: 'record.inspect', summary: 'Inspected the trigger record' },
+          {
+            tool: 'record.update',
+            summary: 'Proposed a triage note',
+            action: {
+              kind: 'set_values',
+              summary: 'set the triage note',
+              payload: {
+                apply: 'automation_action',
+                database_id: '11111111-1111-4111-8111-111111111111',
+                record_id: '22222222-2222-4222-8222-222222222222',
+                action: { type: 'set_values', values: { notes: 'triaged' } },
+              },
+            },
+          },
+        ],
+      }),
+      tokensIn: 123,
+      tokensOut: 45,
+    });
+    const runtime = new ManagedAiRuntime({ complete });
+    const steps = [];
+    for await (const step of runtime.execute({
+      workspaceId: wsId,
+      agent: {
+        id: 'agent-id',
+        name: 'Triage',
+        scopes: ['write'],
+        goal: 'Triage incoming work',
+      },
+      principal: { userId: 'owner-id', scope: 'write' },
+      inputRecordId: '22222222-2222-4222-8222-222222222222',
+    })) {
+      steps.push(step);
+    }
+
+    expect(complete).toHaveBeenCalledTimes(1);
+    expect(complete.mock.calls[0]![0]).toContain('Effective authorization scope: write');
+    expect(steps).toHaveLength(2);
+    expect(steps[1]?.action?.kind).toBe('set_values');
+    expect(runtime.usage).toEqual({ tokensIn: 123, tokensOut: 45 });
+  });
+
+  it('rejects malformed model output before the engine can apply it', async () => {
+    const runtime = new ManagedAiRuntime({
+      complete: vi.fn().mockResolvedValue({
+        text: '{"steps":[{"tool":"record.update","summary":"bad","action":{"kind":"set_values","summary":"bad","payload":{"apply":"record_delete","database_id":"not-a-uuid","record_id":"also-bad"}}}]}',
+        tokensIn: 10,
+        tokensOut: 5,
+      }),
+    });
+    const iterate = async () => {
+      for await (const _ of runtime.execute({
+        workspaceId: wsId,
+        agent: { id: 'a', name: 'A', scopes: ['write'] },
+        principal: { userId: 'u', scope: 'write' },
+      })) {
+        // validation fails before yielding
+      }
+    };
+    await expect(iterate()).rejects.toThrow(/invalid run plan/i);
+    expect(runtime.usage).toEqual({ tokensIn: 10, tokensOut: 5 });
   });
 
   it('stamps the run class BEFORE any step executes — a your-own-AI run is never metered', async () => {
@@ -392,6 +553,97 @@ describe('Run classification at dispatch (#205, ADR-0010 §3)', () => {
     } finally {
       service.runtimeFor = original;
     }
+  });
+
+  describe('an agent set to "Your own AI" actually dispatches the BYO-AI driver (#205 item 1)', () => {
+    /** The admin's bare userId — TokensService.create needs it, not a bearer token. */
+    async function adminUserId(): Promise<string> {
+      const members = (await as(admin.token, 'GET', `/workspaces/${wsId}/members`)).json();
+      const list = Array.isArray(members) ? members : members.data;
+      const mine = list.find(
+        (m: { user: { email: string; id: string } }) => m.user.email === admin.email,
+      );
+      if (!mine) throw new Error('admin membership not found');
+      return mine.user.id;
+    }
+
+    it('stamps "Your own AI" and reports the missing on-ramp when no token is connected', async () => {
+      const agent = await createAgent('Unconnected BYO bot', {
+        enabled: true,
+        scopes: ['read'],
+        aiMode: 'Your own AI',
+        goal: 'Draft replies to new leads',
+      });
+
+      const res = await as(admin.token, 'POST', `/workspaces/${wsId}/agents/${agent.id}/run`);
+      expect(res.statusCode, res.body).toBe(201);
+      const run = res.json();
+
+      const runFields = await fieldsOf(runsDbId);
+      // pickRuntime actually read the agent's own field — not the always-non_ai
+      // default this ticket started from.
+      expect(run.values.run_class).toBe(optionId(runFields.get('run_class'), 'Your own AI'));
+
+      const steps = plainText(run.values.steps);
+      expect(steps).toContain('byo_ai.not_connected');
+      expect(steps).toMatch(/no live API token/i);
+      expect(steps).not.toContain('byo_ai.handoff');
+    });
+
+    it('hands off the goal once the workspace has a live API token connected', async () => {
+      const tokens = app.get(TokensService);
+      const userId = await adminUserId();
+      const created = await tokens.create(userId, wsId, 'BYO-AI test token');
+      try {
+        const agent = await createAgent('Connected BYO bot', {
+          enabled: true,
+          scopes: ['read'],
+          aiMode: 'Your own AI',
+          goal: 'Draft replies to new leads',
+        });
+
+        const res = await as(admin.token, 'POST', `/workspaces/${wsId}/agents/${agent.id}/run`);
+        expect(res.statusCode, res.body).toBe(201);
+        const run = res.json();
+
+        const runFields = await fieldsOf(runsDbId);
+        expect(run.values.run_class).toBe(optionId(runFields.get('run_class'), 'Your own AI'));
+
+        const steps = plainText(run.values.steps);
+        expect(steps).toContain('byo_ai.handoff');
+        expect(steps).toContain('Draft replies to new leads');
+        expect(steps).not.toContain('byo_ai.not_connected');
+      } finally {
+        // Leave the workspace exactly as this test found it — later cases in
+        // this describe rely on there being no OTHER live token around.
+        await tokens.revoke(userId, created.id);
+      }
+    });
+
+    it('a revoked token does not count as connected', async () => {
+      const tokens = app.get(TokensService);
+      const userId = await adminUserId();
+      const created = await tokens.create(userId, wsId, 'Revoked-before-run token');
+      await tokens.revoke(userId, created.id);
+
+      const agent = await createAgent('Revoked-token BYO bot', {
+        enabled: true,
+        scopes: ['read'],
+        aiMode: 'Your own AI',
+      });
+
+      const res = await as(admin.token, 'POST', `/workspaces/${wsId}/agents/${agent.id}/run`);
+      expect(res.statusCode, res.body).toBe(201);
+      expect(plainText(res.json().values.steps)).toContain('byo_ai.not_connected');
+    });
+
+    it('an agent left at the default "AI mode" still runs non_ai — unchanged behavior', async () => {
+      const agent = await createAgent('Default-mode bot', { enabled: true, scopes: ['read'] });
+      const res = await as(admin.token, 'POST', `/workspaces/${wsId}/agents/${agent.id}/run`);
+      expect(res.statusCode, res.body).toBe(201);
+      const runFields = await fieldsOf(runsDbId);
+      expect(res.json().values.run_class).toBe(optionId(runFields.get('run_class'), 'Non-AI'));
+    });
   });
 });
 
@@ -526,7 +778,9 @@ describe('MN-188 — StoryOS-AI runs decrement prepaid credits', () => {
   async function adminUserId(): Promise<string> {
     const members = (await as(admin.token, 'GET', `/workspaces/${wsId}/members`)).json();
     const list = Array.isArray(members) ? members : members.data;
-    const mine = list.find((m: { user: { email: string; id: string } }) => m.user.email === admin.email);
+    const mine = list.find(
+      (m: { user: { email: string; id: string } }) => m.user.email === admin.email,
+    );
     if (!mine) throw new Error('admin membership not found');
     return mine.user.id;
   }
@@ -582,7 +836,9 @@ describe('MN-188 — StoryOS-AI runs decrement prepaid credits', () => {
       // non_ai
       const nonAi = await createAgent('Unmetered non-AI bot', { enabled: true, scopes: ['read'] });
       service.runtimeFor = () => new NonAiRuntime();
-      expect((await as(admin.token, 'POST', `/workspaces/${wsId}/agents/${nonAi.id}/run`)).statusCode).toBe(201);
+      expect(
+        (await as(admin.token, 'POST', `/workspaces/${wsId}/agents/${nonAi.id}/run`)).statusCode,
+      ).toBe(201);
 
       // your_own_ai
       const byo = await createAgent('Unmetered BYO bot', { enabled: true, scopes: ['read'] });
@@ -592,7 +848,9 @@ describe('MN-188 — StoryOS-AI runs decrement prepaid credits', () => {
           yield { tool: 'byo.step', summary: 'drove a tool over MCP' };
         },
       });
-      expect((await as(admin.token, 'POST', `/workspaces/${wsId}/agents/${byo.id}/run`)).statusCode).toBe(201);
+      expect(
+        (await as(admin.token, 'POST', `/workspaces/${wsId}/agents/${byo.id}/run`)).statusCode,
+      ).toBe(201);
 
       expect(recordUsageSpy).not.toHaveBeenCalled();
     } finally {
@@ -631,7 +889,9 @@ describe('MN-188 — StoryOS-AI runs decrement prepaid credits', () => {
           ) => Promise<unknown>;
         }
       ).chargeStoryOsAiRun.bind(service);
-      const secondResult = (await chargeAgain(wsId, runsDbId, run, actorId)) as { values: { cost: number } };
+      const secondResult = (await chargeAgain(wsId, runsDbId, run, actorId)) as {
+        values: { cost: number };
+      };
 
       // Still only ever charged once — the run's own `cost` field was the guard.
       expect(recordUsageSpy).toHaveBeenCalledTimes(1);

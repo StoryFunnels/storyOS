@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { actionSchema } from '@storyos/schemas';
 import type { AgentPrincipal } from './agent-principal';
+import type { ManagedAiClient } from './managed-ai-client';
 
 /**
  * The runtime seam (#205, ADR-0010 §3).
@@ -116,6 +117,18 @@ export const RUN_CLASS_LABEL: Record<RunClass, string> = {
   storyos_ai: 'StoryOS AI',
 };
 
+/**
+ * The reverse of RUN_CLASS_LABEL — an agent's own "AI mode" field stores the
+ * same three labels (see AgentsService.ensurePack), and dispatch needs to turn
+ * that label back into the RunClass pickRuntime switches on (#205 item 1).
+ */
+export const RUN_CLASS_BY_LABEL: Record<string, RunClass> = Object.fromEntries(
+  (Object.entries(RUN_CLASS_LABEL) as Array<[RunClass, string]>).map(([runClass, label]) => [
+    label,
+    runClass,
+  ]),
+);
+
 /** The agent definition a runtime needs — read off the agent record. */
 export interface AgentRunAgent {
   id: string;
@@ -124,6 +137,12 @@ export interface AgentRunAgent {
   instructions?: string;
   scopes: string[];
   targetDatabases?: string;
+  /**
+   * The agent's own "AI mode" field (#205 item 1) — what pickRuntime switches
+   * on. Undefined (an unset field, or a workspace whose Agents database
+   * predates this field) means exactly what it always has: non_ai.
+   */
+  aiMode?: RunClass;
 }
 
 export interface AgentRunContext {
@@ -132,6 +151,13 @@ export interface AgentRunContext {
   principal: AgentPrincipal;
   /** The record that triggered the run, for state-change runs (#215, later). */
   inputRecordId?: string;
+  /**
+   * Whether this workspace has a live API token — the "Connect your AI"
+   * on-ramp (onboarding.controller.ts's `ai_connected`) that lets an external
+   * MCP client actually reach this workspace. Only computed for a your_own_ai
+   * dispatch (see AgentsService.dispatchRun) — every other runtime ignores it.
+   */
+  aiConnected?: boolean;
 }
 
 /**
@@ -141,6 +167,10 @@ export interface AgentRunContext {
  */
 export interface AgentRuntime {
   readonly runClass: RunClass;
+  /** Real provider usage, when this runtime invokes a metered model. */
+  readonly usage?: { tokensIn: number; tokensOut: number };
+  /** Only the built-in managed driver needs the prepaid-credit preflight. */
+  readonly requiresManagedAiCredits?: boolean;
   execute(ctx: AgentRunContext): AsyncIterable<AgentStep>;
 }
 
@@ -179,7 +209,7 @@ export class NonAiRuntime implements AgentRuntime {
       tool: 'runtime.note',
       summary: 'Non-AI run — no model was invoked, so nothing was metered',
       detail:
-        'This runtime performs no LLM calls. With BYO-AI, your own model drives this agent\'s ' +
+        "This runtime performs no LLM calls. With BYO-AI, your own model drives this agent's " +
         'tools over MCP and is never metered by StoryOS (MN-188). A managed runtime is the ' +
         'seam behind ManagedAiRuntime.',
     };
@@ -187,16 +217,156 @@ export class NonAiRuntime implements AgentRuntime {
 }
 
 /**
- * The seam for StoryOS's managed model (metered, decrements prepaid credits,
- * records `cost`). Not configured yet — it throws rather than silently
- * degrading to the non-AI path, which would misreport what a run actually did.
+ * The BYO-AI/MCP driver (#205's genuinely remaining item 1).
+ *
+ * Selected the moment an agent's own "AI mode" field says `your_own_ai` —
+ * before this, `pickRuntime` could never produce anything but NonAiRuntime, so
+ * that option existed on the Run's `Run class` select and in RUN_CLASS_LABEL
+ * but nothing in dispatch could ever actually stamp it in production (only
+ * tests injected it directly via `runtimeFor`).
+ *
+ * It still makes NO model call — by construction, that absence is the entire
+ * reason your-own-AI is unmetered (MN-188): the tool-driving loop runs
+ * entirely in an external MCP client (Claude Desktop, ChatGPT connectors, or
+ * any MCP-compatible client) that the workspace has connected with its own
+ * API token, never in this process. What is real here, versus NonAiRuntime's
+ * generic advisory, is that it checks the actual precondition that on-ramp
+ * requires (`ctx.aiConnected` — a live workspace API token) and reports
+ * honestly on which side of it the workspace is: either exactly what is
+ * missing before an external AI can drive this agent at all, or the concrete
+ * goal/instructions/scope handoff that AI needs once it is connected.
  */
+export class YourOwnAiRuntime implements AgentRuntime {
+  readonly runClass: RunClass = 'your_own_ai';
+
+  async *execute(ctx: AgentRunContext): AsyncIterable<AgentStep> {
+    yield {
+      tool: 'principal.resolve',
+      summary: `Resolved principal — acting as the owner with \`${ctx.principal.scope}\` scope`,
+      detail:
+        `Declared scopes: ${ctx.agent.scopes.length ? ctx.agent.scopes.join(', ') : '(none — defaulted to read)'}. ` +
+        `The effective scope is capped at the owner's own (ADR-0010 §2) — that cap holds whether ` +
+        `a human or a connected external AI client is the one calling the tools.`,
+    };
+
+    const targets = ctx.agent.targetDatabases?.trim();
+    yield {
+      tool: 'targets.resolve',
+      summary: targets ? `Target databases: ${targets}` : 'No target databases configured',
+      detail: targets
+        ? undefined
+        : 'Set "Target databases" on the agent record to scope which data your own AI may act on.',
+    };
+
+    if (!ctx.aiConnected) {
+      yield {
+        tool: 'byo_ai.not_connected',
+        summary: 'No workspace API token found — your own AI has nothing to connect to yet',
+        detail:
+          'This agent is set to "Your own AI", but this workspace has no live API token ' +
+          '(Settings → API tokens — "Connect your AI"). Create one and point an MCP client at it ' +
+          '(Claude Desktop, ChatGPT connectors, or any MCP-compatible client) before this agent can ' +
+          'actually be driven. Nothing was invoked — creating the token is the next real step.',
+      };
+      return;
+    }
+
+    yield {
+      tool: 'byo_ai.handoff',
+      summary: 'Connected — an external AI client can now drive this agent over MCP',
+      detail:
+        `Goal: ${ctx.agent.goal?.trim() || '(none set — add one to the agent record)'}.` +
+        (ctx.agent.instructions?.trim() ? ` Instructions: ${ctx.agent.instructions.trim()}.` : '') +
+        ' Point the connected MCP client at that goal, capped to the scope and target databases ' +
+        'resolved above. Nothing runs here — a your-own-AI run is never metered by StoryOS ' +
+        '(MN-188) precisely because the tool-driving happens entirely in the client, not in this process.',
+    };
+  }
+}
+
+const proposedActionKindSchema = z.enum([
+  ...APPROVAL_POLICY_KINDS,
+  'set_values',
+  'create_record',
+  'add_comment',
+  'notify_user',
+  'update_linked',
+]);
+
+const managedAgentStepSchema = z.object({
+  tool: z.string().min(1).max(100),
+  summary: z.string().min(1).max(500),
+  detail: z.string().max(2_000).optional(),
+  action: z
+    .object({
+      kind: proposedActionKindSchema,
+      summary: z.string().min(1).max(500),
+      payload: proposedActionPayloadSchema,
+    })
+    .optional(),
+});
+
+const managedRunResultSchema = z.object({
+  steps: z.array(managedAgentStepSchema).min(1).max(25),
+});
+
+function managedRunPrompt(ctx: AgentRunContext): string {
+  return [
+    'You are the StoryOS managed agent runtime. Return one JSON object only.',
+    'Shape: {"steps":[{"tool":"short.name","summary":"what happened","detail":"optional","action":optional}]}',
+    'An action is only a proposal. The StoryOS engine validates authorization, approval policy, and applies it.',
+    'Allowed action payloads:',
+    '{"apply":"record_delete","database_id":"UUID","record_id":"UUID"}',
+    '{"apply":"automation_action","database_id":"UUID","record_id":"UUID","action":{...}}',
+    'Allowed automation action types are set_values, create_record, add_comment, notify_user, update_linked, send_slack_message, send_webhook, run_agent, send_email, post_social, run_apify_actor, run_http_request, run_slack_action, run_google_calendar_action, and run_resend_action.',
+    'Never invent a database, record, field, relation, user, or connection identifier. If the supplied context lacks a required identifier, return an observational step explaining what is missing and propose no action.',
+    `Effective authorization scope: ${ctx.principal.scope}. Read scope must not propose mutations. Write scope must not propose deletions or schema/admin operations.`,
+    `Workspace: ${ctx.workspaceId}`,
+    `Agent: ${ctx.agent.name} (${ctx.agent.id})`,
+    `Goal: ${ctx.agent.goal?.trim() || '(none)'}`,
+    `Instructions: ${ctx.agent.instructions?.trim() || '(none)'}`,
+    `Declared scopes: ${ctx.agent.scopes.join(', ') || 'read'}`,
+    `Target databases: ${ctx.agent.targetDatabases?.trim() || '(none)'}`,
+    `Input record: ${ctx.inputRecordId || '(none)'}`,
+  ].join('\n');
+}
+
+/** StoryOS-hosted model driver. It proposes bounded, schema-validated steps. */
 export class ManagedAiRuntime implements AgentRuntime {
   readonly runClass: RunClass = 'storyos_ai';
+  readonly requiresManagedAiCredits = true;
+  usage = { tokensIn: 0, tokensOut: 0 };
 
-  // eslint-disable-next-line require-yield
-  async *execute(_ctx: AgentRunContext): AsyncIterable<AgentStep> {
-    throw new Error('Managed AI runtime not configured');
+  constructor(private readonly client?: ManagedAiClient) {}
+
+  async *execute(ctx: AgentRunContext): AsyncIterable<AgentStep> {
+    if (!this.client) {
+      throw new Error(
+        'Managed AI runtime not configured — set OPENAI_API_KEY (and optionally OPENAI_MODEL)',
+      );
+    }
+
+    const completion = await this.client.complete(managedRunPrompt(ctx));
+    this.usage = {
+      tokensIn: this.usage.tokensIn + completion.tokensIn,
+      tokensOut: this.usage.tokensOut + completion.tokensOut,
+    };
+
+    let json: unknown;
+    try {
+      json = JSON.parse(completion.text);
+    } catch {
+      throw new Error('Managed AI returned invalid JSON');
+    }
+    const result = managedRunResultSchema.safeParse(json);
+    if (!result.success) {
+      throw new Error(
+        `Managed AI returned an invalid run plan: ${result.error.issues
+          .map((issue) => `${issue.path.join('.')} ${issue.message}`)
+          .join('; ')}`,
+      );
+    }
+    for (const step of result.data.steps) yield step;
   }
 }
 
@@ -208,11 +378,22 @@ export class ManagedAiRuntime implements AgentRuntime {
  * your-own-AI run is therefore provably never metered — classification cannot
  * drift as a consequence of what the run happens to do.
  *
- * Today every agent gets the non-AI runtime; selecting the BYO-AI/managed
- * drivers arrives with the runtimes themselves.
+ * Switches on the agent's own "AI mode" field (#205 item 1). An agent that
+ * never set it — or a workspace whose Agents database predates the field —
+ * gets exactly the behavior every agent has always had: NonAiRuntime.
+ * `storyos_ai` resolves to the bounded managed driver. When its provider key is
+ * absent it fails clearly rather than silently changing the requested class.
  */
-export function pickRuntime(_agent: AgentRunAgent): AgentRuntime {
-  return new NonAiRuntime();
+export function pickRuntime(agent: AgentRunAgent, managedClient?: ManagedAiClient): AgentRuntime {
+  switch (agent.aiMode) {
+    case 'your_own_ai':
+      return new YourOwnAiRuntime();
+    case 'storyos_ai':
+      return new ManagedAiRuntime(managedClient);
+    case 'non_ai':
+    default:
+      return new NonAiRuntime();
+  }
 }
 
 /** The step log, rendered as the markdown list stored in the Run's `Steps`. */
