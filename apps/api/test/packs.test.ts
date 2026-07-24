@@ -1319,6 +1319,31 @@ describe('uninstall (#161)', () => {
   }, 60_000);
 });
 
+describe('authenticated pack gallery metadata (#305)', () => {
+  it('returns real manifest counts for the visual card preview without exposing the manifest', async () => {
+    const res = await as(admin.token, 'GET', '/packs/registry');
+    expect(res.statusCode, res.body).toBe(200);
+    const cards = res.json() as Array<{
+      slug: string;
+      manifest?: unknown;
+      preview: {
+        databases: number;
+        views: number;
+        automations: number;
+        agents: number;
+      };
+    }>;
+    const card = cards.find((entry) => entry.slug === 'support-inbox')!;
+    expect(card.manifest).toBeUndefined();
+    expect(card.preview).toEqual({
+      databases: 1,
+      views: 1,
+      automations: 1,
+      agents: 1,
+    });
+  });
+});
+
 /**
  * Public, pre-signup preview (#272) — finding: `PacksRegistryController`
  * requires `AuthGuard`, so a shared pack link hit a login wall. These routes
