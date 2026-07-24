@@ -12,6 +12,8 @@ import type { LinkChip } from '@/components/table-view/relation-cell';
 import type { Field } from '@/components/table-view/use-table-data';
 import { recordHref } from '@/lib/records';
 import { cn } from '@/lib/utils';
+import { useDatabases, useSpaces } from '@/lib/queries';
+import { resolveDatabaseIds } from '@/lib/database-labels';
 import { AUDIT_TYPES, NOT_INLINE, auditValue } from './entity-field-utils';
 import type { VP } from './entity-field-utils';
 import { FieldMenu, useSetFieldConfig } from './field-controls';
@@ -21,6 +23,8 @@ import { CollapseToggle } from './collection-section';
 function ScalarValue({ field, record, ws, db, rec, members, memberNames, memberImages, readOnly, onCommit }: VP & { field: Field }) {
   const [editing, setEditing] = useState(false);
   const value = AUDIT_TYPES.has(field.type) ? auditValue(field, record) : record.values[field.apiName];
+  const databases = useDatabases(ws);
+  const spaces = useSpaces(ws);
 
   // MN-126: audit fields are read-only and sourced from the record row. CellDisplay
   // already renders created_at/updated_at as datetimes and created_by as a person.
@@ -59,6 +63,28 @@ function ScalarValue({ field, record, ws, db, rec, members, memberNames, memberI
           <RelationEditor ws={ws} db={db} recordId={rec} field={field} current={chips} onDone={() => setEditing(false)} />
         )}
       </div>
+    );
+  }
+  if (field.apiName === 'target_databases') {
+    const targets = resolveDatabaseIds(value, databases.data ?? [], spaces.data ?? []);
+    return targets.length ? (
+      <span className="flex flex-wrap gap-1">
+        {targets.map((target) => (
+          <span
+            key={target.id}
+            className={cn(
+              'rounded border px-1.5 py-0.5 text-[12px]',
+              target.missing
+                ? 'border-error/40 bg-error/5 text-error'
+                : 'border-border-default bg-hover text-ink',
+            )}
+          >
+            {target.label}
+          </span>
+        ))}
+      </span>
+    ) : (
+      <span className="text-[13px] text-faint">Empty</span>
     );
   }
   if (field.type === 'button') return <PressButton ws={ws} db={db} recordId={rec} field={field} disabled={readOnly} />;

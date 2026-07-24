@@ -19,6 +19,7 @@ import {
   databases,
   fields,
   records,
+  spaces,
 } from '../db/schema';
 import { ConnectionsService } from '../connections/connections.service';
 import type { GoogleAuth } from '../connections/providers';
@@ -101,21 +102,24 @@ export class CalendarSyncService implements OnModuleInit {
       .select({
         binding: calendarSyncBindings,
         databaseName: databases.name,
+        spaceName: spaces.name,
         connectionName: connections.name,
         startFieldName: fields.displayName,
       })
       .from(calendarSyncBindings)
       .innerJoin(databases, eq(databases.id, calendarSyncBindings.databaseId))
+      .innerJoin(spaces, eq(spaces.id, databases.spaceId))
       .innerJoin(connections, eq(connections.id, calendarSyncBindings.connectionId))
       .innerJoin(fields, eq(fields.id, calendarSyncBindings.startFieldId))
       .where(eq(calendarSyncBindings.workspaceId, workspaceId));
     return {
-      data: rows.map(({ binding, databaseName, connectionName, startFieldName }) => ({
+      data: rows.map(({ binding, databaseName, spaceName, connectionName, startFieldName }) => ({
         id: binding.id,
         connection_id: binding.connectionId,
         connection_name: connectionName,
         database_id: binding.databaseId,
         database_name: databaseName,
+        database_space_name: spaceName,
         calendar_id: binding.calendarId,
         calendar_name: binding.calendarName,
         start_field_id: binding.startFieldId,
