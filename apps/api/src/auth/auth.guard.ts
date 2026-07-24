@@ -17,6 +17,7 @@ import type { Db } from '../db/client';
 import { user } from '../db/schema';
 import { TokensService } from '../tokens/tokens.service';
 import { RUN_BUTTON_KEY, SCOPE_KEY } from './token-scope.guard';
+import { hasStoryOsMcpScope } from './mcp-scope';
 
 export interface AuthedUser {
   id: string;
@@ -71,10 +72,13 @@ export class AuthGuard implements CanActivate {
    * controller forgets a guard or an agent hand-crafts a call to an unadvertised
    * tool. Required scope: @RequiresScope override, else GET → read / else write.
    */
-  private enforceTokenScope(context: ExecutionContext, resolved: {
-    scope: TokenScope;
-    allowRunButton: boolean;
-  }): void {
+  private enforceTokenScope(
+    context: ExecutionContext,
+    resolved: {
+      scope: TokenScope;
+      allowRunButton: boolean;
+    },
+  ): void {
     const request = context.switchToHttp().getRequest<FastifyRequest>();
     const explicit = this.reflector.getAllAndOverride<TokenScope>(SCOPE_KEY, [
       context.getHandler(),
@@ -151,12 +155,15 @@ export class AuthGuard implements CanActivate {
     // OAuth access token and yields the owning user.
     const getMcpSession = (
       this.auth.api as {
-        getMcpSession?: (opts: { headers: Headers }) => Promise<{ userId?: string } | null>;
+        getMcpSession?: (opts: { headers: Headers }) => Promise<{
+          userId?: string;
+          scopes?: string | string[];
+        } | null>;
       }
     ).getMcpSession;
     if (getMcpSession) {
       const mcpToken = await getMcpSession({ headers }).catch(() => null);
-      if (mcpToken?.userId) {
+      if (mcpToken?.userId && hasStoryOsMcpScope(mcpToken.scopes)) {
         const account = await this.db.query.user.findFirst({ where: eq(user.id, mcpToken.userId) });
         if (account) {
           (request as AuthedRequest).user = {

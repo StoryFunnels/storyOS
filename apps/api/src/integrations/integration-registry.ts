@@ -78,6 +78,14 @@ export const INTEGRATION_REGISTRY: readonly IntegrationDescriptor[] = [
     status: 'available',
   },
   {
+    id: 'mcp',
+    label: 'Claude & ChatGPT',
+    builtBy: 'StoryOS',
+    description: 'Connect AI clients to your StoryOS workspace through the hosted MCP endpoint.',
+    authKind: 'oauth2',
+    status: 'available',
+  },
+  {
     id: 'delegate-agent',
     label: 'Delegate to agent',
     builtBy: 'StoryOS',

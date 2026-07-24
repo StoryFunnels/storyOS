@@ -14,19 +14,19 @@ Never commit your real `.env` — it holds secrets. The repo ships an `.env.exam
 
 ## Environment matrix
 
-| Variable | Default | Notes |
-|---|---|---|
-| `BETTER_AUTH_SECRET` | — (required) | Generate with `openssl rand -hex 32`. |
-| `POSTGRES_PASSWORD` | `storyos` | Change for anything internet-facing. |
-| `API_URL` / `WEB_URL` | `http://localhost:3001` / `:3000` | Set **both** to your public URL (same origin), e.g. `https://os.example.com`. `WEB_URL` is also passed to the `mcp` service — it's the origin used to build the `url` field on MCP record responses. |
-| `NEXT_PUBLIC_API_URL` | empty (same-origin) | Only for split-origin setups (API on a different host). Set at build time. |
-| `HTTP_PORT` / `HTTPS_PORT` | `80` / `443` | Host ports of the Caddy proxy. |
-| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS`, `MAIL_FROM` | unset | Invites, mentions, verification, and resets. Without SMTP, invite links are copyable in the UI and other emails are logged. Any SMTP provider works. |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | unset | Enables "Continue with Google". Redirect URI: `{API_URL}/api/v1/auth/callback/google`. |
-| `STORAGE_DRIVER` | `local` | `s3` for MinIO/S3/R2 — see [attachments](/self-hosting/attachments/). |
-| `S3_ENDPOINT` / `S3_BUCKET` / `S3_ACCESS_KEY` / `S3_SECRET_KEY` | MinIO defaults | Used when `STORAGE_DRIVER=s3`. |
-| `ATTACHMENT_MAX_BYTES` | `20971520` (20 MB) | Per-file upload cap. |
-| `RATE_LIMIT_PER_MINUTE` | `300` | Per token/session. |
+| Variable                                                           | Default                           | Notes                                                                                                                                                                                                |
+| ------------------------------------------------------------------ | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`                                               | — (required)                      | Generate with `openssl rand -hex 32`.                                                                                                                                                                |
+| `POSTGRES_PASSWORD`                                                | `storyos`                         | Change for anything internet-facing.                                                                                                                                                                 |
+| `API_URL` / `WEB_URL`                                              | `http://localhost:3001` / `:3000` | Set **both** to your public URL (same origin), e.g. `https://os.example.com`. `WEB_URL` is also passed to the `mcp` service — it's the origin used to build the `url` field on MCP record responses. |
+| `NEXT_PUBLIC_API_URL`                                              | empty (same-origin)               | Only for split-origin setups (API on a different host). Set at build time.                                                                                                                           |
+| `HTTP_PORT` / `HTTPS_PORT`                                         | `80` / `443`                      | Host ports of the Caddy proxy.                                                                                                                                                                       |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS`, `MAIL_FROM` | unset                             | Invites, mentions, verification, and resets. Without SMTP, invite links are copyable in the UI and other emails are logged. Any SMTP provider works.                                                 |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`                        | unset                             | Enables "Continue with Google". Redirect URI: `{API_URL}/api/v1/auth/callback/google`.                                                                                                               |
+| `STORAGE_DRIVER`                                                   | `local`                           | `s3` for MinIO/S3/R2 — see [attachments](/self-hosting/attachments/).                                                                                                                                |
+| `S3_ENDPOINT` / `S3_BUCKET` / `S3_ACCESS_KEY` / `S3_SECRET_KEY`    | MinIO defaults                    | Used when `STORAGE_DRIVER=s3`.                                                                                                                                                                       |
+| `ATTACHMENT_MAX_BYTES`                                             | `20971520` (20 MB)                | Per-file upload cap.                                                                                                                                                                                 |
+| `RATE_LIMIT_PER_MINUTE`                                            | `300`                             | Per token/session.                                                                                                                                                                                   |
 
 ## Auth
 
@@ -59,11 +59,11 @@ Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, and register the redirect URI
 To let cloud clients connect the [hosted MCP endpoint](/mcp/hosted/) with a one-click
 [OAuth connector](/mcp/oauth/) instead of pasting a token, enable the OAuth authorization server:
 
-| Variable | Where | Notes |
-|---|---|---|
-| `MCP_OAUTH` | `api` + `mcp` | Set `true` to turn on OAuth discovery (needs the OIDC tables migrated). Off by default. |
-| `MCP_PUBLIC_URL` | `mcp` | Public URL of the MCP endpoint, e.g. `https://mcp.your-domain.com`. |
-| `MCP_AUTH_SERVER` | `mcp` | The authorization server (your app), e.g. `https://app.your-domain.com`. |
+| Variable          | Where         | Notes                                                                                   |
+| ----------------- | ------------- | --------------------------------------------------------------------------------------- |
+| `MCP_OAUTH`       | `api` + `mcp` | Set `true` to turn on OAuth discovery (needs the OIDC tables migrated). Off by default. |
+| `MCP_PUBLIC_URL`  | `mcp`         | Public URL of the MCP endpoint, e.g. `https://mcp.your-domain.com`.                     |
+| `MCP_AUTH_SERVER` | `mcp`         | Better Auth's mounted base URL, e.g. `https://app.your-domain.com/api/v1/auth`.         |
 
 ## The API on your instance
 

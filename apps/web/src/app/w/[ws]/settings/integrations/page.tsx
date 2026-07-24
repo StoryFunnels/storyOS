@@ -5,7 +5,17 @@ import { useParams } from 'next/navigation';
 import { useState } from 'react';
 import posthog from 'posthog-js';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDownToLine, Bot, CalendarDays, GitBranch, MessageSquare, Sparkles, Target, Video } from 'lucide-react';
+import {
+  ArrowDownToLine,
+  Bot,
+  Cable,
+  CalendarDays,
+  GitBranch,
+  MessageSquare,
+  Sparkles,
+  Target,
+  Video,
+} from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -37,6 +47,7 @@ const ICONS: Record<string, LucideIcon> = {
   slack: MessageSquare,
   youtube: Video,
   'google-calendar': CalendarDays,
+  mcp: Cable,
   'delegate-agent': Bot,
   storyfunnels: Target,
   storypages: Sparkles,
@@ -126,13 +137,15 @@ export default function IntegrationsPage() {
     <div className="mx-auto max-w-4xl p-4 sm:p-8">
       <h1 className="mb-1 text-lg font-semibold text-ink">Integrations</h1>
       <p className="mb-6 text-[13px] text-muted">
-        Connect StoryOS to the tools you already use. Credentials are stored on your server and never leave it —
-        that's the point of self-hosting.
+        Connect StoryOS to the tools you already use. Credentials are stored on your server and
+        never leave it — that's the point of self-hosting.
       </p>
 
       {connectedEntries.length > 0 && (
         <section className="mb-8">
-          <h2 className="mb-1 text-[13px] font-semibold uppercase tracking-wide text-muted">Connected</h2>
+          <h2 className="mb-1 text-[13px] font-semibold uppercase tracking-wide text-muted">
+            Connected
+          </h2>
           <p className="mb-3 text-[12px] text-faint">
             Already set up — open one to preview/import, adjust its config, or disconnect.
           </p>
@@ -151,7 +164,9 @@ export default function IntegrationsPage() {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span className="truncate text-sm font-semibold text-ink">{entry.label}</span>
-                      <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[11px] font-medium text-ink">Connected</span>
+                      <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[11px] font-medium text-ink">
+                        Connected
+                      </span>
                     </div>
                     <p className="truncate text-[12px] text-faint">{entry.description}</p>
                   </div>
@@ -167,7 +182,11 @@ export default function IntegrationsPage() {
                         variant="destructive"
                         disabled={disconnecting === entry.id}
                         onClick={() => {
-                          if (window.confirm(`Disconnect ${entry.label}? You'll need to reconnect to use it again.`)) {
+                          if (
+                            window.confirm(
+                              `Disconnect ${entry.label}? You'll need to reconnect to use it again.`,
+                            )
+                          ) {
                             disconnect.mutate(entry.id);
                           }
                         }}
@@ -184,7 +203,9 @@ export default function IntegrationsPage() {
       )}
 
       <section>
-        <h2 className="mb-1 text-[13px] font-semibold uppercase tracking-wide text-muted">Add an integration</h2>
+        <h2 className="mb-1 text-[13px] font-semibold uppercase tracking-wide text-muted">
+          Add an integration
+        </h2>
         <p className="mb-3 text-[12px] text-faint">Platforms you haven't connected yet.</p>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {catalogEntries.map((entry) => {
@@ -201,16 +222,26 @@ export default function IntegrationsPage() {
                     <Icon className="h-5 w-5 text-ink" />
                   </span>
                   <span className="min-w-0">
-                    <span className="block truncate text-sm font-semibold text-ink">{entry.label}</span>
-                    <span className="block truncate text-[11px] text-faint">Built by {entry.built_by}</span>
+                    <span className="block truncate text-sm font-semibold text-ink">
+                      {entry.label}
+                    </span>
+                    <span className="block truncate text-[11px] text-faint">
+                      Built by {entry.built_by}
+                    </span>
                   </span>
                   <span className="ml-auto shrink-0">
                     {entry.status === 'soon' ? (
-                      <span className="rounded-full bg-hover px-2 py-0.5 text-[11px] text-faint">Coming soon</span>
+                      <span className="rounded-full bg-hover px-2 py-0.5 text-[11px] text-faint">
+                        Coming soon
+                      </span>
                     ) : entry.auth_kind === 'delegate' ? (
-                      <span className="rounded-full border border-border-default px-2 py-0.5 text-[11px] text-muted">Enable →</span>
+                      <span className="rounded-full border border-border-default px-2 py-0.5 text-[11px] text-muted">
+                        Enable →
+                      </span>
                     ) : (
-                      <span className="rounded-full border border-border-default px-2 py-0.5 text-[11px] text-muted">Set up →</span>
+                      <span className="rounded-full border border-border-default px-2 py-0.5 text-[11px] text-muted">
+                        Set up →
+                      </span>
                     )}
                   </span>
                 </div>
@@ -222,7 +253,9 @@ export default function IntegrationsPage() {
                 {card}
               </Link>
             ) : (
-              <div key={entry.id} className="cursor-default">{card}</div>
+              <div key={entry.id} className="cursor-default">
+                {card}
+              </div>
             );
           })}
         </div>

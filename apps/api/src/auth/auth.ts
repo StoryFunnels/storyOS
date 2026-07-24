@@ -32,7 +32,15 @@ export function createAuth(db: Db, emailService: EmailService) {
     trustedOrigins: [e.WEB_URL],
     database: drizzleAdapter(db, {
       provider: 'pg',
-      schema: { user, session, account, verification, oauthApplication, oauthAccessToken, oauthConsent },
+      schema: {
+        user,
+        session,
+        account,
+        verification,
+        oauthApplication,
+        oauthAccessToken,
+        oauthConsent,
+      },
     }),
     emailAndPassword: {
       enabled: true,
@@ -67,7 +75,14 @@ export function createAuth(db: Db, emailService: EmailService) {
                 loginPage: `${e.WEB_URL}/login`,
                 requirePKCE: true,
                 allowDynamicClientRegistration: true,
-                scopes: ['openid', 'profile', 'email'],
+                // `offline_access` gives Claude/ChatGPT refresh tokens. The
+                // dedicated scope prevents an ordinary app OIDC token from
+                // being accepted by the MCP API path.
+                defaultScope: 'openid profile email offline_access storyos.mcp',
+                scopes: ['storyos.mcp'],
+                metadata: {
+                  scopes_supported: ['openid', 'profile', 'email', 'offline_access', 'storyos.mcp'],
+                },
               },
             }),
           ]

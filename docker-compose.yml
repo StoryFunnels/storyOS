@@ -18,7 +18,7 @@ services:
     volumes:
       - storyos_pg:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U storyos"]
+      test: ['CMD-SHELL', 'pg_isready -U storyos']
       interval: 5s
       timeout: 5s
       retries: 10
@@ -35,7 +35,7 @@ services:
     environment:
       NODE_ENV: production
       DATABASE_URL: postgres://storyos:${POSTGRES_PASSWORD:-storyos}@postgres:5432/storyos
-      RUN_MIGRATIONS: "true"
+      RUN_MIGRATIONS: 'true'
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env (e.g. openssl rand -hex 32)}
       CONNECTIONS_MASTER_KEY: ${CONNECTIONS_MASTER_KEY:?set CONNECTIONS_MASTER_KEY in .env (e.g. openssl rand -hex 32)}
       API_URL: ${API_URL:-http://localhost:3001}
@@ -123,18 +123,19 @@ services:
       # Public web origin, for the `url` field on record responses (#268) — same
       # var the web/api services use, so a self-host deploy only sets it once.
       WEB_URL: ${WEB_URL:-http://localhost:3000}
-      PORT: "3002"
+      PORT: '3002'
       # OAuth discovery advertising (MN-154). Set true once the AS (api) has MCP_OAUTH on.
       MCP_OAUTH: ${MCP_OAUTH:-}
       MCP_PUBLIC_URL: ${MCP_PUBLIC_URL:-https://mcp.storyos.dev}
-      MCP_AUTH_SERVER: ${MCP_AUTH_SERVER:-https://app.storyos.dev}
+      # Better Auth's mounted base URL, not just the app origin.
+      MCP_AUTH_SERVER: ${MCP_AUTH_SERVER:-https://app.storyos.dev/api/v1/auth}
 
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
     healthcheck:
       # A crashed proxy is caught by `restart`; a HUNG one is only caught here.
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:80/"]
+      test: ['CMD', 'wget', '--quiet', '--tries=1', '--spider', 'http://127.0.0.1:80/']
       interval: 30s
       timeout: 5s
       retries: 3
@@ -148,8 +149,8 @@ services:
       - ./docker/certs:/etc/caddy/certs:ro
       - storyos_caddy:/data
     ports:
-      - "${HTTP_PORT:-80}:80"
-      - "${HTTPS_PORT:-443}:443"
+      - '${HTTP_PORT:-80}:80'
+      - '${HTTPS_PORT:-443}:443'
 
   minio:
     image: minio/minio:latest
@@ -162,8 +163,8 @@ services:
     volumes:
       - storyos_minio:/data
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - '9000:9000'
+      - '9001:9001'
 
 volumes:
   storyos_pg:
