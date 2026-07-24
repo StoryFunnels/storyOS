@@ -15,6 +15,8 @@ interface ComparableField {
 }
 interface RelationDetail {
   cardinality: 'one_to_many' | 'many_to_many';
+  database_a_id: string;
+  database_b_id: string;
   auto_link: { conditions: Array<{ field_a_id: string; field_b_id: string }>; case_sensitive?: boolean } | null;
   comparable_fields_a: ComparableField[];
   comparable_fields_b: ComparableField[];
@@ -105,6 +107,13 @@ export function RelationAutoLink({ ws, relationId, side }: { ws: string; relatio
     },
     onSuccess: (r) => {
       setSummary(`Linked ${r.created} record${r.created === 1 ? '' : 's'} · ${r.ambiguous} ambiguous · ${r.unmatched} unmatched`);
+      if (detail) {
+        void qc.invalidateQueries({ queryKey: ['records', ws, detail.database_a_id] });
+        void qc.invalidateQueries({ queryKey: ['records', ws, detail.database_b_id] });
+        void qc.invalidateQueries({ queryKey: ['record', ws, detail.database_a_id] });
+        void qc.invalidateQueries({ queryKey: ['record', ws, detail.database_b_id] });
+        void qc.invalidateQueries({ queryKey: ['collection', ws] });
+      }
     },
     onError: (e: unknown) => {
       const msg = e && typeof e === 'object' && 'message' in e ? String((e as { message: unknown }).message) : 'Run failed';

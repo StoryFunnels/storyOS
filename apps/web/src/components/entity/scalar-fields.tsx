@@ -60,7 +60,7 @@ function ScalarValue({ field, record, ws, db, rec, members, memberNames, memberI
           </button>
         )}
         {editing && (
-          <RelationEditor ws={ws} db={db} recordId={rec} field={field} current={chips} onDone={() => setEditing(false)} />
+          <RelationEditor ws={ws} db={db} recordId={record.id} field={field} current={chips} onDone={() => setEditing(false)} />
         )}
       </div>
     );

@@ -244,8 +244,13 @@ export function BoardView({
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: ['records', ws, db] });
+      void qc.invalidateQueries({ queryKey: ['record', ws, db] });
       // A re-link changes the other side of the relation too.
-      if (targetDb) void qc.invalidateQueries({ queryKey: ['records', ws, targetDb] });
+      if (targetDb) {
+        void qc.invalidateQueries({ queryKey: ['records', ws, targetDb] });
+        void qc.invalidateQueries({ queryKey: ['record', ws, targetDb] });
+      }
+      void qc.invalidateQueries({ queryKey: ['collection', ws] });
     },
   });
 
