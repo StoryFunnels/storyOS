@@ -19,6 +19,8 @@ export interface DatabaseSummary {
   color: string | null;
   apiSlug: string;
   position: number;
+  spaceSlug?: string | null;
+  qualifiedSlug?: string;
 }
 export interface WorkspaceInfo {
   id: string;

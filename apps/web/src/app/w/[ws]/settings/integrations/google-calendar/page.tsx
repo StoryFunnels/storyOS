@@ -9,17 +9,14 @@ import { toast } from 'sonner';
 import { api, API_URL, apiErrorMessage } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
+import { useDatabases, useSpaces } from '@/lib/queries';
+import { qualifiedDatabaseLabel } from '@/lib/database-labels';
 
 interface Connection {
   id: string;
   provider: string;
   name: string;
   status: 'active' | 'expired' | 'revoked' | 'error';
-}
-
-interface Database {
-  id: string;
-  name: string;
 }
 
 interface Field {
@@ -38,6 +35,7 @@ interface Binding {
   id: string;
   connection_id: string;
   database_name: string;
+  database_space_name: string;
   calendar_name: string;
   start_field_name: string;
   last_sync_at: string | null;
@@ -89,16 +87,8 @@ export default function GoogleCalendarIntegrationPage() {
     },
   });
 
-  const databases = useQuery({
-    queryKey: ['databases', ws],
-    queryFn: async () => {
-      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/databases', {
-        params: { path: { ws } },
-      } as never);
-      if (error) throw error;
-      return (data as unknown as { data: Database[] }).data;
-    },
-  });
+  const databases = useDatabases(ws);
+  const spaces = useSpaces(ws);
 
   const fields = useQuery({
     queryKey: ['fields', ws, databaseId],
@@ -268,7 +258,7 @@ export default function GoogleCalendarIntegrationPage() {
                 placeholder="Choose database"
                 options={(databases.data ?? []).map((item) => ({
                   value: item.id,
-                  label: item.name,
+                  label: qualifiedDatabaseLabel(item, spaces.data ?? []),
                 }))}
               />
               <SelectField
@@ -340,7 +330,8 @@ export default function GoogleCalendarIntegrationPage() {
                 >
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium text-ink">
-                      {binding.database_name} → {binding.calendar_name}
+                      {binding.database_space_name} / {binding.database_name} →{' '}
+                      {binding.calendar_name}
                     </p>
                     <p className="text-[12px] text-muted">
                       Start: {binding.start_field_name}
