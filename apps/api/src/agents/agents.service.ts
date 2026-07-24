@@ -6,7 +6,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { and, eq, isNull } from 'drizzle-orm';
-import { blocksToMarkdown, markdownToBlocks } from '@storyos/schemas';
+import { blocksToMarkdown, markdownToBlocks, TOKEN_SCOPE_RANK } from '@storyos/schemas';
 import type { AutomationAction, TokenScope } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
@@ -37,6 +37,8 @@ import {
   STORYOS_AI_RUN_PLACEHOLDER_COST_CENTS,
 } from '../billing/plans';
 import { deriveAgentPrincipal, scopeForRole } from './agent-principal';
+import type { AgentPrincipal } from './agent-principal';
+import { defaultManagedAiClient } from './managed-ai-client';
 import {
   pickRuntime,
   proposedActionPayloadSchema,
@@ -95,6 +97,10 @@ export interface DispatchRunGuardrails {
 interface StagedAction {
   action: ProposedAction;
   steps: AgentStep[];
+  /** The immutable dispatch-time ceiling. Approval can preserve or narrow it, never widen it. */
+  principal?: AgentPrincipal;
+  /** Provider usage already incurred before this run parked. */
+  usage?: { tokensIn: number; tokensOut: number };
 }
 
 /** Parse a Run's `Pending action` JSON, or null if it isn't staged/parseable. */
@@ -152,7 +158,8 @@ export class AgentsService implements OnModuleInit {
    * The dispatch-time runtime choice (#205). Swappable in tests, like
    * GithubService.fetcher — it is the seam a managed/BYO driver plugs into.
    */
-  runtimeFor: (agent: AgentRunAgent) => AgentRuntime = pickRuntime;
+  runtimeFor: (agent: AgentRunAgent) => AgentRuntime = (agent) =>
+    pickRuntime(agent, defaultManagedAiClient());
 
   constructor(
     @Inject(DB) private readonly db: Db,
@@ -589,17 +596,16 @@ export class AgentsService implements OnModuleInit {
    * (possibly stale) copy, so calling it twice in a row for the same run id
    * only ever decrements once.
    *
-   * The cost charged is STORYOS_AI_RUN_PLACEHOLDER_COST_CENTS — a flat,
-   * honestly-labeled placeholder. ManagedAiRuntime (MN-214r) is still a stub
-   * with no real token counts to attribute, so tokensIn/tokensOut are
-   * recorded as 0 rather than invented. Swap this for real usage the moment a
-   * real managed/BYO-driven run reports it.
+   * The cost charged is still STORYOS_AI_RUN_PLACEHOLDER_COST_CENTS until the
+   * pricing table is model-aware. ManagedAiRuntime supplies its real provider
+   * token counts now, so attribution is factual even while price is flat.
    */
   private async chargeStoryOsAiRun(
     workspaceId: string,
     runsDbId: string,
     run: ProjectedRecord,
     actorId: string,
+    usage: { tokensIn: number; tokensOut: number } = { tokensIn: 0, tokensOut: 0 },
   ): Promise<ProjectedRecord> {
     const current = await this.recordsService.get(runsDbId, run.id);
     if (current.values['cost'] != null) return current; // already charged — idempotent no-op
@@ -608,8 +614,8 @@ export class AgentsService implements OnModuleInit {
     const creditsChargedCents = ourCostCents * AI_CREDIT_MARKUP_MULTIPLIER;
 
     await this.aiCredits.recordUsage(workspaceId, {
-      tokensIn: 0, // unknown until MN-214r's runtime reports real usage
-      tokensOut: 0,
+      tokensIn: usage.tokensIn,
+      tokensOut: usage.tokensOut,
       ourCostCents,
       creditsChargedCents,
     });
@@ -637,6 +643,36 @@ export class AgentsService implements OnModuleInit {
       where: and(eq(apiTokens.workspaceId, workspaceId), isNull(apiTokens.revokedAt)),
     });
     return Boolean(row);
+  }
+
+  /**
+   * Re-check a parked run's original owner against current membership and
+   * intersect it with the immutable dispatch-time scope. A human approval is
+   * never an authority upgrade.
+   */
+  private async currentPrincipal(
+    workspaceId: string,
+    staged: AgentPrincipal,
+  ): Promise<AgentPrincipal> {
+    const membership = await this.db.query.memberships.findFirst({
+      where: and(
+        eq(membershipsTable.workspaceId, workspaceId),
+        eq(membershipsTable.userId, staged.userId),
+      ),
+    });
+    if (!membership || membership.status !== 'active') {
+      throw new UnprocessableEntityException(
+        'Cannot apply this action — the agent owner is no longer an active workspace member',
+      );
+    }
+    const currentScope = scopeForRole(membership.role);
+    return {
+      userId: staged.userId,
+      scope:
+        TOKEN_SCOPE_RANK[currentScope] < TOKEN_SCOPE_RANK[staged.scope]
+          ? currentScope
+          : staged.scope,
+    };
   }
 
   /** Resolve an agent record by uuid or public number (MN-087 pretty handles). */
@@ -850,7 +886,12 @@ export class AgentsService implements OnModuleInit {
       STORYOS_AI_RUN_PLACEHOLDER_COST_CENTS * AI_CREDIT_MARKUP_MULTIPLIER >
         input.guardrails.maxCostCents;
 
-    const blockedBeforeExecution = overAllowance || costCapExceeded;
+    const managedCreditsUnavailable =
+      runtime.requiresManagedAiCredits === true &&
+      !(await this.aiCredits.canUseManagedAi(workspaceId));
+
+    const blockedBeforeExecution =
+      overAllowance || costCapExceeded || managedCreditsUnavailable;
 
     let run = await this.recordsService.create(
       workspaceId,
@@ -867,7 +908,9 @@ export class AgentsService implements OnModuleInit {
               steps: markdownToBlocks(
                 overAllowance
                   ? '- **entitlements.blocked** — Plan automation-run allowance reached for this month'
-                  : `- **guardrail.cost_cap** — Estimated run cost exceeds the configured max_cost_cents (${input.guardrails?.maxCostCents})`,
+                  : costCapExceeded
+                    ? `- **guardrail.cost_cap** — Estimated run cost exceeds the configured max_cost_cents (${input.guardrails?.maxCostCents})`
+                    : '- **ai_credits.blocked** — StoryOS AI needs a saved payment method and a positive prepaid credit balance',
               ),
             }
           : {}),
@@ -932,6 +975,11 @@ export class AgentsService implements OnModuleInit {
             continue;
           }
 
+          // #330: approval policy can decide whether a permitted action needs a
+          // human, but it can never turn an out-of-scope action into a permitted
+          // one. Check before staging as well as again at the apply boundary.
+          this.assertActionAllowed(principal, step.action);
+
           // MN-109 Phase A allowed-action guardrail: an action kind outside the
           // configured allowlist is treated exactly like an owner-gated one —
           // staged for approval rather than refused outright, so a narrower
@@ -963,6 +1011,7 @@ export class AgentsService implements OnModuleInit {
             await this.applyProposedAction(
               workspaceId,
               step.action,
+              principal,
               owner.userId,
               input.depth ?? 0,
             ),
@@ -990,14 +1039,19 @@ export class AgentsService implements OnModuleInit {
     // the owner is asked in the Inbox with the exact proposal in front of them.
     // Nothing has been applied — approve/reject decides whether it ever is.
     if (staged) {
-      const waiting = await this.recordsService.update(
+      let waiting = await this.recordsService.update(
         workspaceId,
         runsDb.id,
         run.id,
         {
           status: statusIds.get('Waiting approval') ?? null,
           steps: markdownToBlocks(stepsToMarkdown(steps)),
-          pending_action: JSON.stringify({ action: staged, steps } satisfies StagedAction),
+          pending_action: JSON.stringify({
+            action: staged,
+            steps,
+            principal,
+            usage: runtime.usage,
+          } satisfies StagedAction),
           // Deliberately no `finished_at`: the run isn't finished, it's blocked.
         },
         actorId,
@@ -1018,6 +1072,17 @@ export class AgentsService implements OnModuleInit {
         // owner must be asked even when they are that person (#210).
         allowSelf: true,
       });
+      // The provider work has already happened even though a proposed mutation
+      // is waiting for a human. Charge it now; approval remains idempotent.
+      if (runtime.runClass === 'storyos_ai') {
+        waiting = await this.chargeStoryOsAiRun(
+          workspaceId,
+          runsDb.id,
+          waiting,
+          actorId,
+          runtime.usage,
+        );
+      }
       return waiting;
     }
 
@@ -1044,7 +1109,27 @@ export class AgentsService implements OnModuleInit {
     // MN-188: the storyos_ai mirror of the above — only a run that actually
     // succeeded is charged. A run that errored out cost nothing worth billing.
     if (!failure && runtime.runClass === 'storyos_ai') {
-      run = await this.chargeStoryOsAiRun(workspaceId, runsDb.id, run, actorId);
+      run = await this.chargeStoryOsAiRun(
+        workspaceId,
+        runsDb.id,
+        run,
+        actorId,
+        runtime.usage,
+      );
+    } else if (
+      failure &&
+      runtime.runClass === 'storyos_ai' &&
+      (runtime.usage?.tokensIn || runtime.usage?.tokensOut)
+    ) {
+      // Invalid model output still consumed provider tokens. Meter actual use,
+      // without pretending the failed run succeeded.
+      run = await this.chargeStoryOsAiRun(
+        workspaceId,
+        runsDb.id,
+        run,
+        actorId,
+        runtime.usage,
+      );
     }
     return run;
   }
@@ -1187,6 +1272,23 @@ export class AgentsService implements OnModuleInit {
   // ── Approval gates (#210, ADR-0010 §4) ──────────────────────────────────────
 
   /**
+   * #330: authorize the parsed operation against the derived principal. The
+   * proposal's display `kind` is not trusted for authorization because a model
+   * could label a delete as `set_values`.
+   */
+  private assertActionAllowed(principal: AgentPrincipal, action: ProposedAction): void {
+    const parsed = proposedActionPayloadSchema.safeParse(action.payload);
+    if (!parsed.success) return; // applyProposedAction reports the detailed shape error
+
+    const required: TokenScope = parsed.data.apply === 'record_delete' ? 'admin' : 'write';
+    if (TOKEN_SCOPE_RANK[principal.scope] < TOKEN_SCOPE_RANK[required]) {
+      throw new UnprocessableEntityException(
+        `Cannot apply this action — it requires ${required} scope but the agent principal has ${principal.scope}`,
+      );
+    }
+  }
+
+  /**
    * Apply a proposed action for real, and describe what happened as a step.
    *
    * The ONLY place a ProposedAction stops being data. Both callers route through
@@ -1201,6 +1303,7 @@ export class AgentsService implements OnModuleInit {
   private async applyProposedAction(
     workspaceId: string,
     action: ProposedAction,
+    principal: AgentPrincipal,
     actorId: string,
     depth: number,
   ): Promise<AgentStep> {
@@ -1216,6 +1319,7 @@ export class AgentsService implements OnModuleInit {
       );
     }
     const payload = parsed.data;
+    this.assertActionAllowed(principal, action);
 
     if (payload.apply === 'record_delete') {
       await this.recordsService.softDelete(
@@ -1295,7 +1399,21 @@ export class AgentsService implements OnModuleInit {
       // NOW the action happens — the first and only time. If applying throws, the
       // run stays parked and the gate stays open: the caller gets the error and
       // can retry, rather than the run being marked Succeeded over a no-op.
-      steps.push(await this.applyProposedAction(membership.workspaceId, staged.action, actorId, 0));
+      if (!staged.principal) {
+        throw new UnprocessableEntityException(
+          'This approval predates scoped principals and cannot be applied safely — reject it and run the agent again',
+        );
+      }
+      const principal = await this.currentPrincipal(membership.workspaceId, staged.principal);
+      steps.push(
+        await this.applyProposedAction(
+          membership.workspaceId,
+          staged.action,
+          principal,
+          actorId,
+          0,
+        ),
+      );
     } else {
       // Reject applies NOTHING. There is no rollback here and there is nothing to
       // roll back — the action never left the `Pending action` blob. That is the
@@ -1337,6 +1455,7 @@ export class AgentsService implements OnModuleInit {
           runsDb.id,
           resolved,
           actorId,
+          staged.usage,
         );
       }
     }

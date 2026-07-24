@@ -58,13 +58,18 @@ function plainText(blocks: unknown): string {
 }
 
 /** Create an agent whose "Approval policy" gates exactly `policy`. */
-async function createAgent(name: string, policy: string[]) {
+async function createAgent(
+  name: string,
+  policy: string[],
+  scope = 'admin',
+  token = admin.token,
+) {
   const fields = await fieldsOf(agentsDbId);
-  const res = await as(admin.token, 'POST', `/workspaces/${wsId}/databases/${agentsDbId}/records`, {
+  const res = await as(token, 'POST', `/workspaces/${wsId}/databases/${agentsDbId}/records`, {
     values: {
       name,
       enabled: true,
-      scopes: [optionId(fields.get('scopes'), 'write')],
+      scopes: [optionId(fields.get('scopes'), scope)],
       approval_policy: policy.map((p) => optionId(fields.get('approval_policy'), p)),
     },
   });
@@ -128,12 +133,12 @@ function stubRuntime(action: ProposedAction): AgentRuntime {
 }
 
 /** Run `agent` with `runtime` installed on the swappable seam, then restore it. */
-async function runWith(agentId: string, runtime: AgentRuntime) {
+async function runWith(agentId: string, runtime: AgentRuntime, token = admin.token) {
   const service = app.get(AgentsService);
   const original = service.runtimeFor;
   service.runtimeFor = () => runtime;
   try {
-    const res = await as(admin.token, 'POST', `/workspaces/${wsId}/agents/${agentId}/run`);
+    const res = await as(token, 'POST', `/workspaces/${wsId}/agents/${agentId}/run`);
     expect(res.statusCode, res.body).toBe(201);
     return res.json();
   } finally {
@@ -510,6 +515,112 @@ describe('An ungated action executes inline (#210, ADR-0010 §4)', () => {
       await as(admin.token, 'GET', `/workspaces/${wsId}/databases/${issuesDbId}/records/trash`)
     ).json();
     expect((trash.data ?? trash).some((r: { id: string }) => r.id === issue.id)).toBe(true);
+  });
+});
+
+describe('The derived principal is enforced at the action boundary (#330)', () => {
+  it('a read-scoped agent cannot write, even when the proposal is ungated', async () => {
+    const agent = await createAgent('Read-only editor', [], 'read');
+    const issue = await createIssue('Read-only target');
+    const run = await runWith(
+      agent.id,
+      stubRuntime({
+        kind: 'set_values',
+        summary: 'try to write notes',
+        payload: {
+          apply: 'automation_action',
+          database_id: issuesDbId,
+          record_id: issue.id,
+          action: { type: 'set_values', values: { notes: 'must not land' } },
+        },
+      }),
+    );
+
+    const runFields = await fieldsOf(runsDbId);
+    expect(run.values.status).toBe(optionId(runFields.get('status'), 'Failed'));
+    expect(plainText(run.values.steps)).toMatch(/requires write scope.*has read/i);
+    expect((await getIssue(issue.id)).values.notes).toBeFalsy();
+  });
+
+  it('a write-scoped agent cannot delete by disguising it with a harmless kind', async () => {
+    const agent = await createAgent('Write-only deleter', [], 'write');
+    const issue = await createIssue('Write-scope target');
+    const run = await runWith(
+      agent.id,
+      stubRuntime({
+        kind: 'set_values',
+        summary: 'pretend this is only an edit',
+        payload: { apply: 'record_delete', database_id: issuesDbId, record_id: issue.id },
+      }),
+    );
+
+    const runFields = await fieldsOf(runsDbId);
+    expect(run.values.status).toBe(optionId(runFields.get('status'), 'Failed'));
+    expect(plainText(run.values.steps)).toMatch(/requires admin scope.*has write/i);
+    await expectIssueAlive(issue.id, 'write scope must not delete');
+  });
+
+  it('approval cannot elevate a parked action after the agent owner is demoted', async () => {
+    const members = (await as(admin.token, 'GET', `/workspaces/${wsId}/members`)).json();
+    const list = Array.isArray(members) ? members : members.data;
+    const memberRow = list.find(
+      (row: { id: string; user: { email: string; id: string } }) => row.user.email === member.email,
+    );
+    expect(memberRow).toBeTruthy();
+
+    const agent = await createAgent('Demoted owner editor', ['outward'], 'write');
+    const issue = await createIssue('Demotion target');
+    const run = await runWith(
+      agent.id,
+      stubRuntime({
+        kind: 'outward',
+        summary: 'write after approval',
+        payload: {
+          apply: 'automation_action',
+          database_id: issuesDbId,
+          record_id: issue.id,
+          action: { type: 'set_values', values: { notes: 'must not land after demotion' } },
+        },
+      }),
+    );
+
+    // Manual agent dispatch is intentionally admin-only. Re-stamp the parked
+    // fixture with the member principal to exercise the unattended-owner
+    // demotion boundary that state-change and run_agent dispatch use.
+    const pending = JSON.parse(run.values.pending_action as string);
+    pending.principal = { userId: memberRow.user.id, scope: 'write' };
+    const restamped = await as(
+      admin.token,
+      'PATCH',
+      `/workspaces/${wsId}/databases/${runsDbId}/records/${run.id}`,
+      { values: { pending_action: JSON.stringify(pending) } },
+    );
+    expect(restamped.statusCode, restamped.body).toBe(200);
+
+    const demoted = await as(
+      admin.token,
+      'PATCH',
+      `/workspaces/${wsId}/members/${memberRow.id}`,
+      { role: 'guest' },
+    );
+    expect(demoted.statusCode, demoted.body).toBe(200);
+
+    const approved = await as(
+      admin.token,
+      'POST',
+      `/workspaces/${wsId}/agents/runs/${run.id}/approve`,
+    );
+    expect(approved.statusCode, approved.body).toBe(422);
+    expect(approved.json().error.message).toMatch(/requires write scope.*has read/i);
+    expect((await getIssue(issue.id)).values.notes).toBeFalsy();
+
+    const restored = await as(
+      admin.token,
+      'PATCH',
+      `/workspaces/${wsId}/members/${memberRow.id}`,
+      { role: 'member' },
+    );
+    expect(restored.statusCode, restored.body).toBe(200);
   });
 });
 

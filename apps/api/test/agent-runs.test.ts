@@ -13,6 +13,7 @@ import {
   YourOwnAiRuntime,
 } from '../src/agents/agent-runtime';
 import type { AgentRuntime } from '../src/agents/agent-runtime';
+import type { ManagedAiClient } from '../src/agents/managed-ai-client';
 
 let app: NestFastifyApplication;
 let admin: { token: string; email: string };
@@ -350,7 +351,7 @@ describe('Run classification at dispatch (#205, ADR-0010 §3)', () => {
     expect(runtime.runClass).toBe('your_own_ai');
   });
 
-  it('pickRuntime selects the (still-stub) managed runtime when an agent asks for storyos_ai', () => {
+  it('pickRuntime selects the managed runtime when an agent asks for storyos_ai', () => {
     const runtime = pickRuntime({ id: 'a', name: 'A', scopes: [], aiMode: 'storyos_ai' });
     expect(runtime).toBeInstanceOf(ManagedAiRuntime);
     expect(runtime.runClass).toBe('storyos_ai');
@@ -391,7 +392,7 @@ describe('Run classification at dispatch (#205, ADR-0010 §3)', () => {
     expect(handoff.detail).toContain('Triage new leads');
   });
 
-  it('the managed runtime is a stub that says so rather than silently degrading', async () => {
+  it('the managed runtime says what configuration is missing instead of silently degrading', async () => {
     const iterate = async () => {
       for await (const _ of new ManagedAiRuntime().execute({
         workspaceId: wsId,
@@ -402,6 +403,74 @@ describe('Run classification at dispatch (#205, ADR-0010 §3)', () => {
       }
     };
     await expect(iterate()).rejects.toThrow(/managed AI runtime not configured/i);
+  });
+
+  it('the managed runtime calls the model once and yields only schema-validated steps', async () => {
+    const complete = vi.fn<ManagedAiClient['complete']>().mockResolvedValue({
+      text: JSON.stringify({
+        steps: [
+          { tool: 'record.inspect', summary: 'Inspected the trigger record' },
+          {
+            tool: 'record.update',
+            summary: 'Proposed a triage note',
+            action: {
+              kind: 'set_values',
+              summary: 'set the triage note',
+              payload: {
+                apply: 'automation_action',
+                database_id: '11111111-1111-4111-8111-111111111111',
+                record_id: '22222222-2222-4222-8222-222222222222',
+                action: { type: 'set_values', values: { notes: 'triaged' } },
+              },
+            },
+          },
+        ],
+      }),
+      tokensIn: 123,
+      tokensOut: 45,
+    });
+    const runtime = new ManagedAiRuntime({ complete });
+    const steps = [];
+    for await (const step of runtime.execute({
+      workspaceId: wsId,
+      agent: {
+        id: 'agent-id',
+        name: 'Triage',
+        scopes: ['write'],
+        goal: 'Triage incoming work',
+      },
+      principal: { userId: 'owner-id', scope: 'write' },
+      inputRecordId: '22222222-2222-4222-8222-222222222222',
+    })) {
+      steps.push(step);
+    }
+
+    expect(complete).toHaveBeenCalledTimes(1);
+    expect(complete.mock.calls[0]![0]).toContain('Effective authorization scope: write');
+    expect(steps).toHaveLength(2);
+    expect(steps[1]?.action?.kind).toBe('set_values');
+    expect(runtime.usage).toEqual({ tokensIn: 123, tokensOut: 45 });
+  });
+
+  it('rejects malformed model output before the engine can apply it', async () => {
+    const runtime = new ManagedAiRuntime({
+      complete: vi.fn().mockResolvedValue({
+        text: '{"steps":[{"tool":"record.update","summary":"bad","action":{"kind":"set_values","summary":"bad","payload":{"apply":"record_delete","database_id":"not-a-uuid","record_id":"also-bad"}}}]}',
+        tokensIn: 10,
+        tokensOut: 5,
+      }),
+    });
+    const iterate = async () => {
+      for await (const _ of runtime.execute({
+        workspaceId: wsId,
+        agent: { id: 'a', name: 'A', scopes: ['write'] },
+        principal: { userId: 'u', scope: 'write' },
+      })) {
+        // validation fails before yielding
+      }
+    };
+    await expect(iterate()).rejects.toThrow(/invalid run plan/i);
+    expect(runtime.usage).toEqual({ tokensIn: 10, tokensOut: 5 });
   });
 
   it('stamps the run class BEFORE any step executes — a your-own-AI run is never metered', async () => {

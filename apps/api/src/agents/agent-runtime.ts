@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { actionSchema } from '@storyos/schemas';
 import type { AgentPrincipal } from './agent-principal';
+import type { ManagedAiClient } from './managed-ai-client';
 
 /**
  * The runtime seam (#205, ADR-0010 §3).
@@ -166,6 +167,10 @@ export interface AgentRunContext {
  */
 export interface AgentRuntime {
   readonly runClass: RunClass;
+  /** Real provider usage, when this runtime invokes a metered model. */
+  readonly usage?: { tokensIn: number; tokensOut: number };
+  /** Only the built-in managed driver needs the prepaid-credit preflight. */
+  readonly requiresManagedAiCredits?: boolean;
   execute(ctx: AgentRunContext): AsyncIterable<AgentStep>;
 }
 
@@ -279,27 +284,89 @@ export class YourOwnAiRuntime implements AgentRuntime {
   }
 }
 
-/**
- * The seam for StoryOS's managed model (metered, decrements prepaid credits,
- * records `cost`). Not configured yet — it throws rather than silently
- * degrading to the non-AI path, which would misreport what a run actually did.
- *
- * Deliberately still a stub even though MN-189's prepaid-credit ledger
- * (AiCreditsService) is real and load-bearing today (canUseManagedAi,
- * recordUsage, the whole balance/expiry/auto-reload machinery) — see #205's
- * CORRECTION. What's missing is not the ledger; it's a model-calling
- * boundary: this codebase has no LLM client, no provider choice, and no
- * prompt/tool-loop shape anywhere yet. Building one now, with no ADR behind
- * it, would be inventing a second seam under cover of "finishing" this one.
- * Wiring a real managed runtime to a real model belongs in its own ticket
- * once that boundary is actually decided.
- */
+const proposedActionKindSchema = z.enum([
+  ...APPROVAL_POLICY_KINDS,
+  'set_values',
+  'create_record',
+  'add_comment',
+  'notify_user',
+  'update_linked',
+]);
+
+const managedAgentStepSchema = z.object({
+  tool: z.string().min(1).max(100),
+  summary: z.string().min(1).max(500),
+  detail: z.string().max(2_000).optional(),
+  action: z
+    .object({
+      kind: proposedActionKindSchema,
+      summary: z.string().min(1).max(500),
+      payload: proposedActionPayloadSchema,
+    })
+    .optional(),
+});
+
+const managedRunResultSchema = z.object({
+  steps: z.array(managedAgentStepSchema).min(1).max(25),
+});
+
+function managedRunPrompt(ctx: AgentRunContext): string {
+  return [
+    'You are the StoryOS managed agent runtime. Return one JSON object only.',
+    'Shape: {"steps":[{"tool":"short.name","summary":"what happened","detail":"optional","action":optional}]}',
+    'An action is only a proposal. The StoryOS engine validates authorization, approval policy, and applies it.',
+    'Allowed action payloads:',
+    '{"apply":"record_delete","database_id":"UUID","record_id":"UUID"}',
+    '{"apply":"automation_action","database_id":"UUID","record_id":"UUID","action":{...}}',
+    'Allowed automation action types are set_values, create_record, add_comment, notify_user, update_linked, send_slack_message, send_webhook, run_agent, send_email, post_social, run_apify_actor, run_http_request, run_slack_action, run_google_calendar_action, and run_resend_action.',
+    'Never invent a database, record, field, relation, user, or connection identifier. If the supplied context lacks a required identifier, return an observational step explaining what is missing and propose no action.',
+    `Effective authorization scope: ${ctx.principal.scope}. Read scope must not propose mutations. Write scope must not propose deletions or schema/admin operations.`,
+    `Workspace: ${ctx.workspaceId}`,
+    `Agent: ${ctx.agent.name} (${ctx.agent.id})`,
+    `Goal: ${ctx.agent.goal?.trim() || '(none)'}`,
+    `Instructions: ${ctx.agent.instructions?.trim() || '(none)'}`,
+    `Declared scopes: ${ctx.agent.scopes.join(', ') || 'read'}`,
+    `Target databases: ${ctx.agent.targetDatabases?.trim() || '(none)'}`,
+    `Input record: ${ctx.inputRecordId || '(none)'}`,
+  ].join('\n');
+}
+
+/** StoryOS-hosted model driver. It proposes bounded, schema-validated steps. */
 export class ManagedAiRuntime implements AgentRuntime {
   readonly runClass: RunClass = 'storyos_ai';
+  readonly requiresManagedAiCredits = true;
+  usage = { tokensIn: 0, tokensOut: 0 };
 
-  // eslint-disable-next-line require-yield
-  async *execute(_ctx: AgentRunContext): AsyncIterable<AgentStep> {
-    throw new Error('Managed AI runtime not configured');
+  constructor(private readonly client?: ManagedAiClient) {}
+
+  async *execute(ctx: AgentRunContext): AsyncIterable<AgentStep> {
+    if (!this.client) {
+      throw new Error(
+        'Managed AI runtime not configured — set OPENAI_API_KEY (and optionally OPENAI_MODEL)',
+      );
+    }
+
+    const completion = await this.client.complete(managedRunPrompt(ctx));
+    this.usage = {
+      tokensIn: this.usage.tokensIn + completion.tokensIn,
+      tokensOut: this.usage.tokensOut + completion.tokensOut,
+    };
+
+    let json: unknown;
+    try {
+      json = JSON.parse(completion.text);
+    } catch {
+      throw new Error('Managed AI returned invalid JSON');
+    }
+    const result = managedRunResultSchema.safeParse(json);
+    if (!result.success) {
+      throw new Error(
+        `Managed AI returned an invalid run plan: ${result.error.issues
+          .map((issue) => `${issue.path.join('.')} ${issue.message}`)
+          .join('; ')}`,
+      );
+    }
+    for (const step of result.data.steps) yield step;
   }
 }
 
@@ -314,16 +381,15 @@ export class ManagedAiRuntime implements AgentRuntime {
  * Switches on the agent's own "AI mode" field (#205 item 1). An agent that
  * never set it — or a workspace whose Agents database predates the field —
  * gets exactly the behavior every agent has always had: NonAiRuntime.
- * `storyos_ai` still resolves to ManagedAiRuntime, which still throws (see its
- * doc comment) — picking it is honest about what the owner asked for even
- * though the driver behind it isn't built yet.
+ * `storyos_ai` resolves to the bounded managed driver. When its provider key is
+ * absent it fails clearly rather than silently changing the requested class.
  */
-export function pickRuntime(agent: AgentRunAgent): AgentRuntime {
+export function pickRuntime(agent: AgentRunAgent, managedClient?: ManagedAiClient): AgentRuntime {
   switch (agent.aiMode) {
     case 'your_own_ai':
       return new YourOwnAiRuntime();
     case 'storyos_ai':
-      return new ManagedAiRuntime();
+      return new ManagedAiRuntime(managedClient);
     case 'non_ai':
     default:
       return new NonAiRuntime();
