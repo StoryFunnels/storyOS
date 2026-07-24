@@ -78,6 +78,12 @@ services:
       # the payload's installation.id — no per-workspace secret. Absent → the
       # legacy per-workspace webhook_secret path stays in effect.
       GITHUB_APP_WEBHOOK_SECRET: ${GITHUB_APP_WEBHOOK_SECRET:-}
+      # Platform-admin bootstrap (MN-104/#304). Optional — seeds this email as a
+      # platform admin on API boot if a matching user already exists; otherwise
+      # logs a warning and retries on the next boot. Once your first admin
+      # exists, grant/revoke further admins from /admin itself rather than
+      # rotating this var.
+      PLATFORM_ADMIN_EMAIL: ${PLATFORM_ADMIN_EMAIL:-}
     volumes:
       - storyos_attachments:/data/attachments
       # To use GITHUB_APP_PRIVATE_KEY_FILE instead of the inline key, mount the PEM
