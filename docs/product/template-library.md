@@ -66,6 +66,10 @@ The first question in the gallery (and at workspace creation). Each answer maps 
 
 **Tasks:** full **Task DNA** + Project (→Projects M:1). Starter labels: `design` `copy` `dev` `ads` `email` `strategy` `admin` `client-waiting` `internal`.
 
+**Invoices** *(MN-082 — closes the billing loop)*: Status (Draft/Sent/Paid/Overdue/Void) · Invoice # (text) · Amount (currency) · Issued/Due/Paid Date · Invoice Link (url) · Notes (text) · Client (→Clients M:1) · Project (→Projects M:1). Views: Invoice Board (by Status), Unpaid & Overdue, **Payment Calendar** (by Due Date), Recent Invoices (feed, by Issued Date).
+
+Also new (MN-082): **Client Directory** (gallery, on Clients), **All Contacts** (list, on Contacts), **Project Timeline** (timeline, Start→Due, on Projects) — the same interlinked data, three more lenses on it.
+
 ### 2. Client Space ⭐ *(space template — recurring, client-shareable)*
 
 Installed per client, named "{Client name}". Everything here is guest-visible by design.

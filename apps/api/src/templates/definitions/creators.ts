@@ -189,6 +189,7 @@ export const consulting: TemplateDef = {
     { database: 'proposals', name: 'Open', type: 'table', filters: [{ field: 'stage', op: 'has', values: ['Sent', 'Negotiating'] }] },
     { database: 'engagements', name: 'Engagement Board', type: 'board', group_by_field: 'status' },
     { database: 'engagements', name: 'Ending Soon', type: 'table', filters: [{ field: 'end', op: 'within', value: 'next_30_days' }] },
+    { database: 'engagements', name: 'Engagement Timeline', type: 'timeline', start_date_field: 'start', end_date_field: 'end' },
     ...taskDnaViews('deliverables', 'Delivery Board'),
   ],
   records: [

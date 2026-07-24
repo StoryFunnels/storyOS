@@ -109,6 +109,46 @@ describe('template registry (MN-033/035/036/037)', () => {
     expect(sub.json().data.length).toBe(1);
   });
 
+  it('client-work (MN-082): Invoices interlink Clients + Projects, and the new view types wire up', async () => {
+    const ws = (await inject('POST', '/workspaces', { name: 'MN-082 client-work' })).json().id;
+    const res = await inject('POST', `/workspaces/${ws}/templates/client-work/apply`, {});
+    expect(res.statusCode, res.body).toBe(201);
+    const { clients, projects, contacts, invoices } = res.json().databases;
+    expect(invoices).toBeTruthy();
+
+    const detail = (await inject('GET', `/workspaces/${ws}/databases/${invoices}`)).json();
+    const relationTargets = detail.fields
+      .filter((f: { type: string }) => f.type === 'relation')
+      .map((f: { relation: { target_database_name: string } }) => f.relation.target_database_name);
+    expect(relationTargets).toEqual(expect.arrayContaining(['Clients', 'Projects']));
+
+    // sample invoices actually link to both sides
+    const linked = await inject('POST', `/workspaces/${ws}/databases/${invoices}/records/query`, {
+      filter: { field: 'client', op: 'not_empty' },
+    });
+    expect(linked.json().data.length).toBeGreaterThanOrEqual(1);
+
+    // new view types (MN-082): timeline on Projects, gallery on Clients, list on Contacts,
+    // calendar + feed on Invoices — all present with the config the client needs to render them.
+    const projectViews = (await inject('GET', `/workspaces/${ws}/databases/${projects}`)).json().views;
+    const timeline = projectViews.find((v: { type: string }) => v.type === 'timeline');
+    expect(timeline).toBeTruthy();
+    expect(timeline.config.start_date_field_id).toBeTruthy();
+    expect(timeline.config.end_date_field_id).toBeTruthy();
+
+    const clientViews = (await inject('GET', `/workspaces/${ws}/databases/${clients}`)).json().views;
+    expect(clientViews.some((v: { type: string }) => v.type === 'gallery')).toBe(true);
+
+    const contactViews = (await inject('GET', `/workspaces/${ws}/databases/${contacts}`)).json().views;
+    expect(contactViews.some((v: { type: string }) => v.type === 'list')).toBe(true);
+
+    const invoiceViews = (await inject('GET', `/workspaces/${ws}/databases/${invoices}`)).json().views;
+    expect(invoiceViews.some((v: { type: string }) => v.type === 'calendar')).toBe(true);
+    const feed = invoiceViews.find((v: { type: string }) => v.type === 'feed');
+    expect(feed).toBeTruthy();
+    expect(feed.config.card_field_ids.length).toBeGreaterThan(0);
+  });
+
   it('funnels (database-scoped) installs into an existing space and links to Clients cross-pack', async () => {
     const spaceId = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
     const res = await inject('POST', `/workspaces/${wsId}/templates/funnels/apply`, {

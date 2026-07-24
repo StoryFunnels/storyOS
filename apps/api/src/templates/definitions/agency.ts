@@ -6,19 +6,24 @@ import type { TemplateDef } from '../types';
 export const clientWork: TemplateDef = {
   slug: 'client-work',
   name: 'Client Projects & Tasks',
-  description: 'Clients, contacts, projects and a Linear-grade task system — the agency backbone.',
+  description: 'Clients, contacts, projects, tasks and invoices — the whole agency backbone, interlinked.',
   category: 'agency',
   scope: 'pack',
   space: 'Client Work',
     guide: `## How this works
 
-**Clients** anchor everything; **Projects** belong to a client; **Tasks** carry the daily work with the full Linear-style DNA (states, priorities, labels, sub-tasks, blockers). **Contacts** keep the humans attached to their companies.
+**Clients** anchor everything; **Projects** belong to a client; **Tasks** carry the daily work with the full Linear-style DNA (states, priorities, labels, sub-tasks, blockers). **Contacts** keep the humans attached to their companies, and **Invoices** close the loop — billed against both a Client and the Project that earned it.
 
 ## The loop
 
 - New engagement: Client → Project → break into Tasks on the Task Board.
 - Daily: everyone lives in **My Tasks**; the **Triage** view catches unsorted intake.
-- Client health: update the Health field on Clients weekly — the Health board is the account review.`,
+- Client health: update the Health field on Clients weekly — the Health board is the account review.
+- Billing: raise an Invoice against the Project when work ships; **Unpaid & Overdue** and the **Payment Calendar** are the finance review.
+
+## Tips
+
+- The **Client Directory** gallery and **Project Timeline** are the client-facing view of the same data — good for a status call.`,
   databases: [
     {
       key: 'clients',
@@ -92,19 +97,46 @@ export const clientWork: TemplateDef = {
       name: 'Tasks',
       labels: ['design', 'copy', 'dev', 'ads', 'email', 'strategy', 'admin', 'client-waiting', 'internal'],
     }),
+    {
+      key: 'invoices',
+      name: 'Invoices', icon: '🧾',
+      fields: [
+        { key: 'status', display_name: 'Status', type: 'select', options: [
+          { label: 'Draft', color: 'gray' }, { label: 'Sent', color: 'blue' },
+          { label: 'Paid', color: 'green' }, { label: 'Overdue', color: 'red' },
+          { label: 'Void', color: 'brown' },
+        ]},
+        { key: 'number', display_name: 'Invoice #', type: 'text' },
+        { key: 'amount', display_name: 'Amount', type: 'number', config: { format: 'currency' } },
+        { key: 'issued', display_name: 'Issued Date', type: 'date' },
+        { key: 'due', display_name: 'Due Date', type: 'date' },
+        { key: 'paid_date', display_name: 'Paid Date', type: 'date' },
+        { key: 'link', display_name: 'Invoice Link', type: 'url' },
+        { key: 'notes', display_name: 'Notes', type: 'text', config: { multiline: true } },
+      ],
+    },
   ],
   relations: [
     { key: 'contact_client', database_a: 'contacts', database_b: 'clients', cardinality: 'one_to_many', field_a_name: 'Client', field_b_name: 'Contacts' },
     { key: 'project_client', database_a: 'projects', database_b: 'clients', cardinality: 'one_to_many', field_a_name: 'Client', field_b_name: 'Projects' },
     { key: 'task_project', database_a: 'tasks', database_b: 'projects', cardinality: 'one_to_many', field_a_name: 'Project', field_b_name: 'Tasks' },
+    { key: 'invoice_client', database_a: 'invoices', database_b: 'clients', cardinality: 'one_to_many', field_a_name: 'Client', field_b_name: 'Invoices' },
+    { key: 'invoice_project', database_a: 'invoices', database_b: 'projects', cardinality: 'one_to_many', field_a_name: 'Project', field_b_name: 'Invoices' },
     ...taskDnaRelations('tasks'),
   ],
   views: [
     { database: 'clients', name: 'Active Clients', type: 'table', filters: [{ field: 'status', op: 'has', values: ['Active', 'Onboarding'] }] },
     { database: 'clients', name: 'Health Board', type: 'board', group_by_field: 'health' },
+    { database: 'clients', name: 'Client Directory', type: 'gallery', card_fields: ['industry', 'health', 'mrr'] },
+    { database: 'contacts', name: 'All Contacts', type: 'list', card_fields: ['role', 'email'] },
     { database: 'projects', name: 'Projects Board', type: 'board', group_by_field: 'status' },
     { database: 'projects', name: 'By Due Date', type: 'table', sorts: [{ field: 'due', direction: 'asc' }] },
+    { database: 'projects', name: 'Project Timeline', type: 'timeline', start_date_field: 'start', end_date_field: 'due' },
     ...taskDnaViews('tasks', 'Task Board'),
+    { database: 'invoices', name: 'Invoice Board', type: 'board', group_by_field: 'status' },
+    { database: 'invoices', name: 'Unpaid & Overdue', type: 'table', filters: [{ field: 'status', op: 'has', values: ['Sent', 'Overdue'] }], sorts: [{ field: 'due', direction: 'asc' }] },
+    { database: 'invoices', name: 'Payment Calendar', type: 'calendar', date_field: 'due' },
+    { database: 'invoices', name: 'Recent Invoices', type: 'feed', card_fields: ['status', 'amount'], sorts: [{ field: 'issued', direction: 'desc' }] },
   ],
   records: [
     { key: 'jcm', database: 'clients', values: { name: 'JCM (sample)', status: 'Active', health: 'Great', industry: 'Publishing' } },
@@ -117,6 +149,9 @@ export const clientWork: TemplateDef = {
     { database: 'tasks', values: { name: 'Write homepage copy (sample)', state: 'Triage', labels: ['copy'] }, links: [{ relation: 'task_project', to: 'p1' }] },
     { database: 'tasks', values: { name: 'Kickoff checklist (sample)', state: 'Done', priority: 'Medium', labels: ['admin'], assignee: '@me' }, links: [{ relation: 'task_project', to: 'p2' }] },
     { database: 'tasks', values: { name: 'Waiting: brand assets from client (sample)', state: 'Backlog', labels: ['client-waiting'] }, links: [{ relation: 'task_project', to: 'p2' }] },
+    { database: 'invoices', values: { name: 'INV-1001 (sample)', status: 'Paid', number: 'INV-1001', amount: 4500 }, links: [{ relation: 'invoice_client', to: 'jcm' }, { relation: 'invoice_project', to: 'p1' }] },
+    { database: 'invoices', values: { name: 'INV-1002 (sample)', status: 'Sent', number: 'INV-1002', amount: 6000 }, links: [{ relation: 'invoice_client', to: 'jcm' }, { relation: 'invoice_project', to: 'p1' }] },
+    { database: 'invoices', values: { name: 'INV-1003 (sample)', status: 'Overdue', number: 'INV-1003', amount: 2500 }, links: [{ relation: 'invoice_client', to: 'acme' }, { relation: 'invoice_project', to: 'p2' }] },
   ],
 };
 
@@ -362,6 +397,7 @@ export const socialCalendar: TemplateDef = {
     { database: 'posts', name: 'Post Board', type: 'board', group_by_field: 'status' },
     { database: 'posts', name: 'Content Calendar', type: 'calendar', date_field: 'publish' },
     { database: 'posts', name: 'This Week', type: 'table', filters: [{ field: 'publish', op: 'within', value: 'next_7_days' }], sorts: [{ field: 'publish', direction: 'asc' }] },
+    { database: 'posts', name: 'Post Gallery', type: 'gallery', card_fields: ['channel', 'format', 'status'] },
     { database: 'moments', name: 'Moments calendar', type: 'calendar', date_field: 'date' },
   ],
   records: [
@@ -518,8 +554,11 @@ export const contentPipeline: TemplateDef = {
     { database: 'articles', name: 'Ideas to rate', type: 'table', filters: [{ field: 'stage', op: 'has', values: ['Idea'] }], sorts: [{ field: 'rating', direction: 'desc' }] },
     { database: 'articles', name: 'By writer', type: 'board', group_by_field: 'stage', sorts: [{ field: 'target_date', direction: 'asc' }] },
     { database: 'articles', name: 'Publish Schedule', type: 'table', sorts: [{ field: 'target_date', direction: 'asc' }] },
+    { database: 'articles', name: 'Publish Calendar', type: 'calendar', date_field: 'target_date' },
+    { database: 'articles', name: 'Latest Published', type: 'feed', card_fields: ['type', 'author'], filters: [{ field: 'stage', op: 'has', values: ['Published'] }], sorts: [{ field: 'published_date', direction: 'desc' }] },
     { database: 'topics', name: 'Topic map', type: 'board', group_by_field: 'priority' },
     { database: 'campaigns', name: 'Campaign Board', type: 'board', group_by_field: 'status' },
+    { database: 'campaigns', name: 'Campaign Timeline', type: 'timeline', start_date_field: 'start', end_date_field: 'end' },
   ],
   records: [
     { key: 'camp', database: 'campaigns', values: { name: 'Q3 launch (sample)', status: 'Running' } },

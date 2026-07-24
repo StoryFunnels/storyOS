@@ -53,9 +53,14 @@ export interface TemplateFilterDef {
 export interface TemplateViewDef {
   database: string;
   name: string;
-  type: 'table' | 'board' | 'calendar';
+  type: 'table' | 'board' | 'calendar' | 'gallery' | 'list' | 'feed' | 'timeline';
   group_by_field?: string; // field key
   date_field?: string; // field key (calendar)
+  /** Timeline only — the bar's start (required) + optional end date field. */
+  start_date_field?: string;
+  end_date_field?: string;
+  /** Gallery/list/feed/board card body fields (also calendar chips). */
+  card_fields?: string[];
   filters?: TemplateFilterDef[];
   sorts?: Array<{ field: string; direction: 'asc' | 'desc' }>; // field keys
 }
