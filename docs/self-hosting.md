@@ -42,6 +42,7 @@ Set in `.env` next to `docker-compose.yml`. Only `BETTER_AUTH_SECRET` is require
 | `STRIPE_WEBHOOK_SECRET` | unset | `whsec_…` from your Stripe webhook endpoint (`{API_URL}/api/v1/billing/webhook`). Required for plan changes to sync back. |
 | `STRIPE_PRICE_PRO/BUSINESS/SEAT` | unset | price ids from `pnpm --filter @storyos/api billing:seed` (run once per Stripe account/mode) |
 | `STRIPE_TAX_ENABLED` | `false` | `true` to calculate/collect VAT/sales tax via Stripe Tax (paid add-on; must be activated in the dashboard) |
+| `PLATFORM_ADMIN_EMAIL` | unset | on API boot, grants `/admin` access to this email if a matching user already signed up — otherwise logs a warning and retries next boot. Set it, sign up with that exact address first if you haven't, then restart the `api` container once. Manage further admins from `/admin` itself afterward rather than rotating this var. |
 
 ## Connections (MN-252)
 
