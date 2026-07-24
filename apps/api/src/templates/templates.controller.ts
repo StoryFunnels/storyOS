@@ -10,6 +10,7 @@ import { TemplatesService } from './templates.service';
 const applyTemplateSchema = z.object({
   space_id: z.uuid().optional(),
   space_name: z.string().trim().min(1).max(100).optional(),
+  database_name: z.string().trim().min(1).max(100).optional(),
   include_samples: z.boolean().default(true),
 });
 class ApplyTemplateDto extends createZodDto(applyTemplateSchema) {}
@@ -37,12 +38,11 @@ export class WorkspaceTemplatesController {
   constructor(private readonly templates: TemplatesService) {}
 
   @Post(':slug/apply')
-  @ApiOperation({ summary: 'Install a template (packs create a space; database templates take space_id)' })
-  apply(
-    @Req() req: WorkspaceRequest,
-    @Param('slug') slug: string,
-    @Body() body: ApplyTemplateDto,
-  ) {
+  @ApiOperation({
+    summary:
+      'Install a template (packs create a space; database templates take space_id and may be renamed)',
+  })
+  apply(@Req() req: WorkspaceRequest, @Param('slug') slug: string, @Body() body: ApplyTemplateDto) {
     return this.templates.apply(req.membership, slug, req.user.id, body);
   }
 

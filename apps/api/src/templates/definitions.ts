@@ -2,14 +2,30 @@
  * Template registry (MN-033) — the machine-readable docs/product/template-library.md.
  * Definitions live per category; this file assembles the registry + intents.
  */
-import { agencyCrm, clientSpace, clientWork, contentPipeline, funnels, socialCalendar } from './definitions/agency';
+import {
+  agencyCrm,
+  clientSpace,
+  clientWork,
+  contentPipeline,
+  funnels,
+  socialCalendar,
+} from './definitions/agency';
+import { calendarDatabase } from './definitions/calendar';
 import { authorStudio, coachingPractice, consulting } from './definitions/creators';
 import { devProject, soloDev } from './definitions/dev';
-import { campaignsHq, customerJourney, eventPlanning, meetings, salesCrm, videoProduction } from './definitions/marketing';
+import {
+  campaignsHq,
+  customerJourney,
+  eventPlanning,
+  meetings,
+  salesCrm,
+  videoProduction,
+} from './definitions/marketing';
 import { orgChart, timeOff } from './definitions/people';
 import type { IntentDef, TemplateDef } from './types';
 
 export const TEMPLATES: TemplateDef[] = [
+  calendarDatabase,
   clientWork,
   clientSpace,
   agencyCrm,

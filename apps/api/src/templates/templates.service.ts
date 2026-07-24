@@ -18,6 +18,8 @@ export interface ApplyOptions {
   space_id?: string;
   /** Rename the pack's space at install (Client Space → the client's name). */
   space_name?: string;
+  /** Rename a single-database template at install (Calendar → Team Calendar). */
+  database_name?: string;
   include_samples?: boolean;
 }
 
@@ -52,10 +54,17 @@ export class TemplatesService {
             name: d.name,
             fields: d.fields.map((f) => ({ name: f.display_name, type: f.type })),
           })),
-          views: t.views.map((v) => ({ database: t.databases.find((d) => d.key === v.database)?.name, name: v.name, type: v.type })),
+          views: t.views.map((v) => ({
+            database: t.databases.find((d) => d.key === v.database)?.name,
+            name: v.name,
+            type: v.type,
+          })),
           relations: t.relations.map((r) => {
             const a = t.databases.find((d) => d.key === r.database_a)?.name ?? r.database_a;
-            const b = r.external_target_name ?? t.databases.find((d) => d.key === r.database_b)?.name ?? r.database_b;
+            const b =
+              r.external_target_name ??
+              t.databases.find((d) => d.key === r.database_b)?.name ??
+              r.database_b;
             return `${a} ↔ ${b}`;
           }),
         },
@@ -93,7 +102,10 @@ export class TemplatesService {
     for (const dbDef of template.databases) {
       const database = await this.databases.create(membership, {
         space_id: spaceId!,
-        name: dbDef.name,
+        name:
+          template.scope === 'database' && template.databases.length === 1
+            ? options.database_name?.trim() || dbDef.name
+            : dbDef.name,
         icon: dbDef.icon,
       });
       dbIds.set(dbDef.key, database.id);
@@ -183,7 +195,9 @@ export class TemplatesService {
             card_field_ids: [],
             column_widths: {},
             ...(viewDef.group_by_field
-              ? { group_by_field_id: fieldIds.get(`${viewDef.database}.${viewDef.group_by_field}`)! }
+              ? {
+                  group_by_field_id: fieldIds.get(`${viewDef.database}.${viewDef.group_by_field}`)!,
+                }
               : {}),
             ...(viewDef.date_field
               ? { date_field_id: fieldIds.get(`${viewDef.database}.${viewDef.date_field}`)! }
@@ -252,6 +266,7 @@ export class TemplatesService {
       applied: slug,
       space_id: spaceId,
       databases: Object.fromEntries(dbIds),
+      fields: Object.fromEntries(fieldIds),
       sample_records: sampleIds.length,
       notes,
     };
