@@ -20,6 +20,22 @@ describe('same-field paste — exact for every type', () => {
     const user = field({ type: 'user', id: 'assignee' });
     expect(coercePaste(user, '', copied(user, 'usr-1'))).toBe('usr-1');
   });
+
+  // A live user report: filling a relation column down/across several rows in
+  // the SAME column tripped the backend's raw "expected an array of record
+  // ids or numbers" validation instead of succeeding. `copied.value` for a
+  // relation cell is always the display shape, {id,title}[] chips — never
+  // bare ids, even when copying within one column — but this fast path used
+  // to return it verbatim, bypassing the chip-to-id extraction the dedicated
+  // relation → relation branch below does. This is the single most common
+  // relation-paste case, and the one path that branch never covered (it only
+  // ran when `copied.field.id !== target.id`).
+  it('relation is excluded from the verbatim fast path — extracts ids from chips, even within the same column', () => {
+    const epic = field({ type: 'relation', id: 'epic', relation: { target_database_id: 'db-A' } as never });
+    expect(coercePaste(epic, '', copied(epic, [{ id: 'rec-1', title: 'Integrations & Agents' }]))).toEqual(
+      ['rec-1'],
+    );
+  });
 });
 
 describe('user → user across different fields', () => {

@@ -43,7 +43,21 @@ export function coercePaste(target: Field, text: string, copied: CopiedCell | nu
     target.options?.find((o) => o.label.toLowerCase() === label.trim().toLowerCase())?.id;
 
   // Same FIELD: exact for every type — the ids are the same ids by definition.
-  if (copied && copied.field.id === target.id) return copied.value;
+  //
+  // EXCEPT relation: `copied.value` for a relation cell is the display shape,
+  // {id,title}[] chips (fieldValue/cells.tsx reads row.values[apiName]
+  // straight from the server's resolved response) — never bare ids, even
+  // when the source and target are literally the same field/column. Sending
+  // chip objects as a values payload trips the backend's relation-value
+  // validator ("expected an array of record ids or numbers"), because it
+  // only accepts string/number entries, not objects. This is the single most
+  // common relation-paste case (fill a relation column down/across several
+  // rows in the SAME column) and was the one path the dedicated relation →
+  // relation handling below never covered — that logic only ran when
+  // `copied.field.id !== target.id`. Falling through to it here is safe: for
+  // a same-field copy, `from === to` trivially, so it only ever extracts ids
+  // or cleanly refuses, exactly like a cross-field same-database paste does.
+  if (copied && copied.field.id === target.id && target.type !== 'relation') return copied.value;
 
   // Same TYPE, scalar: the value carries no field-specific identity.
   if (
