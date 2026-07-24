@@ -6,6 +6,7 @@ import { AUTH } from './auth/auth.tokens';
 import type { Auth } from './auth/auth';
 import { toWebHeaders } from './auth/auth.guard';
 import { checkSignInRateLimit, isSignInPath } from './auth/auth-rate-limit';
+import { augmentSupportedScopes } from './auth/mcp-scope';
 import { env } from './config/env';
 import { GITHUB_WEBHOOK_PATH } from './integrations/github-webhook.service';
 import { BILLING_WEBHOOK_PATH } from './billing/billing.controller';
@@ -195,9 +196,46 @@ function mountAuthHandler(app: NestFastifyApplication) {
           return sendAuthError(request.id, reply, firstError, request.log);
         }
       }
+      // #331: the guard requires `storyos.mcp` on OAuth tokens, but better-auth's
+      // mcp plugin hardcodes `scopes_supported` in its authorization-server
+      // discovery document and ignores `oidcConfig.metadata.scopes_supported`, so
+      // the scope is never advertised, never requested by a client, never granted —
+      // and every tool call then 401s. Rewriting the discovery response here is the
+      // only place the plugin leaves us to advertise it (see mcp-scope.ts).
+      if (env().MCP_OAUTH && isAsMetadataPath(path)) {
+        response = await augmentAsMetadataResponse(response);
+      }
       return sendAuthResponse(reply, response);
     },
   });
+}
+
+/** The authorization-server metadata document (RFC 8414), mounted under the auth base. */
+function isAsMetadataPath(path: string): boolean {
+  return path === '/api/v1/auth/.well-known/oauth-authorization-server';
+}
+
+/**
+ * Re-serialize the AS-metadata response with `storyos.mcp` (and the full
+ * supported set) merged into `scopes_supported`. Content-length is dropped so
+ * Fastify recomputes it from the new — longer — body (see sendAuthResponse).
+ * On any parse hiccup the original response is returned untouched: advertising
+ * the extra scope is a nicety, never worth breaking discovery over.
+ */
+async function augmentAsMetadataResponse(response: Response): Promise<Response> {
+  try {
+    const doc = (await response.clone().json()) as Record<string, unknown>;
+    const augmented = augmentSupportedScopes(doc);
+    const headers = new Headers(response.headers);
+    headers.delete('content-length');
+    return new Response(JSON.stringify(augmented), {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  } catch {
+    return response;
+  }
 }
 
 async function sendAuthResponse(reply: FastifyReply, response: Response) {

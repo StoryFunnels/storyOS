@@ -45,6 +45,38 @@ Set in `.env` next to `docker-compose.yml`. Only `BETTER_AUTH_SECRET` is require
 | `STRIPE_PRICE_PRO/BUSINESS/SEAT` | unset | price ids from `pnpm --filter @storyos/api billing:seed` (run once per Stripe account/mode) |
 | `STRIPE_TAX_ENABLED` | `false` | `true` to calculate/collect VAT/sales tax via Stripe Tax (paid add-on; must be activated in the dashboard) |
 | `PLATFORM_ADMIN_EMAIL` | unset | on API boot, grants `/admin` access to this email if a matching user already signed up — otherwise logs a warning and retries next boot. Set it, sign up with that exact address first if you haven't, then restart the `api` container once. Manage further admins from `/admin` itself afterward rather than rotating this var. |
+| `MCP_OAUTH` | `false` | Turns the API into an OAuth authorization server for hosted-MCP connectors (MN-154), so a claude.ai/ChatGPT connector can sign in instead of pasting a PAT. **Read the ⚠️ warning in [Hosted MCP & OAuth](#hosted-mcp--oauth) before enabling** — it changes how the MCP endpoint challenges clients and can make existing PAT connections need reconnection. Requires the oidc tables migrated. |
+
+## Hosted MCP & OAuth
+
+The hosted MCP endpoint (`packages/mcp`, served at e.g. `https://mcp.storyos.dev/mcp`)
+lets AI agents reach a workspace. It is **auth-method-agnostic**: it forwards whatever
+`Authorization: Bearer …` it receives to the API, which validates it as a personal
+access token (`mn_pat_…`) or — when `MCP_OAUTH` is on — an OAuth access token. A client
+that presents a valid PAT always authenticates, **whether or not `MCP_OAUTH` is set**.
+
+> ### ⚠️ Enabling `MCP_OAUTH` can silently break existing PAT connections
+>
+> When `MCP_OAUTH` is on, the MCP endpoint advertises OAuth on an *unauthenticated*
+> probe (it returns `401` with a `WWW-Authenticate: … resource_metadata=…` challenge
+> pointing at the authorization server). Some MCP clients read that as "this resource
+> is **OAuth-only**" and abandon a PAT they were otherwise configured to send — so a
+> connection that worked yesterday starts failing every tool call with a confusing
+> **"Authentication required"**, even though nothing about the PAT changed. This is
+> [#331](https://github.com/StoryFunnels/storyOS/issues/331). To reduce the blast
+> radius the endpoint now advertises **both** an OAuth challenge and a plain PAT
+> `Bearer` challenge, but a client that only reacts to `resource_metadata` may still
+> switch itself to OAuth.
+>
+> **Before you flip it on:** test the full OAuth flow end to end with your target
+> client, and expect that some PAT-based connectors will need to be **removed and
+> re-added**. Do not enable it on a production instance that other people's PAT
+> connectors depend on without warning them first. When it boots with `MCP_OAUTH` on,
+> both the API and the MCP server log a warning to this effect.
+
+Leaving `MCP_OAUTH` unset (the default) keeps the endpoint PAT-only, which is the
+right choice for most self-hosted setups: mint a PAT under **Settings → API** and paste
+it into the connector.
 
 ## Connections (MN-252)
 
