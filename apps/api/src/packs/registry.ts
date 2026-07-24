@@ -21,8 +21,9 @@ export const PACK_REGISTRY: PackRegistryEntry[] = [
     slug: 'support-inbox',
     name: 'Support Inbox',
     summary:
-      'A lightweight support ticket tracker: a New → In Progress → Resolved workflow, a board view, ' +
-      'a status-change notification, and a Triage agent that reads new tickets.',
+      'A lightweight support ticket tracker: a New → To Do → In Progress → Review → Done workflow ' +
+      '(with Blocked and Canceled for the rest), a board view, a status-change notification, and a ' +
+      'Triage agent that reads new tickets.',
     highlights: [
       'Tickets database with Description and Requester Email',
       'Board view grouped by Status',
@@ -55,10 +56,19 @@ export const PACK_REGISTRY: PackRegistryEntry[] = [
         {
           database: 'Tickets',
           field: 'Status',
+          // #306: expanded from New/In Progress/Resolved — three states was too
+          // thin for a real support workflow (no room for a review step, a
+          // blocked ticket, or a cancellation). Same state-model pattern as
+          // StoryOS's own internal issue tracker (see the Backlog-style select
+          // fields throughout starter-packs.ts), colors included.
           options: [
-            { label: 'New', color: 'blue' },
+            { label: 'New', color: 'gray' },
+            { label: 'To Do', color: 'blue' },
             { label: 'In Progress', color: 'gold' },
-            { label: 'Resolved', color: 'green' },
+            { label: 'Review', color: 'purple' },
+            { label: 'Done', color: 'green' },
+            { label: 'Blocked', color: 'red' },
+            { label: 'Canceled', color: 'brown' },
           ],
         },
       ],
