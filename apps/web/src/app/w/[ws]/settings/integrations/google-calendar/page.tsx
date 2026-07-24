@@ -2,12 +2,14 @@
 
 import Link from 'next/link';
 import { useParams, useSearchParams } from 'next/navigation';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CalendarDays, RefreshCw, Trash2 } from 'lucide-react';
+import { CalendarDays, CheckCircle2, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, API_URL, apiErrorMessage } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useDatabases, useSpaces } from '@/lib/queries';
 import { qualifiedDatabaseLabel } from '@/lib/database-labels';
@@ -34,12 +36,22 @@ interface Calendar {
 interface Binding {
   id: string;
   connection_id: string;
+  database_id: string;
   database_name: string;
   database_space_name: string;
   calendar_name: string;
   start_field_name: string;
   last_sync_at: string | null;
   last_error: string | null;
+}
+
+interface CalendarTemplateResult {
+  databases: { calendar: string };
+  fields: {
+    'calendar.start': string;
+    'calendar.end': string;
+    'calendar.description': string;
+  };
 }
 
 async function calendarApi<T>(ws: string, path: string, init?: RequestInit): Promise<T> {
@@ -73,6 +85,16 @@ export default function GoogleCalendarIntegrationPage() {
   const [startFieldId, setStartFieldId] = useState('');
   const [endFieldId, setEndFieldId] = useState('');
   const [descriptionFieldId, setDescriptionFieldId] = useState('');
+  const [templateOpen, setTemplateOpen] = useState(false);
+  const [templateSpaceId, setTemplateSpaceId] = useState('');
+  const [templateName, setTemplateName] = useState('Calendar');
+  const [syncSummary, setSyncSummary] = useState<string | null>(null);
+  const pendingTemplateMapping = useRef<{
+    databaseId: string;
+    start: string;
+    end: string;
+    description: string;
+  } | null>(null);
 
   const connections = useQuery({
     queryKey: ['connections', ws],
@@ -130,6 +152,14 @@ export default function GoogleCalendarIntegrationPage() {
   }, [connections.data, connectionId]);
 
   useEffect(() => {
+    const template = pendingTemplateMapping.current;
+    if (template?.databaseId === databaseId) {
+      setStartFieldId(template.start);
+      setEndFieldId(template.end);
+      setDescriptionFieldId(template.description);
+      pendingTemplateMapping.current = null;
+      return;
+    }
     setStartFieldId('');
     setEndFieldId('');
     setDescriptionFieldId('');
@@ -149,7 +179,7 @@ export default function GoogleCalendarIntegrationPage() {
     mutationFn: async () => {
       const calendar = calendars.data?.find((item) => item.id === calendarId);
       if (!calendar) throw new Error('Choose a calendar');
-      return calendarApi<{ id: string }>(ws, '/bindings', {
+      const binding = await calendarApi<{ id: string }>(ws, '/bindings', {
         method: 'POST',
         body: JSON.stringify({
           connection_id: connectionId,
@@ -161,16 +191,22 @@ export default function GoogleCalendarIntegrationPage() {
           ...(descriptionFieldId ? { description_field_id: descriptionFieldId } : {}),
         }),
       });
-    },
-    onSuccess: async ({ id }) => {
-      toast.success('Calendar mapping saved');
-      await queryClient.invalidateQueries({ queryKey: ['google-calendar-bindings', ws] });
       const result = await calendarApi<{ synced: number; skipped: number }>(
         ws,
-        `/bindings/${id}/sync`,
+        `/bindings/${binding.id}/sync`,
         { method: 'POST' },
       );
-      toast.success(`Initial sync complete: ${result.synced} event(s) pushed`);
+      return { ...result, id: binding.id };
+    },
+    onSuccess: async ({ synced, skipped }) => {
+      await queryClient.invalidateQueries({ queryKey: ['google-calendar-bindings', ws] });
+      const summary =
+        synced === 0
+          ? `Mapping saved. No dated records were ready to sync (${skipped} skipped).`
+          : `Initial sync complete: ${synced} event${synced === 1 ? '' : 's'} pushed; ${skipped} skipped.`;
+      setSyncSummary(summary);
+      if (synced === 0) toast.info(summary);
+      else toast.success(summary);
     },
     onError: (error) => toast.error(apiErrorMessage(error, 'Could not save mapping')),
   });
@@ -181,7 +217,13 @@ export default function GoogleCalendarIntegrationPage() {
         method: 'POST',
       }),
     onSuccess: (result) => {
-      toast.success(`Synced ${result.synced}; skipped ${result.skipped} unchanged/undated`);
+      const summary =
+        result.synced === 0
+          ? `Nothing new to push; ${result.skipped} unchanged or undated record${result.skipped === 1 ? '' : 's'} skipped.`
+          : `Synced ${result.synced}; skipped ${result.skipped} unchanged or undated.`;
+      setSyncSummary(summary);
+      if (result.synced === 0) toast.info(summary);
+      else toast.success(summary);
       void queryClient.invalidateQueries({ queryKey: ['google-calendar-bindings', ws] });
     },
     onError: (error) => toast.error(apiErrorMessage(error, 'Sync failed')),
@@ -197,6 +239,63 @@ export default function GoogleCalendarIntegrationPage() {
   const activeConnections = (connections.data ?? []).filter(
     (connection) => connection.status === 'active',
   );
+  const createCalendarDatabase = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(`${API_URL}/api/v1/workspaces/${ws}/templates/calendar/apply`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          space_id: templateSpaceId,
+          database_name: templateName.trim(),
+          include_samples: false,
+        }),
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as {
+          error?: { message?: string };
+        } | null;
+        throw new Error(body?.error?.message ?? `Database creation failed (${response.status})`);
+      }
+      return response.json() as Promise<CalendarTemplateResult>;
+    },
+    onSuccess: async (result) => {
+      const newDatabaseId = result.databases.calendar;
+      pendingTemplateMapping.current = {
+        databaseId: newDatabaseId,
+        start: result.fields['calendar.start'],
+        end: result.fields['calendar.end'],
+        description: result.fields['calendar.description'],
+      };
+      await queryClient.invalidateQueries({ queryKey: ['databases', ws] });
+      setDatabaseId(newDatabaseId);
+      setTemplateOpen(false);
+      toast.success(`${templateName.trim()} is ready and its fields are mapped`);
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, 'Could not create Calendar database')),
+  });
+
+  function openTemplateDialog() {
+    const existingNames = new Set((databases.data ?? []).map((database) => database.name));
+    let candidate = 'Calendar';
+    let suffix = 2;
+    while (existingNames.has(candidate)) candidate = `Calendar ${suffix++}`;
+    setTemplateName(candidate);
+    setTemplateSpaceId(spaces.data?.[0]?.id ?? '');
+    setTemplateOpen(true);
+  }
+
+  const hasActiveMapping = (bindings.data ?? []).length > 0;
+  const setupSteps = [
+    { label: 'Connect account', done: activeConnections.length > 0 },
+    { label: 'Choose database & calendar', done: Boolean(databaseId && calendarId) },
+    { label: 'Map fields', done: Boolean(startFieldId) },
+    { label: 'Initial sync', done: hasActiveMapping },
+    {
+      label: 'Verify',
+      done: Boolean(syncSummary || bindings.data?.some((binding) => binding.last_sync_at)),
+    },
+  ];
 
   return (
     <div className="mx-auto max-w-3xl p-4 sm:p-8">
@@ -216,6 +315,30 @@ export default function GoogleCalendarIntegrationPage() {
             Push dated StoryOS records into a Google calendar.
           </p>
         </div>
+      </div>
+
+      <ol className="mt-6 grid gap-2 sm:grid-cols-5">
+        {setupSteps.map((step, index) => (
+          <li
+            key={step.label}
+            className="flex items-center gap-2 rounded-[var(--radius-control)] border border-border-default bg-card px-3 py-2 text-[12px] text-muted sm:flex-col sm:items-start"
+          >
+            <span
+              className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] ${
+                step.done ? 'bg-accent-soft text-ink' : 'bg-hover text-muted'
+              }`}
+            >
+              {step.done ? <CheckCircle2 className="h-3.5 w-3.5" /> : index + 1}
+            </span>
+            {step.label}
+          </li>
+        ))}
+      </ol>
+
+      <div className="mt-4 rounded-[var(--radius-control)] border border-border-default bg-hover px-4 py-3 text-[12px] text-muted">
+        Current sync direction:{' '}
+        <span className="font-medium text-ink">StoryOS → Google Calendar</span>. New edits and
+        deletions in StoryOS are pushed automatically. Changes made in Google are not imported yet.
       </div>
 
       {activeConnections.length === 0 ? (
@@ -260,6 +383,7 @@ export default function GoogleCalendarIntegrationPage() {
                   value: item.id,
                   label: qualifiedDatabaseLabel(item, spaces.data ?? []),
                 }))}
+                help="Choose a database with a date field, or create the ready-to-sync Calendar template."
               />
               <SelectField
                 label="Calendar"
@@ -270,6 +394,7 @@ export default function GoogleCalendarIntegrationPage() {
                   value: item.id,
                   label: `${item.name}${item.primary ? ' (primary)' : ''}`,
                 }))}
+                help="Only calendars where this account can create events are shown."
               />
               <SelectField
                 label="Start date"
@@ -280,6 +405,7 @@ export default function GoogleCalendarIntegrationPage() {
                   value: item.id,
                   label: item.display_name,
                 }))}
+                help="Example: Start. Records without this value are skipped."
               />
               <SelectField
                 label="End date (optional)"
@@ -290,6 +416,7 @@ export default function GoogleCalendarIntegrationPage() {
                   value: item.id,
                   label: item.display_name,
                 }))}
+                help="Example: End. If empty, events last one hour or one day."
               />
               <SelectField
                 label="Description (optional)"
@@ -300,8 +427,23 @@ export default function GoogleCalendarIntegrationPage() {
                   value: item.id,
                   label: item.display_name,
                 }))}
+                help="Example: Description or Notes. This becomes the Google event body."
               />
             </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <Button size="sm" variant="secondary" onClick={openTemplateDialog}>
+                <Plus className="h-3.5 w-3.5" /> Create Calendar database
+              </Button>
+              <span className="text-[12px] text-muted">
+                Installs Start, End, Description, Status and Location fields plus Calendar and
+                Upcoming views.
+              </span>
+            </div>
+            {databaseId && fields.isSuccess && dateFields.length === 0 && (
+              <p className="mt-3 rounded-[var(--radius-control)] bg-hover px-3 py-2 text-[12px] text-ink">
+                This database has no date fields. Add one, or create the Calendar database above.
+              </p>
+            )}
             <Button
               className="mt-5"
               disabled={
@@ -321,7 +463,10 @@ export default function GoogleCalendarIntegrationPage() {
             <h2 className="mb-2 text-sm font-semibold text-ink">Active mappings</h2>
             <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card">
               {(bindings.data ?? []).length === 0 && (
-                <p className="px-4 py-6 text-[13px] text-muted">No mappings yet.</p>
+                <p className="px-4 py-6 text-[13px] text-muted">
+                  No mappings yet. Complete the fields above; dated records will become Google
+                  events after the first sync.
+                </p>
               )}
               {(bindings.data ?? []).map((binding) => (
                 <div
@@ -339,6 +484,12 @@ export default function GoogleCalendarIntegrationPage() {
                         ? ` · synced ${new Date(binding.last_sync_at).toLocaleString()}`
                         : ''}
                     </p>
+                    <Link
+                      className="mt-1 inline-block text-[12px] text-primary hover:underline"
+                      href={`/w/${ws}/d/${binding.database_id}`}
+                    >
+                      Open mapped database →
+                    </Link>
                     {binding.last_error && (
                       <p className="mt-1 text-[12px] text-error">{binding.last_error}</p>
                     )}
@@ -365,8 +516,56 @@ export default function GoogleCalendarIntegrationPage() {
               ))}
             </div>
           </section>
+          {syncSummary && (
+            <div className="mt-4 flex items-start gap-2 rounded-[var(--radius-control)] border border-border-default bg-accent-soft px-4 py-3 text-[12px] text-ink">
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+              {syncSummary}
+            </div>
+          )}
         </>
       )}
+
+      <Dialog open={templateOpen} onOpenChange={setTemplateOpen}>
+        <DialogContent title="Create a Calendar database">
+          <p className="mb-4 text-[13px] text-muted">
+            StoryOS will install a maintained event schema and pre-map it for Google Calendar.
+          </p>
+          <div className="space-y-4">
+            <SelectField
+              label="Space"
+              value={templateSpaceId}
+              onChange={setTemplateSpaceId}
+              placeholder="Choose space"
+              options={(spaces.data ?? []).map((space) => ({
+                value: space.id,
+                label: space.name,
+              }))}
+            />
+            <div className="space-y-1.5">
+              <Label htmlFor="calendar-database-name">Database name</Label>
+              <Input
+                id="calendar-database-name"
+                value={templateName}
+                maxLength={100}
+                onChange={(event) => setTemplateName(event.target.value)}
+              />
+            </div>
+          </div>
+          <div className="mt-5 flex justify-end gap-2">
+            <DialogClose asChild>
+              <Button variant="ghost">Cancel</Button>
+            </DialogClose>
+            <Button
+              disabled={
+                !templateSpaceId || !templateName.trim() || createCalendarDatabase.isPending
+              }
+              onClick={() => createCalendarDatabase.mutate()}
+            >
+              {createCalendarDatabase.isPending ? 'Creating…' : 'Create and map'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -377,12 +576,14 @@ function SelectField({
   onChange,
   options,
   placeholder,
+  help,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   options: Array<{ value: string; label: string }>;
   placeholder?: string;
+  help?: string;
 }) {
   return (
     <div className="flex flex-col gap-1.5">
@@ -399,6 +600,7 @@ function SelectField({
           </option>
         ))}
       </select>
+      {help && <p className="text-[11px] leading-4 text-muted">{help}</p>}
     </div>
   );
 }

@@ -2886,7 +2886,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Install a template (packs create a space; database templates take space_id) */
+        /** Install a template (packs create a space; database templates take space_id and may be renamed) */
         post: operations["WorkspaceTemplatesController_apply"];
         delete?: never;
         options?: never;
@@ -4370,6 +4370,7 @@ export interface components {
             /** Format: uuid */
             space_id?: string;
             space_name?: string;
+            database_name?: string;
             /** @default true */
             include_samples: boolean;
         };

@@ -17,6 +17,7 @@ async function inject(method: string, url: string, payload?: unknown) {
 }
 
 const ALL_SLUGS = [
+  'calendar',
   'client-work',
   'client-space',
   'agency-crm',
@@ -70,7 +71,7 @@ describe('template registry (MN-033/035/036/037)', () => {
     for (const slug of ALL_SLUGS) {
       const ws = (await inject('POST', '/workspaces', { name: `WS ${slug}` })).json().id;
       const options =
-        slug === 'funnels'
+        slug === 'funnels' || slug === 'calendar'
           ? { space_id: (await inject('GET', `/workspaces/${ws}/spaces`)).json()[0].id }
           : {};
       const res = await inject('POST', `/workspaces/${ws}/templates/${slug}/apply`, options);
@@ -78,6 +79,35 @@ describe('template registry (MN-033/035/036/037)', () => {
       expect(Object.keys(res.json().databases).length).toBeGreaterThan(0);
     }
   }, 120_000);
+
+  it('calendar installs a renamed, immediately mappable database', async () => {
+    const ws = (await inject('POST', '/workspaces', { name: 'Calendar template WS' })).json().id;
+    const spaceId = (await inject('GET', `/workspaces/${ws}/spaces`)).json()[0].id;
+    const res = await inject('POST', `/workspaces/${ws}/templates/calendar/apply`, {
+      space_id: spaceId,
+      database_name: 'Team Calendar',
+      include_samples: false,
+    });
+    expect(res.statusCode, res.body).toBe(201);
+    expect(res.json().sample_records).toBe(0);
+    expect(res.json().fields).toEqual(
+      expect.objectContaining({
+        'calendar.start': expect.any(String),
+        'calendar.end': expect.any(String),
+        'calendar.description': expect.any(String),
+      }),
+    );
+
+    const databaseId = res.json().databases.calendar;
+    const detail = (await inject('GET', `/workspaces/${ws}/databases/${databaseId}`)).json();
+    expect(detail.name).toBe('Team Calendar');
+    expect(detail.fields.map((field: { displayName: string }) => field.displayName)).toEqual(
+      expect.arrayContaining(['Start', 'End', 'Description', 'Status', 'Location']),
+    );
+    expect(detail.views.map((view: { name: string }) => view.name)).toEqual(
+      expect.arrayContaining(['Calendar', 'Upcoming events']),
+    );
+  });
 
   it('client-work ships Task DNA: Triage state, sub-tasks, My Tasks view, labels', async () => {
     const res = await inject('POST', `/workspaces/${wsId}/templates/client-work/apply`, {});
@@ -89,10 +119,14 @@ describe('template registry (MN-033/035/036/037)', () => {
     expect(state.options.map((o: { label: string }) => o.label)).toContain('Triage');
     expect(state.options.map((o: { label: string }) => o.label)).toContain('Canceled');
     expect(detail.fields.some((f: { apiName: string }) => f.apiName === 'labels')).toBe(true);
-    expect(detail.fields.filter((f: { type: string }) => f.type === 'relation').length).toBeGreaterThanOrEqual(3); // project + parent + blocked
+    expect(
+      detail.fields.filter((f: { type: string }) => f.type === 'relation').length,
+    ).toBeGreaterThanOrEqual(3); // project + parent + blocked
 
     const viewNames = detail.views.map((v: { name: string }) => v.name);
-    expect(viewNames).toEqual(expect.arrayContaining(['Task Board', 'Triage', 'My Tasks', 'Due This Week']));
+    expect(viewNames).toEqual(
+      expect.arrayContaining(['Task Board', 'Triage', 'My Tasks', 'Due This Week']),
+    );
 
     // My Tasks resolves '@me' → the installer's records show up for me
     const myTasks = detail.views.find((v: { name: string }) => v.name === 'My Tasks');
