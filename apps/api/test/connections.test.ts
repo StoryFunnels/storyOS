@@ -59,8 +59,10 @@ describe('connections registry (MN-252)', () => {
   it('lists the provider catalog', async () => {
     const res = await inject('GET', `/workspaces/${wsId}/connections/providers`);
     expect(res.statusCode).toBe(200);
-    const ids = res.json().data.map((p: { id: string }) => p.id);
+    const providers = res.json().data as Array<{ id: string; label: string }>;
+    const ids = providers.map((p) => p.id);
     expect(ids).toEqual(expect.arrayContaining(['apify', 'resend', 'google']));
+    expect(providers.find((provider) => provider.id === 'google')?.label).toBe('YouTube');
   });
 
   it('rejects create with a failing healthCheck (422) and never inserts a row', async () => {
