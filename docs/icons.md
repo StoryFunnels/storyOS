@@ -29,8 +29,10 @@ immediately and shows in both the header and the sidebar.
 Alongside the curated `set:` icons, a second namespace covers real, recognizable
 platform logos — for cases like "this is our LinkedIn workspace" or "this
 connects to Notion" that a generic glyph can't express (#298). Written the
-same way, e.g. `{ "icon": "brand:github", "color": null }` — background colour
-doesn't apply to a brand mark's own artwork, so `color` is ignored for these.
+same way, e.g. `{ "icon": "brand:github", "color": "purple" }`. Brand marks
+are rendered as monochrome masks so the selected palette colour tints the logo
+and its soft background consistently with `set:` icons (#335). With no colour
+selected, the logo inherits the surrounding neutral text colour.
 
 The set is ~100 third-party marks sourced from [Simple Icons](https://simpleicons.org/)
 (CC0-licensed), curated for a work-OS / marketing-agency audience — social,
