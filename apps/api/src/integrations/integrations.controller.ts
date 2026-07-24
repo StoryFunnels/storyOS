@@ -83,6 +83,9 @@ export class IntegrationsDirectoryController {
       github: Boolean(github.connected || github.has_token),
       linear: Boolean(linear.has_key),
       slack: Boolean(slack.has_token || slack.has_webhook),
+      youtube: connectionRows.data.some(
+        (connection) => connection.provider === 'google' && connection.status === 'active',
+      ),
       'google-calendar': connectionRows.data.some(
         (connection) => connection.provider === 'google-calendar' && connection.status === 'active',
       ),

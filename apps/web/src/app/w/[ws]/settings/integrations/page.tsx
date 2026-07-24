@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation';
 import { useState } from 'react';
 import posthog from 'posthog-js';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDownToLine, Bot, CalendarDays, GitBranch, MessageSquare, Sparkles, Target } from 'lucide-react';
+import { ArrowDownToLine, Bot, CalendarDays, GitBranch, MessageSquare, Sparkles, Target, Video } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -35,6 +35,7 @@ const ICONS: Record<string, LucideIcon> = {
   github: GitBranch,
   linear: ArrowDownToLine,
   slack: MessageSquare,
+  youtube: Video,
   'google-calendar': CalendarDays,
   'delegate-agent': Bot,
   storyfunnels: Target,

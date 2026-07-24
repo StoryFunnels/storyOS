@@ -61,7 +61,8 @@ describe('Integrations directory (#44)', () => {
     expect(byId.get('github')?.connected).toBe(false);
     expect(byId.get('linear')?.connected).toBe(false);
     expect(byId.get('slack')?.connected).toBe(false);
-    // Not built yet — still `status: 'soon'`, never connected regardless of anything else.
+    expect(byId.get('youtube')?.status).toBe('available');
+    expect(byId.get('youtube')?.connected).toBe(false);
     expect(byId.get('google-calendar')?.status).toBe('available');
     expect(byId.get('google-calendar')?.connected).toBe(false);
     // Built-in — always available, nothing to connect.
