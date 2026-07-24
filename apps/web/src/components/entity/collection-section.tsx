@@ -367,7 +367,15 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
                 />
               )}
               {adding && (
-                <RelationEditor ws={ws} db={db} recordId={rec} field={field} current={chips} onDone={() => setAdding(false)} />
+                <RelationEditor
+                  ws={ws}
+                  db={db}
+                  recordId={rec}
+                  field={field}
+                  current={chips}
+                  onSaved={invalidateCollection}
+                  onDone={() => setAdding(false)}
+                />
               )}
             </div>
           )}
