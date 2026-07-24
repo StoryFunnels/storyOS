@@ -43,6 +43,21 @@ async function bootstrap() {
   configureApp(app);
   app.enableShutdownHooks();
 
+  // #331 operator guardrail: enabling MCP_OAUTH makes the hosted MCP endpoint
+  // advertise OAuth on unauthenticated probes, which some connectors read as
+  // "OAuth-only" and abandon a PAT they'd otherwise send. Existing PAT-based MCP
+  // connections keep authenticating, but the OAuth flow MUST be tested end to end
+  // and some clients may need reconnection.
+  if (env().MCP_OAUTH) {
+    app
+      .get(Logger)
+      .warn(
+        'MCP_OAUTH is enabled: the hosted MCP endpoint now advertises OAuth. ' +
+          'PAT (mn_pat_…) connections still authenticate, but verify the OAuth flow ' +
+          'end to end and expect some connectors to need reconnection. See docs/self-hosting.md.',
+      );
+  }
+
   const platformAdminEmail = env().PLATFORM_ADMIN_EMAIL;
   if (platformAdminEmail) {
     await app.get(PlatformAdminService).seedFromEnv(platformAdminEmail);

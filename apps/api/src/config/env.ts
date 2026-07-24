@@ -147,9 +147,19 @@ export const envSchema = z.object({
   EMAIL_DAILY_CAP_PRO: z.coerce.number().int().positive().default(200),
   EMAIL_DAILY_CAP_BUSINESS: z.coerce.number().int().positive().default(1_000),
   EMAIL_DAILY_CAP_ENTERPRISE: z.coerce.number().int().positive().default(10_000),
-  /** OAuth for the hosted MCP (MN-154). Off by default; requires the oidc tables migrated.
-   * When on, better-auth acts as the OAuth authorization server for MCP connectors. PATs
-   * keep working either way. */
+  /**
+   * OAuth for the hosted MCP (MN-154). Off by default; requires the oidc tables
+   * migrated. When on, better-auth acts as the OAuth authorization server for MCP
+   * connectors.
+   *
+   * ⚠️ #331 FOOTGUN: PATs keep working regardless, BUT enabling this changes how the
+   * MCP endpoint challenges *unauthenticated* clients (it advertises OAuth via
+   * `resource_metadata`), which makes some connectors treat the resource as OAuth-only
+   * and abandon a PAT they'd otherwise send — an existing connection then fails every
+   * tool call with a confusing "Authentication required". Test the OAuth flow end to
+   * end before enabling in production and expect some clients to need reconnection.
+   * See docs/self-hosting.md → "Hosted MCP & OAuth". Boot logs a warning when on.
+   */
   MCP_OAUTH: z
     .string()
     .optional()
