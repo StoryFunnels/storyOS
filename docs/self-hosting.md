@@ -88,6 +88,38 @@ docker compose exec postgres pg_dump -U storyos storyos > backup.sql   # all dat
 docker run --rm -v storyos_storyos_attachments:/data -v $PWD:/out alpine tar czf /out/attachments.tgz /data
 ```
 
+Treat those two files as one recovery point: label them with the same UTC
+timestamp, encrypt them, copy them off the Docker host, and monitor the scheduled
+job. A backup that has never been restored is not yet proven.
+
+For a small Compose installation, test a restore into an isolated clone:
+
+```bash
+# In a disposable clone with an empty Postgres volume:
+docker compose up -d postgres
+cat backup.sql | docker compose exec -T postgres psql -U storyos storyos
+
+# Restore attachments into the clone's attachment volume:
+docker run --rm \
+  -v storyos_storyos_attachments:/data \
+  -v "$PWD":/backup \
+  alpine sh -c 'cd / && tar xzf /backup/attachments.tgz'
+
+docker compose up -d api web mcp
+docker compose logs --tail=100 api
+```
+
+Verify login, workspace/record counts, relations, and at least one attachment
+download before trusting the procedure. Run a restore drill after meaningful
+version upgrades and on a regular schedule.
+
+For larger or lower-RPO installations, use PostgreSQL continuous WAL archiving
+and point-in-time recovery in addition to logical dumps. Keep backup storage in
+a separate failure domain and restrict its credentials like production
+credentials. See
+[ADR-0015](decisions/ADR-0015-data-durability-and-recovery.md) for the recovery
+model and restore order.
+
 ## The API
 
 Your instance serves its own docs at `{API_URL}/api/docs` and the raw spec at `{API_URL}/api/v1/openapi.json`. Create personal access tokens in the app under **API tokens** — see [api/guides/authentication.md](api/guides/authentication.md).
