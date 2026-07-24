@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { calendarDescriptionText, calendarEventDates } from './calendar-sync.service';
+import {
+  calendarDescriptionText,
+  calendarEventDates,
+  googleEventEnd,
+  googleEventStart,
+} from './calendar-sync.service';
 
 describe('Google Calendar event mapping (#20)', () => {
   it('maps a date-only record to an all-day event with an exclusive end', () => {
@@ -22,6 +27,14 @@ describe('Google Calendar event mapping (#20)', () => {
       start: { dateTime: '2026-07-24T09:00:00.000Z' },
       end: { dateTime: '2026-07-24T10:00:00.000Z' },
     });
+    expect(calendarEventDates('2026-07-24T00:00:00.000Z', undefined)).toEqual({
+      start: { dateTime: '2026-07-24T00:00:00.000Z' },
+      end: { dateTime: '2026-07-24T01:00:00.000Z' },
+    });
+    expect(calendarEventDates('2026-07-24T00:00:00.000Z', undefined, true)).toEqual({
+      start: { date: '2026-07-24' },
+      end: { date: '2026-07-25' },
+    });
   });
 
   it('flattens a rich-text field into a Google event description', () => {
@@ -32,5 +45,26 @@ describe('Google Calendar event mapping (#20)', () => {
     ).toContain('Client kickoff');
     expect(calendarDescriptionText('Plain notes')).toBe('Plain notes');
     expect(calendarDescriptionText(null)).toBeUndefined();
+  });
+
+  it('maps Google event dates back to StoryOS and makes all-day ends inclusive', () => {
+    expect(
+      googleEventStart({
+        id: 'event-1',
+        start: { date: '2026-07-24' },
+      }),
+    ).toBe('2026-07-24');
+    expect(
+      googleEventEnd({
+        id: 'event-1',
+        end: { date: '2026-07-27' },
+      }),
+    ).toBe('2026-07-26');
+    expect(
+      googleEventEnd({
+        id: 'event-2',
+        end: { dateTime: '2026-07-24T10:00:00Z' },
+      }),
+    ).toBe('2026-07-24T10:00:00Z');
   });
 });

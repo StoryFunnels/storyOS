@@ -5,11 +5,12 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  OnModuleDestroy,
   OnModuleInit,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { and, eq, isNull } from 'drizzle-orm';
-import { blocksToMarkdown } from '@storyos/schemas';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { blocksToMarkdown, markdownToBlocks } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import {
@@ -25,8 +26,11 @@ import { ConnectionsService } from '../connections/connections.service';
 import type { GoogleAuth } from '../connections/providers';
 import { DomainEventsService } from '../events/domain-events.service';
 import type { DomainEvent } from '../events/domain-events.service';
+import { RecordsService } from '../records/records.service';
 
 const API = 'https://www.googleapis.com/calendar/v3';
+const INBOUND_SYNC_DEPTH = 100;
+const POLL_INTERVAL_MS = 5 * 60 * 1000;
 
 interface GoogleCalendar {
   id: string;
@@ -38,6 +42,12 @@ interface GoogleCalendar {
 interface GoogleEvent {
   id: string;
   updated?: string;
+  status?: string;
+  summary?: string;
+  description?: string;
+  start?: { date?: string; dateTime?: string };
+  end?: { date?: string; dateTime?: string };
+  extendedProperties?: { private?: Record<string, string> };
 }
 
 export interface CreateCalendarBindingInput {
@@ -48,23 +58,27 @@ export interface CreateCalendarBindingInput {
   start_field_id: string;
   end_field_id?: string;
   description_field_id?: string;
+  direction?: 'push' | 'pull' | 'two_way';
 }
 
 type Binding = typeof calendarSyncBindings.$inferSelect;
 
 @Injectable()
-export class CalendarSyncService implements OnModuleInit {
+export class CalendarSyncService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(CalendarSyncService.name);
+  private pollTimer?: NodeJS.Timeout;
   fetcher: typeof fetch = fetch;
 
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly connectionsService: ConnectionsService,
     private readonly domainEvents: DomainEventsService,
+    private readonly recordsService: RecordsService,
   ) {}
 
   onModuleInit(): void {
     this.domainEvents.subscribe((event) => {
+      if (event.depth === INBOUND_SYNC_DEPTH) return;
       if (
         event.type === 'record_created' ||
         event.type === 'record_updated' ||
@@ -79,6 +93,20 @@ export class CalendarSyncService implements OnModuleInit {
         });
       }
     });
+    if (process.env.NODE_ENV !== 'test') {
+      this.pollTimer = setInterval(() => {
+        void this.pollInboundBindings().catch((error) => {
+          this.logger.warn(
+            `calendar polling sweep failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        });
+      }, POLL_INTERVAL_MS);
+      this.pollTimer.unref();
+    }
+  }
+
+  onModuleDestroy(): void {
+    if (this.pollTimer) clearInterval(this.pollTimer);
   }
 
   async listCalendars(workspaceId: string, connectionId: string) {
@@ -178,6 +206,7 @@ export class CalendarSyncService implements OnModuleInit {
         startFieldId: input.start_field_id,
         endFieldId: input.end_field_id,
         descriptionFieldId: input.description_field_id,
+        direction: input.direction ?? 'push',
         createdBy: userId,
       })
       .returning();
@@ -200,16 +229,32 @@ export class CalendarSyncService implements OnModuleInit {
 
   async syncBinding(workspaceId: string, bindingId: string) {
     const binding = await this.requireBinding(workspaceId, bindingId);
-    const rows = await this.db.query.records.findMany({
-      where: and(eq(records.databaseId, binding.databaseId), isNull(records.deletedAt)),
-    });
+    // Use the start of the read window as the next cursor. An event changed
+    // after Google's response but before this method finishes must be included
+    // again next poll, never skipped by an end-of-run timestamp.
+    const syncStartedAt = new Date();
+    let pulled = 0;
+    let deleted = 0;
+    let conflicts = 0;
     let synced = 0;
     let skipped = 0;
     try {
-      for (const row of rows) {
-        const result = await this.pushRecord(binding, row);
-        if (result === 'synced') synced += 1;
-        else skipped += 1;
+      if (binding.direction === 'pull' || binding.direction === 'two_way') {
+        const result = await this.pullFromGoogle(binding);
+        pulled = result.pulled;
+        deleted = result.deleted;
+        conflicts = result.conflicts;
+      }
+
+      if (binding.direction === 'push' || binding.direction === 'two_way') {
+        const rows = await this.db.query.records.findMany({
+          where: and(eq(records.databaseId, binding.databaseId), isNull(records.deletedAt)),
+        });
+        for (const row of rows) {
+          const result = await this.pushRecord(binding, row);
+          if (result === 'synced') synced += 1;
+          else skipped += 1;
+        }
       }
     } catch (error) {
       await this.recordBindingError(binding.id, error);
@@ -217,9 +262,15 @@ export class CalendarSyncService implements OnModuleInit {
     }
     await this.db
       .update(calendarSyncBindings)
-      .set({ lastSyncAt: new Date(), lastError: null })
+      .set({
+        lastSyncAt: syncStartedAt,
+        lastError:
+          conflicts > 0
+            ? `${conflicts} simultaneous edit conflict${conflicts === 1 ? '' : 's'} resolved by last-write-wins`
+            : null,
+      })
       .where(eq(calendarSyncBindings.id, binding.id));
-    return { synced, skipped };
+    return { synced, skipped, pulled, deleted, conflicts };
   }
 
   private async handleRecordEvent(event: DomainEvent): Promise<void> {
@@ -231,6 +282,7 @@ export class CalendarSyncService implements OnModuleInit {
       ),
     });
     for (const binding of bindings) {
+      if (binding.direction !== 'push' && binding.direction !== 'two_way') continue;
       try {
         if (event.type === 'record_deleted') {
           await this.deleteEventForRecord(binding, event.recordId);
@@ -253,6 +305,172 @@ export class CalendarSyncService implements OnModuleInit {
         throw error;
       }
     }
+  }
+
+  private async pollInboundBindings(): Promise<void> {
+    const bindings = await this.db.query.calendarSyncBindings.findMany({
+      where: and(
+        eq(calendarSyncBindings.status, 'active'),
+        inArray(calendarSyncBindings.direction, ['pull', 'two_way']),
+      ),
+    });
+    for (const binding of bindings) {
+      try {
+        await this.syncBinding(binding.workspaceId, binding.id);
+      } catch (error) {
+        await this.recordBindingError(binding.id, error);
+        this.logger.warn(
+          `calendar polling failed for binding ${binding.id}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
+  }
+
+  private async pullFromGoogle(
+    binding: Binding,
+  ): Promise<{ pulled: number; deleted: number; conflicts: number }> {
+    const auth = await this.calendarAuth(binding.workspaceId, binding.connectionId);
+    const selectedFields = await this.db.query.fields.findMany({
+      where: and(eq(fields.databaseId, binding.databaseId), isNull(fields.deletedAt)),
+    });
+    const byId = new Map(selectedFields.map((field) => [field.id, field]));
+    const startField = byId.get(binding.startFieldId);
+    if (!startField) throw new BadRequestException('Mapped start field no longer exists');
+    const endField = binding.endFieldId ? byId.get(binding.endFieldId) : undefined;
+    const descriptionField = binding.descriptionFieldId
+      ? byId.get(binding.descriptionFieldId)
+      : undefined;
+
+    const events: GoogleEvent[] = [];
+    let pageToken: string | undefined;
+    do {
+      const query = new URLSearchParams({
+        singleEvents: 'true',
+        showDeleted: 'true',
+        maxResults: '2500',
+      });
+      if (binding.lastSyncAt) query.set('updatedMin', binding.lastSyncAt.toISOString());
+      if (pageToken) query.set('pageToken', pageToken);
+      const page = await this.googleJson<{ items?: GoogleEvent[]; nextPageToken?: string }>(
+        `${API}/calendars/${encodeURIComponent(binding.calendarId)}/events?${query}`,
+        auth,
+      );
+      events.push(...(page.items ?? []));
+      pageToken = page.nextPageToken;
+    } while (pageToken);
+
+    let pulled = 0;
+    let deleted = 0;
+    let conflicts = 0;
+    for (const event of events) {
+      if (!event.id) continue;
+      const link = await this.db.query.calendarEventLinks.findFirst({
+        where: and(
+          eq(calendarEventLinks.bindingId, binding.id),
+          eq(calendarEventLinks.externalEventId, event.id),
+        ),
+      });
+      const embeddedRecordId = event.extendedProperties?.private?.storyos_record_id;
+      const recordId = link?.recordId ?? embeddedRecordId;
+      let record = recordId
+        ? await this.db.query.records.findFirst({
+            where: and(eq(records.id, recordId), eq(records.databaseId, binding.databaseId)),
+          })
+        : undefined;
+
+      if (event.status === 'cancelled') {
+        if (record && !record.deletedAt) {
+          await this.recordsService.softDelete(
+            binding.workspaceId,
+            binding.databaseId,
+            record.id,
+            binding.createdBy ?? 'calendar-sync',
+            INBOUND_SYNC_DEPTH,
+          );
+          deleted += 1;
+        }
+        if (link) {
+          await this.db.delete(calendarEventLinks).where(eq(calendarEventLinks.id, link.id));
+        }
+        continue;
+      }
+      if (!event.start?.date && !event.start?.dateTime) continue;
+
+      const parsedExternalUpdatedAt = event.updated ? new Date(event.updated) : new Date();
+      const externalUpdatedAt = Number.isNaN(parsedExternalUpdatedAt.getTime())
+        ? new Date()
+        : parsedExternalUpdatedAt;
+      const externalChanged = !link || !link.lastSyncedAt || externalUpdatedAt > link.lastSyncedAt;
+      const localChanged = Boolean(
+        record && link?.lastSyncedAt && record.updatedAt > link.lastSyncedAt,
+      );
+      if (externalChanged && localChanged) {
+        conflicts += 1;
+        if (record!.updatedAt > externalUpdatedAt) {
+          await this.pushRecord(binding, record!);
+          continue;
+        }
+      }
+      if (!externalChanged && record) continue;
+
+      const input: Record<string, unknown> = {
+        name: event.summary?.trim() || 'Untitled Google Calendar event',
+        [startField.apiName]: googleEventStart(event),
+      };
+      if (endField) input[endField.apiName] = googleEventEnd(event);
+      if (descriptionField) {
+        input[descriptionField.apiName] =
+          descriptionField.type === 'rich_text'
+            ? markdownToBlocks(event.description ?? '')
+            : (event.description ?? '');
+      }
+
+      if (record && !record.deletedAt) {
+        await this.recordsService.update(
+          binding.workspaceId,
+          binding.databaseId,
+          record.id,
+          input,
+          binding.createdBy ?? 'calendar-sync',
+          INBOUND_SYNC_DEPTH,
+        );
+      } else {
+        const created = await this.recordsService.create(
+          binding.workspaceId,
+          binding.databaseId,
+          input,
+          binding.createdBy,
+          INBOUND_SYNC_DEPTH,
+        );
+        record = await this.db.query.records.findFirst({ where: eq(records.id, created.id) });
+      }
+      if (!record) continue;
+      await this.db
+        .insert(calendarEventLinks)
+        .values({
+          bindingId: binding.id,
+          recordId: record.id,
+          externalEventId: event.id,
+          externalUpdatedAt,
+          externalAllDay: Boolean(event.start?.date),
+          contentHash: null,
+          lastSyncedAt: new Date(),
+        })
+        .onConflictDoUpdate({
+          target: [calendarEventLinks.bindingId, calendarEventLinks.externalEventId],
+          set: {
+            recordId: record.id,
+            externalUpdatedAt,
+            externalAllDay: Boolean(event.start?.date),
+            contentHash: null,
+            lastSyncedAt: new Date(),
+          },
+        });
+      pulled += 1;
+    }
+    return { pulled, deleted, conflicts };
   }
 
   private async pushRecord(
@@ -279,7 +497,7 @@ export class CalendarSyncService implements OnModuleInit {
     const event = {
       summary: row.title || 'Untitled StoryOS record',
       description: calendarDescriptionText(descriptionValue),
-      ...calendarEventDates(startValue, endValue),
+      ...calendarEventDates(startValue, endValue, existing?.externalAllDay === true),
       extendedProperties: {
         private: {
           storyos_binding_id: binding.id,
@@ -309,6 +527,7 @@ export class CalendarSyncService implements OnModuleInit {
         recordId: row.id,
         externalEventId: result.id,
         externalUpdatedAt,
+        externalAllDay: isAllDayStoryOsValue(startValue, existing?.externalAllDay === true),
         contentHash,
         lastSyncedAt: new Date(),
       })
@@ -317,6 +536,7 @@ export class CalendarSyncService implements OnModuleInit {
         set: {
           externalEventId: result.id,
           externalUpdatedAt,
+          externalAllDay: isAllDayStoryOsValue(startValue, existing?.externalAllDay === true),
           contentHash,
           lastSyncedAt: new Date(),
         },
@@ -419,13 +639,17 @@ export class CalendarSyncService implements OnModuleInit {
 }
 
 /** Google all-day event ends are exclusive; StoryOS date ranges are inclusive. */
-export function calendarEventDates(start: string, rawEnd: unknown) {
-  if (/^\d{4}-\d{2}-\d{2}$/.test(start)) {
-    const end = typeof rawEnd === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(rawEnd) ? rawEnd : start;
+export function calendarEventDates(start: string, rawEnd: unknown, preserveAllDay = false) {
+  if (isAllDayStoryOsValue(start, preserveAllDay)) {
+    const startDay = start.slice(0, 10);
+    const end =
+      typeof rawEnd === 'string' && isAllDayStoryOsValue(rawEnd, preserveAllDay)
+        ? rawEnd.slice(0, 10)
+        : startDay;
     const exclusiveEnd = new Date(`${end}T00:00:00Z`);
     exclusiveEnd.setUTCDate(exclusiveEnd.getUTCDate() + 1);
     return {
-      start: { date: start },
+      start: { date: startDay },
       end: { date: exclusiveEnd.toISOString().slice(0, 10) },
     };
   }
@@ -445,8 +669,29 @@ export function calendarEventDates(start: string, rawEnd: unknown) {
   };
 }
 
+function isAllDayStoryOsValue(value: string, preserveAllDay: boolean): boolean {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return true;
+  return preserveAllDay && /^\d{4}-\d{2}-\d{2}T00:00:00(?:\.000)?Z$/.test(value);
+}
+
 export function calendarDescriptionText(value: unknown): string | undefined {
   if (typeof value === 'string') return value || undefined;
   if (Array.isArray(value)) return blocksToMarkdown(value) || undefined;
   return undefined;
+}
+
+export function googleEventStart(event: GoogleEvent): string {
+  const value = event.start?.dateTime ?? event.start?.date;
+  if (!value) throw new BadRequestException('Google event has no start date');
+  return value;
+}
+
+/** Google all-day ends are exclusive; StoryOS stores the final included day. */
+export function googleEventEnd(event: GoogleEvent): string | null {
+  if (event.end?.dateTime) return event.end.dateTime;
+  if (!event.end?.date) return null;
+  const inclusive = new Date(`${event.end.date}T00:00:00Z`);
+  if (Number.isNaN(inclusive.getTime())) return null;
+  inclusive.setUTCDate(inclusive.getUTCDate() - 1);
+  return inclusive.toISOString().slice(0, 10);
 }

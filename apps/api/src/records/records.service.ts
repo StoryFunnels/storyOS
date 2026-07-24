@@ -1615,7 +1615,13 @@ export class RecordsService {
     });
   }
 
-  async softDelete(workspaceId: string, databaseId: string, recordId: string, actorId: string) {
+  async softDelete(
+    workspaceId: string,
+    databaseId: string,
+    recordId: string,
+    actorId: string,
+    depth = 0,
+  ) {
     await this.getRow(databaseId, recordId);
     await this.db.transaction(async (tx) => {
       await tx.update(records).set({ deletedAt: new Date() }).where(eq(records.id, recordId));
@@ -1633,7 +1639,7 @@ export class RecordsService {
       databaseId,
       recordId,
       actorId,
-      depth: 0,
+      depth,
     });
     return { deleted: true };
   }

@@ -1,0 +1,1 @@
+ALTER TABLE "calendar_event_links" ADD COLUMN "external_all_day" boolean DEFAULT false NOT NULL;

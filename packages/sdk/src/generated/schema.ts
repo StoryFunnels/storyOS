@@ -4266,6 +4266,11 @@ export interface components {
             end_field_id?: string;
             /** Format: uuid */
             description_field_id?: string;
+            /**
+             * @default push
+             * @enum {string}
+             */
+            direction: "push" | "pull" | "two_way";
         };
         DiscoverSourceDto: {
             /** Format: uuid */

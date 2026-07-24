@@ -17,6 +17,7 @@ class CreateCalendarBindingDto extends createZodDto(
     start_field_id: z.uuid(),
     end_field_id: z.uuid().optional(),
     description_field_id: z.uuid().optional(),
+    direction: z.enum(['push', 'pull', 'two_way']).default('push'),
   }),
 ) {}
 

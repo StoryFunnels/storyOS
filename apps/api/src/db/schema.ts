@@ -1175,6 +1175,8 @@ export const calendarEventLinks = pgTable(
       .references(() => records.id, { onDelete: 'cascade' }),
     externalEventId: text('external_event_id').notNull(),
     externalUpdatedAt: timestamp('external_updated_at', { withTimezone: true }),
+    /** Preserves Google's date-vs-dateTime semantics across StoryOS ISO normalization. */
+    externalAllDay: boolean('external_all_day').notNull().default(false),
     contentHash: text('content_hash'),
     lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }).notNull().defaultNow(),
     ...timestamps,
