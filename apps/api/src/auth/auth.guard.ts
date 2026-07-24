@@ -17,7 +17,6 @@ import type { Db } from '../db/client';
 import { user } from '../db/schema';
 import { TokensService } from '../tokens/tokens.service';
 import { RUN_BUTTON_KEY, SCOPE_KEY } from './token-scope.guard';
-import { hasStoryOsMcpScope } from './mcp-scope';
 
 export interface AuthedUser {
   id: string;
@@ -163,7 +162,18 @@ export class AuthGuard implements CanActivate {
     ).getMcpSession;
     if (getMcpSession) {
       const mcpToken = await getMcpSession({ headers }).catch(() => null);
-      if (mcpToken?.userId && hasStoryOsMcpScope(mcpToken.scopes)) {
+      // A valid userId means the Bearer is a live access token minted by our own
+      // authorization server (the better-auth `mcp` plugin). We do NOT additionally
+      // require a `storyos.mcp` scope: better-auth 1.6.23's plugin silently drops any
+      // scope outside its built-in openid/profile/email/offline_access set when it
+      // issues a token, so the dedicated scope can be *advertised* (discovery) but is
+      // never actually *granted* — requiring it here made every hosted-MCP OAuth token
+      // fail with "Authentication required" (#331, proven: issued tokens carry only the
+      // four built-in scopes). Accepting on validity alone is safe because this OIDC
+      // provider exists ONLY for hosted MCP — regular app login uses better-auth
+      // sessions (cookies) and PATs, and nothing else consumes its tokens — so every
+      // token it mints is, by construction, an MCP token for the resolved user.
+      if (mcpToken?.userId) {
         const account = await this.db.query.user.findFirst({ where: eq(user.id, mcpToken.userId) });
         if (account) {
           (request as AuthedRequest).user = {
