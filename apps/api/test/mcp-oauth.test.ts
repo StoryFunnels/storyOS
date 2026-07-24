@@ -11,15 +11,18 @@ import { authed, signUpUser } from './helpers/users';
  * server (via app.inject → the full Fastify dispatch that mounts better-auth)
  * end to end, because that is exactly what a claude.ai connector talks to.
  *
- * The bug: the API guard REQUIRES the `storyos.mcp` scope on an OAuth access
- * token (auth.guard.ts → hasStoryOsMcpScope), a token carries `storyos.mcp` only
- * if the client requests it, and a client only requests scopes the AS discovery
- * document advertises. better-auth 1.6.23's mcp plugin HARDCODES that document's
- * `scopes_supported` and ignores `oidcConfig.metadata.scopes_supported`, so
- * `storyos.mcp` was never advertised → never requested → never granted → every
- * tool call 401'd with "Authentication required". These pin the fix: the AS
- * document advertises `storyos.mcp`, so a client that mirrors it gets a token
- * the guard accepts. PAT auth must keep working with MCP_OAUTH on.
+ * The bug (two layers): the API guard originally REQUIRED the `storyos.mcp` scope
+ * on an OAuth access token, but a real claude.ai connector's token never carries it —
+ * proven against production, where every issued token held only
+ * `openid profile email offline_access`. The connector requests only the standard
+ * OIDC scopes (it does not mirror the resource's storyos.mcp hint), so the scope is
+ * never granted, and the guard rejected every token with "Authentication required".
+ * The first pass (advertising storyos.mcp in discovery) was necessary but not
+ * sufficient — advertising can't force a client to request it. The fix that actually
+ * works: the guard accepts any valid token from this authorization server, because
+ * the server exists ONLY for hosted MCP (regular login uses sessions + PATs), so a
+ * valid token from it is by construction an MCP credential. PAT auth must keep
+ * working with MCP_OAUTH on.
  */
 
 const b64url = (b: Buffer) => b.toString('base64url');
@@ -137,14 +140,21 @@ describe('#331 hosted-MCP OAuth scope discovery', () => {
       url: '/api/v1/me',
       headers: { authorization: `Bearer ${token!.access_token}` },
     });
-    expect(me.statusCode, 'the guard requires storyos.mcp; the token must carry it').toBe(200);
+    expect(me.statusCode, 'a valid token from the MCP authorization server authenticates').toBe(200);
     expect(me.json().auth.via).toBe('oauth');
   });
 
-  it('an OAuth token WITHOUT storyos.mcp is refused (the guard boundary holds)', async () => {
+  it('an OAuth token WITHOUT storyos.mcp is still accepted — the real-world case (#331)', async () => {
     const { token: session } = await signUpUser(app, 'MCP Plain User');
     const clientId = await registerClient();
 
+    // Exactly what claude.ai's connector does in production: it requests only the
+    // standard OIDC scopes, never storyos.mcp (verified against prod — every issued
+    // token carried just `openid profile email offline_access`). The guard must accept
+    // such a token: this authorization server exists ONLY for hosted MCP, so any valid
+    // token it mints is, by construction, an MCP credential for the resolved user.
+    // Requiring the (client-never-requested, plugin-strippable) storyos.mcp scope is
+    // what made every real OAuth connection fail with "Authentication required".
     const { token } = await runOAuthFlow(session, clientId, 'openid profile email');
     expect(token).toBeDefined();
     expect(String(token!.scope)).not.toContain('storyos.mcp');
@@ -154,7 +164,10 @@ describe('#331 hosted-MCP OAuth scope discovery', () => {
       url: '/api/v1/me',
       headers: { authorization: `Bearer ${token!.access_token}` },
     });
-    expect(me.statusCode).toBe(401);
+    expect(me.statusCode, 'a valid MCP-AS token authenticates regardless of the storyos.mcp scope').toBe(
+      200,
+    );
+    expect(me.json().auth.via).toBe('oauth');
   });
 });
 
