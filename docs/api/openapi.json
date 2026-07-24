@@ -6817,7 +6817,7 @@
             "bearer": []
           }
         ],
-        "summary": "Install a template (packs create a space; database templates take space_id)",
+        "summary": "Install a template (packs create a space; database templates take space_id and may be renamed)",
         "tags": [
           "templates"
         ]
@@ -11508,6 +11508,11 @@
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           },
           "space_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "database_name": {
             "type": "string",
             "minLength": 1,
             "maxLength": 100
