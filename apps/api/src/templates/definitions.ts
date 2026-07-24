@@ -22,10 +22,18 @@ import {
   videoProduction,
 } from './definitions/marketing';
 import { orgChart, timeOff } from './definitions/people';
+import {
+  youtubeCommentsDatabase,
+  youtubeMetricsDatabase,
+  youtubeVideosDatabase,
+} from './definitions/youtube';
 import type { IntentDef, TemplateDef } from './types';
 
 export const TEMPLATES: TemplateDef[] = [
   calendarDatabase,
+  youtubeVideosDatabase,
+  youtubeCommentsDatabase,
+  youtubeMetricsDatabase,
   clientWork,
   clientSpace,
   agencyCrm,

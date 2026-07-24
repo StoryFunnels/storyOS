@@ -18,6 +18,9 @@ async function inject(method: string, url: string, payload?: unknown) {
 
 const ALL_SLUGS = [
   'calendar',
+  'youtube-videos',
+  'youtube-comments',
+  'youtube-metrics',
   'client-work',
   'client-space',
   'agency-crm',
@@ -71,7 +74,7 @@ describe('template registry (MN-033/035/036/037)', () => {
     for (const slug of ALL_SLUGS) {
       const ws = (await inject('POST', '/workspaces', { name: `WS ${slug}` })).json().id;
       const options =
-        slug === 'funnels' || slug === 'calendar'
+        slug === 'funnels' || slug === 'calendar' || slug.startsWith('youtube-')
           ? { space_id: (await inject('GET', `/workspaces/${ws}/spaces`)).json()[0].id }
           : {};
       const res = await inject('POST', `/workspaces/${ws}/templates/${slug}/apply`, options);
