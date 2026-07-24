@@ -3,6 +3,11 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { buildServer } from './server.js';
 import { makeClientFor } from './client.js';
+import {
+  fetchAuthorizationMetadata,
+  protectedResourceMetadata,
+  STORYOS_MCP_SCOPE,
+} from './oauth.js';
 
 /**
  * Hosted Streamable HTTP entrypoint (MN-105) — the cloud MCP endpoint.
@@ -39,7 +44,13 @@ function readBody(req: IncomingMessage): Promise<unknown> {
   });
 }
 
-function rpcError(res: ServerResponse, status: number, code: number, message: string, extra?: Record<string, string>) {
+function rpcError(
+  res: ServerResponse,
+  status: number,
+  code: number,
+  message: string,
+  extra?: Record<string, string>,
+) {
   res.writeHead(status, { 'Content-Type': 'application/json', ...extra });
   res.end(JSON.stringify({ jsonrpc: '2.0', error: { code, message }, id: null }));
 }
@@ -49,15 +60,21 @@ function rpcError(res: ServerResponse, status: number, code: number, message: st
 // resource metadata to find the AS and run the OAuth flow.
 const OAUTH = process.env.MCP_OAUTH === 'true' || process.env.MCP_OAUTH === '1';
 const PUBLIC_URL = (process.env.MCP_PUBLIC_URL ?? 'https://mcp.storyos.dev').replace(/\/$/, '');
-const AUTH_SERVER = (process.env.MCP_AUTH_SERVER ?? 'https://app.storyos.dev').replace(/\/$/, '');
+const AUTH_SERVER = (process.env.MCP_AUTH_SERVER ?? 'https://app.storyos.dev/api/v1/auth').replace(
+  /\/$/,
+  '',
+);
 const RESOURCE_METADATA = `${PUBLIC_URL}/.well-known/oauth-protected-resource`;
 
 const server = createServer(async (req, res) => {
   // Permissive CORS so browser-based MCP clients (e.g. the Inspector) can connect.
   res.setHeader('Access-Control-Allow-Origin', req.headers.origin ?? '*');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Mcp-Session-Id, Mcp-Protocol-Version, Last-Event-ID');
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'Content-Type, Authorization, Mcp-Session-Id, Mcp-Protocol-Version, Last-Event-ID',
+  );
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Expose-Headers', 'Mcp-Session-Id');
+  res.setHeader('Access-Control-Expose-Headers', 'Mcp-Session-Id, WWW-Authenticate');
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
     res.end();
@@ -76,7 +93,29 @@ const server = createServer(async (req, res) => {
   // Protected Resource Metadata (RFC 9728) — points MCP clients at the authorization server.
   if (OAUTH && pathname === '/.well-known/oauth-protected-resource') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ resource: `${PUBLIC_URL}/mcp`, authorization_servers: [AUTH_SERVER] }));
+    res.end(JSON.stringify(protectedResourceMetadata(PUBLIC_URL, AUTH_SERVER)));
+    return;
+  }
+
+  // Compatibility discovery at the MCP origin. Claude and ChatGPT both probe
+  // the connector host during setup, while Better Auth owns the actual AS
+  // routes under /api/v1/auth on the app origin.
+  if (OAUTH && pathname === '/.well-known/oauth-authorization-server') {
+    try {
+      const metadata = await fetchAuthorizationMetadata(AUTH_SERVER);
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'public, max-age=300',
+      });
+      res.end(JSON.stringify(metadata));
+    } catch (error) {
+      rpcError(
+        res,
+        502,
+        -32603,
+        error instanceof Error ? error.message : 'OAuth discovery is unavailable',
+      );
+    }
     return;
   }
 
@@ -89,11 +128,17 @@ const server = createServer(async (req, res) => {
   // PAT (mn_pat_…, self-managed) or — when OAuth is enabled — an OAuth access token.
   const token = bearer(req);
   if (!token) {
-    rpcError(res, 401, -32001, 'Missing bearer token — send Authorization: Bearer <StoryOS PAT or OAuth token>', {
-      'WWW-Authenticate': OAUTH
-        ? `Bearer realm="StoryOS MCP", resource_metadata="${RESOURCE_METADATA}"`
-        : 'Bearer realm="StoryOS MCP"',
-    });
+    rpcError(
+      res,
+      401,
+      -32001,
+      'Missing bearer token — send Authorization: Bearer <StoryOS PAT or OAuth token>',
+      {
+        'WWW-Authenticate': OAUTH
+          ? `Bearer realm="StoryOS MCP", scope="${STORYOS_MCP_SCOPE}", resource_metadata="${RESOURCE_METADATA}"`
+          : 'Bearer realm="StoryOS MCP"',
+      },
+    );
     return;
   }
 

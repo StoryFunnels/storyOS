@@ -28,14 +28,15 @@ so the connector can only touch what the user can.
 OAuth is off unless you turn it on. It requires the OIDC tables to be migrated, then set these
 environment variables (see the [configuration matrix](/self-hosting/configuration/)):
 
-| Variable | Service | Value |
-|---|---|---|
-| `MCP_OAUTH` | `api` and `mcp` | `true` — enables OAuth discovery advertising. |
-| `MCP_PUBLIC_URL` | `mcp` | Public URL of your MCP endpoint, e.g. `https://mcp.your-domain.com`. |
-| `MCP_AUTH_SERVER` | `mcp` | Your app (the authorization server), e.g. `https://app.your-domain.com`. |
+| Variable          | Service         | Value                                                                           |
+| ----------------- | --------------- | ------------------------------------------------------------------------------- |
+| `MCP_OAUTH`       | `api` and `mcp` | `true` — enables OAuth discovery advertising.                                   |
+| `MCP_PUBLIC_URL`  | `mcp`           | Public URL of your MCP endpoint, e.g. `https://mcp.your-domain.com`.            |
+| `MCP_AUTH_SERVER` | `mcp`           | Better Auth's mounted base URL, e.g. `https://app.your-domain.com/api/v1/auth`. |
 
-On the cloud instance this is `https://mcp.storyos.dev` (endpoint) with `https://app.storyos.dev`
-as the authorization server.
+On the cloud instance this is `https://mcp.storyos.dev` (endpoint) with
+`https://app.storyos.dev/api/v1/auth` as the authorization server. The authorization server advertises
+`offline_access` for refresh tokens and the dedicated `storyos.mcp` scope.
 
 ## Connect
 
