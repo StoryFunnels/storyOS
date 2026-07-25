@@ -139,6 +139,21 @@ export type SourceDiscoverInput = z.infer<typeof sourceDiscoverRequestSchema>;
 export const sourceDiscoverResponseSchema = z.object({ keys: z.array(z.string()) });
 export type SourceDiscoverResponse = z.infer<typeof sourceDiscoverResponseSchema>;
 
+/** #341 — one YouTube channel the connected Google account owns, as returned by
+ * the channel picker endpoint (`GET .../sources/channels?connection_id=…`). The
+ * dialog lists these by `title` so a user picks their channel by name instead of
+ * pasting a raw `UC…` id (and instead of relying on the old, unreliable "omit to
+ * use your own channel" free-text promise). */
+export const youtubeChannelSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  thumbnail: z.string().url().optional(),
+});
+export type YoutubeChannel = z.infer<typeof youtubeChannelSchema>;
+
+export const youtubeChannelListResponseSchema = z.object({ data: z.array(youtubeChannelSchema) });
+export type YoutubeChannelListResponse = z.infer<typeof youtubeChannelListResponseSchema>;
+
 /** One entry in the "Sync from…" provider catalog. */
 export const sourceProviderDescriptorSchema = z.object({
   id: z.string(),

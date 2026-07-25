@@ -53,6 +53,18 @@ export class SourcesController {
     return this.sourcesService.listProviders();
   }
 
+  @Get('channels')
+  @RequiresScope('read')
+  @ApiOperation({ summary: '#341: list the YouTube channels a Google connection owns, for the channel picker' })
+  async channels(
+    @Req() req: WorkspaceRequest,
+    @Param('db') databaseId: string,
+    @Query('connection_id') connectionId: string,
+  ) {
+    await this.dbAsViewer(req, databaseId);
+    return this.sourcesService.listYoutubeChannels(req.membership.workspaceId, connectionId);
+  }
+
   @Post('discover')
   @RequiresScope('write')
   @ApiOperation({ summary: 'MN-262: preview a provider\'s field keys before creating a source (point-and-click mapping)' })

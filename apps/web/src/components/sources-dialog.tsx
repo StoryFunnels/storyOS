@@ -15,6 +15,7 @@ import { Label } from '@/components/ui/label';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
 import { presentAvailability, type ProviderAvailability } from '@/lib/provider-availability';
+import { autoMatchMapping } from '@/lib/source-field-match';
 import {
   buildRecurrence,
   describeRecurrence,
@@ -211,6 +212,31 @@ function useSourceRuns(ws: string, db: string, id: string | null) {
   });
 }
 
+interface YoutubeChannel {
+  id: string;
+  title: string;
+  thumbnail?: string;
+}
+
+/** #341 — the channels the chosen Google connection owns, feeding the required
+ * channel picker. Only enabled once a connection is picked; a failure (no
+ * channels, revoked scope, API error) surfaces as `isError`/empty `data` so the
+ * dialog can fall back to a free-text id instead of blocking the user. */
+function useYoutubeChannels(ws: string, db: string, connectionId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['youtube-channels', ws, db, connectionId],
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/databases/{db}/sources/channels', {
+        params: { path: { ws, db }, query: { connection_id: connectionId } },
+      } as never);
+      if (error) throw error;
+      return (data as unknown as { data: YoutubeChannel[] }).data;
+    },
+    enabled: Boolean(ws && db && connectionId && enabled),
+    retry: false,
+  });
+}
+
 /** "Sync from…" (#239): configure a source — provider → connection → config →
  * field mapping → schedule — then list/sync-now/delete existing ones. */
 export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDone: () => void }) {
@@ -265,10 +291,22 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
     (f) => !f.isSystem && !['title', 'lookup', 'button', 'relation', 'created_at', 'updated_at', 'created_by'].includes(f.type),
   );
 
+  // #341 — providers that sync a specific YouTube channel expose a `channel_id`
+  // config key; for those we replace the free-text box with a required picker
+  // fed by the connected account's own channels.
+  const providerHasChannelPicker = Boolean(provider && 'channel_id' in (provider.config_schema ?? {}));
+  const channels = useYoutubeChannels(ws, db, connectionId, providerHasChannelPicker);
+  // The picker is "active" only when we actually got channels back; an empty
+  // list or an error means we fall back to the free-text id below.
+  const channelPickerActive = providerHasChannelPicker && (channels.data?.length ?? 0) > 0;
+  const channelFallback = providerHasChannelPicker && !channels.isLoading && (channels.isError || (channels.data?.length ?? 0) === 0);
+
+  /** #342 — pre-select an EXISTING field for each provider key where the target
+   * database already has a name+type-compatible one, so mapping stops defaulting
+   * every row to "+ New … field" and forcing duplicate columns. Falls back to
+   * "new" (keeping the type hint) only where nothing reasonable matches. */
   function applyCatalog(cat: Array<{ key: string; label: string; suggestedType: string; isKey?: boolean }>) {
-    const initial = new Map<string, MappingDestination>();
-    cat.forEach((c) => initial.set(c.key, { kind: 'new', type: c.suggestedType }));
-    setMapping(initial);
+    setMapping(autoMatchMapping(cat, existingFields) as Map<string, MappingDestination>);
     setKeyExternalKey(cat.find((c) => c.isKey)?.key ?? cat[0]?.key ?? '');
   }
 
@@ -429,7 +467,11 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
     Boolean(providerId) &&
     Boolean(connectionId) &&
     Boolean(keyExternalKey) &&
-    (mapping.get(keyExternalKey)?.kind ?? 'skip') !== 'skip';
+    (mapping.get(keyExternalKey)?.kind ?? 'skip') !== 'skip' &&
+    // #341 — when the channel picker is active a channel MUST be chosen; in the
+    // free-text fallback channel_id stays optional (backend defaults to the
+    // account's own channel), so it doesn't block.
+    (!channelPickerActive || Boolean(config['channel_id']));
 
   const encodedDestination = (item: (typeof catalog)[number]) => {
     const dest = mapping.get(item.key) ?? { kind: 'skip' as const };
@@ -571,7 +613,16 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                 <select
                   className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
                   value={connectionId}
-                  onChange={(e) => setConnectionId(e.target.value)}
+                  onChange={(e) => {
+                    setConnectionId(e.target.value);
+                    // #341 — channels are per-connection; drop a stale pick.
+                    setConfig((prev) => {
+                      if (!('channel_id' in prev)) return prev;
+                      const next = { ...prev };
+                      delete next['channel_id'];
+                      return next;
+                    });
+                  }}
                 >
                   <option value="">Choose a connection…</option>
                   {eligibleConnections.map((c) => (
@@ -599,7 +650,60 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
           {provider &&
             Object.entries(provider?.config_schema ?? {}).map(([key, spec]) => (
               <div key={key} className="flex flex-col gap-1.5">
-                {spec.kind === 'boolean' ? (
+                {key === 'channel_id' && providerHasChannelPicker ? (
+                  // #341 — required channel picker (by name) instead of a raw,
+                  // unreliable free-text id. Falls back to a free-text field
+                  // only when the account's channels can't be listed.
+                  <>
+                    <Label htmlFor="src-config-channel_id">Channel</Label>
+                    {!connectionId ? (
+                      <select
+                        id="src-config-channel_id"
+                        disabled
+                        className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-muted"
+                      >
+                        <option>Choose a connection first…</option>
+                      </select>
+                    ) : channels.isLoading ? (
+                      <select
+                        id="src-config-channel_id"
+                        disabled
+                        className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-muted"
+                      >
+                        <option>Loading your channels…</option>
+                      </select>
+                    ) : channelFallback ? (
+                      <>
+                        <Input
+                          id="src-config-channel_id"
+                          type="text"
+                          placeholder="Channel id (e.g. UC…)"
+                          value={config['channel_id'] ?? ''}
+                          onChange={(e) => setConfig((prev) => ({ ...prev, channel_id: e.target.value }))}
+                        />
+                        <p className="text-[11px] text-faint">
+                          {channels.isError
+                            ? "Couldn't list this account's channels — enter a channel id manually."
+                            : 'This account has no channels — enter a channel id manually.'}
+                        </p>
+                      </>
+                    ) : (
+                      <select
+                        id="src-config-channel_id"
+                        className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                        value={config['channel_id'] ?? ''}
+                        onChange={(e) => setConfig((prev) => ({ ...prev, channel_id: e.target.value }))}
+                      >
+                        <option value="">Choose a channel…</option>
+                        {(channels.data ?? []).map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.title}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </>
+                ) : spec.kind === 'boolean' ? (
                   <label className="flex items-center gap-2 text-[13px] text-ink">
                     <input
                       type="checkbox"
