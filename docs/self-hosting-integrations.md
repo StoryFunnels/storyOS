@@ -29,6 +29,28 @@ or self-managed.
 | Resend | `resend` | Resend API key (+ a verified from-address for `send_email`) |
 | SMTP | `smtp` | Host / port / from-address (optional user + pass) |
 | HTTP | `http` | Bearer token, basic auth, or a custom header for the `http_request` action |
+| Shopify | `shopify` | Store `*.myshopify.com` domain + a custom app's Admin API access token (used by the product-catalogue sources) |
+
+### Shopify: creating the Admin API access token
+
+Shopify is Tier A because the merchant brings their own credential — there is no
+StoryOS-owned OAuth app, so it works identically on hosted and self-managed with
+**no operator setup**. Each user creates a custom app in their own store admin:
+
+1. In the Shopify admin, go to **Settings → Apps and sales channels → Develop
+   apps → Create an app**.
+2. Under **Configuration → Admin API integration**, grant the read scopes the
+   catalogue sources need: **`read_products`** (products, variants, collections)
+   and, for inventory totals, **`read_inventory`**.
+3. **Install** the app, then copy the **Admin API access token** (`shpat_…`) —
+   Shopify shows it once.
+4. In StoryOS, **Settings → Connections → Shopify**, paste the store domain
+   (`your-store.myshopify.com`) and the access token. StoryOS verifies the token
+   against the Admin API (a `{ shop { name } }` probe) and stores it encrypted at
+   rest. The token is only ever sent to the validated `*.myshopify.com` host.
+
+Public-app OAuth for Shopify (a one-click install without a hand-created token)
+would be a future Tier B upgrade; it is intentionally not required today.
 
 The **core** app — records, databases, views, automations, MCP — likewise needs
 none of these; they are optional add-ons a user turns on per workspace.

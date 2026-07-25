@@ -3,6 +3,7 @@ import { youtubeCommentsProvider, youtubeMetricsProvider, youtubeVideosProvider 
 import { metaEngagementProvider } from './meta_engagement';
 import { xEngagementProvider } from './x_engagement';
 import { linkedinEngagementProvider } from './linkedin_engagement';
+import { shopifyCollectionsProvider, shopifyProductsProvider, shopifyVariantsProvider } from './shopify';
 import type { SourceProviderDescriptor } from './types';
 
 export * from './types';
@@ -13,6 +14,15 @@ export { xEngagementProvider, xEngagementConfigSchema } from './x_engagement';
 export { linkedinEngagementProvider, linkedinEngagementConfigSchema } from './linkedin_engagement';
 export { apifyActorProvider, apifyActorConfigSchema } from './apify';
 export type { ApifyActorConfig } from './apify';
+export {
+  shopifyProductsProvider,
+  shopifyVariantsProvider,
+  shopifyCollectionsProvider,
+  shopifyCatalogueConfigSchema,
+  mapProduct,
+  mapVariant,
+  mapCollection,
+} from './shopify';
 
 /**
  * The source provider registry (#239 Step 2). Adding a provider — MN-261's
@@ -29,5 +39,8 @@ export const SOURCE_PROVIDER_REGISTRY: ReadonlyMap<string, SourceProviderDescrip
     xEngagementProvider,
     linkedinEngagementProvider,
     apifyActorProvider,
+    shopifyProductsProvider,
+    shopifyVariantsProvider,
+    shopifyCollectionsProvider,
   ].map((p) => [p.id, p]),
 );
