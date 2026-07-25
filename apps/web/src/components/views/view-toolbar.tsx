@@ -70,6 +70,7 @@ import {
 import type { FilterConnector, FilterGroup, FilterNode } from './filter-config';
 import { MAX_SORTS, directionLabel, isSortableFormula, nextSortField, reorderSorts } from './sort-config';
 import type { NullsPlacement } from './sort-config';
+import { SYSTEM_FIELD_OPS, SYSTEM_SORTABLE_TYPES, SYSTEM_USER_TYPES, withSystemFields } from './system-fields';
 
 /** Op menu per field type — mirrors the API op×type matrix. */
 export const OPS_BY_TYPE: Record<string, Array<{ op: string; label: string; input: 'text' | 'number' | 'date' | 'options' | 'relative' | 'boolean' | 'records' | 'none' }>> = {
@@ -129,6 +130,11 @@ export const OPS_BY_TYPE: Record<string, Array<{ op: string; label: string; inpu
     { op: 'has', label: 'is any of', input: 'records' },
     { op: 'has_none', label: 'is none of', input: 'records' },
   ],
+  // #352 — the built-in system columns (number/id/created_at/updated_at/
+  // created_by/updated_by), keyed by their compiler type. Sourced from the
+  // shared @storyos/schemas registry so the op menu never diverges from what
+  // the API filter compiler accepts.
+  ...SYSTEM_FIELD_OPS,
 };
 
 const RELATIVE_RANGES = [
@@ -151,6 +157,10 @@ export const SORTABLE = new Set([
   // and is materialized the same way formula is, so it's sortable too. `lookup`
   // stays excluded: still no such plumbing for it.
   'formula', 'rollup',
+  // #352 — all system field compiler types are sortable (stable via the id
+  // tiebreak the API appends). Adds `id`, `created_by`, `updated_by`
+  // (`created_at`/`updated_at` were already sortable above).
+  ...SYSTEM_SORTABLE_TYPES,
 ]);
 
 export function ViewToolbar({
@@ -180,7 +190,13 @@ export function ViewToolbar({
    * Only supplied when the viewer may edit the schema (`creator`); omitted = read-only list. */
   onReorderFields?: (activeId: string, overId: string) => void;
 }) {
-  const filterable = fields.filter((f) => OPS_BY_TYPE[f.type]);
+  // #352 — overlay the canonical system-field set (Number, ID, Created, Last
+  // edited, Created by, Last edited by) onto the introspected fields so filter
+  // & sort enumerate them alongside user fields. Contained to these two
+  // surfaces: the Cards / Hide-fields / color / group sections keep the raw
+  // `fields` (system columns aren't card/hideable toggles).
+  const augmented = useMemo(() => withSystemFields(fields), [fields]);
+  const filterable = augmented.filter((f) => OPS_BY_TYPE[f.type]);
 
   return (
     <div className="flex min-h-9 flex-wrap items-center gap-1.5 border-b border-border-default bg-app px-3 py-1">
@@ -201,7 +217,7 @@ export function ViewToolbar({
       {/* Sorts (MN-252): the builder is field-type-aware and self-filters to what
           the query layer can actually order by — see fieldTypeIcon/SORTABLE below. */}
       <SortButton
-        fields={fields}
+        fields={augmented}
         sorts={config.sorts}
         nulls={config.sorts_nulls}
         onChange={(sorts) => onPatch({ sorts })}
@@ -334,6 +350,7 @@ const SYSTEM_TYPE_ICON: Record<string, LucideIcon> = {
   created_at: Clock,
   updated_at: Clock,
   created_by: UserRound,
+  updated_by: UserRound,
 };
 export function fieldTypeIcon(type: string): LucideIcon {
   return TYPE_ICON.get(type) ?? SYSTEM_TYPE_ICON[type] ?? ListFilter;
@@ -399,7 +416,7 @@ function FilterValueEditor({
     : 'rounded border border-border-default bg-card px-1 py-0.5 text-[12px] text-ink outline-none';
 
   const optionSource: Array<{ id: string; label: string }> =
-    field.type === 'user'
+    field.type === 'user' || SYSTEM_USER_TYPES.has(field.type)
       ? members.map((m) => ({ id: m.id, label: m.name }))
       : (field.options ?? []).map((o) => ({ id: o.id, label: o.label }));
 
