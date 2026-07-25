@@ -151,6 +151,7 @@ describe('ConnectionsService.listProviders — tiers + availability (#345/#346)'
       resend: 'api_key',
       smtp: 'api_key',
       http: 'api_key',
+      shopify: 'api_key',
       google: 'oauth_managed',
       'google-calendar': 'oauth_managed',
     });
@@ -161,7 +162,7 @@ describe('ConnectionsService.listProviders — tiers + availability (#345/#346)'
   it('api_key providers are always connectable, in either deployment mode', () => {
     for (const isHosted of [true, false]) {
       const data = newService(isHosted).listProviders().data as unknown as Row[];
-      for (const id of ['apify', 'resend', 'smtp', 'http']) {
+      for (const id of ['apify', 'resend', 'smtp', 'http', 'shopify']) {
         expect(byId(data, id).availability, `${id} @ hosted=${isHosted}`).toBe('connectable');
       }
     }
