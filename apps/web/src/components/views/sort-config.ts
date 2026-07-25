@@ -95,6 +95,11 @@ const DIRECTION_LABELS: Record<string, { asc: string; desc: string }> = {
   created_at: { asc: 'Oldest → newest', desc: 'Newest → oldest' },
   updated_at: { asc: 'Oldest → newest', desc: 'Newest → oldest' },
   checkbox: { asc: 'Unchecked → checked', desc: 'Checked → unchecked' },
+  // #352 — system field idioms. `id` (Number/ID) reads as a count; created_by/
+  // updated_by sort by the actor's name.
+  id: { asc: '1 → 9', desc: '9 → 1' },
+  created_by: { asc: 'A → Z', desc: 'Z → A' },
+  updated_by: { asc: 'A → Z', desc: 'Z → A' },
 };
 
 export function directionLabel(fieldType: string, direction: 'asc' | 'desc'): string {
