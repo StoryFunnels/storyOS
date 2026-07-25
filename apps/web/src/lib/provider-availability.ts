@@ -70,3 +70,30 @@ export function presentAvailability(
       };
   }
 }
+
+/** The credential-entry affordance the Connections gallery renders for a
+ * provider (settings/connections/page.tsx). `oauth` is a redirect to the
+ * operator-configured OAuth handshake — no per-user form; `api-key`/`http` are
+ * the Tier A per-user key dialogs; `none` renders no connect control. */
+export type ConnectControl = 'oauth' | 'api-key' | 'http' | 'none';
+
+/**
+ * #348 — pick the connect affordance for a provider card purely from its
+ * server availability verdict and credential `auth_kind`. This encodes the
+ * ticket's core invariant: a Tier B `oauth_managed` provider (`auth_kind ===
+ * 'oauth2'`) is ONLY ever routed to the OAuth authorize handshake, NEVER to a
+ * per-user API-key / OAuth-app / client-secret entry form. A non-`connectable`
+ * provider surfaces no connect control at all — its setup is an operator/env
+ * concern documented in the self-hosting integrations page, not per-user UI.
+ * Kept pure (no env, no deployment re-derivation) and unit-tested as the guard.
+ */
+export function connectControl(
+  availability: ProviderAvailability,
+  authKind: 'oauth2' | 'api_key' | 'smtp',
+  providerId?: string,
+): ConnectControl {
+  if (!presentAvailability(availability).actionable) return 'none';
+  if (authKind === 'oauth2') return 'oauth';
+  if (providerId === 'http') return 'http';
+  return 'api-key';
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { presentAvailability } from './provider-availability';
+import { connectControl, presentAvailability } from './provider-availability';
 
 describe('presentAvailability (#347 three honest states)', () => {
   it('connectable → actionable, no badge/description (uses existing connect controls)', () => {
@@ -37,5 +37,33 @@ describe('presentAvailability (#347 three honest states)', () => {
     expect(presentAvailability('connectable').actionable).toBe(true);
     expect(presentAvailability('cloud_only').actionable).toBe(false);
     expect(presentAvailability('operator_config').actionable).toBe(false);
+  });
+});
+
+describe('connectControl (#348 — Tier B never gets per-user key entry)', () => {
+  it('a connectable oauth_managed (oauth2) provider is routed to OAuth, never a key form', () => {
+    expect(connectControl('connectable', 'oauth2', 'google')).toBe('oauth');
+    expect(connectControl('connectable', 'oauth2', 'google-calendar')).toBe('oauth');
+  });
+
+  it('an oauth2 provider is NEVER routed to the api-key entry control, in any state', () => {
+    for (const availability of ['connectable', 'operator_config', 'cloud_only'] as const) {
+      expect(connectControl(availability, 'oauth2', 'google')).not.toBe('api-key');
+    }
+  });
+
+  it('a non-connectable provider surfaces no connect control at all', () => {
+    // operator_config is exactly the self-managed Tier B "env unset" state: the
+    // gallery must not render a connect entry, instructional wall, or key form.
+    expect(connectControl('operator_config', 'oauth2', 'google')).toBe('none');
+    expect(connectControl('operator_config', 'api_key', 'apify')).toBe('none');
+    expect(connectControl('cloud_only', 'oauth2', 'google')).toBe('none');
+  });
+
+  it('Tier A api_key providers keep their per-user key entry when connectable', () => {
+    expect(connectControl('connectable', 'api_key', 'apify')).toBe('api-key');
+    expect(connectControl('connectable', 'api_key', 'resend')).toBe('api-key');
+    expect(connectControl('connectable', 'smtp', 'smtp')).toBe('api-key');
+    expect(connectControl('connectable', 'api_key', 'http')).toBe('http');
   });
 });

@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Db } from '../db/client';
 import type { NotificationsService } from '../notifications/notifications.service';
@@ -189,5 +189,84 @@ describe('ConnectionsService.listProviders — tiers + availability (#345/#346)'
     delete process.env.GOOGLE_CLIENT_SECRET;
     const data = newService(true).listProviders().data as unknown as Row[];
     expect(byId(data, 'google').availability).toBe('connectable');
+  });
+});
+
+/**
+ * #348 — the connect flow must never accept a per-user OAuth-app / client-secret
+ * / API-key entry for a Tier B (`oauth_managed`) provider. The web app already
+ * expresses this (an oauth2 provider only ever gets the OAuth authorize redirect,
+ * never a key-entry dialog — settings/connections/page.tsx), but the guarantee is
+ * enforced server-side too: create() is the only per-user credential-submission
+ * path, and it refuses every oauth2 provider. These tests pin that guard so a
+ * future refactor can't quietly reopen a "paste your Google client id/secret here"
+ * hole for self-hosters.
+ */
+describe('ConnectionsService.create — Tier B rejects per-user credential entry (#348)', () => {
+  const ORIGINAL_ENV = { ...process.env };
+  afterEach(() => {
+    process.env = { ...ORIGINAL_ENV };
+  });
+
+  it.each(['google', 'google-calendar'])(
+    'refuses a direct create for the oauth_managed provider %s',
+    async (provider) => {
+      const service = newService();
+      // Even a body stuffed with everything an operator might be tempted to
+      // expose per-user (an api key AND an OAuth app's id/secret) is refused —
+      // the only route in is the operator-configured OAuth handshake.
+      await expect(
+        service.create(
+          'ws-1',
+          {
+            provider,
+            name: 'X',
+            auth: { api_key: 'k', client_id: 'id', client_secret: 'secret' },
+          },
+          'user-1',
+        ),
+      ).rejects.toThrow(BadRequestException);
+      await expect(
+        service.create('ws-1', { provider, name: 'X', auth: {} }, 'user-1'),
+      ).rejects.toThrow(/OAuth/i);
+    },
+  );
+
+  it('still lets a Tier A api_key provider be created with a per-user key', async () => {
+    const service = newService();
+    // A healthy Apify /users/me response so the descriptor's healthCheck passes.
+    service.fetcher = (async () => ({
+      status: 200,
+      json: async () => ({}),
+      text: async () => '',
+    })) as unknown as ConnectionsService['fetcher'];
+    const inserted: Record<string, unknown>[] = [];
+    (service as unknown as { db: unknown }).db = {
+      insert: () => ({
+        values: (v: Record<string, unknown>) => ({
+          returning: async () => {
+            inserted.push(v);
+            return [
+              {
+                ...v,
+                id: 'conn-1',
+                createdAt: new Date(),
+                lastOkAt: new Date(),
+                breakerOpenUntil: null,
+                status: 'active',
+                scopes: [],
+              },
+            ];
+          },
+        }),
+      }),
+    };
+    const result = await service.create(
+      'ws-1',
+      { provider: 'apify', name: 'My Apify', auth: { api_key: 'apify-key' } },
+      'user-1',
+    );
+    expect(result.provider).toBe('apify');
+    expect(inserted).toHaveLength(1);
   });
 });

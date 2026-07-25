@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import {
+  connectControl,
   presentAvailability,
   type AvailabilityPresentation,
   type ProviderAvailability,
@@ -264,24 +265,34 @@ export default function ConnectionsSettingsPage() {
                   <AvailabilityNote present={present} />
                 )}
               </div>
-              {/* State 1 (connectable) keeps the existing connect flow verbatim —
-                  #348 owns that modal, so this only gates whether it renders. */}
-              {present.actionable &&
-                (p.auth_kind === 'oauth2' ? (
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    disabled={!p.oauth?.configured}
-                    title={p.oauth?.configured ? undefined : 'This server has no client id/secret configured for this provider'}
-                    onClick={() => reconnect(p.id)}
-                  >
-                    {p.oauth?.configured ? 'Connect' : 'Not configured'}
-                  </Button>
-                ) : p.id === 'http' ? (
-                  <HttpConnectDialog ws={ws} provider={p} />
-                ) : (
-                  <ApiKeyConnectDialog ws={ws} provider={p} />
-                ))}
+              {/* #348 — the connect affordance is chosen by the pure, tested
+                  connectControl() guard. A Tier B oauth_managed provider only ever
+                  gets the OAuth authorize redirect below — never a per-user
+                  API-key / OAuth-app entry form. Non-connectable states render no
+                  control (their setup is an operator/env concern, per the
+                  self-hosting integrations docs). */}
+              {(() => {
+                switch (connectControl(p.availability ?? 'connectable', p.auth_kind, p.id)) {
+                  case 'oauth':
+                    return (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={!p.oauth?.configured}
+                        title={p.oauth?.configured ? undefined : 'This server has no client id/secret configured for this provider'}
+                        onClick={() => reconnect(p.id)}
+                      >
+                        {p.oauth?.configured ? 'Connect' : 'Not configured'}
+                      </Button>
+                    );
+                  case 'http':
+                    return <HttpConnectDialog ws={ws} provider={p} />;
+                  case 'api-key':
+                    return <ApiKeyConnectDialog ws={ws} provider={p} />;
+                  case 'none':
+                    return null;
+                }
+              })()}
             </div>
           );
         })}
