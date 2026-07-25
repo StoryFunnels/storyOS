@@ -18,6 +18,7 @@ export const apifyProvider: ProviderDescriptor = {
   id: 'apify',
   label: 'Apify',
   authKind: 'api_key',
+  tier: 'api_key',
   async healthCheck(auth: unknown, fetcher: ConnectionFetcher = defaultConnectionFetcher): Promise<void> {
     const { api_key } = (auth ?? {}) as Partial<ApifyAuth>;
     if (!api_key || !api_key.trim()) {

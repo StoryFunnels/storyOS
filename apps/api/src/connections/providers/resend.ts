@@ -41,6 +41,7 @@ export const resendProvider: ProviderDescriptor = {
   id: 'resend',
   label: 'Resend',
   authKind: 'api_key',
+  tier: 'api_key',
   // MN-253: a conservative MVP default (Resend's own published limit is
   // higher) — JobRunnerService's per-connection token bucket, exercised for
   // real by MN-256's send_email action. Tune once that ticket has real

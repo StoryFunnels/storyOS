@@ -15,6 +15,7 @@ export const googleCalendarProvider: ProviderDescriptor = {
   id: 'google-calendar',
   label: 'Google Calendar',
   authKind: 'oauth2',
+  tier: 'oauth_managed',
   oauth: {
     authUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
     tokenUrl: 'https://oauth2.googleapis.com/token',

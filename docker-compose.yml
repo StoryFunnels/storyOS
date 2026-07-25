@@ -58,6 +58,10 @@ services:
       # empty to keep managed AI disabled; BYO-AI over MCP does not use it.
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      # Deployment mode (#345). Hosted-vs-self-managed signal for the integration
+      # catalog. Unset ⇒ derived from billing (hosted iff STRIPE_SECRET_KEY set),
+      # so self-host needs nothing here. Set true/false only to override.
+      STORYOS_HOSTED: ${STORYOS_HOSTED:-}
       # Billing (MN-165). All optional — unset = billing disabled, every workspace Free.
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}

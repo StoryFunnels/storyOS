@@ -1,4 +1,4 @@
-import type { ConnectionAuthKind } from '@storyos/schemas';
+import type { ConnectionAuthKind, ProviderTier } from '@storyos/schemas';
 
 /**
  * Minimal fetch surface so every provider's `healthCheck` (and the OAuth token
@@ -37,6 +37,25 @@ export interface ProviderDescriptor {
   id: string;
   label: string;
   authKind: ConnectionAuthKind;
+  /**
+   * #346 — the integration tier, by who owns the credential (parent #344):
+   *  - 'api_key'       — user brings their own key; works hosted + self-managed.
+   *  - 'oauth_managed' — needs a verified OAuth app (hosted provides the managed
+   *                      one; self-managed operators bring their own via
+   *                      oauth.clientIdEnv/clientSecretEnv).
+   *  - 'hosted_only'   — only meaningful on hosted StoryOS (reserved; no provider
+   *                      uses it yet).
+   * Distinct from `authKind` (the mechanical credential shape): every current
+   * 'oauth2' provider is 'oauth_managed', but the two axes are independent so a
+   * future api_key provider could be hosted_only, etc. Availability is resolved
+   * from this tier + deployment mode by availabilityFor() (providers/availability.ts).
+   */
+  tier: ProviderTier;
+  /**
+   * #346 — optional human copy surfaced next to a non-`connectable` availability
+   * (e.g. the "Available on StoryOS Cloud" upsell line #347's gallery renders).
+   */
+  availabilityNote?: string;
   /** Required (and only meaningful) when authKind === 'oauth2'. */
   oauth?: ProviderOAuthConfig;
   /**

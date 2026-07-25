@@ -7,6 +7,8 @@ import { smtpProvider } from './smtp';
 import type { ProviderDescriptor } from './types';
 
 export * from './types';
+export { availabilityFor } from './availability';
+export type { AvailabilityContext } from './availability';
 export { apifyProvider } from './apify';
 export type { ApifyAuth } from './apify';
 export { resendProvider } from './resend';

@@ -17,7 +17,8 @@ import { automationJobs, connections } from '../db/schema';
 import { env } from '../config/env';
 import { open, seal } from '../common/secretbox';
 import { NotificationsService } from '../notifications/notifications.service';
-import { PROVIDER_REGISTRY } from './providers';
+import { DeploymentService } from '../deployment/deployment.service';
+import { availabilityFor, PROVIDER_REGISTRY } from './providers';
 import type { ConnectionFetcher, ProviderDescriptor } from './providers';
 
 type ConnectionRow = typeof connections.$inferSelect;
@@ -69,6 +70,7 @@ export class ConnectionsService implements OnModuleInit, OnModuleDestroy {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly notifications: NotificationsService,
+    private readonly deployment: DeploymentService,
   ) {}
 
   onModuleInit() {
@@ -83,11 +85,22 @@ export class ConnectionsService implements OnModuleInit, OnModuleDestroy {
 
   // ── provider catalog ─────────────────────────────────────────────────────
 
+  /**
+   * The provider catalog (GET .../connections/providers). #345/#346: each entry
+   * now carries its `tier` and a server-authoritative `availability` verdict for
+   * THIS deployment (resolved from tier + hosted-vs-self-managed + the operator's
+   * OAuth env) plus the optional `availability_note`, so #347's gallery renders
+   * connect / configure / upsell without re-deriving anything client-side.
+   */
   listProviders(): { data: ProviderDescriptorSummary[] } {
+    const isHosted = this.deployment.isHosted;
     const data = [...PROVIDER_REGISTRY.values()].map((p) => ({
       id: p.id,
       label: p.label,
       auth_kind: p.authKind,
+      tier: p.tier,
+      availability: availabilityFor(p, { isHosted }),
+      ...(p.availabilityNote ? { availability_note: p.availabilityNote } : {}),
       ...(p.oauth
         ? {
             oauth: {

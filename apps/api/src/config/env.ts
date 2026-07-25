@@ -265,6 +265,19 @@ export const envSchema = z.object({
     .optional()
     .transform((v) => v === 'true' || v === '1'),
   /**
+   * #345 — deployment mode signal for the integration-tier resolver
+   * (parent #344). Explicit override of "is this hosted StoryOS Cloud?":
+   *   - 'true'/'1'  → force hosted (managed OAuth apps available).
+   *   - 'false'/'0' → force self-managed, even if Stripe is wired.
+   *   - UNSET (the default) → derive it: hosted iff billing is configured
+   *     (STRIPE_SECRET_KEY set), reusing StripeService.enabled's
+   *     "billing configured ⇒ hosted-ish" shape so self-host needs no new var.
+   * Kept a raw string (not a boolean transform) precisely so DeploymentService
+   * can tell "unset → derive" apart from an explicit "false". Read only by
+   * DeploymentService (deployment/deployment.service.ts).
+   */
+  STORYOS_HOSTED: z.string().optional(),
+  /**
    * Billing (MN-165). All optional: with STRIPE_SECRET_KEY unset the billing
    * module runs in "disabled" mode — every workspace is Free, checkout/portal
    * endpoints 503, and the webhook no-ops. Self-hosters never touch Stripe.

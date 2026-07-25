@@ -50,6 +50,7 @@ import { HealthController } from './health/health.controller';
 import { MailModule } from './mail/mail.module';
 import { WorkspacesModule } from './workspaces/workspaces.module';
 import { CalendarSyncModule } from './calendar-sync/calendar-sync.module';
+import { DeploymentModule } from './deployment/deployment.module';
 
 @Module({
   imports: [
@@ -84,6 +85,7 @@ import { CalendarSyncModule } from './calendar-sync/calendar-sync.module';
       },
     }),
     DbModule,
+    DeploymentModule,
     MailModule,
     AuthModule,
     WorkspacesModule,
