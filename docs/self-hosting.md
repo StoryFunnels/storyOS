@@ -81,14 +81,21 @@ it into the connector.
 ## Connections (MN-252)
 
 **Connections** (per-workspace, under **Settings → Connections**) is a registry of external-provider
-credentials shared by every automation action and source — Apify and Resend connect with an API key
-today; Google connects via OAuth2 reusing `GOOGLE_CLIENT_ID/SECRET` above. Each OAuth2 provider is a
-**bring-your-own-app**: register an OAuth app with that provider, then set its client id/secret as env
-vars named on the provider's own descriptor (`providers/index.ts` in `apps/api/src/connections`) — no
-provider is enabled until its env vars are set, and none of this is required for API-key providers.
-Follow-up integrations (LinkedIn, Meta, YouTube) register their own descriptor and document their own
-client id/secret vars here when they ship; YouTube is expected to reuse `GOOGLE_CLIENT_ID/SECRET` rather
-than add new ones.
+credentials shared by every automation action and source. Each provider declares a **tier** by who owns
+the credential, and that tier — not the auth mechanism — decides what, if anything, you configure:
+
+- **Tier A (API key)** — Apify, Resend, SMTP, HTTP. Work everywhere with **no operator setup**; each user
+  adds their own key.
+- **Tier B (env-configured OAuth)** — YouTube and Google Calendar. One-time operator setup: register a
+  Google OAuth app and set `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` (above) — the same app covers login,
+  YouTube, and Calendar. Until you do, the gallery shows the provider as operator-only rather than a dead
+  Connect button. **End users never register an OAuth app or paste a client id/secret** — that is an
+  operator/env concern, done once.
+- **Tier C (cloud-only)** — none today.
+
+Full operator recipe — exact redirect URIs, scopes, and the per-provider env vars — is in
+**[Self-hosting integrations](self-hosting-integrations.md)**. The tier model itself is in
+[integration tiers](architecture/integration-tiers.md).
 
 ## Data protection & GDPR
 
