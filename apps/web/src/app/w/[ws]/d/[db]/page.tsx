@@ -24,9 +24,10 @@ import {
   useViewState,
 } from '@/components/views/use-view-state';
 import type { ViewConfig } from '@/components/views/use-view-state';
-import { useDatabase, useMembers, useUpdateDatabaseIcon } from '@/components/table-view/use-table-data';
+import { useDatabase, useMembers, useReorderFields, useUpdateDatabaseIcon } from '@/components/table-view/use-table-data';
 import type { Field } from '@/components/table-view/use-table-data';
 import { atLeast } from '@/lib/access';
+import { fieldReorderMoves } from '@/lib/reorder';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -57,6 +58,14 @@ function DatabasePageInner() {
   const queryBody = useMemo(() => queryBodyFromConfig(config, personalFilter), [config, personalFilter]);
 
   const viewSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+
+  // Drag-to-reorder the canonical field order from the "Hide fields" panel (#338)
+  // — the same field.position the table columns use, so both surfaces agree.
+  const reorderFields = useReorderFields(ws, db);
+  const onReorderFields = (activeId: string, overId: string) => {
+    const moves = fieldReorderMoves(database.data?.fields ?? [], activeId, overId);
+    if (moves.length) reorderFields.mutate(moves);
+  };
   function onViewDragEnd(e: DragEndEvent) {
     if (readOnly || !e.over || e.active.id === e.over.id) return;
     const from = views.findIndex((v) => v.id === e.active.id);
@@ -173,6 +182,7 @@ function DatabasePageInner() {
         db={db}
         viewId={activeView?.id}
         personalFilter={personalFilter}
+        onReorderFields={schemaEditable ? onReorderFields : undefined}
       />
 
       <div className="min-h-0 flex-1">
