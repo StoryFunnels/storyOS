@@ -51,6 +51,18 @@ The essentials, which every new-provider PR must satisfy:
 - **Add/extend availability tests** across both deployment modes and (Tier B)
   env present/absent.
 
+## Version history (change log, restore) — build to the ADR
+
+The version-history initiative (#321; C2–C5 = #363–#366) has a design +
+codebase-inventory ADR that C-tickets must follow:
+[docs/architecture/version-history.md](docs/architecture/version-history.md).
+The load-bearing facts: **extend** MN-231 `record_versions` + its list/restore
+API (don't replace them); capture is **field-level** (`record_field_changes`)
+badged by `source` (human/agent/automation/mcp via #330); retention is
+plan-gated and tiny (Free none · Pro 1d · Business 7d · Enterprise 30d), Free =
+capture off; whole-record restore ships before per-field revert; this is
+history/restore, **not** workspace backup (#320/#322).
+
 ## Before you push
 
 Run the full local CI — CI failures after push waste a queue slot:
