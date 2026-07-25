@@ -61,18 +61,32 @@ export class WorkspacesService {
     });
   }
 
-  async listForUser(userId: string) {
+  /**
+   * #332: `scopeWorkspaceId` clamps the result to a single workspace. A
+   * workspace-scoped PAT (`auth.via === 'token'`) must not have discovery list
+   * workspaces its credential can't address — `list_workspaces` returning
+   * memberships beyond the token's ceiling falsely promised access, and every
+   * such id then 404'd on `list_databases`/`list_spaces`. Full-account
+   * credentials (session/oauth) pass `undefined` and keep seeing all
+   * memberships. The clamp intersects with real memberships, so it never widens
+   * access — a token whose workspace the user isn't (or is no longer) a member
+   * of yields [].
+   */
+  async listForUser(userId: string, scopeWorkspaceId?: string) {
     const mine = await this.db.query.memberships.findMany({
       where: and(eq(memberships.userId, userId), eq(memberships.status, 'active')),
     });
-    if (mine.length === 0) return [];
+    const scoped = scopeWorkspaceId
+      ? mine.filter((m) => m.workspaceId === scopeWorkspaceId)
+      : mine;
+    if (scoped.length === 0) return [];
     const wss = await this.db.query.workspaces.findMany({
       where: inArray(
         workspaces.id,
-        mine.map((m) => m.workspaceId),
+        scoped.map((m) => m.workspaceId),
       ),
     });
-    const roleByWs = new Map(mine.map((m) => [m.workspaceId, m.role]));
+    const roleByWs = new Map(scoped.map((m) => [m.workspaceId, m.role]));
     return wss.map((w) => ({ ...serialize(w), role: roleByWs.get(w.id) }));
   }
 

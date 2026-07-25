@@ -89,6 +89,35 @@ describe('a workspace-A PAT (MN-122)', () => {
   });
 });
 
+describe('list_workspaces discovery is scoped to the PAT (#332)', () => {
+  it('lists ONLY the token workspace — not every workspace the owner belongs to', async () => {
+    const res = await inject('GET', '/workspaces', undefined, patA);
+    expect(res.statusCode).toBe(200);
+    const ids = (res.json() as Array<{ id: string }>).map((w) => w.id);
+    expect(ids).toEqual([wsA]);
+    // The bug: B was listed here, promising access the credential can't deliver.
+    expect(ids).not.toContain(wsB);
+  });
+
+  it('every workspace the PAT lists is immediately usable — no discovery dead-end', async () => {
+    // The acceptance test: whatever list_workspaces returns for this credential
+    // must not 404 on the very next list_databases call.
+    const listed = (await inject('GET', '/workspaces', undefined, patA)).json() as Array<{ id: string }>;
+    for (const w of listed) {
+      const res = await inject('GET', `/workspaces/${w.id}/databases`, undefined, patA);
+      expect(res.statusCode, `listed workspace ${w.id} was not usable`).toBe(200);
+    }
+  });
+
+  it('a session/OAuth credential still discovers BOTH workspaces — scopes tokens, not people', async () => {
+    const res = await inject('GET', '/workspaces');
+    expect(res.statusCode).toBe(200);
+    const ids = (res.json() as Array<{ id: string }>).map((w) => w.id);
+    expect(ids).toContain(wsA);
+    expect(ids).toContain(wsB);
+  });
+});
+
 describe('token management is session-only (MN-122)', () => {
   it('a PAT cannot mint another PAT — otherwise scoping is trivially bypassed', async () => {
     // The escalation path: a leaked A-token asks for a B-token and walks around

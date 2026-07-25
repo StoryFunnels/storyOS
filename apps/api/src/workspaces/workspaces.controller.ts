@@ -40,7 +40,13 @@ export class WorkspacesController {
   @Get()
   @ApiOperation({ summary: 'List workspaces I belong to' })
   list(@Req() req: AuthedRequest) {
-    return this.workspaces.listForUser(req.user.id);
+    // #332: a workspace-scoped PAT (`via: 'token'`) can only address the
+    // workspace it was minted for, so discovery must not list any other — a
+    // full session/oauth credential (no `workspaceId`) still sees every
+    // membership. Clamping here mirrors the per-request ceiling AuthGuard
+    // already enforces for `:ws` routes.
+    const scope = req.auth.via === 'token' ? req.auth.workspaceId : undefined;
+    return this.workspaces.listForUser(req.user.id, scope);
   }
 
   @Post()
