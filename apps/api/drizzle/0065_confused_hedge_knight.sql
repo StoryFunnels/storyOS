@@ -1,0 +1,1 @@
+CREATE INDEX "records_db_updated_idx" ON "records" USING btree ("database_id","updated_at","id");

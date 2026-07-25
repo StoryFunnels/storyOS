@@ -17,6 +17,10 @@
     "./icons": {
       "types": "./dist/icons.d.ts",
       "default": "./dist/icons.js"
+    },
+    "./system-fields": {
+      "types": "./dist/system-fields.d.ts",
+      "default": "./dist/system-fields.js"
     }
   },
   "scripts": {

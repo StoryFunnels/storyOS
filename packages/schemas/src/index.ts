@@ -5,6 +5,7 @@ export * from './databases';
 export * from './fields';
 export * from './record-values';
 export * from './query';
+export * from './system-fields';
 export * from './relations';
 export * from './views';
 export * from './access';

@@ -28,6 +28,40 @@ curl -s -X POST $API/api/v1/workspaces/$WS/databases/$DB/records/query \
 - Responses page with keyset cursors: pass `next_cursor` back as `cursor`
 - Relation fields return `[{id, title}]` chips; filter them with `has` / `is_empty`
 
+## System fields
+
+Every database has built-in, read-only columns that are filterable **and** sortable
+by these `api_name`s — no schema lookup needed, they are the same on every database:
+
+| api_name | what | ops | sortable |
+| --- | --- | --- | --- |
+| `number` | sequential public record number | `eq neq gt gte lt lte is_empty not_empty` | yes |
+| `id` | alias of `number` (the record's public handle) | same as `number` | yes |
+| `created_at` | creation timestamp | `eq neq before after within is_empty not_empty` | yes |
+| `updated_at` | last-modified timestamp | same as `created_at` | yes |
+| `created_by` | creating user | `eq neq has has_none is_empty not_empty` (id or `"me"`) | yes |
+| `updated_by` | last-modifying user | same as `created_by` | yes |
+
+```bash
+# "high-numbered, most-recent first": filter by number, sort by created_at
+curl -s -X POST $API/api/v1/workspaces/$WS/databases/$DB/records/query \
+  -H "Authorization: Bearer $PAT" -H 'content-type: application/json' -d '{
+  "filter": { "field": "number", "op": "gte", "value": 320 },
+  "sorts": [{ "field": "created_at", "direction": "desc" }],
+  "limit": 50
+}' | jq
+
+# "my records, oldest edits first"
+curl -s -X POST $API/api/v1/workspaces/$WS/databases/$DB/records/query \
+  -H "Authorization: Bearer $PAT" -H 'content-type: application/json' -d '{
+  "filter": { "field": "created_by", "op": "eq", "value": "me" },
+  "sorts": [{ "field": "updated_at", "direction": "asc" }]
+}' | jq
+```
+
+An unsupported op for a system field (e.g. `contains` on `number`) returns `422`
+naming the allowed ops.
+
 ## Writing
 
 ```bash

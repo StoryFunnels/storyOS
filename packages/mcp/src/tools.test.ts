@@ -19,6 +19,7 @@ const detail = {
       ],
     },
     { apiName: 'assignee', type: 'user' },
+    { apiName: 'created_by', type: 'created_by', isSystem: true },
     { apiName: 'title', type: 'text' },
   ],
 } as never;
@@ -59,6 +60,26 @@ describe('mapFilterValues (#204)', () => {
   it('leaves non-membership fields untouched', () => {
     const out = mapFilterValues(detail, { field: 'title', op: 'contains', value: 'spec' });
     expect(out).toEqual({ field: 'title', op: 'contains', value: 'spec' });
+  });
+
+  // #354: system person fields are scalar (eq/neq stay eq/neq — NOT mapped to has),
+  // but the @me sentinel still translates to the server's "me".
+  it('maps @me on created_by without converting eq → has', () => {
+    const out = mapFilterValues(detail, { field: 'created_by', op: 'eq', value: '@me' });
+    expect(out).toEqual({ field: 'created_by', op: 'eq', value: 'me' });
+  });
+
+  it('maps @me on updated_by even though it has no stored field row (registry-driven)', () => {
+    const out = mapFilterValues(detail, { field: 'updated_by', op: 'neq', value: '@me' });
+    expect(out).toEqual({ field: 'updated_by', op: 'neq', value: 'me' });
+  });
+
+  it('passes number/created_at system-field conditions straight through', () => {
+    expect(mapFilterValues(detail, { field: 'number', op: 'gte', value: 320 })).toEqual({
+      field: 'number',
+      op: 'gte',
+      value: 320,
+    });
   });
 
   it('throws a helpful error naming valid options on an unknown label', () => {
@@ -944,5 +965,84 @@ describe('list_sources (#239)', () => {
     const { client } = fakeClient();
     registerTools(server, { client, baseUrl: 'http://x', token: 't' } as Ctx, { scope: 'read', allowRunButton: true });
     expect(handlers.has('list_sources')).toBe(true);
+  });
+});
+
+describe('describe_database enumerates system fields from the registry (#354)', () => {
+  const dbDetail = {
+    id: 'db-1',
+    name: 'Issues',
+    qualifiedSlug: 'eng/issues',
+    my_access: 'admin',
+    // Stored rows: the title, a user field, plus the stored system rows that used
+    // to be hidden (created_at) or shown ad-hoc (id). describe should present a
+    // single, consistent system set from the registry — not these raw rows.
+    fields: [
+      { id: 'f0', apiName: 'id', displayName: 'ID', type: 'id', isSystem: true },
+      { id: 'f1', apiName: 'name', displayName: 'Name', type: 'title' },
+      { id: 'f2', apiName: 'priority', displayName: 'Priority', type: 'select', options: [{ id: 'o1', label: 'High' }] },
+      { id: 'f3', apiName: 'created_at', displayName: 'Created at', type: 'created_at', isSystem: true },
+    ],
+    views: [],
+  };
+
+  function fakeServer() {
+    const handlers = new Map<string, (a: unknown) => Promise<{ content: Array<{ text: string }>; isError?: boolean }>>();
+    return {
+      server: { registerTool: (n: string, _c: unknown, h: never) => handlers.set(n, h as never) } as never,
+      handlers,
+    };
+  }
+  function makeCtx(): Ctx {
+    const client = {
+      GET: async (path: string) => {
+        if (path === '/api/v1/workspaces') return { data: [{ id: 'ws-1', name: 'Eng' }] };
+        if (path === '/api/v1/workspaces/{ws}/databases') return { data: [dbDetail] };
+        if (path === '/api/v1/workspaces/{ws}/databases/{db}') return { data: dbDetail };
+        throw new Error(`unexpected GET ${path}`);
+      },
+    };
+    return { client: client as never, baseUrl: 'http://test', token: 'tok' };
+  }
+
+  async function describe() {
+    const { server, handlers } = fakeServer();
+    registerTools(server, makeCtx());
+    const res = await handlers.get('describe_database')!({ workspace: 'Eng', database: 'Issues' });
+    if (res.isError) throw new Error(res.content[0]!.text);
+    return JSON.parse(res.content[0]!.text) as {
+      fields: Array<{ api_name: string; type: string; read_only?: boolean; ops?: string[]; sortable?: boolean }>;
+    };
+  }
+
+  it('lists ALL six system fields (previously only `id` showed), each read-only with ops', async () => {
+    const { fields } = await describe();
+    const byName = new Map(fields.map((f) => [f.api_name, f]));
+    for (const name of ['number', 'id', 'created_at', 'updated_at', 'created_by', 'updated_by']) {
+      const f = byName.get(name);
+      expect(f, `system field ${name} present`).toBeTruthy();
+      expect(f!.read_only).toBe(true);
+      expect(Array.isArray(f!.ops) && f!.ops!.length > 0).toBe(true);
+    }
+    expect(byName.get('number')!.ops).toContain('gte');
+    expect(byName.get('created_at')!.ops).toContain('within');
+    expect(byName.get('created_by')!.ops).toContain('has');
+  });
+
+  it('keeps user/title fields and does not duplicate the stored system rows', async () => {
+    const { fields } = await describe();
+    const names = fields.map((f) => f.api_name);
+    expect(names).toContain('name'); // title stays
+    expect(names).toContain('priority'); // user field stays
+    expect(names.filter((n) => n === 'id')).toHaveLength(1); // stored id row not duplicated
+    expect(names.filter((n) => n === 'created_at')).toHaveLength(1);
+  });
+});
+
+describe('FILTER_GUIDE documents system fields (#354)', () => {
+  it('advertises number/created_at/created_by/updated_by api_names', () => {
+    for (const name of ['number', 'id', 'created_at', 'updated_at', 'created_by', 'updated_by']) {
+      expect(FILTER_GUIDE).toContain(name);
+    }
   });
 });
