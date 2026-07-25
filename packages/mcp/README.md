@@ -67,6 +67,21 @@ Both are read-only and best-effort: a catalog fetch failing for one workspace
 never blanks out another's, and a failure registering them never breaks the
 tools (see `server.ts`).
 
+**Automations** (build a complete workflow — admin-scoped, #334)
+| Tool | What it does |
+|---|---|
+| `list_automations` | The rules on a database — each with its trigger (field/relation names resolved), condition, actions, enabled state, failure streak and **last-run status**. |
+| `get_automation` | One rule's full, editable definition — human-readable database/field/select names **alongside** their stable ids — ready to feed back into `update_automation`. |
+| `create_automation` | Create a rule = **trigger** (`record_created` / `record_updated` / `record_linked` / `schedule` / `webhook_received`) + optional **condition** (a `query_records`-style filter) + 1–10 **actions** (`set_values` / `create_record` / `add_comment` / `notify_user` / `update_linked` / `send_slack_message` / `send_webhook` / `send_email` / `http_request` / `run_agent`). Field/relation/person names and select labels resolve server-side; the in-app validator (`AutomationActionsService.validate`) validates the whole rule, so a bad reference comes back as a structured error, not a 500. |
+| `update_automation` | Rename, enable/disable, or replace a rule's trigger / condition / actions — every field optional, re-validated the same way. |
+| `delete_automation` | Delete a rule (requires `confirm=true`); reports the removed rule's name, trigger and action summary. |
+
+Automations are an **admin** surface (the API is `@RequiresScope('admin')` and
+creator-gated), so all five tools are advertised only to an admin-scoped token — a
+read- or write-scoped PAT never sees them and therefore can never mutate a rule.
+These tools call the **same** endpoints the in-app RuleEditor does; there is no
+parallel validation path. Diagnose why a rule did (or didn't) fire with `get_runs`.
+
 Conveniences: `query_records` / `get_record` return select values as **labels** (not option ids) and rich_text as **Markdown**; `create_record` / `update_record` accept **Markdown** on a rich_text field (headings, lists, links, code → parsed to blocks) and select **labels**; `create_record` reports any **unset** template fields. `get_record` / `query_records` / `create_record` / `update_record` all include a `url` — a clickable web-app link for that record — so an agent never has to describe a manual navigation path.
 
 Hosted Streamable HTTP (for ChatGPT / claude.ai connectors without a local process)

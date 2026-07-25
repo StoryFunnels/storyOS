@@ -16,6 +16,16 @@ import { SYSTEM_FIELDS, SYSTEM_FIELD_BY_API_NAME } from '@storyos/schemas/system
 import type { FilterOp } from '@storyos/schemas';
 import { listDatabases, listSkills, listWorkspaces, resolveDatabase, resolveSkill, resolveWorkspace } from './resolve.js';
 import { databaseUrl, recordUrl, viewUrl } from './links.js';
+import {
+  annotateActions,
+  buildAutomationTrigger,
+  readableAutomation,
+  resolveActionFieldRefs,
+  resolveValueMap,
+  type AutomationRow,
+  type LastRun,
+  type TriggerInput,
+} from './automations.js';
 
 /** Icon param description shared by create_database/update_database/create_space
  * (#251: emoji retired as the picker option in-app; the MCP surface keeps
@@ -279,6 +289,16 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   // #239: visibility only — creating/editing a source stays UI/API-only in v1
   // (the field-mapping dialog is not something an agent should improvise).
   list_sources: 'read',
+  // #334: automation-rule CRUD. The AutomationsController is @RequiresScope('admin')
+  // AND creator-gated on the database, so EVERY tool here — including the reads —
+  // mirrors that ceiling: a read- or write-scoped token never even sees them, and
+  // can therefore never create/update/delete a rule. (Automations are an admin
+  // surface in this product; there is no lower-privilege read path to expose.)
+  list_automations: 'admin',
+  get_automation: 'admin',
+  create_automation: 'admin',
+  update_automation: 'admin',
+  delete_automation: 'admin',
   // write (record + content mutations)
   create_record: 'write',
   update_record: 'write',
@@ -365,6 +385,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         'READ:  list_workspaces → list_databases → describe_database (READ THE SCHEMA first) → query_records / search / get_record.',
         'WRITE: describe_database first, then create_record / update_record. Fill the FULL field template, not just a couple of fields.',
         'BUILD: list_spaces → create_space → create_database → add_field → create_view → create_relation. Then create_record to populate.',
+        'AUTOMATE (admin): describe_database first, then create_automation = trigger (record_created/_updated/_linked, schedule, or webhook_received) + optional condition (a query_records-style filter) + 1–10 actions (set/create/comment/notify/email/webhook/http_request/run_agent). list_automations / get_automation read them back with names AND ids; update_automation enables/disables or edits; delete_automation needs confirm=true; get_runs shows why a rule did or didn\'t fire.',
         '',
         'Refs: address a database by its qualified "space/database" slug (from list_databases) — a bare name that exists in two spaces is rejected. Never invent ids; they come from search / list_* / a prior result. Names, slugs and select labels are resolved server-side.',
         'Values: select/multi_select take the human label (e.g. "High"); rich_text fields accept Markdown (headings, lists, links, code — parsed to blocks) and are returned to you as Markdown.',
@@ -1832,5 +1853,310 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       );
       return text(res.data ?? []);
     }),
+  );
+
+  // ---- #334: automation-rule CRUD — build a complete workflow over MCP. ----
+  //
+  // Every tool here calls the SAME endpoints the in-app RuleEditor does, so the
+  // in-app validation (AutomationActionsService.validate) is the ONE validator —
+  // there is no parallel path. Human-readable trigger/action field references
+  // resolve to ids client-side (against describe_database's schema); anything not
+  // resolvable here (connections, agents, relation targets) is validated server-
+  // side, which returns a structured 422 that handle() surfaces (never a 500).
+
+  /**
+   * Turn the model's human-friendly actions into the API's id-based shape.
+   * OWN-database refs go through resolveActionFieldRefs; a create_record's target
+   * database (and the values/link field scoped to IT) is resolved here since it
+   * needs another describe_database round-trip.
+   */
+  async function resolveAutomationActions(
+    actions: unknown,
+    ownDetail: DatabaseDetail,
+    wsId: string,
+  ): Promise<unknown[]> {
+    if (!Array.isArray(actions)) {
+      throw new Error('`actions` must be an array of action objects (min 1, max 10).');
+    }
+    const out: unknown[] = [];
+    for (const raw of actions) {
+      const a = raw as Record<string, unknown>;
+      if (a?.type === 'create_record') {
+        const ref = (a.database ?? a.database_id) as string | undefined;
+        if (ref === undefined) throw new Error('create_record action needs a target "database".');
+        const targetDb = await resolveDatabase(client, wsId, ref);
+        const targetDetail = await getDetail(wsId, targetDb.id);
+        const rest = { ...a };
+        delete rest.database;
+        delete rest.link_via_relation_field;
+        const resolved: Record<string, unknown> = { ...rest, database_id: targetDb.id };
+        if (a.values && typeof a.values === 'object') {
+          resolved.values = resolveValueMap(targetDetail as never, a.values as Record<string, unknown>);
+        }
+        const linkRef = (a.link_via_relation_field ?? a.link_via_relation_field_id) as string | undefined;
+        if (linkRef !== undefined) {
+          resolved.link_via_relation_field_id = resolveFieldId(targetDetail, linkRef, ['relation'], 'relation');
+        }
+        out.push(resolved);
+      } else {
+        out.push(resolveActionFieldRefs(a, ownDetail as never));
+      }
+    }
+    return out;
+  }
+
+  /** Fetch one rule by id. The API exposes no single-GET automation endpoint —
+   * only the database's list — so this reads the list and picks the row out,
+   * 404-ing with a clear message (not a silent undefined) when the id is unknown. */
+  async function fetchAutomation(wsId: string, dbId: string, id: string): Promise<AutomationRow> {
+    const res = await unwrap<{ data?: AutomationRow[] }>(
+      client.GET('/api/v1/workspaces/{ws}/databases/{db}/automations', {
+        params: { path: { ws: wsId, db: dbId } },
+      } as never),
+    );
+    const row = (res.data ?? []).find((r) => r.id === id);
+    if (!row) throw new Error(`No automation "${id}" on this database. Use list_automations to see the rule ids.`);
+    return row;
+  }
+
+  /** Build the map of database-id → display name for read-side annotation. */
+  async function databaseNames(wsId: string): Promise<Map<string, string>> {
+    const dbs = await listDatabases(client, wsId);
+    return new Map(dbs.map((d) => [d.id, d.qualifiedSlug ?? d.name]));
+  }
+
+  /** The newest run for a rule (its "last-run status"), or null if it never ran. */
+  async function lastRunFor(wsId: string, dbId: string, ruleId: string): Promise<LastRun | null> {
+    const res = await unwrap<{ data?: Array<Record<string, unknown>> }>(
+      client.GET('/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/runs', {
+        params: { path: { ws: wsId, db: dbId, id: ruleId } },
+      } as never),
+    ).catch(() => ({ data: [] as Array<Record<string, unknown>> }));
+    const row = res.data?.[0];
+    if (!row) return null;
+    return {
+      status: String(row.status),
+      error: (row.error as string | null) ?? null,
+      created_at: (row.createdAt as string | null) ?? null,
+      duration_ms: (row.durationMs as number | null) ?? null,
+    };
+  }
+
+  reg(
+    'list_automations',
+    {
+      title: 'List automations',
+      description:
+        '#334: the automation rules on one database — each with its trigger (field/relation names resolved), condition, actions, ' +
+        'enabled state, failure streak and last-run status. Automations are an admin surface, so this needs an admin-scoped token. ' +
+        'Use get_automation for one rule\'s full editable definition.',
+      inputSchema: {
+        workspace: z.string().describe('Workspace name or id.'),
+        database: z.string().describe('Database name, api slug, or id.'),
+      },
+    },
+    handle<{ workspace: string; database: string }>(async ({ workspace, database }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const detail = await getDetail(ws.id, db.id);
+      const res = await unwrap<{ data?: AutomationRow[] }>(
+        client.GET('/api/v1/workspaces/{ws}/databases/{db}/automations', {
+          params: { path: { ws: ws.id, db: db.id } },
+        } as never),
+      );
+      const rules = res.data ?? [];
+      const dbNames = await databaseNames(ws.id);
+      const rows = await Promise.all(
+        rules.map(async (r) => {
+          const lastRun = await lastRunFor(ws.id, db.id, r.id);
+          return readableAutomation(r, detail as never, {
+            databaseNamesById: dbNames,
+            lastRun,
+            workspaceSlug: ws.slug,
+            webOrigin: ctx.baseUrl,
+          });
+        }),
+      );
+      return text({ automations: rows });
+    }),
+  );
+
+  reg(
+    'get_automation',
+    {
+      title: 'Get automation',
+      description:
+        "#334: one automation rule's full, editable definition — trigger, condition and actions with human-readable database/field/" +
+        'select names alongside their stable ids, plus enabled state and last-run status. Feed the same shape back into update_automation.',
+      inputSchema: {
+        workspace: z.string().describe('Workspace name or id.'),
+        database: z.string().describe('Database name, api slug, or id.'),
+        automation: z.string().describe('Automation rule id (from list_automations).'),
+      },
+    },
+    handle<{ workspace: string; database: string; automation: string }>(async ({ workspace, database, automation }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const detail = await getDetail(ws.id, db.id);
+      const row = await fetchAutomation(ws.id, db.id, automation);
+      const dbNames = await databaseNames(ws.id);
+      const lastRun = await lastRunFor(ws.id, db.id, row.id);
+      return text(
+        readableAutomation(row, detail as never, {
+          databaseNamesById: dbNames,
+          lastRun,
+          workspaceSlug: ws.slug,
+          webOrigin: ctx.baseUrl,
+        }),
+      );
+    }),
+  );
+
+  reg(
+    'create_automation',
+    {
+      title: 'Create automation',
+      description:
+        '#334: create an automation rule = trigger + optional condition + 1–10 actions. TRIGGERS: ' +
+        '{type:"record_created"} · {type:"record_updated", field?:"<name>"} · {type:"record_linked", relation_field:"<name>"} · ' +
+        '{type:"schedule", every:"hour"|"day"|"week", at?:"HH:MM", weekday?:0-6} · {type:"webhook_received"}. ' +
+        'ACTIONS (array): set_values{values} · create_record{database, values, link_via_relation_field?} · add_comment{body_template} · ' +
+        'notify_user{user:"@me"|"<person field>", message} · update_linked{relation_field, values} · send_slack_message{text, channel?} · ' +
+        'send_webhook{url, body_template?, headers?} · send_email{connection_id, to, subject, body_markdown} · ' +
+        'http_request{method, url, headers?, body_template?, connection_id?, capture?:[{path, target_field}]} · ' +
+        'run_agent{agent, prompt?, ...}. Field/relation/person names and select labels resolve server-side; describe_database first. ' +
+        'The API validates the whole rule and returns a structured error for any bad reference. Rules are enabled by default.',
+      inputSchema: {
+        workspace: z.string().describe('Workspace name or id.'),
+        database: z.string().describe('Database name, api slug, or id (the rule\'s home database).'),
+        name: z.string().describe('Human name for the rule.'),
+        trigger: z.any().describe('Trigger object — see the tool description for the shapes.'),
+        actions: z.any().describe('Array of 1–10 action objects — see the tool description.'),
+        condition: z
+          .any()
+          .optional()
+          .describe('Optional filter AST (same shape as query_records) — the rule only runs on records that match. Not allowed on webhook_received.'),
+        enabled: z.boolean().optional().describe('Start enabled (default true).'),
+        approver: z.string().optional().describe('User id who approves this rule\'s require_approval actions (defaults to the rule owner).'),
+      },
+    },
+    handle<{ workspace: string; database: string; name: string; trigger: unknown; actions: unknown; condition?: unknown; enabled?: boolean; approver?: string }>(
+      async ({ workspace, database, name, trigger, actions, condition, enabled, approver }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const detail = await getDetail(ws.id, db.id);
+        const body: Record<string, unknown> = {
+          name,
+          trigger: buildAutomationTrigger(trigger as TriggerInput, detail as never),
+          actions: await resolveAutomationActions(actions, detail, ws.id),
+        };
+        if (condition !== undefined && condition !== null) body.condition = mapFilterValues(detail, condition);
+        if (enabled !== undefined) body.enabled = enabled;
+        if (approver !== undefined) body.approverId = approver;
+        const row = await unwrap<AutomationRow>(
+          client.POST('/api/v1/workspaces/{ws}/databases/{db}/automations', {
+            params: { path: { ws: ws.id, db: db.id } },
+            body: body as never,
+          }),
+        );
+        const dbNames = await databaseNames(ws.id);
+        return text(
+          readableAutomation(row, detail as never, { databaseNamesById: dbNames, workspaceSlug: ws.slug, webOrigin: ctx.baseUrl }),
+        );
+      },
+    ),
+  );
+
+  reg(
+    'update_automation',
+    {
+      title: 'Update automation',
+      description:
+        '#334: edit an existing rule — rename, enable/disable, or replace its trigger / condition / actions. Every field is ' +
+        'optional; omit what you are not changing. To disable a rule pass { enabled: false }. Trigger and action shapes match ' +
+        'create_automation (names/labels resolve server-side). Pass condition: null to clear a condition. Re-validated the same way.',
+      inputSchema: {
+        workspace: z.string().describe('Workspace name or id.'),
+        database: z.string().describe('Database name, api slug, or id.'),
+        automation: z.string().describe('Automation rule id (from list_automations).'),
+        name: z.string().optional(),
+        trigger: z.any().optional().describe('Replacement trigger (see create_automation).'),
+        actions: z.any().optional().describe('Replacement actions array (see create_automation).'),
+        condition: z.any().optional().describe('Replacement filter AST, or null to clear it.'),
+        enabled: z.boolean().optional().describe('Enable (true) or disable (false) the rule.'),
+        approver: z.string().nullable().optional().describe('Approver user id, or null to revert to the rule owner.'),
+      },
+    },
+    handle<{ workspace: string; database: string; automation: string; name?: string; trigger?: unknown; actions?: unknown; condition?: unknown; enabled?: boolean; approver?: string | null }>(
+      async ({ workspace, database, automation, name, trigger, actions, condition, enabled, approver }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const detail = await getDetail(ws.id, db.id);
+        const body: Record<string, unknown> = {};
+        if (name !== undefined) body.name = name;
+        if (trigger !== undefined) body.trigger = buildAutomationTrigger(trigger as TriggerInput, detail as never);
+        if (actions !== undefined) body.actions = await resolveAutomationActions(actions, detail, ws.id);
+        if (condition !== undefined) body.condition = condition === null ? null : mapFilterValues(detail, condition);
+        if (enabled !== undefined) body.enabled = enabled;
+        if (approver !== undefined) body.approverId = approver;
+        const row = await unwrap<AutomationRow>(
+          client.PATCH('/api/v1/workspaces/{ws}/databases/{db}/automations/{id}', {
+            params: { path: { ws: ws.id, db: db.id, id: automation } },
+            body: body as never,
+          }),
+        );
+        const dbNames = await databaseNames(ws.id);
+        const lastRun = await lastRunFor(ws.id, db.id, row.id);
+        return text(
+          readableAutomation(row, detail as never, { databaseNamesById: dbNames, lastRun, workspaceSlug: ws.slug, webOrigin: ctx.baseUrl }),
+        );
+      },
+    ),
+  );
+
+  reg(
+    'delete_automation',
+    {
+      title: 'Delete automation',
+      description:
+        '#334: permanently delete an automation rule. Requires explicit confirmation: pass confirm=true. Reports the deleted ' +
+        "rule's name, trigger and action summary so the caller can see exactly what was removed. Its run history goes with it.",
+      inputSchema: {
+        workspace: z.string().describe('Workspace name or id.'),
+        database: z.string().describe('Database name, api slug, or id.'),
+        automation: z.string().describe('Automation rule id (from list_automations).'),
+        confirm: z.boolean().describe('Must be true — deleting a rule is irreversible.'),
+      },
+    },
+    handle<{ workspace: string; database: string; automation: string; confirm?: boolean }>(
+      async ({ workspace, database, automation, confirm }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const detail = await getDetail(ws.id, db.id);
+        // Read the rule first so the confirmation gate can report what would be
+        // removed (and so a bad id 404s here, before any destructive call).
+        const row = await fetchAutomation(ws.id, db.id, automation);
+        const affected = {
+          id: row.id,
+          name: row.name,
+          trigger: row.trigger,
+          actions: annotateActions(row.actions, detail as never),
+        };
+        if (confirm !== true) {
+          return text({
+            deleted: false,
+            confirm_required: true,
+            message: `Set confirm=true to delete automation "${row.name}". This is irreversible and removes its run history.`,
+            affected,
+          });
+        }
+        await unwrap<unknown>(
+          client.DELETE('/api/v1/workspaces/{ws}/databases/{db}/automations/{id}', {
+            params: { path: { ws: ws.id, db: db.id, id: automation } },
+          } as never),
+        );
+        return text({ deleted: true, affected });
+      },
+    ),
   );
 }
