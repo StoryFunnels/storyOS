@@ -65,6 +65,7 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
     ...(isAdmin && billing.data?.enabled ? [{ href: `${base}/billing`, label: 'Billing' }] : []),
     ...(isAdmin ? [{ href: `${base}/integrations`, label: 'Integrations' }] : []),
     ...(canEdit ? [{ href: `${base}/api`, label: 'API tokens' }] : []),
+    ...(isAdmin ? [{ href: `${base}/export`, label: 'Export' }] : []),
   ];
   const allLinks = [...personal, ...workspaceLinks];
 
