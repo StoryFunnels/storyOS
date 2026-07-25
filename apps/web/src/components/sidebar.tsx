@@ -7,7 +7,8 @@ import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from 
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Activity, Cable, Check, ChevronRight, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, GitPullRequest, Home, Inbox, KeyRound, LayoutTemplate, MoreHorizontal, Package, Plug, Plus, Search, Settings, Star, UserRound, Webhook, X } from 'lucide-react';
+import { computeReorder } from '@/lib/reorder';
+import { Activity, Cable, Check, ChevronRight, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, GitPullRequest, GripVertical, Home, Inbox, KeyRound, LayoutTemplate, MoreHorizontal, Package, Plug, Plus, Search, Settings, Star, UserRound, Webhook, X } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -108,12 +109,12 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   function onSpaceDragEnd(event: DragEndEvent) {
-    const list = spaces.data ?? [];
-    const from = list.findIndex((s) => s.id === event.active.id);
-    const to = list.findIndex((s) => s.id === event.over?.id);
-    if (from < 0 || to < 0 || from === to) return;
-    mutations.updateSpace.mutate({ id: String(event.active.id), position: list[to]!.position });
-    mutations.updateSpace.mutate({ id: list[to]!.id, position: list[from]!.position });
+    if (!event.over) return;
+    // Reorder over the full space list (positions are shared), so dragging a
+    // space across several slots shifts the run instead of swapping endpoints.
+    for (const move of computeReorder(spaces.data ?? [], String(event.active.id), String(event.over.id))) {
+      mutations.updateSpace.mutate(move);
+    }
   }
 
   return (
@@ -415,6 +416,13 @@ function SpaceSection({
   const mutations = useSidebarMutations(ws);
   const { hide } = useHidden(ws);
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: space.id });
+  const dbSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  const onDatabaseDragEnd = (list: DatabaseSummary[]) => (event: DragEndEvent) => {
+    if (!event.over) return;
+    for (const move of computeReorder(list, String(event.active.id), String(event.over.id))) {
+      mutations.updateDatabase.mutate(move);
+    }
+  };
   const [renaming, setRenaming] = useState(false);
   const [newDbOpen, setNewDbOpen] = useState(false);
   const [sharing, setSharing] = useState(false);
@@ -659,25 +667,38 @@ function SpaceSection({
               databases={databases.filter((d) => d.folderId === folder.id)}
               folders={folders}
               onMove={moveToFolder}
+              onReorder={onDatabaseDragEnd}
               pathname={pathname}
               canEdit={canEdit}
               isAdmin={isAdmin}
             />
           ))}
-          {databases
-            .filter((db) => !db.folderId)
-            .map((db) => (
-              <DatabaseRow
-                key={db.id}
-                ws={ws}
-                db={db}
-                active={pathname.startsWith(`/w/${ws}/d/${db.id}`)}
-                canEdit={canEdit}
-                isAdmin={isAdmin}
-                folders={folders}
-                onMove={moveToFolder}
-              />
-            ))}
+          {(() => {
+            const rootDbs = databases.filter((db) => !db.folderId);
+            return (
+              <DndContext
+                sensors={dbSensors}
+                collisionDetection={closestCenter}
+                onDragEnd={onDatabaseDragEnd(rootDbs)}
+              >
+                <SortableContext items={rootDbs.map((d) => d.id)} strategy={verticalListSortingStrategy}>
+                  {rootDbs.map((db) => (
+                    <DatabaseRow
+                      key={db.id}
+                      ws={ws}
+                      db={db}
+                      active={pathname.startsWith(`/w/${ws}/d/${db.id}`)}
+                      canEdit={canEdit}
+                      isAdmin={isAdmin}
+                      folders={folders}
+                      onMove={moveToFolder}
+                      reorderable={canEdit}
+                    />
+                  ))}
+                </SortableContext>
+              </DndContext>
+            );
+          })()}
           {(docs.data ?? []).map((d) => (
             <div key={d.id} className="group/doc relative flex items-center">
               <Link
@@ -786,6 +807,7 @@ function FolderSection({
   databases,
   folders,
   onMove,
+  onReorder,
   pathname,
   canEdit,
   isAdmin,
@@ -795,10 +817,12 @@ function FolderSection({
   databases: DatabaseSummary[];
   folders: FolderInfo[];
   onMove: (dbId: string, folderId: string | null) => void;
+  onReorder: (list: DatabaseSummary[]) => (event: DragEndEvent) => void;
   pathname: string;
   canEdit: boolean;
   isAdmin: boolean;
 }) {
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
   const key = `storyos:folder-collapsed:${folder.id}`;
   const [collapsed, setCollapsed] = useState(false);
   useEffect(() => {
@@ -825,18 +849,23 @@ function FolderSection({
       {!collapsed && (
         <div className="ml-3 border-l border-border-default pl-1">
           {databases.length === 0 && <p className="px-2 py-1 text-[12px] text-faint">Empty</p>}
-          {databases.map((db) => (
-            <DatabaseRow
-              key={db.id}
-              ws={ws}
-              db={db}
-              active={pathname.startsWith(`/w/${ws}/d/${db.id}`)}
-              canEdit={canEdit}
-              isAdmin={isAdmin}
-              folders={folders}
-              onMove={onMove}
-            />
-          ))}
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onReorder(databases)}>
+            <SortableContext items={databases.map((d) => d.id)} strategy={verticalListSortingStrategy}>
+              {databases.map((db) => (
+                <DatabaseRow
+                  key={db.id}
+                  ws={ws}
+                  db={db}
+                  active={pathname.startsWith(`/w/${ws}/d/${db.id}`)}
+                  canEdit={canEdit}
+                  isAdmin={isAdmin}
+                  folders={folders}
+                  onMove={onMove}
+                  reorderable={canEdit}
+                />
+              ))}
+            </SortableContext>
+          </DndContext>
         </div>
       )}
     </div>
@@ -851,6 +880,7 @@ function DatabaseRow({
   isAdmin,
   folders = [],
   onMove,
+  reorderable = false,
 }: {
   ws: string;
   db: DatabaseSummary;
@@ -859,6 +889,7 @@ function DatabaseRow({
   isAdmin: boolean;
   folders?: FolderInfo[];
   onMove?: (dbId: string, folderId: string | null) => void;
+  reorderable?: boolean;
 }) {
   const mutations = useSidebarMutations(ws);
   const [renaming, setRenaming] = useState(false);
@@ -869,16 +900,35 @@ function DatabaseRow({
   const [syncing, setSyncing] = useState(false);
   const [automating, setAutomating] = useState(false);
   const { hide } = useHidden(ws);
+  // Reorder is suspended while renaming so the inline input keeps pointer focus.
+  const canDrag = reorderable && !renaming;
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: db.id,
+    disabled: !canDrag,
+  });
 
   return (
     <div
+      ref={reorderable ? setNodeRef : undefined}
+      style={reorderable ? { transform: CSS.Transform.toString(transform), transition } : undefined}
       className={cn(
         'group flex items-center justify-between rounded px-2 py-[3px] text-[13px]',
         active
           ? 'bg-active text-ink shadow-[inset_2px_0_0_var(--accent)]'
           : 'text-ink-secondary hover:bg-hover',
+        isDragging && 'opacity-50',
       )}
     >
+      {canDrag && (
+        <button
+          className="-ml-1 mr-0.5 shrink-0 cursor-grab touch-none rounded p-0.5 text-faint opacity-0 hover:bg-active group-hover:opacity-100"
+          title="Drag to reorder"
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical className="h-3 w-3" />
+        </button>
+      )}
       {renaming ? (
         <RenameInline
           initial={db.name}

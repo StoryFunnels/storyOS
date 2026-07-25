@@ -104,6 +104,30 @@ export function useUpdateDatabaseIcon(ws: string, db: string) {
   });
 }
 
+/**
+ * Persist a drag-to-reorder of the canonical field order (#338). Writes each
+ * moved field's new `position` (a schema op — `creator` access) and invalidates
+ * the database detail so the table columns and the "Hide fields" panel — both
+ * driven by `field.position` — refresh to the same order. Shared so those two
+ * surfaces stay one canonical order rather than drifting apart.
+ */
+export function useReorderFields(ws: string, db: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (moves: Array<{ fieldId: string; position: number }>) => {
+      for (const m of moves) {
+        const { error } = await api.PATCH('/api/v1/workspaces/{ws}/databases/{db}/fields/{field}', {
+          params: { path: { ws, db, field: m.fieldId } },
+          body: { position: m.position },
+        });
+        if (error) throw error;
+      }
+    },
+    onSettled: () => void qc.invalidateQueries({ queryKey: ['database', ws, db] }),
+    onError: () => toast.error('Could not reorder the fields'),
+  });
+}
+
 export interface MailConnection {
   id: string;
   name: string;

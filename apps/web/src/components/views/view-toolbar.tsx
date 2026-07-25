@@ -163,6 +163,7 @@ export function ViewToolbar({
   db,
   viewId,
   personalFilter,
+  onReorderFields,
 }: {
   fields: Field[];
   config: ViewConfig;
@@ -175,6 +176,9 @@ export function ViewToolbar({
   viewId?: string;
   /** #259 — current viewer's personal override for THIS view, if any. */
   personalFilter?: FilterNode;
+  /** #338 — drag-to-reorder the canonical field order from the Hide-fields panel.
+   * Only supplied when the viewer may edit the schema (`creator`); omitted = read-only list. */
+  onReorderFields?: (activeId: string, overId: string) => void;
 }) {
   const filterable = fields.filter((f) => OPS_BY_TYPE[f.type]);
 
@@ -220,6 +224,7 @@ export function ViewToolbar({
           fields={fields.filter((f) => !NON_TOGGLABLE.has(f.type))}
           hidden={config.hidden_field_ids}
           onChange={(hidden_field_ids) => onPatch({ hidden_field_ids })}
+          onReorder={onReorderFields}
         />
       )}
 
@@ -1973,11 +1978,35 @@ function HiddenFieldsButton({
   fields,
   hidden,
   onChange,
+  onReorder,
 }: {
   fields: Field[];
   hidden: string[];
   onChange: (ids: string[]) => void;
+  /** #338 — when supplied, user fields become drag-to-reorder (writes field.position). */
+  onReorder?: (activeId: string, overId: string) => void;
 }) {
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  // Only user fields carry a movable position; system fields (id/created_at/…)
+  // stay put and the API rejects position edits on them.
+  const reorderableIds = onReorder ? fields.filter((f) => !f.isSystem).map((f) => f.id) : [];
+
+  const rows = (
+    <>
+      {fields.map((field) => (
+        <HiddenFieldRow
+          key={field.id}
+          field={field}
+          checked={!hidden.includes(field.id)}
+          reorderable={Boolean(onReorder) && !field.isSystem}
+          onToggle={(checked) =>
+            onChange(checked ? hidden.filter((id) => id !== field.id) : [...hidden, field.id])
+          }
+        />
+      ))}
+    </>
+  );
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -1992,22 +2021,67 @@ function HiddenFieldsButton({
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent className="max-h-64 overflow-y-auto">
-        {fields.map((field) => (
-          <label
-            key={field.id}
-            className="flex items-center gap-2 rounded px-2 py-1.5 text-[13px] text-ink hover:bg-hover"
+        {onReorder ? (
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={(e) => {
+              if (e.over && e.active.id !== e.over.id) onReorder(String(e.active.id), String(e.over.id));
+            }}
           >
-            <input
-              type="checkbox"
-              checked={!hidden.includes(field.id)}
-              onChange={(e) =>
-                onChange(e.target.checked ? hidden.filter((id) => id !== field.id) : [...hidden, field.id])
-              }
-            />
-            {field.displayName}
-          </label>
-        ))}
+            <SortableContext items={reorderableIds} strategy={verticalListSortingStrategy}>
+              {rows}
+            </SortableContext>
+          </DndContext>
+        ) : (
+          rows
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+function HiddenFieldRow({
+  field,
+  checked,
+  reorderable,
+  onToggle,
+}: {
+  field: Field;
+  checked: boolean;
+  reorderable: boolean;
+  onToggle: (checked: boolean) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: field.id,
+    disabled: !reorderable,
+  });
+  return (
+    <div
+      ref={reorderable ? setNodeRef : undefined}
+      style={reorderable ? { transform: CSS.Transform.toString(transform), transition } : undefined}
+      className={cn(
+        'group/hf flex items-center gap-1 rounded px-2 py-1.5 text-[13px] text-ink hover:bg-hover',
+        isDragging && 'opacity-50',
+      )}
+    >
+      {reorderable ? (
+        <button
+          className="-ml-1 shrink-0 cursor-grab touch-none text-faint opacity-0 hover:text-muted group-hover/hf:opacity-100"
+          title="Drag to reorder"
+          onClick={(e) => e.preventDefault()}
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical className="h-3.5 w-3.5" />
+        </button>
+      ) : (
+        <span className="w-2.5 shrink-0" />
+      )}
+      <label className="flex flex-1 items-center gap-2">
+        <input type="checkbox" checked={checked} onChange={(e) => onToggle(e.target.checked)} />
+        {field.displayName}
+      </label>
+    </div>
   );
 }
