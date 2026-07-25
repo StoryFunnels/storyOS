@@ -121,14 +121,21 @@ git pull
 docker compose build && docker compose up -d   # migrations run on api boot, idempotently
 ```
 
-## Backup
+## Backup & restore
 
-Everything lives in two places:
+Everything lives in two places — the Postgres database and the attachments
+(`storyos_attachments` volume, or your S3 bucket). They must be backed up and
+restored **as a matched pair**. A one-liner to grab both right now:
 
 ```bash
-docker compose exec postgres pg_dump -U storyos storyos > backup.sql   # all data
-docker run --rm -v storyos_storyos_attachments:/data -v $PWD:/out alpine tar czf /out/attachments.tgz /data
+./scripts/backup-restore/backup.sh   # → backups/<timestamp>/ (db + attachments + manifest)
 ```
+
+For the full **tested** procedure — timestamped recovery points, restoring into
+an isolated clone so you can rehearse recovery safely, the post-restore integrity
+checks, encryption / off-host / monitoring guidance, and the Postgres PITR note
+for larger deployments — see **[backup-restore.md](backup-restore.md)**. That
+procedure is exercised in CI so it can't silently rot.
 
 Treat those two files as one recovery point: label them with the same UTC
 timestamp, encrypt them, copy them off the Docker host, and monitor the scheduled
