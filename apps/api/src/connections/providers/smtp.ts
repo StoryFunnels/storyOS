@@ -35,6 +35,7 @@ export const smtpProvider: ProviderDescriptor & { buildTransport: typeof buildSm
   id: 'smtp',
   label: 'SMTP',
   authKind: 'smtp',
+  tier: 'api_key',
   buildTransport: buildSmtpTransport,
   async healthCheck(auth: unknown): Promise<void> {
     const a = (auth ?? {}) as Partial<SmtpConnectionAuth>;

@@ -2,12 +2,18 @@ import { NotFoundException } from '@nestjs/common';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Db } from '../db/client';
 import type { NotificationsService } from '../notifications/notifications.service';
+import type { DeploymentService } from '../deployment/deployment.service';
 import { ConnectionsService } from './connections.service';
 
 /** authorizeUrl/verifyOAuthState never touch the db or notifications — a stub
- * is enough (mirrors the db-stub pattern in integrations/slack.service.test.ts). */
-function newService(): ConnectionsService {
-  return new ConnectionsService({} as Db, {} as NotificationsService);
+ * is enough (mirrors the db-stub pattern in integrations/slack.service.test.ts).
+ * listProviders reads DeploymentService.isHosted, so the stub carries it. */
+function newService(isHosted = false): ConnectionsService {
+  return new ConnectionsService(
+    {} as Db,
+    {} as NotificationsService,
+    { isHosted } as DeploymentService,
+  );
 }
 
 describe('ConnectionsService OAuth state (MN-252)', () => {
@@ -118,5 +124,70 @@ describe('ConnectionsService OAuth state (MN-252)', () => {
 
     vi.setSystemTime(new Date('2026-01-01T00:11:00Z')); // +11 minutes
     expect(service.verifyOAuthState(state)).toBeNull();
+  });
+});
+
+describe('ConnectionsService.listProviders — tiers + availability (#345/#346)', () => {
+  const ORIGINAL_ENV = { ...process.env };
+
+  afterEach(() => {
+    process.env = { ...ORIGINAL_ENV };
+  });
+
+  type Row = {
+    id: string;
+    tier: string;
+    availability: string;
+    auth_kind: string;
+    oauth?: { configured: boolean };
+  };
+  const byId = (data: Row[], id: string) => data.find((p) => p.id === id)!;
+
+  it('classifies every registered provider by tier (#346)', () => {
+    const data = newService().listProviders().data as unknown as Row[];
+    const tiers = Object.fromEntries(data.map((p) => [p.id, p.tier]));
+    expect(tiers).toMatchObject({
+      apify: 'api_key',
+      resend: 'api_key',
+      smtp: 'api_key',
+      http: 'api_key',
+      google: 'oauth_managed',
+      'google-calendar': 'oauth_managed',
+    });
+    // Nothing is left unclassified.
+    expect(data.every((p) => ['api_key', 'oauth_managed', 'hosted_only'].includes(p.tier))).toBe(true);
+  });
+
+  it('api_key providers are always connectable, in either deployment mode', () => {
+    for (const isHosted of [true, false]) {
+      const data = newService(isHosted).listProviders().data as unknown as Row[];
+      for (const id of ['apify', 'resend', 'smtp', 'http']) {
+        expect(byId(data, id).availability, `${id} @ hosted=${isHosted}`).toBe('connectable');
+      }
+    }
+  });
+
+  it('oauth_managed self-managed + env absent ⇒ operator_config (not the cloud upsell)', () => {
+    delete process.env.GOOGLE_CLIENT_ID;
+    delete process.env.GOOGLE_CLIENT_SECRET;
+    const data = newService(false).listProviders().data as unknown as Row[];
+    expect(byId(data, 'google').availability).toBe('operator_config');
+    expect(byId(data, 'google-calendar').availability).toBe('operator_config');
+    expect(byId(data, 'google').oauth?.configured).toBe(false);
+  });
+
+  it('oauth_managed self-managed + env present ⇒ connectable', () => {
+    process.env.GOOGLE_CLIENT_ID = 'id';
+    process.env.GOOGLE_CLIENT_SECRET = 'secret';
+    const data = newService(false).listProviders().data as unknown as Row[];
+    expect(byId(data, 'google').availability).toBe('connectable');
+    expect(byId(data, 'google').oauth?.configured).toBe(true);
+  });
+
+  it('oauth_managed hosted + env absent ⇒ connectable (managed app)', () => {
+    delete process.env.GOOGLE_CLIENT_ID;
+    delete process.env.GOOGLE_CLIENT_SECRET;
+    const data = newService(true).listProviders().data as unknown as Row[];
+    expect(byId(data, 'google').availability).toBe('connectable');
   });
 });

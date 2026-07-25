@@ -33,6 +33,7 @@ export const googleProvider: ProviderDescriptor = {
   // product-specific and must never be presented as generic Google access.
   label: 'YouTube',
   authKind: 'oauth2',
+  tier: 'oauth_managed',
   oauth: {
     authUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
     tokenUrl: 'https://oauth2.googleapis.com/token',

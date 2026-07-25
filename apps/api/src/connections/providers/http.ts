@@ -35,6 +35,7 @@ export const httpProvider: ProviderDescriptor = {
   id: 'http',
   label: 'HTTP (custom API)',
   authKind: 'api_key',
+  tier: 'api_key',
   async healthCheck(auth: unknown): Promise<void> {
     const a = (auth ?? {}) as Partial<HttpConnectionAuth>;
     if (a.auth_style !== 'bearer' && a.auth_style !== 'basic' && a.auth_style !== 'headers') {

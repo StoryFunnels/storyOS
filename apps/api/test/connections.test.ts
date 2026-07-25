@@ -65,6 +65,50 @@ describe('connections registry (MN-252)', () => {
     expect(providers.find((provider) => provider.id === 'google')?.label).toBe('YouTube');
   });
 
+  it('the catalog carries tier + a server-authoritative availability per provider (#345/#346)', async () => {
+    // Ensure a self-managed, unconfigured baseline for the oauth provider.
+    delete process.env.GOOGLE_CLIENT_ID;
+    delete process.env.GOOGLE_CLIENT_SECRET;
+    const res = await inject('GET', `/workspaces/${wsId}/connections/providers`);
+    expect(res.statusCode).toBe(200);
+    const providers = res.json().data as Array<{
+      id: string;
+      tier: string;
+      availability: string;
+    }>;
+    const byId = (id: string) => providers.find((p) => p.id === id)!;
+
+    // #346: every provider is classified, api_key vs oauth_managed.
+    expect(byId('apify').tier).toBe('api_key');
+    expect(byId('resend').tier).toBe('api_key');
+    expect(byId('smtp').tier).toBe('api_key');
+    expect(byId('http').tier).toBe('api_key');
+    expect(byId('google').tier).toBe('oauth_managed');
+    expect(byId('google-calendar').tier).toBe('oauth_managed');
+
+    // #345: api_key ⇒ connectable; oauth_managed self-managed + env absent ⇒
+    // operator_config (the test app has no Stripe/STORYOS_HOSTED ⇒ self-managed).
+    expect(byId('apify').availability).toBe('connectable');
+    expect(byId('http').availability).toBe('connectable');
+    expect(byId('google').availability).toBe('operator_config');
+    expect(byId('google-calendar').availability).toBe('operator_config');
+  });
+
+  it('an oauth_managed provider flips to connectable once the operator sets its OAuth env (#345)', async () => {
+    process.env.GOOGLE_CLIENT_ID = 'test-google-client-id';
+    process.env.GOOGLE_CLIENT_SECRET = 'test-google-client-secret';
+    try {
+      const providers = (await inject('GET', `/workspaces/${wsId}/connections/providers`)).json()
+        .data as Array<{ id: string; availability: string; oauth?: { configured: boolean } }>;
+      const google = providers.find((p) => p.id === 'google')!;
+      expect(google.availability).toBe('connectable');
+      expect(google.oauth?.configured).toBe(true);
+    } finally {
+      delete process.env.GOOGLE_CLIENT_ID;
+      delete process.env.GOOGLE_CLIENT_SECRET;
+    }
+  });
+
   it('rejects create with a failing healthCheck (422) and never inserts a row', async () => {
     nextStatus = 401;
     const res = await inject('POST', `/workspaces/${wsId}/connections`, {
