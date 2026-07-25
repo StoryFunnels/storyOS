@@ -6149,6 +6149,43 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/databases/{db}/sources/channels": {
+      "get": {
+        "operationId": "SourcesController_channels",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "connection_id",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "#341: list the YouTube channels a Google connection owns, for the channel picker",
+        "tags": [
+          "sources"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/databases/{db}/sources/discover": {
       "post": {
         "operationId": "SourcesController_discover",

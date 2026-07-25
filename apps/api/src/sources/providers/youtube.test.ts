@@ -1,6 +1,6 @@
 import { UnprocessableEntityException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
-import { youtubeCommentsProvider, youtubeMetricsProvider, youtubeVideosProvider } from './youtube';
+import { listChannels, youtubeCommentsProvider, youtubeMetricsProvider, youtubeVideosProvider } from './youtube';
 import type { SourceSyncContext } from './types';
 import type { ConnectionFetcher } from '../../connections/providers/types';
 
@@ -201,6 +201,48 @@ describe('youtubeMetricsProvider', () => {
     const result = await youtubeMetricsProvider.sync(baseCtx({ fetcher, cursor: { some: 'state' } }));
     expect(calls).toHaveLength(0);
     expect(result.cursor).toEqual({ some: 'state' }); // cursor round-trips unchanged
+  });
+});
+
+describe('listChannels (#341 channel picker)', () => {
+  it('calls channels?mine=true with the bearer token and maps id/title/thumbnail', async () => {
+    const { fetcher, calls } = fakeFetcher({
+      '/channels': {
+        items: [
+          {
+            id: 'UC_a',
+            snippet: { title: 'Alpha Channel', thumbnails: { default: { url: 'https://img/a.jpg' } } },
+          },
+          {
+            id: 'UC_b',
+            snippet: { title: 'Beta Channel', thumbnails: { medium: { url: 'https://img/b.jpg' } } },
+          },
+        ],
+      },
+    });
+    const channels = await listChannels(fetcher, { access_token: 'ya29.test' });
+    expect(channels).toEqual([
+      { id: 'UC_a', title: 'Alpha Channel', thumbnail: 'https://img/a.jpg' },
+      { id: 'UC_b', title: 'Beta Channel', thumbnail: 'https://img/b.jpg' },
+    ]);
+    expect(calls[0]).toContain('mine=true');
+    expect(calls[0]).toContain('part=snippet');
+  });
+
+  it('tolerates a channel with no title/thumbnail (falls back to id, omits thumbnail)', async () => {
+    const { fetcher } = fakeFetcher({ '/channels': { items: [{ id: 'UC_x', snippet: {} }] } });
+    expect(await listChannels(fetcher, { access_token: 'ya29.test' })).toEqual([{ id: 'UC_x', title: 'UC_x' }]);
+  });
+
+  it('returns an empty list when the account owns no channels', async () => {
+    const { fetcher } = fakeFetcher({ '/channels': { items: [] } });
+    expect(await listChannels(fetcher, { access_token: 'ya29.test' })).toEqual([]);
+  });
+
+  it('throws before any network call when the connection has no access token', async () => {
+    const { fetcher, calls } = fakeFetcher({});
+    await expect(listChannels(fetcher, {})).rejects.toBeInstanceOf(UnprocessableEntityException);
+    expect(calls).toHaveLength(0);
   });
 });
 

@@ -73,8 +73,34 @@ async function resolveChannelId(fetcher: ConnectionFetcher, accessToken: string,
 }
 
 const channelConfigSchema = z.object({
-  channel_id: z.string().trim().min(1).optional().describe('Channel id — omit to use the connected account\'s own channel.'),
+  channel_id: z.string().trim().min(1).optional().describe('The YouTube channel to sync from.'),
 });
+
+/**
+ * #341 — list the channels the connected Google account owns (`channels?mine=
+ * true` with `part=snippet` for the title + thumbnail), so the "Sync from…"
+ * dialog can offer a required channel picker by name instead of a free-text id.
+ * Reuses the same injected `fetcher` + bearer-token path every provider here
+ * uses, so it's testable with the exact `fakeFetcher` the sync tests use.
+ */
+export async function listChannels(
+  fetcher: ConnectionFetcher,
+  auth: unknown,
+): Promise<Array<{ id: string; title: string; thumbnail?: string }>> {
+  const accessToken = accessTokenOf(auth);
+  const data = await ytGet(fetcher, accessToken, 'channels', { part: 'snippet', mine: 'true' });
+  const items = (data['items'] as Array<Record<string, unknown>> | undefined) ?? [];
+  return items
+    .map((item) => {
+      const id = item['id'] as string | undefined;
+      if (!id) return null;
+      const snippet = (item['snippet'] as Record<string, unknown> | undefined) ?? {};
+      const thumbnails = snippet['thumbnails'] as Record<string, { url?: string } | undefined> | undefined;
+      const thumbnail = thumbnails?.['default']?.url ?? thumbnails?.['medium']?.url ?? thumbnails?.['high']?.url;
+      return { id, title: (snippet['title'] as string | undefined) ?? id, ...(thumbnail ? { thumbnail } : {}) };
+    })
+    .filter((c): c is { id: string; title: string; thumbnail?: string } => c !== null);
+}
 
 export const youtubeVideosProvider: SourceProviderDescriptor = {
   id: 'youtube.videos',

@@ -21,6 +21,7 @@ import { DEFAULT_SOURCE_RECURRENCE } from '@storyos/schemas';
 import type { SourceRecurrence } from '@storyos/schemas';
 import { SOURCE_PROVIDER_REGISTRY } from './providers';
 import { SourceSyncError } from './providers';
+import { listChannels } from './providers/youtube';
 import type { SourceProviderDescriptor, SourceSyncContext } from './providers';
 import { isRecurrenceDue, scheduleFromRecurrence } from './recurrence';
 
@@ -100,6 +101,19 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
     const parsed = descriptor.configSchema.safeParse(input.config ?? {});
     const config = parsed.success ? parsed.data : (input.config ?? {});
     return descriptor.discover(auth, config, this.fetcher);
+  }
+
+  /** #341 — the channels the connected Google account owns, for the dialog's
+   * required channel picker. Read-through to the YouTube Data API using the
+   * connection's stored `youtube.readonly` token; creates/alters nothing. */
+  async listYoutubeChannels(workspaceId: string, connectionId: string) {
+    const { provider, auth } = await this.connectionsService.getDecryptedAuth(workspaceId, connectionId).catch(() => {
+      throw new NotFoundException('Connection not found');
+    });
+    if (provider !== 'google') {
+      throw new BadRequestException(`Listing YouTube channels needs a "google" connection, not "${provider}"`);
+    }
+    return { data: await listChannels(this.fetcher, auth) };
   }
 
   // ── CRUD ─────────────────────────────────────────────────────────────────

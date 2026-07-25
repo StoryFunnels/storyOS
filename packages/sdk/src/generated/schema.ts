@@ -2550,6 +2550,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/databases/{db}/sources/channels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** #341: list the YouTube channels a Google connection owns, for the channel picker */
+        get: operations["SourcesController_channels"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/databases/{db}/sources/discover": {
         parameters: {
             query?: never;
@@ -8441,6 +8458,27 @@ export interface operations {
     SourcesController_providers: {
         parameters: {
             query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SourcesController_channels: {
+        parameters: {
+            query: {
+                connection_id: string;
+            };
             header?: never;
             path: {
                 db: string;
