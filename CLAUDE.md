@@ -28,6 +28,29 @@ Monorepo: pnpm + Turbo. `apps/api` (NestJS/Fastify), `apps/web` (Next.js),
 5. **Don't mention the reference tool by name** in anything public-facing —
    code comments, docs, or commit messages say "the reference tool".
 
+## Adding an integration (provider) — do it the tiered way
+
+Every connection provider must be cloud/self-managed-correct by construction.
+Full rationale + truth table:
+[docs/architecture/integration-tiers.md](docs/architecture/integration-tiers.md).
+The essentials, which every new-provider PR must satisfy:
+
+- **Declare `tier`** on the descriptor (`apps/api/src/connections/providers/`)
+  by *who owns the credential*: `api_key` (user's own key, works everywhere) ·
+  `oauth_managed` (verified OAuth app — hosted provides it, self-managed
+  operators bring their own via env) · `hosted_only` (cloud-only, reserved).
+- **Tier B (`oauth_managed`):** define `oauth.clientIdEnv`/`clientSecretEnv`;
+  do **not** add per-user OAuth-app/client-secret UI — it's an operator/env
+  concern. Add operator docs + the redirect-URI note to the self-hosting
+  integrations page.
+- **Gallery must render the right state on self-managed** — no dead Connect
+  button. `availabilityFor()` resolves `connectable` / `operator_config`
+  (Tier B, self-managed, env absent — *not* an upsell) / `cloud_only` (Tier C
+  off hosted).
+- **Update the self-hosting integrations docs** (env vars + redirect URI).
+- **Add/extend availability tests** across both deployment modes and (Tier B)
+  env present/absent.
+
 ## Before you push
 
 Run the full local CI — CI failures after push waste a queue slot:
