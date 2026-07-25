@@ -13,6 +13,11 @@ import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/components/
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
+import {
+  presentAvailability,
+  type AvailabilityPresentation,
+  type ProviderAvailability,
+} from '@/lib/provider-availability';
 
 interface Connection {
   id: string;
@@ -31,6 +36,12 @@ interface ProviderDescriptor {
   id: string;
   label: string;
   auth_kind: 'oauth2' | 'api_key' | 'smtp';
+  /** #345/#346 — the credential-ownership tier and the server-authoritative
+   * availability verdict for THIS deployment, plus optional upsell copy. Drives
+   * the three honest gallery states (see lib/provider-availability.ts). */
+  tier?: 'api_key' | 'oauth_managed' | 'hosted_only';
+  availability?: ProviderAvailability;
+  availability_note?: string;
   oauth?: { scopes: string[]; configured: boolean };
 }
 
@@ -232,35 +243,48 @@ export default function ConnectionsSettingsPage() {
 
       <h2 className="mb-2 text-sm font-semibold text-ink">Add a connection</h2>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        {providersToAdd.map((p) => (
-          <div
-            key={p.id}
-            className="flex flex-col justify-between gap-3 rounded-[var(--radius-card)] border border-border-default bg-card p-4"
-          >
-            <div>
-              <p className="text-sm font-semibold text-ink">{p.label}</p>
-              <p className="mt-0.5 text-[12px] text-muted">
-                {p.auth_kind === 'oauth2' ? 'Connect via OAuth' : 'Connect with an API key'}
-                {connectedProviderIds.has(p.id) && ' · already connected'}
-              </p>
+        {providersToAdd.map((p) => {
+          // #347 — render exactly one of the three honest states from the
+          // server's `availability` verdict. Fallback to 'connectable' only if a
+          // (pre-#345) backend omits it, so a card is never broken.
+          const present = presentAvailability(p.availability ?? 'connectable', p.availability_note);
+          return (
+            <div
+              key={p.id}
+              className="flex flex-col justify-between gap-3 rounded-[var(--radius-card)] border border-border-default bg-card p-4"
+            >
+              <div>
+                <p className="text-sm font-semibold text-ink">{p.label}</p>
+                {present.actionable ? (
+                  <p className="mt-0.5 text-[12px] text-muted">
+                    {p.auth_kind === 'oauth2' ? 'Connect via OAuth' : 'Connect with an API key'}
+                    {connectedProviderIds.has(p.id) && ' · already connected'}
+                  </p>
+                ) : (
+                  <AvailabilityNote present={present} />
+                )}
+              </div>
+              {/* State 1 (connectable) keeps the existing connect flow verbatim —
+                  #348 owns that modal, so this only gates whether it renders. */}
+              {present.actionable &&
+                (p.auth_kind === 'oauth2' ? (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={!p.oauth?.configured}
+                    title={p.oauth?.configured ? undefined : 'This server has no client id/secret configured for this provider'}
+                    onClick={() => reconnect(p.id)}
+                  >
+                    {p.oauth?.configured ? 'Connect' : 'Not configured'}
+                  </Button>
+                ) : p.id === 'http' ? (
+                  <HttpConnectDialog ws={ws} provider={p} />
+                ) : (
+                  <ApiKeyConnectDialog ws={ws} provider={p} />
+                ))}
             </div>
-            {p.auth_kind === 'oauth2' ? (
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={!p.oauth?.configured}
-                title={p.oauth?.configured ? undefined : 'This server has no client id/secret configured for this provider'}
-                onClick={() => reconnect(p.id)}
-              >
-                {p.oauth?.configured ? 'Connect' : 'Not configured'}
-              </Button>
-            ) : p.id === 'http' ? (
-              <HttpConnectDialog ws={ws} provider={p} />
-            ) : (
-              <ApiKeyConnectDialog ws={ws} provider={p} />
-            )}
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -277,6 +301,29 @@ function StatusPill({ status }: { status: Connection['status'] }) {
     >
       {status}
     </span>
+  );
+}
+
+/**
+ * #347 — the non-actionable gallery states (states 2 and 3). A quiet, honest
+ * affordance: a small badge + one line of copy, and deliberately NO Connect
+ * button and NO API-key/OAuth-app setup form. `cloud_only` reads as an upsell;
+ * `operator_config` reads as "your admin sets this up in self-hosting".
+ */
+function AvailabilityNote({ present }: { present: AvailabilityPresentation }) {
+  const upsell = present.state === 'cloud_only';
+  return (
+    <div className="mt-1">
+      <span
+        className={cn(
+          'inline-block rounded px-1.5 py-0.5 text-[11px]',
+          upsell ? 'bg-accent-soft text-ink' : 'bg-hover text-muted',
+        )}
+      >
+        {present.label}
+      </span>
+      <p className="mt-1 text-[12px] text-muted">{present.description}</p>
+    </div>
   );
 }
 

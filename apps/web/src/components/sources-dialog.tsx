@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
+import { presentAvailability, type ProviderAvailability } from '@/lib/provider-availability';
 
 interface SourceSummary {
   id: string;
@@ -147,6 +148,34 @@ function useConnections(ws: string) {
   });
 }
 
+interface ConnectionProviderSummary {
+  id: string;
+  availability?: ProviderAvailability;
+  availability_note?: string;
+}
+
+/**
+ * #347 — the connection-provider catalog, only for its server-authoritative
+ * `availability` verdict. The Sources picker keys each source provider to its
+ * underlying `connection_provider` so a provider that isn't connectable on this
+ * deployment (Tier C off Cloud, or a Tier B OAuth app the operator hasn't wired)
+ * renders its honest state instead of a dead "pick me" row. Shares the gallery's
+ * query cache (same key).
+ */
+function useConnectionProviders(ws: string) {
+  return useQuery({
+    queryKey: ['connection-providers', ws],
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/connections/providers', {
+        params: { path: { ws } },
+      } as never);
+      if (error) throw error;
+      return (data as unknown as { data: ConnectionProviderSummary[] }).data;
+    },
+    enabled: Boolean(ws),
+  });
+}
+
 function useSourceRuns(ws: string, db: string, id: string | null) {
   return useQuery({
     queryKey: ['source-runs', ws, db, id],
@@ -171,6 +200,15 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
   const sources = useSources(ws, db);
   const providers = useSourceProviders(ws, db);
   const connections = useConnections(ws);
+  const connectionProviders = useConnectionProviders(ws);
+
+  /** #347 — availability of a source provider, resolved through its underlying
+   * connection provider's server verdict (defaults to connectable if the
+   * catalog hasn't loaded or a backend predates #345). */
+  const availabilityOf = (sourceProvider: SourceProviderSummary | undefined) => {
+    const cp = connectionProviders.data?.find((c) => c.id === sourceProvider?.connection_provider);
+    return presentAvailability(cp?.availability ?? 'connectable', cp?.availability_note);
+  };
 
   const [step, setStep] = useState<'list' | 'new' | 'runs'>('list');
   const [runsFor, setRunsFor] = useState<SourceSummary | null>(null);
@@ -417,13 +455,40 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
               onChange={(e) => selectProvider(e.target.value)}
             >
               <option value="">Choose a provider…</option>
-              {(providers.data ?? []).map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.label}
-                </option>
-              ))}
+              {(providers.data ?? []).map((p) => {
+                // #347 — a provider whose connection isn't connectable on this
+                // deployment is shown but not selectable, with the reason inline.
+                const present = availabilityOf(p);
+                return (
+                  <option key={p.id} value={p.id} disabled={!present.actionable}>
+                    {p.label}
+                    {present.actionable ? '' : ` — ${present.label}`}
+                  </option>
+                );
+              })}
             </select>
           </div>
+
+          {/* #347 — when the picked provider is gated, explain the honest state
+              (upsell / admin-configured) instead of showing config + a dead
+              connection dropdown. */}
+          {provider &&
+            (() => {
+              const present = availabilityOf(provider);
+              if (present.actionable) return null;
+              return (
+                <p
+                  className={cn(
+                    'rounded-[var(--radius-card)] border px-3 py-2 text-[12px]',
+                    present.state === 'cloud_only'
+                      ? 'border-border-default bg-accent-soft text-ink'
+                      : 'border-border-default bg-card text-muted',
+                  )}
+                >
+                  <span className="font-medium">{present.label}.</span> {present.description}
+                </p>
+              );
+            })()}
 
           {provider?.description && (
             <p className="rounded-[var(--radius-card)] border border-border-default bg-card px-3 py-2 text-[12px] text-muted">
