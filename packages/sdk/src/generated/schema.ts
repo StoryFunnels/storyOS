@@ -4296,7 +4296,23 @@ export interface components {
             /** Format: uuid */
             external_key_field_id: string;
             /** @enum {string} */
-            schedule: "15m" | "hour" | "day";
+            schedule?: "15m" | "hour" | "day";
+            recurrence?: {
+                /** @enum {string} */
+                kind: "hourly";
+                minute: number;
+            } | {
+                /** @enum {string} */
+                kind: "daily";
+                hour: number;
+                minute: number;
+            } | {
+                /** @enum {string} */
+                kind: "weekly";
+                weekday: number;
+                hour: number;
+                minute: number;
+            };
         };
         UpdateSourceDto: {
             name?: string;
@@ -4312,6 +4328,22 @@ export interface components {
             external_key_field_id?: string;
             /** @enum {string} */
             schedule?: "15m" | "hour" | "day";
+            recurrence?: {
+                /** @enum {string} */
+                kind: "hourly";
+                minute: number;
+            } | {
+                /** @enum {string} */
+                kind: "daily";
+                hour: number;
+                minute: number;
+            } | {
+                /** @enum {string} */
+                kind: "weekly";
+                weekday: number;
+                hour: number;
+                minute: number;
+            };
             /** @enum {string} */
             status?: "active" | "paused" | "error";
         };

@@ -11231,6 +11231,88 @@
               "hour",
               "day"
             ]
+          },
+          "recurrence": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "hourly"
+                    ]
+                  },
+                  "minute": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 59
+                  }
+                },
+                "required": [
+                  "kind",
+                  "minute"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "daily"
+                    ]
+                  },
+                  "hour": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 23
+                  },
+                  "minute": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 59
+                  }
+                },
+                "required": [
+                  "kind",
+                  "hour",
+                  "minute"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "weekly"
+                    ]
+                  },
+                  "weekday": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 6
+                  },
+                  "hour": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 23
+                  },
+                  "minute": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 59
+                  }
+                },
+                "required": [
+                  "kind",
+                  "weekday",
+                  "hour",
+                  "minute"
+                ]
+              }
+            ]
           }
         },
         "required": [
@@ -11238,8 +11320,7 @@
           "connection_id",
           "provider_source",
           "field_mapping",
-          "external_key_field_id",
-          "schedule"
+          "external_key_field_id"
         ]
       },
       "UpdateSourceDto": {
@@ -11278,6 +11359,88 @@
               "15m",
               "hour",
               "day"
+            ]
+          },
+          "recurrence": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "hourly"
+                    ]
+                  },
+                  "minute": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 59
+                  }
+                },
+                "required": [
+                  "kind",
+                  "minute"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "daily"
+                    ]
+                  },
+                  "hour": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 23
+                  },
+                  "minute": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 59
+                  }
+                },
+                "required": [
+                  "kind",
+                  "hour",
+                  "minute"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "weekly"
+                    ]
+                  },
+                  "weekday": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 6
+                  },
+                  "hour": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 23
+                  },
+                  "minute": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 59
+                  }
+                },
+                "required": [
+                  "kind",
+                  "weekday",
+                  "hour",
+                  "minute"
+                ]
+              }
             ]
           },
           "status": {

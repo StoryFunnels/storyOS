@@ -1553,7 +1553,13 @@ export const sources = pgTable(
       .references(() => databases.id, { onDelete: 'cascade' }),
     fieldMapping: jsonb('field_mapping').notNull().default({}),
     externalKeyFieldId: uuid('external_key_field_id').notNull(),
-    schedule: text('schedule').notNull(), // '15m' | 'hour' | 'day'
+    schedule: text('schedule').notNull(), // '15m' | 'hour' | 'day' (legacy coarse interval)
+    /** #340 — human recurrence (`{ kind:'daily'|'weekly'|'hourly', … }`, see
+     * `sourceRecurrenceSchema`). When set, the scheduler fires at the chosen
+     * wall-clock slot and IGNORES `schedule`; `schedule` is still populated
+     * (derived from the recurrence kind) so the legacy index below and any
+     * pre-#340 reader keep working. Null for sources created before #340. */
+    recurrence: jsonb('recurrence'),
     status: text('status').notNull().default('active'), // active | paused | error
     lastSyncAt: timestamp('last_sync_at', { withTimezone: true }),
     cursor: jsonb('cursor').notNull().default({}),

@@ -60,6 +60,11 @@ const DIRECTION_LABELS = {
   pull: 'Google → StoryOS',
   two_way: 'Two-way',
 } as const;
+
+/** #343 — sentinel option values so the pickers can offer inline creation
+ * without dead-ending when the needed database/field doesn't exist yet. */
+const CREATE_DB_SENTINEL = '__create_database__';
+const CREATE_FIELD_SENTINEL = '__create_field__';
 async function calendarApi<T>(ws: string, path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(
     `${API_URL}/api/v1/workspaces/${ws}/integrations/google-calendar${path}`,
@@ -96,6 +101,13 @@ export default function GoogleCalendarIntegrationPage() {
   const [templateSpaceId, setTemplateSpaceId] = useState('');
   const [templateName, setTemplateName] = useState('Calendar');
   const [syncSummary, setSyncSummary] = useState<string | null>(null);
+  /** #343 — inline "create field" flow, so a database missing a Start/End/
+   * Description field can gain one without leaving this modal. */
+  const [fieldDialog, setFieldDialog] = useState<{
+    target: 'start' | 'end' | 'description';
+    type: 'date' | 'text';
+    name: string;
+  } | null>(null);
 
   const connections = useQuery({
     queryKey: ['connections', ws],
@@ -229,6 +241,33 @@ export default function GoogleCalendarIntegrationPage() {
       calendarApi<{ deleted: boolean }>(ws, `/bindings/${id}`, { method: 'DELETE' }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['google-calendar-bindings', ws] }),
     onError: (error) => toast.error(apiErrorMessage(error, 'Could not remove mapping')),
+  });
+
+  /** #343 — create a date/text field on the chosen database via the existing
+   * fields endpoint, then select it — no need to leave for the field editor. */
+  const createFieldInline = useMutation({
+    mutationFn: async () => {
+      if (!fieldDialog) throw new Error('No field to create');
+      if (!databaseId) throw new Error('Choose a database first');
+      const { data, error } = await api.POST(
+        '/api/v1/workspaces/{ws}/databases/{databaseId}/fields',
+        {
+          params: { path: { ws, databaseId } },
+          body: { display_name: fieldDialog.name.trim(), type: fieldDialog.type, config: {} },
+        } as never,
+      );
+      if (error) throw error;
+      return { id: (data as unknown as { id: string }).id, target: fieldDialog.target };
+    },
+    onSuccess: async ({ id, target }) => {
+      await queryClient.invalidateQueries({ queryKey: ['fields', ws, databaseId] });
+      if (target === 'start') setStartFieldId(id);
+      else if (target === 'end') setEndFieldId(id);
+      else setDescriptionFieldId(id);
+      setFieldDialog(null);
+      toast.success('Field created and selected');
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, 'Could not create field')),
   });
 
   const activeConnections = (connections.data ?? []).filter(
@@ -391,12 +430,17 @@ export default function GoogleCalendarIntegrationPage() {
               <SelectField
                 label="Database"
                 value={databaseId}
-                onChange={chooseDatabase}
+                onChange={(value) =>
+                  value === CREATE_DB_SENTINEL ? openTemplateDialog() : chooseDatabase(value)
+                }
                 placeholder="Choose database"
-                options={(databases.data ?? []).map((item) => ({
-                  value: item.id,
-                  label: qualifiedDatabaseLabel(item, spaces.data ?? []),
-                }))}
+                options={[
+                  ...(databases.data ?? []).map((item) => ({
+                    value: item.id,
+                    label: qualifiedDatabaseLabel(item, spaces.data ?? []),
+                  })),
+                  { value: CREATE_DB_SENTINEL, label: '＋ Create new database…' },
+                ]}
                 help="Choose a database with a date field, or create the ready-to-sync Calendar template."
               />
               <SelectField
@@ -413,34 +457,46 @@ export default function GoogleCalendarIntegrationPage() {
               <SelectField
                 label="Start date"
                 value={startFieldId}
-                onChange={setStartFieldId}
+                onChange={(value) =>
+                  value === CREATE_FIELD_SENTINEL
+                    ? setFieldDialog({ target: 'start', type: 'date', name: 'Start' })
+                    : setStartFieldId(value)
+                }
                 placeholder={databaseId ? 'Choose date field' : 'Choose database first'}
-                options={dateFields.map((item) => ({
-                  value: item.id,
-                  label: item.display_name,
-                }))}
+                options={[
+                  ...dateFields.map((item) => ({ value: item.id, label: item.display_name })),
+                  ...(databaseId ? [{ value: CREATE_FIELD_SENTINEL, label: '＋ Create date field' }] : []),
+                ]}
                 help="Example: Start. Records without this value are skipped."
               />
               <SelectField
                 label="End date (optional)"
                 value={endFieldId}
-                onChange={setEndFieldId}
+                onChange={(value) =>
+                  value === CREATE_FIELD_SENTINEL
+                    ? setFieldDialog({ target: 'end', type: 'date', name: 'End' })
+                    : setEndFieldId(value)
+                }
                 placeholder="Default: one hour / one day"
-                options={dateFields.map((item) => ({
-                  value: item.id,
-                  label: item.display_name,
-                }))}
+                options={[
+                  ...dateFields.map((item) => ({ value: item.id, label: item.display_name })),
+                  ...(databaseId ? [{ value: CREATE_FIELD_SENTINEL, label: '＋ Create date field' }] : []),
+                ]}
                 help="Example: End. If empty, events last one hour or one day."
               />
               <SelectField
                 label="Description (optional)"
                 value={descriptionFieldId}
-                onChange={setDescriptionFieldId}
+                onChange={(value) =>
+                  value === CREATE_FIELD_SENTINEL
+                    ? setFieldDialog({ target: 'description', type: 'text', name: 'Description' })
+                    : setDescriptionFieldId(value)
+                }
                 placeholder="No description"
-                options={descriptionFields.map((item) => ({
-                  value: item.id,
-                  label: item.display_name,
-                }))}
+                options={[
+                  ...descriptionFields.map((item) => ({ value: item.id, label: item.display_name })),
+                  ...(databaseId ? [{ value: CREATE_FIELD_SENTINEL, label: '＋ Create text field' }] : []),
+                ]}
                 help="Example: Description or Notes. This becomes the Google event body."
               />
               <SelectField
@@ -542,6 +598,38 @@ export default function GoogleCalendarIntegrationPage() {
           )}
         </>
       )}
+
+      <Dialog open={fieldDialog !== null} onOpenChange={(open) => !open && setFieldDialog(null)}>
+        <DialogContent title={`Create ${fieldDialog?.type === 'date' ? 'a date' : 'a text'} field`}>
+          <p className="mb-4 text-[13px] text-muted">
+            Adds a new {fieldDialog?.type === 'date' ? 'date' : 'text'} field to the selected database
+            and maps it here — no need to leave this page.
+          </p>
+          <div className="space-y-1.5">
+            <Label htmlFor="calendar-new-field-name">Field name</Label>
+            <Input
+              id="calendar-new-field-name"
+              value={fieldDialog?.name ?? ''}
+              maxLength={100}
+              autoFocus
+              onChange={(event) =>
+                setFieldDialog((prev) => (prev ? { ...prev, name: event.target.value } : prev))
+              }
+            />
+          </div>
+          <div className="mt-5 flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setFieldDialog(null)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={!fieldDialog?.name.trim() || createFieldInline.isPending}
+              onClick={() => createFieldInline.mutate()}
+            >
+              {createFieldInline.isPending ? 'Creating…' : 'Create and select'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={templateOpen} onOpenChange={setTemplateOpen}>
         <DialogContent title="Create a Calendar database">

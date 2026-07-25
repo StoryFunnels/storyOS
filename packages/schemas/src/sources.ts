@@ -10,6 +10,45 @@ import { z } from 'zod';
 export const sourceScheduleSchema = z.enum(['15m', 'hour', 'day']);
 export type SourceSchedule = z.infer<typeof sourceScheduleSchema>;
 
+/**
+ * #340 — a human recurrence schedule that fires at a chosen wall-clock slot
+ * (interpreted in UTC), instead of the coarse "every N minutes since creation"
+ * `schedule` string above. The three founder-requested patterns:
+ *
+ *  - `daily`  — every 1 day at `hour:minute` (the DEFAULT for new sources).
+ *  - `weekly` — every 1 week on `weekday` (0=Sun … 6=Sat) at `hour:minute`.
+ *  - `hourly` — every 1 hour at `minute` past the hour.
+ *
+ * Persisted alongside (not replacing) `schedule`: a legacy source with no
+ * `recurrence` keeps running off its `schedule` string, so nothing that
+ * predates this ticket changes behavior. The scheduler still ticks every 60s;
+ * `recurrence` only changes WHICH wall-clock instant a run is due at.
+ */
+export const sourceRecurrenceSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('hourly'),
+    minute: z.number().int().min(0).max(59),
+  }),
+  z.object({
+    kind: z.literal('daily'),
+    hour: z.number().int().min(0).max(23),
+    minute: z.number().int().min(0).max(59),
+  }),
+  z.object({
+    kind: z.literal('weekly'),
+    /** 0=Sunday … 6=Saturday, matching JS `Date.getUTCDay()`. */
+    weekday: z.number().int().min(0).max(6),
+    hour: z.number().int().min(0).max(23),
+    minute: z.number().int().min(0).max(59),
+  }),
+]);
+export type SourceRecurrence = z.infer<typeof sourceRecurrenceSchema>;
+
+/** The default recurrence for a NEW source (#340): daily at 09:00 UTC. Chosen
+ * so a fresh YouTube-style source polls once a day rather than every 15 min,
+ * which is the quota win the ticket calls out. */
+export const DEFAULT_SOURCE_RECURRENCE: SourceRecurrence = { kind: 'daily', hour: 9, minute: 0 };
+
 export const sourceStatusSchema = z.enum(['active', 'paused', 'error']);
 export type SourceStatus = z.infer<typeof sourceStatusSchema>;
 
@@ -32,7 +71,11 @@ export const createSourceSchema = z.object({
   field_mapping: sourceFieldMappingSchema,
   /** Must also appear as one of field_mapping's values — the upsert key. */
   external_key_field_id: z.uuid(),
-  schedule: sourceScheduleSchema,
+  /** Legacy coarse interval (#239). Optional now that #340 exists — omit both
+   * `schedule` and `recurrence` to get the daily-at-09:00 default. */
+  schedule: sourceScheduleSchema.optional(),
+  /** #340 — human recurrence (daily/weekly/hourly at a wall-clock slot). */
+  recurrence: sourceRecurrenceSchema.optional(),
 });
 export type CreateSourceInput = z.infer<typeof createSourceSchema>;
 
@@ -43,6 +86,7 @@ export const updateSourceSchema = z.object({
   field_mapping: sourceFieldMappingSchema.optional(),
   external_key_field_id: z.uuid().optional(),
   schedule: sourceScheduleSchema.optional(),
+  recurrence: sourceRecurrenceSchema.optional(),
   status: sourceStatusSchema.optional(),
 });
 export type UpdateSourceInput = z.infer<typeof updateSourceSchema>;
@@ -57,6 +101,9 @@ export const sourceSummarySchema = z.object({
   field_mapping: sourceFieldMappingSchema,
   external_key_field_id: z.uuid(),
   schedule: sourceScheduleSchema,
+  /** #340 — the human recurrence, or null for a legacy source that only ever
+   * had a coarse `schedule`. */
+  recurrence: sourceRecurrenceSchema.nullable(),
   status: sourceStatusSchema,
   last_sync_at: z.string().nullable(),
   created_at: z.string(),

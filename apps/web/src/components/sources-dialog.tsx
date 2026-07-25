@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
+import { CalendarDays } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api, apiErrorMessage } from '@/lib/api';
@@ -13,6 +15,25 @@ import { Label } from '@/components/ui/label';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
 import { presentAvailability, type ProviderAvailability } from '@/lib/provider-availability';
+import {
+  buildRecurrence,
+  describeRecurrence,
+  DEFAULT_RECURRENCE_FORM,
+  REPEAT_LABELS,
+  WEEKDAY_LABELS,
+  type RecurrenceFormState,
+  type RecurrenceKind,
+  type SourceRecurrence,
+} from '@/lib/source-recurrence';
+
+/**
+ * #339 — Google Calendar is discoverable from the Sources picker, but its sync
+ * is a two-way binding (a different engine from the upsert-only source
+ * framework), so selecting it points the user to the Calendar integration
+ * rather than duplicating that flow here. A synthetic provider id, never sent
+ * to the sources API.
+ */
+const CALENDAR_POINTER_ID = '__google_calendar__';
 
 interface SourceSummary {
   id: string;
@@ -23,6 +44,7 @@ interface SourceSummary {
   field_mapping: Record<string, string>;
   external_key_field_id: string;
   schedule: '15m' | 'hour' | 'day';
+  recurrence: SourceRecurrence | null;
   status: 'active' | 'paused' | 'error';
   last_sync_at: string | null;
   created_at: string;
@@ -100,7 +122,6 @@ const PROVIDER_FIELD_CATALOG: Record<
   ],
 };
 
-const SCHEDULE_LABEL: Record<string, string> = { '15m': 'Every 15 minutes', hour: 'Hourly', day: 'Daily' };
 const STATUS_LABEL: Record<string, string> = { active: 'Active', paused: 'Paused', error: 'Error' };
 
 type MappingDestination =
@@ -210,6 +231,14 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
     return presentAvailability(cp?.availability ?? 'connectable', cp?.availability_note);
   };
 
+  /** #339/#347 — the Calendar pointer's honest state, resolved through the
+   * google-calendar connection provider (Tier B oauth_managed). */
+  const calendarConnProvider = connectionProviders.data?.find((c) => c.id === 'google-calendar');
+  const calendarPresent = presentAvailability(
+    calendarConnProvider?.availability ?? 'connectable',
+    calendarConnProvider?.availability_note,
+  );
+
   const [step, setStep] = useState<'list' | 'new' | 'runs'>('list');
   const [runsFor, setRunsFor] = useState<SourceSummary | null>(null);
 
@@ -218,7 +247,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
   const [providerId, setProviderId] = useState('');
   const [connectionId, setConnectionId] = useState('');
   const [config, setConfig] = useState<Record<string, string>>({});
-  const [schedule, setSchedule] = useState<'15m' | 'hour' | 'day'>('15m');
+  const [recurrenceForm, setRecurrenceForm] = useState<RecurrenceFormState>(DEFAULT_RECURRENCE_FORM);
   const [mapping, setMapping] = useState<Map<string, MappingDestination>>(new Map());
   const [keyExternalKey, setKeyExternalKey] = useState<string>('');
   const [busy, setBusy] = useState(false);
@@ -248,7 +277,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
     setProviderId('');
     setConnectionId('');
     setConfig({});
-    setSchedule('15m');
+    setRecurrenceForm(DEFAULT_RECURRENCE_FORM);
     setMapping(new Map());
     setKeyExternalKey('');
     setDiscoveredCatalog(null);
@@ -343,7 +372,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
           config: parsedConfig,
           field_mapping: Object.fromEntries(fieldIdByKey),
           external_key_field_id: externalKeyFieldId,
-          schedule,
+          recurrence: buildRecurrence(recurrenceForm),
         } as never,
       } as never);
       if (error) throw error;
@@ -466,8 +495,43 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                   </option>
                 );
               })}
+              {/* #339 — Calendar is discoverable here even though its two-way
+                  sync lives in the Integrations wizard. Honors availability
+                  (google-calendar is Tier B oauth_managed) like any provider. */}
+              <optgroup label="Two-way sync">
+                <option value={CALENDAR_POINTER_ID} disabled={!calendarPresent.actionable}>
+                  Google Calendar
+                  {calendarPresent.actionable ? '' : ` — ${calendarPresent.label}`}
+                </option>
+              </optgroup>
             </select>
           </div>
+
+          {/* #339 — selecting Calendar hands off to the dedicated integration
+              rather than duplicating (and risking conflicting with) its binding
+              flow on the same database. */}
+          {providerId === CALENDAR_POINTER_ID && (
+            <div className="flex flex-col gap-3 rounded-[var(--radius-card)] border border-border-default bg-accent-soft px-4 py-3">
+              <div className="flex items-start gap-2">
+                <CalendarDays className="mt-0.5 h-5 w-5 shrink-0 text-ink" />
+                <p className="text-[13px] text-ink">
+                  Google Calendar syncs two ways — StoryOS records ↔ calendar events — so it&apos;s set
+                  up in the Calendar integration, where you pick the calendar and map your date fields.
+                </p>
+              </div>
+              {calendarPresent.actionable ? (
+                <Link
+                  href={`/w/${ws}/settings/integrations/google-calendar`}
+                  className="inline-flex h-8 w-fit items-center rounded-[var(--radius-control)] bg-primary px-3 text-[13px] font-medium text-[var(--text-on-dark)] hover:bg-primary-hover"
+                  onClick={onDone}
+                >
+                  Open Calendar integration →
+                </Link>
+              ) : (
+                <p className="text-[12px] text-muted">{calendarPresent.description}</p>
+              )}
+            </div>
+          )}
 
           {/* #347 — when the picked provider is gated, explain the honest state
               (upsell / admin-configured) instead of showing config + a dead
@@ -496,7 +560,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
             </p>
           )}
 
-          {providerId && (
+          {provider && (
             <div className="flex flex-col gap-1.5">
               <Label>Connection</Label>
               {eligibleConnections.length === 0 ? (
@@ -520,7 +584,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
             </div>
           )}
 
-          {providerId && (
+          {provider && (
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="src-name">Name</Label>
               <Input
@@ -532,7 +596,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
             </div>
           )}
 
-          {providerId &&
+          {provider &&
             Object.entries(provider?.config_schema ?? {}).map(([key, spec]) => (
               <div key={key} className="flex flex-col gap-1.5">
                 {spec.kind === 'boolean' ? (
@@ -592,20 +656,77 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
             </div>
           )}
 
-          {providerId && (
+          {provider && (
             <div className="flex flex-col gap-1.5">
               <Label>Schedule</Label>
-              <select
-                className="h-8 w-48 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
-                value={schedule}
-                onChange={(e) => setSchedule(e.target.value as '15m' | 'hour' | 'day')}
-              >
-                {Object.entries(SCHEDULE_LABEL).map(([v, label]) => (
-                  <option key={v} value={v}>
-                    {label}
-                  </option>
-                ))}
-              </select>
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  className="h-8 w-40 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                  value={recurrenceForm.kind}
+                  onChange={(e) =>
+                    setRecurrenceForm((prev) => ({ ...prev, kind: e.target.value as RecurrenceKind }))
+                  }
+                >
+                  {(Object.keys(REPEAT_LABELS) as RecurrenceKind[]).map((k) => (
+                    <option key={k} value={k}>
+                      {REPEAT_LABELS[k]}
+                    </option>
+                  ))}
+                </select>
+
+                {recurrenceForm.kind === 'weekly' && (
+                  <select
+                    aria-label="Day of week"
+                    className="h-8 w-36 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                    value={recurrenceForm.weekday}
+                    onChange={(e) =>
+                      setRecurrenceForm((prev) => ({ ...prev, weekday: Number(e.target.value) }))
+                    }
+                  >
+                    {WEEKDAY_LABELS.map((label, i) => (
+                      <option key={label} value={i}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                )}
+
+                {(recurrenceForm.kind === 'daily' || recurrenceForm.kind === 'weekly') && (
+                  <label className="flex items-center gap-1.5 text-[12px] text-muted">
+                    at
+                    <input
+                      type="time"
+                      aria-label="Time of day"
+                      className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                      value={recurrenceForm.timeOfDay}
+                      onChange={(e) =>
+                        setRecurrenceForm((prev) => ({ ...prev, timeOfDay: e.target.value }))
+                      }
+                    />
+                    UTC
+                  </label>
+                )}
+
+                {recurrenceForm.kind === 'hourly' && (
+                  <label className="flex items-center gap-1.5 text-[12px] text-muted">
+                    at minute
+                    <input
+                      type="number"
+                      min={0}
+                      max={59}
+                      aria-label="Minute past the hour"
+                      className="h-8 w-20 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                      value={recurrenceForm.minute}
+                      onChange={(e) =>
+                        setRecurrenceForm((prev) => ({ ...prev, minute: Number(e.target.value) }))
+                      }
+                    />
+                  </label>
+                )}
+              </div>
+              <p className="text-[11px] text-faint">
+                Runs once per slot at the chosen wall-clock time — daily keeps well under API quotas.
+              </p>
             </div>
           )}
 
@@ -707,7 +828,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
               <div className="min-w-0 flex-1">
                 <p className="truncate text-[13px] font-medium text-ink">{s.name}</p>
                 <p className="mt-0.5 truncate text-[11px] text-faint">
-                  {s.provider_source} · {SCHEDULE_LABEL[s.schedule] ?? s.schedule} ·{' '}
+                  {s.provider_source} · {describeRecurrence(s.recurrence, s.schedule)} ·{' '}
                   <span className={s.status === 'error' ? 'text-error' : undefined}>{STATUS_LABEL[s.status]}</span>
                   {s.last_sync_at ? ` · last synced ${fmt.dateTime(s.last_sync_at)}` : ' · never synced'}
                 </p>

@@ -295,6 +295,91 @@ describe('sources framework — YouTube comments (#239)', () => {
     expect(recs).toHaveLength(0); // the guard fired BEFORE any network call, not after
   });
 
+  it('#340 recurrence: create without a schedule defaults to daily; create with recurrence persists it', async () => {
+    commentPages = [{ items: [] }];
+    commentPageIndex = 0;
+    const { dbId, connectionId, commentId } = await setupDatabaseAndConnection('RecurDefault');
+
+    // No schedule, no recurrence → daily-at-09:00 default (#340).
+    const defaulted = await inject('POST', `/workspaces/${wsId}/databases/${dbId}/sources`, {
+      name: 'defaulted',
+      connection_id: connectionId,
+      provider_source: 'youtube.comments',
+      config: {},
+      field_mapping: { comment_id: commentId.id },
+      external_key_field_id: commentId.id,
+    });
+    expect(defaulted.statusCode, `create failed: ${defaulted.body}`).toBe(201);
+    expect(defaulted.json().recurrence).toEqual({ kind: 'daily', hour: 9, minute: 0 });
+    expect(defaulted.json().schedule).toBe('day');
+
+    // Explicit weekly recurrence round-trips and shadows schedule='day'.
+    const weekly = await inject('POST', `/workspaces/${wsId}/databases/${dbId}/sources`, {
+      name: 'weekly',
+      connection_id: connectionId,
+      provider_source: 'youtube.comments',
+      config: {},
+      field_mapping: { comment_id: commentId.id },
+      external_key_field_id: commentId.id,
+      recurrence: { kind: 'weekly', weekday: 1, hour: 8, minute: 30 },
+    });
+    expect(weekly.statusCode).toBe(201);
+    expect(weekly.json().recurrence).toEqual({ kind: 'weekly', weekday: 1, hour: 8, minute: 30 });
+    expect(weekly.json().schedule).toBe('day');
+  });
+
+  it('#340 scheduler: a recurrence source fires only once its wall-clock slot has passed', async () => {
+    commentPages = [{ items: [] }, { items: [] }, { items: [] }];
+    commentPageIndex = 0;
+    const { dbId, sourceId } = await setupDatabaseAndConnection('RecurTick');
+
+    // Make it a daily-09:00 recurrence source that has NEVER synced → due now.
+    await db
+      .update(sourcesTable)
+      .set({ recurrence: { kind: 'daily', hour: 9, minute: 0 }, schedule: 'day', lastSyncAt: null })
+      .where(eq(sourcesTable.id, sourceId));
+
+    const runsBefore = (
+      await inject('GET', `/workspaces/${wsId}/databases/${dbId}/sources/${sourceId}/runs`)
+    ).json().data.length;
+
+    await sourcesService.tick();
+
+    const runsAfterDue = (
+      await inject('GET', `/workspaces/${wsId}/databases/${dbId}/sources/${sourceId}/runs`)
+    ).json().data.length;
+    expect(runsAfterDue).toBe(runsBefore + 1); // due → ran exactly once
+
+    // Now it has just synced (lastSyncAt ≈ now, after today's 09:00 slot) → NOT
+    // due again until tomorrow's slot. A second tick must not run it.
+    await sourcesService.tick();
+    const runsAfterSecond = (
+      await inject('GET', `/workspaces/${wsId}/databases/${dbId}/sources/${sourceId}/runs`)
+    ).json().data.length;
+    expect(runsAfterSecond).toBe(runsAfterDue); // slot not reached → no new run
+  });
+
+  it('#340 scheduler: a legacy interval source (no recurrence) still runs on its interval', async () => {
+    commentPages = [{ items: [] }, { items: [] }];
+    commentPageIndex = 0;
+    const { dbId, sourceId } = await setupDatabaseAndConnection('LegacyTick');
+
+    // Legacy '15m' source last synced 20 min ago, recurrence NULL → still due.
+    await db
+      .update(sourcesTable)
+      .set({ recurrence: null, schedule: '15m', lastSyncAt: new Date(Date.now() - 20 * 60_000) })
+      .where(eq(sourcesTable.id, sourceId));
+
+    const runsBefore = (
+      await inject('GET', `/workspaces/${wsId}/databases/${dbId}/sources/${sourceId}/runs`)
+    ).json().data.length;
+    await sourcesService.tick();
+    const runsAfter = (
+      await inject('GET', `/workspaces/${wsId}/databases/${dbId}/sources/${sourceId}/runs`)
+    ).json().data.length;
+    expect(runsAfter).toBe(runsBefore + 1);
+  });
+
   it('checkAndConsumeQuota: allows under budget, denies once it would exceed it', async () => {
     const { dbId, connectionId } = await setupDatabaseAndConnection('QuotaGuardUnit');
     void dbId;

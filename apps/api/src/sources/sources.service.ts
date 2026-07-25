@@ -17,9 +17,12 @@ import { ConnectionsService } from '../connections/connections.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { defaultConnectionFetcher } from '../connections/providers/types';
 import type { ConnectionFetcher } from '../connections/providers/types';
+import { DEFAULT_SOURCE_RECURRENCE } from '@storyos/schemas';
+import type { SourceRecurrence } from '@storyos/schemas';
 import { SOURCE_PROVIDER_REGISTRY } from './providers';
 import { SourceSyncError } from './providers';
 import type { SourceProviderDescriptor, SourceSyncContext } from './providers';
+import { isRecurrenceDue, scheduleFromRecurrence } from './recurrence';
 
 type SourceRow = typeof sources.$inferSelect;
 
@@ -120,6 +123,7 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
       field_mapping: row.fieldMapping as Record<string, string>,
       external_key_field_id: row.externalKeyFieldId,
       schedule: row.schedule,
+      recurrence: (row.recurrence as SourceRecurrence | null) ?? null,
       status: row.status,
       last_sync_at: row.lastSyncAt ? row.lastSyncAt.toISOString() : null,
       created_at: row.createdAt.toISOString(),
@@ -142,7 +146,8 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
       config: Record<string, unknown>;
       field_mapping: Record<string, string>;
       external_key_field_id: string;
-      schedule: string;
+      schedule?: string;
+      recurrence?: SourceRecurrence;
     },
     actorId: string,
   ) {
@@ -156,6 +161,14 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
       throw new BadRequestException('external_key_field_id must be one of field_mapping\'s target fields');
     }
 
+    // #340 — daily is the default for a NEW source. A recurrence, when given,
+    // drives scheduling; `schedule` is stored as its coarse shadow so the
+    // not-null column + legacy index stay valid. A caller passing only the
+    // legacy `schedule` (pre-#340 clients, existing tests) keeps that path.
+    const recurrence: SourceRecurrence | undefined =
+      input.recurrence ?? (input.schedule ? undefined : DEFAULT_SOURCE_RECURRENCE);
+    const schedule = recurrence ? scheduleFromRecurrence(recurrence) : input.schedule!;
+
     const [row] = await this.db
       .insert(sources)
       .values({
@@ -167,7 +180,8 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
         targetDatabaseId: databaseId,
         fieldMapping: input.field_mapping,
         externalKeyFieldId: input.external_key_field_id,
-        schedule: input.schedule,
+        schedule,
+        recurrence: recurrence ?? null,
         status: 'active',
         cursor: {},
         createdBy: actorId,
@@ -210,6 +224,7 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
       field_mapping: Record<string, string>;
       external_key_field_id: string;
       schedule: string;
+      recurrence: SourceRecurrence;
       status: string;
     }>,
   ) {
@@ -229,6 +244,18 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
       await this.requireConnectionForProvider(row.workspaceId, input.connection_id, descriptor);
     }
 
+    // #340 — a new recurrence also refreshes the coarse `schedule` shadow;
+    // switching back to a legacy `schedule` clears the recurrence so scheduling
+    // reverts to the interval path.
+    const nextRecurrence: SourceRecurrence | null = input.recurrence
+      ? input.recurrence
+      : input.schedule
+        ? null
+        : (row.recurrence as SourceRecurrence | null);
+    const nextSchedule = input.recurrence
+      ? scheduleFromRecurrence(input.recurrence)
+      : (input.schedule ?? row.schedule);
+
     const [updated] = await this.db
       .update(sources)
       .set({
@@ -237,7 +264,8 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
         config: nextConfig,
         fieldMapping: nextMapping,
         externalKeyFieldId: nextKeyFieldId,
-        schedule: input.schedule ?? row.schedule,
+        schedule: nextSchedule,
+        recurrence: nextRecurrence,
         status: input.status ?? row.status,
       })
       .where(eq(sources.id, id))
@@ -291,18 +319,38 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
 
   /** One scheduler pass — public so tests can invoke it directly. */
   async tick(): Promise<void> {
-    const due = await this.db.query.sources.findMany({
+    const now = new Date();
+    const candidates = await this.db.query.sources.findMany({
       where: and(
         eq(sources.status, 'active'),
         or(
           isNull(sources.lastSyncAt),
-          sql`${sources.lastSyncAt} + (CASE ${sources.schedule}
-            WHEN '15m' THEN interval '15 minutes'
-            WHEN 'hour' THEN interval '1 hour'
-            ELSE interval '1 day' END) <= now()`,
+          // #340 — for a recurrence source this is a cheap SUPERSET filter (a
+          // source can never be due before its minimum inter-slot gap has
+          // elapsed); `isRecurrenceDue` below makes the exact wall-clock
+          // decision in JS. Legacy sources (recurrence NULL) keep the precise
+          // interval CASE they always had.
+          sql`CASE
+            WHEN ${sources.recurrence} IS NOT NULL THEN
+              ${sources.lastSyncAt} + (CASE ${sources.recurrence}->>'kind'
+                WHEN 'hourly' THEN interval '59 minutes'
+                WHEN 'weekly' THEN interval '6 days'
+                ELSE interval '23 hours' END) <= now()
+            ELSE
+              ${sources.lastSyncAt} + (CASE ${sources.schedule}
+                WHEN '15m' THEN interval '15 minutes'
+                WHEN 'hour' THEN interval '1 hour'
+                ELSE interval '1 day' END) <= now()
+          END`,
         ),
       ),
       limit: 20,
+    });
+    // Precise wall-clock gate for recurrence sources; legacy sources are
+    // already precisely filtered by the interval CASE above.
+    const due = candidates.filter((source) => {
+      const recurrence = source.recurrence as SourceRecurrence | null;
+      return !recurrence || isRecurrenceDue(recurrence, source.lastSyncAt, now);
     });
     for (const source of due) {
       const lockResult = (await this.db.execute(
