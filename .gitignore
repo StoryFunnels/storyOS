@@ -26,5 +26,9 @@ docker/tls.d/*.caddy
 # Generated SBOM (produced by scripts/license-check.mjs in CI)
 sbom.cdx.json
 
+# Self-host backup recovery points (scripts/backup-restore/backup.sh) — your data,
+# never in git (rule 4).
+/backups/
+
 # Claude Code local settings
 .claude/settings.local.json
