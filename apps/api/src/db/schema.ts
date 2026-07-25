@@ -293,6 +293,10 @@ export const records = pgTable(
     index('records_computed_values_gin').using('gin', sql`${t.computedValues} jsonb_path_ops`),
     index('records_db_position_idx').on(t.databaseId, t.position),
     index('records_db_created_idx').on(t.databaseId, t.createdAt, t.id),
+    // #351: mirror the created_at sort index for updated_at, now that updated_at
+    // is a first-class sortable system field. (number is already covered by the
+    // records_db_number_uq unique index; created_at by records_db_created_idx.)
+    index('records_db_updated_idx').on(t.databaseId, t.updatedAt, t.id),
     index('records_title_trgm').using('gin', sql`${t.title} gin_trgm_ops`),
     uniqueIndex('records_db_number_uq').on(t.databaseId, t.number),
   ],

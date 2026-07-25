@@ -85,6 +85,23 @@ describe('views backend (MN-020)', () => {
     expect(badFilter.statusCode).toBe(422);
   });
 
+  it('accepts a saved view sorting/filtering by system fields (#351)', async () => {
+    const res = await inject('POST', `/workspaces/${wsId}/databases/${dbId}/views`, {
+      name: 'System sort',
+      type: 'table',
+      config: {
+        filters: { field: 'number', op: 'gte', value: 1 },
+        sorts: [{ field: 'created_at', direction: 'desc' }, { field: 'updated_by', direction: 'asc' }],
+        hidden_field_ids: [],
+        card_field_ids: [],
+        column_widths: {},
+      },
+    });
+    expect(res.statusCode, res.body).toBe(201);
+    // Clean up so later view-count assertions in this suite are unaffected.
+    await inject('DELETE', `/workspaces/${wsId}/databases/${dbId}/views/${res.json().id}`);
+  });
+
   it('round-trips config through update and introspection', async () => {
     const update = await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/views/${boardId}`, {
       name: 'Sprint Board',

@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { and, eq, isNull } from 'drizzle-orm';
 import type { ViewConfig, ViewType } from '@storyos/schemas';
+import { SYSTEM_FIELDS } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { fields, relations, views } from '../db/schema';
@@ -139,7 +140,10 @@ export class ViewsService {
   private async validateConfig(databaseId: string, type: ViewType, config: ViewConfig) {
     const live = await this.liveFields(databaseId);
     const byId = new Map(live.map((f) => [f.id, f]));
-    const apiNames = new Set(live.map((f) => f.apiName));
+    // #351: system fields (number, updated_by, …) are valid filter/sort references
+    // in a saved view even when they have no stored field row — the query engine
+    // resolves them via the same registry. Enumerated from the ONE canonical source.
+    const apiNames = new Set([...live.map((f) => f.apiName), ...SYSTEM_FIELDS.map((f) => f.api_name)]);
 
     const referencedIds = [
       ...(config.hidden_field_ids ?? []),

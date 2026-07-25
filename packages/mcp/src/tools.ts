@@ -8,6 +8,9 @@ import { unwrap, uploadAttachment } from './client.js';
 // at boot.
 import { blocksToMarkdown, markdownToBlocks } from '@storyos/schemas/markdown';
 import { BRAND_ICON_META, BRAND_ICON_PREFIX, ICON_CATEGORIES, ICON_SET_META, ICON_SET_PREFIX } from '@storyos/schemas/icons';
+// Subpath, not the barrel: the system-field registry is zod-free (see note above),
+// so it can be imported as a value here without inlining a CJS require('zod').
+import { SYSTEM_FIELDS, SYSTEM_FIELD_BY_API_NAME } from '@storyos/schemas/system-fields';
 // Type-only — erased at compile time, so unlike a value import this does NOT pull
 // the zod-bearing barrel into the bundle (see note above).
 import type { FilterOp } from '@storyos/schemas';
@@ -133,20 +136,42 @@ export const FILTER_GUIDE = [
   opsRow('checkbox', 'value = true | false'),
   'Relative date tokens for "within": today, yesterday, tomorrow, last_7_days,',
   'next_7_days, this_month, next_30_days.',
+  'System fields — every database has these built-in columns, filterable AND sortable',
+  'by these api_names (read-only, never in create/update values):',
+  ...SYSTEM_FIELDS.map(
+    (f) => `  ${f.api_name.padEnd(14)} : ${f.filter_ops.join(', ')}${f.sortable ? '  (sortable)' : ''}`,
+  ),
+  '  number/id are the record\'s sequential public number; created_by/updated_by take a',
+  '  user id or "@me"; created_at/updated_at take an ISO string or a "within" token.',
   'Example (grouped): { "and": [{ "field": "priority", "op": "eq", "value": "Urgent" }] }',
   'Example (bare):     { "field": "priority", "op": "eq", "value": "Urgent" }',
+  'Example (system):   { "field": "number", "op": "gte", "value": 320 }  + sorts:[{ "field": "created_at", "direction": "desc" }]',
 ].join('\n');
 
 function describeFields(db: DatabaseDetail) {
-  return db.fields
-    .filter((f) => !['created_at', 'updated_at', 'created_by'].includes(f.type))
+  // Non-system stored fields (title + user-defined) as-is. System columns come
+  // from the ONE canonical registry below rather than the per-database stored
+  // rows, so describe enumerates the FULL, consistent set — the same api_names
+  // and ops the API's filter/sort resolver accepts (#354: previously only `id`
+  // showed; created_at/updated_at/created_by were hidden and updated_by/number
+  // were entirely absent).
+  const stored = db.fields
+    .filter((f) => !f.isSystem && !SYSTEM_FIELD_BY_API_NAME.has(f.apiName))
     .map((f) => {
       const out: Record<string, unknown> = { api_name: f.apiName, name: f.displayName, type: f.type };
-      if (f.isSystem) out.read_only = true;
       if (f.options?.length) out.options = f.options.map((o) => ({ label: o.label, color: o.color }));
       if (f.relation) out.links_to = f.relation.target_database_name ?? f.relation.target_database_id;
       return out;
     });
+  const system = SYSTEM_FIELDS.map((f) => ({
+    api_name: f.api_name,
+    name: f.display_name,
+    type: f.type,
+    read_only: true as const,
+    ops: f.filter_ops,
+    sortable: f.sortable,
+  }));
+  return [...stored, ...system];
 }
 
 /**
@@ -177,6 +202,18 @@ export function mapFilterValues(detail: DatabaseDetail, node: unknown): unknown 
   }
   const cond = node as { field?: string; op?: string; value?: unknown };
   if (typeof cond.field !== 'string') return node;
+
+  // #354: created_by/updated_by are scalar person system columns — eq/neq stay as-is
+  // (the API resolves them directly), but the "@me" sentinel still needs translating
+  // to the "me" the server understands. updated_by has no stored field row, so this
+  // is driven off the registry by api_name, not detail.fields.
+  const sysSpec = SYSTEM_FIELD_BY_API_NAME.get(cond.field);
+  if (sysSpec && (sysSpec.type === 'created_by' || sysSpec.type === 'updated_by')) {
+    const meToken = (v: unknown) => (v === '@me' || v === 'me' ? 'me' : v);
+    const value = Array.isArray(cond.value) ? cond.value.map(meToken) : meToken(cond.value);
+    return { ...cond, value };
+  }
+
   const f = detail.fields.find((x) => x.apiName === cond.field);
   if (!f) return node;
 

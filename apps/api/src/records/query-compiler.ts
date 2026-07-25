@@ -1,6 +1,7 @@
 import { UnprocessableEntityException } from '@nestjs/common';
 import { SQL, sql } from 'drizzle-orm';
 import type { FieldDef, FilterNode, FilterOp, RelativeDateRange } from '@storyos/schemas';
+import { SYSTEM_FIELD_BY_API_NAME, SYSTEM_FIELD_TYPES } from '@storyos/schemas';
 import { recordLinks, records } from '../db/schema';
 
 /**
@@ -58,6 +59,7 @@ function fieldExpr(def: FieldDef): SQL {
   if (def.type === 'created_at') return sql`${records.createdAt}`;
   if (def.type === 'updated_at') return sql`${records.updatedAt}`;
   if (def.type === 'created_by') return sql`${records.createdBy}`;
+  if (def.type === 'updated_by') return sql`${records.updatedBy}`;
   if (def.type === 'number') return sql`((${records.values}->>${def.id})::numeric)`;
   if (def.type === 'checkbox') return sql`((${records.values}->>${def.id})::boolean)`;
   // MN-260: formula fields have nothing in `values` (never client-writable) —
@@ -84,6 +86,7 @@ function presentExpr(def: FieldDef): SQL {
   if (def.type === 'title') return sql`(${records.title} <> '')`;
   if (def.type === 'created_at' || def.type === 'updated_at') return sql`TRUE`;
   if (def.type === 'created_by') return sql`(${records.createdBy} IS NOT NULL)`;
+  if (def.type === 'updated_by') return sql`(${records.updatedBy} IS NOT NULL)`;
   if (def.type === 'multi_select' || (def.type === 'user' && def.config['multi'] === true)) {
     return sql`(${records.values} ? ${def.id} AND jsonb_array_length(${records.values}->${def.id}) > 0)`;
   }
@@ -93,6 +96,21 @@ function presentExpr(def: FieldDef): SQL {
 function compileCondition(fieldName: string, op: FilterOp, value: unknown, ctx: CompilerContext): SQL {
   const def = ctx.defs.get(fieldName);
   if (!def) throw err(`unknown field "${fieldName}" in filter`);
+
+  // #351: system fields advertise an exact op vocabulary in the registry. Reject an
+  // unsupported op up front with a clear, registry-sourced error, so MCP and API
+  // agree on precisely which ops each built-in column accepts. Gated on the field's
+  // system TYPE (not just its name) so a user field that merely shares a name — a
+  // database with its own `number` field — is never wrongly constrained.
+  const systemSpec = SYSTEM_FIELD_TYPES.has(def.type)
+    ? SYSTEM_FIELD_BY_API_NAME.get(def.api_name)
+    : undefined;
+  if (systemSpec && !systemSpec.filter_ops.includes(op)) {
+    throw err(
+      `op "${op}" not valid for system field "${def.api_name}" (allowed: ${systemSpec.filter_ops.join(', ')})`,
+    );
+  }
+
   if (def.type === 'relation') return compileRelation(def, op, value);
 
   if (op === 'is_empty') return sql`NOT ${presentExpr(def)}`;
@@ -124,6 +142,7 @@ function compileCondition(fieldName: string, op: FilterOp, value: unknown, ctx: 
     case 'multi_select':
       return compileIdSet(def, op, value, ctx, 'array');
     case 'created_by':
+    case 'updated_by':
       return compileIdSet(def, op, value, ctx, 'scalar');
     case 'user':
       return compileIdSet(def, op, value, ctx, def.config['multi'] === true ? 'array' : 'scalar');
@@ -286,7 +305,12 @@ function compileRelation(def: FieldDef, op: FilterOp, value: unknown): SQL {
 }
 
 function resolveMe(def: FieldDef, value: unknown, ctx: CompilerContext): unknown {
-  if ((def.type === 'user' || def.type === 'created_by') && value === 'me') return ctx.currentUserId;
+  if (
+    (def.type === 'user' || def.type === 'created_by' || def.type === 'updated_by') &&
+    value === 'me'
+  ) {
+    return ctx.currentUserId;
+  }
   return value;
 }
 

@@ -6,7 +6,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, or, sql, SQL } from 'drizzle-orm';
-import { activeFilter, evaluateFormula, formulaRefs, validateRecordValues } from '@storyos/schemas';
+import { activeFilter, evaluateFormula, formulaRefs, systemFieldDefsFor, validateRecordValues } from '@storyos/schemas';
 import type { FormulaNode } from '@storyos/schemas';
 import type { FieldDef, FilterNode } from '@storyos/schemas';
 import { DB } from '../db/db.module';
@@ -1758,6 +1758,11 @@ export class RecordsService {
   async query(databaseId: string, input: QueryRecordsInput, currentUserId: string) {
     const defs = await this.fieldDefs(databaseId);
     const byApiName = new Map(defs.map((d) => [d.api_name, d]));
+    // #351: overlay the canonical system-field registry so built-in columns
+    // (number, updated_by, …) are addressable in filter+sort by their canonical
+    // api_names — ADDITIVELY, so a real user/stored field of the same name (e.g. a
+    // database with its own `number` field) always wins and is never shadowed.
+    for (const def of systemFieldDefsFor(byApiName.keys())) byApiName.set(def.api_name, def);
     const nullsFirst = input.nulls === 'first';
 
     const SORTABLE = new Set([
@@ -1766,7 +1771,9 @@ export class RecordsService {
       // invalidated via RollupInvalidationSubscriber on the related record's
       // change or the relation's own link-set change) — reuses computed_values/
       // fieldExpr()/the keyset cursor exactly like formula does (MN-260).
-      'checkbox', 'created_at', 'updated_at', 'created_by', 'user', 'formula', 'rollup',
+      // #351: updated_by joins created_at/updated_at/created_by as a sortable
+      // system column (records.updated_by), via the registry-driven overlay above.
+      'checkbox', 'created_at', 'updated_at', 'created_by', 'updated_by', 'user', 'formula', 'rollup',
     ]);
     const sorts: SortSpec[] = input.sorts.map((s) => {
       const def = byApiName.get(s.field);
@@ -1963,6 +1970,7 @@ function extractSortValue(row: RecordRow, def: { id: string; type: string }): un
   if (def.type === 'created_at') return row.createdAt.toISOString();
   if (def.type === 'updated_at') return row.updatedAt.toISOString();
   if (def.type === 'created_by') return row.createdBy;
+  if (def.type === 'updated_by') return row.updatedBy;
   if (def.type === 'formula' || def.type === 'rollup') {
     const raw = (row.computedValues as Record<string, unknown>)[def.id];
     return raw === undefined ? null : raw;
