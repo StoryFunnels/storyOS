@@ -3094,6 +3094,26 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/export/workspace.zip": {
+      "get": {
+        "operationId": "WorkspaceExportController_workspace",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Download the whole workspace as a .zip (schema, records, relations, attachments)",
+        "tags": [
+          "export"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/webhooks": {
       "get": {
         "operationId": "WebhooksController_list",
