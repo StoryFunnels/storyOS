@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   authorizationMetadataUrl,
+  authorizationServerIssuer,
   fetchAuthorizationMetadata,
   hasStoryOsMcpScope,
   protectedResourceMetadata,
@@ -12,7 +13,7 @@ describe('hosted MCP OAuth metadata', () => {
       protectedResourceMetadata('https://mcp.storyos.dev/', 'https://app.storyos.dev/api/v1/auth/'),
     ).toEqual({
       resource: 'https://mcp.storyos.dev/mcp',
-      authorization_servers: ['https://app.storyos.dev/api/v1/auth'],
+      authorization_servers: ['https://app.storyos.dev'],
       scopes_supported: ['openid', 'profile', 'email', 'offline_access', 'storyos.mcp'],
       bearer_methods_supported: ['header'],
     });
@@ -58,6 +59,12 @@ describe('StoryOS MCP OAuth scope', () => {
   it('builds the mounted Better Auth discovery URL', () => {
     expect(authorizationMetadataUrl('https://app.example/api/v1/auth/')).toBe(
       'https://app.example/api/v1/auth/.well-known/oauth-authorization-server',
+    );
+  });
+
+  it('advertises the metadata issuer rather than the mounted auth route', () => {
+    expect(authorizationServerIssuer('https://app.example/api/v1/auth/')).toBe(
+      'https://app.example',
     );
   });
 });

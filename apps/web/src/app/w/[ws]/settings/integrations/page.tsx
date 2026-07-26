@@ -72,7 +72,23 @@ const MCP_ENDPOINT = 'https://mcp.storyos.dev/mcp';
 function primaryLabel(entry: IntegrationEntry): string {
   if (entry.auth_kind === 'delegate') return 'Open';
   if (entry.id === 'linear') return 'Preview / Import →';
-  return 'Configure';
+  if (entry.id === 'youtube') return 'Create database / source →';
+  if (entry.id === 'google-calendar') return 'Map calendar →';
+  if (entry.id === 'github') return 'Choose repos / sync →';
+  if (entry.id === 'slack') return 'Test / use in automation →';
+  return 'Continue setup';
+}
+
+function nextAction(entry: IntegrationEntry): string {
+  const actions: Record<string, string> = {
+    github: 'Connect GitHub, choose repositories, then run the first sync.',
+    linear: 'Save the API key, preview the import, then approve the migration.',
+    slack: 'Connect and test Slack, then select it in a button or automation.',
+    youtube: 'Connect YouTube, create a matching database, then add its source.',
+    'google-calendar': 'Connect Calendar, create or choose a database, then map and sync it.',
+    'delegate-agent': 'Enable Agents, create an agent, then delegate from a record menu.',
+  };
+  return actions[entry.id] ?? 'Open the setup page and follow the next highlighted step.';
 }
 
 /**
@@ -225,6 +241,9 @@ export default function IntegrationsPage() {
                       </span>
                     </div>
                     <p className="truncate text-[12px] text-faint">{entry.description}</p>
+                    <p className="mt-1 text-[11px] text-ink-secondary">
+                      <strong>Next:</strong> {nextAction(entry)}
+                    </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
                     <Link href={`/w/${ws}/settings/integrations/${entry.id}`}>
@@ -302,6 +321,11 @@ export default function IntegrationsPage() {
                   </span>
                 </div>
                 <p className="text-[13px] leading-snug text-muted">{entry.description}</p>
+                {entry.status === 'available' && (
+                  <p className="mt-3 border-t border-border-default pt-3 text-[11px] leading-4 text-ink-secondary">
+                    <strong>Setup:</strong> {nextAction(entry)}
+                  </p>
+                )}
               </div>
             );
             return entry.status === 'available' ? (

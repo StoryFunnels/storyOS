@@ -9,6 +9,7 @@ import { ArrowLeft, GitBranch, Info } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, API_URL } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { IntegrationSetupGuide } from '@/components/integration-setup-guide';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
@@ -32,7 +33,9 @@ export default function GitHubIntegrationPage() {
   const qc = useQueryClient();
   const [token, setToken] = useState('');
   const [repos, setRepos] = useState('');
-  const [summary, setSummary] = useState<{ issues: number; pulls: number; linked: number } | null>(null);
+  const [summary, setSummary] = useState<{ issues: number; pulls: number; linked: number } | null>(
+    null,
+  );
 
   const config = useQuery({
     queryKey: ['github-config', ws],
@@ -54,10 +57,9 @@ export default function GitHubIntegrationPage() {
     queryKey: ['github-install-repos', ws],
     enabled: connected,
     queryFn: async () => {
-      const { data, error } = await api.GET(
-        '/api/v1/workspaces/{ws}/integrations/github/repos',
-        { params: { path: { ws } } } as never,
-      );
+      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/integrations/github/repos', {
+        params: { path: { ws } },
+      } as never);
       if (error) throw error;
       return data as unknown as { repos: InstallRepo[]; selected: string[] };
     },
@@ -65,7 +67,12 @@ export default function GitHubIntegrationPage() {
 
   const save = useMutation({
     mutationFn: async () => {
-      const body: Record<string, unknown> = { repos: repos.split('\n').map((r) => r.trim()).filter(Boolean) };
+      const body: Record<string, unknown> = {
+        repos: repos
+          .split('\n')
+          .map((r) => r.trim())
+          .filter(Boolean),
+      };
       if (token.trim()) body.token = token.trim();
       const { error } = await api.POST('/api/v1/workspaces/{ws}/integrations/github', {
         params: { path: { ws } },
@@ -109,9 +116,12 @@ export default function GitHubIntegrationPage() {
     onSuccess: (result) => {
       setSummary(result);
       void qc.invalidateQueries();
-      toast.success(`Synced ${result.issues} issues, ${result.pulls} PRs, ${result.linked} auto-links`);
+      toast.success(
+        `Synced ${result.issues} issues, ${result.pulls} PRs, ${result.linked} auto-links`,
+      );
     },
-    onError: (error) => toast.error((error as { error?: { message?: string } })?.error?.message ?? 'Sync failed'),
+    onError: (error) =>
+      toast.error((error as { error?: { message?: string } })?.error?.message ?? 'Sync failed'),
   });
 
   // Start the App connect: a top-level navigation so GitHub's install screen loads
@@ -122,7 +132,10 @@ export default function GitHubIntegrationPage() {
 
   return (
     <div className="mx-auto max-w-2xl p-4 sm:p-8">
-      <Link href={`/w/${ws}/settings/integrations`} className="mb-4 inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-ink">
+      <Link
+        href={`/w/${ws}/settings/integrations`}
+        className="mb-4 inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-ink"
+      >
         <ArrowLeft className="h-3.5 w-3.5" /> Integrations
       </Link>
       <div className="mb-3 flex items-center gap-2">
@@ -133,28 +146,62 @@ export default function GitHubIntegrationPage() {
             connected · installation {config.data?.installation_id}
           </span>
         ) : (
-          config.data?.has_token && <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[11px] text-ink">token set</span>
+          config.data?.has_token && (
+            <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[11px] text-ink">
+              token set
+            </span>
+          )
         )}
       </div>
       <p className="mb-5 text-[13px] text-muted">
-        Imports Issues and Pull Requests into a GitHub space and keeps them fresh on every sync. PRs auto-link
-        to issues referenced by <code className="text-ink">#number</code> in the title or the branch name.
+        Imports Issues and Pull Requests into a GitHub space and keeps them fresh on every sync. PRs
+        auto-link to issues referenced by <code className="text-ink">#number</code> in the title or
+        the branch name.
       </p>
+
+      <IntegrationSetupGuide
+        className="mb-5"
+        steps={[
+          {
+            label: 'Connect GitHub',
+            description: 'Install the GitHub App, or save a personal access token.',
+            complete: connected || Boolean(config.data?.has_token),
+          },
+          {
+            label: 'Choose repositories',
+            description: 'Select the repositories StoryOS should watch and import.',
+            complete: Boolean(config.data?.repos.length),
+          },
+          {
+            label: 'Sync and inspect',
+            description: 'Run the first sync, then open the generated GitHub space.',
+            complete: Boolean(summary),
+          },
+        ]}
+      />
 
       {/* GitHub App connect (#247) */}
       <div className="mb-6 rounded-[var(--radius-control)] border border-border-default bg-card p-4">
         <h2 className="mb-1 text-[14px] font-semibold text-ink">Connect the GitHub App</h2>
         <p className="mb-3 text-[13px] text-muted">
-          Connect an installation to post a backlink comment on linked pull requests and to pick which
-          repositories StoryOS watches — no personal token required.
+          Connect an installation to post a backlink comment on linked pull requests and to pick
+          which repositories StoryOS watches — no personal token required.
         </p>
         {connected ? (
           <div className="flex flex-col gap-3">
             <div className="text-[13px] text-ink-secondary">
               Connected as installation <strong>{config.data?.installation_id}</strong>
-              {installRepos.data && <> · watching {config.data?.repos.length ?? 0} of {installRepos.data.repos.length} repos</>}
+              {installRepos.data && (
+                <>
+                  {' '}
+                  · watching {config.data?.repos.length ?? 0} of {installRepos.data.repos.length}{' '}
+                  repos
+                </>
+              )}
             </div>
-            {installRepos.isLoading && <p className="text-[13px] text-muted">Loading repositories…</p>}
+            {installRepos.isLoading && (
+              <p className="text-[13px] text-muted">Loading repositories…</p>
+            )}
             {installRepos.data && (
               <RepoPicker
                 repos={installRepos.data.repos}
@@ -164,19 +211,31 @@ export default function GitHubIntegrationPage() {
               />
             )}
             <div>
-              <Button size="sm" variant="secondary" onClick={connect}>Reconnect / change installation</Button>
+              <Button size="sm" variant="secondary" onClick={connect}>
+                Reconnect / change installation
+              </Button>
             </div>
           </div>
         ) : (
-          <Button size="sm" onClick={connect}>Connect GitHub</Button>
+          <Button size="sm" onClick={connect}>
+            Connect GitHub
+          </Button>
         )}
       </div>
 
       <div className="flex flex-col gap-3">
         <h2 className="text-[14px] font-semibold text-ink">Or use a personal access token</h2>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="gh-token">Personal access token {config.data?.has_token && '(saved — enter to replace)'}</Label>
-          <Input id="gh-token" type="password" placeholder="ghp_… (repo read scope)" value={token} onChange={(e) => setToken(e.target.value)} />
+          <Label htmlFor="gh-token">
+            Personal access token {config.data?.has_token && '(saved — enter to replace)'}
+          </Label>
+          <Input
+            id="gh-token"
+            type="password"
+            placeholder="ghp_… (repo read scope)"
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+          />
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="gh-repos">Repositories (one owner/name per line)</Label>
@@ -190,16 +249,31 @@ export default function GitHubIntegrationPage() {
           />
         </div>
         <div className="flex gap-2">
-          <Button size="sm" variant="secondary" onClick={() => save.mutate()} disabled={save.isPending}>Save</Button>
-          <Button size="sm" onClick={() => sync.mutate()} disabled={sync.isPending || (!config.data?.has_token && !connected)}>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => save.mutate()}
+            disabled={save.isPending}
+          >
+            Save
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => sync.mutate()}
+            disabled={sync.isPending || (!config.data?.has_token && !connected)}
+          >
             {sync.isPending ? 'Syncing…' : 'Sync now'}
           </Button>
         </div>
         {summary && (
           <p className="text-[13px] text-ink-secondary">
-            Imported <strong>{summary.issues}</strong> issues, <strong>{summary.pulls}</strong> pull requests,{' '}
-            <strong>{summary.linked}</strong> auto-links.{' '}
-            <Link href={`/w/${ws}`} className="text-info underline-offset-2 hover:underline" onClick={() => router.refresh()}>
+            Imported <strong>{summary.issues}</strong> issues, <strong>{summary.pulls}</strong> pull
+            requests, <strong>{summary.linked}</strong> auto-links.{' '}
+            <Link
+              href={`/w/${ws}`}
+              className="text-info underline-offset-2 hover:underline"
+              onClick={() => router.refresh()}
+            >
               See the GitHub space →
             </Link>
           </p>
@@ -233,9 +307,12 @@ function ReviewSettingsSection({ ws }: { ws: string }) {
   const settings = useQuery({
     queryKey: ['github-review-settings', ws],
     queryFn: async () => {
-      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/integrations/github/review-settings', {
-        params: { path: { ws } },
-      } as never);
+      const { data, error } = await api.GET(
+        '/api/v1/workspaces/{ws}/integrations/github/review-settings',
+        {
+          params: { path: { ws } },
+        } as never,
+      );
       if (error) throw error;
       return data as unknown as ReviewSettings;
     },
@@ -243,16 +320,25 @@ function ReviewSettingsSection({ ws }: { ws: string }) {
 
   const save = useMutation({
     mutationFn: async (patch: ReviewSettingsPatch) => {
-      const { data, error } = await api.POST('/api/v1/workspaces/{ws}/integrations/github/review-settings', {
-        params: { path: { ws } },
-        body: patch as never,
-      } as never);
+      const { data, error } = await api.POST(
+        '/api/v1/workspaces/{ws}/integrations/github/review-settings',
+        {
+          params: { path: { ws } },
+          body: patch as never,
+        } as never,
+      );
       if (error) throw error;
       return data as unknown as ReviewSettings;
     },
     onMutate: (patch) => {
       qc.setQueryData(['github-review-settings', ws], (old: ReviewSettings | undefined) =>
-        old ? { ...old, ...patch, notifications: { ...old.notifications, ...(patch.notifications ?? {}) } } : old,
+        old
+          ? {
+              ...old,
+              ...patch,
+              notifications: { ...old.notifications, ...(patch.notifications ?? {}) },
+            }
+          : old,
       );
     },
     onError: () => {
@@ -268,8 +354,8 @@ function ReviewSettingsSection({ ws }: { ws: string }) {
     <div className="mt-8 border-t border-border-default pt-6">
       <h2 className="mb-1 text-[14px] font-semibold text-ink">Code &amp; reviews</h2>
       <p className="mb-4 text-[13px] text-muted">
-        Settings for the in-app Reviews surface (#43) — approving, requesting changes, and reading diffs without
-        leaving StoryOS.
+        Settings for the in-app Reviews surface (#43) — approving, requesting changes, and reading
+        diffs without leaving StoryOS.
       </p>
 
       <div className="flex flex-col gap-4 rounded-[var(--radius-control)] border border-border-default bg-card p-4">
@@ -277,7 +363,11 @@ function ReviewSettingsSection({ ws }: { ws: string }) {
           label="Enable Code & reviews"
           hint="Turns off the Reviews sidebar section and its API for this workspace."
         >
-          <Switch checked={s.enabled} onCheckedChange={(v) => save.mutate({ enabled: v })} aria-label="Enable Code & reviews" />
+          <Switch
+            checked={s.enabled}
+            onCheckedChange={(v) => save.mutate({ enabled: v })}
+            aria-label="Enable Code & reviews"
+          />
         </Row>
 
         <Row
@@ -294,7 +384,11 @@ function ReviewSettingsSection({ ws }: { ws: string }) {
         <Row label="Default merge strategy">
           <select
             value={s.default_merge_strategy}
-            onChange={(e) => save.mutate({ default_merge_strategy: e.target.value as ReviewSettings['default_merge_strategy'] })}
+            onChange={(e) =>
+              save.mutate({
+                default_merge_strategy: e.target.value as ReviewSettings['default_merge_strategy'],
+              })
+            }
             className="rounded-[var(--radius-control)] border border-border-default bg-surface px-2 py-1 text-[13px] text-ink"
           >
             <option value="squash">Squash and merge</option>
@@ -306,7 +400,9 @@ function ReviewSettingsSection({ ws }: { ws: string }) {
         <Row label="Code theme">
           <select
             value={s.code_theme}
-            onChange={(e) => save.mutate({ code_theme: e.target.value as ReviewSettings['code_theme'] })}
+            onChange={(e) =>
+              save.mutate({ code_theme: e.target.value as ReviewSettings['code_theme'] })
+            }
             className="rounded-[var(--radius-control)] border border-border-default bg-surface px-2 py-1 text-[13px] text-ink"
           >
             <option value="auto">Match system</option>
@@ -318,7 +414,9 @@ function ReviewSettingsSection({ ws }: { ws: string }) {
         <Row label="Code font">
           <select
             value={s.code_font}
-            onChange={(e) => save.mutate({ code_font: e.target.value as ReviewSettings['code_font'] })}
+            onChange={(e) =>
+              save.mutate({ code_font: e.target.value as ReviewSettings['code_font'] })
+            }
             className="rounded-[var(--radius-control)] border border-border-default bg-surface px-2 py-1 text-[13px] text-ink"
           >
             <option value="mono">Monospace</option>
@@ -328,7 +426,9 @@ function ReviewSettingsSection({ ws }: { ws: string }) {
         </Row>
 
         <div className="border-t border-border-default pt-3">
-          <p className="mb-2 text-[12px] font-medium uppercase tracking-wider text-faint">Review notifications</p>
+          <p className="mb-2 text-[12px] font-medium uppercase tracking-wider text-faint">
+            Review notifications
+          </p>
           <Row label="Comments & mentions">
             <Switch
               checked={s.notifications.comments_mentions}
@@ -352,7 +452,9 @@ function ReviewSettingsSection({ ws }: { ws: string }) {
               <Info className="h-3.5 w-3.5 text-faint" />
             </span>
           </span>
-          <span className="rounded-full bg-surface px-2 py-0.5 text-[11px] text-muted">Coming soon</span>
+          <span className="rounded-full bg-surface px-2 py-0.5 text-[11px] text-muted">
+            Coming soon
+          </span>
         </div>
       </div>
     </div>
@@ -396,10 +498,19 @@ function RepoPicker({
     <div className="flex flex-col gap-2">
       <div className="max-h-56 overflow-y-auto rounded-[var(--radius-control)] border border-border-default">
         {repos.map((r) => (
-          <label key={r.full_name} className="flex cursor-pointer items-center gap-2 px-2 py-1.5 text-[13px] text-ink hover:bg-accent-soft">
-            <input type="checkbox" checked={chosen.has(r.full_name)} onChange={() => toggle(r.full_name)} />
+          <label
+            key={r.full_name}
+            className="flex cursor-pointer items-center gap-2 px-2 py-1.5 text-[13px] text-ink hover:bg-accent-soft"
+          >
+            <input
+              type="checkbox"
+              checked={chosen.has(r.full_name)}
+              onChange={() => toggle(r.full_name)}
+            />
             <span className="font-mono">{r.full_name}</span>
-            {r.private && <span className="rounded bg-surface px-1 text-[10px] text-muted">private</span>}
+            {r.private && (
+              <span className="rounded bg-surface px-1 text-[10px] text-muted">private</span>
+            )}
           </label>
         ))}
       </div>

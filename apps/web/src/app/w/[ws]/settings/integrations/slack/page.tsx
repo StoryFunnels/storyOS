@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { IntegrationSetupGuide } from '@/components/integration-setup-guide';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
@@ -18,7 +19,11 @@ const WEBHOOK_PATTERN = /^https:\/\/hooks\.slack\.com\/services\//;
 
 type Method = 'bot' | 'webhook';
 
-type SlackConfigResponse = { has_token: boolean; has_webhook: boolean; default_channel: string | null };
+type SlackConfigResponse = {
+  has_token: boolean;
+  has_webhook: boolean;
+  default_channel: string | null;
+};
 type TestResult = { ok: true; via: 'bot' | 'webhook'; channel?: string };
 type ApiError = { error?: { message?: string } };
 
@@ -72,8 +77,10 @@ export default function SlackIntegrationPage() {
 
   const connected = config.data?.has_token || config.data?.has_webhook;
 
-  const botTokenValid = config.data?.has_token && !botToken.trim() ? true : BOT_TOKEN_PATTERN.test(botToken.trim());
-  const webhookValid = config.data?.has_webhook && !webhookUrl.trim() ? true : WEBHOOK_PATTERN.test(webhookUrl.trim());
+  const botTokenValid =
+    config.data?.has_token && !botToken.trim() ? true : BOT_TOKEN_PATTERN.test(botToken.trim());
+  const webhookValid =
+    config.data?.has_webhook && !webhookUrl.trim() ? true : WEBHOOK_PATTERN.test(webhookUrl.trim());
   const canSave = method === 'bot' ? botTokenValid : webhookValid;
 
   const save = useMutation({
@@ -95,7 +102,8 @@ export default function SlackIntegrationPage() {
       setTestResult(null);
       void qc.invalidateQueries({ queryKey: ['slack-config', ws] });
     },
-    onError: (error) => toast.error((error as ApiError)?.error?.message ?? 'Could not save Slack settings'),
+    onError: (error) =>
+      toast.error((error as ApiError)?.error?.message ?? 'Could not save Slack settings'),
   });
 
   const test = useMutation({
@@ -108,7 +116,10 @@ export default function SlackIntegrationPage() {
     },
     onSuccess: (result) => {
       const where = result.channel ? ` to ${result.channel}` : '';
-      setTestResult({ ok: true, message: `Test message sent${where} via ${result.via === 'bot' ? 'bot token' : 'webhook'}.` });
+      setTestResult({
+        ok: true,
+        message: `Test message sent${where} via ${result.via === 'bot' ? 'bot token' : 'webhook'}.`,
+      });
     },
     onError: (error) => {
       const message = (error as ApiError)?.error?.message ?? 'Test message failed';
@@ -118,18 +129,46 @@ export default function SlackIntegrationPage() {
 
   return (
     <div className="mx-auto max-w-2xl p-4 sm:p-8">
-      <Link href={`/w/${ws}/settings/integrations`} className="mb-4 inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-ink">
+      <Link
+        href={`/w/${ws}/settings/integrations`}
+        className="mb-4 inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-ink"
+      >
         <ArrowLeft className="h-3.5 w-3.5" /> Integrations
       </Link>
       <div className="mb-3 flex items-center gap-2">
         <MessageSquare className="h-6 w-6 text-ink" />
         <h1 className="text-lg font-semibold text-ink">Slack</h1>
-        {connected && <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[11px] text-ink">connected</span>}
+        {connected && (
+          <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[11px] text-ink">
+            connected
+          </span>
+        )}
       </div>
       <p className="mb-5 text-[13px] text-muted">
-        Post messages to Slack from automations — add a &quot;Send Slack message&quot; action to any button or
-        automation once this is connected.
+        Post messages to Slack from automations — add a &quot;Send Slack message&quot; action to any
+        button or automation once this is connected.
       </p>
+
+      <IntegrationSetupGuide
+        className="mb-5"
+        steps={[
+          {
+            label: 'Connect Slack',
+            description: 'Save either a bot token or a single-channel webhook.',
+            complete: Boolean(connected),
+          },
+          {
+            label: 'Send a test',
+            description: 'Verify the token, channel membership, and delivery before using it.',
+            complete: testResult?.ok === true,
+          },
+          {
+            label: 'Add it to a workflow',
+            description: 'Choose Send Slack message inside a button or automation action.',
+            complete: false,
+          },
+        ]}
+      />
 
       {/* 1. Method choice first (progressive disclosure) */}
       <div className="mb-4 inline-flex rounded-[var(--radius-control)] border border-border-default bg-card p-0.5">
@@ -141,7 +180,9 @@ export default function SlackIntegrationPage() {
           }}
           className={cn(
             'rounded-[calc(var(--radius-control)-2px)] px-3 py-1.5 text-[13px] font-medium transition-colors',
-            method === 'bot' ? 'bg-primary text-[var(--text-on-dark)]' : 'text-ink-secondary hover:bg-hover',
+            method === 'bot'
+              ? 'bg-primary text-[var(--text-on-dark)]'
+              : 'text-ink-secondary hover:bg-hover',
           )}
         >
           Bot token <span className="opacity-75">(recommended)</span>
@@ -154,7 +195,9 @@ export default function SlackIntegrationPage() {
           }}
           className={cn(
             'rounded-[calc(var(--radius-control)-2px)] px-3 py-1.5 text-[13px] font-medium transition-colors',
-            method === 'webhook' ? 'bg-primary text-[var(--text-on-dark)]' : 'text-ink-secondary hover:bg-hover',
+            method === 'webhook'
+              ? 'bg-primary text-[var(--text-on-dark)]'
+              : 'text-ink-secondary hover:bg-hover',
           )}
         >
           Webhook URL <span className="opacity-75">(simpler)</span>
@@ -171,23 +214,25 @@ export default function SlackIntegrationPage() {
         {method === 'bot' ? (
           <>
             <li>
-              Go to <code className="rounded bg-hover px-1 py-0.5">api.slack.com/apps</code> → Create New App → From
-              scratch.
+              Go to <code className="rounded bg-hover px-1 py-0.5">api.slack.com/apps</code> →
+              Create New App → From scratch.
             </li>
             <li>
-              Open <strong>OAuth &amp; Permissions</strong> → add the <code className="rounded bg-hover px-1 py-0.5">chat:write</code> scope → Install
-              to Workspace.
+              Open <strong>OAuth &amp; Permissions</strong> → add the{' '}
+              <code className="rounded bg-hover px-1 py-0.5">chat:write</code> scope → Install to
+              Workspace.
             </li>
             <li>Copy the Bot User OAuth Token (starts with xoxb-) and paste it below.</li>
             <li>
-              In Slack, invite the bot to a channel: <code className="rounded bg-hover px-1 py-0.5">/invite @YourAppName</code>.
+              In Slack, invite the bot to a channel:{' '}
+              <code className="rounded bg-hover px-1 py-0.5">/invite @YourAppName</code>.
             </li>
           </>
         ) : (
           <>
             <li>
-              Go to <code className="rounded bg-hover px-1 py-0.5">api.slack.com/apps</code> → your app → Incoming
-              Webhooks → activate.
+              Go to <code className="rounded bg-hover px-1 py-0.5">api.slack.com/apps</code> → your
+              app → Incoming Webhooks → activate.
             </li>
             <li>Add New Webhook to Workspace → pick a channel.</li>
             <li>Copy the URL (starts with hooks.slack.com/services/) and paste it below.</li>
@@ -203,7 +248,9 @@ export default function SlackIntegrationPage() {
       <div className="flex flex-col gap-3">
         {method === 'bot' ? (
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="slack-token">Bot token {config.data?.has_token && '(saved — enter to replace)'}</Label>
+            <Label htmlFor="slack-token">
+              Bot token {config.data?.has_token && '(saved — enter to replace)'}
+            </Label>
             <Input
               id="slack-token"
               type="password"
@@ -211,14 +258,20 @@ export default function SlackIntegrationPage() {
               value={botToken}
               onChange={(e) => setBotToken(e.target.value)}
             />
-            <p className="text-[12px] text-muted">Paste the Bot User OAuth Token from your Slack app. Starts with xoxb-.</p>
+            <p className="text-[12px] text-muted">
+              Paste the Bot User OAuth Token from your Slack app. Starts with xoxb-.
+            </p>
             {botToken.trim() && !botTokenValid && (
-              <p className="text-[12px] text-error">That doesn&apos;t look like a bot token — it should start with xoxb-.</p>
+              <p className="text-[12px] text-error">
+                That doesn&apos;t look like a bot token — it should start with xoxb-.
+              </p>
             )}
           </div>
         ) : (
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="slack-webhook">Webhook URL {config.data?.has_webhook && '(saved — enter to replace)'}</Label>
+            <Label htmlFor="slack-webhook">
+              Webhook URL {config.data?.has_webhook && '(saved — enter to replace)'}
+            </Label>
             <Input
               id="slack-webhook"
               type="password"
@@ -226,9 +279,15 @@ export default function SlackIntegrationPage() {
               value={webhookUrl}
               onChange={(e) => setWebhookUrl(e.target.value)}
             />
-            <p className="text-[12px] text-muted">Paste the Incoming Webhook URL from your Slack app. Starts with hooks.slack.com/services/.</p>
+            <p className="text-[12px] text-muted">
+              Paste the Incoming Webhook URL from your Slack app. Starts with
+              hooks.slack.com/services/.
+            </p>
             {webhookUrl.trim() && !webhookValid && (
-              <p className="text-[12px] text-error">That doesn&apos;t look like a Slack webhook URL — it should start with hooks.slack.com/services/.</p>
+              <p className="text-[12px] text-error">
+                That doesn&apos;t look like a Slack webhook URL — it should start with
+                hooks.slack.com/services/.
+              </p>
             )}
           </div>
         )}
@@ -236,12 +295,21 @@ export default function SlackIntegrationPage() {
         {method === 'bot' && (
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="slack-channel">Default channel</Label>
-            <Input id="slack-channel" placeholder="#general or C0123456789" value={defaultChannel} onChange={(e) => setDefaultChannel(e.target.value)} />
-            <p className="text-[12px] text-muted">Where messages go if an action doesn&apos;t specify a channel. Use #channel-name.</p>
+            <Input
+              id="slack-channel"
+              placeholder="#general or C0123456789"
+              value={defaultChannel}
+              onChange={(e) => setDefaultChannel(e.target.value)}
+            />
+            <p className="text-[12px] text-muted">
+              Where messages go if an action doesn&apos;t specify a channel. Use #channel-name.
+            </p>
           </div>
         )}
 
-        <p className="text-[12px] text-muted">Credentials stay on your server and are never shown again once saved.</p>
+        <p className="text-[12px] text-muted">
+          Credentials stay on your server and are never shown again once saved.
+        </p>
 
         {/* 3. Verify before trusting */}
         <div className="flex flex-wrap items-center gap-2">
@@ -266,10 +334,16 @@ export default function SlackIntegrationPage() {
           <div
             className={cn(
               'flex items-start gap-2 rounded-[var(--radius-control)] border p-3 text-[13px]',
-              testResult.ok ? 'border-border-default bg-accent-soft text-ink' : 'border-error/40 bg-error/5 text-error',
+              testResult.ok
+                ? 'border-border-default bg-accent-soft text-ink'
+                : 'border-error/40 bg-error/5 text-error',
             )}
           >
-            {testResult.ok ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> : <XCircle className="mt-0.5 h-4 w-4 shrink-0" />}
+            {testResult.ok ? (
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+            ) : (
+              <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            )}
             <span>{testResult.message}</span>
           </div>
         )}
