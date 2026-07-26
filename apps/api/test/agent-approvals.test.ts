@@ -19,7 +19,10 @@ async function as(token: string, method: string, url: string, payload?: unknown)
     method: method as never,
     url: `/api/v1${url}`,
     headers: authed(token),
-    payload: payload as never,
+    // Default to an empty object so a body-less POST still sends valid JSON —
+    // matches approvals.test.ts. The reject endpoint now takes an optional
+    // `reason` body (#115), validated as an object; a missing body would 422.
+    payload: (payload ?? {}) as never,
   });
 }
 
@@ -198,6 +201,16 @@ describe('The Runs "Pending action" field (#210, ADR-0010 §4)', () => {
       await as(admin.token, 'GET', `/workspaces/${wsId}/databases/${runsDbId}`)
     ).json().fields as FieldDetail[];
     expect(after.filter((f) => f.apiName === 'pending_action')).toHaveLength(1);
+  });
+
+  // #114: it's machine state, not a human-facing field — hidden by default in
+  // the record view (the Inbox renders the payload readably instead).
+  it('is marked hidden-by-default (entity_hidden) in the record view', async () => {
+    const detail = (await as(admin.token, 'GET', `/workspaces/${wsId}/databases/${runsDbId}`)).json();
+    const pending = (detail.fields as Array<FieldDetail & { config?: Record<string, unknown> }>).find(
+      (f) => f.apiName === 'pending_action',
+    );
+    expect(pending?.config?.entity_hidden).toBe(true);
   });
 });
 
@@ -451,6 +464,103 @@ describe('Reject applies nothing (#210, ADR-0010 §4)', () => {
       await as(admin.token, 'GET', `/workspaces/${wsId}/databases/${issuesDbId}/records/trash`)
     ).json();
     expect((trash.data ?? trash).some((r: { id: string }) => r.id === issue.id)).toBe(false);
+  });
+
+  // #115: the reject reason rides in the step log — no new column, same
+  // mechanism as the automation-action gate (approvals.service.ts).
+  it('records an optional reject reason in the step log', async () => {
+    const agent = await createAgent('Reasoned rejecter', ['delete']);
+    const issue = await createIssue('Reject me with a reason');
+
+    const run = await runWith(
+      agent.id,
+      stubRuntime({
+        kind: 'delete',
+        summary: 'delete a record',
+        payload: { apply: 'record_delete', database_id: issuesDbId, record_id: issue.id },
+      }),
+    );
+
+    const res = await as(admin.token, 'POST', `/workspaces/${wsId}/agents/runs/${run.id}/reject`, {
+      reason: 'Wrong record — should have targeted the duplicate',
+    });
+    expect(res.statusCode, res.body).toBe(201);
+
+    const steps = plainText(res.json().values.steps);
+    expect(steps).toContain('action.rejected');
+    expect(steps).toContain('Wrong record — should have targeted the duplicate');
+    // Still applied nothing.
+    await expectIssueAlive(issue.id, 'a reasoned rejection still applies nothing');
+  });
+
+  it('rejecting with no reason still works and adds no dangling separator', async () => {
+    const agent = await createAgent('Reasonless rejecter', ['delete']);
+    const issue = await createIssue('Reject me plainly');
+
+    const run = await runWith(
+      agent.id,
+      stubRuntime({
+        kind: 'delete',
+        summary: 'delete a record',
+        payload: { apply: 'record_delete', database_id: issuesDbId, record_id: issue.id },
+      }),
+    );
+
+    // Empty/whitespace reason is treated as no reason — no trailing " — ".
+    const res = await as(admin.token, 'POST', `/workspaces/${wsId}/agents/runs/${run.id}/reject`, {
+      reason: '   ',
+    });
+    expect(res.statusCode, res.body).toBe(201);
+    const steps = plainText(res.json().values.steps);
+    expect(steps).toContain('Rejected (delete): delete a record');
+    expect(steps).not.toContain('delete a record —');
+  });
+});
+
+describe("A parked run's staged action is readable inline (#115/#114)", () => {
+  it('returns the staged action and step log for a waiting run', async () => {
+    const agent = await createAgent('Stager', ['delete']);
+    const issue = await createIssue('Inspect my proposal');
+
+    const run = await runWith(
+      agent.id,
+      stubRuntime({
+        kind: 'delete',
+        summary: 'delete the inspected issue',
+        payload: { apply: 'record_delete', database_id: issuesDbId, record_id: issue.id },
+      }),
+    );
+
+    const res = await as(admin.token, 'GET', `/workspaces/${wsId}/agents/runs/${run.id}/staged`);
+    expect(res.statusCode, res.body).toBe(200);
+    const staged = res.json();
+    expect(staged.action).toMatchObject({ kind: 'delete', summary: 'delete the inspected issue' });
+    expect(staged.action.payload).toMatchObject({ record_id: issue.id });
+    // The steps that led to the gate ride along, halting at the proposal.
+    const tools = (staged.steps as Array<{ tool: string }>).map((s) => s.tool);
+    expect(tools).toContain('before.step');
+    expect(tools).not.toContain('after.step');
+  });
+
+  it('returns null once the run is resolved (no gate to read)', async () => {
+    const agent = await createAgent('Resolved stager', ['delete']);
+    const issue = await createIssue('Resolve then inspect');
+
+    const run = await runWith(
+      agent.id,
+      stubRuntime({
+        kind: 'delete',
+        summary: 'delete a record',
+        payload: { apply: 'record_delete', database_id: issuesDbId, record_id: issue.id },
+      }),
+    );
+    expect(
+      (await as(admin.token, 'POST', `/workspaces/${wsId}/agents/runs/${run.id}/reject`)).statusCode,
+    ).toBe(201);
+
+    const res = await as(admin.token, 'GET', `/workspaces/${wsId}/agents/runs/${run.id}/staged`);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json()).toBeNull();
   });
 });
 

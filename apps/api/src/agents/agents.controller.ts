@@ -28,6 +28,13 @@ const delegateSchema = z.object({ record_id: z.uuid() });
 class DelegateToAgentDto extends createZodDto(delegateSchema) {}
 
 /**
+ * #115: an optional reason carried on a run rejection, mirroring the
+ * automation-action gate's `RejectApprovalDto` (approvals.controller.ts) — same
+ * shape, same 2000-char cap. The reason lands in the run's step log.
+ */
+class RejectRunDto extends createZodDto(z.object({ reason: z.string().max(2000).optional() })) {}
+
+/**
  * Agents system database (MN-214a, ADR-0010). Admin-only, mirroring the
  * integrations pack controllers. Agent *records* are managed through the normal
  * records API on the provisioned database — this controller only provisions and
@@ -119,7 +126,20 @@ export class AgentsController {
   @Post('runs/:run/reject')
   @ApiParam({ name: 'run', description: "The run record's uuid or public number" })
   @ApiOperation({ summary: 'Reject a run waiting for approval: apply nothing, cancel it' })
-  rejectRun(@Req() req: WorkspaceRequest, @Param('run') run: string) {
-    return this.agents.rejectRun(req.membership, run);
+  rejectRun(@Req() req: WorkspaceRequest, @Param('run') run: string, @Body() body: RejectRunDto) {
+    return this.agents.rejectRun(req.membership, run, body.reason);
+  }
+
+  /**
+   * The staged action + step log of a parked run (#115/#114) — what the Inbox
+   * shows inline so the approver reads the exact proposal and the steps that
+   * led to it, instead of only a one-line snippet or the raw `Pending action`
+   * JSON. Returns null when the run isn't waiting on a gate.
+   */
+  @Get('runs/:run/staged')
+  @ApiParam({ name: 'run', description: "The run record's uuid or public number" })
+  @ApiOperation({ summary: "A parked run's staged action and step log, or null if it isn't waiting" })
+  getStagedAction(@Req() req: WorkspaceRequest, @Param('run') run: string) {
+    return this.agents.getStagedAction(req.membership, run);
   }
 }
