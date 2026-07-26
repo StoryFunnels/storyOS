@@ -25,3 +25,14 @@ export function resolveDatabaseIds(
       : { id, label: 'Unavailable database', missing: true };
   });
 }
+
+/**
+ * #105: the inverse of `resolveDatabaseIds` for persisting an edited selection.
+ * The agent `target_databases` field is a plain text field whose canonical
+ * storage is a comma-and-space-joined id list (see `architect.service.ts`'s
+ * `targets.join(', ')`), so the picker writes back in exactly that shape.
+ * Empties collapse to `null` so a cleared field reads as unset, not "".
+ */
+export function serializeDatabaseIds(ids: string[]): string | null {
+  return ids.length ? ids.join(', ') : null;
+}
