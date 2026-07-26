@@ -98,13 +98,30 @@ describe('brand icon search data (#298: same search box matches slug + keywords)
 });
 
 describe('EntityIcon brand rendering (#298)', () => {
-  it('renders a brand: ref as an <img> pointing at its vendored SVG, not as text', () => {
+  it('renders a brand: ref as a mask pointing at its vendored SVG, not as text', () => {
     const markup = renderToStaticMarkup(
       createElement(EntityIcon, { icon: 'brand:github', color: null, fallback: null }),
     );
-    expect(markup).toContain('<img');
+    expect(markup).toContain('mask-image');
     expect(markup).toContain('/brand-icons/github.svg');
     expect(markup).not.toContain('brand:github');
+  });
+
+  it('tints a brand icon with the selected palette colour (#335)', () => {
+    const markup = renderToStaticMarkup(
+      createElement(EntityIcon, { icon: 'brand:youtube', color: 'red', fallback: null }),
+    );
+    expect(markup).toContain('color:#C0392B');
+    expect(markup).toContain('bg-current');
+    expect(markup).toContain('/brand-icons/youtube.svg');
+  });
+
+  it('leaves a brand icon on inherited currentColor when no colour is selected (#335)', () => {
+    const markup = renderToStaticMarkup(
+      createElement(EntityIcon, { icon: 'brand:youtube', color: null, fallback: null }),
+    );
+    expect(markup).not.toMatch(/style="color:/);
+    expect(markup).toContain('bg-current');
   });
 
   it('an unrecognized brand: slug renders the fallback, never the raw "brand:slug" string as text', () => {

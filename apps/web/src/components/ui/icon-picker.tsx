@@ -133,8 +133,9 @@ export function IconColorPicker({
                   selected && 'bg-accent-soft ring-1 ring-[var(--accent)]',
                 )}
                 onClick={() => pickBrand(d.slug)}
+                style={color ? { color: OPTION_COLORS[color] } : undefined}
               >
-                <BrandIconImg slug={d.slug} size={16} />
+                <BrandIcon slug={d.slug} size={16} />
               </button>
             );
           })}
@@ -239,26 +240,34 @@ export function EntityIconChip({
 }
 
 /**
- * A vendored brand/logo SVG (#298, apps/web/public/brand-icons/<slug>.svg),
- * rendered via a plain `<img>` — importing ~100 marks as individual React
- * components (the lucide `ICON_COMPONENTS` pattern) isn't practical at this
- * scale. Sized to match the surrounding icon slot: an explicit pixel `size`,
- * or `1em` so it scales with font-size the same way the curated set's lucide
- * icons do when no `size` is passed.
+ * A vendored brand/logo SVG (#298, #335), rendered as a CSS mask so its glyph
+ * uses `currentColor` exactly like the curated Lucide set. Importing ~100 marks
+ * as individual React components isn't practical, while a plain `<img>` cannot
+ * inherit CSS colour because the SVG files contain fixed fills.
  *
- * These are Simple Icons-style flat marks with no `currentColor` — the
- * `color` picker's background tint doesn't apply to the glyph itself, so
- * (unlike the lucide set) brand icons ignore `color` and always render at
- * their own natural appearance.
+ * The mask keeps the original mark geometry and gives every consumer one
+ * tintable, monochrome rendering path. An explicit pixel `size`, or `1em`,
+ * makes it scale with the surrounding icon slot.
  */
-function BrandIconImg({ slug, size, className }: { slug: string; size?: number; className?: string }) {
+function BrandIcon({ slug, size, className }: { slug: string; size?: number; className?: string }) {
+  const dimension = size ? `${size}px` : '1em';
+  const source = `url("${brandIconSrc(slug)}")`;
   return (
-    <img
-      src={brandIconSrc(slug)}
-      alt=""
-      draggable={false}
-      className={cn(size ? 'object-contain' : 'h-[1em] w-[1em] object-contain', className)}
-      style={size ? { width: size, height: size } : undefined}
+    <span
+      aria-hidden="true"
+      className={cn('inline-block shrink-0 bg-current', className)}
+      style={{
+        width: dimension,
+        height: dimension,
+        WebkitMaskImage: source,
+        maskImage: source,
+        WebkitMaskPosition: 'center',
+        maskPosition: 'center',
+        WebkitMaskRepeat: 'no-repeat',
+        maskRepeat: 'no-repeat',
+        WebkitMaskSize: 'contain',
+        maskSize: 'contain',
+      }}
     />
   );
 }
@@ -306,8 +315,11 @@ export function EntityIcon({
   const brandSlug = brandIconSlug(icon);
   if (brandSlug) {
     return (
-      <span className={cn('inline-flex shrink-0 items-center justify-center', className)}>
-        <BrandIconImg slug={brandSlug} size={size} />
+      <span
+        className={cn('inline-flex shrink-0 items-center justify-center', className)}
+        style={color ? { color: OPTION_COLORS[color] } : undefined}
+      >
+        <BrandIcon slug={brandSlug} size={size} />
       </span>
     );
   }
