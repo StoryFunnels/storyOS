@@ -125,6 +125,26 @@ const PROVIDER_FIELD_CATALOG: Record<
 
 const STATUS_LABEL: Record<string, string> = { active: 'Active', paused: 'Paused', error: 'Error' };
 
+/**
+ * #125 — field types a source can NOT write to, so they're never offered as
+ * mapping targets: the read-only system columns (`id`, the created/updated
+ * timestamps, created_by/updated_by) and the computed/relational types the
+ * record write path rejects. Everything else — including the record Name (a
+ * `title` field) — is a valid, writable target.
+ */
+const NON_MAPPABLE_TARGET_TYPES = new Set([
+  'id',
+  'created_at',
+  'updated_at',
+  'created_by',
+  'updated_by',
+  'lookup',
+  'rollup',
+  'formula',
+  'button',
+  'relation',
+]);
+
 type MappingDestination =
   | { kind: 'skip' }
   | { kind: 'existing'; field_id: string }
@@ -287,8 +307,17 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
   const provider = providers.data?.find((p) => p.id === providerId);
   const catalog = providerId ? PROVIDER_FIELD_CATALOG[providerId] ?? discoveredCatalog ?? [] : [];
   const eligibleConnections = (connections.data ?? []).filter((c) => c.provider === provider?.connection_provider);
+  // #125 — the mapping targets are every field the sync engine can actually
+  // WRITE. The record Name (a `title` field) is writable — it maps to the
+  // promoted title column — and MUST be offered: without it a source's title
+  // (a YouTube video's title, an article headline, …) has nowhere to land and
+  // records import nameless, unusable. Excluded are the read-only system
+  // columns and the computed/relational field types the write path rejects.
+  // Created date is deliberately NOT a target: `created_at` is system-managed
+  // and the record write path rejects writes to it, so offering it would just
+  // fail every sync — surfacing it as mappable would be faking support.
   const existingFields = (database.data?.fields ?? []).filter(
-    (f) => !f.isSystem && !['title', 'lookup', 'button', 'relation', 'created_at', 'updated_at', 'created_by'].includes(f.type),
+    (f) => !NON_MAPPABLE_TARGET_TYPES.has(f.type),
   );
 
   // #341 — providers that sync a specific YouTube channel expose a `channel_id`

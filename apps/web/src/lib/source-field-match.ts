@@ -34,8 +34,16 @@ export function normalizeFieldName(name: string): string {
 }
 
 /** The plain-text field types it's always safe to write arbitrary provider
- * values into (no format validation, no constrained option set). */
-const STRING_SAFE = new Set(['text', 'rich_text']);
+ * values into (no format validation, no constrained option set). The record
+ * Name (`title`) is a plain-text column too (#125). */
+const STRING_SAFE = new Set(['text', 'rich_text', 'title']);
+
+/**
+ * #125 — provider keys that clearly denote a record's own name/title. When a
+ * source has one of these, it should default onto the record Name (a `title`
+ * field) so imports get a human-readable name instead of landing nameless.
+ */
+const TITLE_LIKE_KEYS = new Set(['title', 'name']);
 
 /**
  * Whether a provider key with `suggestedType` can safely be written into an
@@ -76,7 +84,16 @@ export function matchExistingField(
   const targets = new Set([normalizeFieldName(item.label), normalizeFieldName(item.key)]);
   targets.delete('');
   if (targets.size === 0) return null;
+  // #125 — a title-like source key ("Title"/"Name") defaults onto the record
+  // Name (the `title` field), even though that field is called "Name" and so
+  // never name-matches "title" the ordinary way. Gated on the key being
+  // title-like so an arbitrary text key (e.g. "Duration") never grabs Name.
+  const itemIsTitleLike = [...targets].some((t) => TITLE_LIKE_KEYS.has(t));
   for (const field of fields) {
+    if (field.type === 'title') {
+      if (itemIsTitleLike && typesCompatible(item.suggestedType, field.type)) return field;
+      continue;
+    }
     const nameHit =
       targets.has(normalizeFieldName(field.displayName)) || targets.has(normalizeFieldName(field.apiName));
     if (nameHit && typesCompatible(item.suggestedType, field.type)) return field;

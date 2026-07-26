@@ -32,6 +32,7 @@ describe('typesCompatible (#342 conservative type compatibility)', () => {
 
   it('text-like keys map into plain-text fields but not validating/constrained ones', () => {
     expect(typesCompatible('text', 'rich_text')).toBe(true);
+    expect(typesCompatible('text', 'title')).toBe(true); // #125 — Name is a text column
     expect(typesCompatible('text', 'url')).toBe(false);
     expect(typesCompatible('text', 'email')).toBe(false);
     expect(typesCompatible('text', 'select')).toBe(false);
@@ -85,6 +86,18 @@ describe('matchExistingField (#342)', () => {
   it('returns the first field in order when several match', () => {
     const fields = [field('f1', 'Author', 'text'), field('f2', 'author', 'rich_text')];
     expect(matchExistingField(item, fields)?.id).toBe('f1');
+  });
+
+  it('#125 defaults a title-like key onto the record Name (a title field)', () => {
+    const nameField = field('f-name', 'Name', 'title', 'name');
+    const titleItem: CatalogItem = { key: 'title', label: 'Title', suggestedType: 'text' };
+    const publishedItem: CatalogItem = { key: 'published_at', label: 'Published at', suggestedType: 'text' };
+    // A title-like key maps onto Name even though "Title" never name-matches "Name".
+    expect(matchExistingField(titleItem, [nameField])?.id).toBe('f-name');
+    // A "name" key also lands on Name.
+    expect(matchExistingField({ key: 'name', label: 'Name', suggestedType: 'text' }, [nameField])?.id).toBe('f-name');
+    // But an ordinary text key never grabs Name — the record would take a wrong title.
+    expect(matchExistingField(publishedItem, [nameField])).toBeNull();
   });
 });
 
