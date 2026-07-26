@@ -18,13 +18,28 @@ function withoutTrailingSlash(value: string): string {
   return value.replace(/\/+$/, '');
 }
 
+/**
+ * RFC 9728 `authorization_servers` entries are authorization-server issuer
+ * identifiers, not the mounted route where an implementation happens to expose
+ * its endpoints. Better Auth's metadata issuer is the app origin even though
+ * its authorize/token/register routes live below `/api/v1/auth`.
+ */
+export function authorizationServerIssuer(authorizationServer: string): string {
+  const normalized = withoutTrailingSlash(authorizationServer);
+  try {
+    return new URL(normalized).origin;
+  } catch {
+    return normalized;
+  }
+}
+
 export function protectedResourceMetadata(
   publicUrl: string,
   authorizationServer: string,
 ): ProtectedResourceMetadata {
   return {
     resource: `${withoutTrailingSlash(publicUrl)}/mcp`,
-    authorization_servers: [withoutTrailingSlash(authorizationServer)],
+    authorization_servers: [authorizationServerIssuer(authorizationServer)],
     scopes_supported: [...MCP_OAUTH_SCOPES],
     bearer_methods_supported: ['header'],
   };

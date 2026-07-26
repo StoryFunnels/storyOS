@@ -9,6 +9,7 @@ import type { LucideIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, API_URL, apiErrorMessage } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { IntegrationSetupGuide } from '@/components/integration-setup-guide';
 import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -129,7 +130,10 @@ export default function YouTubeIntegrationPage() {
 
   return (
     <div className="mx-auto max-w-2xl p-4 sm:p-8">
-      <Link className="text-[12px] text-muted hover:text-ink" href={`/w/${ws}/settings/integrations`}>
+      <Link
+        className="text-[12px] text-muted hover:text-ink"
+        href={`/w/${ws}/settings/integrations`}
+      >
         ← Integrations
       </Link>
       <div className="mt-6 flex items-center gap-3">
@@ -141,6 +145,28 @@ export default function YouTubeIntegrationPage() {
           <p className="text-[13px] text-muted">Bring videos, comments and metrics into StoryOS.</p>
         </div>
       </div>
+
+      <IntegrationSetupGuide
+        className="mt-6"
+        steps={[
+          {
+            label: 'Connect YouTube',
+            description: 'Authorize read-only access to the channel.',
+            complete: Boolean(connected),
+          },
+          {
+            label: 'Create a destination',
+            description: 'Install a Videos, Comments, or Metrics database template here.',
+            complete: Boolean(created),
+          },
+          {
+            label: 'Add the source and sync',
+            description:
+              'Open that database, choose Sources, add the matching YouTube source, and run it.',
+            complete: false,
+          },
+        ]}
+      />
 
       <section className="mt-6 rounded-[var(--radius-card)] border border-border-default bg-card p-5">
         <h2 className="text-sm font-semibold text-ink">
@@ -171,8 +197,8 @@ export default function YouTubeIntegrationPage() {
         <section className="mt-5 rounded-[var(--radius-card)] border border-border-default bg-card p-5">
           <h2 className="text-sm font-semibold text-ink">Start with a YouTube database</h2>
           <p className="mt-1 text-[13px] text-muted">
-            Choose one of the three YouTube-specific templates. It is created here — you never
-            have to search the general template gallery.
+            Choose one of the three YouTube-specific templates. It is created here — you never have
+            to search the general template gallery.
           </p>
           <div className="mt-4 grid gap-3 sm:grid-cols-3">
             {YOUTUBE_TEMPLATES.map((template) => (
@@ -200,7 +226,8 @@ export default function YouTubeIntegrationPage() {
             <div className="mt-4 flex flex-col gap-3 rounded-[var(--radius-control)] bg-accent-soft p-3 sm:flex-row sm:items-center">
               <p className="flex-1 text-[13px] text-ink">
                 <strong>{created.name}</strong> is ready. Open it, choose <strong>Sources</strong>,
-                and add <strong>{created.source}</strong>; map to the matching fields.
+                add <strong>{created.source}</strong>, confirm the channel or video input, then
+                press <strong>Sync now</strong>.
               </p>
               <Link href={`/w/${ws}/d/${created.id}`}>
                 <Button size="sm">Open database</Button>
@@ -210,7 +237,10 @@ export default function YouTubeIntegrationPage() {
         </section>
       )}
 
-      <Dialog open={Boolean(selectedTemplate)} onOpenChange={(open) => !open && setSelectedTemplate(null)}>
+      <Dialog
+        open={Boolean(selectedTemplate)}
+        onOpenChange={(open) => !open && setSelectedTemplate(null)}
+      >
         <DialogContent title={`Create ${selectedTemplate?.name ?? 'YouTube database'}`}>
           <p className="mb-4 text-[13px] text-muted">
             Installs only the fields and views maintained for {selectedTemplate?.source}.

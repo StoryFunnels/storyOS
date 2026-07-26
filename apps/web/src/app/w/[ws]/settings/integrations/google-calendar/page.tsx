@@ -8,6 +8,7 @@ import { CalendarDays, CheckCircle2, Plus, RefreshCw, Trash2 } from 'lucide-reac
 import { toast } from 'sonner';
 import { api, API_URL, apiErrorMessage } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { IntegrationSetupGuide } from '@/components/integration-setup-guide';
 import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -321,13 +322,30 @@ export default function GoogleCalendarIntegrationPage() {
 
   const hasActiveMapping = (bindings.data ?? []).length > 0;
   const setupSteps = [
-    { label: 'Connect account', done: activeConnections.length > 0 },
-    { label: 'Choose database & calendar', done: Boolean(databaseId && calendarId) },
-    { label: 'Map fields', done: Boolean(startFieldId) },
-    { label: 'Initial sync', done: hasActiveMapping },
+    {
+      label: 'Connect account',
+      description: 'Authorize the separate Google Calendar connection.',
+      complete: activeConnections.length > 0,
+    },
+    {
+      label: 'Choose both sides',
+      description: 'Pick the StoryOS database and destination Google calendar.',
+      complete: Boolean(databaseId && calendarId),
+    },
+    {
+      label: 'Map fields',
+      description: 'Select Start and any optional End and Description fields.',
+      complete: Boolean(startFieldId),
+    },
+    {
+      label: 'Initial sync',
+      description: 'Save the mapping and run the first synchronization.',
+      complete: hasActiveMapping,
+    },
     {
       label: 'Verify',
-      done: Boolean(syncSummary || bindings.data?.some((binding) => binding.last_sync_at)),
+      description: 'Open the mapped database and confirm its dated records and calendar events.',
+      complete: Boolean(syncSummary || bindings.data?.some((binding) => binding.last_sync_at)),
     },
   ];
 
@@ -351,23 +369,7 @@ export default function GoogleCalendarIntegrationPage() {
         </div>
       </div>
 
-      <ol className="mt-6 grid gap-2 sm:grid-cols-5">
-        {setupSteps.map((step, index) => (
-          <li
-            key={step.label}
-            className="flex items-center gap-2 rounded-[var(--radius-control)] border border-border-default bg-card px-3 py-2 text-[12px] text-muted sm:flex-col sm:items-start"
-          >
-            <span
-              className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] ${
-                step.done ? 'bg-accent-soft text-ink' : 'bg-hover text-muted'
-              }`}
-            >
-              {step.done ? <CheckCircle2 className="h-3.5 w-3.5" /> : index + 1}
-            </span>
-            {step.label}
-          </li>
-        ))}
-      </ol>
+      <IntegrationSetupGuide className="mt-6" steps={setupSteps} />
 
       <div className="mt-4 rounded-[var(--radius-control)] border border-border-default bg-hover px-4 py-3 text-[12px] text-muted">
         Choose one-way push, one-way pull, or two-way sync. Pull and two-way mappings poll Google
@@ -465,7 +467,9 @@ export default function GoogleCalendarIntegrationPage() {
                 placeholder={databaseId ? 'Choose date field' : 'Choose database first'}
                 options={[
                   ...dateFields.map((item) => ({ value: item.id, label: item.display_name })),
-                  ...(databaseId ? [{ value: CREATE_FIELD_SENTINEL, label: '＋ Create date field' }] : []),
+                  ...(databaseId
+                    ? [{ value: CREATE_FIELD_SENTINEL, label: '＋ Create date field' }]
+                    : []),
                 ]}
                 help="Example: Start. Records without this value are skipped."
               />
@@ -480,7 +484,9 @@ export default function GoogleCalendarIntegrationPage() {
                 placeholder="Default: one hour / one day"
                 options={[
                   ...dateFields.map((item) => ({ value: item.id, label: item.display_name })),
-                  ...(databaseId ? [{ value: CREATE_FIELD_SENTINEL, label: '＋ Create date field' }] : []),
+                  ...(databaseId
+                    ? [{ value: CREATE_FIELD_SENTINEL, label: '＋ Create date field' }]
+                    : []),
                 ]}
                 help="Example: End. If empty, events last one hour or one day."
               />
@@ -494,8 +500,13 @@ export default function GoogleCalendarIntegrationPage() {
                 }
                 placeholder="No description"
                 options={[
-                  ...descriptionFields.map((item) => ({ value: item.id, label: item.display_name })),
-                  ...(databaseId ? [{ value: CREATE_FIELD_SENTINEL, label: '＋ Create text field' }] : []),
+                  ...descriptionFields.map((item) => ({
+                    value: item.id,
+                    label: item.display_name,
+                  })),
+                  ...(databaseId
+                    ? [{ value: CREATE_FIELD_SENTINEL, label: '＋ Create text field' }]
+                    : []),
                 ]}
                 help="Example: Description or Notes. This becomes the Google event body."
               />
@@ -602,8 +613,8 @@ export default function GoogleCalendarIntegrationPage() {
       <Dialog open={fieldDialog !== null} onOpenChange={(open) => !open && setFieldDialog(null)}>
         <DialogContent title={`Create ${fieldDialog?.type === 'date' ? 'a date' : 'a text'} field`}>
           <p className="mb-4 text-[13px] text-muted">
-            Adds a new {fieldDialog?.type === 'date' ? 'date' : 'text'} field to the selected database
-            and maps it here — no need to leave this page.
+            Adds a new {fieldDialog?.type === 'date' ? 'date' : 'text'} field to the selected
+            database and maps it here — no need to leave this page.
           </p>
           <div className="space-y-1.5">
             <Label htmlFor="calendar-new-field-name">Field name</Label>

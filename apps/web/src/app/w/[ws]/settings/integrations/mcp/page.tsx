@@ -18,10 +18,13 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { IntegrationSetupGuide } from '@/components/integration-setup-guide';
 import { cn } from '@/lib/utils';
 
 const MCP_ENDPOINT = 'https://mcp.storyos.dev/mcp';
 const MCP_ORIGIN = 'https://mcp.storyos.dev';
+/** Public PKCE client registered for Claude's claude.ai and claude.com MCP callbacks. */
+const CLAUDE_OAUTH_CLIENT_ID = 'nLwKFQBfhAnwhztfvCnlrNXyJmwHdJdI';
 
 type Client = 'claude' | 'chatgpt';
 type CheckState = 'idle' | 'checking' | 'ready' | 'failed';
@@ -39,10 +42,11 @@ const CLIENTS: Record<
     label: 'Claude',
     availability: 'Claude Pro, Max, Team, and Enterprise',
     steps: [
-      'Open Settings → Connectors. Team and Enterprise owners should first choose Organization connectors.',
-      'Choose Add custom connector, name it StoryOS, and paste the endpoint below.',
-      'Choose Add, then Connect. Sign in to StoryOS and approve access.',
-      'In a chat, open Search and tools, enable StoryOS, and ask it to list your workspaces.',
+      'Open Customize → Connectors. Team and Enterprise owners add it first under Organization settings → Connectors.',
+      'Choose Add custom connector. Name it StoryOS and paste the MCP endpoint shown below.',
+      'Choose Add, then Connect. If Claude asks for an OAuth Client ID, use the fallback shown below and leave the secret blank.',
+      'Sign in to StoryOS and approve access. Then enable StoryOS under Search and tools in a chat.',
+      'Ask Claude to “list my StoryOS workspaces” to verify the connection before assigning real work.',
     ],
     reference:
       'https://support.anthropic.com/en/articles/11175166-about-custom-integrations-using-remote-mcp',
@@ -137,6 +141,28 @@ export default function McpIntegrationPage() {
         </div>
       </div>
 
+      <IntegrationSetupGuide
+        className="mt-6"
+        steps={[
+          {
+            label: 'Add the MCP endpoint',
+            description: `Create a custom ${selected.label} connector using the StoryOS URL below.`,
+            complete: false,
+          },
+          {
+            label: 'Sign in to StoryOS',
+            description:
+              'Complete OAuth and approve access with the account that owns your workspace.',
+            complete: false,
+          },
+          {
+            label: 'Enable and verify',
+            description: 'Enable StoryOS in a new chat and ask it to list your workspaces.',
+            complete: false,
+          },
+        ]}
+      />
+
       <section className="mt-6 rounded-[var(--radius-card)] border border-border-default bg-card p-5">
         <div className="flex items-start gap-3">
           <Cloud className="mt-0.5 h-5 w-5 shrink-0 text-ink" />
@@ -212,6 +238,36 @@ export default function McpIntegrationPage() {
             </Button>
           </div>
         </div>
+
+        {client === 'claude' && (
+          <div className="mt-3 rounded-[var(--radius-control)] border border-border-strong bg-accent-soft p-3">
+            <p className="text-[12px] font-semibold text-ink">
+              If Claude says it couldn&apos;t register with StoryOS
+            </p>
+            <p className="mt-1 text-[12px] text-muted">
+              Remove the draft connector, add it again, open <strong>Advanced settings</strong>,
+              paste this public OAuth Client ID, and leave Client Secret empty.
+            </p>
+            <div className="mt-2 flex items-center gap-2">
+              <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap text-[12px] text-ink">
+                {CLAUDE_OAUTH_CLIENT_ID}
+              </code>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() =>
+                  void copy(CLAUDE_OAUTH_CLIENT_ID, 'mcp_oauth_client_id_copied', {
+                    client: 'claude',
+                    auth_path: 'oauth',
+                  })
+                }
+              >
+                <Clipboard className="mr-1 h-3.5 w-3.5" />
+                Copy Client ID
+              </Button>
+            </div>
+          </div>
+        )}
 
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <Button
@@ -299,6 +355,15 @@ export default function McpIntegrationPage() {
       <section className="mt-5 rounded-[var(--radius-card)] border border-border-default bg-card p-5">
         <h2 className="text-sm font-semibold text-ink">Troubleshooting</h2>
         <dl className="mt-3 space-y-3 text-[13px]">
+          <div>
+            <dt className="font-medium text-ink">
+              Claude says it couldn&apos;t register with StoryOS
+            </dt>
+            <dd className="text-muted">
+              Remove and re-add the connector. In Advanced settings, use the public Claude Client ID
+              shown above and leave Client Secret blank. This bypasses dynamic registration.
+            </dd>
+          </div>
           <div>
             <dt className="font-medium text-ink">The client says the URL is invalid</dt>
             <dd className="text-muted">

@@ -12,6 +12,7 @@ import { useConfirm } from '@/components/ui/confirm-dialog';
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { IntegrationSetupGuide } from '@/components/integration-setup-guide';
 import { cn } from '@/lib/utils';
 import {
   connectControl,
@@ -44,6 +45,38 @@ interface ProviderDescriptor {
   availability?: ProviderAvailability;
   availability_note?: string;
   oauth?: { scopes: string[]; configured: boolean };
+}
+
+const PROVIDER_USE_GUIDANCE: Record<string, { description: string; href?: string }> = {
+  google: {
+    description: 'Create a YouTube database, then add a YouTube source inside that database.',
+    href: 'youtube',
+  },
+  'google-calendar': {
+    description: 'Create or choose a database, map its date fields, then run the first sync.',
+    href: 'google-calendar',
+  },
+  apify: {
+    description: 'Open the destination database, choose Sources, then add an Apify source.',
+  },
+  resend: {
+    description: 'Choose this connection in a Send email button or automation action.',
+  },
+  smtp: {
+    description: 'Choose this connection in a Send email button or automation action.',
+  },
+  http: {
+    description: 'Choose this connection in an HTTP request button or automation action.',
+  },
+};
+
+function providerUseGuidance(provider: string): { description: string; href?: string } {
+  return (
+    PROVIDER_USE_GUIDANCE[provider] ?? {
+      description:
+        'Choose this connection from the source, button, or automation that should use it.',
+    }
+  );
 }
 
 function useConnections(ws: string) {
@@ -96,9 +129,7 @@ export default function ConnectionsSettingsPage() {
 
   const providerLabel = (id: string) => providers.data?.find((p) => p.id === id)?.label ?? id;
   const connectionName = (connection: Connection) =>
-    connection.provider === 'google' && connection.name === 'Google'
-      ? 'YouTube'
-      : connection.name;
+    connection.provider === 'google' && connection.name === 'Google' ? 'YouTube' : connection.name;
 
   const test = useMutation({
     mutationFn: async (id: string) => {
@@ -156,6 +187,29 @@ export default function ConnectionsSettingsPage() {
         Credentials are encrypted at rest and never shown again after saving.
       </p>
 
+      <IntegrationSetupGuide
+        className="mb-6"
+        title="Connections are step 1 — they do not start work by themselves"
+        steps={[
+          {
+            label: 'Connect the account',
+            description: 'Authorize OAuth or save the provider credential once.',
+            complete: (connections.data ?? []).some((connection) => connection.status === 'active'),
+          },
+          {
+            label: 'Choose what it does',
+            description:
+              'Open its integration page, or select it from a database Source, button, or automation.',
+            complete: false,
+          },
+          {
+            label: 'Run and verify',
+            description: 'Create a test record, sync, send a test, or inspect the latest run.',
+            complete: false,
+          },
+        ]}
+      />
+
       <h2 className="mb-2 text-sm font-semibold text-ink">Connected</h2>
       <div className="mb-8 overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card">
         {(connections.data ?? []).length === 0 && (
@@ -169,7 +223,9 @@ export default function ConnectionsSettingsPage() {
             <div className="min-w-0">
               <p className="truncate text-sm font-medium text-ink">
                 {connectionName(c)}{' '}
-                <span className="text-[12px] font-normal text-faint">· {providerLabel(c.provider)}</span>
+                <span className="text-[12px] font-normal text-faint">
+                  · {providerLabel(c.provider)}
+                </span>
               </p>
               <p className="mt-0.5 text-[12px] text-muted">
                 <StatusPill status={c.status} />
@@ -179,7 +235,8 @@ export default function ConnectionsSettingsPage() {
               <p className="mt-0.5 text-[12px] text-muted">
                 {c.error_count_24h > 0 && (
                   <span className={c.error_count_24h >= 5 ? 'text-error' : 'text-warning'}>
-                    {c.error_count_24h} failed job{c.error_count_24h === 1 ? '' : 's'} in the last 24h
+                    {c.error_count_24h} failed job{c.error_count_24h === 1 ? '' : 's'} in the last
+                    24h
                   </span>
                 )}
                 {c.breaker_open_until && (
@@ -193,32 +250,44 @@ export default function ConnectionsSettingsPage() {
                   Bounce webhook: {API_URL}/api/v1/providers/resend/webhook/{c.id}
                 </p>
               )}
+              <p className="mt-1 text-[11px] leading-4 text-ink-secondary">
+                <strong>Next:</strong> {providerUseGuidance(c.provider).description}
+              </p>
             </div>
             <div className="flex shrink-0 items-center gap-1">
-              <Button variant="ghost" size="sm" onClick={() => test.mutate(c.id)} disabled={test.isPending}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => test.mutate(c.id)}
+                disabled={test.isPending}
+              >
                 Test
               </Button>
-              {(c.provider === 'google-calendar' || c.provider === 'google') && (
+              {providerUseGuidance(c.provider).href && (
                 <Link
-                  href={`/w/${ws}/settings/integrations/${
-                    c.provider === 'google-calendar' ? 'google-calendar' : 'youtube'
-                  }`}
+                  href={`/w/${ws}/settings/integrations/${providerUseGuidance(c.provider).href}`}
                 >
                   <Button variant="secondary" size="sm">
-                    Set up
+                    Continue setup
                   </Button>
                 </Link>
               )}
               {c.breaker_open_until && (
-                <Button variant="ghost" size="sm" onClick={() => resume.mutate(c.id)} disabled={resume.isPending}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => resume.mutate(c.id)}
+                  disabled={resume.isPending}
+                >
                   Resume
                 </Button>
               )}
-              {c.status !== 'active' && providers.data?.find((p) => p.id === c.provider)?.auth_kind === 'oauth2' && (
-                <Button variant="ghost" size="sm" onClick={() => reconnect(c.provider)}>
-                  Reconnect
-                </Button>
-              )}
+              {c.status !== 'active' &&
+                providers.data?.find((p) => p.id === c.provider)?.auth_kind === 'oauth2' && (
+                  <Button variant="ghost" size="sm" onClick={() => reconnect(c.provider)}>
+                    Reconnect
+                  </Button>
+                )}
               <Button
                 variant="destructive"
                 size="sm"
@@ -257,10 +326,15 @@ export default function ConnectionsSettingsPage() {
               <div>
                 <p className="text-sm font-semibold text-ink">{p.label}</p>
                 {present.actionable ? (
-                  <p className="mt-0.5 text-[12px] text-muted">
-                    {p.auth_kind === 'oauth2' ? 'Connect via OAuth' : 'Connect with an API key'}
-                    {connectedProviderIds.has(p.id) && ' · already connected'}
-                  </p>
+                  <>
+                    <p className="mt-0.5 text-[12px] text-muted">
+                      {p.auth_kind === 'oauth2' ? 'Connect via OAuth' : 'Connect with an API key'}
+                    </p>
+                    <p className="mt-2 text-[11px] leading-4 text-faint">
+                      <strong className="text-muted">After connecting:</strong>{' '}
+                      {providerUseGuidance(p.id).description}
+                    </p>
+                  </>
                 ) : (
                   <AvailabilityNote present={present} />
                 )}
@@ -279,7 +353,11 @@ export default function ConnectionsSettingsPage() {
                         size="sm"
                         variant="secondary"
                         disabled={!p.oauth?.configured}
-                        title={p.oauth?.configured ? undefined : 'This server has no client id/secret configured for this provider'}
+                        title={
+                          p.oauth?.configured
+                            ? undefined
+                            : 'This server has no client id/secret configured for this provider'
+                        }
                         onClick={() => reconnect(p.id)}
                       >
                         {p.oauth?.configured ? 'Connect' : 'Not configured'}
@@ -373,7 +451,13 @@ function ApiKeyConnectDialog({ ws, provider }: { ws: string; provider: ProviderD
   const create = useMutation({
     mutationFn: async () => {
       const auth = isSmtp
-        ? { host, port: Number(port), user: smtpUser || undefined, pass: smtpPass || undefined, from_address: smtpFrom }
+        ? {
+            host,
+            port: Number(port),
+            user: smtpUser || undefined,
+            pass: smtpPass || undefined,
+            from_address: smtpFrom,
+          }
         : {
             api_key: apiKey,
             ...(fromAddress.trim() ? { from_address: fromAddress.trim() } : {}),
@@ -390,7 +474,10 @@ function ApiKeyConnectDialog({ ws, provider }: { ws: string; provider: ProviderD
       setOpen(false);
       void qc.invalidateQueries({ queryKey: ['connections', ws] });
     },
-    onError: (error) => toast.error(apiErrorMessage(error, `Could not connect ${provider.label} — check the details`)),
+    onError: (error) =>
+      toast.error(
+        apiErrorMessage(error, `Could not connect ${provider.label} — check the details`),
+      ),
   });
 
   const canSubmit = isSmtp
@@ -434,20 +521,40 @@ function ApiKeyConnectDialog({ ws, provider }: { ws: string; provider: ProviderD
               <div className="grid grid-cols-3 gap-2">
                 <div className="col-span-2 flex flex-col gap-1.5">
                   <Label htmlFor="smtp-host">Host</Label>
-                  <Input id="smtp-host" required value={host} onChange={(e) => setHost(e.target.value)} />
+                  <Input
+                    id="smtp-host"
+                    required
+                    value={host}
+                    onChange={(e) => setHost(e.target.value)}
+                  />
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <Label htmlFor="smtp-port">Port</Label>
-                  <Input id="smtp-port" required type="number" value={port} onChange={(e) => setPort(e.target.value)} />
+                  <Input
+                    id="smtp-port"
+                    required
+                    type="number"
+                    value={port}
+                    onChange={(e) => setPort(e.target.value)}
+                  />
                 </div>
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="smtp-user">Username (optional)</Label>
-                <Input id="smtp-user" value={smtpUser} onChange={(e) => setSmtpUser(e.target.value)} />
+                <Input
+                  id="smtp-user"
+                  value={smtpUser}
+                  onChange={(e) => setSmtpUser(e.target.value)}
+                />
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="smtp-pass">Password (optional)</Label>
-                <Input id="smtp-pass" type="password" value={smtpPass} onChange={(e) => setSmtpPass(e.target.value)} />
+                <Input
+                  id="smtp-pass"
+                  type="password"
+                  value={smtpPass}
+                  onChange={(e) => setSmtpPass(e.target.value)}
+                />
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="smtp-from">From address</Label>
@@ -557,16 +664,20 @@ function HttpConnectDialog({ ws, provider }: { ws: string; provider: ProviderDes
   }
 
   const valid =
-    style === 'bearer' ? Boolean(token.trim())
-    : style === 'basic' ? Boolean(username.trim()) && password.length > 0
-    : Boolean(headerName.trim()) && Boolean(headerValue.trim());
+    style === 'bearer'
+      ? Boolean(token.trim())
+      : style === 'basic'
+        ? Boolean(username.trim()) && password.length > 0
+        : Boolean(headerName.trim()) && Boolean(headerValue.trim());
 
   const create = useMutation({
     mutationFn: async () => {
       const auth =
-        style === 'bearer' ? { auth_style: 'bearer', token }
-        : style === 'basic' ? { auth_style: 'basic', username, password }
-        : { auth_style: 'headers', headers: { [headerName]: headerValue } };
+        style === 'bearer'
+          ? { auth_style: 'bearer', token }
+          : style === 'basic'
+            ? { auth_style: 'basic', username, password }
+            : { auth_style: 'headers', headers: { [headerName]: headerValue } };
       const { error } = await api.POST('/api/v1/workspaces/{ws}/connections', {
         params: { path: { ws } },
         body: { provider: provider.id, name, auth } as never,
@@ -609,7 +720,12 @@ function HttpConnectDialog({ ws, provider }: { ws: string; provider: ProviderDes
           </p>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="http-conn-name">Name</Label>
-            <Input id="http-conn-name" required value={name} onChange={(e) => setName(e.target.value)} />
+            <Input
+              id="http-conn-name"
+              required
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="http-conn-style">Auth style</Label>
@@ -627,18 +743,35 @@ function HttpConnectDialog({ ws, provider }: { ws: string; provider: ProviderDes
           {style === 'bearer' && (
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="http-conn-token">Token</Label>
-              <Input id="http-conn-token" required type="password" value={token} onChange={(e) => setToken(e.target.value)} />
+              <Input
+                id="http-conn-token"
+                required
+                type="password"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+              />
             </div>
           )}
           {style === 'basic' && (
             <>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="http-conn-user">Username</Label>
-                <Input id="http-conn-user" required value={username} onChange={(e) => setUsername(e.target.value)} />
+                <Input
+                  id="http-conn-user"
+                  required
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                />
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="http-conn-pass">Password</Label>
-                <Input id="http-conn-pass" required type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+                <Input
+                  id="http-conn-pass"
+                  required
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
               </div>
             </>
           )}
@@ -646,11 +779,22 @@ function HttpConnectDialog({ ws, provider }: { ws: string; provider: ProviderDes
             <>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="http-conn-hname">Header name</Label>
-                <Input id="http-conn-hname" required value={headerName} onChange={(e) => setHeaderName(e.target.value)} />
+                <Input
+                  id="http-conn-hname"
+                  required
+                  value={headerName}
+                  onChange={(e) => setHeaderName(e.target.value)}
+                />
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="http-conn-hvalue">Header value</Label>
-                <Input id="http-conn-hvalue" required type="password" value={headerValue} onChange={(e) => setHeaderValue(e.target.value)} />
+                <Input
+                  id="http-conn-hvalue"
+                  required
+                  type="password"
+                  value={headerValue}
+                  onChange={(e) => setHeaderValue(e.target.value)}
+                />
               </div>
             </>
           )}

@@ -7,6 +7,7 @@ import { ArrowLeft, Bot } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { IntegrationSetupGuide } from '@/components/integration-setup-guide';
 
 interface AgentsPack {
   exists: boolean;
@@ -62,35 +63,73 @@ export default function DelegateToAgentIntegrationPage() {
 
   return (
     <div className="mx-auto max-w-2xl p-4 sm:p-8">
-      <Link href={`/w/${ws}/settings/integrations`} className="mb-4 inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-ink">
+      <Link
+        href={`/w/${ws}/settings/integrations`}
+        className="mb-4 inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-ink"
+      >
         <ArrowLeft className="h-3.5 w-3.5" /> Integrations
       </Link>
       <div className="mb-3 flex items-center gap-2">
         <Bot className="h-6 w-6 text-ink" />
         <h1 className="text-lg font-semibold text-ink">Delegate to agent</h1>
-        {enabled && <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[11px] text-ink">enabled</span>}
+        {enabled && (
+          <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[11px] text-ink">
+            enabled
+          </span>
+        )}
       </div>
       <p className="mb-5 text-[13px] text-muted">
-        Assign a StoryOS agent to any record — from that record&apos;s <strong>···</strong> menu, choose
-        <strong> Delegate to agent</strong> and pick one. It runs through the same tool catalog a manual run
-        uses, and posts its outcome back as a comment on the record, with a link to the full run.
+        Assign a StoryOS agent to any record — from that record&apos;s <strong>···</strong> menu,
+        choose
+        <strong> Delegate to agent</strong> and pick one. It runs through the same tool catalog a
+        manual run uses, and posts its outcome back as a comment on the record, with a link to the
+        full run.
       </p>
+
+      <IntegrationSetupGuide
+        className="mb-5"
+        steps={[
+          {
+            label: 'Enable Agents',
+            description: 'Provision the Agents, Runs, and Triggers databases.',
+            complete: enabled,
+          },
+          {
+            label: 'Create an agent',
+            description:
+              'Open Agents and define its goal, instructions, scopes, and enabled state.',
+            complete: false,
+          },
+          {
+            label: 'Delegate from a record',
+            description:
+              'Open a record menu, choose Delegate to agent, then inspect its run and comment.',
+            complete: false,
+          },
+        ]}
+      />
 
       {!enabled ? (
         <div className="flex flex-col gap-3">
           <p className="text-[13px] text-ink-secondary">
-            Nothing to connect — this is a built-in capability. Enable it to provision the Agents database,
-            then create an agent record (name, goal, scopes) to delegate to.
+            Nothing to connect — this is a built-in capability. Enable it to provision the Agents
+            database, then create an agent record (name, goal, scopes) to delegate to.
           </p>
-          <Button size="sm" onClick={() => enable.mutate()} disabled={enable.isPending} className="w-fit">
+          <Button
+            size="sm"
+            onClick={() => enable.mutate()}
+            disabled={enable.isPending}
+            className="w-fit"
+          >
             {enable.isPending ? 'Enabling…' : 'Enable'}
           </Button>
         </div>
       ) : (
         <div className="flex flex-col gap-3">
           <p className="text-[13px] text-ink-secondary">
-            Agents are provisioned. Create or edit agent records — name, goal, instructions, scopes — in the
-            Agents database, then delegate to any of them from a record&apos;s <strong>···</strong> menu. Only an
+            Agents are provisioned. Create or edit agent records — name, goal, instructions, scopes
+            — in the Agents database, then delegate to any of them from a record&apos;s{' '}
+            <strong>···</strong> menu. Only an
             <strong> enabled</strong> agent can be delegated to.
           </p>
           {pack.data?.id && (
