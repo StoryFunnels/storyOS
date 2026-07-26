@@ -17,7 +17,7 @@ import {
   Users,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { api } from '@/lib/api';
+import { api, apiErrorMessage } from '@/lib/api';
 import { isErrorEnvelope } from '@storyos/sdk';
 import { AuthCard } from '../(auth)/auth-card';
 import { Button } from '@/components/ui/button';
@@ -193,8 +193,12 @@ export default function NewWorkspacePage() {
       }
       posthog.capture('onboarding_pack_installed', { pack_slug: selectedSlug });
       if (selectedSlug === 'client-portal' && firstSpace) {
+        // Default the client invite to a free guest tier (viewer) so onboarding
+        // matches the share dialog / FreeGuestTip promise that viewer and
+        // commenter guests are never a paid seat (#106, #271). Granting an
+        // editor guest here would contradict that and may bill a seat.
         router.replace(
-          `/w/${wsId}/settings/members?invite=guest&space=${firstSpace.id}&grant=editor`,
+          `/w/${wsId}/settings/members?invite=guest&space=${firstSpace.id}&grant=viewer`,
         );
         return;
       }
@@ -244,27 +248,42 @@ export default function NewWorkspacePage() {
             Pick a complete Business Pack now, or install any other pack later.
           </p>
           <div className="flex max-h-[48vh] flex-col gap-1.5 overflow-y-auto pr-1">
-            {!browsing
-              ? QUICK_PICKS.map((pick) => {
-                  const pack = packBySlug.get(pick.slug);
-                  return pack ? (
-                    <PackChoice
-                      key={pick.id}
-                      pack={pack}
-                      label={pick.label}
-                      selected={choice === `pack:${pick.slug}`}
-                      onClick={() => setChoice(`pack:${pick.slug}`)}
-                    />
-                  ) : null;
-                })
-              : packs.map((pack) => (
+            {registry.isError ? (
+              <div className="flex flex-col items-start gap-2 rounded-[var(--radius-card)] border border-border-default bg-card p-4 text-[13px] text-error">
+                <span>{apiErrorMessage(registry.error, 'Could not load packs')}</span>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={registry.isFetching}
+                  onClick={() => void registry.refetch()}
+                >
+                  {registry.isFetching ? 'Retrying…' : 'Try again'}
+                </Button>
+              </div>
+            ) : !browsing ? (
+              QUICK_PICKS.map((pick) => {
+                const pack = packBySlug.get(pick.slug);
+                return pack ? (
                   <PackChoice
-                    key={pack.slug}
+                    key={pick.id}
                     pack={pack}
-                    selected={choice === `pack:${pack.slug}`}
-                    onClick={() => setChoice(`pack:${pack.slug}`)}
+                    label={pick.label}
+                    selected={choice === `pack:${pick.slug}`}
+                    onClick={() => setChoice(`pack:${pick.slug}`)}
                   />
-                ))}
+                ) : null;
+              })
+            ) : (
+              packs.map((pack) => (
+                <PackChoice
+                  key={pack.slug}
+                  pack={pack}
+                  selected={choice === `pack:${pack.slug}`}
+                  onClick={() => setChoice(`pack:${pack.slug}`)}
+                />
+              ))
+            )}
 
             <button
               type="button"
@@ -305,13 +324,17 @@ export default function NewWorkspacePage() {
             </button>
           </div>
 
-          <button
-            type="button"
-            className="self-start text-[12px] text-muted underline-offset-2 hover:underline"
-            onClick={() => setBrowsing((value) => !value)}
-          >
-            {browsing ? '← Back to quick picks' : `Browse all ${packs.length || ''} StoryOS packs`}
-          </button>
+          {!registry.isError && (
+            <button
+              type="button"
+              className="self-start text-[12px] text-muted underline-offset-2 hover:underline"
+              onClick={() => setBrowsing((value) => !value)}
+            >
+              {browsing
+                ? '← Back to quick picks'
+                : `Browse all${packs.length ? ` ${packs.length}` : ''} StoryOS packs`}
+            </button>
+          )}
         </div>
 
         {selectedQuickPick?.id === 'new-client' && (
@@ -327,7 +350,10 @@ export default function NewWorkspacePage() {
         )}
 
         {error && <p className="text-[13px] text-error">{error}</p>}
-        <Button type="submit" disabled={busy || registry.isLoading}>
+        <Button
+          type="submit"
+          disabled={busy || registry.isLoading || (registry.isError && choice.startsWith('pack:'))}
+        >
           {busy ? 'Setting things up…' : 'Create workspace'}
         </Button>
 
