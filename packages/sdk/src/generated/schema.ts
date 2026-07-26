@@ -2772,6 +2772,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/agents/runs/{run}/staged": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A parked run's staged action and step log, or null if it isn't waiting */
+        get: operations["AgentsController_getStagedAction"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/architect/propose": {
         parameters: {
             query?: never;
@@ -4395,6 +4412,9 @@ export interface components {
         DelegateToAgentDto: {
             /** Format: uuid */
             record_id: string;
+        };
+        RejectRunDto: {
+            reason?: string;
         };
         ProposeDto: {
             goal: string;
@@ -8767,9 +8787,33 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RejectRunDto"];
+            };
+        };
         responses: {
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AgentsController_getStagedAction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The run record's uuid or public number */
+                run: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };

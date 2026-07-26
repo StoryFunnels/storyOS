@@ -10,8 +10,10 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
   NOTIFICATION_VERBS,
+  StagedActionView,
   useResolveRun,
   useResolveApproval,
+  useStagedAction,
   type NotificationRow,
   type NotificationType,
 } from '@/components/inbox-panel';
@@ -86,7 +88,16 @@ export default function InboxPage() {
 
   const resolveRun = useResolveRun(ws, invalidate);
   const resolveApproval = useResolveApproval(ws, invalidate);
+  // Shared draft for the reject-reason box — only one approval is previewed at a
+  // time, so the agent-run gate (#115) and the automation-action gate (MN-255)
+  // can share it.
   const [rejectReason, setRejectReason] = useState('');
+
+  // #115/#114: for a live agent-approval row, pull its staged action + steps so
+  // the preview shows the full proposal inline, not just the snippet.
+  const isAgentApproval =
+    selected?.type === 'approval_requested' && Boolean(selected.record) && !selected.record?.deleted;
+  const staged = useStagedAction(ws, isAgentApproval ? selected?.record?.id : null, isAgentApproval);
 
   const setArchivedMut = useMutation({
     mutationFn: async ({ id, archive }: { id: string; archive: boolean }) => {
@@ -282,28 +293,50 @@ export default function InboxPage() {
                 )}
               </div>
 
-              {/* The killer mobile flow (mobile-responsive-plan.md): one tap to
-                  approve or reject a gated agent action (#210, ADR-0010 §4).
-                  min-h-12 (48px) full-width buttons — easy thumb targets, no
-                  squeezing at 375px. */}
+              {/* The killer mobile flow (mobile-responsive-plan.md): approve or
+                  reject a gated agent action (#210, ADR-0010 §4). #115: the full
+                  proposal (staged action + steps) renders inline, and Reject
+                  carries an optional reason — the same shape as the
+                  automation-action gate below. min-h-12 (48px) full-width
+                  buttons — easy thumb targets, no squeezing at 375px. */}
               {selected.type === 'approval_requested' && selected.record && !selected.record.deleted && (
-                <div className="mt-4 flex gap-3">
-                  <button
-                    type="button"
-                    disabled={resolveRun.isPending}
-                    onClick={() => resolveRun.mutate({ runId: selected.record!.id, verdict: 'reject' })}
-                    className="flex min-h-[48px] flex-1 items-center justify-center gap-1.5 rounded-[var(--radius-control)] border border-border-default text-[14px] font-medium text-ink-secondary hover:bg-hover disabled:opacity-50"
-                  >
-                    <X className="h-4 w-4" /> Reject
-                  </button>
-                  <button
-                    type="button"
-                    disabled={resolveRun.isPending}
-                    onClick={() => resolveRun.mutate({ runId: selected.record!.id, verdict: 'approve' })}
-                    className="flex min-h-[48px] flex-1 items-center justify-center gap-1.5 rounded-[var(--radius-control)] bg-primary text-[14px] font-medium text-[var(--text-on-dark)] hover:bg-primary-hover disabled:opacity-50"
-                  >
-                    <Check className="h-4 w-4" /> Approve
-                  </button>
+                <div className="mt-4 flex flex-col gap-2">
+                  {staged.isLoading && (
+                    <p className="text-[12px] text-muted">Loading the proposed action…</p>
+                  )}
+                  {staged.data && <StagedActionView staged={staged.data} />}
+                  <textarea
+                    value={rejectReason}
+                    onChange={(e) => setRejectReason(e.target.value)}
+                    placeholder="Reason if rejecting (optional)"
+                    rows={2}
+                    className="w-full rounded-[var(--radius-control)] border border-border-default bg-app px-2.5 py-1.5 text-[13px] text-ink placeholder:text-faint"
+                  />
+                  <div className="flex gap-3">
+                    <button
+                      type="button"
+                      disabled={resolveRun.isPending}
+                      onClick={() => {
+                        resolveRun.mutate({
+                          runId: selected.record!.id,
+                          verdict: 'reject',
+                          reason: rejectReason || undefined,
+                        });
+                        setRejectReason('');
+                      }}
+                      className="flex min-h-[48px] flex-1 items-center justify-center gap-1.5 rounded-[var(--radius-control)] border border-border-default text-[14px] font-medium text-ink-secondary hover:bg-hover disabled:opacity-50"
+                    >
+                      <X className="h-4 w-4" /> Reject
+                    </button>
+                    <button
+                      type="button"
+                      disabled={resolveRun.isPending}
+                      onClick={() => resolveRun.mutate({ runId: selected.record!.id, verdict: 'approve' })}
+                      className="flex min-h-[48px] flex-1 items-center justify-center gap-1.5 rounded-[var(--radius-control)] bg-primary text-[14px] font-medium text-[var(--text-on-dark)] hover:bg-primary-hover disabled:opacity-50"
+                    >
+                      <Check className="h-4 w-4" /> Approve
+                    </button>
+                  </div>
                 </div>
               )}
 

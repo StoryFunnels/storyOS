@@ -72,9 +72,20 @@ const VERBS = NOTIFICATION_VERBS;
  */
 export function useResolveRun(ws: string, onSettled: () => void) {
   return useMutation({
-    mutationFn: async ({ runId, verdict }: { runId: string; verdict: 'approve' | 'reject' }) => {
+    mutationFn: async ({
+      runId,
+      verdict,
+      reason,
+    }: {
+      runId: string;
+      verdict: 'approve' | 'reject';
+      // #115: optional reason on reject, mirroring useResolveApproval — lands in
+      // the run's step log via POST …/runs/:run/reject's body.
+      reason?: string;
+    }) => {
       const { error } = await api.POST(`/api/v1/workspaces/{ws}/agents/runs/{run}/${verdict}` as never, {
         params: { path: { ws, run: runId } },
+        body: verdict === 'reject' ? { reason } : undefined,
       } as never);
       if (error) throw error;
     },
@@ -114,6 +125,82 @@ export function useResolveApproval(ws: string, onSettled: () => void) {
     },
     onError: (err) => toast.error(apiErrorMessage(err, 'Could not resolve — it may already be settled or expired')),
   });
+}
+
+/** One tool call in a run's step log (mirrors the API's AgentStep). */
+export interface StagedStep {
+  tool: string;
+  summary: string;
+  detail?: string;
+}
+/** A parked run's proposal + the steps that led to it (#115/#114). */
+export interface StagedActionDetail {
+  action: { kind: string; summary: string; payload: unknown };
+  steps: StagedStep[];
+}
+
+/**
+ * #115/#114: fetch what a parked agent run is asking approval for — its staged
+ * action and step log — so the Inbox can show the full proposal inline instead
+ * of only the one-line snippet. Returns null when the run isn't waiting on a
+ * gate (already resolved, failed, or never gated). Only enabled for an
+ * `approval_requested` row with a live record.
+ */
+export function useStagedAction(ws: string, runId: string | null | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: ['staged-action', ws, runId],
+    enabled: enabled && Boolean(runId),
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/agents/runs/{run}/staged', {
+        params: { path: { ws, run: runId! } },
+      } as never);
+      if (error) throw error;
+      return (data ?? null) as StagedActionDetail | null;
+    },
+  });
+}
+
+/**
+ * The human-readable projection of a run's `Pending action` (#114): the staged
+ * action's kind + summary, its payload, and the step log that led there —
+ * rendered readably rather than as the raw JSON blob the field stores.
+ */
+export function StagedActionView({ staged }: { staged: StagedActionDetail }) {
+  return (
+    <div className="mt-3 flex flex-col gap-3 rounded-[var(--radius-card)] border border-border-default bg-app p-3">
+      <div>
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-faint">Proposed action</p>
+        <p className="mt-1 text-[13px] text-ink">
+          <span className="rounded bg-hover px-1.5 py-0.5 text-[11px] font-medium text-ink-secondary">
+            {staged.action.kind}
+          </span>{' '}
+          {staged.action.summary}
+        </p>
+        {staged.action.payload !== null && staged.action.payload !== undefined && (
+          <pre className="mt-1.5 max-h-40 overflow-auto rounded bg-hover p-2 text-[11px] text-muted">
+            {JSON.stringify(staged.action.payload, null, 2)}
+          </pre>
+        )}
+      </div>
+      {staged.steps.length > 0 && (
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-faint">
+            Steps ({staged.steps.length})
+          </p>
+          <ol className="mt-1 flex flex-col gap-1">
+            {staged.steps.map((s, i) => (
+              <li key={i} className="text-[12px] text-ink-secondary">
+                <span className="mr-1.5 text-faint">{i + 1}.</span>
+                <span className="rounded bg-hover px-1 py-0.5 text-[11px] font-medium text-muted">{s.tool}</span>{' '}
+                {s.summary}
+                {s.detail && <span className="mt-0.5 block pl-5 text-[11px] text-faint">{s.detail}</span>}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function relativeTime(iso: string): string {

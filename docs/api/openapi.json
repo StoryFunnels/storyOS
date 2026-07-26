@@ -6563,12 +6563,47 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RejectRunDto"
+              }
+            }
+          }
+        },
         "responses": {
           "201": {
             "description": ""
           }
         },
         "summary": "Reject a run waiting for approval: apply nothing, cancel it",
+        "tags": [
+          "agents"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/agents/runs/{run}/staged": {
+      "get": {
+        "operationId": "AgentsController_getStagedAction",
+        "parameters": [
+          {
+            "name": "run",
+            "required": true,
+            "in": "path",
+            "description": "The run record's uuid or public number",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "A parked run's staged action and step log, or null if it isn't waiting",
         "tags": [
           "agents"
         ]
@@ -11558,6 +11593,15 @@
         "required": [
           "record_id"
         ]
+      },
+      "RejectRunDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        }
       },
       "ProposeDto": {
         "type": "object",

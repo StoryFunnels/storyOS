@@ -254,6 +254,22 @@ export class AgentsService implements OnModuleInit {
     if (!existing) await this.fields.create(databaseId, spec);
   }
 
+  /**
+   * #114: mark Runs."Pending action" hidden-by-default on an existing pack.
+   * Idempotent — reads the current config and only writes when `entity_hidden`
+   * isn't already set, so re-ensuring a pack costs nothing. Config merges, so
+   * this preserves whatever else lives in the field's config.
+   */
+  private async hidePendingActionField(runsDbId: string): Promise<void> {
+    const field = await this.db.query.fields.findFirst({
+      where: and(eq(fieldsTable.databaseId, runsDbId), eq(fieldsTable.apiName, 'pending_action')),
+    });
+    if (!field) return; // pre-#210 pack without the field — ensureField created it above with the flag
+    const config = (field.config ?? {}) as Record<string, unknown>;
+    if (config['entity_hidden'] === true) return;
+    await this.fields.update(runsDbId, field.id, { config: { entity_hidden: true } });
+  }
+
   /** Add an option to a select/multi_select field if it isn't there yet, by
    * label — the same idempotent-backfill shape ensureField() uses, one level
    * down (MN-109 Phase A's "Automation" Trigger option on pre-existing packs). */
@@ -474,7 +490,13 @@ export class AgentsService implements OnModuleInit {
         // BlockNote document would mangle a payload on the round trip. Cleared
         // the moment the gate is resolved either way, so a non-empty value means
         // exactly "this run is blocked on a human".
-        { display_name: 'Pending action', type: 'text', config: {} },
+        //
+        // #114: hidden-by-default in the record view. It's machine state, not a
+        // human-facing field — a raw JSON blob helps nobody reading a Run, and
+        // the Inbox renders the same payload readably (getStagedAction). The
+        // value is still stored and served; `entity_hidden` only drops it from
+        // the default record layout (a viewer can still reveal it).
+        { display_name: 'Pending action', type: 'text', config: { entity_hidden: true } },
       ];
       for (const f of runFields) await this.fields.create(runsDb.id, f);
 
@@ -498,8 +520,14 @@ export class AgentsService implements OnModuleInit {
     await this.ensureField(runsDb.id, 'pending_action', {
       display_name: 'Pending action',
       type: 'text',
-      config: {},
+      config: { entity_hidden: true },
     });
+    // #114: a pack provisioned before this change created "Pending action"
+    // without `entity_hidden`, so it still shows its raw JSON in the record
+    // view. ensureField only creates-if-missing, so hide it here too —
+    // idempotent (a no-op once the flag is already set, or on a field just
+    // created above with it).
+    await this.hidePendingActionField(runsDb.id);
 
     // MN-109 Phase A ships after Runs (#209) and Agents (#209), so a pack
     // provisioned by an earlier release has a "Trigger" field on both Agents
@@ -1372,6 +1400,7 @@ export class AgentsService implements OnModuleInit {
     membership: Membership,
     runRef: string,
     verdict: 'approve' | 'reject',
+    reason?: string,
   ): Promise<ProjectedRecord> {
     const { runsDb } = await this.ensurePack(membership);
     const run = await this.resolveRun(runsDb.id, runRef);
@@ -1418,9 +1447,18 @@ export class AgentsService implements OnModuleInit {
       // Reject applies NOTHING. There is no rollback here and there is nothing to
       // roll back — the action never left the `Pending action` blob. That is the
       // whole payoff of staging (ADR-0010 §4).
+      //
+      // #115: an optional reject reason rides in the step log, mirroring how the
+      // automation-action gate records it (approvals.service.ts appends
+      // `— ${reason}` to its rejection line). Agent runs keep their outcome in
+      // `Steps`, not a `reason` column, so this is the same mechanism, not a new
+      // one — no schema change needed.
+      const trimmedReason = reason?.trim();
       steps.push({
         tool: 'action.rejected',
-        summary: `Rejected (${staged.action.kind}): ${staged.action.summary}`,
+        summary: `Rejected (${staged.action.kind}): ${staged.action.summary}${
+          trimmedReason ? ` — ${trimmedReason}` : ''
+        }`,
         detail: 'The proposed action was not applied. The run was canceled with no side effects.',
       });
     }
@@ -1467,9 +1505,32 @@ export class AgentsService implements OnModuleInit {
     return this.resolveGate(membership, runRef, 'approve');
   }
 
-  /** Reject a parked run: apply nothing, Cancel it (#210). */
-  async rejectRun(membership: Membership, runRef: string): Promise<ProjectedRecord> {
-    return this.resolveGate(membership, runRef, 'reject');
+  /** Reject a parked run: apply nothing, Cancel it (#210). Optional reason (#115). */
+  async rejectRun(
+    membership: Membership,
+    runRef: string,
+    reason?: string,
+  ): Promise<ProjectedRecord> {
+    return this.resolveGate(membership, runRef, 'reject', reason);
+  }
+
+  /**
+   * The parsed staged action + step log of a parked run (#115/#114). Lets the
+   * Inbox render exactly what is being approved — the proposal and the steps
+   * that led to it — inline and human-readably, instead of only a one-line
+   * snippet or the raw `Pending action` JSON. Returns null when the run isn't
+   * staged (already resolved, failed, or never gated), so the caller can fall
+   * back to the snippet without a special-cased error.
+   */
+  async getStagedAction(
+    membership: Membership,
+    runRef: string,
+  ): Promise<{ action: ProposedAction; steps: AgentStep[] } | null> {
+    const { runsDb } = await this.ensurePack(membership);
+    const run = await this.resolveRun(runsDb.id, runRef);
+    const staged = parseStaged(run.values['pending_action']);
+    if (!staged) return null;
+    return { action: staged.action, steps: staged.steps };
   }
 
   /**
