@@ -5,15 +5,17 @@ import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { GripVertical, Pin, Plus } from 'lucide-react';
+import { Check, GripVertical, Pin, Plus, X } from 'lucide-react';
 import { CellDisplay, CellEditor, PressButton } from '@/components/table-view/cells';
 import { DbColorMarker, RelationEditor } from '@/components/table-view/relation-cell';
 import type { LinkChip } from '@/components/table-view/relation-cell';
 import type { Field } from '@/components/table-view/use-table-data';
+import { Popover, PopoverContent, PopoverParentAnchor } from '@/components/ui/popover';
 import { recordHref } from '@/lib/records';
 import { cn } from '@/lib/utils';
 import { useDatabases, useSpaces } from '@/lib/queries';
-import { resolveDatabaseIds } from '@/lib/database-labels';
+import type { DatabaseSummary, Space } from '@/lib/queries';
+import { qualifiedDatabaseLabel, resolveDatabaseIds, serializeDatabaseIds } from '@/lib/database-labels';
 import { AUDIT_TYPES, NOT_INLINE, auditValue } from './entity-field-utils';
 import type { VP } from './entity-field-utils';
 import { FieldMenu, useSetFieldConfig } from './field-controls';
@@ -66,25 +68,65 @@ function ScalarValue({ field, record, ws, db, rec, members, memberNames, memberI
     );
   }
   if (field.apiName === 'target_databases') {
+    // #105: the #317 fix swapped raw UUIDs for qualified "Space / Database"
+    // chips but dropped every edit affordance, leaving the field read-only in
+    // the record panel. Restore editing: chips open a multi-database picker
+    // that persists through the same record-update mutation (onCommit) the
+    // field used before, while keeping the qualified labels and the red
+    // "Unavailable database" chip for dangling ids.
     const targets = resolveDatabaseIds(value, databases.data ?? [], spaces.data ?? []);
-    return targets.length ? (
-      <span className="flex flex-wrap gap-1">
+    const selectedIds = targets.map((target) => target.id);
+    const save = (ids: string[]) => onCommit(field, serializeDatabaseIds(ids));
+    return (
+      <div className="relative flex flex-wrap items-center gap-1">
         {targets.map((target) => (
           <span
             key={target.id}
             className={cn(
-              'rounded border px-1.5 py-0.5 text-[12px]',
+              'inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[12px]',
               target.missing
                 ? 'border-error/40 bg-error/5 text-error'
                 : 'border-border-default bg-hover text-ink',
+              !readOnly && 'cursor-pointer hover:border-border-strong',
             )}
+            onClick={readOnly ? undefined : () => setEditing(true)}
           >
             {target.label}
+            {!readOnly && (
+              <button
+                type="button"
+                aria-label={`Remove ${target.label}`}
+                className="text-faint hover:text-ink"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  save(selectedIds.filter((id) => id !== target.id));
+                }}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
           </span>
         ))}
-      </span>
-    ) : (
-      <span className="text-[13px] text-faint">Empty</span>
+        {targets.length === 0 && readOnly && <span className="text-[13px] text-faint">Empty</span>}
+        {!readOnly && (
+          <button
+            type="button"
+            className="inline-flex items-center gap-0.5 rounded border border-dashed border-border-default px-1.5 py-0.5 text-[12px] text-muted hover:border-border-strong hover:text-ink"
+            onClick={() => setEditing(true)}
+          >
+            <Plus className="h-3 w-3" /> {targets.length === 0 && 'Add'}
+          </button>
+        )}
+        {editing && (
+          <DatabasePicker
+            databases={databases.data ?? []}
+            spaces={spaces.data ?? []}
+            selected={selectedIds}
+            onToggle={save}
+            onClose={() => setEditing(false)}
+          />
+        )}
+      </div>
     );
   }
   if (field.type === 'button') return <PressButton ws={ws} db={db} recordId={rec} field={field} disabled={readOnly} />;
@@ -135,6 +177,79 @@ function ScalarValue({ field, record, ws, db, rec, members, memberNames, memberI
 
 /** Sidebar prose fields that should wrap rather than clip (MN-132). */
 const PROSE_TYPES = new Set(['text', 'email', 'url', 'rich_text']);
+
+/**
+ * #105: a searchable multi-database picker for the agent `target_databases`
+ * field. No shared multi-database picker existed (the integrations pages use
+ * single-select native `<select>`s), so this is the minimal one. It mirrors the
+ * MN-279 multi-select popover: each toggle persists immediately via `onToggle`
+ * (parent saves the comma-separated id list) while the popover stays open.
+ * Databases are shown with their qualified "Space / Database" label so
+ * duplicate names stay distinguishable.
+ */
+function DatabasePicker({
+  databases,
+  spaces,
+  selected,
+  onToggle,
+  onClose,
+}: {
+  databases: DatabaseSummary[];
+  spaces: Space[];
+  selected: string[];
+  onToggle: (ids: string[]) => void;
+  onClose: () => void;
+}) {
+  const [query, setQuery] = useState('');
+  const trimmed = query.trim().toLowerCase();
+  const options = databases
+    .map((database) => ({ id: database.id, label: qualifiedDatabaseLabel(database, spaces) }))
+    .filter((option) => (trimmed ? option.label.toLowerCase().includes(trimmed) : true))
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  const toggle = (id: string) =>
+    onToggle(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
+
+  return (
+    <Popover open onOpenChange={(open) => !open && onClose()}>
+      <PopoverParentAnchor />
+      <PopoverContent
+        className="flex max-h-80 w-64 flex-col gap-1 p-1"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <input
+          autoFocus
+          value={query}
+          placeholder="Search databases…"
+          className="w-full rounded border border-border-default bg-card px-2 py-1 text-[13px] text-ink outline-none placeholder:text-faint"
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        <div className="max-h-60 overflow-y-auto">
+          {options.map((option) => {
+            const isSelected = selected.includes(option.id);
+            return (
+              <button
+                key={option.id}
+                type="button"
+                className="flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-[13px] text-ink hover:bg-hover"
+                onClick={() => toggle(option.id)}
+              >
+                <span className="flex min-w-0 items-center gap-2">
+                  <input type="checkbox" readOnly checked={isSelected} />
+                  <span className="truncate">{option.label}</span>
+                </span>
+                {isSelected && <Check className="h-3.5 w-3.5 shrink-0 text-accent" />}
+              </button>
+            );
+          })}
+          {options.length === 0 && (
+            <p className="px-2 py-1.5 text-[12px] text-faint">No databases</p>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 /**
  * MN-132: wrap a long value to a few lines, with expand-on-click. Measures whether
