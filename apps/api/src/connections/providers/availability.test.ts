@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { availabilityFor } from './availability';
+import { shopifyProvider } from './shopify';
 import type { ProviderDescriptor } from './types';
 
 /** A bare descriptor of a given tier — availabilityFor only reads `tier` and
@@ -73,5 +74,14 @@ describe('availabilityFor — the full #345 truth table', () => {
     expect(availabilityFor(descriptor({ tier: 'hosted_only' }), { isHosted: false, env: ENV_ABSENT })).toBe(
       'cloud_only',
     );
+  });
+
+  // #110 — Shopify is Tier A (the merchant's own Admin API token), so its
+  // gallery card must render a working Connect on cloud AND self-managed.
+  it('the real Shopify provider is api_key and connectable in both modes', () => {
+    expect(shopifyProvider.tier).toBe('api_key');
+    for (const isHosted of [true, false]) {
+      expect(availabilityFor(shopifyProvider, { isHosted, env: ENV_ABSENT })).toBe('connectable');
+    }
   });
 });

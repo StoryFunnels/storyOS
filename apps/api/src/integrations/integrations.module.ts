@@ -4,6 +4,7 @@ import { DocumentsModule } from '../documents/documents.module';
 import { FieldsModule } from '../fields/fields.module';
 import { RecordsModule } from '../records/records.module';
 import { RelationsModule } from '../relations/relations.module';
+import { SourcesModule } from '../sources/sources.module';
 import { UsersModule } from '../users/users.module';
 import { WorkspacesModule } from '../workspaces/workspaces.module';
 import { MigrationFrameworkModule } from '../migration-framework/migration-framework.module';
@@ -20,10 +21,13 @@ import {
   IntegrationsController,
   IntegrationsDirectoryController,
   LinearIntegrationsController,
+  ShopifyIntegrationsController,
   SlackIntegrationsController,
 } from './integrations.controller';
 import { LinearService } from './linear.service';
 import { SlackService } from './slack.service';
+import { ShopifyCatalogueService } from './shopify-catalogue.service';
+import { ShopifyCatalogueSubscriber } from './shopify-catalogue.subscriber';
 
 @Module({
   imports: [
@@ -36,6 +40,7 @@ import { SlackService } from './slack.service';
     WorkspacesModule,
     MigrationFrameworkModule,
     ConnectionsModule,
+    SourcesModule,
   ],
   controllers: [
     IntegrationsDirectoryController,
@@ -46,6 +51,7 @@ import { SlackService } from './slack.service';
     GithubOAuthController,
     LinearIntegrationsController,
     SlackIntegrationsController,
+    ShopifyIntegrationsController,
   ],
   providers: [
     GithubAppService,
@@ -54,6 +60,8 @@ import { SlackService } from './slack.service';
     GithubWebhookService,
     LinearService,
     SlackService,
+    ShopifyCatalogueService,
+    ShopifyCatalogueSubscriber,
   ],
   exports: [
     GithubAppService,
@@ -62,6 +70,7 @@ import { SlackService } from './slack.service';
     GithubWebhookService,
     LinearService,
     SlackService,
+    ShopifyCatalogueService,
   ],
 })
 export class IntegrationsModule {}

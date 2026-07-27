@@ -115,6 +115,21 @@ const DECLARED_SAFE: Record<string, string> = {
   // same non-secret sense as a database primary/unique key, not a credential.
   external_key_field_id:
     "packages/schemas/src/sources.ts (#239) — the source's upsert-key field id, not a credential",
+  // apps/api/src/integrations/shopify-catalogue.ts (#110) — the Shopify catalogue
+  // field descriptor's own shape. "key" here is the upsert/external-key column
+  // (the immutable Shopify GID), the same non-secret sense as external_key_field_id
+  // above, not a credential.
+  external_key:
+    'apps/api/src/integrations/shopify-catalogue.ts (#110) — a catalogue field descriptor property naming the provider key, not a credential',
+  is_key:
+    'apps/api/src/integrations/shopify-catalogue.ts (#110) — a boolean marking the external-key field on a catalogue database, not a credential',
+  // apps/api/src/integrations/shopify-catalogue.service.ts (#110) — the field id
+  // storing each product's own Shopify GID, used to resolve GIDs to record ids
+  // when materializing relations. An upsert-key field id, not a credential.
+  productsKeyFieldId:
+    'apps/api/src/integrations/shopify-catalogue.service.ts (#110) — the products external-key field id, not a credential',
+  keyFieldId:
+    'apps/api/src/integrations/shopify-catalogue.service.ts (#110) — an external-key field id passed to the GID resolver, not a credential',
 };
 
 function propertyNames(): Map<string, Set<string>> {
