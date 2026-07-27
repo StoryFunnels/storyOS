@@ -8,8 +8,23 @@ if (!token || !host) {
     const missing = [!token && 'NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN', !host && 'NEXT_PUBLIC_POSTHOG_HOST']
       .filter(Boolean)
       .join(', ');
-    throw new Error(
-      `${missing} variable required by PostHog is missing or un-configured, this causes events to be silently missed. This error stops appearing once ${missing} is configured`,
+    /**
+     * Warn loudly, but NEVER throw.
+     *
+     * This file runs as Next's client instrumentation, i.e. during client
+     * bootstrap and before React hydrates. Throwing here doesn't just skip
+     * analytics — it breaks hydration outright, so no effect ever runs. The
+     * visible symptom is that every /w/* route sits on the workspace layout's
+     * "Loading…" branch forever (useSession() never fires, isPending stays
+     * true), which reads as a broken app, not as a missing env var.
+     *
+     * Since these vars aren't in .env.example, that was the default state of a
+     * fresh clone: `pnpm dev` produced a dead app whose only clue was a console
+     * error about analytics. The original intent — make un-configured analytics
+     * impossible to ignore in development — is fully preserved by console.error.
+     */
+    console.error(
+      `[posthog] ${missing} is missing or un-configured, so analytics events are being silently dropped. This message stops appearing once ${missing} is set. Analytics are disabled; the rest of the app is unaffected.`,
     );
   }
 } else {
