@@ -202,6 +202,7 @@ function downloadCsv(rows: WorkspaceCostRow[]) {
 
 export default function AdminPage() {
   const qc = useQueryClient();
+  const confirm = useConfirm();
   const [cancelingId, setCancelingId] = useState<string | null>(null);
 
   const overview = useQuery({
@@ -459,7 +460,19 @@ export default function AdminPage() {
                           <button
                             type="button"
                             disabled={cancelRun.isPending && cancelingId === r.id}
-                            onClick={() => cancelRun.mutate(r)}
+                            onClick={async () => {
+                              if (
+                                !(await confirm({
+                                  title: 'Cancel this run?',
+                                  message: `Run “${r.title}” in workspace “${r.workspaceName}” will be cancelled. This stops it for that workspace and can’t be undone.`,
+                                  confirmLabel: 'Cancel run',
+                                  cancelLabel: 'Keep running',
+                                  danger: true,
+                                }))
+                              )
+                                return;
+                              cancelRun.mutate(r);
+                            }}
                             className="rounded-[var(--radius-control)] border border-border-default px-2 py-1 text-[12px] text-ink-secondary hover:bg-hover disabled:opacity-50"
                           >
                             {cancelRun.isPending && cancelingId === r.id ? 'Canceling…' : 'Cancel'}

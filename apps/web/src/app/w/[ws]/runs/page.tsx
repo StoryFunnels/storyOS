@@ -183,7 +183,10 @@ export default function RunsPage() {
         </div>
         {runs.isLoading && <p className="px-4 py-6 text-[13px] text-muted">Loading…</p>}
         {!runs.isLoading && (runs.data ?? []).length === 0 && (
-          <p className="px-4 py-6 text-[13px] text-muted">No runs match these filters.</p>
+          <p className="px-4 py-6 text-[13px] text-muted">
+            No runs match these filters. This list covers automation rule runs only — source syncs
+            (MN-260) aren’t included yet.
+          </p>
         )}
         {(runs.data ?? []).map((run) => (
           <button
