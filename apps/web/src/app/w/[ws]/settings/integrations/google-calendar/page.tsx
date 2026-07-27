@@ -12,6 +12,7 @@ import { IntegrationSetupGuide } from '@/components/integration-setup-guide';
 import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { SelectField } from '@/components/ui/select-field';
 import { useDatabases, useSpaces } from '@/lib/queries';
 import { qualifiedDatabaseLabel } from '@/lib/database-labels';
 
@@ -305,7 +306,11 @@ export default function GoogleCalendarIntegrationPage() {
       setEndFieldId(result.fields['calendar.end']);
       setDescriptionFieldId(result.fields['calendar.description']);
       setTemplateOpen(false);
-      toast.success(`${templateName.trim()} is ready and its fields are mapped`);
+      // Fields are pre-mapped, but nothing syncs until a calendar is chosen and
+      // the mapping is saved — don't imply sync is already active (#102).
+      toast.success(
+        `${templateName.trim()} created with fields pre-mapped — now choose a calendar and press “Save mapping & sync” to start syncing.`,
+      );
     },
     onError: (error) => toast.error(apiErrorMessage(error, 'Could not create Calendar database')),
   });
@@ -364,7 +369,7 @@ export default function GoogleCalendarIntegrationPage() {
         <div>
           <h1 className="text-lg font-semibold text-ink">Google Calendar</h1>
           <p className="text-[13px] text-muted">
-            Push dated StoryOS records into a Google calendar.
+            Two-way sync between dated StoryOS records and a Google calendar — push, pull, or both.
           </p>
         </div>
       </div>
@@ -424,6 +429,7 @@ export default function GoogleCalendarIntegrationPage() {
                 label="Google connection"
                 value={connectionId}
                 onChange={setConnectionId}
+                allowEmpty={false}
                 options={activeConnections.map((item) => ({
                   value: item.id,
                   label: item.name,
@@ -435,6 +441,7 @@ export default function GoogleCalendarIntegrationPage() {
                 onChange={(value) =>
                   value === CREATE_DB_SENTINEL ? openTemplateDialog() : chooseDatabase(value)
                 }
+                allowEmpty={false}
                 placeholder="Choose database"
                 options={[
                   ...(databases.data ?? []).map((item) => ({
@@ -449,6 +456,7 @@ export default function GoogleCalendarIntegrationPage() {
                 label="Calendar"
                 value={calendarId}
                 onChange={setCalendarId}
+                allowEmpty={false}
                 placeholder={calendars.isLoading ? 'Loading calendars…' : 'Choose calendar'}
                 options={(calendars.data ?? []).map((item) => ({
                   value: item.id,
@@ -464,6 +472,7 @@ export default function GoogleCalendarIntegrationPage() {
                     ? setFieldDialog({ target: 'start', type: 'date', name: 'Start' })
                     : setStartFieldId(value)
                 }
+                allowEmpty={false}
                 placeholder={databaseId ? 'Choose date field' : 'Choose database first'}
                 options={[
                   ...dateFields.map((item) => ({ value: item.id, label: item.display_name })),
@@ -514,6 +523,7 @@ export default function GoogleCalendarIntegrationPage() {
                 label="Sync direction"
                 value={direction}
                 onChange={(value) => setDirection(value as typeof direction)}
+                allowEmpty={false}
                 options={[
                   { value: 'push', label: 'StoryOS → Google Calendar' },
                   { value: 'pull', label: 'Google Calendar → StoryOS' },
@@ -652,6 +662,7 @@ export default function GoogleCalendarIntegrationPage() {
               label="Space"
               value={templateSpaceId}
               onChange={setTemplateSpaceId}
+              allowEmpty={false}
               placeholder="Choose space"
               options={(spaces.data ?? []).map((space) => ({
                 value: space.id,
@@ -683,41 +694,6 @@ export default function GoogleCalendarIntegrationPage() {
           </div>
         </DialogContent>
       </Dialog>
-    </div>
-  );
-}
-
-function SelectField({
-  label,
-  value,
-  onChange,
-  options,
-  placeholder,
-  help,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  options: Array<{ value: string; label: string }>;
-  placeholder?: string;
-  help?: string;
-}) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <Label>{label}</Label>
-      <select
-        className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-3 text-[13px] text-ink outline-none focus:border-border-strong"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      >
-        <option value="">{placeholder ?? 'Choose'}</option>
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-      {help && <p className="text-[11px] leading-4 text-muted">{help}</p>}
     </div>
   );
 }
