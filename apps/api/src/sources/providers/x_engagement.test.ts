@@ -112,4 +112,10 @@ describe('xEngagementProvider', () => {
     );
     expect(calls).toHaveLength(0);
   });
+
+  // #113 — the config-help copy the "Sync from…" dialog renders under the picker.
+  it('carries setup guidance describing the OAuth 2.0 user token', () => {
+    expect(xEngagementProvider.description).toBeTruthy();
+    expect(xEngagementProvider.description).toMatch(/OAuth 2\.0 user token/i);
+  });
 });

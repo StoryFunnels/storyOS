@@ -7,14 +7,17 @@ import posthog from 'posthog-js';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowDownToLine,
+  AtSign,
   Bot,
   Cable,
   CalendarDays,
   Clipboard,
   GitBranch,
+  MessagesSquare,
   MessageSquare,
   Sparkles,
   Target,
+  Users,
   Video,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -47,6 +50,9 @@ const ICONS: Record<string, LucideIcon> = {
   linear: ArrowDownToLine,
   slack: MessageSquare,
   youtube: Video,
+  meta: MessagesSquare,
+  x: AtSign,
+  linkedin: Users,
   'google-calendar': CalendarDays,
   mcp: Cable,
   'delegate-agent': Bot,
@@ -85,6 +91,9 @@ function nextAction(entry: IntegrationEntry): string {
     linear: 'Save the API key, preview the import, then approve the migration.',
     slack: 'Connect and test Slack, then select it in a button or automation.',
     youtube: 'Connect YouTube, create a matching database, then add its source.',
+    meta: 'Save a Meta Page token, open a database, then add the Meta source and sync.',
+    x: 'Save an X API token, open a database, then add the X source and sync.',
+    linkedin: 'Save a LinkedIn org token, open a database, then add the LinkedIn source and sync.',
     'google-calendar': 'Connect Calendar, create or choose a database, then map and sync it.',
     'delegate-agent': 'Enable Agents, create an agent, then delegate from a record menu.',
   };

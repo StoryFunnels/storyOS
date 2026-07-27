@@ -71,6 +71,11 @@ export const xEngagementProvider: SourceProviderDescriptor = {
   label: 'X (Twitter) — mentions',
   connectionProvider: 'http',
   configSchema: xEngagementConfigSchema,
+  description:
+    'Needs an HTTP connection holding an X (Twitter) API v2 OAuth 2.0 user token (scopes: tweet.read, ' +
+    'users.read) minted in X\'s developer portal, added here as a "bearer" HTTP connection. Leave User ID ' +
+    'blank to track the connected account\'s own mentions. Lookback and volume are limited by the ' +
+    'connected account\'s X API plan — this source reads whatever that plan returns.',
   async sync(ctx: SourceSyncContext) {
     const token = bearerTokenOf(ctx.auth);
     const userId = await resolveUserId(ctx.fetcher, token, ctx.config['user_id'] as string | undefined);

@@ -14,8 +14,11 @@ import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useDatabases, useSpaces } from '@/lib/queries';
+import { PROVIDER_FIELD_CATALOG } from '@/lib/source-field-catalog';
+import { autoMatchMapping, type ExistingFieldLike } from '@/lib/source-field-match';
 
 interface Connection {
+  id: string;
   provider: string;
   status: 'active' | 'expired' | 'revoked' | 'error';
 }
@@ -26,6 +29,8 @@ type YouTubeTemplate = {
   name: string;
   description: string;
   source: string;
+  /** #239 source provider id this template's database is built for. */
+  providerSource: 'youtube.videos' | 'youtube.comments' | 'youtube.metrics';
   Icon: LucideIcon;
 };
 
@@ -36,6 +41,7 @@ const YOUTUBE_TEMPLATES: YouTubeTemplate[] = [
     name: 'YouTube Videos',
     description: 'Video ids, titles, publish dates, duration, privacy and URLs.',
     source: 'YouTube — videos',
+    providerSource: 'youtube.videos',
     Icon: Video,
   },
   {
@@ -44,6 +50,7 @@ const YOUTUBE_TEMPLATES: YouTubeTemplate[] = [
     name: 'YouTube Comments',
     description: 'Comments, replies, authors, likes and direct permalinks.',
     source: 'YouTube — comments',
+    providerSource: 'youtube.comments',
     Icon: MessageSquare,
   },
   {
@@ -52,6 +59,7 @@ const YOUTUBE_TEMPLATES: YouTubeTemplate[] = [
     name: 'YouTube Metrics',
     description: 'Daily snapshots of views, likes and comment counts.',
     source: 'YouTube — daily metrics',
+    providerSource: 'youtube.metrics',
     Icon: BarChart3,
   },
 ];
@@ -64,7 +72,12 @@ export default function YouTubeIntegrationPage() {
   const [selectedTemplate, setSelectedTemplate] = useState<YouTubeTemplate | null>(null);
   const [spaceId, setSpaceId] = useState('');
   const [databaseName, setDatabaseName] = useState('');
-  const [created, setCreated] = useState<{ id: string; name: string; source: string } | null>(null);
+  const [created, setCreated] = useState<{
+    id: string;
+    name: string;
+    source: string;
+    sourceAttached: boolean;
+  } | null>(null);
   const connections = useQuery({
     queryKey: ['connections', ws],
     queryFn: async () => {
@@ -75,9 +88,73 @@ export default function YouTubeIntegrationPage() {
       return (data as unknown as { data: Connection[] }).data;
     },
   });
-  const connected = connections.data?.some(
+  const googleConnection = connections.data?.find(
     (connection) => connection.provider === 'google' && connection.status === 'active',
   );
+  const connected = Boolean(googleConnection);
+
+  /**
+   * #109 — right after a template database is created, also attach the matching
+   * YouTube source and pre-map its fields (reusing the #342 auto-match + the
+   * #125 Name mapping), leaving it ready to sync — instead of dumping the user
+   * back into the database to add and map a source by hand. Best-effort: any
+   * failure here is caught by the caller so the database (already created) still
+   * lands and manual source-add stays as the fallback. Channel is left to the
+   * connected account's own channel (the provider resolves `mine=true`).
+   */
+  async function attachYoutubeSource(
+    databaseId: string,
+    template: YouTubeTemplate,
+    connectionId: string,
+  ): Promise<void> {
+    const { data: dbData, error: dbErr } = await api.GET(
+      '/api/v1/workspaces/{ws}/databases/{db}',
+      { params: { path: { ws, db: databaseId } } } as never,
+    );
+    if (dbErr) throw dbErr;
+    const fields = ((dbData as unknown as { fields?: ExistingFieldLike[] }).fields ?? []).map((f) => ({
+      id: f.id,
+      displayName: f.displayName,
+      apiName: f.apiName,
+      type: f.type,
+    }));
+    const catalog = PROVIDER_FIELD_CATALOG[template.providerSource] ?? [];
+    if (catalog.length === 0) throw new Error('No field catalog for this source');
+    const mapping = autoMatchMapping(catalog, fields);
+
+    const fieldIdByKey: Record<string, string> = {};
+    for (const item of catalog) {
+      const dest = mapping.get(item.key);
+      if (!dest) continue;
+      if (dest.kind === 'existing') {
+        fieldIdByKey[item.key] = dest.field_id;
+      } else {
+        const { data, error } = await api.POST('/api/v1/workspaces/{ws}/databases/{db}/fields', {
+          params: { path: { ws, db: databaseId } },
+          body: { display_name: item.label, type: dest.type as never, config: {} },
+        } as never);
+        if (error) throw error;
+        fieldIdByKey[item.key] = (data as unknown as { id: string }).id;
+      }
+    }
+
+    const keyItem = catalog.find((c) => c.isKey) ?? catalog[0];
+    const externalKeyFieldId = keyItem ? fieldIdByKey[keyItem.key] : undefined;
+    if (!externalKeyFieldId) throw new Error('Could not resolve the external key field');
+
+    const { error: srcErr } = await api.POST('/api/v1/workspaces/{ws}/databases/{db}/sources', {
+      params: { path: { ws, db: databaseId } },
+      body: {
+        name: template.source,
+        connection_id: connectionId,
+        provider_source: template.providerSource,
+        config: {},
+        field_mapping: fieldIdByKey,
+        external_key_field_id: externalKeyFieldId,
+      } as never,
+    } as never);
+    if (srcErr) throw srcErr;
+  }
 
   const createDatabase = useMutation({
     mutationFn: async () => {
@@ -102,17 +179,36 @@ export default function YouTubeIntegrationPage() {
         throw new Error(body?.error?.message ?? `Database creation failed (${response.status})`);
       }
       const result = (await response.json()) as { databases: Record<string, string> };
+      const databaseId = result.databases[selectedTemplate.databaseKey]!;
+
+      // #109 — chain the source attach. Best-effort: a failure must not fail the
+      // whole flow, since the database itself is already created.
+      let sourceAttached = false;
+      if (googleConnection) {
+        try {
+          await attachYoutubeSource(databaseId, selectedTemplate, googleConnection.id);
+          sourceAttached = true;
+        } catch {
+          sourceAttached = false;
+        }
+      }
+
       return {
-        id: result.databases[selectedTemplate.databaseKey]!,
+        id: databaseId,
         name: databaseName.trim(),
         source: selectedTemplate.source,
+        sourceAttached,
       };
     },
     onSuccess: async (result) => {
       await queryClient.invalidateQueries({ queryKey: ['databases', ws] });
       setCreated(result);
       setSelectedTemplate(null);
-      toast.success(`${result.name} is ready for the ${result.source} source`);
+      toast.success(
+        result.sourceAttached
+          ? `${result.name} is ready — the ${result.source} source is attached and will sync`
+          : `${result.name} is ready for the ${result.source} source`,
+      );
     },
     onError: (error) =>
       toast.error(apiErrorMessage(error, 'Could not create the YouTube database')),
@@ -162,8 +258,8 @@ export default function YouTubeIntegrationPage() {
           {
             label: 'Add the source and sync',
             description:
-              'Open that database, choose Sources, add the matching YouTube source, and run it.',
-            complete: false,
+              'The matching YouTube source is attached and pre-mapped automatically — open the database and press Sync now.',
+            complete: Boolean(created?.sourceAttached),
           },
         ]}
       />
@@ -225,9 +321,20 @@ export default function YouTubeIntegrationPage() {
           {created && (
             <div className="mt-4 flex flex-col gap-3 rounded-[var(--radius-control)] bg-accent-soft p-3 sm:flex-row sm:items-center">
               <p className="flex-1 text-[13px] text-ink">
-                <strong>{created.name}</strong> is ready. Open it, choose <strong>Sources</strong>,
-                add <strong>{created.source}</strong>, confirm the channel or video input, then
-                press <strong>Sync now</strong>.
+                {created.sourceAttached ? (
+                  <>
+                    <strong>{created.name}</strong> is ready and the <strong>{created.source}</strong>{' '}
+                    source is attached and pre-mapped. Open it and press <strong>Sync now</strong> (or
+                    wait for its daily schedule). It syncs the connected account&apos;s own channel;
+                    change that in the source&apos;s settings if needed.
+                  </>
+                ) : (
+                  <>
+                    <strong>{created.name}</strong> is ready. Open it, choose <strong>Sources</strong>,
+                    add <strong>{created.source}</strong>, confirm the channel or video input, then
+                    press <strong>Sync now</strong>.
+                  </>
+                )}
               </p>
               <Link href={`/w/${ws}/d/${created.id}`}>
                 <Button size="sm">Open database</Button>

@@ -35,6 +35,23 @@ export interface IntegrationDescriptor {
   status: IntegrationStatus;
 }
 
+/**
+ * #112 — the social-ingest platforms whose sources run on the shared generic
+ * 'http' bearer connection. Since there's no dedicated per-platform OAuth
+ * provider yet, a platform counts as "connected" when there's an active http
+ * connection NAMED for it — the setup page seeds that name so tokens are
+ * identifiable and can't be mis-paired. The web side (`lib/social-ingest.ts`)
+ * mirrors `defaultConnectionName`; keep the two in sync.
+ */
+export const SOCIAL_INGEST: Record<
+  'meta' | 'x' | 'linkedin',
+  { defaultConnectionName: string; sourceProvider: string; match: RegExp }
+> = {
+  meta: { defaultConnectionName: 'Meta comments', sourceProvider: 'meta.page_comments', match: /^meta\b/i },
+  x: { defaultConnectionName: 'X mentions', sourceProvider: 'x.mentions', match: /^x\b/i },
+  linkedin: { defaultConnectionName: 'LinkedIn comments', sourceProvider: 'linkedin.org_engagement', match: /^linkedin\b/i },
+};
+
 export const INTEGRATION_REGISTRY: readonly IntegrationDescriptor[] = [
   {
     id: 'github',
@@ -75,6 +92,37 @@ export const INTEGRATION_REGISTRY: readonly IntegrationDescriptor[] = [
     builtBy: 'StoryOS',
     description: 'Two-way sync between date fields and your calendar.',
     authKind: 'oauth2',
+    status: 'available',
+  },
+  // MN-261 social engagement ingest (#112) — each is a discoverable top-level
+  // entry point for "pull in our Meta/X/LinkedIn comments" so a user doesn't
+  // have to already be inside a database's "Sync from…" menu to find it. They
+  // run on the generic 'http' bearer connection today (no dedicated OAuth
+  // provider yet); the setup page names the connection per-platform so tokens
+  // can't be mis-paired. `connected` is resolved from a per-platform-named http
+  // connection (integrations.controller.ts).
+  {
+    id: 'meta',
+    label: 'Meta (Facebook & Instagram)',
+    builtBy: 'StoryOS',
+    description: 'Pull Facebook Page and Instagram comments into a StoryOS database as records.',
+    authKind: 'config',
+    status: 'available',
+  },
+  {
+    id: 'x',
+    label: 'X (Twitter)',
+    builtBy: 'StoryOS',
+    description: 'Pull mentions of your X account into a StoryOS database as records.',
+    authKind: 'config',
+    status: 'available',
+  },
+  {
+    id: 'linkedin',
+    label: 'LinkedIn',
+    builtBy: 'StoryOS',
+    description: 'Pull comments on your LinkedIn organization posts into a StoryOS database.',
+    authKind: 'config',
     status: 'available',
   },
   {

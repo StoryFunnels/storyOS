@@ -145,4 +145,11 @@ describe('linkedinEngagementProvider', () => {
     );
     expect(calls).toHaveLength(0);
   });
+
+  // #113 — the config-help copy the "Sync from…" dialog renders under the picker.
+  it('carries setup guidance describing the org token and post URNs', () => {
+    expect(linkedinEngagementProvider.description).toBeTruthy();
+    expect(linkedinEngagementProvider.description).toMatch(/organization access token/i);
+    expect(linkedinEngagementProvider.description).toMatch(/urn:li:/i);
+  });
 });
