@@ -150,4 +150,10 @@ describe('metaEngagementProvider', () => {
     );
     expect(calls).toHaveLength(0);
   });
+
+  // #113 — the config-help copy the "Sync from…" dialog renders under the picker.
+  it('carries setup guidance describing the Page Access Token', () => {
+    expect(metaEngagementProvider.description).toBeTruthy();
+    expect(metaEngagementProvider.description).toMatch(/Page Access Token/i);
+  });
 });

@@ -364,7 +364,17 @@ export default function ConnectionsSettingsPage() {
                       </Button>
                     );
                   case 'http':
-                    return <HttpConnectDialog ws={ws} provider={p} />;
+                    // #112 — a social-ingest setup page links here with
+                    // `?add=http&name=<platform>` so the connection is created
+                    // pre-named and stays identifiable per-platform.
+                    return (
+                      <HttpConnectDialog
+                        ws={ws}
+                        provider={p}
+                        initialName={searchParams.get('name') ?? undefined}
+                        autoOpen={searchParams.get('add') === 'http'}
+                      />
+                    );
                   case 'api-key':
                     return <ApiKeyConnectDialog ws={ws} provider={p} />;
                   case 'none':
@@ -642,10 +652,21 @@ type HttpAuthStyle = 'bearer' | 'basic' | 'headers';
  * healthCheck() never probes the network (there's no universal endpoint to hit
  * for "any API"), so this just needs to collect a shape-valid credential.
  */
-function HttpConnectDialog({ ws, provider }: { ws: string; provider: ProviderDescriptor }) {
+function HttpConnectDialog({
+  ws,
+  provider,
+  initialName,
+  autoOpen = false,
+}: {
+  ws: string;
+  provider: ProviderDescriptor;
+  initialName?: string;
+  autoOpen?: boolean;
+}) {
   const qc = useQueryClient();
+  const defaultName = initialName?.trim() || 'My API';
   const [open, setOpen] = useState(false);
-  const [name, setName] = useState('My API');
+  const [name, setName] = useState(defaultName);
   const [style, setStyle] = useState<HttpAuthStyle>('bearer');
   const [token, setToken] = useState('');
   const [username, setUsername] = useState('');
@@ -653,8 +674,13 @@ function HttpConnectDialog({ ws, provider }: { ws: string; provider: ProviderDes
   const [headerName, setHeaderName] = useState('X-Api-Key');
   const [headerValue, setHeaderValue] = useState('');
 
+  // #112 — open pre-named when a social-ingest page deep-links here.
+  useEffect(() => {
+    if (autoOpen) setOpen(true);
+  }, [autoOpen]);
+
   function reset() {
-    setName('My API');
+    setName(defaultName);
     setStyle('bearer');
     setToken('');
     setUsername('');

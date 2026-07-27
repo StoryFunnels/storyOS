@@ -130,6 +130,11 @@ export const linkedinEngagementProvider: SourceProviderDescriptor = {
   label: 'LinkedIn — org post comments',
   connectionProvider: 'http',
   configSchema: linkedinEngagementConfigSchema,
+  description:
+    'Needs an HTTP connection holding a LinkedIn organization access token (the r_organization_social ' +
+    'scope, granted through LinkedIn\'s Partner Program review), added here as a "bearer" HTTP connection. ' +
+    'Post URNs are not auto-discovered — paste one share/UGC URN per line, e.g. urn:li:share:123 or ' +
+    'urn:li:ugcPost:456. Syncing stays disabled until an operator turns on LinkedIn actions on the server.',
   async sync(ctx: SourceSyncContext) {
     if (!env().LINKEDIN_ACTIONS_ENABLED) {
       throw new UnprocessableEntityException(

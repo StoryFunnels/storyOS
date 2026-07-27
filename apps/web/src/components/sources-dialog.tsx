@@ -16,6 +16,8 @@ import { useConfirm } from '@/components/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
 import { presentAvailability, type ProviderAvailability } from '@/lib/provider-availability';
 import { autoMatchMapping } from '@/lib/source-field-match';
+import { PROVIDER_FIELD_CATALOG } from '@/lib/source-field-catalog';
+import { configFieldLabel, parseListValue, validateConfigField } from '@/lib/source-config-fields';
 import {
   buildRecurrence,
   describeRecurrence,
@@ -85,43 +87,6 @@ interface ConnectionSummary {
   name: string;
   status: string;
 }
-
-/**
- * #239 — the mapping catalog every YouTube provider emits, since none of them
- * implement `discover()` yet (v1 scope: known-ahead-of-time providers only).
- * MN-261/MN-262 add their own entries here when they register new providers.
- */
-const PROVIDER_FIELD_CATALOG: Record<
-  string,
-  Array<{ key: string; label: string; suggestedType: string; isKey?: boolean }>
-> = {
-  'youtube.videos': [
-    { key: 'video_id', label: 'Video ID', suggestedType: 'text', isKey: true },
-    { key: 'title', label: 'Title', suggestedType: 'text' },
-    { key: 'published_at', label: 'Published at', suggestedType: 'text' },
-    { key: 'duration', label: 'Duration', suggestedType: 'text' },
-    { key: 'privacy', label: 'Privacy', suggestedType: 'text' },
-    { key: 'url', label: 'URL', suggestedType: 'url' },
-  ],
-  'youtube.comments': [
-    { key: 'comment_id', label: 'Comment ID', suggestedType: 'text', isKey: true },
-    { key: 'video_id', label: 'Video ID', suggestedType: 'text' },
-    { key: 'author_name', label: 'Author', suggestedType: 'text' },
-    { key: 'text', label: 'Text', suggestedType: 'text' },
-    { key: 'like_count', label: 'Likes', suggestedType: 'number' },
-    { key: 'published_at', label: 'Published at', suggestedType: 'text' },
-    { key: 'is_reply', label: 'Is reply', suggestedType: 'checkbox' },
-    { key: 'permalink', label: 'Permalink', suggestedType: 'url' },
-  ],
-  'youtube.metrics': [
-    { key: 'snapshot_id', label: 'Snapshot ID', suggestedType: 'text', isKey: true },
-    { key: 'video_id', label: 'Video ID', suggestedType: 'text' },
-    { key: 'date', label: 'Date', suggestedType: 'text' },
-    { key: 'views', label: 'Views', suggestedType: 'number' },
-    { key: 'likes', label: 'Likes', suggestedType: 'number' },
-    { key: 'comments', label: 'Comments', suggestedType: 'number' },
-  ],
-};
 
 const STATUS_LABEL: Record<string, string> = { active: 'Active', paused: 'Paused', error: 'Error' };
 
@@ -392,7 +357,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
         } catch {
           throw new Error(`"${key}" must be valid JSON`);
         }
-      } else if (kind === 'array') parsed[key] = raw.split(',').map((v) => v.trim()).filter(Boolean);
+      } else if (kind === 'array') parsed[key] = parseListValue(raw);
       else parsed[key] = raw.trim();
     }
     return parsed;
@@ -492,11 +457,20 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
 
   const runs = useSourceRuns(ws, db, runsFor?.id ?? null);
 
+  // #113 — per-field config validation (e.g. LinkedIn post_urns must be
+  // urn:li:… URNs). First offending field's message, or null when all clean.
+  const configError = provider
+    ? Object.keys(provider.config_schema ?? {})
+        .map((key) => validateConfigField(providerId, key, config[key] ?? ''))
+        .find((err): err is string => Boolean(err)) ?? null
+    : null;
+
   const canSubmit =
     Boolean(providerId) &&
     Boolean(connectionId) &&
     Boolean(keyExternalKey) &&
     (mapping.get(keyExternalKey)?.kind ?? 'skip') !== 'skip' &&
+    !configError &&
     // #341 — when the channel picker is active a channel MUST be chosen; in the
     // free-text fallback channel_id stays optional (backend defaults to the
     // account's own channel), so it doesn't block.
@@ -739,13 +713,14 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                       checked={config[key] === 'true'}
                       onChange={(e) => setConfig((prev) => ({ ...prev, [key]: e.target.checked ? 'true' : 'false' }))}
                     />
-                    {key}
+                    {configFieldLabel(key)}
                     {spec.description ? <span className="text-[11px] text-faint">— {spec.description}</span> : null}
                   </label>
                 ) : (
                   <>
+                    {/* #113 — human label, not the raw snake_case key. */}
                     <Label htmlFor={`src-config-${key}`}>
-                      {key}
+                      {configFieldLabel(key)}
                       {spec.required ? '' : ' (optional)'}
                     </Label>
                     {spec.kind === 'json' ? (
@@ -753,6 +728,17 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                         id={`src-config-${key}`}
                         rows={4}
                         placeholder={spec.description ? `${spec.description} (JSON)` : '{}'}
+                        className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1.5 font-mono text-[12px] text-ink"
+                        value={config[key] ?? ''}
+                        onChange={(e) => setConfig((prev) => ({ ...prev, [key]: e.target.value }))}
+                      />
+                    ) : spec.kind === 'array' ? (
+                      // #113 — list-shaped fields (e.g. LinkedIn post_urns) get a
+                      // per-line box instead of a brittle comma free-text input.
+                      <textarea
+                        id={`src-config-${key}`}
+                        rows={4}
+                        placeholder={'One per line' + (spec.description ? ` — ${spec.description}` : '')}
                         className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1.5 font-mono text-[12px] text-ink"
                         value={config[key] ?? ''}
                         onChange={(e) => setConfig((prev) => ({ ...prev, [key]: e.target.value }))}
@@ -766,6 +752,17 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                         onChange={(e) => setConfig((prev) => ({ ...prev, [key]: e.target.value }))}
                       />
                     )}
+                    {/* #113 — always-visible help text, plus a per-field validation
+                        error when the current value is malformed. */}
+                    {(() => {
+                      const err = validateConfigField(providerId, key, config[key] ?? '');
+                      if (err) return <p className="text-[11px] text-error">{err}</p>;
+                      if (spec.kind === 'array' || (spec.description && spec.kind !== 'json'))
+                        return spec.description ? (
+                          <p className="text-[11px] text-faint">{spec.description}</p>
+                        ) : null;
+                      return null;
+                    })()}
                   </>
                 )}
               </div>

@@ -30,7 +30,7 @@ import { GithubService } from './github.service';
 import { GithubWebhookService } from './github-webhook.service';
 import type { ReviewBucket } from './github-reviews.service';
 import { GithubReviewsService } from './github-reviews.service';
-import { INTEGRATION_REGISTRY } from './integration-registry';
+import { INTEGRATION_REGISTRY, SOCIAL_INGEST } from './integration-registry';
 import { LinearService } from './linear.service';
 import { PreferencesService } from '../users/preferences.service';
 import { SlackService } from './slack.service';
@@ -79,6 +79,9 @@ export class IntegrationsDirectoryController {
       this.slack.getConfig(workspaceId),
       this.connections.list(workspaceId),
     ]);
+    const activeHttp = connectionRows.data.filter(
+      (connection) => connection.provider === 'http' && connection.status === 'active',
+    );
     const connected: Record<string, boolean> = {
       github: Boolean(github.connected || github.has_token),
       linear: Boolean(linear.has_key),
@@ -89,6 +92,11 @@ export class IntegrationsDirectoryController {
       'google-calendar': connectionRows.data.some(
         (connection) => connection.provider === 'google-calendar' && connection.status === 'active',
       ),
+      // #112 — a social platform is "connected" once there's an active http
+      // connection named for it (the setup page seeds that name).
+      meta: activeHttp.some((c) => SOCIAL_INGEST.meta.match.test(c.name)),
+      x: activeHttp.some((c) => SOCIAL_INGEST.x.match.test(c.name)),
+      linkedin: activeHttp.some((c) => SOCIAL_INGEST.linkedin.match.test(c.name)),
       // Built-in and always available; there is nothing to "connect".
       'delegate-agent': true,
     };

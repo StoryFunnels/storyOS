@@ -204,6 +204,12 @@ export const metaEngagementProvider: SourceProviderDescriptor = {
   label: 'Meta — Page & Instagram comments',
   connectionProvider: 'http',
   configSchema: metaEngagementConfigSchema,
+  description:
+    'Needs an HTTP connection holding a Meta Page Access Token. In Meta\'s developer tools, mint a ' +
+    'long-lived Page token (or a System User token scoped to the Page) with the pages_read_engagement ' +
+    'permission, then add it here as a "bearer" HTTP connection. Leave Page ID blank to use the token\'s ' +
+    'own Page. To also pull Instagram comments, add the paired Instagram Business Account ID ' +
+    '(Meta Business Suite → your IG account).',
   async sync(ctx: SourceSyncContext) {
     const token = bearerTokenOf(ctx.auth);
     const pageId = await resolvePageId(ctx.fetcher, token, ctx.config['page_id'] as string | undefined);
