@@ -59,6 +59,10 @@ const PROVIDER_USE_GUIDANCE: Record<string, { description: string; href?: string
   apify: {
     description: 'Open the destination database, choose Sources, then add an Apify source.',
   },
+  shopify: {
+    description: 'Create the product catalogue — Products, Variants and Collections, with relations.',
+    href: 'shopify',
+  },
   resend: {
     description: 'Choose this connection in a Send email button or automation action.',
   },
@@ -376,7 +380,16 @@ export default function ConnectionsSettingsPage() {
                       />
                     );
                   case 'api-key':
-                    return <ApiKeyConnectDialog ws={ws} provider={p} />;
+                    // #110 — a provider setup page (e.g. Shopify) can deep-link
+                    // here with `?add=<provider>` to open its connect form pre-named.
+                    return (
+                      <ApiKeyConnectDialog
+                        ws={ws}
+                        provider={p}
+                        initialName={searchParams.get('name') ?? undefined}
+                        autoOpen={searchParams.get('add') === p.id}
+                      />
+                    );
                   case 'none':
                     return null;
                 }
@@ -426,11 +439,26 @@ function AvailabilityNote({ present }: { present: AvailabilityPresentation }) {
   );
 }
 
-function ApiKeyConnectDialog({ ws, provider }: { ws: string; provider: ProviderDescriptor }) {
+function ApiKeyConnectDialog({
+  ws,
+  provider,
+  initialName,
+  autoOpen = false,
+}: {
+  ws: string;
+  provider: ProviderDescriptor;
+  initialName?: string;
+  autoOpen?: boolean;
+}) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
-  const [name, setName] = useState(provider.label);
+  const [name, setName] = useState(initialName?.trim() || provider.label);
   const [apiKey, setApiKey] = useState('');
+  // #110 — Shopify's api_key connection isn't a bare `{ api_key }`: it's the
+  // store domain + Admin API access token (connections/providers/shopify.ts).
+  const isShopify = provider.id === 'shopify';
+  const [shopDomain, setShopDomain] = useState('');
+  const [accessToken, setAccessToken] = useState('');
   // MN-256: Resend-only optional extras — a from_address (required before a
   // send_email action can use this connection; its domain must already be
   // verified on this key) and a webhook_secret (enables bounce/complaint
@@ -446,9 +474,16 @@ function ApiKeyConnectDialog({ ws, provider }: { ws: string; provider: ProviderD
   const [smtpFrom, setSmtpFrom] = useState('');
   const isSmtp = provider.auth_kind === 'smtp';
 
+  // #110 — open pre-named when a provider setup page deep-links here (`?add=`).
+  useEffect(() => {
+    if (autoOpen) setOpen(true);
+  }, [autoOpen]);
+
   function reset() {
-    setName(provider.label);
+    setName(initialName?.trim() || provider.label);
     setApiKey('');
+    setShopDomain('');
+    setAccessToken('');
     setFromAddress('');
     setWebhookSecret('');
     setHost('');
@@ -468,11 +503,13 @@ function ApiKeyConnectDialog({ ws, provider }: { ws: string; provider: ProviderD
             pass: smtpPass || undefined,
             from_address: smtpFrom,
           }
-        : {
-            api_key: apiKey,
-            ...(fromAddress.trim() ? { from_address: fromAddress.trim() } : {}),
-            ...(webhookSecret.trim() ? { webhook_secret: webhookSecret.trim() } : {}),
-          };
+        : isShopify
+          ? { shop_domain: shopDomain.trim(), access_token: accessToken.trim() }
+          : {
+              api_key: apiKey,
+              ...(fromAddress.trim() ? { from_address: fromAddress.trim() } : {}),
+              ...(webhookSecret.trim() ? { webhook_secret: webhookSecret.trim() } : {}),
+            };
       const { error } = await api.POST('/api/v1/workspaces/{ws}/connections', {
         params: { path: { ws } },
         body: { provider: provider.id, name, auth } as never,
@@ -492,7 +529,9 @@ function ApiKeyConnectDialog({ ws, provider }: { ws: string; provider: ProviderD
 
   const canSubmit = isSmtp
     ? name.trim() && host.trim() && port.trim() && smtpFrom.trim()
-    : name.trim() && apiKey.trim();
+    : isShopify
+      ? name.trim() && shopDomain.trim() && accessToken.trim()
+      : name.trim() && apiKey.trim();
 
   return (
     <Dialog
@@ -578,6 +617,35 @@ function ApiKeyConnectDialog({ ws, provider }: { ws: string; provider: ProviderD
                 />
                 <p className="text-[11px] text-faint">
                   Fixed at connect time — a send_email action can never override it.
+                </p>
+              </div>
+            </>
+          ) : isShopify ? (
+            <>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="shopify-domain">Store domain</Label>
+                <Input
+                  id="shopify-domain"
+                  autoFocus
+                  required
+                  placeholder="my-store.myshopify.com"
+                  value={shopDomain}
+                  onChange={(e) => setShopDomain(e.target.value)}
+                />
+                <p className="text-[11px] text-faint">Your store&apos;s .myshopify.com host.</p>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="shopify-token">Admin API access token</Label>
+                <Input
+                  id="shopify-token"
+                  required
+                  type="password"
+                  placeholder="shpat_…"
+                  value={accessToken}
+                  onChange={(e) => setAccessToken(e.target.value)}
+                />
+                <p className="text-[11px] text-faint">
+                  From a custom app in your Shopify admin, with read_products scope.
                 </p>
               </div>
             </>

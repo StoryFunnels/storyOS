@@ -2258,6 +2258,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/integrations/shopify/catalogue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create the Shopify product catalogue — databases, sources and relations in one click */
+        post: operations["ShopifyIntegrationsController_createCatalogue"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/connections": {
         parameters: {
             query?: never;
@@ -2395,6 +2412,127 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/databases/{db}/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the sources syncing into this database */
+        get: operations["SourcesController_list"];
+        put?: never;
+        /** Configure a new source: provider + connection + field mapping + schedule */
+        post: operations["SourcesController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/sources/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The source provider catalog — what can be synced, and its config shape */
+        get: operations["SourcesController_providers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/sources/channels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** #341: list the YouTube channels a Google connection owns, for the channel picker */
+        get: operations["SourcesController_channels"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/sources/discover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** MN-262: preview a provider's field keys before creating a source (point-and-click mapping) */
+        post: operations["SourcesController_discover"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/sources/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Stop syncing — leaves every record the source created intact */
+        delete: operations["SourcesController_remove"];
+        options?: never;
+        head?: never;
+        /** Reconfigure a source */
+        patch: operations["SourcesController_update"];
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/sources/{id}/sync-now": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run one sync cycle immediately, ignoring the schedule gate */
+        post: operations["SourcesController_syncNow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/sources/{id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Recent sync runs for one source (fetched/created/updated/errors) */
+        get: operations["SourcesController_runs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/integrations/google-calendar/calendars": {
         parameters: {
             query?: never;
@@ -2526,127 +2664,6 @@ export interface paths {
         put?: never;
         /** Re-run one failed action from this run with its original frozen inputs */
         post: operations["RunsController_rerun"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/databases/{db}/sources": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List the sources syncing into this database */
-        get: operations["SourcesController_list"];
-        put?: never;
-        /** Configure a new source: provider + connection + field mapping + schedule */
-        post: operations["SourcesController_create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/databases/{db}/sources/providers": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** The source provider catalog — what can be synced, and its config shape */
-        get: operations["SourcesController_providers"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/databases/{db}/sources/channels": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** #341: list the YouTube channels a Google connection owns, for the channel picker */
-        get: operations["SourcesController_channels"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/databases/{db}/sources/discover": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** MN-262: preview a provider's field keys before creating a source (point-and-click mapping) */
-        post: operations["SourcesController_discover"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/databases/{db}/sources/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /** Stop syncing — leaves every record the source created intact */
-        delete: operations["SourcesController_remove"];
-        options?: never;
-        head?: never;
-        /** Reconfigure a source */
-        patch: operations["SourcesController_update"];
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/databases/{db}/sources/{id}/sync-now": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Run one sync cycle immediately, ignoring the schedule gate */
-        post: operations["SourcesController_syncNow"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/databases/{db}/sources/{id}/runs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Recent sync runs for one source (fetched/created/updated/errors) */
-        get: operations["SourcesController_runs"];
-        put?: never;
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -4297,31 +4314,19 @@ export interface components {
             /** Format: uri */
             webhook_url?: string;
         };
+        ShopifyCatalogueDto: {
+            /** Format: uuid */
+            space_id: string;
+            /** Format: uuid */
+            connection_id: string;
+            name_prefix?: string;
+        };
         CreateConnectionDto: {
             provider: string;
             name: string;
             auth: {
                 [key: string]: unknown;
             };
-        };
-        CreateCalendarBindingDto: {
-            /** Format: uuid */
-            connection_id: string;
-            /** Format: uuid */
-            database_id: string;
-            calendar_id: string;
-            calendar_name: string;
-            /** Format: uuid */
-            start_field_id: string;
-            /** Format: uuid */
-            end_field_id?: string;
-            /** Format: uuid */
-            description_field_id?: string;
-            /**
-             * @default push
-             * @enum {string}
-             */
-            direction: "push" | "pull" | "two_way";
         };
         DiscoverSourceDto: {
             /** Format: uuid */
@@ -4397,6 +4402,25 @@ export interface components {
             };
             /** @enum {string} */
             status?: "active" | "paused" | "error";
+        };
+        CreateCalendarBindingDto: {
+            /** Format: uuid */
+            connection_id: string;
+            /** Format: uuid */
+            database_id: string;
+            calendar_id: string;
+            calendar_name: string;
+            /** Format: uuid */
+            start_field_id: string;
+            /** Format: uuid */
+            end_field_id?: string;
+            /** Format: uuid */
+            description_field_id?: string;
+            /**
+             * @default push
+             * @enum {string}
+             */
+            direction: "push" | "pull" | "two_way";
         };
         CreateAgentTriggerDto: {
             agent: string;
@@ -8114,6 +8138,27 @@ export interface operations {
             };
         };
     };
+    ShopifyIntegrationsController_createCatalogue: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ShopifyCatalogueDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     ConnectionsController_list: {
         parameters: {
             query?: never;
@@ -8282,184 +8327,6 @@ export interface operations {
         requestBody?: never;
         responses: {
             200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    CalendarSyncController_calendars: {
-        parameters: {
-            query: {
-                connection_id: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    CalendarSyncController_bindings: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    CalendarSyncController_createBinding: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateCalendarBindingDto"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    CalendarSyncController_sync: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    CalendarSyncController_remove: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    RunsController_quota: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    RunsController_list: {
-        parameters: {
-            query: {
-                kind: string;
-                status: string;
-                rule_id: string;
-                database_id: string;
-                from: string;
-                to: string;
-                q: string;
-                limit: string;
-                cursor: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    RunsController_detail: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    RunsController_rerun: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-                index: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            201: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -8651,6 +8518,184 @@ export interface operations {
         requestBody?: never;
         responses: {
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    CalendarSyncController_calendars: {
+        parameters: {
+            query: {
+                connection_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    CalendarSyncController_bindings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    CalendarSyncController_createBinding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCalendarBindingDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    CalendarSyncController_sync: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    CalendarSyncController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RunsController_quota: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RunsController_list: {
+        parameters: {
+            query: {
+                kind: string;
+                status: string;
+                rule_id: string;
+                database_id: string;
+                from: string;
+                to: string;
+                q: string;
+                limit: string;
+                cursor: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RunsController_detail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RunsController_rerun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                index: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };

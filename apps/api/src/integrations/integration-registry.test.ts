@@ -30,3 +30,12 @@ describe('integration registry — social ingest (#112)', () => {
     expect(SOCIAL_INGEST.linkedin.match.test('Meta comments')).toBe(false);
   });
 });
+
+describe('integration registry — Shopify (#110)', () => {
+  it('exposes Shopify as an available gallery entry', () => {
+    const entry = INTEGRATION_REGISTRY.find((d) => d.id === 'shopify');
+    expect(entry, 'missing registry entry: shopify').toBeDefined();
+    expect(entry!.status).toBe('available');
+    expect(entry!.authKind).toBe('config');
+  });
+});

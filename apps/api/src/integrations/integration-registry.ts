@@ -125,6 +125,18 @@ export const INTEGRATION_REGISTRY: readonly IntegrationDescriptor[] = [
     authKind: 'config',
     status: 'available',
   },
+  // #110 — Shopify product catalogue. Tier A api_key connection (the merchant's
+  // own Admin API token, connections/providers/shopify.ts); the setup page's
+  // one-click builds the Products/Variants/Collections databases + sources +
+  // relations. `connected` resolves from an active `shopify` connection.
+  {
+    id: 'shopify',
+    label: 'Shopify',
+    builtBy: 'StoryOS',
+    description: 'Import your product catalogue — products, variants and collections — with navigable relations between them.',
+    authKind: 'config',
+    status: 'available',
+  },
   {
     id: 'mcp',
     label: 'Claude & ChatGPT',

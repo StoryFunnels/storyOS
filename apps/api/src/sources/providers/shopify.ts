@@ -24,11 +24,12 @@ import type { SourceProviderDescriptor, SourceSyncContext } from './types';
  * and re-syncs the catalogue — that's the continuous, idempotent sync.
  *
  * Relationships are preserved as the counterpart's immutable Shopify GID on
- * each row (`product_id` on a variant, `product_ids` on a collection). Turning
- * those foreign keys into materialized StoryOS *relation fields* needs an
- * external-key→record-id resolution pass the flat upsert engine doesn't have
- * yet; that's a documented follow-up, and no relationship DATA is lost in the
- * meantime.
+ * each row (`product_id` on a variant, `product_ids` on a collection). #110's
+ * `ShopifyCatalogueService` turns those foreign keys into materialized StoryOS
+ * *relation fields*: an external-key→record-id resolution pass (keyed by the
+ * stored GID, so idempotent + order-independent) writes the product↔variant and
+ * product↔collection links as records sync in. The GID text stays on each row —
+ * it's the immutable key the resolution is driven from.
  *
  * Deletion semantics follow the framework: the GraphQL walk simply stops
  * returning a product that was deleted in Shopify, and the engine leaves that

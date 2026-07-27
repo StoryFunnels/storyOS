@@ -35,6 +35,7 @@ import { LinearService } from './linear.service';
 import { PreferencesService } from '../users/preferences.service';
 import { SlackService } from './slack.service';
 import { ConnectionsService } from '../connections/connections.service';
+import { ShopifyCatalogueService } from './shopify-catalogue.service';
 
 /** 302 redirect via the raw Fastify reply (Nest passthrough is off under @Res). */
 function redirect(reply: FastifyReply, url: string): void {
@@ -97,6 +98,10 @@ export class IntegrationsDirectoryController {
       meta: activeHttp.some((c) => SOCIAL_INGEST.meta.match.test(c.name)),
       x: activeHttp.some((c) => SOCIAL_INGEST.x.match.test(c.name)),
       linkedin: activeHttp.some((c) => SOCIAL_INGEST.linkedin.match.test(c.name)),
+      // #110 — Shopify is "connected" once its api_key connection is active.
+      shopify: connectionRows.data.some(
+        (connection) => connection.provider === 'shopify' && connection.status === 'active',
+      ),
       // Built-in and always available; there is nothing to "connect".
       'delegate-agent': true,
     };
@@ -586,5 +591,38 @@ export class SlackIntegrationsController {
   })
   disconnect(@Req() req: WorkspaceRequest) {
     return this.slack.disconnect(req.membership.workspaceId);
+  }
+}
+
+class ShopifyCatalogueDto extends createZodDto(
+  z.object({
+    space_id: z.string().uuid(),
+    connection_id: z.string().uuid(),
+    /** Optional prefix so a second catalogue's databases don't collide (e.g. "EU"). */
+    name_prefix: z.string().min(1).max(60).optional(),
+  }),
+) {}
+
+/**
+ * Shopify product-catalogue guided setup (#110). The one-click that creates the
+ * Products/Variants/Collections databases, attaches the three `shopify.*`
+ * sources (best-effort), pre-maps their fields, and defines the product↔variant
+ * and product↔collection relations. `member`, like templates apply — creating
+ * databases is an ordinary contributor action; the credential itself is
+ * connected separately on the Connections page.
+ */
+@ApiTags('integrations')
+@UseGuards(AuthGuard, WorkspaceAccessGuard)
+@MinRole('member')
+@Controller('workspaces/:ws/integrations/shopify')
+export class ShopifyIntegrationsController {
+  constructor(private readonly catalogue: ShopifyCatalogueService) {}
+
+  @Post('catalogue')
+  @ApiOperation({
+    summary: 'Create the Shopify product catalogue — databases, sources and relations in one click',
+  })
+  createCatalogue(@Req() req: WorkspaceRequest, @Body() body: ShopifyCatalogueDto) {
+    return this.catalogue.provision(req.membership, req.user.id, body);
   }
 }
