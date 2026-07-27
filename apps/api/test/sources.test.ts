@@ -380,6 +380,66 @@ describe('sources framework — YouTube comments (#239)', () => {
     expect(runsAfter).toBe(runsBefore + 1);
   });
 
+  it('#125 system-field mapping: a source field mapped to Name populates the record title on import', async () => {
+    // A single comment whose author is the value we map onto the record Name.
+    commentPages = [{ items: [thread('c60', 'v1', '2026-07-01T00:00:00Z', 'nice video', 3)] }];
+    commentPageIndex = 0;
+
+    const spaceId = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
+    const dbId = (
+      await inject('POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name: 'TitleMap DB' })
+    ).json().id;
+
+    const field = async (display_name: string, type: string) => {
+      const res = await inject('POST', `/workspaces/${wsId}/databases/${dbId}/fields`, { display_name, type });
+      return { id: res.json().id as string, apiName: res.json().apiName as string };
+    };
+    const commentId = await field('Comment Id', 'text');
+
+    // The record Name (title) system field is created with every database — find
+    // its real field id from the database introspection payload.
+    const dbFields = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}`)).json().fields as Array<{
+      id: string;
+      type: string;
+      apiName: string;
+    }>;
+    const titleField = dbFields.find((f) => f.type === 'title')!;
+    expect(titleField, 'every database has a title/Name system field').toBeTruthy();
+
+    process.env.GOOGLE_CLIENT_ID = 'test-google-client-id';
+    process.env.GOOGLE_CLIENT_SECRET = 'test-google-client-secret';
+    const start = await inject('GET', `/workspaces/${wsId}/connections/oauth/google/start`);
+    const state = new URL(String(start.headers.location)).searchParams.get('state')!;
+    await app.inject({
+      method: 'GET',
+      url: `/api/v1/connections/oauth/callback?state=${encodeURIComponent(state)}&code=good-code-TitleMap`,
+    });
+    const connectionId = (await inject('GET', `/workspaces/${wsId}/connections`)).json().data.find(
+      (c: { provider: string }) => c.provider === 'google',
+    ).id;
+
+    // Map the comment id → key field AND author_name → the Name (title) system field.
+    const created = await inject('POST', `/workspaces/${wsId}/databases/${dbId}/sources`, {
+      name: 'TitleMap comments',
+      connection_id: connectionId,
+      provider_source: 'youtube.comments',
+      config: {},
+      field_mapping: { comment_id: commentId.id, author_name: titleField.id },
+      external_key_field_id: commentId.id,
+      schedule: '15m',
+    });
+    expect(created.statusCode, `source create failed: ${created.body}`).toBe(201);
+    const sourceId = created.json().id as string;
+
+    const run = await inject('POST', `/workspaces/${wsId}/databases/${dbId}/sources/${sourceId}/sync-now`);
+    expect(run.json()).toEqual(expect.objectContaining({ status: 'ok', fetched: 1, created: 1 }));
+
+    const records = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/records?limit=200`)).json().data;
+    expect(records).toHaveLength(1);
+    // The mapped source value landed on the record's own title, not nameless.
+    expect(records[0].title).toBe('Some Author');
+  });
+
   it('checkAndConsumeQuota: allows under budget, denies once it would exceed it', async () => {
     const { dbId, connectionId } = await setupDatabaseAndConnection('QuotaGuardUnit');
     void dbId;
