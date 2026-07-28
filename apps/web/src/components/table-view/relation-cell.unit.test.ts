@@ -147,6 +147,40 @@ describe('RelationChip/RelationChips/SelectedRelationChip forward color to DbCol
   });
 });
 
+describe('#126: relation chips/picker show the faint #id before the name', () => {
+  it('RelationChip renders a faint tabular #id immediately before the title', () => {
+    const markup = renderToStaticMarkup(createElement(RelationChip, { title: 'Analytics_v1', number: 23 }));
+    expect(markup).toContain('#23');
+    expect(markup).toContain('tabular-nums');
+    // #id comes before the name so records stay identifiable when titles collide.
+    expect(markup.indexOf('#23')).toBeLessThan(markup.indexOf('Analytics_v1'));
+  });
+
+  it('RelationChip omits the #id entirely when number is null/undefined', () => {
+    expect(renderToStaticMarkup(createElement(RelationChip, { title: 'No number', number: null }))).not.toContain('#');
+    expect(renderToStaticMarkup(createElement(RelationChip, { title: 'No number' }))).not.toContain('#');
+  });
+
+  it('RelationChips shows each chip its own #id', () => {
+    const chips = [
+      { id: 'rec-1', title: 'Alpha', number: 1 },
+      { id: 'rec-2', title: 'Beta', number: 2 },
+    ];
+    const markup = renderToStaticMarkup(createElement(RelationChips, { chips }));
+    expect(markup).toContain('#1');
+    expect(markup).toContain('#2');
+  });
+
+  it('SelectedRelationChip (picker selected row) renders the #id before the title', () => {
+    const chip = { id: 'rec-1', title: 'Analytics_v1', number: 23 };
+    const markup = renderToStaticMarkup(
+      createElement(SelectedRelationChip, { chip, ws: 'acme', targetDb: 'db-1', onRemove: () => {} }),
+    );
+    expect(markup).toContain('#23');
+    expect(markup.indexOf('#23')).toBeLessThan(markup.indexOf('Analytics_v1'));
+  });
+});
+
 describe('SelectedRelationChip (#293: the picker\'s "selected" row — the only place a × ever existed)', () => {
   const chip = { id: 'rec-1', title: 'Alpha', number: 1 };
 

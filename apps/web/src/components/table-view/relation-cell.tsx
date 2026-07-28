@@ -103,17 +103,27 @@ export function RelationChip({
   href,
   className,
   color,
+  number,
 }: {
   title: string;
   href?: string;
   className?: string;
   /** MN-299: target database color for the cylinder marker. */
   color?: string | null;
+  /** MN-126: public per-database #id, shown faint before the name so linked
+   * records stay identifiable when titles collide or are blank. */
+  number?: number | null;
 }) {
   const shared = cn(
     'inline-flex max-w-40 shrink-0 items-center gap-1 truncate rounded-[var(--radius-chip)] border-[1.4px] border-border-strong px-1.5 py-0.5 text-[13px] text-ink',
     className,
   );
+  // Same treatment as the record-page relation rows (#227): faint, tabular #id
+  // with a small right margin, rendered only when a number exists.
+  const idBadge =
+    number != null ? (
+      <span className="shrink-0 tabular-nums text-faint">#{number}</span>
+    ) : null;
   if (href) {
     return (
       <a
@@ -127,6 +137,7 @@ export function RelationChip({
         className={cn(shared, 'hover:border-border-strong hover:bg-hover hover:underline')}
       >
         <DbColorMarker color={color} />
+        {idBadge}
         <span className="truncate">{title || 'Untitled'}</span>
       </a>
     );
@@ -134,6 +145,7 @@ export function RelationChip({
   return (
     <span className={shared}>
       <DbColorMarker color={color} />
+      {idBadge}
       <span className="truncate">{title || 'Untitled'}</span>
     </span>
   );
@@ -167,6 +179,7 @@ export function RelationChips({
         <RelationChip
           key={chip.id}
           title={chip.title}
+          number={chip.number}
           href={ws && targetDb ? recordHref(ws, targetDb, chip) : undefined}
           color={color}
         />
@@ -214,7 +227,10 @@ export function SelectedRelationChip({
         className="flex max-w-40 items-center gap-1 truncate hover:underline"
       >
         <DbColorMarker color={color} />
-        {chip.title || 'Untitled'}
+        {chip.number != null && (
+          <span className="shrink-0 tabular-nums text-faint">#{chip.number}</span>
+        )}
+        <span className="truncate">{chip.title || 'Untitled'}</span>
       </a>
       <button
         onClick={(e) => {
@@ -267,7 +283,11 @@ export function RelationEditor({
         params: { path: { ws, db: targetDb }, query: { q: search || undefined, limit: 20 } },
       });
       if (error) throw error;
-      return (data as unknown as { data: Array<{ id: string; title: string }> }).data;
+      // MN-126: the records-list endpoint already returns each row's public
+      // `number` (records.service list projection), so no backend/SDK change is
+      // needed — just carry it through the (otherwise loose) response cast so
+      // picker rows and freshly-picked chips can show the faint #id.
+      return (data as unknown as { data: LinkChip[] }).data;
     },
   });
 
@@ -444,7 +464,12 @@ export function RelationEditor({
               onMouseEnter={() => setActive(idx)}
               onClick={() => pick(row)}
             >
-              <span className="truncate">{row.title || 'Untitled'}</span>
+              <span className="flex min-w-0 items-center gap-1">
+                {row.number != null && (
+                  <span className="shrink-0 tabular-nums text-faint">#{row.number}</span>
+                )}
+                <span className="truncate">{row.title || 'Untitled'}</span>
+              </span>
               {/* MN-292: mark the currently linked record(s) — previously only
                   the multi-select case showed anything, so a single-pick
                   relation field's picker never revealed its current value. */}
