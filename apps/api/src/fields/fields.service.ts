@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { CreatableFieldType, FilterNode, FormulaFieldInfo, FormulaType, SystemFieldType } from '@storyos/schemas';
-import { activeFilter, FormulaError, formulaRefs, parseFormula, SYSTEM_FIELDS, typecheck } from '@storyos/schemas';
+import { activeFilter, FormulaError, formulaRefs, parseFormula, SYSTEM_FIELDS, titleConfigSchema, typecheck } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { fields, records, relations, selectOptions } from '../db/schema';
@@ -484,17 +484,89 @@ export class FieldsService {
     if (patch.display_name !== undefined) {
       await this.assertUniqueDisplayName(databaseId, patch.display_name, fieldId);
     }
-    const restored = patch.config ? restoreFieldConfig(patch.config, field.config) : undefined;
+    // MN-130: the title field's config is a computed-name descriptor, not a merge
+    // target — `freetext` must fully clear a prior template, and `computed`
+    // compiles `source` into a fresh {ast, result_type}. Replace it wholesale
+    // (instead of the shallow merge the generic path does), and backfill every
+    // record's title when the resulting mode is `computed` (or the template
+    // changed) so existing rows aren't left on their old names.
+    let backfillTitles = false;
+    let nextConfig: object | undefined;
+    if (field.type === 'title' && patch.config !== undefined) {
+      nextConfig = await this.compileTitleConfig(databaseId, field, patch.config);
+      backfillTitles = (nextConfig as { name_mode?: string }).name_mode === 'computed';
+    } else {
+      const restored = patch.config ? restoreFieldConfig(patch.config, field.config) : undefined;
+      nextConfig = restored ? { ...(field.config as object), ...restored } : undefined;
+    }
     const [updated] = await this.db
       .update(fields)
       .set({
         displayName: patch.display_name,
-        config: restored ? { ...(field.config as object), ...restored } : undefined,
+        config: nextConfig,
         position: patch.position,
       })
       .where(eq(fields.id, fieldId))
       .returning();
+    // Best-effort/isolated (mirrors backfillFormulaField): a large-DB rename must
+    // never fail the config-save the caller is waiting on. Chunked internally.
+    if (backfillTitles) {
+      await this.recordsService.recomputeTitlesForAllRecords(databaseId).catch(() => undefined);
+    }
     return this.withOptions(this.db, updated!);
+  }
+
+  /**
+   * MN-130: validate + compile a title field's computed-name config. `freetext`
+   * stores the bare mode (clearing any prior template). `computed` compiles the
+   * `source` template through the SAME formula path formula fields use
+   * (compileFormulaConfig, passing the title's own api_name as `selfApiName` so a
+   * `{Name}` self-reference is rejected as a cycle), then restricts it to
+   * own-record references — a lookup/rollup/relation ref is a cross-record
+   * template, which is out of scope for v1 (#132).
+   */
+  private async compileTitleConfig(
+    databaseId: string,
+    field: Field,
+    config: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const parsed = titleConfigSchema.safeParse(config);
+    if (!parsed.success) {
+      throw new UnprocessableEntityException(`Title config error: ${parsed.error.issues[0]?.message}`);
+    }
+    if (parsed.data.name_mode !== 'computed') return { name_mode: 'freetext' };
+    const source = (parsed.data.source ?? '').trim();
+    if (!source) {
+      throw new UnprocessableEntityException('A computed name needs a template expression');
+    }
+    const compiled = await this.compileFormulaConfig(databaseId, { expression: source }, field.apiName);
+    await this.assertOwnRecordTitleRefs(databaseId, compiled.ast);
+    return {
+      name_mode: 'computed',
+      source: compiled.expression,
+      ast: compiled.ast,
+      result_type: compiled.result_type,
+    };
+  }
+
+  /** MN-130: a computed name may only reference this record's own fields. A
+   * lookup/rollup/relation ref reaches other records (its value isn't in hand at
+   * this record's own write time), so reject it — cross-record name templates
+   * are a separate ticket (#132). */
+  private async assertOwnRecordTitleRefs(databaseId: string, ast: unknown): Promise<void> {
+    const live = await this.db.query.fields.findMany({
+      where: and(eq(fields.databaseId, databaseId), isNull(fields.deletedAt)),
+    });
+    const byApi = new Map(live.map((f) => [f.apiName, f]));
+    const CROSS_RECORD = new Set(['lookup', 'rollup', 'relation']);
+    for (const ref of formulaRefs(ast as never)) {
+      const target = byApi.get(ref);
+      if (target && CROSS_RECORD.has(target.type)) {
+        throw new UnprocessableEntityException(
+          `A computed name can only reference this record's own fields — "${target.displayName}" is a ${target.type} field (cross-record references aren't supported yet)`,
+        );
+      }
+    }
   }
 
   /** Soft delete (B6). Title/system fields are protected; relation fields belong to MN-018. */
