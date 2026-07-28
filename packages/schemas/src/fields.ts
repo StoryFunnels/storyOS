@@ -269,6 +269,30 @@ export const rollupConfigSchema = z.object({
   filter: filterSchema.optional(),
 });
 
+/**
+ * Title / computed name (MN-130). The title field (`type: 'title'`) is never
+ * user-created — it's provisioned per database — so it isn't in
+ * `fieldConfigSchemas` (which is keyed by CreatableFieldType). Its config lives
+ * on the existing `fields.config` JSONB and controls how `records.title` is
+ * produced:
+ *  - `freetext` (default): the classic editable title, zero behavior change.
+ *  - `computed`: `source` is a formula template compiled at save into
+ *    `ast`/`result_type` (reusing the MN-129 formula path, with the title field's
+ *    own api_name guarded so a `{Name}` self-reference is rejected). The result
+ *    is materialized straight into `records.title` on every create/update, and
+ *    the title becomes read-only (direct writes are ignored). Own-record refs
+ *    only in v1 — cross-record templates are a separate ticket (#132).
+ */
+export const titleConfigSchema = z.object({
+  name_mode: z.enum(['freetext', 'computed']).default('freetext'),
+  /** The template expression the user typed, in `{Display Name}` form. */
+  source: z.string().trim().max(2000).optional(),
+  /** Compiled at save from `source` — never supplied by the client. */
+  ast: z.unknown().optional(),
+  result_type: z.enum(['text', 'number', 'checkbox', 'date']).optional(),
+});
+export type TitleConfig = z.infer<typeof titleConfigSchema>;
+
 export const emptyConfigSchema = z.object({});
 
 export const fieldConfigSchemas: Record<CreatableFieldType, z.ZodType> = {

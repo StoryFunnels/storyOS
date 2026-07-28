@@ -434,6 +434,116 @@ export class RecordsService {
   }
 
   /**
+   * MN-130: the title field iff it's in computed-name mode with a compiled
+   * template. When present, `records.title` is always derived (never the
+   * user-supplied title) — see computeTitle / the create+update write paths.
+   */
+  private computedTitleDef(defs: FieldDef[]): FieldDef | null {
+    const titleDef = defs.find((d) => d.type === 'title');
+    if (!titleDef) return null;
+    if ((titleDef.config['name_mode'] as string | undefined) !== 'computed') return null;
+    if (!titleDef.config['ast']) return null;
+    return titleDef;
+  }
+
+  /** Option-id → label map for a database's select fields (formula/title templates
+   *  compare against the visible LABEL, not the stored option id). */
+  private async loadSelectLabels(defs: FieldDef[]): Promise<Map<string, string>> {
+    const map = new Map<string, string>();
+    const selectDefs = defs.filter((d) => d.type === 'select');
+    if (selectDefs.length === 0) return map;
+    const options = await this.db.query.selectOptions.findMany({
+      where: inArray(selectOptions.fieldId, selectDefs.map((d) => d.id)),
+    });
+    for (const option of options) map.set(option.id, option.label);
+    return map;
+  }
+
+  /**
+   * MN-130: evaluate a computed-name template for one record and return the
+   * string to store in `records.title`. `valuesById` is the record's field-id-
+   * keyed `values` (the same shape materializeFormulas reads). `number` is the
+   * record's already-allocated public #id, so a `{Number}`/#id template resolves
+   * post-allocation. Never blank: an empty/whitespace result falls back to
+   * `#<number>` so a record is never nameless.
+   */
+  private computeTitle(
+    titleDef: FieldDef,
+    defs: FieldDef[],
+    valuesById: Record<string, unknown>,
+    number: number | null,
+    labelByOption: Map<string, string>,
+  ): string {
+    const bag: Record<string, unknown> = {};
+    for (const def of defs) {
+      if (def.type === 'title') {
+        bag[def.api_name] = null; // a {Name} self-ref is rejected at compile; never read here
+        continue;
+      }
+      // Cross-record fields (lookup/rollup/relation) are rejected at compile for
+      // computed names (#132), so only own-record scalars land in `values`.
+      let value: unknown = def.type === 'rollup' ? null : valuesById[def.id];
+      if (def.type === 'select' && typeof value === 'string') {
+        value = labelByOption.get(value) ?? value;
+      }
+      bag[def.api_name] = value ?? null;
+    }
+    bag.name = null;
+    bag.number = number ?? null;
+    bag.id = number ?? null;
+    let result: unknown;
+    try {
+      result = evaluateFormula(titleDef.config['ast'] as FormulaNode, bag);
+    } catch {
+      result = null;
+    }
+    const text = result == null ? '' : String(result).trim();
+    if (text.length > 0) return text;
+    return number != null ? `#${number}` : '';
+  }
+
+  /**
+   * MN-130: recompute every record's title for a database whose title field just
+   * switched to (or changed its) computed-name template. Chunked to bound memory
+   * on large databases; skips rows whose title is already correct. A no-op when
+   * the title field isn't in computed mode.
+   */
+  async recomputeTitlesForAllRecords(databaseId: string): Promise<void> {
+    const defs = await this.fieldDefs(databaseId);
+    const titleDef = this.computedTitleDef(defs);
+    if (!titleDef) return;
+    const labelByOption = await this.loadSelectLabels(defs);
+    const CHUNK = 500;
+    let cursor: string | null = null;
+    for (;;) {
+      const conditions = [eq(records.databaseId, databaseId), isNull(records.deletedAt)];
+      if (cursor) conditions.push(gt(records.id, cursor));
+      const chunk: RecordRow[] = await this.db.query.records.findMany({
+        where: and(...conditions),
+        orderBy: [asc(records.id)],
+        limit: CHUNK,
+      });
+      if (chunk.length === 0) break;
+      await this.db.transaction(async (tx) => {
+        for (const row of chunk) {
+          const title = this.computeTitle(
+            titleDef,
+            defs,
+            row.values as Record<string, unknown>,
+            row.number,
+            labelByOption,
+          );
+          if (title !== row.title) {
+            await tx.update(records).set({ title }).where(eq(records.id, row.id));
+          }
+        }
+      });
+      cursor = chunk[chunk.length - 1]!.id;
+      if (chunk.length < CHUNK) break;
+    }
+  }
+
+  /**
    * MN-267: the cross-record half of rollup materialization. `attachRollups()`
    * (above) is read-time only — this is the genuinely new piece: given a
    * database, ONE of its relation fields, and a bounded set of record ids on
@@ -1185,6 +1295,13 @@ export class RecordsService {
     );
     const positions = await keysAfter(await this.lastPosition(databaseId), inputs.length);
 
+    // MN-130: when the title is a computed name, it's derived from each record's
+    // own values + its public #id — never the caller-supplied title. Prepared
+    // here so the compute inside the transaction (post-number-allocation) is
+    // synchronous; a no-op (null) leaves the classic freetext title untouched.
+    const titleDef = this.computedTitleDef(defs);
+    const labelByOption = titleDef ? await this.loadSelectLabels(defs) : new Map<string, string>();
+
     // MN-267: keyed by record index — writeLinks() runs inside the transaction below
     // and reports which other-side records may need a rollup recompute; carried out
     // to the record_created emit after commit, same pattern update() uses.
@@ -1205,15 +1322,23 @@ export class RecordsService {
       const inserted = await tx
         .insert(records)
         .values(
-          validated.map((v, i) => ({
-            databaseId,
-            number: firstNumber + i,
-            title: v.title ?? '',
-            values: stripNulls(v.values),
-            position: positions[i]!,
-            createdBy: actorId,
-            updatedBy: actorId,
-          })),
+          validated.map((v, i) => {
+            const values = stripNulls(v.values);
+            // #id-post-allocation: firstNumber+i is this record's public number,
+            // already allocated above, so a `{Number}`/#id template resolves.
+            const title = titleDef
+              ? this.computeTitle(titleDef, defs, values, firstNumber + i, labelByOption)
+              : v.title ?? '';
+            return {
+              databaseId,
+              number: firstNumber + i,
+              title,
+              values,
+              position: positions[i]!,
+              createdBy: actorId,
+              updatedBy: actorId,
+            };
+          }),
         )
         .returning();
       await tx.insert(activityEvents).values(
@@ -1316,8 +1441,23 @@ export class RecordsService {
       if (value === null) delete merged[fieldId];
       else merged[fieldId] = value;
     }
-    if (validated.title !== undefined && validated.title !== row.title) {
-      diff['title'] = { from: row.title, to: validated.title };
+    // MN-130: a computed name is read-only — a direct title write is ignored,
+    // and the title is re-derived from the (now merged) values whenever a
+    // referenced field changed. When there's no value diff, no referenced field
+    // moved, so the title can't have changed either (skip the recompute).
+    const titleDef = this.computedTitleDef(defs);
+    let nextTitle = row.title;
+    if (titleDef) {
+      if (Object.keys(diff).length > 0) {
+        const labelByOption = await this.loadSelectLabels(defs);
+        nextTitle = this.computeTitle(titleDef, defs, merged, row.number, labelByOption);
+        if (nextTitle !== row.title) diff['title'] = { from: row.title, to: nextTitle };
+      }
+    } else {
+      nextTitle = validated.title ?? row.title;
+      if (validated.title !== undefined && validated.title !== row.title) {
+        diff['title'] = { from: row.title, to: validated.title };
+      }
     }
 
     // A relation-only update has no value diff, but is still a real change.
@@ -1335,7 +1475,7 @@ export class RecordsService {
     const updated = await this.db.transaction(async (tx) => {
       const [next] = await tx
         .update(records)
-        .set({ values: merged, title: validated.title ?? row.title, updatedBy: actorId })
+        .set({ values: merged, title: nextTitle, updatedBy: actorId })
         .where(eq(records.id, recordId))
         .returning();
       if (Object.keys(diff).length > 0) {
@@ -1509,6 +1649,14 @@ export class RecordsService {
     const defs = await this.fieldDefs(databaseId);
     const row = await this.getRow(databaseId, recordId);
     const target = { values: version.values as Record<string, unknown>, title: version.title };
+    // MN-130: a computed name is always derived — restore the snapshot's values,
+    // but re-derive the title from them rather than trusting the snapshot's
+    // (possibly pre-computed-mode) stored title.
+    const titleDef = this.computedTitleDef(defs);
+    if (titleDef) {
+      const labelByOption = await this.loadSelectLabels(defs);
+      target.title = this.computeTitle(titleDef, defs, target.values, row.number, labelByOption);
+    }
     const diff = diffSnapshots({ values: row.values as Record<string, unknown>, title: row.title }, target);
 
     if (Object.keys(diff).length === 0) return this.project(row, defs);
