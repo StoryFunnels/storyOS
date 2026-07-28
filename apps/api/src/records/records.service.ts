@@ -294,12 +294,23 @@ export class RecordsService {
     for (const record of projected) {
       const bag: Record<string, unknown> = { name: record.title };
       for (const def of defs) {
+        // MN-129: the title lives in a column, not `values` — feed it under its own
+        // api_name so name templates (`{Name}`, #130) resolve instead of clobbering
+        // to null. Same for the #id below.
+        if (def.type === 'title') {
+          bag[def.api_name] = record.title ?? null;
+          continue;
+        }
         let value = record.values[def.api_name];
         if (def.type === 'select' && typeof value === 'string') {
           value = labelByOption.get(value) ?? value;
         }
         bag[def.api_name] = value ?? null;
       }
+      // MN-129: the record's public #id lives in a column, not `values` — surface
+      // it under both system handles so `{Number}`/`{ID}` resolve in formulas.
+      bag.number = record.number ?? null;
+      bag.id = record.number ?? null;
       for (const def of ordered) {
         try {
           const result = evaluateFormula(def.config['ast'] as FormulaNode, bag);
@@ -359,12 +370,19 @@ export class RecordsService {
         const computed = row.computedValues as Record<string, unknown>;
         const bag: Record<string, unknown> = { name: row.title };
         for (const def of defs) {
+          if (def.type === 'title') {
+            bag[def.api_name] = row.title ?? null; // MN-129: title from its column, not `values`
+            continue;
+          }
           let value: unknown = def.type === 'rollup' ? computed[def.id] : stored[def.id];
           if (def.type === 'select' && typeof value === 'string') {
             value = labelByOption.get(value) ?? value;
           }
           bag[def.api_name] = value ?? null;
         }
+        // MN-129: same as attachFormulas — the #id column feeds `{Number}`/`{ID}`.
+        bag.number = row.number ?? null;
+        bag.id = row.number ?? null;
         const patch: Record<string, unknown> = {};
         for (const def of ordered) {
           try {
