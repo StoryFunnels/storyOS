@@ -87,7 +87,9 @@ function optionId(field: FieldDetail, label: string): string {
 async function listDatabases(wsId: string): Promise<Array<{ id: string; name: string }>> {
   const res = await as(admin.token, 'GET', `/workspaces/${wsId}/databases`);
   expect(res.statusCode, res.body).toBe(200);
-  return res.json();
+  // #128: every workspace now auto-provisions the "Members" system database.
+  // These pack tests reason only about user/pack databases, so exclude it.
+  return (res.json() as Array<{ id: string; name: string }>).filter((d) => d.name !== 'Members');
 }
 
 async function dbNamed(wsId: string, name: string): Promise<{ id: string; name: string }> {

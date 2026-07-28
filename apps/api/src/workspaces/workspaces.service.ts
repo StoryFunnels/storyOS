@@ -5,6 +5,7 @@ import type { Db } from '../db/client';
 import { memberships, spaces, workspaces } from '../db/schema';
 import { redactSecrets } from '../common/redact-secrets';
 import { EntitlementsService } from '../billing/entitlements.service';
+import { MembershipEventsService } from '../events/membership-events.service';
 
 /** Strip integration secrets from `settings` before a workspace leaves the API (MN-144). */
 function serialize<T extends { settings?: unknown }>(w: T): T {
@@ -16,6 +17,7 @@ export class WorkspacesService {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly entitlements: EntitlementsService,
+    private readonly membershipEvents: MembershipEventsService,
   ) {}
 
   private async uniqueSlug(base: string): Promise<string> {
@@ -48,17 +50,25 @@ export class WorkspacesService {
       );
     }
     const slug = input.slug ?? (await this.uniqueSlug(input.name));
-    return this.db.transaction(async (tx) => {
-      const [ws] = await tx
+    const ws = await this.db.transaction(async (tx) => {
+      const [created] = await tx
         .insert(workspaces)
         .values({ name: input.name, slug })
         .returning();
-      await tx.insert(spaces).values({ workspaceId: ws!.id, name: 'General', slug: 'general', position: 0 });
+      await tx.insert(spaces).values({ workspaceId: created!.id, name: 'General', slug: 'general', position: 0 });
       await tx
         .insert(memberships)
-        .values({ workspaceId: ws!.id, userId, role: 'admin', status: 'active' });
-      return serialize(ws!);
+        .values({ workspaceId: created!.id, userId, role: 'admin', status: 'active' });
+      return created!;
     });
+
+    // #128: the owner's first membership provisions the Members system database
+    // and projects their row. Emitted after commit (like the domain-event bus),
+    // and isolated inside the bus — a projection hiccup never fails workspace
+    // creation, which is the source of truth the projection catches up to.
+    this.membershipEvents.emit({ type: 'membership_changed', workspaceId: ws.id, userId });
+
+    return serialize(ws);
   }
 
   /**

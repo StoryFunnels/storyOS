@@ -49,6 +49,7 @@ import { DocsController } from './docs/docs.controller';
 import { HealthController } from './health/health.controller';
 import { MailModule } from './mail/mail.module';
 import { WorkspacesModule } from './workspaces/workspaces.module';
+import { MembersDbModule } from './members/members-db.module';
 import { CalendarSyncModule } from './calendar-sync/calendar-sync.module';
 import { DeploymentModule } from './deployment/deployment.module';
 
@@ -89,6 +90,7 @@ import { DeploymentModule } from './deployment/deployment.module';
     MailModule,
     AuthModule,
     WorkspacesModule,
+    MembersDbModule,
     DatabasesModule,
     FieldsModule,
     RecordsModule,

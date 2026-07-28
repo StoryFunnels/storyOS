@@ -1,10 +1,16 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, isNull, notInArray, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { billingSubscriptions, databases, records, user, workspaces } from '../db/schema';
 import { AccessService } from '../access/access.service';
+import { SYSTEM_DATABASE_NAMES } from '../common/system-databases';
 import { PLANS, seatOverage, SEAT_PRICE_USD, type PlanId } from '../billing/plans';
+
+/** Exclude system-database records (Members, the Agentic OS pack) from operator
+ *  record metrics — they are auto-provisioned projections, not user content.
+ *  Case-insensitive: names are stored in display case. */
+const NOT_SYSTEM_DATABASE = notInArray(sql`lower(${databases.name})`, [...SYSTEM_DATABASE_NAMES]);
 
 export interface AdminOverview {
   totalWorkspaces: number;
@@ -46,7 +52,7 @@ export class AdminOverviewService {
       .select({ workspaceId: databases.workspaceId, count: sql<number>`count(*)::int` })
       .from(records)
       .innerJoin(databases, eq(records.databaseId, databases.id))
-      .where(isNull(records.deletedAt))
+      .where(and(isNull(records.deletedAt), NOT_SYSTEM_DATABASE))
       .groupBy(databases.workspaceId);
     return new Map(rows.map((r) => [r.workspaceId, r.count]));
   }
@@ -66,7 +72,8 @@ export class AdminOverviewService {
       this.db
         .select({ count: sql<number>`count(*)::int` })
         .from(records)
-        .where(isNull(records.deletedAt)),
+        .innerJoin(databases, eq(records.databaseId, databases.id))
+        .where(and(isNull(records.deletedAt), NOT_SYSTEM_DATABASE)),
       this.planByWorkspace(),
     ]);
     const totalWorkspaces = workspaceCountRows[0]?.count ?? 0;

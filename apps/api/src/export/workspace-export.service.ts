@@ -16,6 +16,7 @@ import {
   workspaces,
 } from '../db/schema';
 import { getStorage } from '../attachments/storage';
+import { isSystemDatabaseName } from '../common/system-databases';
 
 /**
  * The format version this exporter writes. A future importer keys off this so an
@@ -73,10 +74,16 @@ export class WorkspaceExportService {
       where: eq(spaces.workspaceId, workspaceId),
       orderBy: [asc(spaces.position), asc(spaces.id)],
     });
-    const databaseRows = await this.db.query.databases.findMany({
-      where: eq(databases.workspaceId, workspaceId),
-      orderBy: [asc(databases.position), asc(databases.id)],
-    });
+    const databaseRows = (
+      await this.db.query.databases.findMany({
+        where: eq(databases.workspaceId, workspaceId),
+        orderBy: [asc(databases.position), asc(databases.id)],
+      })
+      // #128: system databases (Members, the Agentic OS pack) are regenerable
+      // projections provisioned per workspace, not user content — exporting a
+      // stale membership mirror into a fresh workspace on import would be wrong.
+      // Excluded here so the archive is the owner's actual data.
+    ).filter((d) => !isSystemDatabaseName(d.name));
     const relationRows = await this.db.query.relations.findMany({
       where: eq(relations.workspaceId, workspaceId),
     });

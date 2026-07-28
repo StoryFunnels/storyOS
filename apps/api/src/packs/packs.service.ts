@@ -35,6 +35,7 @@ import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { packInstallItems, packInstalls, workspaces } from '../db/schema';
 import { redactSecrets } from '../common/redact-secrets';
+import { SYSTEM_DATABASE_NAMES } from '../common/system-databases';
 import { AgentsService } from '../agents/agents.service';
 import { ArchitectService } from '../agents/architect.service';
 import { AutomationsService } from '../automations/automations.service';
@@ -54,8 +55,9 @@ const MAX_SCAN = 200;
 
 const norm = (s: string) => s.trim().toLowerCase();
 
-/** The Agentic OS system databases — provisioned by `ensurePack`, never exported. */
-const SYSTEM_DBS = new Set(['agents', 'runs', 'agent triggers']);
+/** The system databases — provisioned by their owning service (Agentic OS pack
+ *  via `ensurePack`, Members via `MembersDbService`), never exported. */
+const SYSTEM_DBS = new Set<string>(SYSTEM_DATABASE_NAMES);
 
 /**
  * Field types whose values are portable between workspaces.
