@@ -761,6 +761,7 @@ export function PressButton({
   onPressed?: () => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const qc = useQueryClient();
   const confirm = useConfirm();
   const color = OPTION_COLORS[(field.config['color'] as string) ?? 'gold'] ?? OPTION_COLORS.gold!;
   const confirmText = field.config['confirm'] as string | undefined;
@@ -781,6 +782,18 @@ export function PressButton({
     }
     const effects = (data as unknown as { effects: Array<{ summary: string }> }).effects;
     toast.success(`${field.displayName}: ${effects.map((f) => f.summary).join(' · ')}`);
+    // MN-101: a "set field value" button mutates this record server-side, but
+    // (unlike inline cell edits) does so without patching any client cache — so
+    // every view rendering the target field showed the stale value until a
+    // manual refresh. Invalidate the same key set the relation-create fix
+    // (MN-310) uses so table rows, the record-detail projections, collections
+    // and the activity feed all refetch. Fired here (not left to onPressed) so
+    // the refresh happens wherever a button is pressed — table cell or the
+    // right-hand record panel — without every call site re-wiring it.
+    void qc.invalidateQueries({ queryKey: ['records', ws, db] });
+    void qc.invalidateQueries({ queryKey: ['record', ws, db] });
+    void qc.invalidateQueries({ queryKey: ['collection', ws] });
+    void qc.invalidateQueries({ queryKey: ['activity', ws, db] });
     onPressed?.();
   }
 
