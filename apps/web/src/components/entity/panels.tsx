@@ -591,39 +591,40 @@ export function AttachmentsStrip({
       </div>
       <div className="flex flex-wrap gap-2">
         {(attachments.data ?? []).map((att) => (
-          <div
-            key={att.id}
-            className="group flex w-36 flex-col rounded-[var(--radius-control)] border border-border-default bg-card p-2"
-          >
-            {att.has_thumbnail ? (
-              <img
-                src={`${base}/${att.id}/thumbnail`}
-                alt={att.filename}
-                className="mb-1 h-20 w-full rounded object-cover"
-              />
-            ) : (
-              <div className="mb-1 flex h-20 items-center justify-center rounded bg-hover text-[11px] uppercase text-faint">
-                {att.filename.split('.').pop()}
-              </div>
-            )}
+          <div key={att.id} className="group relative w-36">
             <a
               href={`${base}/${att.id}/download`}
-              className="truncate text-[12px] text-ink hover:underline"
               title={att.filename}
+              className="flex w-36 cursor-pointer flex-col rounded-[var(--radius-control)] border border-border-default bg-card p-2 transition-colors hover:border-info hover:bg-hover"
             >
-              {att.filename}
-            </a>
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] text-faint">{(att.size / 1024).toFixed(0)} KB</span>
-              {!readOnly && (
-                <button
-                  className="text-faint opacity-0 hover:text-error group-hover:opacity-100"
-                  onClick={() => remove.mutate(att.id)}
-                >
-                  <Trash2 className="h-3 w-3" />
-                </button>
+              {att.has_thumbnail ? (
+                <img
+                  src={`${base}/${att.id}/thumbnail`}
+                  alt={att.filename}
+                  className="mb-1 h-20 w-full rounded object-cover"
+                />
+              ) : (
+                <div className="mb-1 flex h-20 items-center justify-center rounded bg-hover text-[11px] uppercase text-faint">
+                  {att.filename.split('.').pop()}
+                </div>
               )}
-            </div>
+              <span className="truncate text-[12px] text-ink">{att.filename}</span>
+              <span className="text-[11px] text-faint">{(att.size / 1024).toFixed(0)} KB</span>
+            </a>
+            {!readOnly && (
+              <button
+                type="button"
+                aria-label="Delete attachment"
+                className="absolute right-1 top-1 rounded bg-card/80 p-0.5 text-faint opacity-0 hover:text-error group-hover:opacity-100"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  remove.mutate(att.id);
+                }}
+              >
+                <Trash2 className="h-3 w-3" />
+              </button>
+            )}
           </div>
         ))}
         {(attachments.data ?? []).length === 0 && (
