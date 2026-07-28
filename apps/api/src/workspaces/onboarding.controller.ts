@@ -14,6 +14,7 @@ import {
   views,
   workspaces,
 } from '../db/schema';
+import { SYSTEM_DATABASE_NAMES } from '../common/system-databases';
 import { AuthGuard } from '../auth/auth.guard';
 import { WorkspaceAccessGuard } from './workspace-access.guard';
 import type { WorkspaceRequest } from './workspace-access.guard';
@@ -45,6 +46,12 @@ export class OnboardingController {
     const sampleIds =
       ((ws?.settings ?? {}) as { sample_record_ids?: string[] }).sample_record_ids ?? [];
 
+    // #128: system databases (Members, and the Agentic OS pack) are provisioned
+    // FOR the user, not BY them — they must not light up "create a database" or
+    // "add a record" on an otherwise-empty workspace. Filtered case-insensitively
+    // (names are stored in display case; SYSTEM_DATABASE_NAMES are lowercased).
+    const notSystemDatabase = notInArray(sql`lower(${databases.name})`, [...SYSTEM_DATABASE_NAMES]);
+
     const [
       database_created,
       records_added,
@@ -55,7 +62,11 @@ export class OnboardingController {
       business_pack_installed,
     ] = await Promise.all([
         this.exists(
-          this.db.select({ one: sql`1` }).from(databases).where(eq(databases.workspaceId, workspaceId)).limit(1),
+          this.db
+            .select({ one: sql`1` })
+            .from(databases)
+            .where(and(eq(databases.workspaceId, workspaceId), notSystemDatabase))
+            .limit(1),
         ),
         this.exists(
           this.db
@@ -65,6 +76,7 @@ export class OnboardingController {
             .where(
               and(
                 eq(databases.workspaceId, workspaceId),
+                notSystemDatabase,
                 isNull(records.deletedAt),
                 ...(sampleIds.length ? [notInArray(records.id, sampleIds)] : []),
               ),

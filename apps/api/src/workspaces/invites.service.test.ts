@@ -4,7 +4,12 @@ import type { AccessService } from '../access/access.service';
 import type { BillingService } from '../billing/billing.service';
 import type { EntitlementsService } from '../billing/entitlements.service';
 import type { EmailService } from '../mail/email.service';
+import type { MembershipEventsService } from '../events/membership-events.service';
 import { InvitesService } from './invites.service';
+
+/** InvitesService.create() never emits (only accept() does), but the constructor
+ *  requires the membership-event bus — a no-op stub satisfies both call sites. */
+const membershipEvents = { emit: () => undefined } as unknown as MembershipEventsService;
 
 /** A db stub covering exactly the calls InvitesService.create() makes: the
  * "is there already a pending invite for this address" lookup, then either an
@@ -41,6 +46,7 @@ describe('InvitesService.create — the invite email send point (MN-103)', () =>
       {} as unknown as BillingService,
       entitlements,
       emailService,
+      membershipEvents,
     );
 
     const result = await service.create('ws1', 'admin1', { email: 'New@Example.com', role: 'member' });
@@ -66,6 +72,7 @@ describe('InvitesService.create — the invite email send point (MN-103)', () =>
       {} as unknown as BillingService,
       entitlements,
       emailService,
+      membershipEvents,
     );
 
     await expect(

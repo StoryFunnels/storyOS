@@ -20,6 +20,7 @@ import type { AuthedUser } from '../auth/auth.guard';
 import type { MembershipRole } from '@storyos/schemas';
 import { BillingService } from '../billing/billing.service';
 import { EntitlementsService } from '../billing/entitlements.service';
+import { MembershipEventsService } from '../events/membership-events.service';
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -40,6 +41,7 @@ export class InvitesService {
     private readonly billing: BillingService,
     private readonly entitlements: EntitlementsService,
     private readonly emailService: EmailService,
+    private readonly membershipEvents: MembershipEventsService,
   ) {}
 
   async create(
@@ -176,6 +178,16 @@ export class InvitesService {
     // the seat exists either way; a missed sync is a billing gap to notice
     // and retry, not a reason to leave someone unable to join.
     await this.billing.syncSeatQuantity(invite.workspaceId).catch(() => undefined);
+
+    // #128: a joined member/guest projects into the Members system database.
+    // Emitted after the membership is committed and isolated inside the bus, so
+    // it never blocks or fails the accept — the membership is the source of
+    // truth either way (same reasoning as the billing sync above).
+    this.membershipEvents.emit({
+      type: 'membership_changed',
+      workspaceId: membership.workspaceId,
+      userId: user.id,
+    });
 
     return { workspace_id: membership.workspaceId, role: membership.role };
   }

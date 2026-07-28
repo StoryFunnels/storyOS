@@ -13,6 +13,7 @@ import { memberships, user } from '../db/schema';
 import type { MembershipRole } from '@storyos/schemas';
 import { BillingService } from '../billing/billing.service';
 import { EntitlementsService } from '../billing/entitlements.service';
+import { MembershipEventsService } from '../events/membership-events.service';
 
 /** admin/member are always billable; guest never is via role alone (grants decide — MN-121). */
 const BILLABLE_ROLES: MembershipRole[] = ['admin', 'member'];
@@ -23,6 +24,7 @@ export class MembersService {
     @Inject(DB) private readonly db: Db,
     private readonly billing: BillingService,
     private readonly entitlements: EntitlementsService,
+    private readonly membershipEvents: MembershipEventsService,
   ) {}
 
   async list(workspaceId: string) {
@@ -98,6 +100,13 @@ export class MembersService {
 
     if (patch.role && patch.role !== target.role) {
       await this.billing.syncSeatQuantity(workspaceId).catch(() => undefined);
+      // #128: a role change re-projects the Member's row (new Role, still
+      // active). No-op for the projection when the role didn't actually change.
+      this.membershipEvents.emit({
+        type: 'membership_changed',
+        workspaceId,
+        userId: target.userId,
+      });
     }
     return updated!;
   }
@@ -113,6 +122,15 @@ export class MembersService {
     if (BILLABLE_ROLES.includes(target.role)) {
       await this.billing.syncSeatQuantity(workspaceId).catch(() => undefined);
     }
+
+    // #128: removal TOMBSTONES the Member row (marks it inactive), it does not
+    // delete it — records assigned to this person must keep a resolvable Member.
+    this.membershipEvents.emit({
+      type: 'membership_removed',
+      workspaceId,
+      userId: target.userId,
+    });
+
     return { deleted: true };
   }
 }
