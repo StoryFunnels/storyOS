@@ -5533,6 +5533,54 @@
         ]
       }
     },
+    "/api/v1/providers/shopify/webhook/{connectionId}": {
+      "post": {
+        "operationId": "ShopifyWebhookController_receive",
+        "parameters": [
+          {
+            "name": "connectionId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-shopify-hmac-sha256",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-shopify-topic",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-shopify-shop-domain",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Shopify product/collection webhook for one connection — HMAC-verified, unauthenticated by design",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/connections": {
       "get": {
         "operationId": "ConnectionsController_list",

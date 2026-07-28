@@ -589,6 +589,55 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * #24 — the webhook ingress reuse point. A verified inbound webhook
+   * (integrations/shopify-webhook.controller.ts) upserts through the SAME
+   * idempotent, GID-keyed engine the scheduler drives (`upsertBatch`), so a
+   * real-time push and a scheduled tick for the same object converge to one
+   * record instead of forking a second write path.
+   *
+   * Routes to the source(s) for `providerSource` attached to `connectionId` in
+   * this workspace (a connection's own catalogue — not another store's), and
+   * no-ops when none is attached (e.g. a product push carrying variants when no
+   * `shopify.variants` source exists). `items` are already in the provider
+   * mapper's emit shape. The subscriber that materializes relations fires off
+   * the `record_created`/`record_updated` these writes emit, exactly as it does
+   * for a scheduled sync. Returns aggregate {matched, created, updated}.
+   */
+  async ingestExternalItems(
+    workspaceId: string,
+    connectionId: string,
+    providerSource: string,
+    items: Array<Record<string, unknown>>,
+  ): Promise<{ matched: boolean; created: number; updated: number }> {
+    if (items.length === 0) return { matched: false, created: 0, updated: 0 };
+    const rows = await this.db.query.sources.findMany({
+      where: and(
+        eq(sources.workspaceId, workspaceId),
+        eq(sources.connectionId, connectionId),
+        eq(sources.providerSource, providerSource),
+      ),
+    });
+    if (rows.length === 0) return { matched: false, created: 0, updated: 0 };
+
+    const stats = { created: 0, updated: 0 };
+    for (const source of rows) {
+      const defs = await this.recordsService.fieldDefs(source.targetDatabaseId);
+      const apiNameByFieldId = new Map(defs.map((d) => [d.id, d.api_name]));
+      await this.upsertBatch(
+        source.workspaceId,
+        source.targetDatabaseId,
+        source.fieldMapping as Record<string, string>,
+        source.externalKeyFieldId,
+        apiNameByFieldId,
+        source.createdBy ?? 'shopify-webhook',
+        items,
+        stats,
+      );
+    }
+    return { matched: true, ...stats };
+  }
+
+  /**
    * The upsert engine (#239's correctness invariant): looks up existing
    * records by the external key, then CREATEs new ones or UPDATEs only the
    * mapped field_ids — never anything else. RecordsService.update() already
