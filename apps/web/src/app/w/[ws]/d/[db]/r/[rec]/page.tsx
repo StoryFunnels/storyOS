@@ -1,8 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
@@ -10,9 +11,11 @@ import {
   SortableContext,
   arrayMove,
   horizontalListSortingStrategy,
+  useSortable,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
-import { ArrowLeft, ChevronDown, ChevronRight } from 'lucide-react';
+import { CSS } from '@dnd-kit/utilities';
+import { ArrowLeft, ChevronDown, ChevronRight, GripVertical, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/auth-client';
 import { useWorkspace } from '@/lib/queries';
@@ -46,6 +49,7 @@ import type { RecordRow } from '@/components/table-view/use-table-data';
 
 export default function EntityPage() {
   const { ws, db, rec } = useParams<{ ws: string; db: string; rec: string }>();
+  const router = useRouter();
   const workspace = useWorkspace(ws);
   const database = useDatabase(ws, db);
   const { data: session } = useSession();
@@ -189,6 +193,20 @@ export default function EntityPage() {
             canCreate={schemaEditable}
             isAdmin={workspace.data?.role === 'admin'}
           />
+          <button
+            type="button"
+            title="Close"
+            aria-label="Close"
+            className="inline-flex h-7 w-7 items-center justify-center rounded text-muted hover:bg-hover hover:text-ink"
+            onClick={() => {
+              // Return to wherever they came from; fall back to the database view
+              // for deep links / fresh tabs with no in-app history.
+              if (typeof window !== 'undefined' && window.history.length > 1) router.back();
+              else router.push(`/w/${ws}/d/${db}`);
+            }}
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
       </div>
 
@@ -226,26 +244,44 @@ export default function EntityPage() {
             </DndContext>
           )}
 
-          {/* Body fields: collections (lists), scalars-in-body, rich text — in order */}
-          {bodyFields.map((field) =>
-            field.type === 'rich_text' ? (
-              <RichTextFieldSection
-                key={field.id}
-                ws={ws}
-                db={db}
-                field={field}
-                value={record.data.values[field.apiName]}
-                readOnly={readOnly}
-                schemaEditable={schemaEditable}
-                onToggleZone={toggleZone}
-                onCommit={(value) => updateRecord.mutate({ rec: recordId, values: { [field.apiName]: value } })}
-              />
-            ) : field.type === 'relation' ? (
-              <CollectionSection key={field.id} field={field} {...vp} />
-            ) : (
-              <BodyScalar key={field.id} field={field} {...vp} />
-            ),
-          )}
+          {/* Body fields: collections (lists), scalars-in-body, rich text — in order.
+              All are drag-reorderable via a hover-revealed handle EXCEPT rich-text
+              sections, which stay put (founder's call): scalar/collection fields
+              reorder around the fixed rich-text blocks. Every field is in the
+              SortableContext, but rich-text rows are marked non-sortable so they
+              are neither draggable nor a drop target. */}
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={(e) => reorderWithin(bodyFields, e)}
+          >
+            <SortableContext items={bodyFields.map((f) => f.id)} strategy={verticalListSortingStrategy}>
+              {bodyFields.map((field) =>
+                field.type === 'rich_text' ? (
+                  <BodyRow key={field.id} field={field} draggable={false}>
+                    <RichTextFieldSection
+                      ws={ws}
+                      db={db}
+                      field={field}
+                      value={record.data.values[field.apiName]}
+                      readOnly={readOnly}
+                      schemaEditable={schemaEditable}
+                      onToggleZone={toggleZone}
+                      onCommit={(value) => updateRecord.mutate({ rec: recordId, values: { [field.apiName]: value } })}
+                    />
+                  </BodyRow>
+                ) : field.type === 'relation' ? (
+                  <BodyRow key={field.id} field={field} draggable={schemaEditable}>
+                    <CollectionSection field={field} {...vp} />
+                  </BodyRow>
+                ) : (
+                  <BodyRow key={field.id} field={field} draggable={schemaEditable}>
+                    <BodyScalar field={field} {...vp} />
+                  </BodyRow>
+                ),
+              )}
+            </SortableContext>
+          </DndContext>
 
           <h2 className="mb-2 text-[12px] font-medium uppercase tracking-wider text-faint">Description</h2>
           <DescriptionEditor ws={ws} db={db} rec={recordId} readOnly={readOnly} />
@@ -337,6 +373,49 @@ export default function EntityPage() {
           </div>
         </aside>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Sortable wrapper for a body field. Reorder is driven by a hover-revealed grab
+ * handle only (never the row body) so field content/editing is never disturbed.
+ * `draggable={false}` (rich-text sections) marks the row non-sortable — no handle,
+ * and it is neither draggable nor a drop target, so other rows reorder around it.
+ */
+function BodyRow({
+  field,
+  draggable,
+  children,
+}: {
+  field: Field;
+  draggable: boolean;
+  children: ReactNode;
+}) {
+  const sortable = useSortable({ id: field.id, disabled: !draggable });
+  const style = {
+    transform: CSS.Transform.toString(sortable.transform),
+    transition: sortable.transition,
+  };
+  return (
+    <div
+      ref={sortable.setNodeRef}
+      style={style}
+      className={cn('group/bodyrow relative', sortable.isDragging && 'z-10 opacity-80')}
+    >
+      {draggable && (
+        <button
+          type="button"
+          aria-label="Drag to reorder"
+          className="absolute -left-5 top-1 hidden cursor-grab touch-none text-faint hover:text-muted group-hover/bodyrow:block sm:-left-6"
+          {...sortable.attributes}
+          {...sortable.listeners}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <GripVertical className="h-4 w-4" />
+        </button>
+      )}
+      {children}
     </div>
   );
 }

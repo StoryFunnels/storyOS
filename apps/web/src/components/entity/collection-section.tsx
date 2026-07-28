@@ -254,6 +254,9 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
                         field value, not the target database's color. */}
                     <DbColorMarker color={targetDb.data?.color} />
                     {color && <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />}
+                    {row.number != null && (
+                      <span className="mr-1 shrink-0 tabular-nums text-faint">#{row.number}</span>
+                    )}
                     <span className="min-w-0 flex-1 truncate">{row.title || 'Untitled'}</span>
                   </Link>
                   {columns.map((col) => {
