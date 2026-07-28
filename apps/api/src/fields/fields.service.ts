@@ -7,8 +7,8 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
-import type { CreatableFieldType, FilterNode, FormulaFieldInfo } from '@storyos/schemas';
-import { activeFilter, FormulaError, formulaRefs, parseFormula, typecheck } from '@storyos/schemas';
+import type { CreatableFieldType, FilterNode, FormulaFieldInfo, FormulaType, SystemFieldType } from '@storyos/schemas';
+import { activeFilter, FormulaError, formulaRefs, parseFormula, SYSTEM_FIELDS, typecheck } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { fields, records, relations, selectOptions } from '../db/schema';
@@ -141,13 +141,15 @@ export class FieldsService {
     await this.assertUniqueDisplayName(databaseId, input.display_name);
     if (input.type === 'lookup') await this.assertLookupConfig(databaseId, input.config ?? {});
     if (input.type === 'rollup') await this.assertRollupConfig(databaseId, input.config ?? {});
+    // MN-129: resolve the api_name before compiling, so a formula field can be
+    // guarded against referencing its own (about-to-exist) field.
+    const apiName = await this.uniqueApiName(databaseId, input.display_name);
     if (input.type === 'formula') {
-      input.config = await this.compileFormulaConfig(databaseId, input.config ?? {});
+      input.config = await this.compileFormulaConfig(databaseId, input.config ?? {}, apiName);
     }
     // No prior config to preserve against on create — this only strips any stray
     // presence flags so a `{ __keep: true }` never lands in storage (#249).
     const config = restoreFieldConfig(input.config ?? {}, {});
-    const apiName = await this.uniqueApiName(databaseId, input.display_name);
     const siblings = await this.db.query.fields.findMany({
       where: and(eq(fields.databaseId, databaseId), eq(fields.isSystem, false)),
       columns: { position: true },
@@ -215,8 +217,10 @@ export class FieldsService {
   }
 
   /** Field types a formula may reference, mapped to formula types. */
-  static formulaTypeOf(type: string): 'text' | 'number' | 'checkbox' | 'date' | null {
-    if (type === 'number' || type === 'rollup') return 'number';
+  static formulaTypeOf(type: string): FormulaType | null {
+    // MN-129: `id` is the record's sequential public #id (records.number) — a
+    // plain number, so `"#" + format({Number})`-style name templates compose.
+    if (type === 'number' || type === 'rollup' || type === 'id') return 'number';
     if (type === 'checkbox') return 'checkbox';
     if (type === 'date' || type === 'created_at' || type === 'updated_at') return 'date';
     if (['text', 'title', 'select', 'url', 'email', 'lookup'].includes(type)) return 'text';
@@ -224,8 +228,34 @@ export class FieldsService {
     return null;
   }
 
-  /** MN-043: parse + typecheck + cycle-check; stores {expression, ast, result_type}. */
-  private async compileFormulaConfig(databaseId: string, config: Record<string, unknown>) {
+  /**
+   * MN-129: formula type for a purely-synthetic system field (one with no stored
+   * `fields` row, e.g. the canonical `number` handle). Reuses formulaTypeOf on the
+   * compiler type so `number`/`id` land as numbers and the date system fields as
+   * dates; `created_by`/`updated_by` (user) stay unreferenceable (no clean scalar).
+   */
+  static systemFieldFormulaType(type: SystemFieldType): FormulaType | null {
+    if (type === 'created_by' || type === 'updated_by') return null;
+    return FieldsService.formulaTypeOf(type);
+  }
+
+  /**
+   * MN-043: parse + typecheck + cycle-check; stores {expression, ast, result_type}.
+   *
+   * MN-129: `selfApiName` is the api_name of the field this formula is being
+   * attached to. It powers the self-reference guard — a formula must not
+   * reference its own field, or it forms an infinite cycle (the formula's output
+   * feeds the field, which feeds the formula…). This matters for computed Names
+   * (#130), which put a formula ON the title field: `{Name}` would otherwise
+   * resolve to that very field. The referenceable set also now includes the
+   * record's public number and the other purely-synthetic system fields that
+   * have no stored `fields` row.
+   */
+  private async compileFormulaConfig(
+    databaseId: string,
+    config: Record<string, unknown>,
+    selfApiName?: string,
+  ) {
     const expression = String(config['expression'] ?? '');
     const live = await this.db.query.fields.findMany({
       where: and(eq(fields.databaseId, databaseId), isNull(fields.deletedAt)),
@@ -240,6 +270,20 @@ export class FieldsService {
       const ft = FieldsService.formulaTypeOf(f.type);
       if (ft) infos.push({ api_name: f.apiName, display_name: f.displayName, formula_type: ft });
     }
+    // MN-129: additive system fields with no stored row (e.g. the canonical
+    // `number` handle for the sequential #id). A real field row of the same
+    // api_name always wins, so a user field literally named `number` is unaffected.
+    for (const spec of SYSTEM_FIELDS) {
+      if (infos.some((i) => i.api_name === spec.api_name)) continue;
+      const ft = FieldsService.systemFieldFormulaType(spec.type);
+      if (ft) infos.push({ api_name: spec.api_name, display_name: spec.display_name, formula_type: ft });
+    }
+    // MN-129: make the field's own name resolvable even if it has no row yet (a
+    // brand-new formula field), so a self-reference produces the dedicated guard
+    // error below rather than a bare "unknown field".
+    if (selfApiName && !infos.some((i) => i.api_name === selfApiName)) {
+      infos.push({ api_name: selfApiName, display_name: selfApiName, formula_type: 'text' });
+    }
     let ast;
     let resultType;
     try {
@@ -248,6 +292,12 @@ export class FieldsService {
     } catch (error) {
       if (error instanceof FormulaError) throw new UnprocessableEntityException(`Formula error: ${error.message}`);
       throw error;
+    }
+    // MN-129: self-reference guard — reject before storing an AST that would cycle.
+    if (selfApiName && formulaRefs(ast).includes(selfApiName)) {
+      throw new UnprocessableEntityException(
+        'A formula cannot reference its own field — it would create a cycle',
+      );
     }
     if (resultType === 'null') resultType = 'text';
 

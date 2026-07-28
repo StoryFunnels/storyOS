@@ -42,6 +42,10 @@ describe('formula engine (MN-043)', () => {
   it('text functions and + concatenation', () => {
     expect(evalSrc('upper(concat({State}, "!"))', { state: 'done' })).toBe('DONE!');
     expect(evalSrc('"Task: " + {State}', { state: 'Open' })).toBe('Task: Open');
+    // MN-129: `"#" + <number>` concatenates to text (number coerced), so #id name
+    // templates compose cleanly.
+    expect(evalSrc('"#" + {Estimate}', { estimate: 7 })).toBe('#7');
+    expect(typecheck(parseFormula('"#" + {Estimate}', FIELDS), FIELDS)).toBe('text');
     expect(evalSrc('replace("a b c", " ", "-")')).toBe('a-b-c');
     expect(evalSrc('round(10 / 3, 2)')).toBe(3.33);
   });

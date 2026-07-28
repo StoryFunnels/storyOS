@@ -63,6 +63,52 @@ describe('formula fields (MN-043)', () => {
     expect(rec.values.health).toBe('🟢');
   });
 
+  it('references the record #id (Number) and title in a name-style template (MN-129)', async () => {
+    const rec = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/records/${recId}`)).json();
+    expect(typeof rec.number).toBe('number');
+
+    const created = await inject('POST', `/workspaces/${wsId}/databases/${dbId}/fields`, {
+      display_name: 'Computed Name', type: 'formula',
+      config: { expression: 'concat("#", format({Number}), " ", {Name})' },
+    });
+    expect(created.statusCode, created.body).toBe(201);
+    expect(created.json().config.result_type).toBe('text');
+
+    const after = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/records/${recId}`)).json();
+    expect(after.values.computed_name).toBe(`#${rec.number} Alpha`);
+  });
+
+  it('treats the #id as a number ("#" + {Number} concatenation) (MN-129)', async () => {
+    const rec = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/records/${recId}`)).json();
+    const created = await inject('POST', `/workspaces/${wsId}/databases/${dbId}/fields`, {
+      display_name: 'Hash Id', type: 'formula', config: { expression: '"#" + {Number}' },
+    });
+    expect(created.statusCode, created.body).toBe(201);
+    expect(created.json().config.result_type).toBe('text');
+    const after = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/records/${recId}`)).json();
+    expect(after.values.hash_id).toBe(`#${rec.number}`);
+  });
+
+  it('references a same-record select label (MN-129)', async () => {
+    // {State} resolves to the option LABEL, not the stored option id.
+    const created = await inject('POST', `/workspaces/${wsId}/databases/${dbId}/fields`, {
+      display_name: 'Status Label', type: 'formula', config: { expression: 'concat("[", {State}, "]")' },
+    });
+    expect(created.statusCode, created.body).toBe(201);
+    const after = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/records/${recId}`)).json();
+    expect(after.values.status_label).toBe('[Done]');
+  });
+
+  it('rejects a formula that references its own field — cycle guard (MN-129)', async () => {
+    // The self-reference guard that computed Names (#130) relies on when it puts
+    // a formula on the title field: a formula must not reference its own api_name.
+    const res = await inject('POST', `/workspaces/${wsId}/databases/${dbId}/fields`, {
+      display_name: 'Loop', type: 'formula', config: { expression: 'concat("x", format({loop}))' },
+    });
+    expect(res.statusCode, res.body).toBe(422);
+    expect(res.json().error.message).toMatch(/reference its own field/i);
+  });
+
   it('rejects writes, bad syntax, unknown refs, and type errors at save', async () => {
     const write = await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/records/${recId}`, {
       values: { remaining: 99 },
