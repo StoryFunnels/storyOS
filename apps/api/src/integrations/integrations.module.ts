@@ -28,6 +28,7 @@ import { LinearService } from './linear.service';
 import { SlackService } from './slack.service';
 import { ShopifyCatalogueService } from './shopify-catalogue.service';
 import { ShopifyCatalogueSubscriber } from './shopify-catalogue.subscriber';
+import { ShopifyWebhookController } from './shopify-webhook.controller';
 
 @Module({
   imports: [
@@ -52,6 +53,7 @@ import { ShopifyCatalogueSubscriber } from './shopify-catalogue.subscriber';
     LinearIntegrationsController,
     SlackIntegrationsController,
     ShopifyIntegrationsController,
+    ShopifyWebhookController,
   ],
   providers: [
     GithubAppService,

@@ -2275,6 +2275,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/providers/shopify/webhook/{connectionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Shopify product/collection webhook for one connection — HMAC-verified, unauthenticated by design */
+        post: operations["ShopifyWebhookController_receive"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/connections": {
         parameters: {
             query?: never;
@@ -8152,6 +8169,29 @@ export interface operations {
         };
         responses: {
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ShopifyWebhookController_receive: {
+        parameters: {
+            query?: never;
+            header: {
+                "x-shopify-hmac-sha256": string;
+                "x-shopify-topic": string;
+                "x-shopify-shop-domain": string;
+            };
+            path: {
+                connectionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };

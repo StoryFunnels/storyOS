@@ -52,6 +52,52 @@ StoryOS-owned OAuth app, so it works identically on hosted and self-managed with
 Public-app OAuth for Shopify (a one-click install without a hand-created token)
 would be a future Tier B upgrade; it is intentionally not required today.
 
+#### Shopify: real-time webhook sync (optional)
+
+The catalogue sources sync on a schedule out of the box. To also converge
+changes in **near-real time**, StoryOS exposes an HMAC-verified receiver that a
+Shopify webhook can POST product/collection changes to. It upserts through the
+exact same GID-keyed, idempotent path the scheduled sync uses, so a webhook and
+a scheduled tick for the same object never duplicate or fight each other; a
+webhook is purely an accelerator.
+
+1. **Set the signing secret** (self-managed only — never commit it):
+
+   ```sh
+   SHOPIFY_WEBHOOK_SECRET=<your Shopify app's API secret key>
+   ```
+
+   Shopify signs every webhook with the app's **API secret key** and StoryOS
+   verifies the `X-Shopify-Hmac-Sha256` header against this value over the raw
+   request body. A delivery that doesn't verify is rejected (`401`). With the
+   secret unset, the receiver rejects all deliveries — the scheduled sync still
+   runs unchanged.
+
+2. **Register the webhooks** in the store admin under **Settings →
+   Notifications → Webhooks** (or via the Admin API), pointing each topic at
+   the per-connection callback URL — the `<connectionId>` is the id of the
+   Shopify connection you created above:
+
+   | Callback URL | `{API_URL}/api/v1/providers/shopify/webhook/<connectionId>` |
+   |---|---|
+
+   Register these topics (JSON format): **`products/create`**,
+   **`products/update`**, **`products/delete`**, **`collections/create`**,
+   **`collections/update`**, **`collections/delete`**. (Variant changes arrive
+   inside the product payload — there is no separate variant topic to
+   register.)
+
+   Notes: a **delete** is acknowledged but left as a no-op on the record, matching
+   the scheduled sync's "history stays" semantics (it never removes a record
+   when Shopify stops returning an object). A **collection** webhook updates the
+   collection's own fields in real time; collection *membership*
+   (product↔collection links) still converges on the next scheduled
+   `shopify.collections` tick, because Shopify's collection webhook payload does
+   not carry the member-product list.
+
+   Auto-registration of these webhooks from the connection is **not** wired yet
+   (a noted follow-up); register them manually as above for now.
+
 The **core** app — records, databases, views, automations, MCP — likewise needs
 none of these; they are optional add-ons a user turns on per workspace.
 
