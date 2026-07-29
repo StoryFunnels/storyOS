@@ -18,12 +18,22 @@ export function recordSlug(
   return base ? `${base}-${number}` : String(number);
 }
 
+/** The `[rec]` route segment for a record — the pretty `slug-{number}` when it
+ * has a number, else the UUID. Shared by `recordHref` and the split-screen panel
+ * (#146), so a panel opened for a record keys its query the same way the record
+ * page would, reusing React Query's cache instead of refetching. */
+export function recordSegment(
+  rec: { id: string; title?: string | null; number?: number | null },
+): string {
+  return recordSlug(rec.title, rec.number) ?? rec.id;
+}
+
 export function recordHref(
   ws: string,
   db: string,
   rec: { id: string; title?: string | null; number?: number | null },
 ): string {
-  return `/w/${ws}/d/${db}/r/${recordSlug(rec.title, rec.number) ?? rec.id}`;
+  return `/w/${ws}/d/${db}/r/${recordSegment(rec)}`;
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
