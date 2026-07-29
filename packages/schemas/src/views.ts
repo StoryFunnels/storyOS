@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { filterSchema, sortSchema } from './query';
 
 export const viewTypeSchema = z.enum([
-  'table', 'board', 'calendar', 'gallery', 'list', 'feed', 'timeline', 'form',
+  'table', 'board', 'calendar', 'gallery', 'list', 'feed', 'timeline', 'form', 'dashboard',
 ]);
 export type ViewType = z.infer<typeof viewTypeSchema>;
 
