@@ -22,6 +22,31 @@ export function slugify(name: string): string {
   );
 }
 
+/** The per-space unique index on `(space_id, api_slug)` (schema.ts). */
+const SLUG_UNIQUE_CONSTRAINT = 'databases_space_slug_uq';
+
+/**
+ * True iff `err` is a Postgres unique-violation (SQLSTATE 23505) raised by the
+ * named constraint. `uniqueSlugFor` reads-then-inserts, so two concurrent
+ * creates of the same name in one space can both pick the same free slug and
+ * race to insert; the loser trips this index. We match on `code` AND
+ * `constraint` so an unrelated 23505 (e.g. a different unique index) is never
+ * swallowed — it re-throws untouched. pg's node driver puts both fields on the
+ * DatabaseError, and drizzle wraps that in a "Failed query" error whose
+ * `.cause` is the original — so we walk the cause chain.
+ */
+function isSlugUniqueViolation(err: unknown): boolean {
+  for (let cur: unknown = err; cur != null; cur = (cur as { cause?: unknown }).cause) {
+    if (typeof cur !== 'object') break;
+    const e = cur as { code?: unknown; constraint?: unknown };
+    if (e.code === '23505' && e.constraint === SLUG_UNIQUE_CONSTRAINT) return true;
+  }
+  return false;
+}
+
+/** Bounded retries for the read-then-insert slug race before we give up. */
+const MAX_SLUG_ATTEMPTS = 10;
+
 @Injectable()
 export class DatabasesService {
   constructor(
@@ -228,90 +253,108 @@ export class DatabasesService {
     });
     if (!space) throw new NotFoundException('Space not found');
 
-    const apiSlug = await this.uniqueSlug(input.space_id, input.name);
     const siblings = await this.db.query.databases.findMany({
       where: eq(databases.spaceId, input.space_id),
       columns: { position: true },
     });
     const position = Math.max(-1, ...siblings.map((d) => d.position)) + 1;
 
-    return this.db.transaction(async (tx) => {
-      const [database] = await tx
-        .insert(databases)
-        .values({
-          workspaceId: membership.workspaceId,
-          spaceId: input.space_id,
-          name: input.name,
-          // #283: normalize through the emoji migration table for every
-          // caller (HTTP API, templates, integrations), not just requests
-          // that go through createDatabaseSchema.
-          icon: normalizeIconInput(input.icon, input.name),
-          // MN-299: auto-assign a random palette color at creation time so
-          // relation chips always have something to render; the icon-picker
-          // swatch UI (update()) can still override it manually afterward.
-          color: input.color ?? randomDatabaseColor(),
-          apiSlug,
-          position,
-        })
-        .returning();
+    // MN-165: the slug is chosen by a read-then-insert (`uniqueSlugFor`), so two
+    // concurrent creates of the same name in one space can both read the base
+    // slug as free and both try to insert it — the loser trips
+    // `databases_space_slug_uq` and would 500. Retry the whole insert in a
+    // bounded loop: on that specific unique violation, recompute the next free
+    // suffix (now that the winner's row is committed) and try again. Any other
+    // error propagates untouched.
+    for (let attempt = 0; attempt < MAX_SLUG_ATTEMPTS; attempt++) {
+      const apiSlug = await this.uniqueSlug(input.space_id, input.name);
+      try {
+        return await this.db.transaction(async (tx) => {
+          const [database] = await tx
+            .insert(databases)
+            .values({
+              workspaceId: membership.workspaceId,
+              spaceId: input.space_id,
+              name: input.name,
+              // #283: normalize through the emoji migration table for every
+              // caller (HTTP API, templates, integrations), not just requests
+              // that go through createDatabaseSchema.
+              icon: normalizeIconInput(input.icon, input.name),
+              // MN-299: auto-assign a random palette color at creation time so
+              // relation chips always have something to render; the icon-picker
+              // swatch UI (update()) can still override it manually afterward.
+              color: input.color ?? randomDatabaseColor(),
+              apiSlug,
+              position,
+            })
+            .returning();
 
-      await tx.insert(fields).values([
-        {
-          databaseId: database!.id,
-          displayName: 'ID',
-          apiName: 'id',
-          type: 'id',
-          isSystem: true,
-          position: -1, // renders before the title (MN-087)
-        },
-        {
-          databaseId: database!.id,
-          displayName: 'Name',
-          apiName: 'name',
-          type: 'title',
-          position: 0,
-        },
-        {
-          databaseId: database!.id,
-          displayName: 'Created at',
-          apiName: 'created_at',
-          type: 'created_at',
-          isSystem: true,
-          position: 1000,
-        },
-        {
-          databaseId: database!.id,
-          displayName: 'Updated at',
-          apiName: 'updated_at',
-          type: 'updated_at',
-          isSystem: true,
-          position: 1001,
-        },
-        {
-          databaseId: database!.id,
-          displayName: 'Created by',
-          apiName: 'created_by',
-          type: 'created_by',
-          isSystem: true,
-          position: 1002,
-        },
-      ]);
+          await tx.insert(fields).values([
+            {
+              databaseId: database!.id,
+              displayName: 'ID',
+              apiName: 'id',
+              type: 'id',
+              isSystem: true,
+              position: -1, // renders before the title (MN-087)
+            },
+            {
+              databaseId: database!.id,
+              displayName: 'Name',
+              apiName: 'name',
+              type: 'title',
+              position: 0,
+            },
+            {
+              databaseId: database!.id,
+              displayName: 'Created at',
+              apiName: 'created_at',
+              type: 'created_at',
+              isSystem: true,
+              position: 1000,
+            },
+            {
+              databaseId: database!.id,
+              displayName: 'Updated at',
+              apiName: 'updated_at',
+              type: 'updated_at',
+              isSystem: true,
+              position: 1001,
+            },
+            {
+              databaseId: database!.id,
+              displayName: 'Created by',
+              apiName: 'created_by',
+              type: 'created_by',
+              isSystem: true,
+              position: 1002,
+            },
+          ]);
 
-      await tx.insert(views).values({
-        databaseId: database!.id,
-        name: 'All records',
-        type: 'table',
-        config: {},
-        position: 0,
-        isDefault: true,
-      });
+          await tx.insert(views).values({
+            databaseId: database!.id,
+            name: 'All records',
+            type: 'table',
+            config: {},
+            position: 0,
+            isDefault: true,
+          });
 
-      return {
-        ...database!,
-        spaceSlug: space.slug,
-        qualifiedSlug: `${space.slug}/${database!.apiSlug}`,
-      };
-    });
+          return {
+            ...database!,
+            spaceSlug: space.slug,
+            qualifiedSlug: `${space.slug}/${database!.apiSlug}`,
+          };
+        });
+      } catch (err) {
+        if (isSlugUniqueViolation(err)) continue;
+        throw err;
+      }
+    }
+
+    throw new ConflictException(
+      `Could not allocate a unique slug for "${input.name}" after ${MAX_SLUG_ATTEMPTS} attempts`,
+    );
   }
 
   async update(

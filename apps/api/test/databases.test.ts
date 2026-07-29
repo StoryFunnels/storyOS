@@ -5,7 +5,9 @@ import { OPTION_COLORS } from '@storyos/schemas';
 import { createTestApp } from './helpers/app';
 import { authed, signUpUser } from './helpers/users';
 import { connectTestDb } from './helpers/db';
-import { databases } from '../src/db/schema';
+import { databases, memberships } from '../src/db/schema';
+import { DatabasesService } from '../src/databases/databases.service';
+import type { Membership } from '../src/workspaces/workspace-access.guard';
 
 let app: NestFastifyApplication;
 let admin: { token: string; email: string };
@@ -310,5 +312,56 @@ describe('database color auto-assignment + fallback (MN-299)', () => {
       target_database_id: childId,
       target_database_color: childColor,
     });
+  });
+});
+
+describe('concurrent slug allocation is race-safe (MN-165)', () => {
+  it('two concurrent creates of the SAME name in the SAME space both succeed with distinct slugs (no 500)', async () => {
+    const service = app.get(DatabasesService);
+    const membership = (await db.query.memberships.findFirst({
+      where: eq(memberships.workspaceId, wsId),
+    })) as Membership;
+    expect(membership).toBeTruthy();
+
+    // Fire both creates concurrently: `uniqueSlugFor` reads-then-inserts, so
+    // pre-fix both would read `race_me` as free and the loser would 500 on
+    // `databases_space_slug_uq`. The bounded retry must recompute the suffix.
+    const [a, b] = await Promise.all([
+      service.create(membership, { space_id: clientSpaceId, name: 'Race Me' }),
+      service.create(membership, { space_id: clientSpaceId, name: 'Race Me' }),
+    ]);
+
+    // Both rows exist and carry the same name.
+    expect(a.name).toBe('Race Me');
+    expect(b.name).toBe('Race Me');
+    expect(a.id).not.toBe(b.id);
+
+    // One took the base slug, the other the `_2` suffix — order is nondeterministic.
+    const slugs = [a.apiSlug, b.apiSlug].sort();
+    expect(slugs).toEqual(['race_me', 'race_me_2']);
+
+    // The unique index holds: exactly these two rows for this space+name.
+    const rows = await db.query.databases.findMany({
+      where: eq(databases.spaceId, clientSpaceId),
+    });
+    const raceRows = rows.filter((d) => d.name === 'Race Me');
+    expect(raceRows.map((d) => d.apiSlug).sort()).toEqual(['race_me', 'race_me_2']);
+  });
+
+  it('a third concurrent create of the same name lands on the next free suffix', async () => {
+    const service = app.get(DatabasesService);
+    const membership = (await db.query.memberships.findFirst({
+      where: eq(memberships.workspaceId, wsId),
+    })) as Membership;
+
+    // clientSpace already holds `race_me` and `race_me_2` from the prior test.
+    const [c, d, e] = await Promise.all([
+      service.create(membership, { space_id: clientSpaceId, name: 'Race Me' }),
+      service.create(membership, { space_id: clientSpaceId, name: 'Race Me' }),
+      service.create(membership, { space_id: clientSpaceId, name: 'Race Me' }),
+    ]);
+
+    const newSlugs = [c.apiSlug, d.apiSlug, e.apiSlug].sort();
+    expect(newSlugs).toEqual(['race_me_3', 'race_me_4', 'race_me_5']);
   });
 });
