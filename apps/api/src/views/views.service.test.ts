@@ -17,6 +17,7 @@ const BASE: Omit<ViewConfig, 'filters'> = {
   hidden_field_ids: [],
   card_field_ids: [],
   dashboard_tiles: [],
+  dashboard_widgets: [],
   column_widths: {},
 };
 
@@ -120,5 +121,40 @@ describe('cleanViewConfig — dashboard metric tiles (MN-225 / #168)', () => {
 
   it('defaults to an empty array when tiles are absent', () => {
     expect(tiles(undefined as unknown as ViewConfig['dashboard_tiles'])).toEqual([]);
+  });
+});
+
+describe('cleanViewConfig — dashboard chart widgets (MN-225 / #168, Phase 2)', () => {
+  const widgets = (dashboard_widgets: ViewConfig['dashboard_widgets']) =>
+    cleanViewConfig({ ...BASE, dashboard_widgets }, new Set(), new Set(['stage', 'amount']))
+      .dashboard_widgets;
+
+  const w = (over: Partial<NonNullable<ViewConfig['dashboard_widgets']>[number]>) => ({
+    id: '44444444-4444-4444-4444-444444444444',
+    type: 'bar' as const,
+    title: '',
+    group_by_field_api_name: 'stage',
+    measure: { op: 'count' as const },
+    ...over,
+  });
+
+  it('keeps a count widget whose group-by field is live', () => {
+    expect(widgets([w({})])).toHaveLength(1);
+  });
+
+  it('keeps a numeric widget when both group-by and measure fields are live', () => {
+    expect(widgets([w({ measure: { op: 'sum', field_api_name: 'amount' } })])).toHaveLength(1);
+  });
+
+  it('drops a widget whose group-by field was deleted', () => {
+    expect(widgets([w({ group_by_field_api_name: 'ghost' })])).toHaveLength(0);
+  });
+
+  it('drops a numeric widget whose measure field was deleted', () => {
+    expect(widgets([w({ measure: { op: 'avg', field_api_name: 'ghost' } })])).toHaveLength(0);
+  });
+
+  it('defaults to an empty array when widgets are absent', () => {
+    expect(widgets(undefined as unknown as ViewConfig['dashboard_widgets'])).toEqual([]);
   });
 });

@@ -45,6 +45,14 @@ export interface ViewConfig {
   };
   /** Dashboard (MN-225 / #168) — metric tiles; scoped by this view's filter/sorts. */
   dashboard_tiles?: Array<{ id: string; label: string; op: 'count' | 'sum' | 'avg' | 'min' | 'max'; field_api_name?: string }>;
+  /** Dashboard (MN-225 / #168, Phase 2) — chart / grouped-table widgets. */
+  dashboard_widgets?: Array<{
+    id: string;
+    type: 'bar' | 'line' | 'pie' | 'grouped_table';
+    title: string;
+    group_by_field_api_name?: string;
+    measure: { op: 'count' | 'sum' | 'avg' | 'min' | 'max'; field_api_name?: string };
+  }>;
   column_widths: Record<string, number>;
 }
 

@@ -3783,6 +3783,26 @@ export interface components {
                     op: "count" | "sum" | "avg" | "min" | "max";
                     field_api_name?: string;
                 }[];
+                /** @default [] */
+                dashboard_widgets: {
+                    /** Format: uuid */
+                    id: string;
+                    /** @enum {string} */
+                    type: "bar" | "line" | "pie" | "grouped_table";
+                    /** @default  */
+                    title: string;
+                    group_by_field_api_name?: string;
+                    /**
+                     * @default {
+                     *       "op": "count"
+                     *     }
+                     */
+                    measure: {
+                        /** @enum {string} */
+                        op: "count" | "sum" | "avg" | "min" | "max";
+                        field_api_name?: string;
+                    };
+                }[];
                 form?: {
                     title?: string;
                     description?: string;
@@ -3862,6 +3882,26 @@ export interface components {
                     /** @enum {string} */
                     op: "count" | "sum" | "avg" | "min" | "max";
                     field_api_name?: string;
+                }[];
+                /** @default [] */
+                dashboard_widgets: {
+                    /** Format: uuid */
+                    id: string;
+                    /** @enum {string} */
+                    type: "bar" | "line" | "pie" | "grouped_table";
+                    /** @default  */
+                    title: string;
+                    group_by_field_api_name?: string;
+                    /**
+                     * @default {
+                     *       "op": "count"
+                     *     }
+                     */
+                    measure: {
+                        /** @enum {string} */
+                        op: "count" | "sum" | "avg" | "min" | "max";
+                        field_api_name?: string;
+                    };
                 }[];
                 form?: {
                     title?: string;
