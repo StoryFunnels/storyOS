@@ -67,6 +67,10 @@ export function HeaderCell({
   const [dialog, setDialog] = useState<'edit' | 'change-type' | null>(null);
   const deleteField = useDeleteField({ ws, db, field, onDone: () => setDialog(null) });
   const canManage = !readOnly && field.type !== 'title' && !field.isSystem;
+  // MN-131: the title field isn't a normal managed field (no delete/change-type),
+  // but its name mode (free text ⇆ computed) is configured through the same edit
+  // dialog — expose a focused "Configure name…" entry for it.
+  const canConfigureTitle = !readOnly && field.type === 'title';
   const sortable = useSortable({ id: field.id, disabled: !reorderable });
 
   // Header ⋯ menu: seed a filter clause for this field (MN-225), mirroring AddFilterButton.
@@ -179,6 +183,18 @@ export function HeaderCell({
             <DropdownMenuItem className="text-error" onSelect={() => deleteField.mutate()}>
               Delete field
             </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+      {canConfigureTitle && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="rounded p-0.5 opacity-0 hover:bg-active group-hover/header:opacity-100">
+              <MoreHorizontal className="h-3.5 w-3.5" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent>
+            <DropdownMenuItem onSelect={() => setDialog('edit')}>Configure name…</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       )}

@@ -152,6 +152,13 @@ export default function EntityPage() {
   // must use the resolved UUID, never the raw param.
   const recordId = record.data.id;
 
+  // MN-131: when the title field is in `computed` mode (#130) the name is derived
+  // from a template and materialized server-side — it must be read-only here.
+  const titleComputed =
+    ((database.data?.fields ?? []).find((f) => f.type === 'title')?.config as { name_mode?: string } | undefined)
+      ?.name_mode === 'computed';
+  const titleReadOnly = readOnly || titleComputed;
+
   const vp = {
     ws,
     db,
@@ -213,20 +220,31 @@ export default function EntityPage() {
       <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
         {/* MAIN BODY: title, pinned strip, collections + rich sections, description, discussion */}
         <div className="min-w-0 flex-1">
-          <input
-            className="mb-4 w-full bg-transparent text-2xl font-semibold text-ink outline-none placeholder:text-faint"
-            placeholder="Untitled"
-            value={titleDraft ?? record.data.title}
-            readOnly={readOnly}
-            onChange={(e) => setTitleDraft(e.target.value)}
-            onBlur={() => {
-              if (titleDraft !== null && titleDraft !== record.data!.title) {
-                updateRecord.mutate({ rec: recordId, values: { name: titleDraft } });
-              }
-              setTitleDraft(null);
-            }}
-            onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
-          />
+          <div className="mb-4 flex items-center gap-2">
+            <input
+              className="w-full bg-transparent text-2xl font-semibold text-ink outline-none placeholder:text-faint read-only:cursor-default"
+              placeholder="Untitled"
+              value={titleDraft ?? record.data.title}
+              readOnly={titleReadOnly}
+              title={titleComputed ? 'This name is computed from a template — edit the template in the Name field’s settings.' : undefined}
+              onChange={(e) => setTitleDraft(e.target.value)}
+              onBlur={() => {
+                if (titleDraft !== null && titleDraft !== record.data!.title) {
+                  updateRecord.mutate({ rec: recordId, values: { name: titleDraft } });
+                }
+                setTitleDraft(null);
+              }}
+              onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+            />
+            {titleComputed && (
+              <span
+                className="shrink-0 rounded bg-hover px-1.5 py-0.5 text-[11px] text-faint"
+                title="This name is computed from a template — edit the template in the Name field’s settings."
+              >
+                Computed
+              </span>
+            )}
+          </div>
 
           {/* Top strip — a few pinned essentials; shown (with an add affordance) so it's discoverable */}
           {(topFields.length > 0 || schemaEditable) && (

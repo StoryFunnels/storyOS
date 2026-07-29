@@ -32,6 +32,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { OPTION_COLORS } from './cells';
+import { FormulaEditor } from './formula-editor';
 import type { Field } from './use-table-data';
 
 export const FIELD_TYPES: Array<{
@@ -164,12 +165,29 @@ export function ConfigEditor({
   type,
   config,
   onChange,
+  ws,
+  db,
+  fields,
 }: {
   type: string;
   config: Record<string, unknown>;
   onChange: (config: Record<string, unknown>) => void;
+  /** Provided only where the title field is edited (MN-131) — the computed-name
+   * editor reuses the formula editor, which needs the workspace/database + the
+   * database's fields to resolve `{Field}` references and preview. */
+  ws?: string;
+  db?: string;
+  fields?: Field[];
 }) {
   const set = (key: string, value: unknown) => onChange({ ...config, [key]: value });
+
+  // MN-131: the title field's "name" can be free text (classic) or computed from
+  // a template. The computed branch reuses the SAME formula editor formula fields
+  // use; on save we persist only { name_mode, source } — the server compiles the
+  // ast/result_type (fields.service#compileTitleConfig), same as #130's contract.
+  if (type === 'title' && ws && db) {
+    return <TitleNameConfig ws={ws} db={db} fields={fields ?? []} config={config} onChange={onChange} />;
+  }
 
   if (type === 'text') {
     return (
@@ -257,6 +275,83 @@ export function ConfigEditor({
     );
   }
   return null;
+}
+
+/**
+ * MN-131: the title field's name-mode editor. A "Free text ⇆ Computed" toggle;
+ * in Computed mode it embeds the shared {@link FormulaEditor} (same editor +
+ * autocomplete + live preview formula fields use) and stores the raw template in
+ * `source`. Read-only mode itself is enforced by #130's backend and reflected in
+ * the record UI (record page title + inline title cell go read-only). Only the
+ * template `source` and `name_mode` are persisted here — the server compiles the
+ * ast/result_type on save. Own-record references only in v1 (#132 for the rest).
+ */
+function TitleNameConfig({
+  ws,
+  db,
+  fields,
+  config,
+  onChange,
+}: {
+  ws: string;
+  db: string;
+  fields: Field[];
+  config: Record<string, unknown>;
+  onChange: (config: Record<string, unknown>) => void;
+}) {
+  const mode = config.name_mode === 'computed' ? 'computed' : 'freetext';
+  const source = typeof config.source === 'string' ? config.source : '';
+  // Exclude the title field itself — a `{Name}` self-reference is a cycle the
+  // server rejects, so don't offer it as a referenceable field.
+  const refFields = fields.filter((f) => f.type !== 'title');
+
+  return (
+    <div className="flex flex-col gap-2">
+      <Label>Name</Label>
+      <div className="inline-flex w-fit rounded-[var(--radius-control)] border border-border-default p-0.5">
+        {(
+          [
+            ['freetext', 'Free text'],
+            ['computed', 'Computed'],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            className={cn(
+              'rounded px-2.5 py-1 text-[12px]',
+              mode === value ? 'bg-active font-medium text-ink' : 'text-muted hover:text-ink',
+            )}
+            onClick={() =>
+              onChange(value === 'computed' ? { name_mode: 'computed', source } : { name_mode: 'freetext' })
+            }
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {mode === 'freetext' ? (
+        <p className="text-[12px] text-faint">
+          Each record’s name is typed in by hand — the classic editable title.
+        </p>
+      ) : (
+        <>
+          <FormulaEditor
+            ws={ws}
+            db={db}
+            fields={refFields}
+            expression={source}
+            onChange={(next) => onChange({ name_mode: 'computed', source: next })}
+          />
+          <p className="text-[12px] text-faint">
+            The name is generated from this template on every save and can’t be edited
+            directly. Records fall back to <code className="text-muted">#id</code> when the
+            template is empty. References this record’s own fields only.
+          </p>
+        </>
+      )}
+    </div>
+  );
 }
 
 export function useDeleteField({
