@@ -25,12 +25,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { recordHref } from '@/lib/records';
+import { recordHref, recordSegment } from '@/lib/records';
 import { cn } from '@/lib/utils';
 import { NOT_INLINE } from './entity-field-utils';
 import type { CollectionView, VP } from './entity-field-utils';
 import { FieldMenu, useSetFieldConfig } from './field-controls';
 import { SelectDriftBanner } from './select-drift-banner';
+import { useOpenInSplit } from './split-panel-context';
 
 const COLLECTION_CAP = 20;
 
@@ -74,6 +75,10 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
   // MN-206 part 2 (#142): edit the LINKED records' fields in place + create pre-linked.
   // Both act on the TARGET database, so its access ladder gates them — not this one's.
   const qc = useQueryClient();
+  // #146: on the record page a linked-row click opens the target in the split
+  // side panel (desktop ≥ md); off the record page / on mobile this is a no-op
+  // and the <Link> navigates as before.
+  const openInSplit = useOpenInSplit();
   const canEditTargets = atLeast(targetDb.data?.my_access, 'contributor');
   const [editingCell, setEditingCell] = useState<{ rowId: string; fieldId: string } | null>(null);
   const [creating, setCreating] = useState(false);
@@ -256,6 +261,12 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
                 >
                   <Link
                     href={recordHref(ws, targetDbId, row)}
+                    onClick={openInSplit({
+                      db: targetDbId,
+                      rec: recordSegment(row),
+                      title: row.title,
+                      number: row.number,
+                    })}
                     className="flex min-w-0 flex-1 items-center gap-2"
                   >
                     {/* MN-299: target-database cylinder marker — distinct from the

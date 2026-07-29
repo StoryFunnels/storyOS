@@ -11,7 +11,7 @@ import { DbColorMarker, RelationEditor } from '@/components/table-view/relation-
 import type { LinkChip } from '@/components/table-view/relation-cell';
 import type { Field } from '@/components/table-view/use-table-data';
 import { Popover, PopoverContent, PopoverParentAnchor } from '@/components/ui/popover';
-import { recordHref } from '@/lib/records';
+import { recordHref, recordSegment } from '@/lib/records';
 import { cn } from '@/lib/utils';
 import { useDatabases, useSpaces } from '@/lib/queries';
 import type { DatabaseSummary, Space } from '@/lib/queries';
@@ -20,6 +20,7 @@ import { AUDIT_TYPES, NOT_INLINE, auditValue } from './entity-field-utils';
 import type { VP } from './entity-field-utils';
 import { FieldMenu, useSetFieldConfig } from './field-controls';
 import { CollapseToggle } from './collection-section';
+import { useOpenInSplit } from './split-panel-context';
 
 /** Inline value renderer for scalar fields (sidebar, top strip, body). */
 function ScalarValue({ field, record, ws, db, rec, members, memberNames, memberImages, readOnly, onCommit }: VP & { field: Field }) {
@@ -27,6 +28,9 @@ function ScalarValue({ field, record, ws, db, rec, members, memberNames, memberI
   const value = AUDIT_TYPES.has(field.type) ? auditValue(field, record) : record.values[field.apiName];
   const databases = useDatabases(ws);
   const spaces = useSpaces(ws);
+  // #146: a single-relation chip on the record page opens its target in the
+  // split side panel (desktop ≥ md); a no-op elsewhere / on mobile.
+  const openInSplit = useOpenInSplit();
 
   // MN-126: audit fields are read-only and sourced from the record row. CellDisplay
   // already renders created_at/updated_at as datetimes and created_by as a person.
@@ -47,6 +51,12 @@ function ScalarValue({ field, record, ws, db, rec, members, memberNames, memberI
           <Link
             key={chip.id}
             href={recordHref(ws, field.relation!.target_database_id, chip)}
+            onClick={openInSplit({
+              db: field.relation!.target_database_id,
+              rec: recordSegment(chip),
+              title: chip.title,
+              number: chip.number,
+            })}
             className="inline-flex max-w-full items-center gap-1 truncate rounded border border-border-default bg-hover px-1.5 py-0.5 text-[12px] text-ink hover:border-border-strong"
           >
             <DbColorMarker color={field.relation?.target_database_color} />
