@@ -44,12 +44,16 @@ export class RollupInvalidationSubscriber implements OnModuleInit {
 
   private handle(event: DomainEvent): void {
     if (event.type !== 'record_created' && event.type !== 'record_updated' && event.type !== 'record_linked') return;
-    if (!event.changedFieldIds?.length && !event.linkedRelations?.length) return;
+    // #132: a title-only change (a freetext record renamed) carries neither a
+    // changedFieldId nor a link edit, but still needs the cross-record-name
+    // cascade for records that look up this record's title.
+    if (!event.changedFieldIds?.length && !event.linkedRelations?.length && !event.titleChanged) return;
     void this.recordsService
       .invalidateRollupsForChange({
         databaseId: event.databaseId,
         recordId: event.recordId,
         changedFieldIds: event.changedFieldIds,
+        titleChanged: event.titleChanged,
         linkedRelations: event.linkedRelations,
       })
       .catch((err: unknown) =>

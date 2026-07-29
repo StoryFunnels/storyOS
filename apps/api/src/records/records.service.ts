@@ -473,6 +473,7 @@ export class RecordsService {
     valuesById: Record<string, unknown>,
     number: number | null,
     labelByOption: Map<string, string>,
+    crossRecordByApiName?: Map<string, unknown>,
   ): string {
     const bag: Record<string, unknown> = {};
     for (const def of defs) {
@@ -480,9 +481,17 @@ export class RecordsService {
         bag[def.api_name] = null; // a {Name} self-ref is rejected at compile; never read here
         continue;
       }
-      // Cross-record fields (lookup/rollup/relation) are rejected at compile for
-      // computed names (#132), so only own-record scalars land in `values`.
-      let value: unknown = def.type === 'rollup' ? null : valuesById[def.id];
+      // #132: lookup/rollup/relation are cross-record — their value isn't in this
+      // record's own `values`. A computed name may reference a lookup/rollup (its
+      // related-record value is materialized ONTO this record); when resolved it
+      // arrives via crossRecordByApiName (reactive recompute / read path).
+      // Otherwise (own-record write path, or an unresolved ref) it's null. Direct
+      // relation traversal is rejected at compile (#132), so relation stays null.
+      if (def.type === 'lookup' || def.type === 'rollup' || def.type === 'relation') {
+        bag[def.api_name] = crossRecordByApiName?.get(def.api_name) ?? null;
+        continue;
+      }
+      let value: unknown = valuesById[def.id];
       if (def.type === 'select' && typeof value === 'string') {
         value = labelByOption.get(value) ?? value;
       }
@@ -540,6 +549,79 @@ export class RecordsService {
       });
       cursor = chunk[chunk.length - 1]!.id;
       if (chunk.length < CHUNK) break;
+    }
+  }
+
+  /**
+   * #132: does this computed title's template reference a cross-record
+   * lookup/rollup field? Own-record-only names (#130) never do, so their titles
+   * are fully materialized synchronously in the write paths and need no reactive
+   * pass — this gate keeps recomputeTitlesForRecords a fast no-op for them.
+   */
+  private titleReferencesCrossRecord(titleDef: FieldDef, defs: FieldDef[]): boolean {
+    const byApi = new Map(defs.map((d) => [d.api_name, d]));
+    return formulaRefs(titleDef.config['ast'] as FormulaNode).some((ref) => {
+      const target = byApi.get(ref);
+      return !!target && (target.type === 'lookup' || target.type === 'rollup');
+    });
+  }
+
+  /**
+   * #132: the reactive half of cross-record computed names — recompute
+   * `records.title` for a bounded set of records whose computed name references
+   * a lookup/rollup, after the RELATED record (or a link edge) changed. Hung off
+   * the SAME MN-267 invalidation path as rollup materialization
+   * (invalidateRollupsForChange), so a name that depends on another record's
+   * value refreshes LIVE without the dependent record being re-saved.
+   *
+   * Resolves the lookup/rollup values fresh through attachLinks (the read-time
+   * resolver, always current) rather than trusting anything persisted, then
+   * writes back only titles that actually changed. A no-op unless the database's
+   * title is in computed mode AND references a cross-record field. Chunked and
+   * always invoked fire-and-forget by the subscriber, exactly like
+   * recomputeRollupsForRelationField.
+   */
+  async recomputeTitlesForRecords(databaseId: string, recordIds: string[]): Promise<void> {
+    if (recordIds.length === 0) return;
+    const defs = await this.fieldDefs(databaseId);
+    const titleDef = this.computedTitleDef(defs);
+    if (!titleDef || !this.titleReferencesCrossRecord(titleDef, defs)) return;
+    const labelByOption = await this.loadSelectLabels(defs);
+    const crossRecordDefs = defs.filter((d) => d.type === 'lookup' || d.type === 'rollup');
+    const CHUNK = 500;
+    for (let i = 0; i < recordIds.length; i += CHUNK) {
+      const chunkIds = recordIds.slice(i, i + CHUNK);
+      const rows: RecordRow[] = await this.db.query.records.findMany({
+        where: and(
+          eq(records.databaseId, databaseId),
+          inArray(records.id, chunkIds),
+          isNull(records.deletedAt),
+        ),
+      });
+      if (rows.length === 0) continue;
+      // attachLinks resolves relation chips → lookups → rollups (read-time, fresh),
+      // giving each record its current cross-record values keyed by api_name.
+      const projected = await this.attachLinks(rows.map((r) => this.project(r, defs)), defs);
+      const projectedById = new Map(projected.map((p) => [p.id, p]));
+      await this.db.transaction(async (tx) => {
+        for (const row of rows) {
+          const p = projectedById.get(row.id);
+          if (!p) continue;
+          const crossRecord = new Map<string, unknown>();
+          for (const def of crossRecordDefs) crossRecord.set(def.api_name, p.values[def.api_name] ?? null);
+          const title = this.computeTitle(
+            titleDef,
+            defs,
+            row.values as Record<string, unknown>,
+            row.number,
+            labelByOption,
+            crossRecord,
+          );
+          if (title !== row.title) {
+            await tx.update(records).set({ title }).where(eq(records.id, row.id));
+          }
+        }
+      });
     }
   }
 
@@ -760,9 +842,12 @@ export class RecordsService {
     databaseId: string;
     recordId: string;
     changedFieldIds?: string[];
+    /** #132: this record's title changed — a lookup/rollup targeting the title
+     * (target_field_api_name = the title field's api_name) must invalidate too. */
+    titleChanged?: boolean;
     linkedRelations?: Array<{ relationId: string; fieldId: string; otherDatabaseId: string; otherRecordIds: string[] }>;
   }): Promise<void> {
-    if (event.changedFieldIds?.length) {
+    if (event.changedFieldIds?.length || event.titleChanged) {
       // target_field_api_name (rollup config) is an api_name; changedFieldIds are
       // field ids (Object.keys(diff) in update()) — resolve ids to api_names on
       // THIS database once, up front, so the per-relation filter below compares
@@ -770,8 +855,16 @@ export class RecordsService {
       const myDefs = await this.fieldDefs(event.databaseId);
       const idToApiName = new Map(myDefs.map((d) => [d.id, d.api_name]));
       const changedApiNames = new Set(
-        event.changedFieldIds.map((id) => idToApiName.get(id)).filter((n): n is string => !!n),
+        (event.changedFieldIds ?? []).map((id) => idToApiName.get(id)).filter((n): n is string => !!n),
       );
+      // #132: a title change surfaces as the title field's api_name (e.g. `name`)
+      // so a cross-record name that looks up this record's TITLE recomputes. This
+      // can't false-cascade a rollup — a rollup's target is a number field, never
+      // the title — so it's safe to fold into the same set.
+      if (event.titleChanged) {
+        const titleApiName = myDefs.find((d) => d.type === 'title')?.api_name;
+        if (titleApiName) changedApiNames.add(titleApiName);
+      }
       const rels = await this.db.query.relations.findMany({
         where: or(eq(relations.databaseAId, event.databaseId), eq(relations.databaseBId, event.databaseId)),
       });
@@ -790,7 +883,15 @@ export class RecordsService {
           if (!filterNode) return false;
           return [...filterReferencedFields(filterNode)].some((f) => changedApiNames.has(f));
         });
-        if (relevantRollups.length === 0) continue;
+        // #132: the other side's computed name may depend on this change too —
+        // either through a rollup we're about to recompute, or through a lookup
+        // that reads the very field that changed. Compute this alongside the
+        // rollup set so a single linked-ids fetch feeds both cascades.
+        const otherTitleDef = this.computedTitleDef(otherDefs);
+        const titleAffected =
+          !!otherTitleDef &&
+          this.titleAffectedByRelatedChange(otherTitleDef, otherDefs, reverseFieldId, changedApiNames, relevantRollups);
+        if (relevantRollups.length === 0 && !titleAffected) continue;
 
         const myCol = mySide === 'a' ? recordLinks.fromRecordId : recordLinks.toRecordId;
         const otherCol = mySide === 'a' ? recordLinks.toRecordId : recordLinks.fromRecordId;
@@ -800,18 +901,55 @@ export class RecordsService {
           .where(and(eq(recordLinks.relationId, rel.id), eq(myCol, event.recordId)));
         const otherIds = links.map((l) => l.other);
         if (otherIds.length === 0) continue;
-        await this.recomputeRollupsForRelationField(otherDbId, reverseFieldId, otherIds);
+        if (relevantRollups.length > 0) await this.recomputeRollupsForRelationField(otherDbId, reverseFieldId, otherIds);
+        if (titleAffected) await this.recomputeTitlesForRecords(otherDbId, otherIds);
       }
     }
 
     for (const link of event.linkedRelations ?? []) {
       await this.recomputeRollupsForRelationField(event.databaseId, link.fieldId, [event.recordId]);
+      // #132: this record's OWN link-set changed, so its computed name (if it
+      // references a lookup/rollup through this relation) may have changed too —
+      // recompute it alongside its own rollup.
+      await this.recomputeTitlesForRecords(event.databaseId, [event.recordId]);
       if (link.otherRecordIds.length === 0) continue;
       const relation = await this.db.query.relations.findFirst({ where: eq(relations.id, link.relationId) });
       if (!relation) continue;
       const reverseFieldId = relation.fieldAId === link.fieldId ? relation.fieldBId : relation.fieldAId;
       await this.recomputeRollupsForRelationField(link.otherDatabaseId, reverseFieldId, link.otherRecordIds);
+      // #132: and the other side's names, if THEY look back through the reverse field.
+      await this.recomputeTitlesForRecords(link.otherDatabaseId, link.otherRecordIds);
     }
+  }
+
+  /**
+   * #132: is `otherDb`'s computed name affected by a related record's field
+   * change coming through `reverseFieldId`? Either (a) the name references a
+   * rollup we're already recomputing for this change, or (b) it references a
+   * lookup that reads through this relation whose target field is one that
+   * changed. Anything else is not a false cascade to trigger.
+   */
+  private titleAffectedByRelatedChange(
+    titleDef: FieldDef,
+    defs: FieldDef[],
+    reverseFieldId: string,
+    changedApiNames: Set<string>,
+    relevantRollups: FieldDef[],
+  ): boolean {
+    const refs = new Set(formulaRefs(titleDef.config['ast'] as FormulaNode));
+    if (relevantRollups.some((r) => refs.has(r.api_name))) return true;
+    const byApi = new Map(defs.map((d) => [d.api_name, d]));
+    for (const ref of refs) {
+      const target = byApi.get(ref);
+      if (
+        target?.type === 'lookup' &&
+        target.config['relation_field_id'] === reverseFieldId &&
+        changedApiNames.has(target.config['target_field_api_name'] as string)
+      ) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private async attachLookups(projected: ProjectedRecord[], defs: FieldDef[]): Promise<ProjectedRecord[]> {
@@ -1521,6 +1659,15 @@ export class RecordsService {
     if (defs.some((d) => d.type === 'formula')) {
       await this.materializeFormulas(defs, [updated]).catch(() => undefined);
     }
+    // #132: a computed name that references a lookup/rollup can't be resolved by
+    // the synchronous computeTitle above (it only sees own-record values, so the
+    // cross-record part comes out null) — re-derive it here off the committed
+    // links. A no-op unless the name is computed AND cross-record; awaited (like
+    // the formula materialize) so a read right after this update sees the fresh
+    // title, isolated so it never fails the write.
+    if (titleDef && this.titleReferencesCrossRecord(titleDef, defs)) {
+      await this.recomputeTitlesForRecords(databaseId, [recordId]).catch(() => undefined);
+    }
 
     this.domainEvents.emit({
       type: 'record_updated',
@@ -1528,6 +1675,7 @@ export class RecordsService {
       databaseId,
       recordId,
       changedFieldIds: Object.keys(diff).filter((k) => k !== 'title'),
+      titleChanged: diff['title'] !== undefined, // #132: drives cross-record name recompute for records that look this up
       actorId,
       depth,
       linkedRelations: linkedRelations.length ? linkedRelations : undefined,
@@ -1687,6 +1835,12 @@ export class RecordsService {
     if (defs.some((d) => d.type === 'formula')) {
       await this.materializeFormulas(defs, [updated]).catch(() => undefined);
     }
+    // #132: re-derive a cross-record computed name off the restored record's
+    // committed links (the synchronous computeTitle above resolved only its
+    // own-record part). No-op unless the name is computed AND cross-record.
+    if (titleDef && this.titleReferencesCrossRecord(titleDef, defs)) {
+      await this.recomputeTitlesForRecords(databaseId, [recordId]).catch(() => undefined);
+    }
 
     this.domainEvents.emit({
       type: 'record_updated',
@@ -1694,6 +1848,7 @@ export class RecordsService {
       databaseId,
       recordId,
       changedFieldIds: Object.keys(diff).filter((k) => k !== 'title'),
+      titleChanged: diff['title'] !== undefined, // #132: restore may change the title too
       actorId,
       depth: 0,
     });

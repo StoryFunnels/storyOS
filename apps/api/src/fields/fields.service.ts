@@ -521,9 +521,9 @@ export class FieldsService {
    * stores the bare mode (clearing any prior template). `computed` compiles the
    * `source` template through the SAME formula path formula fields use
    * (compileFormulaConfig, passing the title's own api_name as `selfApiName` so a
-   * `{Name}` self-reference is rejected as a cycle), then restricts it to
-   * own-record references — a lookup/rollup/relation ref is a cross-record
-   * template, which is out of scope for v1 (#132).
+   * `{Name}` self-reference is rejected as a cycle), then restricts which
+   * cross-record references it may make — see assertTitleRefs (#132: lookup/rollup
+   * allowed, direct relation traversal still rejected).
    */
   private async compileTitleConfig(
     databaseId: string,
@@ -540,7 +540,7 @@ export class FieldsService {
       throw new UnprocessableEntityException('A computed name needs a template expression');
     }
     const compiled = await this.compileFormulaConfig(databaseId, { expression: source }, field.apiName);
-    await this.assertOwnRecordTitleRefs(databaseId, compiled.ast);
+    await this.assertTitleRefs(databaseId, compiled.ast);
     return {
       name_mode: 'computed',
       source: compiled.expression,
@@ -549,21 +549,30 @@ export class FieldsService {
     };
   }
 
-  /** MN-130: a computed name may only reference this record's own fields. A
-   * lookup/rollup/relation ref reaches other records (its value isn't in hand at
-   * this record's own write time), so reject it — cross-record name templates
-   * are a separate ticket (#132). */
-  private async assertOwnRecordTitleRefs(databaseId: string, ast: unknown): Promise<void> {
+  /**
+   * #132: which cross-record references a computed name may make.
+   *
+   * A `lookup`/`rollup` field already MATERIALIZES a related record's value ONTO
+   * this record (attachLookups/attachRollups), so referencing it is still an
+   * own-record read at title-compute time — allowed, and kept live by the
+   * reactive recompute (RecordsService.recomputeTitlesForRecords, hung off the
+   * MN-267 invalidation path). A direct `relation` traversal (`{Assignee}.{Name}`)
+   * is different: it reaches THROUGH the relation into fields we don't hold, and
+   * is deferred to #145 — so relation refs are still rejected here. (Relation
+   * fields carry no formula type either, so a bare `{Assignee}` already fails to
+   * compile; this guard is the explicit, friendly rejection for the case that
+   * does resolve.)
+   */
+  private async assertTitleRefs(databaseId: string, ast: unknown): Promise<void> {
     const live = await this.db.query.fields.findMany({
       where: and(eq(fields.databaseId, databaseId), isNull(fields.deletedAt)),
     });
     const byApi = new Map(live.map((f) => [f.apiName, f]));
-    const CROSS_RECORD = new Set(['lookup', 'rollup', 'relation']);
     for (const ref of formulaRefs(ast as never)) {
       const target = byApi.get(ref);
-      if (target && CROSS_RECORD.has(target.type)) {
+      if (target && target.type === 'relation') {
         throw new UnprocessableEntityException(
-          `A computed name can only reference this record's own fields — "${target.displayName}" is a ${target.type} field (cross-record references aren't supported yet)`,
+          `A computed name can't traverse a relation directly — "${target.displayName}" is a relation field. Reference a lookup or rollup of it instead (direct relation traversal isn't supported yet)`,
         );
       }
     }
