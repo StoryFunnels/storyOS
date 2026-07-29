@@ -88,7 +88,7 @@ function PackChoice({
         <span className="block text-[13px] font-medium text-ink">{label ?? pack.name}</span>
         <span className="line-clamp-2 block text-[12px] text-muted">{pack.summary}</span>
         <span className="mt-1 block text-[11px] text-faint">
-          Includes databases, views, automations, and an approval-aware agent
+          Includes databases, views, automations, plus a built-in assistant
         </span>
       </span>
     </button>
@@ -361,7 +361,7 @@ export default function NewWorkspacePage() {
           <Bot className="mt-0.5 h-4 w-4 shrink-0 text-muted" />
           <p className="text-[11px] text-muted">
             After setup, connect Claude or ChatGPT from Settings → Integrations to work with this
-            workspace through StoryOS MCP.
+            workspace directly from your assistant.
           </p>
         </div>
       </form>

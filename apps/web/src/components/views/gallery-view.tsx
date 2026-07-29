@@ -3,8 +3,9 @@
 import { useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { recordHref } from '@/lib/records';
-import { useDatabase, useMembers, useRecordsInfinite } from '../table-view/use-table-data';
+import { useDatabase, useMembers, useRecordMutations, useRecordsInfinite } from '../table-view/use-table-data';
 import { Card } from './board-view';
+import { EmptyState, databaseNoun } from './empty-state';
 import type { FilterNode, ViewConfig } from './use-view-state';
 import { queryBodyFromConfig } from './use-view-state';
 
@@ -26,8 +27,15 @@ export function GalleryView({
 }) {
   const database = useDatabase(ws, db);
   const router = useRouter();
+  const { createRecord } = useRecordMutations(ws, db);
   const queryBody = useMemo(() => queryBodyFromConfig(config, personalFilter), [config, personalFilter]);
   const records = useRecordsInfinite(ws, db, queryBody);
+
+  const addRecord = () =>
+    createRecord.mutate(
+      { name: 'Untitled' },
+      { onSuccess: (created) => router.push(`/w/${ws}/d/${db}/r/${created.id}`) },
+    );
 
   const memberQuery = useMembers(ws, !readOnly);
   const memberNames = useMemo(
@@ -46,7 +54,12 @@ export function GalleryView({
   );
 
   if (rows.length === 0) {
-    return <p className="p-6 text-sm text-faint">No records yet.</p>;
+    return (
+      <EmptyState
+        noun={databaseNoun(database.data?.name)}
+        onAdd={readOnly ? undefined : addRecord}
+      />
+    );
   }
 
   const min = config.card_size === 'large' ? 280 : config.card_size === 'small' ? 180 : 220;

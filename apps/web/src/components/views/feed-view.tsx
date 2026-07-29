@@ -17,6 +17,7 @@ import type { Field } from '../table-view/use-table-data';
 import type { FilterNode, ViewConfig } from './use-view-state';
 import { queryBodyFromConfig } from './use-view-state';
 import { feedActionFields } from './feed-actions';
+import { EmptyState, databaseNoun } from './empty-state';
 
 /** Feed view (MN-093): a single-column stream of wide cards — title, a preview of
  * the record's first rich-text field, the card fields, and who/when. Built for
@@ -40,7 +41,13 @@ export function FeedView({
   const fmt = useDateFormat();
   const queryBody = useMemo(() => queryBodyFromConfig(config, personalFilter), [config, personalFilter]);
   const records = useRecordsInfinite(ws, db, queryBody);
-  const { updateRecord } = useRecordMutations(ws, db);
+  const { updateRecord, createRecord } = useRecordMutations(ws, db);
+
+  const addRecord = () =>
+    createRecord.mutate(
+      { name: 'Untitled' },
+      { onSuccess: (created) => router.push(`/w/${ws}/d/${db}/r/${created.id}`) },
+    );
 
   const memberQuery = useMembers(ws, !readOnly);
   const memberNames = useMemo(
@@ -76,7 +83,13 @@ export function FeedView({
   const canAct = !readOnly;
   const canComment = atLeast(database.data?.my_access, 'commenter');
 
-  if (rows.length === 0) return <p className="p-6 text-sm text-faint">No records yet.</p>;
+  if (rows.length === 0)
+    return (
+      <EmptyState
+        noun={databaseNoun(database.data?.name)}
+        onAdd={readOnly ? undefined : addRecord}
+      />
+    );
 
   return (
     <div className="h-full overflow-auto">
