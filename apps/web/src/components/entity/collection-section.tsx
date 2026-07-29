@@ -63,6 +63,13 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
   const targetDb = useDatabase(ws, targetDbId);
   const targetFields = useMemo(() => targetDb.data?.fields ?? [], [targetDb.data]);
   const inverseApi = targetFields.find((f) => f.id === field.relation?.inverse_field_id)?.apiName;
+  // MN-144: if the TARGET database's title is computed (MN-131), it's read-only —
+  // the server derives it and ignores any typed name. Inline quick-create must
+  // therefore NOT offer a free-text name box (the text would be silently dropped);
+  // it creates the record directly and lets the computed name / #<number> apply.
+  const targetTitleComputed =
+    (targetFields.find((f) => f.type === 'title')?.config as { name_mode?: string } | undefined)
+      ?.name_mode === 'computed';
 
   // MN-206 part 2 (#142): edit the LINKED records' fields in place + create pre-linked.
   // Both act on the TARGET database, so its access ladder gates them — not this one's.
@@ -98,11 +105,13 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
     mutationFn: async (title: string) => {
       const titleApi = targetFields.find((f) => f.type === 'title')?.apiName ?? 'name';
       // MN-080 inline relation write: naming the inverse field links it in the same create.
+      // MN-144: a computed-title target ignores a typed name — omit it entirely so the
+      // server's derived name / #<number> applies rather than pretending the text stuck.
+      const values: Record<string, unknown> = inverseApi ? { [inverseApi]: [rec] } : {};
+      if (!targetTitleComputed && title) values[titleApi] = title;
       const { error } = await api.POST('/api/v1/workspaces/{ws}/databases/{db}/records', {
         params: { path: { ws, db: targetDbId } },
-        body: {
-          values: { [titleApi]: title, ...(inverseApi ? { [inverseApi]: [rec] } : {}) },
-        } as never,
+        body: { values } as never,
       });
       if (error) throw error;
     },
@@ -347,12 +356,15 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
               {canEditTargets && !creating && (
                 <button
                   className="inline-flex items-center gap-1 text-[13px] text-muted hover:text-ink"
-                  onClick={() => setCreating(true)}
+                  // MN-144: computed-title target has no name to type — create straight away.
+                  onClick={() => (targetTitleComputed ? createLinked.mutate('') : setCreating(true))}
+                  disabled={createLinked.isPending}
+                  title={targetTitleComputed ? 'Name is set automatically' : undefined}
                 >
                   <Plus className="h-3.5 w-3.5" /> New
                 </button>
               )}
-              {creating && (
+              {creating && !targetTitleComputed && (
                 <input
                   autoFocus
                   className="h-7 w-64 rounded-md border border-border-default bg-card px-2 text-[13px] text-ink"
