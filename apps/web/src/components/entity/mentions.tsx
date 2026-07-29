@@ -5,8 +5,19 @@ import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { BlockNoteSchema, defaultInlineContentSpecs } from '@blocknote/core';
 import type { BlockNoteEditor } from '@blocknote/core';
+import type { DefaultReactSuggestionItem } from '@blocknote/react';
 import { SuggestionMenuController, createReactInlineContentSpec } from '@blocknote/react';
 import { api } from '@/lib/api';
+import { Avatar } from '@/components/ui/avatar';
+import {
+  filterMembers,
+  mentionInsertContent,
+  recordMentionProps,
+  recordRowLabel,
+  userMentionProps,
+  type MemberUser,
+  type SearchRecord,
+} from './mention-items';
 
 /**
  * @/# mentions in rich text (MN-205 part 2, #140).
@@ -104,12 +115,6 @@ function RecordChip({ ws, id, db, label }: MentionProps & { ws: string }) {
 
 /* ---------- suggestion menus ---------- */
 
-interface SuggestionItem {
-  title: string;
-  subtext?: string;
-  onItemClick: () => void;
-}
-
 /** Insert a mention inline node + a trailing space at the caret. */
 function insertMention(
   editor: BlockNoteEditor<never, never, never>,
@@ -117,13 +122,18 @@ function insertMention(
 ): void {
   (editor as unknown as {
     insertInlineContent: (content: unknown[]) => void;
-  }).insertInlineContent([{ type: 'mention', props }, ' ']);
+  }).insertInlineContent(mentionInsertContent(props) as unknown[]);
 }
 
 /**
  * The @ (members) and # (records) pickers. Render as children of BlockNoteView —
- * additive to the default slash menu. The # search rides the grant-scoped
- * workspace search endpoint, so a guest is only ever offered titles they can open.
+ * additive to the default slash menu.
+ *
+ * @ reuses the compact avatar member-row look (small rows, each with the person's
+ * profile pic via the shared Avatar). # rides the grant-scoped workspace search
+ * endpoint — so a guest is only ever offered titles they can open — and renders
+ * each hit as the faint #<number> + title (the #227/#228 record-chip style), with
+ * the owning database as subtext since the search spans every database.
  */
 export function MentionSuggestionMenus({
   editor,
@@ -132,45 +142,44 @@ export function MentionSuggestionMenus({
   editor: BlockNoteEditor<never, never, never>;
   ws: string;
 }) {
-  const getMembers = async (query: string): Promise<SuggestionItem[]> => {
+  const getMembers = async (query: string): Promise<DefaultReactSuggestionItem[]> => {
     const { data, error } = await api.GET('/api/v1/workspaces/{ws}/members', {
       params: { path: { ws } },
     });
     if (error) return [];
-    const members = (data as unknown as Array<{ user: { id: string; name: string } }>).map(
-      (m) => m.user,
-    );
-    const q = query.trim().toLowerCase();
-    return members
-      .filter((u) => !q || u.name.toLowerCase().includes(q))
+    const members = (data as unknown as Array<{ user: MemberUser }>).map((m) => m.user);
+    return filterMembers(members, query)
       .slice(0, 8)
       .map((u) => ({
         title: u.name,
-        onItemClick: () =>
-          insertMention(editor, { kind: 'user', id: u.id, label: u.name, db: '' }),
+        size: 'small',
+        icon: <Avatar userId={u.id} name={u.name} image={u.image} size={20} />,
+        onItemClick: () => insertMention(editor, userMentionProps(u)),
       }));
   };
 
-  const getRecords = async (query: string): Promise<SuggestionItem[]> => {
+  const getRecords = async (query: string): Promise<DefaultReactSuggestionItem[]> => {
     if (!query.trim()) return [];
     const { data, error } = await api.GET('/api/v1/workspaces/{ws}/search', {
       params: { path: { ws }, query: { q: query.trim() } },
     } as never);
     if (error) return [];
-    const records = (data as unknown as {
-      records: Array<{ id: string; title: string; database_id: string; database_name: string }>;
-    }).records;
-    return records.slice(0, 8).map((r) => ({
-      title: r.title || 'Untitled',
-      subtext: r.database_name,
-      onItemClick: () =>
-        insertMention(editor, {
-          kind: 'record',
-          id: r.id,
-          label: r.title,
-          db: r.database_id,
-        }),
-    }));
+    const records = (data as unknown as { records: SearchRecord[] }).records ?? [];
+    return records.slice(0, 8).map((r) => {
+      const row = recordRowLabel(r);
+      return {
+        title: row.title,
+        subtext: row.database,
+        size: 'small',
+        icon:
+          row.number !== null ? (
+            <span className="tabular-nums text-faint">#{row.number}</span>
+          ) : (
+            <span className="text-faint">#</span>
+          ),
+        onItemClick: () => insertMention(editor, recordMentionProps(r)),
+      };
+    });
   };
 
   return (

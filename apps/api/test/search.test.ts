@@ -47,6 +47,16 @@ describe('global search (MN-048)', () => {
     expect(titles).toContain('Phoenix secret roadmap');
   });
 
+  it('returns the per-database record number for #<number> mention rows (#139)', async () => {
+    const res = await inject(admin.token, 'GET', `/workspaces/${wsId}/search?q=phoenix`);
+    const hit = res
+      .json()
+      .records.find((r: { title: string }) => r.title === 'Phoenix launch checklist');
+    expect(hit).toBeDefined();
+    expect(hit.number).toBeTypeOf('number');
+    expect(hit.database_name).toBe('Open Tasks');
+  });
+
   it('scopes guests to granted spaces', async () => {
     const res = await inject(guest.token, 'GET', `/workspaces/${wsId}/search?q=phoenix`);
     expect(res.statusCode, res.body).toBe(200);
