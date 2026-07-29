@@ -4000,6 +4000,9 @@ export interface components {
             github?: {
                 login?: string | null;
             };
+            activation?: {
+                dismissedWorkspaces?: string[];
+            };
         };
         CreateWebhookDto: {
             /** Format: uri */

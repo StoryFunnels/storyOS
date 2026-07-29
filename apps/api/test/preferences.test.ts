@@ -54,3 +54,40 @@ describe('user preferences — My Work config (MN-072 part 2)', () => {
     expect(get.json().myWork['db-2'].group_by_field_id).toBe('x');
   });
 });
+
+describe('user preferences — activation checklist dismissal (#155)', () => {
+  it('defaults to an empty dismissed-workspaces list', async () => {
+    const res = await req('GET', '/users/me/preferences');
+    expect(res.statusCode).toBe(200);
+    expect(res.json().activation).toEqual({ dismissedWorkspaces: [] });
+  });
+
+  it('persists a per-workspace dismissal', async () => {
+    const patch = await req('PATCH', '/users/me/preferences', {
+      activation: { dismissedWorkspaces: ['ws-1'] },
+    });
+    expect(patch.statusCode, patch.body).toBe(200);
+    expect(patch.json().activation.dismissedWorkspaces).toEqual(['ws-1']);
+
+    const get = await req('GET', '/users/me/preferences');
+    expect(get.json().activation.dismissedWorkspaces).toEqual(['ws-1']);
+  });
+
+  it('replaces the list on patch — a second workspace can be added, and one removed', async () => {
+    await req('PATCH', '/users/me/preferences', { activation: { dismissedWorkspaces: ['ws-1', 'ws-2'] } });
+    let get = await req('GET', '/users/me/preferences');
+    expect(get.json().activation.dismissedWorkspaces).toEqual(['ws-1', 'ws-2']);
+
+    // "Undo dismiss" for ws-1: the client sends the full next list without it.
+    await req('PATCH', '/users/me/preferences', { activation: { dismissedWorkspaces: ['ws-2'] } });
+    get = await req('GET', '/users/me/preferences');
+    expect(get.json().activation.dismissedWorkspaces).toEqual(['ws-2']);
+  });
+
+  it('an unrelated patch does NOT drop the dismissal (the reconstruct gotcha)', async () => {
+    await req('PATCH', '/users/me/preferences', { regional: { dateFormat: 'DMY' } });
+    const get = await req('GET', '/users/me/preferences');
+    expect(get.json().activation.dismissedWorkspaces).toEqual(['ws-2']);
+    expect(get.json().regional.dateFormat).toBe('DMY');
+  });
+});

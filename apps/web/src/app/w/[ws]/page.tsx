@@ -2,24 +2,23 @@
 
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Blocks, CheckCircle2, Circle, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { useDatabases, useSpaces, useWorkspace } from '@/lib/queries';
+import { usePreferences, useUpdatePreferences } from '@/lib/preferences';
+import {
+  buildActivationSteps,
+  completedCount,
+  isWorkspaceDismissed,
+  shouldShowChecklist,
+  withWorkspaceDismissed,
+  type OnboardingState,
+} from '@/lib/activation';
 import { TEMPLATE_ICONS, TemplateGalleryDialog, useTemplateRegistry } from '@/components/template-gallery';
 import { Button } from '@/components/ui/button';
-
-interface OnboardingState {
-  database_created: boolean;
-  records_added: boolean;
-  teammate_invited: boolean;
-  board_view_built: boolean;
-  relation_created: boolean;
-  ai_connected: boolean;
-  business_pack_installed: boolean;
-}
 
 export default function WorkspaceHome() {
   const { ws } = useParams<{ ws: string }>();
@@ -65,45 +64,23 @@ export default function WorkspaceHome() {
   const [gallerySlug, setGallerySlug] = useState<string | undefined>(undefined);
   const canInstall = workspace.data?.role !== 'guest';
 
-  // Dismissible, and self-hiding once everything is done (MN-213).
-  const dismissKey = `storyos:gs-dismissed:${ws}`;
-  const [dismissed, setDismissed] = useState(true); // default hidden until localStorage read
-  useEffect(() => {
-    setDismissed(typeof window !== 'undefined' && window.localStorage.getItem(dismissKey) === '1');
-  }, [dismissKey]);
+  // Dismissal is stored per-workspace-per-user in the server preferences blob
+  // (#155) — not localStorage — so hiding the checklist on one device keeps it
+  // hidden everywhere. It still self-hides once every step is done (MN-213).
+  const preferences = usePreferences();
+  const updatePreferences = useUpdatePreferences();
+  const dismissed =
+    !preferences.data || isWorkspaceDismissed(preferences.data.activation?.dismissedWorkspaces, ws);
+
+  const dismiss = () => {
+    const next = withWorkspaceDismissed(preferences.data?.activation?.dismissedWorkspaces, ws);
+    updatePreferences.mutate({ activation: { dismissedWorkspaces: next } });
+  };
 
   const firstDb = databases.data?.[0];
   const gs = onboarding.data;
-  // Ordered along the activation path; "Connect your AI" is the differentiator.
-  const steps = gs
-    ? [
-        { label: 'Create a database', done: gs.database_created, href: undefined },
-        {
-          label: 'Open it and add a few records',
-          done: gs.records_added,
-          href: firstDb ? `/w/${ws}/d/${firstDb.id}` : undefined,
-        },
-        {
-          label: 'Build a board view',
-          done: gs.board_view_built,
-          href: firstDb ? `/w/${ws}/d/${firstDb.id}` : undefined,
-        },
-        {
-          label: 'Connect two databases with a relation',
-          done: gs.relation_created,
-          href: firstDb ? `/w/${ws}/d/${firstDb.id}` : undefined,
-        },
-        { label: 'Invite a teammate', done: gs.teammate_invited, href: `/w/${ws}/settings/members` },
-        { label: 'Connect your AI (MCP)', done: gs.ai_connected, href: `/w/${ws}/settings/api` },
-        {
-          label: 'Install a Business Pack',
-          done: gs.business_pack_installed,
-          href: `/w/${ws}/packs`,
-        },
-      ]
-    : [];
-  const allDone = steps.length > 0 && steps.every((s) => s.done);
-  const showChecklist = steps.length > 0 && !allDone && !dismissed;
+  const steps = gs ? buildActivationSteps(gs, { ws, firstDbId: firstDb?.id }) : [];
+  const showChecklist = shouldShowChecklist(steps, dismissed);
 
   return (
     <div className="mx-auto max-w-2xl p-4 sm:p-10">
@@ -130,23 +107,21 @@ export default function WorkspaceHome() {
         <div className="rounded-[var(--radius-card)] border border-border-default bg-card p-4">
           <div className="mb-3 flex items-center justify-between">
             <p className="text-[12px] font-medium uppercase tracking-wider text-faint">
-              Getting started · {steps.filter((s) => s.done).length}/{steps.length}
+              Getting started · {completedCount(steps)}/{steps.length}
             </p>
             <button
               type="button"
-              className="rounded p-0.5 text-faint hover:bg-hover hover:text-ink"
+              className="rounded p-0.5 text-faint hover:bg-hover hover:text-ink disabled:opacity-50"
               title="Dismiss"
-              onClick={() => {
-                window.localStorage.setItem(dismissKey, '1');
-                setDismissed(true);
-              }}
+              disabled={updatePreferences.isPending}
+              onClick={dismiss}
             >
               <X className="h-3.5 w-3.5" />
             </button>
           </div>
           <div className="flex flex-col gap-2.5">
             {steps.map((step) => (
-              <div key={step.label} className="flex items-center gap-2.5">
+              <div key={step.key} className="flex items-center gap-2.5">
                 {step.done ? (
                   <CheckCircle2 className="h-4 w-4 text-success" />
                 ) : (
