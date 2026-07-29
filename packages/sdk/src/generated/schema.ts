@@ -3745,7 +3745,7 @@ export interface components {
         CreateViewDto: {
             name: string;
             /** @enum {string} */
-            type: "table" | "board" | "calendar" | "gallery" | "list" | "feed" | "timeline" | "form";
+            type: "table" | "board" | "calendar" | "gallery" | "list" | "feed" | "timeline" | "form" | "dashboard";
             config?: {
                 filters?: components["schemas"]["CreateViewDto__schema0"];
                 /** @default [] */

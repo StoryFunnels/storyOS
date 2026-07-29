@@ -8966,7 +8966,8 @@
               "list",
               "feed",
               "timeline",
-              "form"
+              "form",
+              "dashboard"
             ]
           },
           "config": {

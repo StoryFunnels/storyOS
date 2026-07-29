@@ -73,6 +73,7 @@ export const viewType = pgEnum('view_type', [
   'feed',
   'timeline',
   'form',
+  'dashboard',
 ]);
 
 /** Side "a" is the "many" side for one_to_many (meta-model §Relation). */
