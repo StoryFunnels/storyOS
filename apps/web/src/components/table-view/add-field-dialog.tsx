@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { useDatabases, useSpaces } from '@/lib/queries';
@@ -59,6 +60,10 @@ export function AddFieldDialog({
   // tree shape ViewConfig.filters already uses — collapses to `undefined`
   // (no filter — unconditional aggregate, same as before MN-295) when empty.
   const [rollupFilter, setRollupFilter] = useState<FilterGroup | undefined>(undefined);
+  // #151: keep the two power-user relation controls tucked away by default —
+  // the rollup's optional filter, and the exact link cardinality wording.
+  const [showRollupFilter, setShowRollupFilter] = useState(false);
+  const [showRelationAdvanced, setShowRelationAdvanced] = useState(false);
   const [buttonActions, setButtonActions] = useState<ButtonAction[]>([
     { type: 'add_comment', body_template: 'Done ✅ ({Title})' },
   ]);
@@ -195,7 +200,7 @@ export function AddFieldDialog({
             <>
               {type === 'rollup' && (
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="rollup-op">Aggregation</Label>
+                  <Label htmlFor="rollup-op">Calculate</Label>
                   <select
                     id="rollup-op"
                     className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-sm text-ink"
@@ -211,7 +216,7 @@ export function AddFieldDialog({
                 </div>
               )}
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="lookup-relation">Through relation</Label>
+                <Label htmlFor="lookup-relation">Using the link…</Label>
                 <select
                   id="lookup-relation"
                   required
@@ -256,21 +261,37 @@ export function AddFieldDialog({
               )}
               {type === 'rollup' && lookupRelation && (
                 <div className="flex flex-col gap-1.5">
-                  <Label>Filter (optional)</Label>
-                  <p className="text-[12px] text-faint">
-                    Only aggregate linked records matching this condition — e.g. State is not Done.
-                  </p>
-                  <div className="rounded-[var(--radius-card)] border border-border-default">
-                    <FilterBuilderPanel
-                      fields={rollupFilterableFields}
-                      members={rollupMemberList}
-                      ws={ws}
-                      connector={rollupFilterConnector}
-                      nodes={rollupFilterNodes}
-                      onNodesChange={(next) => setRollupFilter(buildFilterGroup(rollupFilterConnector, next))}
-                      onConnectorChange={(next) => setRollupFilter(buildFilterGroup(next, rollupFilterNodes))}
-                    />
-                  </div>
+                  <button
+                    type="button"
+                    className="flex w-fit items-center gap-1 text-[12px] font-medium text-muted hover:text-ink"
+                    aria-expanded={showRollupFilter}
+                    onClick={() => setShowRollupFilter((s) => !s)}
+                  >
+                    {showRollupFilter ? (
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    ) : (
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    )}
+                    Only include some items…
+                  </button>
+                  {showRollupFilter && (
+                    <>
+                      <p className="text-[12px] text-faint">
+                        Only count linked items matching this condition — e.g. State is not Done.
+                      </p>
+                      <div className="rounded-[var(--radius-card)] border border-border-default">
+                        <FilterBuilderPanel
+                          fields={rollupFilterableFields}
+                          members={rollupMemberList}
+                          ws={ws}
+                          connector={rollupFilterConnector}
+                          nodes={rollupFilterNodes}
+                          onNodesChange={(next) => setRollupFilter(buildFilterGroup(rollupFilterConnector, next))}
+                          onConnectorChange={(next) => setRollupFilter(buildFilterGroup(next, rollupFilterNodes))}
+                        />
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
             </>
@@ -365,15 +386,28 @@ export function AddFieldDialog({
               </div>
             )}
             <div className="flex flex-col gap-1.5">
-              <Label>Each record here links to…</Label>
+              <Label>Each item links to…</Label>
               <label className="flex items-center gap-2 text-[13px] text-ink">
                 <input type="radio" checked={singleTarget} onChange={() => setSingleTarget(true)} />
-                one target record (one-to-many)
+                one item{showRelationAdvanced && <span className="text-faint"> (one-to-many)</span>}
               </label>
               <label className="flex items-center gap-2 text-[13px] text-ink">
                 <input type="radio" checked={!singleTarget} onChange={() => setSingleTarget(false)} />
-                many target records (many-to-many)
+                many items{showRelationAdvanced && <span className="text-faint"> (many-to-many)</span>}
               </label>
+              <button
+                type="button"
+                className="flex w-fit items-center gap-1 text-[12px] font-medium text-muted hover:text-ink"
+                aria-expanded={showRelationAdvanced}
+                onClick={() => setShowRelationAdvanced((s) => !s)}
+              >
+                {showRelationAdvanced ? (
+                  <ChevronDown className="h-3.5 w-3.5" />
+                ) : (
+                  <ChevronRight className="h-3.5 w-3.5" />
+                )}
+                Advanced
+              </button>
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="inverse-name">Field name on the other side</Label>
