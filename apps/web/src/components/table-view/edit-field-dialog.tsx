@@ -112,7 +112,14 @@ export function EditFieldDialog({
           </>
         )}
 
-        <ConfigEditor type={field.type} config={config} onChange={setConfig} />
+        <ConfigEditor
+          type={field.type}
+          config={config}
+          onChange={setConfig}
+          ws={ws}
+          db={db}
+          fields={(currentDb.data?.fields ?? []) as Field[]}
+        />
 
         {isSelect && (
           <div className="flex flex-col gap-1.5">

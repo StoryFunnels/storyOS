@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Check, ChevronDown, ChevronUp, Plus } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, Plus, Sigma } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -345,6 +345,12 @@ interface EditorProps {
 export function CellEditor({ ws, db, field, value, members, onCommit, onToggleImmediate, onCancel }: EditorProps) {
   switch (field.type) {
     case 'title':
+      // MN-131: a computed name is derived from a template (#130) and can't be
+      // edited directly — show a read-only affordance instead of a text input.
+      if (field.config['name_mode'] === 'computed') {
+        return <ComputedTitleNotice value={value == null ? '' : String(value)} onCancel={onCancel} />;
+      }
+      return <TextEditor initial={value == null ? '' : String(value)} onCommit={(v) => onCommit(v === '' ? null : v)} onCancel={onCancel} />;
     case 'text':
     case 'url':
     case 'email':
@@ -455,6 +461,34 @@ function TextEditor({
         e.stopPropagation();
       }}
     />
+  );
+}
+
+/**
+ * MN-131: read-only stand-in shown when a computed-name title cell is "edited".
+ * The name is derived from a template, so there's nothing to type — mirror the
+ * text editor's focus/blur/Escape lifecycle (so the table closes the editor the
+ * same way) while making the value impossible to change.
+ */
+function ComputedTitleNotice({ value, onCancel }: { value: string; onCancel: () => void }) {
+  return (
+    <div
+      className="flex h-full w-full items-center gap-1.5 bg-card px-2 text-[13px] text-muted"
+      title="This name is computed from a template — edit the template in the Name field’s settings."
+    >
+      <Sigma className="h-3.5 w-3.5 shrink-0 text-faint" />
+      <input
+        autoFocus
+        readOnly
+        className="h-full min-w-0 flex-1 cursor-not-allowed bg-transparent outline-none"
+        value={value}
+        onBlur={onCancel}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === 'Escape') onCancel();
+          e.stopPropagation();
+        }}
+      />
+    </div>
   );
 }
 
