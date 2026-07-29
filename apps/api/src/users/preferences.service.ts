@@ -29,6 +29,11 @@ export class PreferencesService {
       // (Controller-validated values are full configs, never undefined.)
       myWork: { ...current.myWork, ...(patch.myWork ?? {}) } as UserPreferences['myWork'],
       github: { ...current.github, ...(patch.github ?? {}) },
+      // Activation checklist dismissal (#155): a patch replaces the whole
+      // dismissed-workspaces list (the client sends the full next list), else the
+      // current one is carried through untouched — same reconstruct-safe rule as
+      // the keys above so an unrelated patch can't silently wipe it.
+      activation: { ...current.activation, ...(patch.activation ?? {}) },
       // viewFilters (#259) is never part of this generic patch — it's managed by
       // the dedicated personal-filter endpoint (views/:view/personal-filter) so it
       // gets the view/field existence checks that live there. Carry it through

@@ -82,6 +82,18 @@ export interface UserPreferences {
   github: {
     login: string | null;
   };
+  /**
+   * First-run activation checklist (#155). The Getting-Started checklist on the
+   * workspace home is dismissible; `dismissedWorkspaces` holds the workspace ids
+   * this user has dismissed it for. Per-workspace-per-user so dismissing on one
+   * workspace never hides it on another, and server-stored (not localStorage) so
+   * the dismissal survives across the user's devices/browsers. Completion itself
+   * is NOT stored here — it's derived live from real state (onboarding.controller
+   * .ts, MN-213); this flag only records the manual "hide it" choice.
+   */
+  activation: {
+    dismissedWorkspaces: string[];
+  };
 }
 
 export const DEFAULT_PREFERENCES: UserPreferences = {
@@ -90,6 +102,7 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   myWork: {},
   viewFilters: {},
   github: { login: null },
+  activation: { dismissedWorkspaces: [] },
 };
 
 /** Merge a stored (possibly partial / legacy) blob over the defaults, so missing
@@ -101,6 +114,7 @@ export function mergePreferences(stored: unknown): UserPreferences {
     myWork?: UserPreferences['myWork'];
     viewFilters?: UserPreferences['viewFilters'];
     github?: Partial<UserPreferences['github']>;
+    activation?: Partial<UserPreferences['activation']>;
   };
   return {
     notifications: { ...DEFAULT_PREFERENCES.notifications, ...(s.notifications ?? {}) },
@@ -108,5 +122,8 @@ export function mergePreferences(stored: unknown): UserPreferences {
     myWork: { ...(s.myWork ?? {}) },
     viewFilters: { ...(s.viewFilters ?? {}) },
     github: { ...DEFAULT_PREFERENCES.github, ...(s.github ?? {}) },
+    activation: {
+      dismissedWorkspaces: [...(s.activation?.dismissedWorkspaces ?? [])],
+    },
   };
 }

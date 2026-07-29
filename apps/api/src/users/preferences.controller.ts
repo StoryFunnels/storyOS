@@ -70,12 +70,23 @@ const githubPrefsSchema = z
   })
   .partial();
 
+// #155: which workspaces this user has dismissed the first-run activation
+// checklist for. The client sends the full next list; capped to keep the blob
+// bounded (a user is only ever in so many workspaces).
+const activationSchema = z
+  .object({
+    dismissedWorkspaces: z.array(z.string()).max(1000),
+  })
+  .partial();
+
 const preferencesPatchSchema = z.object({
   notifications: notificationTogglesSchema.optional(),
   regional: regionalSchema.optional(),
   /** Per-database My Work config, keyed by database id (MN-072 part 2). */
   myWork: z.record(z.string(), myWorkDbConfigSchema).optional(),
   github: githubPrefsSchema.optional(),
+  /** First-run activation checklist dismissal (#155). */
+  activation: activationSchema.optional(),
 });
 class PreferencesPatchDto extends createZodDto(preferencesPatchSchema) {}
 

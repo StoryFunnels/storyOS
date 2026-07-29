@@ -24,6 +24,12 @@ export interface UserPreferences {
   github: {
     login: string | null;
   };
+  /** #155: workspace ids this user has dismissed the first-run activation
+   *  checklist for. Per-workspace-per-user + server-stored so a dismissal sticks
+   *  across the user's devices, unlike the old localStorage flag. */
+  activation: {
+    dismissedWorkspaces: string[];
+  };
 }
 
 type DeepPartial<T> = { [K in keyof T]?: Partial<T[K]> };
