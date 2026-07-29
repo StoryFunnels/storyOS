@@ -9,6 +9,7 @@ import { OPTION_COLORS, optionColor } from '../table-view/cells';
 import { useDatabase, useMembers, useRecordMutations, useRecordsInfinite } from '../table-view/use-table-data';
 import type { RecordRow } from '../table-view/use-table-data';
 import { CardFieldChip } from './board-view';
+import { EmptyState, databaseNoun } from './empty-state';
 import type { FilterNode, ViewConfig } from './use-view-state';
 import { queryBodyFromConfig } from './use-view-state';
 
@@ -93,7 +94,13 @@ export function ListView({
       { onSuccess: (created) => router.push(`/w/${ws}/d/${db}/r/${created.id}`) },
     );
 
-  if (rows.length === 0) return <p className="p-6 text-sm text-faint">No records yet.</p>;
+  if (rows.length === 0)
+    return (
+      <EmptyState
+        noun={databaseNoun(database.data?.name)}
+        onAdd={readOnly ? undefined : () => addIn(NO_VALUE)}
+      />
+    );
 
   return (
     <div className="h-full overflow-auto">
