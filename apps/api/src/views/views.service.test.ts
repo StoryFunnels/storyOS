@@ -16,6 +16,7 @@ const BASE: Omit<ViewConfig, 'filters'> = {
   sorts: [],
   hidden_field_ids: [],
   card_field_ids: [],
+  dashboard_tiles: [],
   column_widths: {},
 };
 
@@ -91,5 +92,33 @@ describe('cleanViewConfig — recursive field-name pruning through nested and/or
     const bare = { field: 'estimate', op: 'gt', value: 0 } as unknown as ViewConfig['filters'];
     expect(clean(bare, ['estimate'])).toEqual(bare);
     expect(clean(bare, [])).toBeUndefined();
+  });
+});
+
+describe('cleanViewConfig — dashboard metric tiles (MN-225 / #168)', () => {
+  const tiles = (dashboard_tiles: ViewConfig['dashboard_tiles']) =>
+    cleanViewConfig({ ...BASE, dashboard_tiles }, new Set(), new Set(['amount'])).dashboard_tiles;
+
+  it('keeps count tiles even with no/dead target field', () => {
+    const result = tiles([{ id: '11111111-1111-1111-1111-111111111111', label: 'Total', op: 'count' }]);
+    expect(result).toHaveLength(1);
+  });
+
+  it('keeps a numeric tile whose target field is still live', () => {
+    const result = tiles([
+      { id: '22222222-2222-2222-2222-222222222222', label: '', op: 'sum', field_api_name: 'amount' },
+    ]);
+    expect(result).toHaveLength(1);
+  });
+
+  it('drops a numeric tile whose target field was deleted', () => {
+    const result = tiles([
+      { id: '33333333-3333-3333-3333-333333333333', label: '', op: 'avg', field_api_name: 'ghost' },
+    ]);
+    expect(result).toHaveLength(0);
+  });
+
+  it('defaults to an empty array when tiles are absent', () => {
+    expect(tiles(undefined as unknown as ViewConfig['dashboard_tiles'])).toEqual([]);
   });
 });

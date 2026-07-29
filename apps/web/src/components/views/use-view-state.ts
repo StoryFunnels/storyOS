@@ -43,13 +43,15 @@ export interface ViewConfig {
     success_message?: string;
     redirect_url?: string;
   };
+  /** Dashboard (MN-225 / #168) — metric tiles; scoped by this view's filter/sorts. */
+  dashboard_tiles?: Array<{ id: string; label: string; op: 'count' | 'sum' | 'avg' | 'min' | 'max'; field_api_name?: string }>;
   column_widths: Record<string, number>;
 }
 
 export interface ViewSummary {
   id: string;
   name: string;
-  type: 'table' | 'board' | 'calendar' | 'gallery' | 'list' | 'feed' | 'timeline' | 'form';
+  type: 'table' | 'board' | 'calendar' | 'gallery' | 'list' | 'feed' | 'timeline' | 'form' | 'dashboard';
   config: ViewConfig;
   isDefault?: boolean;
   position?: number;
@@ -152,7 +154,7 @@ export function useViewMutations(ws: string, db: string) {
 
   return {
     createView: useMutation({
-      mutationFn: async (body: { name: string; type: 'table' | 'board' | 'calendar' | 'gallery' | 'list' | 'feed' | 'timeline' | 'form'; config: ViewConfig }) => {
+      mutationFn: async (body: { name: string; type: 'table' | 'board' | 'calendar' | 'gallery' | 'list' | 'feed' | 'timeline' | 'form' | 'dashboard'; config: ViewConfig }) => {
         const { data, error } = await api.POST('/api/v1/workspaces/{ws}/databases/{db}/views', {
           params: { path: { ws, db } },
           body: body as never,

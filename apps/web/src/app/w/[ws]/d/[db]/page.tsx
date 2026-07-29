@@ -5,8 +5,9 @@ import { Suspense, useMemo, useState } from 'react';
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, arrayMove, horizontalListSortingStrategy } from '@dnd-kit/sortable';
-import { CalendarDays, Database as DatabaseIcon, FormInput, GanttChart, Kanban, LayoutGrid, List as ListIcon, Newspaper, Plus, Table2 } from 'lucide-react';
+import { CalendarDays, Database as DatabaseIcon, FormInput, GanttChart, Kanban, LayoutDashboard, LayoutGrid, List as ListIcon, Newspaper, Plus, Table2 } from 'lucide-react';
 import { BoardView } from '@/components/views/board-view';
+import { DashboardView } from '@/components/views/dashboard-view';
 import { CalendarView } from '@/components/views/calendar-view';
 import { GalleryView } from '@/components/views/gallery-view';
 import { ListView } from '@/components/views/list-view';
@@ -200,6 +201,8 @@ function DatabasePageInner() {
           <TimelineView ws={ws} db={db} config={config} readOnly={readOnly} onPatch={patch} personalFilter={personalFilter} />
         ) : activeView?.type === 'form' ? (
           <FormView ws={ws} db={db} config={config} readOnly={readOnly} onPatch={patch} viewId={activeView?.id} />
+        ) : activeView?.type === 'dashboard' ? (
+          <DashboardView ws={ws} db={db} config={config} readOnly={readOnly} onPatch={patch} personalFilter={personalFilter} />
         ) : (
           <TableView
             ws={ws}
@@ -228,7 +231,7 @@ function DatabasePageInner() {
   );
 }
 
-type ViewKind = 'table' | 'board' | 'calendar' | 'gallery' | 'list' | 'feed' | 'timeline' | 'form';
+type ViewKind = 'table' | 'board' | 'calendar' | 'gallery' | 'list' | 'feed' | 'timeline' | 'form' | 'dashboard';
 
 const VIEW_KIND_LABEL: Record<ViewKind, string> = {
   table: 'Table',
@@ -239,6 +242,7 @@ const VIEW_KIND_LABEL: Record<ViewKind, string> = {
   feed: 'Feed',
   timeline: 'Timeline',
   form: 'Form',
+  dashboard: 'Dashboard',
 };
 const VIEW_KIND_LABELS = Object.values(VIEW_KIND_LABEL);
 
@@ -320,6 +324,7 @@ function NewViewDialog({
                   { kind: 'feed', label: 'Feed', Icon: Newspaper },
                   { kind: 'timeline', label: 'Timeline', Icon: GanttChart, need: dateFields.length === 0 ? 'Needs a date field' : null },
                   { kind: 'form', label: 'Form', Icon: FormInput },
+                  { kind: 'dashboard', label: 'Dashboard', Icon: LayoutDashboard },
                 ] as Array<{ kind: ViewKind; label: string; Icon: typeof Table2; need?: string | null }>
               ).map(({ kind, label, Icon, need }) => (
                 <button

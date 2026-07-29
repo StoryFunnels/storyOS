@@ -7,6 +7,22 @@ export const viewTypeSchema = z.enum([
 export type ViewType = z.infer<typeof viewTypeSchema>;
 
 /**
+ * Dashboard metric tile (MN-225 / #168, Phase 1 — KPI tiles only; charts deferred).
+ * Each tile is ONE aggregate over the database's own records, reusing the same
+ * op set as `rollupConfigSchema`. `op: 'count'` counts records and ignores
+ * `field_api_name`; sum/avg/min/max aggregate the numeric values of the target
+ * field (referenced by api_name, the same way filters/sorts reference fields).
+ */
+export const dashboardTileSchema = z.object({
+  id: z.uuid(),
+  label: z.string().trim().max(100).default(''),
+  op: z.enum(['count', 'sum', 'avg', 'min', 'max']),
+  /** Required for sum/avg/min/max; omitted (ignored) for count. */
+  field_api_name: z.string().trim().min(1).max(100).optional(),
+});
+export type DashboardTile = z.infer<typeof dashboardTileSchema>;
+
+/**
  * A view is a SAVED PRESET: the client reads the config and sends the full
  * query to /records/query itself — the server stays dumb (MN-020 decision).
  * Filters/sorts reference fields by api_name (same AST as the query API);
@@ -29,6 +45,13 @@ export const viewConfigSchema = z.object({
   /** Timeline (MN-092) — start (required) + optional end date field. */
   start_date_field_id: z.uuid().optional(),
   end_date_field_id: z.uuid().optional(),
+  /**
+   * Dashboard (MN-225 / #168) — ordered metric tiles. Unlike other view types
+   * a dashboard's `filters`/`sorts` still apply (they scope every tile's
+   * aggregate); it just renders KPI tiles instead of a record list. Phase 1 is
+   * metric tiles only — charts/grouped widgets are a later phase.
+   */
+  dashboard_tiles: z.array(dashboardTileSchema).default([]),
   /** Form (MN-094) — ordered inputs + presentation + optional public token. */
   form: z
     .object({
@@ -72,7 +95,7 @@ export type ViewConfig = z.infer<typeof viewConfigSchema>;
 export const createViewSchema = z.object({
   name: z.string().trim().min(1).max(100),
   type: viewTypeSchema,
-  config: viewConfigSchema.default({ sorts: [], hidden_field_ids: [], card_field_ids: [], column_widths: {} }),
+  config: viewConfigSchema.default({ sorts: [], hidden_field_ids: [], card_field_ids: [], dashboard_tiles: [], column_widths: {} }),
 });
 
 export const updateViewSchema = z.object({

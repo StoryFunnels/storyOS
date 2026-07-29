@@ -88,6 +88,11 @@ export function cleanViewConfig(
         ? config.end_date_field_id
         : undefined,
     form: config.form,
+    // Dashboard tiles (MN-225 / #168): keep count tiles always; drop a
+    // numeric-op tile whose target field (by api_name) has been deleted.
+    dashboard_tiles: (config.dashboard_tiles ?? []).filter(
+      (t) => t.op === 'count' || (t.field_api_name != null && liveApiNames.has(t.field_api_name)),
+    ),
     column_widths: Object.fromEntries(
       Object.entries(config.column_widths ?? {}).filter(([id]) => liveFieldIds.has(id)),
     ),
