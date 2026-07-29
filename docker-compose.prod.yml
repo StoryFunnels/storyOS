@@ -1,0 +1,27 @@
+# Production override: run PREBUILT images from GHCR instead of building on the
+# host. The build-images workflow publishes them on every push to main.
+#
+# Why: the production VPS is small. A parallel on-box `docker compose build`
+# once ran it out of memory, which the OOM killer answered by killing the
+# running containers too — a full 521 outage. Pulling prebuilt images means the
+# server never compiles anything.
+#
+# Usage on the host (from /root/storyOS):
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# To avoid repeating the -f flags, set this once in the host .env:
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml
+# then plain `docker compose pull && docker compose up -d` uses both files.
+#
+# IMAGE_OWNER defaults to the GHCR org; IMAGE_TAG defaults to :latest. Pin
+# IMAGE_TAG=<sha> in .env to deploy/roll back to a specific build.
+services:
+  api:
+    image: ghcr.io/${IMAGE_OWNER:-storyfunnels}/storyos-api:${IMAGE_TAG:-latest}
+
+  web:
+    image: ghcr.io/${IMAGE_OWNER:-storyfunnels}/storyos-web:${IMAGE_TAG:-latest}
+
+  mcp:
+    image: ghcr.io/${IMAGE_OWNER:-storyfunnels}/storyos-mcp:${IMAGE_TAG:-latest}

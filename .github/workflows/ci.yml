@@ -159,6 +159,14 @@ jobs:
           CONNECTIONS_MASTER_KEY: 0000000000000000000000000000000000000000000000000000000000000000
         run: docker compose -f docker-compose.yml config > /dev/null
 
+      # The prod override swaps build: for GHCR image: refs. A typo here is a
+      # failed pull-deploy, so validate the merged config too.
+      - name: Validate docker-compose.prod.yml override
+        env:
+          BETTER_AUTH_SECRET: ci-validation-only
+          CONNECTIONS_MASTER_KEY: 0000000000000000000000000000000000000000000000000000000000000000
+        run: docker compose -f docker-compose.yml -f docker-compose.prod.yml config > /dev/null
+
       - name: Every long-lived service must self-heal (MN-127)
         env:
           BETTER_AUTH_SECRET: ci-validation-only
