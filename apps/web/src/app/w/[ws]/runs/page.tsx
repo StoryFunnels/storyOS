@@ -11,6 +11,16 @@ import { useConfirm } from '@/components/ui/confirm-dialog';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { useMembers } from '@/components/table-view/use-table-data';
+import {
+  actionKindLabel,
+  approvalStatusLabel,
+  formatDuration,
+  runActionSummaryText,
+  runStatusLabel,
+  runStepSummary,
+  triggerKindLabel,
+} from '@/lib/run-labels';
 
 interface RunSummary {
   id: string;
@@ -197,20 +207,17 @@ export default function RunsPage() {
             <div className="min-w-0">
               <p className="truncate text-[13px] font-medium text-ink">{run.name ?? '(deleted rule)'}</p>
               <p className="truncate text-[12px] text-muted">
-                {run.trigger_kind ?? '—'}
+                {triggerKindLabel(run.trigger_kind)}
                 {run.record_ref ? ` · ${run.record_ref.title || 'Untitled'}` : ''}
-                {run.action_summary.length > 0 &&
-                  ` · ${run.action_summary.map((a) => `${a.kind}:${a.status}`).join(', ')}`}
+                {run.action_summary.length > 0 && ` · ${runActionSummaryText(run.action_summary)}`}
               </p>
             </div>
             <span className="flex items-center gap-1.5 text-[12px] text-muted">
               <span className={cn('inline-block h-1.5 w-1.5 rounded-full', statusDotClass(run.status))} />
-              {run.status}
+              {runStatusLabel(run.status)}
             </span>
             <span className="whitespace-nowrap text-[12px] text-muted">{fmt.dateTime(run.started_at)}</span>
-            <span className="whitespace-nowrap text-[12px] text-muted">
-              {run.duration_ms !== null ? `${run.duration_ms}ms` : '—'}
-            </span>
+            <span className="whitespace-nowrap text-[12px] text-muted">{formatDuration(run.duration_ms)}</span>
           </button>
         ))}
       </div>
@@ -225,6 +232,9 @@ function RunDetailDialog({ ws, runId, onClose }: { ws: string; runId: string | n
   const qc = useQueryClient();
   const confirm = useConfirm();
   const detail = useRunDetail(ws, runId);
+  const members = useMembers(ws, Boolean(runId));
+  const memberName = (userId: string): string =>
+    members.data?.find((m) => m.user.id === userId)?.user.name ?? 'a workspace member';
 
   const rerun = useMutation({
     mutationFn: async (actionIndex: number) => {
@@ -250,9 +260,11 @@ function RunDetailDialog({ ws, runId, onClose }: { ws: string; runId: string | n
             <div className="flex flex-col gap-4">
               <div className="flex items-center gap-2 text-[13px]">
                 <span className={cn('inline-block h-2 w-2 rounded-full', statusDotClass(detail.data.status))} />
-                <span className="font-medium text-ink">{detail.data.status}</span>
+                <span className="font-medium text-ink">{runStatusLabel(detail.data.status)}</span>
                 <span className="text-muted">· {fmt.dateTime(detail.data.started_at)}</span>
-                {detail.data.duration_ms !== null && <span className="text-muted">· {detail.data.duration_ms}ms</span>}
+                {detail.data.duration_ms !== null && (
+                  <span className="text-muted">· took {formatDuration(detail.data.duration_ms)}</span>
+                )}
               </div>
               {detail.data.error && (
                 <p className="rounded bg-hover px-2 py-1.5 text-[12px] text-error">{detail.data.error}</p>
@@ -271,53 +283,93 @@ function RunDetailDialog({ ws, runId, onClose }: { ws: string; runId: string | n
                   <p className="text-[12px] text-faint">No external actions were queued for this run.</p>
                 )}
                 <div className="flex flex-col gap-2">
-                  {detail.data.actions.map((action) => (
-                    <div key={action.action_index} className="rounded-[var(--radius-card)] border border-border-default p-2.5">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="flex items-center gap-1.5 text-[12px] font-medium text-ink">
-                          <span className={cn('inline-block h-1.5 w-1.5 rounded-full', statusDotClass(action.status === 'pending_approval' ? 'skipped' : action.status))} />
-                          {action.kind ?? action.approval?.preview_text ?? 'gated action'}
-                          <span className="font-normal text-muted">· {action.status}</span>
-                          {action.attempts > 0 && <span className="font-normal text-faint">· {action.attempts} attempt(s)</span>}
-                        </span>
-                        {action.status === 'failed' && (
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            disabled={rerun.isPending}
-                            onClick={async () => {
-                              if (
-                                !(await confirm({
-                                  title: 'Re-run this action?',
-                                  message: 'Runs again with the exact same frozen inputs from the original attempt.',
-                                  confirmLabel: 'Re-run',
-                                }))
-                              )
-                                return;
-                              rerun.mutate(action.action_index);
-                            }}
-                          >
-                            Re-run
-                          </Button>
+                  {detail.data.actions.map((action) => {
+                    const hasTechnicalDetail =
+                      Boolean(action.last_error) ||
+                      (action.artifact !== null && action.artifact !== undefined) ||
+                      Boolean(action.connection_id) ||
+                      Boolean(action.idempotency_key);
+                    return (
+                      <div
+                        key={action.action_index}
+                        className="rounded-[var(--radius-card)] border border-border-default p-2.5"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="flex items-center gap-1.5 text-[12px] font-medium text-ink">
+                            <span
+                              className={cn(
+                                'inline-block h-1.5 w-1.5 rounded-full',
+                                statusDotClass(action.status === 'pending_approval' ? 'skipped' : action.status),
+                              )}
+                            />
+                            {runStepSummary({
+                              kind: action.kind,
+                              status: action.status,
+                              attempts: action.attempts,
+                              fallbackLabel: action.approval?.preview_text ?? 'Action awaiting approval',
+                            })}
+                          </span>
+                          {action.status === 'failed' && (
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              disabled={rerun.isPending}
+                              onClick={async () => {
+                                if (
+                                  !(await confirm({
+                                    title: 'Run this step again?',
+                                    message:
+                                      'This runs the step again using the same information as the first attempt.',
+                                    confirmLabel: 'Run again',
+                                  }))
+                                )
+                                  return;
+                                rerun.mutate(action.action_index);
+                              }}
+                            >
+                              Run again
+                            </Button>
+                          )}
+                        </div>
+                        {action.last_error && (
+                          <p className="mt-1.5 text-[12px] text-error">
+                            This step didn’t go through. See Technical details below for the exact error.
+                          </p>
+                        )}
+                        {action.approval && (
+                          <p className="mt-1.5 text-[11px] text-muted">
+                            {approvalStatusLabel(action.approval.status)}
+                            {action.approval.decided_by ? ` by ${memberName(action.approval.decided_by)}` : ''}
+                            {action.approval.decided_at ? ` · ${fmt.dateTime(action.approval.decided_at)}` : ''}
+                          </p>
+                        )}
+                        {hasTechnicalDetail && (
+                          <details className="mt-1.5">
+                            <summary className="cursor-pointer text-[11px] text-muted hover:text-ink">
+                              Technical details
+                            </summary>
+                            <div className="mt-1.5 flex flex-col gap-1.5">
+                              <p className="text-[11px] text-faint">
+                                Step type: <span className="text-muted">{actionKindLabel(action.kind)}</span>
+                                {action.kind ? ` (${action.kind})` : ''} · status {action.status} ·{' '}
+                                {action.attempts} attempt(s)
+                              </p>
+                              {action.last_error && (
+                                <pre className="overflow-x-auto rounded bg-hover p-2 text-[11px] text-error">
+                                  {action.last_error}
+                                </pre>
+                              )}
+                              {action.artifact !== null && action.artifact !== undefined && (
+                                <pre className="max-h-32 overflow-auto rounded bg-hover p-2 text-[11px] text-muted">
+                                  {JSON.stringify(action.artifact, null, 2)}
+                                </pre>
+                              )}
+                            </div>
+                          </details>
                         )}
                       </div>
-                      {action.last_error && (
-                        <pre className="mt-1.5 overflow-x-auto rounded bg-hover p-2 text-[11px] text-error">{action.last_error}</pre>
-                      )}
-                      {action.artifact !== null && action.artifact !== undefined && (
-                        <pre className="mt-1.5 max-h-32 overflow-auto rounded bg-hover p-2 text-[11px] text-muted">
-                          {JSON.stringify(action.artifact, null, 2)}
-                        </pre>
-                      )}
-                      {action.approval && (
-                        <p className="mt-1.5 text-[11px] text-muted">
-                          Approval: {action.approval.status}
-                          {action.approval.decided_by ? ` by ${action.approval.decided_by}` : ''}
-                          {action.approval.decided_at ? ` · ${fmt.dateTime(action.approval.decided_at)}` : ''}
-                        </p>
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             </div>
