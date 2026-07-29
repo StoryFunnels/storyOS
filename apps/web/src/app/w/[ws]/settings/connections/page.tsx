@@ -235,28 +235,57 @@ export default function ConnectionsSettingsPage() {
                 <StatusPill status={c.status} />
                 {c.last_ok_at ? ` · last ok ${fmt.dateTime(c.last_ok_at)}` : ''}
               </p>
-              {/* MN-264: connection health strip. */}
-              <p className="mt-0.5 text-[12px] text-muted">
-                {c.error_count_24h > 0 && (
-                  <span className={c.error_count_24h >= 5 ? 'text-error' : 'text-warning'}>
-                    {c.error_count_24h} failed job{c.error_count_24h === 1 ? '' : 's'} in the last
-                    24h
-                  </span>
-                )}
-                {c.breaker_open_until && (
-                  <span className="ml-1.5 rounded bg-hover px-1.5 py-0.5 text-[11px] text-error">
-                    circuit open until {fmt.dateTime(c.breaker_open_until)}
-                  </span>
-                )}
-              </p>
-              {c.provider === 'resend' && c.scopes.some((s) => s.startsWith('from:')) && (
-                <p className="mt-1 truncate text-[11px] text-faint">
-                  Bounce webhook: {API_URL}/api/v1/providers/resend/webhook/{c.id}
-                </p>
-              )}
               <p className="mt-1 text-[11px] leading-4 text-ink-secondary">
                 <strong>Next:</strong> {providerUseGuidance(c.provider).description}
               </p>
+              {/* MN-264 health strip + the raw bounce-webhook URL are backend
+                  plumbing — tuck them (and the Resume control) under a disclosure
+                  so the row leads with plain status, not internals. */}
+              {(c.error_count_24h > 0 ||
+                c.breaker_open_until ||
+                (c.provider === 'resend' && c.scopes.some((s) => s.startsWith('from:')))) && (
+                <details className="mt-1.5 rounded-[var(--radius-card)] border border-border-default bg-card px-2 py-1">
+                  <summary className="cursor-pointer select-none text-[11px] font-medium text-muted">
+                    Advanced / IT settings
+                  </summary>
+                  <div className="mt-1.5 flex flex-col gap-1">
+                    {(c.error_count_24h > 0 || c.breaker_open_until) && (
+                      <p className="text-[12px] text-muted">
+                        {c.error_count_24h > 0 && (
+                          <span
+                            className={c.error_count_24h >= 5 ? 'text-error' : 'text-warning'}
+                          >
+                            {c.error_count_24h} failed job{c.error_count_24h === 1 ? '' : 's'} in
+                            the last 24h
+                          </span>
+                        )}
+                        {c.breaker_open_until && (
+                          <span className="ml-1.5 rounded bg-hover px-1.5 py-0.5 text-[11px] text-error">
+                            circuit open until {fmt.dateTime(c.breaker_open_until)}
+                          </span>
+                        )}
+                      </p>
+                    )}
+                    {c.provider === 'resend' && c.scopes.some((s) => s.startsWith('from:')) && (
+                      <p className="truncate text-[11px] text-faint">
+                        Bounce webhook: {API_URL}/api/v1/providers/resend/webhook/{c.id}
+                      </p>
+                    )}
+                    {c.breaker_open_until && (
+                      <div className="mt-0.5">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => resume.mutate(c.id)}
+                          disabled={resume.isPending}
+                        >
+                          Resume
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </details>
+              )}
             </div>
             <div className="flex shrink-0 items-center gap-1">
               <Button
@@ -275,16 +304,6 @@ export default function ConnectionsSettingsPage() {
                     Continue setup
                   </Button>
                 </Link>
-              )}
-              {c.breaker_open_until && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => resume.mutate(c.id)}
-                  disabled={resume.isPending}
-                >
-                  Resume
-                </Button>
               )}
               {c.status !== 'active' &&
                 providers.data?.find((p) => p.id === c.provider)?.auth_kind === 'oauth2' && (
@@ -557,7 +576,7 @@ function ApiKeyConnectDialog({
         >
           <p className="text-[13px] text-muted">
             {isSmtp
-              ? 'Verified with transporter.verify() before saving, then encrypted at rest.'
+              ? 'We test the connection before saving, then encrypt it at rest.'
               : `The key is verified against ${provider.label} before saving, then encrypted at rest — it is never shown again.`}
           </p>
           <div className="flex flex-col gap-1.5">
@@ -567,44 +586,6 @@ function ApiKeyConnectDialog({
 
           {isSmtp ? (
             <>
-              <div className="grid grid-cols-3 gap-2">
-                <div className="col-span-2 flex flex-col gap-1.5">
-                  <Label htmlFor="smtp-host">Host</Label>
-                  <Input
-                    id="smtp-host"
-                    required
-                    value={host}
-                    onChange={(e) => setHost(e.target.value)}
-                  />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="smtp-port">Port</Label>
-                  <Input
-                    id="smtp-port"
-                    required
-                    type="number"
-                    value={port}
-                    onChange={(e) => setPort(e.target.value)}
-                  />
-                </div>
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="smtp-user">Username (optional)</Label>
-                <Input
-                  id="smtp-user"
-                  value={smtpUser}
-                  onChange={(e) => setSmtpUser(e.target.value)}
-                />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="smtp-pass">Password (optional)</Label>
-                <Input
-                  id="smtp-pass"
-                  type="password"
-                  value={smtpPass}
-                  onChange={(e) => setSmtpPass(e.target.value)}
-                />
-              </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="smtp-from">From address</Label>
                 <Input
@@ -616,9 +597,59 @@ function ApiKeyConnectDialog({
                   onChange={(e) => setSmtpFrom(e.target.value)}
                 />
                 <p className="text-[11px] text-faint">
-                  Fixed at connect time — a send_email action can never override it.
+                  Fixed at connect time — an email action can never override it.
                 </p>
               </div>
+              {/* MN-256: the raw mail-server details are IT/operator territory —
+                  keep them present and required, just behind a disclosure so the
+                  form leads with the one field most people care about. */}
+              <details className="rounded-[var(--radius-card)] border border-border-default bg-card px-3 py-2">
+                <summary className="cursor-pointer select-none text-[13px] font-medium text-ink">
+                  Advanced / IT settings
+                </summary>
+                <p className="mt-2 text-[11px] text-faint">
+                  Your mail server&apos;s connection details — usually from your IT team or email
+                  provider.
+                </p>
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  <div className="col-span-2 flex flex-col gap-1.5">
+                    <Label htmlFor="smtp-host">Host</Label>
+                    <Input
+                      id="smtp-host"
+                      required
+                      value={host}
+                      onChange={(e) => setHost(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="smtp-port">Port</Label>
+                    <Input
+                      id="smtp-port"
+                      required
+                      type="number"
+                      value={port}
+                      onChange={(e) => setPort(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-col gap-1.5">
+                  <Label htmlFor="smtp-user">Username (optional)</Label>
+                  <Input
+                    id="smtp-user"
+                    value={smtpUser}
+                    onChange={(e) => setSmtpUser(e.target.value)}
+                  />
+                </div>
+                <div className="mt-3 flex flex-col gap-1.5">
+                  <Label htmlFor="smtp-pass">Password (optional)</Label>
+                  <Input
+                    id="smtp-pass"
+                    type="password"
+                    value={smtpPass}
+                    onChange={(e) => setSmtpPass(e.target.value)}
+                  />
+                </div>
+              </details>
             </>
           ) : isShopify ? (
             <>
@@ -665,7 +696,7 @@ function ApiKeyConnectDialog({
               {provider.id === 'resend' && (
                 <>
                   <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="conn-from">From address (needed for send_email)</Label>
+                    <Label htmlFor="conn-from">From address (needed to send email)</Label>
                     <Input
                       id="conn-from"
                       type="email"
@@ -676,21 +707,39 @@ function ApiKeyConnectDialog({
                     <p className="text-[11px] text-faint">
                       Must be on a domain already verified on this Resend key.
                     </p>
+                    <details className="text-[11px]">
+                      <summary className="cursor-pointer select-none text-muted">
+                        Why do I need a verified domain?
+                      </summary>
+                      <p className="mt-1 text-faint">
+                        Email providers only deliver mail from domains you&apos;ve proven you own.
+                        Verifying your domain in Resend is what keeps your messages out of spam —
+                        or from being rejected outright.
+                      </p>
+                    </details>
                   </div>
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="conn-webhook-secret">Webhook signing secret (optional)</Label>
-                    <Input
-                      id="conn-webhook-secret"
-                      type="password"
-                      placeholder="whsec_…"
-                      value={webhookSecret}
-                      onChange={(e) => setWebhookSecret(e.target.value)}
-                    />
-                    <p className="text-[11px] text-faint">
-                      From a Resend webhook pointed at this connection&apos;s own URL (shown after
-                      saving) — enables bounce/complaint status degradation.
-                    </p>
-                  </div>
+                  {/* MN-256: the bounce/complaint webhook signing secret is an
+                      optional deliverability nicety, not part of first setup —
+                      keep it under a disclosure. */}
+                  <details className="rounded-[var(--radius-card)] border border-border-default bg-card px-3 py-2">
+                    <summary className="cursor-pointer select-none text-[13px] font-medium text-ink">
+                      Advanced / IT settings
+                    </summary>
+                    <div className="mt-3 flex flex-col gap-1.5">
+                      <Label htmlFor="conn-webhook-secret">Webhook signing secret (optional)</Label>
+                      <Input
+                        id="conn-webhook-secret"
+                        type="password"
+                        placeholder="whsec_…"
+                        value={webhookSecret}
+                        onChange={(e) => setWebhookSecret(e.target.value)}
+                      />
+                      <p className="text-[11px] text-faint">
+                        From a Resend webhook pointed at this connection&apos;s own URL (shown after
+                        saving) — enables bounce/complaint status degradation.
+                      </p>
+                    </div>
+                  </details>
                 </>
               )}
             </>

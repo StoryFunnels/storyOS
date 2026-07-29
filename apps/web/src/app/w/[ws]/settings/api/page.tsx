@@ -49,14 +49,25 @@ export default function ApiSettingsPage() {
         <h1 className="text-lg font-semibold text-ink">API tokens</h1>
         <CreateTokenDialog ws={ws} />
       </div>
-      <p className="mb-6 text-[13px] text-muted">
-        Personal access tokens act as you. Use them as{' '}
-        <code className="rounded bg-hover px-1">Authorization: Bearer mn_pat_…</code> against{' '}
-        <a className="underline" href={`${API_URL}/api/docs`} target="_blank" rel="noreferrer">
-          the API
-        </a>
-        .
+      <p className="mb-4 text-[13px] text-muted">
+        Create a token to let an outside tool or script work in this workspace on your behalf —
+        for example a scheduled job or a script you wrote. Most people never need one.
       </p>
+
+      <details className="mb-6 rounded-[var(--radius-card)] border border-border-default bg-card px-3 py-2">
+        <summary className="cursor-pointer select-none text-[13px] font-medium text-ink">
+          Advanced / Developer
+        </summary>
+        <p className="mt-2 text-[13px] text-muted">
+          A personal access token acts as you — anything you can do in the app, the token can do
+          through the API. Send it as{' '}
+          <code className="rounded bg-hover px-1">Authorization: Bearer mn_pat_…</code> against{' '}
+          <a className="underline" href={`${API_URL}/api/docs`} target="_blank" rel="noreferrer">
+            the API
+          </a>
+          .
+        </p>
+      </details>
 
       <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card">
         {(tokens.data ?? []).length === 0 && (
