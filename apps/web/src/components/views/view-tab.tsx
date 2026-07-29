@@ -9,6 +9,7 @@ import {
   FormInput,
   GanttChart,
   Kanban,
+  LayoutDashboard,
   LayoutGrid,
   List as ListIcon,
   Newspaper,
@@ -38,6 +39,7 @@ const VIEW_ICON = {
   feed: Newspaper,
   timeline: GanttChart,
   form: FormInput,
+  dashboard: LayoutDashboard,
   table: Table2,
 } as const;
 

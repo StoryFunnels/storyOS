@@ -3773,6 +3773,16 @@ export interface components {
                 start_date_field_id?: string;
                 /** Format: uuid */
                 end_date_field_id?: string;
+                /** @default [] */
+                dashboard_tiles: {
+                    /** Format: uuid */
+                    id: string;
+                    /** @default  */
+                    label: string;
+                    /** @enum {string} */
+                    op: "count" | "sum" | "avg" | "min" | "max";
+                    field_api_name?: string;
+                }[];
                 form?: {
                     title?: string;
                     description?: string;
@@ -3843,6 +3853,16 @@ export interface components {
                 start_date_field_id?: string;
                 /** Format: uuid */
                 end_date_field_id?: string;
+                /** @default [] */
+                dashboard_tiles: {
+                    /** Format: uuid */
+                    id: string;
+                    /** @default  */
+                    label: string;
+                    /** @enum {string} */
+                    op: "count" | "sum" | "avg" | "min" | "max";
+                    field_api_name?: string;
+                }[];
                 form?: {
                     title?: string;
                     description?: string;
