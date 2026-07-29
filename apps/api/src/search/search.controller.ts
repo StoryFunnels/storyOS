@@ -87,6 +87,9 @@ export class SearchController {
     const recordRows = await this.db
       .select({
         id: records.id,
+        // Per-database sequential id — rendered as the faint #<number> in pickers
+        // (#227/#228 record-chip style), so a #mention reads "#12 Title".
+        number: records.number,
         title: records.title,
         database_id: records.databaseId,
         database_name: databases.name,
