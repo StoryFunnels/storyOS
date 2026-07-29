@@ -6,6 +6,15 @@ export interface DomainEvent {
   databaseId: string;
   recordId: string;
   changedFieldIds?: string[];
+  /**
+   * #132: this record's own title (the `records.title` column) changed. Kept
+   * SEPARATE from `changedFieldIds` on purpose — the title has a field id, but
+   * automations/auto-link key off `changedFieldIds` and must not newly fire on a
+   * title edit. Only the cross-record-name cascade
+   * (RecordsService.invalidateRollupsForChange) reads this, to recompute the
+   * names of records that LOOK UP this record's title.
+   */
+  titleChanged?: boolean;
   relationFieldId?: string;
   /**
    * MN-267: precise before∪after other-side target ids for every relation

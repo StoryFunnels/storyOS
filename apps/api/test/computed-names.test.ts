@@ -138,3 +138,94 @@ describe('computed record names — own-record mode (MN-130)', () => {
     expect(rec.title).toBe('Hand-typed');
   });
 });
+
+describe('computed record names — cross-record templates via lookup (#132)', () => {
+  /** Customers ← (one) — (many) → Orders. Orders' name looks up the customer's
+   * title through a lookup field. Returns the ids the tests below drive. */
+  async function setupOrdersCustomers() {
+    const customersDb = (await inject('POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name: `Customers ${Date.now()}` })).json().id;
+    const ordersDb = (await inject('POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name: `Orders ${Date.now()}` })).json().id;
+
+    // one_to_many: many orders (side a) → one customer (side b). The `customer`
+    // field on Orders is therefore to-one, so its lookup resolves to a single value.
+    await inject('POST', `/workspaces/${wsId}/relations`, {
+      database_a_id: ordersDb, database_b_id: customersDb,
+      cardinality: 'one_to_many', field_a_name: 'Customer', field_b_name: 'Orders',
+    });
+    const ordersFields = (await inject('GET', `/workspaces/${wsId}/databases/${ordersDb}`)).json().fields;
+    const customerFieldId = ordersFields.find((f: { apiName: string }) => f.apiName === 'customer').id;
+    const ordersTitleFieldId = ordersFields.find((f: { type: string }) => f.type === 'title').id;
+
+    // Lookup the customer's TITLE (`name`) onto each order as `customer_name`.
+    const lookup = await inject('POST', `/workspaces/${wsId}/databases/${ordersDb}/fields`, {
+      display_name: 'Customer Name', type: 'lookup',
+      config: { relation_field_id: customerFieldId, target_field_api_name: 'name' },
+    });
+    expect(lookup.statusCode, lookup.body).toBe(201);
+
+    return { customersDb, ordersDb, customerFieldId, ordersTitleFieldId };
+  }
+
+  /** The reactive recompute is fire-and-forget — poll the persisted title. */
+  async function pollTitle(dbId: string, recId: string, expected: string): Promise<string> {
+    let title = '';
+    for (let i = 0; i < 40; i++) {
+      title = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/records/${recId}`)).json().title;
+      if (title === expected) return title;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    return title;
+  }
+
+  it('allows a lookup reference in the title template, but still rejects a direct relation traversal', async () => {
+    const { ordersDb, ordersTitleFieldId } = await setupOrdersCustomers();
+
+    // Lookup ref → allowed (this is the whole point of #132).
+    const ok = await setComputed(ordersDb, ordersTitleFieldId, 'concat("Order for ", {Customer Name})');
+    expect(ok.statusCode, ok.body).toBe(200);
+    expect(ok.json().config.name_mode).toBe('computed');
+
+    // Direct relation traversal → still rejected (deferred to #145).
+    const bad = await setComputed(ordersDb, ordersTitleFieldId, 'concat("Order for ", {Customer})');
+    expect(bad.statusCode, bad.body).toBe(422);
+  });
+
+  it('computes the title from a related record\'s title via the lookup', async () => {
+    const { customersDb, ordersDb, customerFieldId, ordersTitleFieldId } = await setupOrdersCustomers();
+    await setComputed(ordersDb, ordersTitleFieldId, 'concat("Order for ", {Customer Name})');
+
+    const acme = (await inject('POST', `/workspaces/${wsId}/databases/${customersDb}/records`, { values: { name: 'Acme' } })).json();
+    const order = (await inject('POST', `/workspaces/${wsId}/databases/${ordersDb}/records`, { values: {} })).json();
+
+    // Linking the order to the customer is the case-(b) cascade → its cross-record
+    // name resolves once the lookup materializes.
+    const link = await inject('PUT', `/workspaces/${wsId}/databases/${ordersDb}/records/${order.id}/links/${customerFieldId}`, {
+      record_ids: [acme.id],
+    });
+    expect(link.statusCode, link.body).toBeLessThan(300);
+
+    expect(await pollTitle(ordersDb, order.id, 'Order for Acme')).toBe('Order for Acme');
+  });
+
+  it('recomputes the dependent title LIVE when the related record changes — without re-saving the order', async () => {
+    const { customersDb, ordersDb, customerFieldId, ordersTitleFieldId } = await setupOrdersCustomers();
+    await setComputed(ordersDb, ordersTitleFieldId, 'concat("Order for ", {Customer Name})');
+
+    const cust = (await inject('POST', `/workspaces/${wsId}/databases/${customersDb}/records`, { values: { name: 'Before' } })).json();
+    const order = (await inject('POST', `/workspaces/${wsId}/databases/${ordersDb}/records`, { values: {} })).json();
+    await inject('PUT', `/workspaces/${wsId}/databases/${ordersDb}/records/${order.id}/links/${customerFieldId}`, {
+      record_ids: [cust.id],
+    });
+    expect(await pollTitle(ordersDb, order.id, 'Order for Before')).toBe('Order for Before');
+
+    // Rename the CUSTOMER only. The order is never touched again.
+    const renamed = await inject('PATCH', `/workspaces/${wsId}/databases/${customersDb}/records/${cust.id}`, {
+      values: { name: 'After' },
+    });
+    expect(renamed.statusCode, renamed.body).toBe(200);
+
+    // The order's persisted title follows the related record — via the MN-267
+    // invalidation path, reactively.
+    expect(await pollTitle(ordersDb, order.id, 'Order for After')).toBe('Order for After');
+  });
+});
