@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './helpers/app';
 import { authed, signUpUser } from './helpers/users';
+import { MembersProjectionSubscriber } from '../src/members/members-projection.subscriber';
 
 /**
  * MN-267: sorting by a rollup field. Unlike formula (MN-260 — same-record
@@ -28,6 +29,7 @@ import { authed, signUpUser } from './helpers/users';
 let app: NestFastifyApplication;
 let admin: { token: string; email: string };
 let wsId: string;
+let subscriber: MembersProjectionSubscriber;
 let membersDb: string;
 let timeoffDb: string;
 let memberFieldId: string; // relation field on Time Off → Members (side a)
@@ -61,8 +63,22 @@ async function pollUntilTitlesMatch(payload: Record<string, unknown>, expectedPr
 
 beforeAll(async () => {
   app = await createTestApp();
+  subscriber = app.get(MembersProjectionSubscriber);
   admin = await signUpUser(app, 'Rollup Sorter');
   wsId = (await inject('POST', '/workspaces', { name: 'Rollup Sort WS' })).json().id;
+
+  // Creating the workspace fires the #128 Members projection (fire-and-forget),
+  // which provisions its own database literally named "Members" in the
+  // workspace's first space. This test also creates a database named "Members"
+  // in that same space: both `databasesService.create` calls compute the same
+  // unique slug ("members") before either commits, so whichever loses the
+  // `databases_space_slug_uq` race throws — intermittently that was THIS test's
+  // create, leaving `membersDb` undefined and the relation/`.find(... 'member')`
+  // below blowing up with "Cannot read properties of undefined". Settle the
+  // projection first so its Members database lands before ours (ours then slugs
+  // to "members-2"), removing the race. Same guard members-system-db.test.ts uses.
+  await subscriber.settle(wsId);
+
   const spaceId = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
 
   membersDb = (await inject('POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name: 'Members' })).json().id;
