@@ -11,6 +11,8 @@ import { Avatar } from '@/components/ui/avatar';
 import { Popover, PopoverContent, PopoverParentAnchor } from '@/components/ui/popover';
 import { RelationChips } from './relation-cell';
 import type { LinkChip } from './relation-cell';
+import { AgentRefCell } from './agent-ref-cell';
+import { isAgentConfigRefValue } from '@/lib/database-labels';
 import type { Field, SelectOption } from './use-table-data';
 import { useDateFormat } from '@/lib/preferences';
 import { useConfirm } from '@/components/ui/confirm-dialog';
@@ -170,6 +172,14 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, ws 
   const prose = wrap ? 'whitespace-pre-wrap break-words' : 'truncate';
   if (value === undefined || value === null || value === '') {
     return <span className="text-faint"> </span>;
+  }
+  // #317 (residual): agent-config text fields hold bare entity UUIDs
+  // (target_databases / database / state_field / state_option). Resolve them to
+  // human labels here so no generic surface — table cells, other panels — ever
+  // shows a raw id. Gated on a UUID-shaped value so a user's own text field
+  // named e.g. "database" is untouched.
+  if (isAgentConfigRefValue(field.apiName, value)) {
+    return <AgentRefCell field={field} value={value} ws={ws} />;
   }
   switch (field.type) {
     case 'rich_text': {

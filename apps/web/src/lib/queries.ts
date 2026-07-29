@@ -41,21 +41,23 @@ export function useWorkspace(ws: string) {
   });
 }
 
-export function useSpaces(ws: string) {
+export function useSpaces(ws: string, enabled = true) {
   return useQuery({
     queryKey: ['spaces', ws],
     queryFn: async () =>
       unwrap<Space[]>(await api.GET('/api/v1/workspaces/{ws}/spaces', { params: { path: { ws } } })),
+    enabled: enabled && Boolean(ws),
   });
 }
 
-export function useDatabases(ws: string) {
+export function useDatabases(ws: string, enabled = true) {
   return useQuery({
     queryKey: ['databases', ws],
     queryFn: async () =>
       unwrap<DatabaseSummary[]>(
         await api.GET('/api/v1/workspaces/{ws}/databases', { params: { path: { ws } } }),
       ),
+    enabled: enabled && Boolean(ws),
   });
 }
 

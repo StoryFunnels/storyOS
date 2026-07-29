@@ -176,10 +176,12 @@ function ScalarValue({ field, record, ws, db, rec, members, memberNames, memberI
         <span className="text-[13px] text-faint">Empty</span>
       ) : PROSE_TYPES.has(field.type) ? (
         <ClampedValue>
-          <CellDisplay field={field} value={value} memberNames={memberNames} memberImages={memberImages} wrap />
+          {/* #317: ws lets CellDisplay resolve agent-config ref ids (database /
+              state_field / state_option) to labels instead of raw UUIDs. */}
+          <CellDisplay field={field} value={value} memberNames={memberNames} memberImages={memberImages} ws={ws} wrap />
         </ClampedValue>
       ) : (
-        <CellDisplay field={field} value={value} memberNames={memberNames} memberImages={memberImages} />
+        <CellDisplay field={field} value={value} memberNames={memberNames} memberImages={memberImages} ws={ws} />
       )}
     </div>
   );
