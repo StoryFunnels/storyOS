@@ -121,6 +121,32 @@ git pull
 docker compose build && docker compose up -d   # migrations run on api boot, idempotently
 ```
 
+> **Low-memory hosts:** building `api`, `web`, and `mcp` at once can exhaust RAM
+> on a small VM; the OOM killer may then take down running containers too. Build
+> one at a time instead — `docker compose build api && docker compose build web
+> && docker compose build mcp && docker compose up -d` — or use prebuilt images
+> (below) so the host never compiles.
+
+### Deploy from prebuilt images (no on-host build)
+
+CI publishes the three service images to GHCR on every push to `main`
+(`.github/workflows/build-images.yml`). To run them instead of building locally,
+add the production override — the host only *pulls*:
+
+```bash
+git pull
+docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
+
+Set `COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml` in `.env` to drop
+the `-f` flags. `IMAGE_OWNER` defaults to the project's GHCR org and `IMAGE_TAG`
+to `latest`; pin `IMAGE_TAG=<git-sha>` in `.env` to deploy or roll back to a
+specific build. If the packages are private, run `docker login ghcr.io` once
+with a token that has `read:packages`. Analytics (`NEXT_PUBLIC_POSTHOG_*`) are
+baked into the published `web` image from the CI Actions *variables*, not from
+your host `.env`.
+
 ## Backup & restore
 
 Everything lives in two places — the Postgres database and the attachments
