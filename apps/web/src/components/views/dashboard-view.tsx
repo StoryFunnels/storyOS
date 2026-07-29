@@ -14,6 +14,8 @@ import {
   opNeedsField,
 } from './dashboard-tiles';
 import type { TileOp } from './dashboard-tiles';
+import { DashboardWidgetCard } from './dashboard-widgets';
+import type { DashboardWidget } from './dashboard-widgets';
 
 /** One metric tile in a dashboard view's config (mirrors dashboardTileSchema). */
 export interface DashboardTile {
@@ -91,13 +93,32 @@ export function DashboardView({
     patchTiles(tiles.filter((t) => t.id !== id));
   }
 
+  const widgets = (config.dashboard_widgets ?? []) as DashboardWidget[];
+  function patchWidgets(next: DashboardWidget[]) {
+    onPatch({ dashboard_widgets: next });
+  }
+  function addWidget() {
+    patchWidgets([
+      ...widgets,
+      { id: crypto.randomUUID(), type: 'bar', title: '', measure: { op: 'count' } },
+    ]);
+  }
+  function updateWidget(id: string, patch: Partial<DashboardWidget>) {
+    patchWidgets(widgets.map((w) => (w.id === id ? { ...w, ...patch } : w)));
+  }
+  function removeWidget(id: string) {
+    patchWidgets(widgets.filter((w) => w.id !== id));
+  }
+
   return (
     <div className="h-full overflow-auto p-4">
-      {tiles.length === 0 && (
+      {tiles.length === 0 && widgets.length === 0 && (
         <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
-          <p className="text-sm text-muted">No metric tiles yet.</p>
+          <p className="text-sm text-muted">Nothing on this dashboard yet.</p>
           {!readOnly && (
-            <p className="text-[13px] text-faint">Add a tile to show a count, sum, or average of your records.</p>
+            <p className="text-[13px] text-faint">
+              Add a metric tile (count, sum, average) or a chart grouped by a field.
+            </p>
           )}
         </div>
       )}
@@ -193,6 +214,34 @@ export function DashboardView({
           </button>
         )}
       </div>
+
+      {(widgets.length > 0 || !readOnly) && (
+        <div className="mt-4 grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))' }}>
+          {widgets.map((widget) => (
+            <DashboardWidgetCard
+              key={widget.id}
+              widget={widget}
+              rows={rows}
+              fields={fields}
+              loading={loading}
+              readOnly={readOnly}
+              onPatch={(patch) => updateWidget(widget.id, patch)}
+              onRemove={() => removeWidget(widget.id)}
+            />
+          ))}
+
+          {!readOnly && (
+            <button
+              type="button"
+              onClick={addWidget}
+              className="flex min-h-[120px] flex-col items-center justify-center gap-1 rounded-[var(--radius-control)] border border-dashed border-border-default text-[13px] text-muted hover:border-[var(--accent)] hover:text-ink"
+            >
+              <Plus className="h-4 w-4" />
+              Add chart
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

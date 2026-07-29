@@ -23,6 +23,35 @@ export const dashboardTileSchema = z.object({
 export type DashboardTile = z.infer<typeof dashboardTileSchema>;
 
 /**
+ * Dashboard chart / grouped-table widget (MN-225 / #168, Phase 2).
+ *
+ * A widget produces ONE series of {group, value} by grouping the database's own
+ * records by a select/category/date field (`group_by_field_api_name`) and
+ * aggregating each group with `measure` (count, or sum/avg/min/max of a number
+ * field). The series is rendered as a bar/line/pie chart or a grouped table.
+ * Records are pulled through the SAME grant-scoped `/records/query` path as
+ * metric tiles, so a widget only ever aggregates records the viewer can access
+ * and the view's own filter scopes every widget. Fields are referenced by
+ * api_name (same as tiles/filters/sorts); grouping is computed client-side.
+ */
+export const dashboardWidgetSchema = z.object({
+  id: z.uuid(),
+  type: z.enum(['bar', 'line', 'pie', 'grouped_table']),
+  title: z.string().trim().max(100).default(''),
+  /** Field whose value groups records into series buckets (select/date/etc.). */
+  group_by_field_api_name: z.string().trim().min(1).max(100).optional(),
+  /** How each group's records are aggregated into a single value. */
+  measure: z
+    .object({
+      op: z.enum(['count', 'sum', 'avg', 'min', 'max']),
+      /** Required for sum/avg/min/max; omitted (ignored) for count. */
+      field_api_name: z.string().trim().min(1).max(100).optional(),
+    })
+    .default({ op: 'count' }),
+});
+export type DashboardWidget = z.infer<typeof dashboardWidgetSchema>;
+
+/**
  * A view is a SAVED PRESET: the client reads the config and sends the full
  * query to /records/query itself — the server stays dumb (MN-020 decision).
  * Filters/sorts reference fields by api_name (same AST as the query API);
@@ -52,6 +81,13 @@ export const viewConfigSchema = z.object({
    * metric tiles only — charts/grouped widgets are a later phase.
    */
   dashboard_tiles: z.array(dashboardTileSchema).default([]),
+  /**
+   * Dashboard (MN-225 / #168, Phase 2) — ordered chart / grouped-table widgets,
+   * rendered after the metric tiles. Each groups records by a field and
+   * aggregates into a series; the view's `filters`/`sorts` scope them the same
+   * way they scope tiles.
+   */
+  dashboard_widgets: z.array(dashboardWidgetSchema).default([]),
   /** Form (MN-094) — ordered inputs + presentation + optional public token. */
   form: z
     .object({
@@ -95,7 +131,7 @@ export type ViewConfig = z.infer<typeof viewConfigSchema>;
 export const createViewSchema = z.object({
   name: z.string().trim().min(1).max(100),
   type: viewTypeSchema,
-  config: viewConfigSchema.default({ sorts: [], hidden_field_ids: [], card_field_ids: [], dashboard_tiles: [], column_widths: {} }),
+  config: viewConfigSchema.default({ sorts: [], hidden_field_ids: [], card_field_ids: [], dashboard_tiles: [], dashboard_widgets: [], column_widths: {} }),
 });
 
 export const updateViewSchema = z.object({

@@ -93,6 +93,17 @@ export function cleanViewConfig(
     dashboard_tiles: (config.dashboard_tiles ?? []).filter(
       (t) => t.op === 'count' || (t.field_api_name != null && liveApiNames.has(t.field_api_name)),
     ),
+    // Dashboard chart/table widgets (MN-225 / #168, Phase 2): drop a widget
+    // whose group-by field, or whose numeric-measure target field, no longer
+    // exists (by api_name). A count-measure widget survives as long as its
+    // group-by field does.
+    dashboard_widgets: (config.dashboard_widgets ?? []).filter(
+      (w) =>
+        w.group_by_field_api_name != null &&
+        liveApiNames.has(w.group_by_field_api_name) &&
+        (w.measure.op === 'count' ||
+          (w.measure.field_api_name != null && liveApiNames.has(w.measure.field_api_name))),
+    ),
     column_widths: Object.fromEntries(
       Object.entries(config.column_widths ?? {}).filter(([id]) => liveFieldIds.has(id)),
     ),

@@ -34,6 +34,19 @@
   --warning: #b8860b;
   --info: #3d5296;
 
+  /* Dashboard chart categorical palette (MN-225 / #168, Phase 2). Eight hues
+     tuned for light mode; overridden for dark below so charts stay readable in
+     both themes. Referenced as var(--chart-N) in SVG fill/stroke — never
+     hardcoded in component code. */
+  --chart-1: #d4a017;
+  --chart-2: #3d5296;
+  --chart-3: #2d7a4f;
+  --chart-4: #c0392b;
+  --chart-5: #8e5db8;
+  --chart-6: #1f8fa3;
+  --chart-7: #c9701f;
+  --chart-8: #9a7b4f;
+
   --radius-control: 6px;
   --radius-card: 8px;
   --radius-modal: 12px;
@@ -78,6 +91,16 @@
   --error: #e2705f;
   --warning: #d8ad3e;
   --info: #7a92d6;
+
+  /* Chart palette — lifted for contrast on the darker canvas (MN-225 / #168). */
+  --chart-1: #e0af2b;
+  --chart-2: #7a92d6;
+  --chart-3: #57b37f;
+  --chart-4: #e2705f;
+  --chart-5: #b992dc;
+  --chart-6: #4fb8ca;
+  --chart-7: #e0965a;
+  --chart-8: #c1a988;
 }
 
 @theme inline {
