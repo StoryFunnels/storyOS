@@ -1,11 +1,12 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import {
   databases as databasesTable,
   fields as fieldsTable,
   memberships as membershipsTable,
+  records as recordsTable,
   selectOptions,
   user as userTable,
 } from '../db/schema';
@@ -32,6 +33,24 @@ const MAX_MEMBERS_SCAN = 500;
  *  exactly like anonymous public-form submissions (`created_by` is nullable
  *  text, never a membership fk). */
 const SYSTEM_ACTOR = 'system:members-projection';
+
+/**
+ * A Members-database row resolved for a better-auth user id — the shape a
+ * caller reads when traversing a `user`-typed field (e.g. `assignee`) to the
+ * person's Members record (#128 Phase 2). `active: false` is a tombstoned
+ * (removed) member: still resolvable, never an error.
+ */
+export interface ResolvedMember {
+  /** The Members-database record id (the relation target). */
+  recordId: string;
+  /** The better-auth user id this row projects (the `User ID` field). */
+  userId: string;
+  /** The person's display name — the Members record title. */
+  name: string;
+  email: string | null;
+  avatar: string | null;
+  active: boolean;
+}
 
 /**
  * The Members system database (#128 Phase 1) — a first-class, per-workspace
@@ -251,12 +270,61 @@ export class MembersDbService {
     );
   }
 
+  // ── Resolution (Phase 2, #128) ─────────────────────────────────────────────
+
+  /**
+   * Resolve better-auth user ids — the values stored on a `user`-typed field
+   * such as `assignee` — to their Members-database rows, keyed by user id. This
+   * is the read seam that makes `assignee → member.name/email/avatar`
+   * traversable (a lookup/relation-style read) WITHOUT changing how the `user`
+   * field itself is stored, written, filtered or sorted: the field still holds a
+   * bare user id, and this maps that id to the projected Members row.
+   *
+   * Tombstoned members are included — an `assignee` pointing at a removed member
+   * resolves to that person's inactive row (`active: false`), never an error.
+   * A user id with no Members row (should not occur once `backfillWorkspace` has
+   * run, which reconciles assignee-referenced users) is simply absent from the
+   * map. Matches by the `User ID` field, the projection's stable key.
+   */
+  async resolveMembersForUsers(
+    workspaceId: string,
+    userIds: readonly string[],
+  ): Promise<Map<string, ResolvedMember>> {
+    const wanted = new Set(userIds.filter((id) => typeof id === 'string' && id.trim().length > 0));
+    const out = new Map<string, ResolvedMember>();
+    if (wanted.size === 0) return out;
+
+    const database = await this.findMembersDb(workspaceId);
+    if (!database) return out;
+
+    const { data } = await this.records.list(database.id, { limit: MAX_MEMBERS_SCAN });
+    for (const row of data) {
+      const uid = row.values['user_id'];
+      if (typeof uid !== 'string' || !wanted.has(uid)) continue;
+      const email = row.values['email'];
+      const avatar = row.values['avatar'];
+      out.set(uid, {
+        recordId: row.id,
+        userId: uid,
+        name: row.title,
+        email: typeof email === 'string' ? email : null,
+        avatar: typeof avatar === 'string' ? avatar : null,
+        active: row.values['active'] === true,
+      });
+    }
+    return out;
+  }
+
   // ── Backfill ──────────────────────────────────────────────────────────────
 
   /**
    * Provision the Members database for an existing workspace and project a row
    * for every current active membership — members AND guests. Idempotent: safe
    * to re-run, upserting each row by `user_id` without duplicating anything.
+   *
+   * Phase 2 (#128): also reconcile every user id referenced by a `user` field
+   * (e.g. `assignee`) so existing assignee data resolves to a Members row even
+   * when the assignee is no longer an active membership.
    */
   async backfillWorkspace(workspaceId: string): Promise<void> {
     await this.ensureMembersDb(workspaceId);
@@ -269,6 +337,100 @@ export class MembersDbService {
     for (const m of rows) {
       await this.syncMembership(workspaceId, m.userId);
     }
+    await this.reconcileAssignedUsers(workspaceId);
+  }
+
+  /**
+   * Ensure a Members row exists for every user id referenced by any `user`-typed
+   * field across the workspace's records (e.g. `assignee`). Active memberships
+   * already have rows (projected above); this closes the gap for a user who was
+   * assigned and then removed BEFORE the projection existed — otherwise their
+   * assignee value would resolve to nothing. Such an orphan gets an INACTIVE row
+   * (it is not a current membership), while an existing row (active or already
+   * tombstoned) is left exactly as-is. Idempotent — keyed by `user_id`, safe to
+   * re-run.
+   */
+  async reconcileAssignedUsers(workspaceId: string): Promise<void> {
+    const userIds = await this.referencedUserIds(workspaceId);
+    if (userIds.size === 0) return;
+    const database = await this.ensureMembersDb(workspaceId);
+    for (const userId of userIds) {
+      const existing = await this.findMemberRow(database.id, userId);
+      if (existing) continue; // active or tombstoned row already present — leave it
+      await this.projectInactiveUser(database.id, workspaceId, userId);
+    }
+  }
+
+  /** Every distinct non-empty user id stored on a live `user`-typed field across
+   *  the workspace's databases (single value or the `multi` array form). */
+  private async referencedUserIds(workspaceId: string): Promise<Set<string>> {
+    const out = new Set<string>();
+    const dbs = await this.db.query.databases.findMany({
+      where: eq(databasesTable.workspaceId, workspaceId),
+      columns: { id: true },
+    });
+    if (dbs.length === 0) return out;
+
+    const userFields = await this.db.query.fields.findMany({
+      where: and(
+        inArray(
+          fieldsTable.databaseId,
+          dbs.map((d) => d.id),
+        ),
+        eq(fieldsTable.type, 'user'),
+        isNull(fieldsTable.deletedAt),
+      ),
+      columns: { id: true, databaseId: true },
+    });
+    if (userFields.length === 0) return out;
+
+    const fieldIdsByDb = new Map<string, string[]>();
+    for (const f of userFields) {
+      fieldIdsByDb.set(f.databaseId, [...(fieldIdsByDb.get(f.databaseId) ?? []), f.id]);
+    }
+
+    const collect = (value: unknown) => {
+      if (typeof value === 'string' && value.trim().length > 0) out.add(value);
+      else if (Array.isArray(value)) for (const v of value) collect(v);
+    };
+
+    for (const [databaseId, fieldIds] of fieldIdsByDb) {
+      // Raw rows: `values` is keyed by field UUID (ADR-0002), not api_name.
+      const rows = await this.db.query.records.findMany({
+        where: and(eq(recordsTable.databaseId, databaseId), isNull(recordsTable.deletedAt)),
+        columns: { values: true },
+      });
+      for (const row of rows) {
+        const values = row.values as Record<string, unknown>;
+        for (const fieldId of fieldIds) collect(values[fieldId]);
+      }
+    }
+    return out;
+  }
+
+  /** Create an inactive Members row for a user who is referenced by a `user`
+   *  field but is not a current active membership. No-op if the better-auth user
+   *  is unknown (stale/bogus id) — nothing to project. */
+  private async projectInactiveUser(
+    databaseId: string,
+    workspaceId: string,
+    userId: string,
+  ): Promise<void> {
+    const account = await this.db.query.user.findFirst({ where: eq(userTable.id, userId) });
+    if (!account) return;
+    await this.records.create(
+      workspaceId,
+      databaseId,
+      {
+        name: account.name ?? account.email ?? '(unknown user)',
+        email: account.email ?? null,
+        avatar: account.image ?? null,
+        role: null,
+        active: false,
+        user_id: userId,
+      },
+      SYSTEM_ACTOR,
+    );
   }
 
   /**
