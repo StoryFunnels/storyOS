@@ -95,10 +95,16 @@ export function EditFieldDialog({
           {duplicateName && (
             <p className="text-[12px] text-error">A field named “{name.trim()}” already exists in this database.</p>
           )}
-          <p className="text-[12px] text-faint">
-            {typeMeta?.label ?? field.type} field · API name{' '}
-            <code className="text-muted">{field.apiName}</code> stays stable across renames.
-          </p>
+          <p className="text-[12px] text-faint">{typeMeta?.label ?? field.type} field</p>
+          <details className="text-[12px] text-faint">
+            <summary className="w-fit cursor-pointer font-medium text-muted hover:text-ink">
+              Advanced
+            </summary>
+            <p className="mt-1">
+              API name <code className="text-muted">{field.apiName}</code> stays stable across
+              renames.
+            </p>
+          </details>
         </div>
 
         {field.type === 'relation' && field.relation && (

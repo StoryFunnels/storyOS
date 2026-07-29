@@ -1,11 +1,14 @@
 'use client';
 
+import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   AtSign,
   Calculator,
   Calendar,
   CheckSquare,
+  ChevronDown,
+  ChevronRight,
   Hash,
   Link2,
   List,
@@ -52,12 +55,24 @@ export const FIELD_TYPES: Array<{
   { value: 'url', label: 'URL', description: 'A link', icon: Link2 },
   { value: 'email', label: 'Email', description: 'An email address', icon: AtSign },
   { value: 'color', label: 'Color', description: 'A hex color with a swatch', icon: Palette },
-  { value: 'relation', label: 'Relation', description: 'Link records in another database', icon: Workflow },
-  { value: 'lookup', label: 'Lookup', description: "Show a related record's field here", icon: Search },
-  { value: 'rollup', label: 'Rollup', description: 'Sum / count / average related records', icon: Calculator },
-  { value: 'button', label: 'Button', description: 'One click runs actions on the record', icon: MousePointerClick },
-  { value: 'formula', label: 'Formula', description: 'Computed from other fields', icon: Sigma },
+  { value: 'relation', label: 'Relation', description: 'Link to another list', icon: Workflow },
+  { value: 'lookup', label: 'Lookup', description: 'Show info from a linked item', icon: Search },
+  { value: 'rollup', label: 'Rollup', description: 'Count or total linked items', icon: Calculator },
+  { value: 'button', label: 'Button', description: 'One click runs actions on the item', icon: MousePointerClick },
+  { value: 'formula', label: 'Formula', description: 'Auto-calculated value', icon: Sigma },
 ];
+
+/** #150: Basic types shown first; everything else lives under "Advanced". */
+export const BASIC_FIELD_TYPES = new Set([
+  'text',
+  'number',
+  'date',
+  'select',
+  'checkbox',
+  'user',
+  'url',
+  'email',
+]);
 
 /** Conversions the API allows (docs/architecture/record-storage.md). */
 export const CONVERTIBLE: Record<string, string[]> = {
@@ -97,12 +112,20 @@ export interface OptionDraft {
 
 /* ---------- shared building blocks ---------- */
 
-export function TypePicker({ value, onChange }: { value: string; onChange: (type: string) => void }) {
+function TypeButtonGrid({
+  types,
+  value,
+  onChange,
+}: {
+  types: typeof FIELD_TYPES;
+  value: string;
+  onChange: (type: string) => void;
+}) {
   return (
     // 3 columns so the whole catalogue fits without pushing the type config below the
     // fold (#86); falls back to 2 on narrow viewports.
     <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
-      {FIELD_TYPES.map((t) => (
+      {types.map((t) => (
         <button
           key={t.value}
           type="button"
@@ -121,6 +144,39 @@ export function TypePicker({ value, onChange }: { value: string; onChange: (type
           </span>
         </button>
       ))}
+    </div>
+  );
+}
+
+export function TypePicker({ value, onChange }: { value: string; onChange: (type: string) => void }) {
+  // #150: lead with the everyday types; tuck the power types (Relation, Lookup,
+  // Rollup, Formula, Button, Color, Rich text, Multi-select) under a collapsed
+  // "Advanced" heading so non-technical users aren't faced with all 16 at once.
+  const basic = FIELD_TYPES.filter((t) => BASIC_FIELD_TYPES.has(t.value));
+  const advanced = FIELD_TYPES.filter((t) => !BASIC_FIELD_TYPES.has(t.value));
+  // Start expanded when the current type is itself an advanced one (e.g. the
+  // dialog was opened preset to lookup via MN-17) so the selection is visible.
+  const [showAdvanced, setShowAdvanced] = useState(() =>
+    advanced.some((t) => t.value === value),
+  );
+
+  return (
+    <div className="flex flex-col gap-2">
+      <TypeButtonGrid types={basic} value={value} onChange={onChange} />
+      <button
+        type="button"
+        className="flex w-fit items-center gap-1 text-[12px] font-medium text-muted hover:text-ink"
+        aria-expanded={showAdvanced}
+        onClick={() => setShowAdvanced((s) => !s)}
+      >
+        {showAdvanced ? (
+          <ChevronDown className="h-3.5 w-3.5" />
+        ) : (
+          <ChevronRight className="h-3.5 w-3.5" />
+        )}
+        Advanced
+      </button>
+      {showAdvanced && <TypeButtonGrid types={advanced} value={value} onChange={onChange} />}
     </div>
   );
 }

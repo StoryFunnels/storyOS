@@ -8,7 +8,10 @@ import { Button } from '@/components/ui/button';
 import { DialogClose, DialogContent } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import type { Field } from './use-table-data';
-import { CONVERTIBLE, useFieldMutations } from './field-dialog-shared';
+import { CONVERTIBLE, FIELD_TYPES, useFieldMutations } from './field-dialog-shared';
+
+/** Friendly type name for a raw slug (e.g. multi_select → "Multi-select"). */
+const typeLabel = (slug: string) => FIELD_TYPES.find((t) => t.value === slug)?.label ?? slug;
 
 export function ChangeTypeDialog({
   ws,
@@ -60,7 +63,8 @@ export function ChangeTypeDialog({
     return (
       <DialogContent title="Change type">
         <p className="text-sm text-muted">
-          {field.type} fields cannot be converted. Delete the field and create a new one instead.
+          {typeLabel(field.type)} fields cannot be converted. Delete the field and create a new one
+          instead.
         </p>
         <div className="mt-4 flex justify-end">
           <DialogClose asChild>
@@ -75,7 +79,7 @@ export function ChangeTypeDialog({
     <DialogContent title={`Change "${field.displayName}" type`}>
       <div className="flex flex-col gap-4">
         <div className="flex flex-col gap-1.5">
-          <Label>Convert {field.type} to</Label>
+          <Label>Convert {typeLabel(field.type)} to</Label>
           <select
             className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-sm text-ink"
             value={target}
@@ -86,7 +90,7 @@ export function ChangeTypeDialog({
           >
             {targets.map((t) => (
               <option key={t} value={t}>
-                {t}
+                {typeLabel(t)}
               </option>
             ))}
           </select>
