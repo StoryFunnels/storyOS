@@ -8,6 +8,7 @@ import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { recordHref } from '@/lib/records';
 import { Popover, PopoverContent, PopoverParentAnchor } from '@/components/ui/popover';
+import { EntityPickerRow } from '@/components/entity/entity-picker-row';
 import type { Field, RecordRow } from './use-table-data';
 
 export interface LinkChip {
@@ -454,39 +455,49 @@ export function RelationEditor({
           }}
         />
         <div className="max-h-56 overflow-y-auto p-1">
+          {/* #173: results reuse the shared #169 EntityPickerRow so a linked
+              record reads identically here and in the @/# mention pickers —
+              db-color marker as icon, target database as breadcrumb, faint
+              tabular #id chip. The pick/keyboard/hover paths are unchanged. */}
           {rows.map((row, idx) => (
-            <button
+            <EntityPickerRow
               key={row.id}
-              className={cn(
-                'flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-[13px] text-ink hover:bg-hover',
-                (selectedIds.has(row.id) || idx === active) && 'bg-hover',
-              )}
+              icon={<DbColorMarker color={relation.target_database_color} />}
+              title={row.title || 'Untitled'}
+              breadcrumb={relation.target_database_name}
+              idChip={row.number ?? null}
+              active={idx === active}
               onMouseEnter={() => setActive(idx)}
               onClick={() => pick(row)}
-            >
-              <span className="flex min-w-0 items-center gap-1">
-                {row.number != null && (
-                  <span className="shrink-0 tabular-nums text-faint">#{row.number}</span>
-                )}
-                <span className="truncate">{row.title || 'Untitled'}</span>
-              </span>
-              {/* MN-292: mark the currently linked record(s) — previously only
-                  the multi-select case showed anything, so a single-pick
-                  relation field's picker never revealed its current value. */}
-              {selectedIds.has(row.id) && <Check className="h-3.5 w-3.5 shrink-0 text-accent" />}
-            </button>
+              // MN-292: mark the currently linked record(s) — previously only
+              // the multi-select case showed anything, so a single-pick
+              // relation field's picker never revealed its current value.
+              trailing={
+                selectedIds.has(row.id) ? (
+                  <Check className="h-3.5 w-3.5 text-accent" />
+                ) : undefined
+              }
+            />
           ))}
           {showCreate ? (
             <button
               className={cn(
-                'flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left text-[13px] text-info hover:bg-hover',
-                active === rows.length && 'bg-hover',
+                'flex w-full items-center justify-between gap-1.5 rounded-[var(--radius-control)] px-2 py-1.5 text-left text-[13px] text-info transition-colors',
+                active === rows.length ? 'bg-accent-soft' : 'hover:bg-hover',
               )}
               onMouseEnter={() => setActive(rows.length)}
               onClick={() => createTarget.mutate(trimmed)}
               disabled={createTarget.isPending}
             >
-              <Plus className="h-3.5 w-3.5" /> {createTarget.isPending ? 'Creating…' : `Add new “${trimmed}”`}
+              <span className="flex min-w-0 items-center gap-1.5">
+                <Plus className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate font-medium">
+                  {createTarget.isPending ? 'Creating…' : `Create “${trimmed}”`}
+                </span>
+              </span>
+              {!createTarget.isPending && (
+                <span className="shrink-0 text-[11px] text-muted">Create ↵</span>
+              )}
             </button>
           ) : (
             !trimmed && (
@@ -495,6 +506,15 @@ export function RelationEditor({
               </p>
             )
           )}
+        </div>
+        {/* #173: keyboard-hint footer mirroring the mention picker's style. */}
+        <div className="flex items-center gap-3 border-t border-border-default px-2.5 py-1.5 text-[11px] text-muted">
+          <span className="flex items-center gap-1">
+            <Hint>↑↓</Hint> navigate
+          </span>
+          <span className="flex items-center gap-1">
+            <Hint>↵</Hint> {active === rows.length && showCreate ? 'create' : 'link'}
+          </span>
         </div>
         <div className="flex justify-between border-t border-border-default px-2 py-1.5">
           <button
@@ -516,5 +536,15 @@ export function RelationEditor({
         </div>
       </PopoverContent>
     </Popover>
+  );
+}
+
+/** Small keycap for the picker's keyboard-hint footer — same look as the
+ * mention picker's Hint (#169) so both surfaces read identically. */
+function Hint({ children }: { children: React.ReactNode }) {
+  return (
+    <kbd className="inline-flex h-4 min-w-[1rem] items-center justify-center rounded border border-border-default bg-hover px-1 font-sans text-[10px] leading-none text-muted">
+      {children}
+    </kbd>
   );
 }

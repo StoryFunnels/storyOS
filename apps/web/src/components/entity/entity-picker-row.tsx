@@ -22,6 +22,7 @@ export function EntityPickerRow({
   title,
   breadcrumb,
   idChip,
+  trailing,
   active = false,
   onClick,
   onMouseEnter,
@@ -30,6 +31,10 @@ export function EntityPickerRow({
   title: string;
   breadcrumb?: string | null;
   idChip?: string | number | null;
+  /** Optional node pinned to the row's right edge, after the `#id` chip — e.g.
+   * the relation picker's "already linked" check (#173). Unused by the mention
+   * pickers, so their rows render exactly as before. */
+  trailing?: React.ReactNode;
   active?: boolean;
   onClick?: () => void;
   onMouseEnter?: () => void;
@@ -58,6 +63,7 @@ export function EntityPickerRow({
       {idChip != null && idChip !== '' && (
         <span className="ml-2 shrink-0 tabular-nums text-[11px] text-faint">#{idChip}</span>
       )}
+      {trailing != null && <span className="ml-1.5 shrink-0">{trailing}</span>}
     </button>
   );
 }
