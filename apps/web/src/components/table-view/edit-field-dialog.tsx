@@ -68,7 +68,8 @@ export function EditFieldDialog({
     onError: () => toast.error('Could not save the field'),
   });
 
-  const isSelect = field.type === 'select' || field.type === 'multi_select';
+  const isSelect =
+    field.type === 'select' || field.type === 'multi_select' || field.type === 'workflow';
   // Relations ARE deletable (via the relations API, handled in useDeleteField) —
   // deleting drops both paired fields, which needs creator on the OTHER database
   // too; only offer Delete when the user really can (#136).

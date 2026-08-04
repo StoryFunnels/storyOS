@@ -24,6 +24,7 @@ const SUPPORTED = new Set([
   'email',
   'select',
   'multi_select',
+  'workflow',
   'user',
   'relation',
 ]);
@@ -98,7 +99,7 @@ export class FormsService {
       .filter((f): f is (typeof fieldRows)[number] => Boolean(f) && SUPPORTED.has(f!.type));
 
     const selectIds = chosen
-      .filter((f) => f.type === 'select' || f.type === 'multi_select')
+      .filter((f) => f.type === 'select' || f.type === 'multi_select' || f.type === 'workflow')
       .map((f) => f.id);
     const options = selectIds.length
       ? await this.db.query.selectOptions.findMany({

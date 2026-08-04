@@ -126,7 +126,8 @@ export function boardGroupError(
 ): string | null {
   if (!field) return 'board views require group_by_field_id';
   const config = (field.config ?? {}) as Record<string, unknown>;
-  if (field.type === 'select') return null;
+  // #172: a workflow (status) field groups a board exactly like single-select.
+  if (field.type === 'select' || field.type === 'workflow') return null;
   if (field.type === 'user') {
     return config['multi'] === true
       ? 'board views cannot group by a multi-user field — a card would land in several columns'

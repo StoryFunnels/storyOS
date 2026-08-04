@@ -33,7 +33,7 @@ export class ActivityService {
       where: eq(fields.databaseId, databaseId),
     });
     const fieldName = new Map(fieldRows.map((f) => [f.id, f.deletedAt ? `${f.displayName} (deleted field)` : f.displayName]));
-    const selectFieldIds = fieldRows.filter((f) => f.type === 'select' || f.type === 'multi_select').map((f) => f.id);
+    const selectFieldIds = fieldRows.filter((f) => f.type === 'select' || f.type === 'multi_select' || f.type === 'workflow').map((f) => f.id);
     const options = selectFieldIds.length
       ? await this.db.query.selectOptions.findMany({ where: inArray(selectOptions.fieldId, selectFieldIds) })
       : [];

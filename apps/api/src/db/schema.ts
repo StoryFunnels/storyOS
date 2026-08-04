@@ -50,6 +50,8 @@ export const fieldType = pgEnum('field_type', [
   'date',
   'select',
   'multi_select',
+  // #172: single-status field (single-select-like); one-per-database enforced in the service layer.
+  'workflow',
   'url',
   'email',
   'color',

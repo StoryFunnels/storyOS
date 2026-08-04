@@ -78,7 +78,7 @@ export class RecordsService {
       where: and(eq(fields.databaseId, databaseId), isNull(fields.deletedAt)),
     });
     const selectFieldIds = fieldRows
-      .filter((f) => f.type === 'select' || f.type === 'multi_select')
+      .filter((f) => f.type === 'select' || f.type === 'multi_select' || f.type === 'workflow')
       .map((f) => f.id);
     const options = selectFieldIds.length
       ? await this.db.query.selectOptions.findMany({
@@ -110,7 +110,7 @@ export class RecordsService {
       if (def.type === 'id') continue; // surfaced top-level as `number`, not in values
       const raw = stored[def.id];
       if (raw === undefined || raw === null) continue;
-      if (def.type === 'select') {
+      if (def.type === 'select' || def.type === 'workflow') {
         values[def.api_name] = def.option_ids?.includes(raw as string) ? raw : null;
       } else if (def.type === 'multi_select') {
         const kept = (raw as string[]).filter((id) => def.option_ids?.includes(id));
@@ -279,7 +279,7 @@ export class RecordsService {
     if (formulaDefs.length === 0 || projected.length === 0) return projected;
 
     // Formulas compare select LABELS, not option ids.
-    const selectDefs = defs.filter((d) => d.type === 'select');
+    const selectDefs = defs.filter((d) => d.type === 'select' || d.type === 'workflow');
     const labelByOption = new Map<string, string>();
     if (selectDefs.length > 0) {
       const options = await this.db.query.selectOptions.findMany({
@@ -302,7 +302,7 @@ export class RecordsService {
           continue;
         }
         let value = record.values[def.api_name];
-        if (def.type === 'select' && typeof value === 'string') {
+        if ((def.type === 'select' || def.type === 'workflow') && typeof value === 'string') {
           value = labelByOption.get(value) ?? value;
         }
         bag[def.api_name] = value ?? null;
@@ -348,7 +348,7 @@ export class RecordsService {
     );
     if (formulaDefs.length === 0 || rows.length === 0) return;
 
-    const selectDefs = defs.filter((d) => d.type === 'select');
+    const selectDefs = defs.filter((d) => d.type === 'select' || d.type === 'workflow');
     const labelByOption = new Map<string, string>();
     if (selectDefs.length > 0) {
       const options = await this.db.query.selectOptions.findMany({
@@ -375,7 +375,7 @@ export class RecordsService {
             continue;
           }
           let value: unknown = def.type === 'rollup' ? computed[def.id] : stored[def.id];
-          if (def.type === 'select' && typeof value === 'string') {
+          if ((def.type === 'select' || def.type === 'workflow') && typeof value === 'string') {
             value = labelByOption.get(value) ?? value;
           }
           bag[def.api_name] = value ?? null;
@@ -450,7 +450,7 @@ export class RecordsService {
    *  compare against the visible LABEL, not the stored option id). */
   private async loadSelectLabels(defs: FieldDef[]): Promise<Map<string, string>> {
     const map = new Map<string, string>();
-    const selectDefs = defs.filter((d) => d.type === 'select');
+    const selectDefs = defs.filter((d) => d.type === 'select' || d.type === 'workflow');
     if (selectDefs.length === 0) return map;
     const options = await this.db.query.selectOptions.findMany({
       where: inArray(selectOptions.fieldId, selectDefs.map((d) => d.id)),
@@ -492,7 +492,7 @@ export class RecordsService {
         continue;
       }
       let value: unknown = valuesById[def.id];
-      if (def.type === 'select' && typeof value === 'string') {
+      if ((def.type === 'select' || def.type === 'workflow') && typeof value === 'string') {
         value = labelByOption.get(value) ?? value;
       }
       bag[def.api_name] = value ?? null;
@@ -1712,7 +1712,8 @@ export class RecordsService {
 
     // MN-073: a status/priority (any select) change pings the record's assignees —
     // the people carried on its user fields — so triage state is pushed, not polled.
-    const changedSelects = defs.filter((d) => d.type === 'select' && d.id in diff);
+    // #172: a workflow (status) change pings assignees just like any select change.
+    const changedSelects = defs.filter((d) => (d.type === 'select' || d.type === 'workflow') && d.id in diff);
     if (changedSelects.length > 0) {
       const assignees = new Set<string>();
       for (const def of defs) {
@@ -2087,7 +2088,7 @@ export class RecordsService {
     const nullsFirst = input.nulls === 'first';
 
     const SORTABLE = new Set([
-      'id', 'title', 'text', 'number', 'date', 'url', 'email', 'select',
+      'id', 'title', 'text', 'number', 'date', 'url', 'email', 'select', 'workflow',
       // MN-267: rollup is now materialized too (recomputeRollupsForRelationField,
       // invalidated via RollupInvalidationSubscriber on the related record's
       // change or the relation's own link-set change) — reuses computed_values/

@@ -11,6 +11,10 @@ export const creatableFieldTypeSchema = z.enum([
   'date',
   'select',
   'multi_select',
+  // #172: a single-select-like field a database may have AT MOST ONE of, marked
+  // as the canonical "status". Stored/validated exactly like single `select` (a
+  // single coloured option id); the one-per-database rule is enforced server-side.
+  'workflow',
   'url',
   'email',
   'color',
@@ -303,6 +307,9 @@ export const fieldConfigSchemas: Record<CreatableFieldType, z.ZodType> = {
   date: dateConfigSchema,
   select: emptyConfigSchema,
   multi_select: emptyConfigSchema,
+  // #172: workflow carries the same (empty) config as select — its coloured
+  // options live in select_options, its single value is one option id.
+  workflow: emptyConfigSchema,
   url: emptyConfigSchema,
   email: emptyConfigSchema,
   color: emptyConfigSchema,

@@ -175,7 +175,7 @@ export class ImportService {
         // lookup below always missed, so every value imported into an existing
         // select was silently dropped as "not a known option" — which also broke
         // the export→import round-trip (MN-075).
-        if (f.type === 'select' || f.type === 'multi_select') {
+        if (f.type === 'select' || f.type === 'multi_select' || f.type === 'workflow') {
           const options = await this.db.query.selectOptions.findMany({
             where: eq(selectOptions.fieldId, f.id),
           });
@@ -227,7 +227,7 @@ export class ImportService {
         }
         const meta = columnField.get(column);
         if (!meta) return;
-        if (meta.type === 'select') {
+        if (meta.type === 'select' || meta.type === 'workflow') {
           const optionId = selectLabelMaps.get(column)?.get(raw.toLowerCase());
           if (optionId) values[meta.apiName] = optionId;
           else warnings.push({ row: rowIndex + 2, column, message: `"${raw.slice(0, 30)}" is not a known option` });

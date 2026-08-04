@@ -27,12 +27,18 @@ const CONVERTIBLE: Record<string, CreatableFieldType[]> = {
   number: ['text'],
   checkbox: ['text'],
   date: ['text'],
-  select: ['text', 'multi_select'],
-  multi_select: ['text', 'select'],
+  // #172: workflow is single-select-shaped, so it round-trips with select/multi_select
+  // (option ids are preserved on select↔workflow) and degrades to text.
+  select: ['text', 'multi_select', 'workflow'],
+  multi_select: ['text', 'select', 'workflow'],
+  workflow: ['text', 'select', 'multi_select'],
   url: ['text', 'email'],
   email: ['text', 'url'],
   user: [],
 };
+
+/** #172: field types that carry coloured select_options (single- or multi-valued). */
+const OPTIONED_FIELD_TYPES = new Set(['select', 'multi_select', 'workflow']);
 
 /** Plain text of a BlockNote document (lossy rich_text → text). */
 function richTextToPlain(blocks: unknown): string {
@@ -129,6 +135,25 @@ export class FieldsService {
     }
   }
 
+  /**
+   * #172: enforce "at most one Workflow (canonical status) field per database".
+   * Called on create AND on change-type-to-workflow; `excludeFieldId` lets a
+   * field being converted ignore itself. Soft-deleted fields don't count.
+   */
+  async assertNoExistingWorkflowField(databaseId: string, excludeFieldId?: string) {
+    const existing = await this.db.query.fields.findFirst({
+      where: and(
+        eq(fields.databaseId, databaseId),
+        eq(fields.type, 'workflow'),
+        isNull(fields.deletedAt),
+      ),
+      columns: { id: true },
+    });
+    if (existing && existing.id !== excludeFieldId) {
+      throw new ConflictException('This database already has a Workflow field');
+    }
+  }
+
   async create(
     databaseId: string,
     input: {
@@ -139,6 +164,8 @@ export class FieldsService {
     },
   ) {
     await this.assertUniqueDisplayName(databaseId, input.display_name);
+    // #172: a database is allowed at most one Workflow (canonical status) field.
+    if (input.type === 'workflow') await this.assertNoExistingWorkflowField(databaseId);
     if (input.type === 'lookup') await this.assertLookupConfig(databaseId, input.config ?? {});
     if (input.type === 'rollup') await this.assertRollupConfig(databaseId, input.config ?? {});
     // MN-129: resolve the api_name before compiling, so a formula field can be
@@ -169,11 +196,7 @@ export class FieldsService {
         })
         .returning();
 
-      if (
-        (input.type === 'select' || input.type === 'multi_select') &&
-        input.options &&
-        input.options.length > 0
-      ) {
+      if (OPTIONED_FIELD_TYPES.has(input.type) && input.options && input.options.length > 0) {
         await tx.insert(selectOptions).values(
           input.options.map((option, i) => ({
             fieldId: field!.id,
@@ -223,7 +246,7 @@ export class FieldsService {
     if (type === 'number' || type === 'rollup' || type === 'id') return 'number';
     if (type === 'checkbox') return 'checkbox';
     if (type === 'date' || type === 'created_at' || type === 'updated_at') return 'date';
-    if (['text', 'title', 'select', 'url', 'email', 'lookup'].includes(type)) return 'text';
+    if (['text', 'title', 'select', 'workflow', 'url', 'email', 'lookup'].includes(type)) return 'text';
     if (type === 'formula') return null; // resolved per-field from its result_type
     return null;
   }
@@ -319,7 +342,7 @@ export class FieldsService {
 
   /** Types a lookup can surface — no chains (lookup-of-lookup) or nested relations in v1. */
   private static readonly LOOKUPABLE = new Set([
-    'title', 'text', 'number', 'checkbox', 'date', 'select', 'multi_select', 'url', 'email',
+    'title', 'text', 'number', 'checkbox', 'date', 'select', 'multi_select', 'workflow', 'url', 'email',
   ]);
 
   /** Resolves the related database behind a relation field of THIS database, or 422s. */
@@ -447,7 +470,7 @@ export class FieldsService {
   private async withOptions(db: Db, field: Field) {
     // Never let a stored secret webhook header value leave in a button's config (#249).
     const presented = { ...field, config: presentFieldConfig(field.config) };
-    if (presented.type !== 'select' && presented.type !== 'multi_select') return presented;
+    if (!OPTIONED_FIELD_TYPES.has(presented.type)) return presented;
     const options = await db.query.selectOptions.findMany({
       where: eq(selectOptions.fieldId, presented.id),
       orderBy: [asc(selectOptions.position)],
@@ -603,6 +626,8 @@ export class FieldsService {
       throw new UnprocessableEntityException(`Type of ${field.type} fields cannot be changed`);
     }
     if (field.type === targetType) throw new BadRequestException('Field already has this type');
+    // #172: converting a field INTO workflow is subject to the one-per-database rule.
+    if (targetType === 'workflow') await this.assertNoExistingWorkflowField(databaseId, fieldId);
     if (!CONVERTIBLE[field.type]?.includes(targetType)) {
       throw new UnprocessableEntityException(
         `Cannot convert ${field.type} → ${targetType}. Allowed: ${(CONVERTIBLE[field.type] ?? []).join(', ') || 'none'}. Delete and recreate the field instead.`,
@@ -650,10 +675,10 @@ export class FieldsService {
           .where(eq(records.id, u.id));
       }
       await tx.update(fields).set({ type: targetType, config: {} }).where(eq(fields.id, fieldId));
-      if (field.type === 'select' || field.type === 'multi_select') {
-        if (targetType !== 'select' && targetType !== 'multi_select') {
-          await tx.delete(selectOptions).where(eq(selectOptions.fieldId, fieldId));
-        }
+      // #172: options survive any conversion between optioned types (select ↔
+      // multi_select ↔ workflow); they're only dropped when leaving that family.
+      if (OPTIONED_FIELD_TYPES.has(field.type) && !OPTIONED_FIELD_TYPES.has(targetType)) {
+        await tx.delete(selectOptions).where(eq(selectOptions.fieldId, fieldId));
       }
     });
 
@@ -664,7 +689,8 @@ export class FieldsService {
 
   private async assertSelectField(databaseId: string, fieldId: string) {
     const field = await this.getField(databaseId, fieldId);
-    if (field.type !== 'select' && field.type !== 'multi_select') {
+    // #172: workflow uses the same option CRUD endpoints as select/multi_select.
+    if (!OPTIONED_FIELD_TYPES.has(field.type)) {
       throw new UnprocessableEntityException('Not a select field');
     }
     return field;
@@ -724,7 +750,7 @@ export class FieldsService {
         and(
           eq(records.databaseId, databaseId),
           isNull(records.deletedAt),
-          field.type === 'select'
+          field.type !== 'multi_select'
             ? sql`${records.values}->>${fieldId} = ${optionId}`
             : sql`${records.values}->${fieldId} ? ${optionId}`,
         ),
@@ -737,7 +763,7 @@ export class FieldsService {
 
     await this.db.transaction(async (tx) => {
       if (count > 0) {
-        if (field.type === 'select') {
+        if (field.type !== 'multi_select') {
           await tx
             .update(records)
             .set({
@@ -784,7 +810,10 @@ function convertValue(
       const text = richTextToPlain(value);
       return { value: text || null, lost: text.length === 0 };
     }
-    if (from === 'select') return { value: optionLabels.get(String(value)) ?? null, lost: !optionLabels.has(String(value)) };
+    // #172: workflow → text degrades through the option label, same as select.
+    if (from === 'select' || from === 'workflow') {
+      return { value: optionLabels.get(String(value)) ?? null, lost: !optionLabels.has(String(value)) };
+    }
     if (from === 'multi_select') {
       const labels = (value as string[]).map((id) => optionLabels.get(id)).filter(Boolean);
       return { value: labels.join(', '), lost: labels.length !== (value as string[]).length };
@@ -801,8 +830,13 @@ function convertValue(
       ? { value: null, lost: true }
       : { value: new Date(ms).toISOString().slice(0, 10), lost: false };
   }
-  if (to === 'multi_select' && from === 'select') return { value: [value], lost: false };
-  if (to === 'select' && from === 'multi_select') {
+  // #172: select ↔ workflow keep the SAME option id (options are preserved), so
+  // the value passes straight through with no loss.
+  if ((to === 'select' && from === 'workflow') || (to === 'workflow' && from === 'select')) {
+    return { value, lost: false };
+  }
+  if (to === 'multi_select' && (from === 'select' || from === 'workflow')) return { value: [value], lost: false };
+  if ((to === 'select' || to === 'workflow') && from === 'multi_select') {
     const arr = value as string[];
     return { value: arr[0] ?? null, lost: arr.length > 1 };
   }

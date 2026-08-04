@@ -137,7 +137,9 @@ function compileCondition(fieldName: string, op: FilterOp, value: unknown, ctx: 
     case 'created_at':
     case 'updated_at':
       return compileDate(def, op, value);
+    // #172: a workflow value is a single option id — filtered exactly like select.
     case 'select':
+    case 'workflow':
       return compileIdSet(def, op, value, ctx, 'scalar');
     case 'multi_select':
       return compileIdSet(def, op, value, ctx, 'array');
@@ -315,7 +317,10 @@ function resolveMe(def: FieldDef, value: unknown, ctx: CompilerContext): unknown
 }
 
 function assertValidOptionId(def: FieldDef, id: string) {
-  if ((def.type === 'select' || def.type === 'multi_select') && !def.option_ids?.includes(id)) {
+  if (
+    (def.type === 'select' || def.type === 'multi_select' || def.type === 'workflow') &&
+    !def.option_ids?.includes(id)
+  ) {
     throw err(`unknown option id "${id}" for field "${def.api_name}"`);
   }
 }
