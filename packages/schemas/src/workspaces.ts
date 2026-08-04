@@ -66,6 +66,19 @@ export const acceptInviteSchema = z.object({
   token: z.string().min(16),
 });
 
+/**
+ * #177: shape returned by both `POST /invites` and `POST /invites/:invite/resend`.
+ * `accept_url` is the plaintext token link — only ever available at (re)send
+ * time, since the token itself is stored hashed and never round-trips again.
+ */
+export const inviteSentResponseSchema = z.object({
+  id: z.string(),
+  email: z.string(),
+  role: membershipRoleSchema,
+  accept_url: z.string(),
+});
+export type InviteSentResponse = z.infer<typeof inviteSentResponseSchema>;
+
 export const updateMemberSchema = z.object({
   role: membershipRoleSchema.optional(),
 });

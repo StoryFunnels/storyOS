@@ -5,7 +5,7 @@ import type { BillingService } from '../billing/billing.service';
 import type { EntitlementsService } from '../billing/entitlements.service';
 import type { EmailService } from '../mail/email.service';
 import type { MembershipEventsService } from '../events/membership-events.service';
-import { InvitesService } from './invites.service';
+import { InvitesService, INVITE_TTL_MS } from './invites.service';
 
 /** InvitesService.create() never emits (only accept() does), but the constructor
  *  requires the membership-event bus — a no-op stub satisfies both call sites. */
@@ -60,6 +60,58 @@ describe('InvitesService.create — the invite email send point (MN-103)', () =>
       acceptUrl: result.accept_url,
       workspaceName: 'Acme Co',
     });
+    expect(result.accept_url).toMatch(/\/invite\?token=/);
+  });
+
+  it('rejects a resend within the 60s cooldown without sending an email', async () => {
+    const emailService = { send: vi.fn().mockResolvedValue(undefined) } as unknown as EmailService;
+    // expiresAt = now + TTL means "sent just now" -> lastSentAt is ~now, inside cooldown.
+    const justSent = { id: 'inv1', email: 'p@x.com', role: 'member', expiresAt: new Date(Date.now() + INVITE_TTL_MS) };
+    const db = {
+      query: { invites: { findFirst: vi.fn().mockResolvedValue(justSent) } },
+    } as unknown as Db;
+    const service = new InvitesService(
+      db,
+      {} as unknown as AccessService,
+      {} as unknown as BillingService,
+      { can: vi.fn() } as unknown as EntitlementsService,
+      emailService,
+      membershipEvents,
+    );
+
+    await expect(service.resend('ws1', 'inv1')).rejects.toMatchObject({ status: 429 });
+    expect(emailService.send).not.toHaveBeenCalled();
+  });
+
+  it('resends with a fresh link once the cooldown has elapsed', async () => {
+    const emailService = { send: vi.fn().mockResolvedValue(undefined) } as unknown as EmailService;
+    // Sent 2 minutes ago (expiresAt = now + TTL - 2min) -> outside the 60s cooldown.
+    const stale = {
+      id: 'inv1',
+      email: 'p@x.com',
+      role: 'member',
+      expiresAt: new Date(Date.now() + INVITE_TTL_MS - 2 * 60 * 1000),
+    };
+    const db = {
+      query: {
+        invites: { findFirst: vi.fn().mockResolvedValue(stale) },
+        workspaces: { findFirst: vi.fn().mockResolvedValue({ id: 'ws1', name: 'Acme Co' }) },
+      },
+      update: () => ({
+        set: () => ({ where: () => ({ returning: async () => [stale] }) }),
+      }),
+    } as unknown as Db;
+    const service = new InvitesService(
+      db,
+      {} as unknown as AccessService,
+      {} as unknown as BillingService,
+      { can: vi.fn() } as unknown as EntitlementsService,
+      emailService,
+      membershipEvents,
+    );
+
+    const result = await service.resend('ws1', 'inv1');
+    expect(emailService.send).toHaveBeenCalledTimes(1);
     expect(result.accept_url).toMatch(/\/invite\?token=/);
   });
 

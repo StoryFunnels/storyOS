@@ -196,6 +196,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/invites/{invite}/resend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resend a pending invite; returns a fresh link (admin) */
+        post: operations["WorkspaceController_resendInvite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/invites/{invite}": {
         parameters: {
             query?: never;
@@ -4973,6 +4990,25 @@ export interface operations {
                 "application/json": components["schemas"]["CreateInviteDto"];
             };
         };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    WorkspaceController_resendInvite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                invite: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             201: {
                 headers: {
