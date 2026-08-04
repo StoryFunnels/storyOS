@@ -43,7 +43,7 @@ export function RichTextFieldSection({
   return (
     <div className="group mb-5">
       <div className="mb-1.5 flex items-center gap-1">
-        <h2 className="text-[12px] font-medium uppercase tracking-wider text-faint">{field.displayName}</h2>
+        <h2 className="text-[12px] font-medium uppercase tracking-wider text-muted">{field.displayName}</h2>
         {schemaEditable && <FieldMenu ws={ws} db={db} field={field} onToggleZone={onToggleZone} collection />}
         <span className="ml-auto">
           <MarkdownActions editor={editor} filename={field.displayName} />

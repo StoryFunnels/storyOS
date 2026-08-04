@@ -324,7 +324,7 @@ export function RecordDetail({
             </SortableContext>
           </DndContext>
 
-          <h2 className="mb-2 text-[12px] font-medium uppercase tracking-wider text-faint">Description</h2>
+          <h2 className="mb-2 text-[12px] font-medium uppercase tracking-wider text-muted">Description</h2>
           <DescriptionEditor ws={ws} db={db} rec={recordId} readOnly={readOnly} />
 
           <div className="mb-6 mt-5">
@@ -371,7 +371,7 @@ export function RecordDetail({
         <aside className="w-full shrink-0 lg:sticky lg:top-6 lg:w-72">
           <div className="rounded-[var(--radius-card)] border border-border-default bg-card">
             <div className="flex items-center justify-between border-b border-border-default px-3 py-2">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-faint">Properties</span>
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted">Properties</span>
               {schemaEditable && (
                 <FieldPicker
                   label="Add a property"
