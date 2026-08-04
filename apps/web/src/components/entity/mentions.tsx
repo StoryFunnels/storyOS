@@ -1,14 +1,16 @@
 'use client';
 
-import { createContext, useContext } from 'react';
+import { createContext, useContext, useMemo, useRef, type MutableRefObject } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { BlockNoteSchema, defaultInlineContentSpecs } from '@blocknote/core';
 import type { BlockNoteEditor } from '@blocknote/core';
-import type { DefaultReactSuggestionItem } from '@blocknote/react';
+import type { SuggestionMenuProps } from '@blocknote/react';
 import { SuggestionMenuController, createReactInlineContentSpec } from '@blocknote/react';
 import { api } from '@/lib/api';
 import { Avatar } from '@/components/ui/avatar';
+import { EntityIcon } from '@/components/ui/icon-picker';
+import { EntityPickerRow } from './entity-picker-row';
 import {
   filterMembers,
   mentionInsertContent,
@@ -126,14 +128,115 @@ function insertMention(
 }
 
 /**
+ * One row in a custom mention picker (#169). Carries the fully-built pieces the
+ * shared row needs plus the mention node to insert on pick — keyboard ↑↓/↵ and
+ * click both route through BlockNote's own `onItemClick`, which closes the menu
+ * and clears the typed trigger before we insert.
+ */
+interface PickerItem {
+  key: string;
+  icon: React.ReactNode;
+  title: string;
+  breadcrumb?: string | null;
+  idChip?: number | null;
+  mention: MentionProps;
+}
+
+/** A record the caller touched recently, from GET /workspaces/{ws}/recent. */
+interface RecentRecord {
+  id: string;
+  title: string;
+  database_id: string;
+  database_name: string;
+}
+
+/**
+ * Fibery-parity custom renderer (#169), shared by the @ and # menus. BlockNote
+ * still owns querying + keyboard selection (it passes `items`, `selectedIndex`
+ * and a composed `onItemClick`); we only paint the window: a "Recent items"-style
+ * header on an empty query, the shared {@link EntityPickerRow} per hit, an empty
+ * prompt, and the keyboard-hint footer. The current query text isn't threaded
+ * through these props, so each menu hands us a ref its own `getItems` keeps in
+ * sync — enough to know whether we're in the empty-query (recents) state.
+ */
+function makePickerMenu(opts: {
+  emptyHeader: string;
+  emptyPrompt: string;
+  queryRef: MutableRefObject<string>;
+}) {
+  return function PickerMenu({
+    items,
+    selectedIndex,
+    onItemClick,
+    loadingState,
+  }: SuggestionMenuProps<PickerItem>) {
+    const isEmptyQuery = opts.queryRef.current.trim() === '';
+    const hasItems = items.length > 0;
+    return (
+      <div className="w-72 overflow-hidden rounded-[var(--radius-modal)] border border-border-default bg-card shadow-[0_16px_40px_rgba(15,23,41,0.22)]">
+        {isEmptyQuery && hasItems && (
+          <p className="px-2.5 pb-0.5 pt-2 text-[11px] font-medium uppercase tracking-wider text-faint">
+            {opts.emptyHeader}
+          </p>
+        )}
+        <div className="max-h-64 overflow-y-auto p-1">
+          {hasItems ? (
+            items.map((item, i) => (
+              <EntityPickerRow
+                key={item.key}
+                icon={item.icon}
+                title={item.title}
+                breadcrumb={item.breadcrumb}
+                idChip={item.idChip}
+                active={i === selectedIndex}
+                onClick={() => onItemClick?.(item)}
+              />
+            ))
+          ) : (
+            <p className="px-2.5 py-6 text-center text-[12px] text-muted">
+              {loadingState === 'loading-initial'
+                ? 'Searching…'
+                : isEmptyQuery
+                  ? opts.emptyPrompt
+                  : 'No matches'}
+            </p>
+          )}
+        </div>
+        <div className="flex items-center gap-3 border-t border-border-default px-2.5 py-1.5 text-[11px] text-muted">
+          <span className="flex items-center gap-1">
+            <Hint>↑↓</Hint> navigate
+          </span>
+          <span className="flex items-center gap-1">
+            <Hint>↵</Hint> insert
+          </span>
+          <span className="flex items-center gap-1">
+            <Hint>esc</Hint> close
+          </span>
+        </div>
+      </div>
+    );
+  };
+}
+
+function Hint({ children }: { children: React.ReactNode }) {
+  return (
+    <kbd className="inline-flex h-4 min-w-[1rem] items-center justify-center rounded border border-border-default bg-hover px-1 font-sans text-[10px] leading-none text-muted">
+      {children}
+    </kbd>
+  );
+}
+
+/**
  * The @ (members) and # (records) pickers. Render as children of BlockNoteView —
  * additive to the default slash menu.
  *
- * @ reuses the compact avatar member-row look (small rows, each with the person's
- * profile pic via the shared Avatar). # rides the grant-scoped workspace search
- * endpoint — so a guest is only ever offered titles they can open — and renders
- * each hit as the faint #<number> + title (the #227/#228 record-chip style), with
- * the owning database as subtext since the search spans every database.
+ * @ offers workspace members (name-filtered locally), each row an avatar + name.
+ * # rides the grant-scoped workspace search endpoint — so a guest is only ever
+ * offered titles they can open — rendering the owning database's icon, the title,
+ * the database as breadcrumb subtext, and the faint #<number> chip (the #227/#228
+ * record-chip style). On an empty # query we show the caller's recently-touched
+ * records (GET /workspaces/{ws}/recent, the same source the Cmd+K palette uses);
+ * recents carry no per-database number so those rows omit the #id chip.
  */
 export function MentionSuggestionMenus({
   editor,
@@ -142,7 +245,17 @@ export function MentionSuggestionMenus({
   editor: BlockNoteEditor<never, never, never>;
   ws: string;
 }) {
-  const getMembers = async (query: string): Promise<DefaultReactSuggestionItem[]> => {
+  // See makePickerMenu: the live query text isn't in the menu props, so each
+  // menu's getItems keeps its own query ref in sync for the empty-state header.
+  const memberQuery = useRef('');
+  const recordQuery = useRef('');
+
+  const recordIcon = (icon: string | null) => (
+    <EntityIcon icon={icon} color={null} fallback={<span className="text-faint">#</span>} />
+  );
+
+  const getMembers = async (query: string): Promise<PickerItem[]> => {
+    memberQuery.current = query;
     const { data, error } = await api.GET('/api/v1/workspaces/{ws}/members', {
       params: { path: { ws } },
     });
@@ -151,41 +264,86 @@ export function MentionSuggestionMenus({
     return filterMembers(members, query)
       .slice(0, 8)
       .map((u) => ({
-        title: u.name,
-        size: 'small',
+        key: u.id,
         icon: <Avatar userId={u.id} name={u.name} image={u.image} size={20} />,
-        onItemClick: () => insertMention(editor, userMentionProps(u)),
+        title: u.name,
+        mention: userMentionProps(u),
       }));
   };
 
-  const getRecords = async (query: string): Promise<DefaultReactSuggestionItem[]> => {
-    if (!query.trim()) return [];
+  const getRecords = async (query: string): Promise<PickerItem[]> => {
+    recordQuery.current = query;
+    const q = query.trim();
+
+    // Empty query → the caller's recently-touched records (the existing #036
+    // /recent endpoint the Cmd+K palette already reads). These have no public
+    // per-database number, so no #id chip.
+    if (!q) {
+      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/recent', {
+        params: { path: { ws } },
+      } as never);
+      if (error) return [];
+      const records = (data as unknown as { records: RecentRecord[] }).records ?? [];
+      return records.slice(0, 8).map((r) => ({
+        key: r.id,
+        icon: recordIcon((r as { database_icon?: string | null }).database_icon ?? null),
+        title: r.title || 'Untitled',
+        breadcrumb: r.database_name,
+        mention: recordMentionProps({
+          id: r.id,
+          title: r.title,
+          database_id: r.database_id,
+          database_name: r.database_name,
+        }),
+      }));
+    }
+
     const { data, error } = await api.GET('/api/v1/workspaces/{ws}/search', {
-      params: { path: { ws }, query: { q: query.trim() } },
+      params: { path: { ws }, query: { q } },
     } as never);
     if (error) return [];
     const records = (data as unknown as { records: SearchRecord[] }).records ?? [];
     return records.slice(0, 8).map((r) => {
       const row = recordRowLabel(r);
       return {
+        key: r.id,
+        icon: recordIcon((r as { database_icon?: string | null }).database_icon ?? null),
         title: row.title,
-        subtext: row.database,
-        size: 'small',
-        icon:
-          row.number !== null ? (
-            <span className="tabular-nums text-faint">#{row.number}</span>
-          ) : (
-            <span className="text-faint">#</span>
-          ),
-        onItemClick: () => insertMention(editor, recordMentionProps(r)),
+        breadcrumb: row.database,
+        idChip: row.number,
+        mention: recordMentionProps(r),
       };
     });
   };
 
+  const MemberMenu = useMemo(
+    () => makePickerMenu({ emptyHeader: 'People', emptyPrompt: 'Type a user name', queryRef: memberQuery }),
+    [],
+  );
+  const RecordMenu = useMemo(
+    () =>
+      makePickerMenu({
+        emptyHeader: 'Recent items',
+        emptyPrompt: 'Type an entity or view name',
+        queryRef: recordQuery,
+      }),
+    [],
+  );
+
   return (
     <>
-      <SuggestionMenuController triggerCharacter="@" getItems={getMembers} />
-      <SuggestionMenuController triggerCharacter="#" getItems={getRecords} />
+      <SuggestionMenuController
+        triggerCharacter="@"
+        getItems={getMembers}
+        suggestionMenuComponent={MemberMenu}
+        onItemClick={(item) => insertMention(editor, item.mention)}
+      />
+      <SuggestionMenuController
+        triggerCharacter="#"
+        getItems={getRecords}
+        suggestionMenuComponent={RecordMenu}
+        onItemClick={(item) => insertMention(editor, item.mention)}
+      />
     </>
   );
 }
