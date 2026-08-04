@@ -409,6 +409,35 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/invites/{invite}/resend": {
+      "post": {
+        "operationId": "WorkspaceController_resendInvite",
+        "parameters": [
+          {
+            "name": "invite",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Resend a pending invite; returns a fresh link (admin)",
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/invites/{invite}": {
       "delete": {
         "operationId": "WorkspaceController_revokeInvite",

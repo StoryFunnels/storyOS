@@ -202,22 +202,91 @@ function MembersPageContent() {
           <h2 className="mb-3 mt-8 text-sm font-semibold text-ink">Pending invites</h2>
           <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card">
             {(invites.data ?? []).map((invite) => (
-              <div
+              <PendingInviteRow
                 key={invite.id}
-                className="flex items-center justify-between border-b border-border-default px-4 py-3 last:border-b-0"
-              >
-                <div>
-                  <p className="text-sm text-ink">{invite.email}</p>
-                  <p className="text-[13px] capitalize text-muted">{invite.role}</p>
-                </div>
-                <Button variant="ghost" size="sm" onClick={() => revokeInvite.mutate(invite.id)}>
-                  Revoke
-                </Button>
-              </div>
+                ws={ws}
+                invite={invite}
+                onRevoke={() => revokeInvite.mutate(invite.id)}
+              />
             ))}
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+function PendingInviteRow({
+  ws,
+  invite,
+  onRevoke,
+}: {
+  ws: string;
+  invite: Invite;
+  onRevoke: () => void;
+}) {
+  const [link, setLink] = useState<string | null>(null);
+
+  const resend = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await api.POST(
+        '/api/v1/workspaces/{ws}/invites/{invite}/resend',
+        { params: { path: { ws, invite: invite.id } } },
+      );
+      if (error) throw error;
+      return data as unknown as { accept_url: string };
+    },
+    onSuccess: (data) => {
+      setLink(data.accept_url);
+      toast.success('Invitation sent');
+    },
+    // 429 = resend cooldown; surface the server's "wait a minute" message.
+    onError: (err: unknown) => {
+      const message =
+        (err as { error?: { message?: string } })?.error?.message ??
+        (err as { message?: string })?.message ??
+        'Could not resend invitation';
+      toast.error(message);
+    },
+  });
+
+  return (
+    <div className="flex flex-col gap-2 border-b border-border-default px-4 py-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between">
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          <p className="truncate text-sm text-ink">{invite.email}</p>
+          <span className="rounded-full bg-warning/10 px-2 py-0.5 text-[11px] font-medium text-warning">
+            Pending
+          </span>
+        </div>
+        <p className="text-[13px] capitalize text-muted">{invite.role}</p>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        {link && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={async () => {
+              await navigator.clipboard.writeText(link);
+              toast.success('Copied');
+            }}
+            title="Copy the invite link to share directly"
+          >
+            Copy link
+          </Button>
+        )}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => resend.mutate()}
+          disabled={resend.isPending}
+        >
+          Resend invitation
+        </Button>
+        <Button variant="ghost" size="sm" onClick={onRevoke}>
+          Revoke
+        </Button>
+      </div>
     </div>
   );
 }

@@ -166,6 +166,13 @@ export class WorkspaceController {
     return this.invites.create(req.membership.workspaceId, req.user.id, body);
   }
 
+  @Post('invites/:invite/resend')
+  @MinRole('admin')
+  @ApiOperation({ summary: 'Resend a pending invite; returns a fresh link (admin)' })
+  resendInvite(@Req() req: WorkspaceRequest, @Param('invite') inviteId: string) {
+    return this.invites.resend(req.membership.workspaceId, inviteId);
+  }
+
   @Delete('invites/:invite')
   @MinRole('admin')
   @ApiOperation({ summary: 'Revoke a pending invite (admin)' })

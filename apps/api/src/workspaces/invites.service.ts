@@ -22,7 +22,11 @@ import { BillingService } from '../billing/billing.service';
 import { EntitlementsService } from '../billing/entitlements.service';
 import { MembershipEventsService } from '../events/membership-events.service';
 
-const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+export const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+/** #177: throttle repeat resends of the same pending invite. There's no
+ * dedicated last-sent column, so we derive the last send from `expiresAt`
+ * (always set to now + TTL on each send) — see `resend()`. */
+const RESEND_COOLDOWN_MS = 60 * 1000;
 
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
 
@@ -87,6 +91,23 @@ export class InvitesService {
           .values({ workspaceId, email, ...values })
           .returning();
 
+    const acceptUrl = await this.sendInviteEmail(workspaceId, email, input.role, token);
+
+    // accept_url returned so admins can copy-share it when SMTP is absent (A2).
+    return { id: invite!.id, email: invite!.email, role: invite!.role, accept_url: acceptUrl };
+  }
+
+  /**
+   * Emails the branded invite for `token` and returns the plaintext accept URL.
+   * Shared by `create()` and `resend()` so both send through exactly the same
+   * path (MN-147 workspace-named template, MN-194 cost attribution).
+   */
+  private async sendInviteEmail(
+    workspaceId: string,
+    email: string,
+    role: MembershipRole,
+    token: string,
+  ): Promise<string> {
     const acceptUrl = `${env().WEB_URL}/invite?token=${token}`;
     // MN-147: the branded invite email's subject/heading name the workspace —
     // a cheap extra lookup on the (uncommon, admin-triggered) invite path.
@@ -95,15 +116,49 @@ export class InvitesService {
       {
         kind: 'invite',
         to: email,
-        role: input.role,
+        role,
         acceptUrl,
         workspaceName: workspace?.name ?? 'StoryOS',
       },
       workspaceId, // MN-194 — attributes this send's cost to the workspace that invited
     );
+    return acceptUrl;
+  }
 
-    // accept_url returned so admins can copy-share it when SMTP is absent (A2).
-    return { id: invite!.id, email: invite!.email, role: invite!.role, accept_url: acceptUrl };
+  /**
+   * #177: re-send a pending invite with a fresh token + reset expiry, returning
+   * the new accept link so the admin can copy-share it. Throttled to one send
+   * per {@link RESEND_COOLDOWN_MS}; the last-sent instant is `expiresAt - TTL`
+   * since every send stamps `expiresAt = now + TTL`.
+   */
+  async resend(workspaceId: string, inviteId: string) {
+    const invite = await this.db.query.invites.findFirst({
+      where: and(
+        eq(invites.id, inviteId),
+        eq(invites.workspaceId, workspaceId),
+        isNull(invites.acceptedAt),
+      ),
+    });
+    if (!invite) throw new NotFoundException('Invite not found');
+
+    const lastSentAt = invite.expiresAt.getTime() - INVITE_TTL_MS;
+    if (Date.now() - lastSentAt < RESEND_COOLDOWN_MS) {
+      throw new HttpException(
+        'This invitation was just sent — wait a minute before resending.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    const token = randomBytes(24).toString('base64url');
+    const [updated] = await this.db
+      .update(invites)
+      .set({ tokenHash: sha256(token), expiresAt: new Date(Date.now() + INVITE_TTL_MS) })
+      .where(eq(invites.id, invite.id))
+      .returning();
+
+    const acceptUrl = await this.sendInviteEmail(workspaceId, invite.email, invite.role, token);
+
+    return { id: updated!.id, email: updated!.email, role: updated!.role, accept_url: acceptUrl };
   }
 
   async listPending(workspaceId: string) {
