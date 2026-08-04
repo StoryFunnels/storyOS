@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  detectMentionTrigger,
   filterMembers,
   mentionInsertContent,
   recordMentionProps,
@@ -64,6 +65,35 @@ describe('@ member picker mapping (#139)', () => {
       label: 'Ada Lovelace',
       db: '',
     });
+  });
+});
+
+describe('inline @/# trigger detection in the comment composer (#171)', () => {
+  it('opens the @ picker with the query typed after the trigger', () => {
+    expect(detectMentionTrigger('hi @ad', 6)).toEqual({ kind: '@', query: 'ad', start: 3 });
+  });
+
+  it('opens the # picker at string start with an empty query', () => {
+    expect(detectMentionTrigger('#', 1)).toEqual({ kind: '#', query: '', start: 0 });
+  });
+
+  it('closes once whitespace follows the trigger (mention is complete)', () => {
+    expect(detectMentionTrigger('@Ada ', 5)).toBeNull();
+    expect(detectMentionTrigger('@Ada done', 9)).toBeNull();
+  });
+
+  it('ignores a trigger not on a token boundary (e.g. an email)', () => {
+    expect(detectMentionTrigger('a@b', 3)).toBeNull();
+  });
+
+  it('tracks the trigger nearest the caret, not an earlier one', () => {
+    // Caret sits inside the second token → that trigger wins.
+    expect(detectMentionTrigger('@one #tw', 8)).toEqual({ kind: '#', query: 'tw', start: 5 });
+  });
+
+  it('uses the caret, not the string end, so mid-string edits resolve', () => {
+    // Caret after "@a" even though more text follows.
+    expect(detectMentionTrigger('@ada later', 2)).toEqual({ kind: '@', query: 'a', start: 0 });
   });
 });
 

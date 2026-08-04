@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useDateFormat } from '@/lib/preferences';
@@ -10,12 +10,8 @@ import { api, API_URL } from '@/lib/api';
 import { Avatar } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+import { EntityPickerRow } from './entity-picker-row';
+import { detectMentionTrigger, filterMembers, type MentionTrigger } from './mention-items';
 
 type Segment =
   | { type: 'text'; text: string }
@@ -64,69 +60,12 @@ interface Comment {
   edited_at: string | null;
 }
 
-/** "#" button in the comment composer: search records (grant-scoped), insert a chip. */
-function RecordMentionButton({
-  ws,
-  onPick,
-}: {
-  ws: string;
-  onPick: (recordId: string, databaseId: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState('');
-  const results = useQuery({
-    queryKey: ['comment-record-picker', ws, search],
-    enabled: open && search.trim().length > 0,
-    queryFn: async () => {
-      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/search', {
-        params: { path: { ws }, query: { q: search.trim() } },
-      } as never);
-      if (error) throw error;
-      return (data as unknown as {
-        records: Array<{ id: string; title: string; database_id: string; database_name: string }>;
-      }).records;
-    },
-  });
-
+/** One ↑↓/↵/esc hint pill in the inline mention picker footer. */
+function Hint({ children }: { children: React.ReactNode }) {
   return (
-    <span className="relative">
-      <Button variant="secondary" size="sm" title="Mention a record" onClick={() => setOpen((v) => !v)}>
-        #
-      </Button>
-      {open && (
-        <div className="absolute bottom-full right-0 z-30 mb-1 w-72 rounded-[var(--radius-card)] border border-border-default bg-card p-2 shadow-[0_8px_24px_rgba(15,23,41,0.15)]">
-          <input
-            autoFocus
-            className="mb-1 h-8 w-full rounded-md border border-border-default bg-card px-2 text-[13px] text-ink"
-            placeholder="Search records…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') setOpen(false);
-            }}
-          />
-          <div className="max-h-48 overflow-y-auto">
-            {(results.data ?? []).map((r) => (
-              <button
-                key={r.id}
-                className="flex w-full items-baseline gap-2 rounded px-2 py-1 text-left text-[13px] text-ink hover:bg-hover"
-                onClick={() => {
-                  onPick(r.id, r.database_id);
-                  setOpen(false);
-                  setSearch('');
-                }}
-              >
-                <span className="truncate">{r.title || 'Untitled'}</span>
-                <span className="shrink-0 text-[11px] text-faint">{r.database_name}</span>
-              </button>
-            ))}
-            {search.trim() && results.data?.length === 0 && (
-              <p className="px-2 py-1 text-[12px] text-faint">No matches.</p>
-            )}
-          </div>
-        </div>
-      )}
-    </span>
+    <kbd className="inline-flex h-4 min-w-[1rem] items-center justify-center rounded border border-border-default bg-hover px-1 font-sans text-[10px] leading-none text-muted">
+      {children}
+    </kbd>
   );
 }
 
@@ -134,8 +73,15 @@ function RecordMentionButton({
  * The comment composer (@ mentions, # record mentions, submit) — factored out of
  * CommentsPanel (#76) so the feed view's inline per-card composer reuses the exact
  * same posting logic/UI instead of a second one-off implementation. `compact`
- * collapses the @/# toolbar until the input is focused or already has a draft in
+ * collapses the send button until the input is focused or already has a draft in
  * it (expand-on-focus), for a footer-sized inline composer.
+ *
+ * Mentions trigger inline like the rich-text editor (#171): typing `@` opens the
+ * member picker and `#` the grant-scoped record picker, both filtered by the text
+ * typed after the trigger and driven by ↑↓/↵/esc. Picking inserts the same
+ * user/record segment the old explicit @/# buttons did and strips the typed
+ * `@query`/`#query` — so there are no buttons to hunt for. Comments stay a
+ * segment array (text + user/record mentions), not BlockNote.
  */
 export function CommentComposer({
   ws,
@@ -158,6 +104,33 @@ export function CommentComposer({
   const [segments, setSegments] = useState<Segment[]>([]);
   const [text, setText] = useState('');
   const [focused, setFocused] = useState(false);
+  // Inline @/# mention menu (#171): the trigger detected in `text` at the caret,
+  // plus the keyboard-highlighted row. Null when no menu is open.
+  const [trigger, setTrigger] = useState<MentionTrigger | null>(null);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // # rides the same grant-scoped search the old # button used — a guest is only
+  // ever offered records they can open. Keyed on the live query after the `#`.
+  const recordSearch = useQuery({
+    queryKey: ['comment-record-picker', ws, trigger?.query ?? ''],
+    enabled: trigger?.kind === '#' && (trigger?.query.trim().length ?? 0) > 0,
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/search', {
+        params: { path: { ws }, query: { q: trigger!.query.trim() } },
+      } as never);
+      if (error) throw error;
+      return (data as unknown as {
+        records: Array<{
+          id: string;
+          title: string;
+          database_id: string;
+          database_name: string;
+          number?: number | null;
+        }>;
+      }).records;
+    },
+  });
 
   const post = useMutation({
     mutationFn: async (body: Segment[]) => {
@@ -171,6 +144,7 @@ export function CommentComposer({
       setSegments([]);
       setText('');
       setFocused(false);
+      setTrigger(null);
       void qc.invalidateQueries({ queryKey: key });
       void qc.invalidateQueries({ queryKey: ['activity', ws, db, rec] });
       onPosted?.();
@@ -185,15 +159,79 @@ export function CommentComposer({
     post.mutate(body);
   }
 
-  // A compact composer only shows the @/# toolbar and send button once there's
-  // something to act on — focused, or a draft already started.
+  // Re-detect an active @/# trigger from the input's value + caret after any edit
+  // or caret move, and reset the keyboard highlight to the top row.
+  function refreshTrigger(el: HTMLInputElement) {
+    setTrigger(detectMentionTrigger(el.value, el.selectionStart ?? el.value.length));
+    setActiveIndex(0);
+  }
+
+  // Commit a picked mention: drop everything before the trigger into a text
+  // segment, append the mention segment, and keep whatever followed the query as
+  // the live input — exactly the segment shape the old @/# buttons produced.
+  function insertMention(segment: Segment) {
+    if (!trigger) return;
+    const caret = trigger.start + 1 + trigger.query.length;
+    const before = text.slice(0, trigger.start);
+    const after = text.slice(caret);
+    setSegments((prev) => [
+      ...prev,
+      ...(before.trim() ? [{ type: 'text', text: `${before.trim()} ` } as Segment] : []),
+      segment,
+    ]);
+    setText(after);
+    setTrigger(null);
+    setActiveIndex(0);
+    requestAnimationFrame(() => {
+      const el = inputRef.current;
+      if (el) {
+        el.focus();
+        el.setSelectionRange(0, 0);
+      }
+    });
+  }
+
+  // The rows offered for the open trigger: members (filtered locally) or record
+  // search hits. Each carries the presentational pieces plus the segment to add.
+  type PickerRow = {
+    key: string;
+    icon: React.ReactNode;
+    title: string;
+    breadcrumb?: string | null;
+    idChip?: number | null;
+    onSelect: () => void;
+  };
+  const rows: PickerRow[] =
+    trigger?.kind === '@'
+      ? filterMembers(members, trigger.query)
+          .slice(0, 8)
+          .map((m) => ({
+            key: m.id,
+            icon: <Avatar userId={m.id} name={m.name} size={20} />,
+            title: m.name,
+            onSelect: () => insertMention({ type: 'mention', user_id: m.id }),
+          }))
+      : trigger?.kind === '#'
+        ? (recordSearch.data ?? []).slice(0, 8).map((r) => ({
+            key: r.id,
+            icon: <span className="text-faint">#</span>,
+            title: r.title || 'Untitled',
+            breadcrumb: r.database_name,
+            idChip: r.number ?? null,
+            onSelect: () =>
+              insertMention({ type: 'record', record_id: r.id, database_id: r.database_id }),
+          }))
+        : [];
+
+  // A compact composer only shows the send button once there's something to act
+  // on — focused, or a draft already started.
   const toolbarShown = !compact || focused || segments.length > 0 || text.trim().length > 0;
 
   return (
     <div className="flex items-start gap-2">
       <div
         className={cn(
-          'flex-1 rounded-[var(--radius-control)] border border-border-default bg-card px-2',
+          'relative flex-1 rounded-[var(--radius-control)] border border-border-default bg-card px-2',
           compact ? 'py-1' : 'py-1.5',
         )}
       >
@@ -215,6 +253,7 @@ export function CommentComposer({
           </span>
         )}
         <input
+          ref={inputRef}
           className="w-full bg-card text-[13px] text-ink outline-none placeholder:text-faint"
           placeholder="Write a comment… (@ people, # records)"
           value={text}
@@ -222,57 +261,90 @@ export function CommentComposer({
           onBlur={() => {
             if (!text.trim() && segments.length === 0) setFocused(false);
           }}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => {
+            setText(e.target.value);
+            refreshTrigger(e.target);
+          }}
+          onSelect={(e) => refreshTrigger(e.currentTarget)}
           onKeyDown={(e) => {
+            // While a mention menu is open, arrows/enter/tab/esc drive it — not
+            // the composer — so typing @/# never accidentally posts a draft.
+            if (trigger) {
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                setTrigger(null);
+                return;
+              }
+              if (e.key === 'ArrowDown' && rows.length > 0) {
+                e.preventDefault();
+                setActiveIndex((i) => (i + 1) % rows.length);
+                return;
+              }
+              if (e.key === 'ArrowUp' && rows.length > 0) {
+                e.preventDefault();
+                setActiveIndex((i) => (i - 1 + rows.length) % rows.length);
+                return;
+              }
+              if (e.key === 'Enter' || e.key === 'Tab') {
+                e.preventDefault();
+                rows[activeIndex]?.onSelect();
+                return;
+              }
+            }
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
               submit();
+              return;
             }
             if (e.key === 'Escape' && compact) (e.target as HTMLInputElement).blur();
           }}
         />
+        {trigger && (
+          <div className="absolute bottom-full left-0 z-30 mb-1 w-72 overflow-hidden rounded-[var(--radius-modal)] border border-border-default bg-card shadow-[0_16px_40px_rgba(15,23,41,0.22)]">
+            <div className="max-h-64 overflow-y-auto p-1">
+              {rows.length > 0 ? (
+                rows.map((row, i) => (
+                  <EntityPickerRow
+                    key={row.key}
+                    icon={row.icon}
+                    title={row.title}
+                    breadcrumb={row.breadcrumb}
+                    idChip={row.idChip}
+                    active={i === activeIndex}
+                    onMouseEnter={() => setActiveIndex(i)}
+                    onClick={row.onSelect}
+                  />
+                ))
+              ) : (
+                <p className="px-2.5 py-6 text-center text-[12px] text-muted">
+                  {trigger.kind === '#'
+                    ? recordSearch.isFetching
+                      ? 'Searching…'
+                      : trigger.query.trim()
+                        ? 'No matches'
+                        : 'Type to search records'
+                    : 'No matches'}
+                </p>
+              )}
+            </div>
+            <div className="flex items-center gap-3 border-t border-border-default px-2.5 py-1.5 text-[11px] text-muted">
+              <span className="flex items-center gap-1">
+                <Hint>↑↓</Hint> navigate
+              </span>
+              <span className="flex items-center gap-1">
+                <Hint>↵</Hint> insert
+              </span>
+              <span className="flex items-center gap-1">
+                <Hint>esc</Hint> close
+              </span>
+            </div>
+          </div>
+        )}
       </div>
       {toolbarShown && (
-        <>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="secondary" size="sm" title="Mention someone">
-                @
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent>
-              {members.map((member) => (
-                <DropdownMenuItem
-                  key={member.id}
-                  onSelect={() => {
-                    setSegments((prev) => [
-                      ...prev,
-                      ...(text.trim() ? [{ type: 'text', text: `${text.trim()} ` } as Segment] : []),
-                      { type: 'mention', user_id: member.id },
-                    ]);
-                    setText('');
-                  }}
-                >
-                  {member.name}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <RecordMentionButton
-            ws={ws}
-            onPick={(record_id, database_id) => {
-              setSegments((prev) => [
-                ...prev,
-                ...(text.trim() ? [{ type: 'text', text: `${text.trim()} ` } as Segment] : []),
-                { type: 'record', record_id, database_id },
-              ]);
-              setText('');
-            }}
-          />
-          <Button size="sm" onClick={submit} disabled={post.isPending}>
-            <Send className="h-3.5 w-3.5" />
-          </Button>
-        </>
+        <Button size="sm" onClick={submit} disabled={post.isPending}>
+          <Send className="h-3.5 w-3.5" />
+        </Button>
       )}
     </div>
   );
