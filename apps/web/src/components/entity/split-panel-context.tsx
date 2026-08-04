@@ -6,16 +6,26 @@ import { hasOpenElsewhereModifier, shouldOpenInSplit } from './split-screen';
 import type { SplitTarget } from './split-screen';
 
 /**
- * Split-screen wiring (#146, Phase 1). A `SplitPanelProvider` is mounted around
- * the record surface only (see `split-screen-host.tsx`); everywhere else the
- * context is null and relation links keep their existing navigation behavior —
- * that's what keeps Phase 1 contained to the record page. `isDesktop` is the
- * `md`-breakpoint result the host computes once and shares, so consumers apply
- * the same mobile-fallback rule the plan mandates (plan §3.3).
+ * Split-screen wiring (#146; stacking #166/#167/#168). A `SplitPanelProvider` is
+ * mounted around the record surface only (see `split-screen-host.tsx`); everywhere
+ * else the context is null and relation links keep their existing navigation
+ * behavior — that's what keeps the feature contained to the record page.
+ * `isDesktop` is the `md`-breakpoint result the host computes once and shares, so
+ * consumers apply the same mobile-fallback rule the plan mandates (plan §3.3).
+ *
+ * `open` is the only method relation links use; the panel-lifecycle methods
+ * (`collapse`/`expand`/`maximize`/`restore`/`close`, all keyed by a panel `id`)
+ * are exposed so an open panel can drive its own chrome. The host wires each of
+ * these straight to the stack reducer.
  */
 export interface SplitPanelApi {
   isDesktop: boolean;
   open: (target: SplitTarget) => void;
+  collapse: (id: string) => void;
+  expand: (id: string) => void;
+  maximize: (id: string) => void;
+  restore: () => void;
+  close: (id: string) => void;
 }
 
 const SplitPanelContext = createContext<SplitPanelApi | null>(null);

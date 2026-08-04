@@ -15,7 +15,16 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { ArrowLeft, ChevronDown, ChevronRight, GripVertical, X } from 'lucide-react';
+import {
+  ArrowLeft,
+  ChevronDown,
+  ChevronRight,
+  GripVertical,
+  Maximize2,
+  Minimize2,
+  PanelLeftClose,
+  X,
+} from 'lucide-react';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/auth-client';
 import { useWorkspace } from '@/lib/queries';
@@ -58,17 +67,29 @@ import type { RecordRow } from '@/components/table-view/use-table-data';
  *
  * `onClose` switches the header's Close control from route-back (the page's own
  * behavior, preserved) to closing the panel (the split host's behavior).
+ *
+ * When this record is a split panel, the host also passes the panel-chrome
+ * controls (#167): `onCollapse` docks it to a peek-rail, and `onToggleMaximize`
+ * flips between the shared ~50/50 pair and filling the split area (`isMaximized`
+ * picks the Maximize/Minimize icon + label). They're absent on the full page and
+ * on the primary pane, where only the base Close control shows.
  */
 export function RecordDetail({
   ws,
   db,
   rec,
   onClose,
+  onCollapse,
+  onToggleMaximize,
+  isMaximized = false,
 }: {
   ws: string;
   db: string;
   rec: string;
   onClose?: () => void;
+  onCollapse?: () => void;
+  onToggleMaximize?: () => void;
+  isMaximized?: boolean;
 }) {
   const router = useRouter();
   const workspace = useWorkspace(ws);
@@ -221,6 +242,31 @@ export function RecordDetail({
             canCreate={schemaEditable}
             isAdmin={workspace.data?.role === 'admin'}
           />
+          {/* Split-panel chrome (#167): collapse to a peek-rail, and maximize /
+              restore the split area. Only present when the host mounts this record
+              as a panel. */}
+          {onCollapse && (
+            <button
+              type="button"
+              title="Collapse to rail"
+              aria-label="Collapse panel to rail"
+              className="inline-flex h-7 w-7 items-center justify-center rounded text-muted hover:bg-hover hover:text-ink"
+              onClick={onCollapse}
+            >
+              <PanelLeftClose className="h-4 w-4" />
+            </button>
+          )}
+          {onToggleMaximize && (
+            <button
+              type="button"
+              title={isMaximized ? 'Restore split' : 'Maximize panel'}
+              aria-label={isMaximized ? 'Restore split view' : 'Maximize panel'}
+              className="inline-flex h-7 w-7 items-center justify-center rounded text-muted hover:bg-hover hover:text-ink"
+              onClick={onToggleMaximize}
+            >
+              {isMaximized ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+            </button>
+          )}
           <button
             type="button"
             title="Close"
