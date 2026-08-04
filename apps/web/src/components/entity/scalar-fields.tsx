@@ -3,13 +3,17 @@
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Check, GripVertical, Pin, Plus, X } from 'lucide-react';
+import { api } from '@/lib/api';
 import { CellDisplay, CellEditor, PressButton } from '@/components/table-view/cells';
-import { DbColorMarker, RelationEditor } from '@/components/table-view/relation-cell';
+import { DbColorMarker, RelationEditor, patchRelationProjection } from '@/components/table-view/relation-cell';
 import type { LinkChip } from '@/components/table-view/relation-cell';
 import type { Field } from '@/components/table-view/use-table-data';
+import { fieldTypeIcon } from '@/components/views/field-type-icon';
 import { Popover, PopoverContent, PopoverParentAnchor } from '@/components/ui/popover';
 import { recordHref, recordSegment } from '@/lib/records';
 import { cn } from '@/lib/utils';
@@ -18,16 +22,62 @@ import type { DatabaseSummary, Space } from '@/lib/queries';
 import { qualifiedDatabaseLabel, resolveDatabaseIds, serializeDatabaseIds } from '@/lib/database-labels';
 import { AUDIT_TYPES, NOT_INLINE, auditValue } from './entity-field-utils';
 import type { VP } from './entity-field-utils';
-import { FieldMenu, useSetFieldConfig } from './field-controls';
-import { CollapseToggle } from './collection-section';
+import { FieldMenu } from './field-controls';
 import { useOpenInSplit } from './split-panel-context';
 
-/** Inline value renderer for scalar fields (sidebar, top strip, body). */
-function ScalarValue({ field, record, ws, db, rec, members, memberNames, memberImages, readOnly, onCommit }: VP & { field: Field }) {
+/**
+ * Remove a single link from a relation field, reusing the tested links-replace
+ * endpoint + optimistic projection patch from RelationEditor so the sidebar chip
+ * updates instantly (#176 inline chip remove ×).
+ */
+function useRemoveRelationLink(ws: string, db: string, recordId: string, field: Field) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (chips: LinkChip[]) => {
+      const { error } = await api.PUT('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/links/{field}', {
+        params: { path: { ws, db, rec: recordId, field: field.id } },
+        body: { record_ids: chips.map((c) => c.id) },
+      });
+      if (error) throw error;
+    },
+    onMutate: async (chips) => {
+      const recordsKey = ['records', ws, db];
+      const recordKey = ['record', ws, db];
+      await qc.cancelQueries({ queryKey: recordsKey });
+      await qc.cancelQueries({ queryKey: recordKey });
+      const previous = [
+        ...qc.getQueriesData({ queryKey: recordsKey }),
+        ...qc.getQueriesData({ queryKey: recordKey }),
+      ];
+      const patch = (old: unknown) => patchRelationProjection(old, recordId, field.apiName, chips);
+      qc.setQueriesData({ queryKey: recordsKey }, patch);
+      qc.setQueriesData({ queryKey: recordKey }, patch);
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      for (const [k, v] of (context?.previous ?? []) as Array<[unknown, unknown]>) {
+        qc.setQueryData(k as never, v as never);
+      }
+      toast.error('Could not update links');
+    },
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: ['records', ws, db] });
+      void qc.invalidateQueries({ queryKey: ['record', ws, db] });
+    },
+  });
+}
+
+/**
+ * Inline value renderer for scalar fields (sidebar, top strip, body). `cell`
+ * wraps the editable value in a subtle bordered/hover cell (Fibery-parity
+ * Properties panel, #176) so the value area reads as a clickable control.
+ */
+function ScalarValue({ field, cell, record, ws, db, rec, members, memberNames, memberImages, readOnly, onCommit }: VP & { field: Field; cell?: boolean }) {
   const [editing, setEditing] = useState(false);
   const value = AUDIT_TYPES.has(field.type) ? auditValue(field, record) : record.values[field.apiName];
   const databases = useDatabases(ws);
   const spaces = useSpaces(ws);
+  const removeLink = useRemoveRelationLink(ws, db, record.id, field);
   // #146: a single-relation chip on the record page opens its target in the
   // split side panel (desktop ≥ md); a no-op elsewhere / on mobile.
   const openInSplit = useOpenInSplit();
@@ -48,20 +98,42 @@ function ScalarValue({ field, record, ws, db, rec, members, memberNames, memberI
     return (
       <div className="relative flex flex-wrap items-center gap-1">
         {chips.map((chip) => (
-          <Link
+          // #176: consistent chip control — the title opens the target (split
+          // panel / navigation), the × unlinks it (only when editable). The ×
+          // is a sibling of the link, never nested, so their clicks can't reach
+          // each other.
+          <span
             key={chip.id}
-            href={recordHref(ws, field.relation!.target_database_id, chip)}
-            onClick={openInSplit({
-              db: field.relation!.target_database_id,
-              rec: recordSegment(chip),
-              title: chip.title,
-              number: chip.number,
-            })}
-            className="inline-flex max-w-full items-center gap-1 truncate rounded border border-border-default bg-hover px-1.5 py-0.5 text-[12px] text-ink hover:border-border-strong"
+            className="inline-flex max-w-full items-center gap-1 rounded border border-border-default bg-hover px-1.5 py-0.5 text-[12px] text-ink hover:border-border-strong"
           >
-            <DbColorMarker color={field.relation?.target_database_color} />
-            {chip.title || 'Untitled'}
-          </Link>
+            <Link
+              href={recordHref(ws, field.relation!.target_database_id, chip)}
+              onClick={openInSplit({
+                db: field.relation!.target_database_id,
+                rec: recordSegment(chip),
+                title: chip.title,
+                number: chip.number,
+              })}
+              className="flex min-w-0 items-center gap-1 truncate hover:underline"
+            >
+              <DbColorMarker color={field.relation?.target_database_color} />
+              <span className="truncate">{chip.title || 'Untitled'}</span>
+            </Link>
+            {!readOnly && (
+              <button
+                type="button"
+                aria-label={`Remove ${chip.title || 'Untitled'}`}
+                className="shrink-0 text-faint hover:text-error"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  removeLink.mutate(chips.filter((c) => c.id !== chip.id));
+                }}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </span>
         ))}
         {!readOnly && (
           <button
@@ -163,17 +235,30 @@ function ScalarValue({ field, record, ws, db, rec, members, memberNames, memberI
     );
   }
   const empty = value === undefined || value === null || value === '';
+  // Inline-editable when not read-only and not a computed/audit type (NOT_INLINE).
+  const editableInline = !readOnly && !NOT_INLINE.has(field.type);
   return (
     <div
-      className={cn('min-h-6 min-w-0', !readOnly && !NOT_INLINE.has(field.type) && 'cursor-pointer')}
+      className={cn(
+        'min-h-6 min-w-0',
+        // #176: subtle bordered/hover cell so the value reads as an editable
+        // control. Transparent by default; the border + hover only earn their
+        // place when the value can actually be edited.
+        cell && 'rounded-[var(--radius-control)] border border-transparent px-1.5 py-1 transition-colors',
+        cell && editableInline && 'hover:border-border-default hover:bg-hover/60',
+        editableInline && 'cursor-pointer',
+      )}
       onClick={() => {
-        if (readOnly || NOT_INLINE.has(field.type)) return;
+        if (!editableInline) return;
         if (field.type === 'checkbox') onCommit(field, !(value === true));
         else setEditing(true);
       }}
     >
       {empty ? (
-        <span className="text-[13px] text-faint">Empty</span>
+        // #176: empty renders as a faint, clickable placeholder inside the cell
+        // (edit-in-place affordance), not dead gray "Empty" text. Computed /
+        // read-only fields show an em dash instead.
+        <span className="text-[13px] text-faint">{editableInline ? 'Empty' : '—'}</span>
       ) : PROSE_TYPES.has(field.type) ? (
         <ClampedValue>
           {/* #317: ws lets CellDisplay resolve agent-config ref ids (database /
@@ -304,8 +389,9 @@ function ClampedValue({ children }: { children: ReactNode }) {
 export function SidebarField({ field, schemaEditable, onToggleZone, ...vp }: VP & { field: Field }) {
   const sortable = useSortable({ id: field.id, disabled: !schemaEditable });
   const style = { transform: CSS.Transform.toString(sortable.transform), transition: sortable.transition };
-  const collapsed = field.config?.['entity_collapsed'] === true;
-  const setConfig = useSetFieldConfig(vp.ws, vp.db);
+  // #176: type icon before the label (mirrors the Fields menu / pinned chips) so
+  // the property's type is recognizable at a glance.
+  const TypeIcon = fieldTypeIcon(field.type);
   return (
     <div
       ref={sortable.setNodeRef}
@@ -326,16 +412,15 @@ export function SidebarField({ field, schemaEditable, onToggleZone, ...vp }: VP 
             <GripVertical className="h-3 w-3" />
           </button>
         )}
-        <CollapseToggle
-          collapsed={collapsed}
-          onToggle={() => setConfig.mutate({ fieldId: field.id, config: { entity_collapsed: !collapsed } })}
-        />
-        <span className="flex-1 truncate text-[11px] font-medium uppercase tracking-wide text-muted">
-          {field.displayName}
-        </span>
+        {/* #176: per-field collapse caret removed — it implied per-field collapse
+            (visual noise). Whole-panel collapsers ("N hidden") live in the panel. */}
+        <TypeIcon className="h-3.5 w-3.5 shrink-0 text-faint" aria-hidden />
+        {/* #174: labels stay text-muted (readable); #176: Title-case-ish, not
+            all-caps, for Fibery parity. */}
+        <span className="flex-1 truncate text-[12px] font-medium text-muted">{field.displayName}</span>
         {schemaEditable && <FieldMenu field={field} onToggleZone={onToggleZone} ws={vp.ws} db={vp.db} />}
       </div>
-      {!collapsed && <ScalarValue field={field} schemaEditable={schemaEditable} onToggleZone={onToggleZone} {...vp} />}
+      <ScalarValue field={field} cell schemaEditable={schemaEditable} onToggleZone={onToggleZone} {...vp} />
     </div>
   );
 }
