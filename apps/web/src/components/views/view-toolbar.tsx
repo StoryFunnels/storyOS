@@ -7,14 +7,12 @@ import {
   ArrowUpDown,
   Check,
   CircleHelp,
-  Clock,
   Copy,
   Download,
   Eye,
   EyeOff,
   Group,
   GripVertical,
-  Hash,
   ListFilter,
   MoreHorizontal,
   Palette,
@@ -23,12 +21,10 @@ import {
   PinOff,
   Plus,
   Trash2,
-  Type,
   Ungroup,
   UserRound,
   X,
 } from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
@@ -45,7 +41,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { API_URL, api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import type { Field } from '../table-view/use-table-data';
-import { FIELD_TYPES } from '../table-view/field-dialog-shared';
+import { fieldTypeIcon } from './field-type-icon';
+import { FieldsMenu } from './fields-menu';
 import type { FilterCondition, SortSpec, ViewConfig } from './use-view-state';
 import { useClearPersonalFilter, useSetPersonalFilter } from './use-view-state';
 import {
@@ -340,21 +337,9 @@ export function defaultValueFor(input: string): unknown {
   return '';
 }
 
-/** Field-type icon (mirrors the Add Field dialog's type list) — used on condition
- * rows, the add-condition menu and pinned chips so a filter's field is recognizable
- * at a glance (MN-253). Falls back for system types that aren't creatable fields. */
-const TYPE_ICON = new Map(FIELD_TYPES.map((t) => [t.value, t.icon]));
-const SYSTEM_TYPE_ICON: Record<string, LucideIcon> = {
-  title: Type,
-  id: Hash,
-  created_at: Clock,
-  updated_at: Clock,
-  created_by: UserRound,
-  updated_by: UserRound,
-};
-export function fieldTypeIcon(type: string): LucideIcon {
-  return TYPE_ICON.get(type) ?? SYSTEM_TYPE_ICON[type] ?? ListFilter;
-}
+// #175 — the field-type icon map now lives in its own module (shared with the
+// Fields menu). Re-exported here so existing importers of the toolbar keep working.
+export { fieldTypeIcon };
 
 export function AddFilterButton({
   fields,
@@ -1991,6 +1976,9 @@ function SortableCardField({ field, onRemove }: { field: Field; onRemove: () => 
   );
 }
 
+/** #175 — the view toolbar's column-visibility menu, now the shared Fibery-parity
+ * Fields menu (search + toggle switches + type icons + drag-to-reorder). Visibility
+ * is persisted as `hidden_field_ids`; reorder writes `field.position` via `onReorder`. */
 function HiddenFieldsButton({
   fields,
   hidden,
@@ -2003,102 +1991,17 @@ function HiddenFieldsButton({
   /** #338 — when supplied, user fields become drag-to-reorder (writes field.position). */
   onReorder?: (activeId: string, overId: string) => void;
 }) {
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
-  // Only user fields carry a movable position; system fields (id/created_at/…)
-  // stay put and the API rejects position edits on them.
-  const reorderableIds = onReorder ? fields.filter((f) => !f.isSystem).map((f) => f.id) : [];
-
-  const rows = (
-    <>
-      {fields.map((field) => (
-        <HiddenFieldRow
-          key={field.id}
-          field={field}
-          checked={!hidden.includes(field.id)}
-          reorderable={Boolean(onReorder) && !field.isSystem}
-          onToggle={(checked) =>
-            onChange(checked ? hidden.filter((id) => id !== field.id) : [...hidden, field.id])
-          }
-        />
-      ))}
-    </>
-  );
-
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          className={cn(
-            'flex items-center gap-1 rounded px-1.5 py-1 text-[12px] hover:bg-hover',
-            hidden.length ? 'text-ink' : 'text-muted',
-          )}
-        >
-          <EyeOff className="h-3.5 w-3.5" />
-          {hidden.length ? `${hidden.length} hidden` : 'Hide fields'}
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent className="max-h-64 overflow-y-auto">
-        {onReorder ? (
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragEnd={(e) => {
-              if (e.over && e.active.id !== e.over.id) onReorder(String(e.active.id), String(e.over.id));
-            }}
-          >
-            <SortableContext items={reorderableIds} strategy={verticalListSortingStrategy}>
-              {rows}
-            </SortableContext>
-          </DndContext>
-        ) : (
-          rows
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-function HiddenFieldRow({
-  field,
-  checked,
-  reorderable,
-  onToggle,
-}: {
-  field: Field;
-  checked: boolean;
-  reorderable: boolean;
-  onToggle: (checked: boolean) => void;
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: field.id,
-    disabled: !reorderable,
-  });
-  return (
-    <div
-      ref={reorderable ? setNodeRef : undefined}
-      style={reorderable ? { transform: CSS.Transform.toString(transform), transition } : undefined}
-      className={cn(
-        'group/hf flex items-center gap-1 rounded px-2 py-1.5 text-[13px] text-ink hover:bg-hover',
-        isDragging && 'opacity-50',
-      )}
-    >
-      {reorderable ? (
-        <button
-          className="-ml-1 shrink-0 cursor-grab touch-none text-faint opacity-0 hover:text-muted group-hover/hf:opacity-100"
-          title="Drag to reorder"
-          onClick={(e) => e.preventDefault()}
-          {...attributes}
-          {...listeners}
-        >
-          <GripVertical className="h-3.5 w-3.5" />
-        </button>
-      ) : (
-        <span className="w-2.5 shrink-0" />
-      )}
-      <label className="flex flex-1 items-center gap-2">
-        <input type="checkbox" checked={checked} onChange={(e) => onToggle(e.target.checked)} />
-        {field.displayName}
-      </label>
-    </div>
+    <FieldsMenu
+      fields={fields}
+      isVisible={(f) => !hidden.includes(f.id)}
+      onToggle={(f, next) =>
+        onChange(next ? hidden.filter((id) => id !== f.id) : [...hidden, f.id])
+      }
+      onReorder={onReorder}
+      triggerIcon={EyeOff}
+      triggerLabel={hidden.length ? `${hidden.length} hidden` : 'Hide fields'}
+      triggerActive={hidden.length > 0}
+    />
   );
 }
