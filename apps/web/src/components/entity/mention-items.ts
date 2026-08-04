@@ -71,3 +71,36 @@ export function filterMembers<T extends { name: string }>(members: T[], query: s
   if (!q) return members;
   return members.filter((m) => m.name.toLowerCase().includes(q));
 }
+
+/** An active @/# trigger detected in a plain-text composer input (#171). */
+export interface MentionTrigger {
+  /** Which picker to open. */
+  kind: '@' | '#';
+  /** The text typed after the trigger char, up to the caret (the filter query). */
+  query: string;
+  /** Index of the trigger char in the source text (so callers can strip it). */
+  start: number;
+}
+
+/**
+ * Detect an in-progress @/# mention in a plain-text comment composer (#171),
+ * mirroring how the rich-text editor's suggestion menus trigger inline. Scans
+ * left from the caret for a `@`/`#` that begins a token (at string start or
+ * after whitespace); the run between it and the caret is the live query and may
+ * not itself contain whitespace. Returns null when the caret isn't inside such a
+ * token — so a lone "a@b" email or a completed "@Ada word" never re-opens it.
+ */
+export function detectMentionTrigger(text: string, caret: number): MentionTrigger | null {
+  for (let i = caret - 1; i >= 0; i--) {
+    const ch = text[i]!;
+    if (ch === '@' || ch === '#') {
+      const boundary = i === 0 || /\s/.test(text[i - 1]!);
+      if (!boundary) return null;
+      const query = text.slice(i + 1, caret);
+      if (/\s/.test(query)) return null;
+      return { kind: ch, query, start: i };
+    }
+    if (/\s/.test(ch)) return null;
+  }
+  return null;
+}
