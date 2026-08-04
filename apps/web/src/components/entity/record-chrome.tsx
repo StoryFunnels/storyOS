@@ -17,6 +17,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { AddFieldDialog } from '@/components/table-view/add-field-dialog';
+import { FieldsMenu } from '@/components/views/fields-menu';
 import type { Field } from '@/components/table-view/use-table-data';
 import { useFavorites } from '@/components/sidebar';
 import { AUDIT_TYPES } from './entity-field-utils';
@@ -322,53 +323,20 @@ function DelegateToAgentDialog({
   );
 }
 
-/** "Fields" popover: one place to toggle which fields show on the record (MN-074). */
+/** "Fields" popover: one place to toggle which fields show on the record (MN-074).
+ * #175 — now the shared Fibery-parity Fields menu (search + toggle switch + field-
+ * type icon). Field reordering on the record page lives on the field rows
+ * themselves (per-zone drag, `entity_order`), so this picker stays visibility-only. */
 export function FieldsPopover({ ws, db, fields }: { ws: string; db: string; fields: Field[] }) {
   const setConfig = useSetFieldConfig(ws, db);
-  const [q, setQ] = useState('');
-  const list = fields.filter((f) => f.displayName.toLowerCase().includes(q.trim().toLowerCase()));
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button className="flex items-center gap-1.5 rounded px-2 py-1 text-[13px] text-muted hover:bg-hover hover:text-ink">
-          <SlidersHorizontal className="h-3.5 w-3.5" /> Fields
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-64">
-        <input
-          autoFocus
-          placeholder="Filter fields…"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => e.stopPropagation()}
-          className="mb-1 w-full rounded border border-border-default bg-card px-2 py-1 text-[13px] text-ink outline-none placeholder:text-faint"
-        />
-        <div className="max-h-72 overflow-y-auto">
-          {list.map((f) => {
-            const shown = f.config?.['entity_hidden'] !== true;
-            return (
-              <DropdownMenuItem
-                key={f.id}
-                onSelect={(e) => {
-                  e.preventDefault();
-                  setConfig.mutate({ fieldId: f.id, config: { entity_hidden: shown } });
-                }}
-              >
-                <span
-                  className={cn(
-                    'flex h-4 w-7 shrink-0 items-center rounded-full px-0.5 transition-colors',
-                    shown ? 'justify-end bg-accent' : 'justify-start bg-border-default',
-                  )}
-                >
-                  <span className="h-3 w-3 rounded-full bg-card" />
-                </span>
-                <span className="truncate">{f.displayName}</span>
-              </DropdownMenuItem>
-            );
-          })}
-          {list.length === 0 && <p className="px-2 py-1.5 text-[12px] text-faint">No fields.</p>}
-        </div>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <FieldsMenu
+      fields={fields}
+      isVisible={(f) => f.config?.['entity_hidden'] !== true}
+      onToggle={(f, next) => setConfig.mutate({ fieldId: f.id, config: { entity_hidden: !next } })}
+      triggerIcon={SlidersHorizontal}
+      triggerLabel="Fields"
+      align="end"
+    />
   );
 }

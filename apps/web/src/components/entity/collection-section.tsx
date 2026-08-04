@@ -5,6 +5,7 @@ import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ChevronDown, ChevronRight, List, Palette, Plus } from 'lucide-react';
+import { arrayMove } from '@dnd-kit/sortable';
 import { api } from '@/lib/api';
 import { atLeast } from '@/lib/access';
 import { CellDisplay, CellEditor, OPTION_COLORS } from '@/components/table-view/cells';
@@ -30,6 +31,7 @@ import { cn } from '@/lib/utils';
 import { NOT_INLINE } from './entity-field-utils';
 import type { CollectionView, VP } from './entity-field-utils';
 import { FieldMenu, useSetFieldConfig } from './field-controls';
+import { FieldsMenu } from '@/components/views/fields-menu';
 import { SelectDriftBanner } from './select-drift-banner';
 import { useOpenInSplit } from './split-panel-context';
 
@@ -231,6 +233,12 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
                 else set.add(apiName);
                 setCv({ fields: [...set] });
               }}
+              onReorder={(activeApi, overApi) => {
+                const from = columnApiNames.indexOf(activeApi);
+                const to = columnApiNames.indexOf(overApi);
+                if (from < 0 || to < 0) return;
+                setCv({ fields: arrayMove(columnApiNames, from, to) });
+              }}
             />
           </span>
         )}
@@ -411,39 +419,45 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
   );
 }
 
-/** "Fields" picker for a collection — choose which target fields render inline as columns (MN-206). */
+/** "Fields" picker for a collection — choose which target fields render inline as
+ * columns, and drag to reorder those columns (MN-206). #175 — now the shared
+ * Fibery-parity Fields menu; selected columns lead the list (in their column
+ * order) and are the ones that carry a drag handle. */
 function FieldsButton({
   fields,
   selected,
   onToggle,
+  onReorder,
 }: {
   fields: Field[];
   selected: string[];
   onToggle: (apiName: string) => void;
+  /** Reorder the selected columns — `activeApi`/`overApi` are field api_names. */
+  onReorder: (activeApi: string, overApi: string) => void;
 }) {
   if (fields.length === 0) return null;
   const selectedSet = new Set(selected);
+  // Selected columns first, in their persisted order, then the rest — so the
+  // draggable rows are contiguous and dragging maps cleanly onto the column order.
+  const ordered = [
+    ...selected.map((api) => fields.find((f) => f.apiName === api)).filter((f): f is Field => Boolean(f)),
+    ...fields.filter((f) => !selectedSet.has(f.apiName)),
+  ];
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          className={cn(
-            'flex items-center gap-1 rounded px-1.5 py-1 text-[12px] hover:bg-hover hover:text-ink',
-            selected.length ? 'text-ink' : 'text-muted',
-          )}
-        >
-          <List className="h-3.5 w-3.5" /> Fields
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start">
-        {fields.map((f) => (
-          <DropdownMenuItem key={f.id} onSelect={(e) => { e.preventDefault(); onToggle(f.apiName); }}>
-            {selectedSet.has(f.apiName) ? '✓ ' : '  '}
-            {f.displayName}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <FieldsMenu
+      fields={ordered}
+      isVisible={(f) => selectedSet.has(f.apiName)}
+      onToggle={(f) => onToggle(f.apiName)}
+      onReorder={(activeId, overId) => {
+        const activeApi = fields.find((f) => f.id === activeId)?.apiName;
+        const overApi = fields.find((f) => f.id === overId)?.apiName;
+        if (activeApi && overApi) onReorder(activeApi, overApi);
+      }}
+      isReorderable={(f) => selectedSet.has(f.apiName)}
+      triggerIcon={List}
+      triggerLabel="Fields"
+      triggerActive={selected.length > 0}
+    />
   );
 }
 
