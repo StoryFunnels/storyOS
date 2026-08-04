@@ -330,7 +330,7 @@ export function SidebarField({ field, schemaEditable, onToggleZone, ...vp }: VP 
           collapsed={collapsed}
           onToggle={() => setConfig.mutate({ fieldId: field.id, config: { entity_collapsed: !collapsed } })}
         />
-        <span className="flex-1 truncate text-[11px] font-medium uppercase tracking-wide text-faint">
+        <span className="flex-1 truncate text-[11px] font-medium uppercase tracking-wide text-muted">
           {field.displayName}
         </span>
         {schemaEditable && <FieldMenu field={field} onToggleZone={onToggleZone} ws={vp.ws} db={vp.db} />}
@@ -355,7 +355,7 @@ export function TopChip({ field, schemaEditable, onToggleZone, ...vp }: VP & { f
       {...(schemaEditable ? sortable.attributes : {})}
       {...(schemaEditable ? sortable.listeners : {})}
     >
-      <span className="flex items-center gap-1 text-[11px] font-medium uppercase tracking-wide text-faint">
+      <span className="flex items-center gap-1 text-[11px] font-medium uppercase tracking-wide text-muted">
         <Pin className="h-3 w-3 text-accent" /> {field.displayName}
       </span>
       <div onPointerDown={(e) => e.stopPropagation()}>
@@ -374,7 +374,7 @@ export function TopChip({ field, schemaEditable, onToggleZone, ...vp }: VP & { f
 export function BodyScalar({ field, schemaEditable, onToggleZone, ...vp }: VP & { field: Field }) {
   return (
     <div className="group mb-4 flex items-start gap-3 border-b border-border-default pb-3">
-      <span className="flex w-40 shrink-0 items-center gap-1 pt-0.5 text-[12px] font-medium uppercase tracking-wide text-faint">
+      <span className="flex w-40 shrink-0 items-center gap-1 pt-0.5 text-[12px] font-medium uppercase tracking-wide text-muted">
         {field.displayName}
         {schemaEditable && <FieldMenu field={field} onToggleZone={onToggleZone} ws={vp.ws} db={vp.db} />}
       </span>

@@ -472,7 +472,7 @@ export function MentionedIn({ ws, db, rec }: { ws: string; db: string; rec: stri
 
   return (
     <div className="mt-6">
-      <h2 className="mb-2 text-[12px] font-medium uppercase tracking-wider text-faint">
+      <h2 className="mb-2 text-[12px] font-medium uppercase tracking-wider text-muted">
         Mentioned in
       </h2>
       <ul className="flex flex-col gap-1">

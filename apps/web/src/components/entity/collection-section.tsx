@@ -188,7 +188,7 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
           collapsed={collapsed}
           onToggle={() => setConfig.mutate({ fieldId: field.id, config: { entity_collapsed: !collapsed } })}
         />
-        <h2 className="text-[12px] font-medium uppercase tracking-wider text-faint">{field.displayName}</h2>
+        <h2 className="text-[12px] font-medium uppercase tracking-wider text-muted">{field.displayName}</h2>
         <span className="text-[11px] text-faint">{total}</span>
         {schemaEditable && <FieldMenu field={field} onToggleZone={onToggleZone} ws={ws} db={db} collection />}
         {schemaEditable && !collapsed && targetDb.data && (
