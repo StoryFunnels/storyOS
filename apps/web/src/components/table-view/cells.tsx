@@ -143,6 +143,48 @@ export function OptionChip({ option }: { option: SelectOption }) {
   );
 }
 
+/**
+ * #179: a number field carries a first-class `format` (plain/percent/currency)
+ * + `precision` (packages/schemas numberConfigSchema). Nothing rendered it —
+ * every number showed as a bare `String(value)`. Format it honestly here:
+ * thousands separators always, the configured decimal places (auto when unset),
+ * a `%` suffix for percent, the ISO currency for currency. Percent values are
+ * stored as the percentage itself (57 → "57%"), matching paste.ts's `%`-strip
+ * convention — so we append the sign rather than using Intl's ×100 percent style.
+ * Non-finite values fall back to the raw string.
+ */
+export function formatNumberValue(
+  field: { config: Record<string, unknown> },
+  value: unknown,
+): string {
+  const n = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(n)) return String(value);
+  const format = (field.config['format'] as string) ?? 'plain';
+  const precision = typeof field.config['precision'] === 'number' ? (field.config['precision'] as number) : undefined;
+  const digits: Intl.NumberFormatOptions =
+    precision === undefined
+      ? { maximumFractionDigits: 20 }
+      : { minimumFractionDigits: precision, maximumFractionDigits: precision };
+  if (format === 'currency') {
+    const code = ((field.config['currency_code'] as string) || 'USD').toUpperCase();
+    try {
+      return new Intl.NumberFormat(undefined, { style: 'currency', currency: code, ...digits }).format(n);
+    } catch {
+      // Unknown/blank ISO code — don't throw; show the amount with the code.
+      return `${new Intl.NumberFormat(undefined, digits).format(n)} ${code}`;
+    }
+  }
+  const body = new Intl.NumberFormat(undefined, digits).format(n);
+  return format === 'percent' ? `${body}%` : body;
+}
+
+/** #179: true for a number field the user has set to percent format — the only
+ * field kind we render the Fibery-style progress bar for (no guessing from raw
+ * numbers, where 57 could be a count). */
+export function isPercentNumberField(field: { type: string; config: Record<string, unknown> }): boolean {
+  return field.type === 'number' && field.config['format'] === 'percent';
+}
+
 interface DisplayProps {
   field: Field;
   value: unknown;
@@ -193,7 +235,7 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, ws 
     case 'formula': {
       const rt = field.config['result_type'] as string | undefined;
       if (rt === 'checkbox') return <input type="checkbox" checked={value === true} readOnly className="pointer-events-none" />;
-      if (rt === 'number') return <span className="w-full truncate text-right text-[13px] tabular-nums">{String(value)}</span>;
+      if (rt === 'number') return <span className="w-full truncate text-right text-[13px] tabular-nums">{formatNumberValue(field, value)}</span>;
       return <span className="truncate text-[13px] text-ink-secondary">{String(value)}</span>;
     }
     case 'rollup': {
@@ -287,7 +329,7 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, ws 
         </a>
       );
     case 'number':
-      return <span className="w-full truncate text-right text-[13px] tabular-nums">{String(value)}</span>;
+      return <span className="w-full truncate text-right text-[13px] tabular-nums">{formatNumberValue(field, value)}</span>;
     case 'id':
       // Public per-database sequential id (MN-087) — muted, monospace-ish.
       return <span className="truncate text-[12px] tabular-nums text-faint">{String(value)}</span>;

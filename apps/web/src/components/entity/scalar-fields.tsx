@@ -9,7 +9,7 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Check, GripVertical, Pin, Plus, X } from 'lucide-react';
 import { api } from '@/lib/api';
-import { CellDisplay, CellEditor, PressButton } from '@/components/table-view/cells';
+import { CellDisplay, CellEditor, PressButton, formatNumberValue, isPercentNumberField } from '@/components/table-view/cells';
 import { DbColorMarker, RelationEditor, patchRelationProjection } from '@/components/table-view/relation-cell';
 import type { LinkChip } from '@/components/table-view/relation-cell';
 import type { Field } from '@/components/table-view/use-table-data';
@@ -259,6 +259,11 @@ function ScalarValue({ field, cell, record, ws, db, rec, members, memberNames, m
         // (edit-in-place affordance), not dead gray "Empty" text. Computed /
         // read-only fields show an em dash instead.
         <span className="text-[13px] text-faint">{editableInline ? 'Empty' : '—'}</span>
+      ) : isPercentNumberField(field) ? (
+        // #179: a percent-formatted number renders as a value + subtle filled
+        // track (Fibery parity) — only for explicitly percent-formatted number
+        // fields, never guessed from a raw number.
+        <PercentBar field={field} value={value} />
       ) : PROSE_TYPES.has(field.type) ? (
         <ClampedValue>
           {/* #317: ws lets CellDisplay resolve agent-config ref ids (database /
@@ -385,8 +390,28 @@ function ClampedValue({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * #179: percent value + a subtle progress track. The value stores the percentage
+ * itself (57 → 57%), so the fill is `clamp(value, 0, 100)%`. Track uses the
+ * neutral border token; the fill uses --accent — matching the panel's token
+ * language without introducing a new colour. `aria-hidden` on the bar: the
+ * formatted number above it is the accessible value, the bar is decoration.
+ */
+function PercentBar({ field, value }: { field: Field; value: unknown }) {
+  const n = Number(value);
+  const fill = Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 0;
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-[13px] tabular-nums text-ink-secondary">{formatNumberValue(field, value)}</span>
+      <div className="h-1 w-full overflow-hidden rounded-full bg-[var(--border-default)]" aria-hidden>
+        <div className="h-full rounded-full bg-[var(--accent)] transition-[width]" style={{ width: `${fill}%` }} />
+      </div>
+    </div>
+  );
+}
+
 /** Compact draggable property in the right sidebar (label above value). */
-export function SidebarField({ field, schemaEditable, onToggleZone, ...vp }: VP & { field: Field }) {
+export function SidebarField({ field, schemaEditable, onToggleZone, topDivider, ...vp }: VP & { field: Field; topDivider?: boolean }) {
   const sortable = useSortable({ id: field.id, disabled: !schemaEditable });
   const style = { transform: CSS.Transform.toString(sortable.transform), transition: sortable.transition };
   // #176: type icon before the label (mirrors the Fields menu / pinned chips) so
@@ -398,6 +423,10 @@ export function SidebarField({ field, schemaEditable, onToggleZone, ...vp }: VP 
       style={style}
       className={cn(
         'group rounded-md px-1.5 py-1.5 hover:bg-hover/50',
+        // #179: a hairline + a touch more breathing room above the first system
+        // field (created/updated/by) sets the read-only audit block apart from
+        // the user's own properties without a heavy divider.
+        topDivider && 'mt-1.5 border-t border-border-default/60 pt-2.5',
         sortable.isDragging && 'z-10 bg-card opacity-80 shadow-sm',
       )}
     >
