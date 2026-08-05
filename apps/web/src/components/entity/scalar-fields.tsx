@@ -7,7 +7,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Check, GripVertical, Pin, Plus, X } from 'lucide-react';
+import { Check, GripVertical, Plus, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { CellDisplay, CellEditor, EmptyFieldAffordance, PressButton, formatNumberValue, isPercentNumberField } from '@/components/table-view/cells';
 import { DbColorMarker, RelationEditor, patchRelationProjection } from '@/components/table-view/relation-cell';
@@ -244,7 +244,10 @@ function ScalarValue({ field, cell, record, ws, db, rec, members, memberNames, m
         // #176: subtle bordered/hover cell so the value reads as an editable
         // control. Transparent by default; the border + hover only earn their
         // place when the value can actually be edited.
-        cell && 'rounded-[var(--radius-control)] border border-transparent px-1.5 py-1 transition-colors',
+        // #206: -mx-1.5 bleeds the cell's inner padding outward so the value's
+        // text left edge stays flush with the label row (and with chip values,
+        // which have no cell) — the box breathes without shifting the value.
+        cell && '-mx-1.5 rounded-[var(--radius-control)] border border-transparent px-1.5 py-1 transition-colors',
         cell && editableInline && 'hover:border-border-default hover:bg-hover/60',
         editableInline && 'cursor-pointer',
       )}
@@ -410,13 +413,23 @@ function PercentBar({ field, value }: { field: Field; value: unknown }) {
   );
 }
 
+/**
+ * #206: a field's identity — its type icon + label — must read identically
+ * wherever the field is placed (sidebar, top strip, body). Same icon size
+ * (h-3.5), same gap, same label style. Single source so the three placements
+ * can't drift apart. The #176 type icon lives here.
+ */
+const FIELD_LABEL_CLS = 'text-[12px] font-medium text-muted';
+
+function FieldTypeGlyph({ type }: { type: string }) {
+  const Icon = fieldTypeIcon(type);
+  return <Icon className="h-3.5 w-3.5 shrink-0 text-faint" aria-hidden />;
+}
+
 /** Compact draggable property in the right sidebar (label above value). */
 export function SidebarField({ field, schemaEditable, onToggleZone, topDivider, ...vp }: VP & { field: Field; topDivider?: boolean }) {
   const sortable = useSortable({ id: field.id, disabled: !schemaEditable });
   const style = { transform: CSS.Transform.toString(sortable.transform), transition: sortable.transition };
-  // #176: type icon before the label (mirrors the Fields menu / pinned chips) so
-  // the property's type is recognizable at a glance.
-  const TypeIcon = fieldTypeIcon(field.type);
   return (
     <div
       ref={sortable.setNodeRef}
@@ -448,12 +461,16 @@ export function SidebarField({ field, schemaEditable, onToggleZone, topDivider, 
         )}
         {/* #176: per-field collapse caret removed — it implied per-field collapse
             (visual noise). Whole-panel collapsers ("N hidden") live in the panel. */}
-        <TypeIcon className="h-3.5 w-3.5 shrink-0 text-faint" aria-hidden />
+        <FieldTypeGlyph type={field.type} />
         {/* #174: labels stay text-muted (readable); #176: Title-case-ish, not
-            all-caps, for Fibery parity. */}
-        <span className="flex-1 truncate text-[12px] font-medium text-muted">{field.displayName}</span>
+            all-caps, for Fibery parity. #206: shared label style across placements. */}
+        <span className={cn('flex-1 truncate', FIELD_LABEL_CLS)}>{field.displayName}</span>
         {schemaEditable && <FieldMenu field={field} onToggleZone={onToggleZone} ws={vp.ws} db={vp.db} />}
       </div>
+      {/* #206: value flush-left with the label row (under the icon gutter). The
+          #176 cell keeps its inner padding but bleeds outward (-mx-1.5) so the
+          value's text left edge lines up with the label row and with chip/badge
+          values (relations), which have no cell — no per-field-type drift. */}
       <ScalarValue field={field} cell schemaEditable={schemaEditable} onToggleZone={onToggleZone} {...vp} />
     </div>
   );
@@ -481,8 +498,12 @@ export function TopChip({ field, schemaEditable, onToggleZone, ...vp }: VP & { f
           className="-ml-1.5 h-3.5 w-3.5 shrink-0 text-faint opacity-0 transition-opacity group-hover:opacity-100"
         />
       )}
-      <span className="flex items-center gap-1 text-[11px] font-medium uppercase tracking-wide text-muted">
-        <Pin className="h-3 w-3 text-accent" /> {field.displayName}
+      {/* #206: same type icon + label treatment as the sidebar / body — a field
+          reads identically wherever it's placed. (The top strip already means
+          "pinned"; the type icon replaces the redundant pin glyph.) */}
+      <span className="flex items-center gap-1">
+        <FieldTypeGlyph type={field.type} />
+        <span className={FIELD_LABEL_CLS}>{field.displayName}</span>
       </span>
       <div onPointerDown={(e) => e.stopPropagation()}>
         <ScalarValue field={field} schemaEditable={schemaEditable} onToggleZone={onToggleZone} {...vp} />
@@ -500,8 +521,10 @@ export function TopChip({ field, schemaEditable, onToggleZone, ...vp }: VP & { f
 export function BodyScalar({ field, schemaEditable, onToggleZone, ...vp }: VP & { field: Field }) {
   return (
     <div className="group mb-4 flex items-start gap-3 border-b border-border-default pb-3">
-      <span className="flex w-40 shrink-0 items-center gap-1 pt-0.5 text-[12px] font-medium uppercase tracking-wide text-muted">
-        {field.displayName}
+      {/* #206: same type icon + label treatment as the sidebar / top strip. */}
+      <span className={cn('flex w-40 shrink-0 items-center gap-1 pt-0.5', FIELD_LABEL_CLS)}>
+        <FieldTypeGlyph type={field.type} />
+        <span className="truncate">{field.displayName}</span>
         {schemaEditable && <FieldMenu field={field} onToggleZone={onToggleZone} ws={vp.ws} db={vp.db} />}
       </span>
       <div className="min-w-0 flex-1">
