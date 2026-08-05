@@ -106,12 +106,12 @@ describe('DbColorMarker (MN-299: the shared cylinder marker every chip render si
   it('renders an svg filled with the palette hex for a known color name', () => {
     const markup = renderToStaticMarkup(createElement(DbColorMarker, { color: 'blue' }));
     expect(markup).toContain('<svg');
-    expect(markup).toContain('#3D5296'); // blue, same hex as cells.tsx's OPTION_COLORS
+    expect(markup).toContain('#2563EB'); // blue, same hex as cells.tsx's OPTION_COLORS
   });
 
   it('falls back to the gray hex for an unrecognized color name', () => {
     const markup = renderToStaticMarkup(createElement(DbColorMarker, { color: 'not-a-real-color' }));
-    expect(markup).toContain('#B5B0A5'); // gray
+    expect(markup).toContain('#64748B'); // gray
   });
 
   it('renders nothing when color is null/undefined (no marker for chips with no known target color)', () => {
@@ -123,8 +123,8 @@ describe('DbColorMarker (MN-299: the shared cylinder marker every chip render si
 describe('RelationChip/RelationChips/SelectedRelationChip forward color to DbColorMarker (MN-299)', () => {
   it('RelationChip renders the marker before the title when a color is given', () => {
     const markup = renderToStaticMarkup(createElement(RelationChip, { title: 'Q3 Launch', color: 'red' }));
-    expect(markup).toContain('#C0392B'); // red
-    expect(markup.indexOf('#C0392B')).toBeLessThan(markup.indexOf('Q3 Launch'));
+    expect(markup).toContain('#DC2626'); // red
+    expect(markup.indexOf('#DC2626')).toBeLessThan(markup.indexOf('Q3 Launch'));
   });
 
   it('RelationChips forwards one color to every chip (all chips share the same target database)', () => {
@@ -134,7 +134,7 @@ describe('RelationChip/RelationChips/SelectedRelationChip forward color to DbCol
     ];
     const markup = renderToStaticMarkup(createElement(RelationChips, { chips, color: 'teal' }));
     expect(markup.split('<svg').length - 1).toBe(2); // one marker per chip
-    expect(markup).toContain('#057160'); // teal
+    expect(markup).toContain('#0D9488'); // teal
   });
 
   it('SelectedRelationChip renders the marker alongside the × button', () => {
@@ -142,7 +142,7 @@ describe('RelationChip/RelationChips/SelectedRelationChip forward color to DbCol
     const markup = renderToStaticMarkup(
       createElement(SelectedRelationChip, { chip, ws: 'acme', targetDb: 'db-blocked-by', onRemove: () => {}, color: 'purple' }),
     );
-    expect(markup).toContain('#7E5BA6'); // purple
+    expect(markup).toContain('#7C3AED'); // purple
     expect(markup).toContain('<button');
   });
 });

@@ -11,16 +11,21 @@ import { renderToStaticMarkup } from 'react-dom/server';
 // construct outside the app runtime either).
 vi.mock('@/components/table-view/cells', () => ({
   OPTION_COLORS: {
-    gray: '#B5B0A5',
-    brown: '#8B6F47',
-    gold: '#D4A017',
-    orange: '#D97E36',
-    red: '#C0392B',
-    pink: '#C05B7E',
-    purple: '#7E5BA6',
-    blue: '#3D5296',
-    teal: '#057160',
-    green: '#2D7A4F',
+    gray: '#64748B',
+    brown: '#9C6B43',
+    gold: '#B7791F',
+    orange: '#E4551F',
+    red: '#DC2626',
+    pink: '#DB2777',
+    purple: '#7C3AED',
+    blue: '#2563EB',
+    teal: '#0D9488',
+    green: '#15803D',
+    lime: '#4D7C0F',
+    cyan: '#0E7490',
+    indigo: '#4F46E5',
+    magenta: '#A21CAF',
+    rose: '#E11D48',
   },
 }));
 
@@ -111,7 +116,7 @@ describe('EntityIcon brand rendering (#298)', () => {
     const markup = renderToStaticMarkup(
       createElement(EntityIcon, { icon: 'brand:youtube', color: 'red', fallback: null }),
     );
-    expect(markup).toContain('color:#C0392B');
+    expect(markup).toContain('color:#DC2626');
     expect(markup).toContain('bg-current');
     expect(markup).toContain('/brand-icons/youtube.svg');
   });

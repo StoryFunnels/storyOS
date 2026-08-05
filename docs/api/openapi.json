@@ -8465,7 +8465,12 @@
               "purple",
               "blue",
               "teal",
-              "green"
+              "green",
+              "lime",
+              "cyan",
+              "indigo",
+              "magenta",
+              "rose"
             ]
           }
         },
@@ -8493,7 +8498,12 @@
               "purple",
               "blue",
               "teal",
-              "green"
+              "green",
+              "lime",
+              "cyan",
+              "indigo",
+              "magenta",
+              "rose"
             ]
           },
           "position": {

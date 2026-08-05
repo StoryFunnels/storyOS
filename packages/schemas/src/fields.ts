@@ -37,6 +37,11 @@ export const OPTION_COLORS = [
   'blue',
   'teal',
   'green',
+  'lime',
+  'cyan',
+  'indigo',
+  'magenta',
+  'rose',
 ] as const;
 
 
