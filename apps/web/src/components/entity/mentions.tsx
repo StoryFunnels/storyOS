@@ -3,13 +3,14 @@
 import { createContext, useContext, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { CircleDashed } from 'lucide-react';
+import { Check, ChevronDown, CircleDashed } from 'lucide-react';
 import { BlockNoteSchema, defaultInlineContentSpecs } from '@blocknote/core';
 import type { BlockNoteEditor } from '@blocknote/core';
 import type { SuggestionMenuProps } from '@blocknote/react';
 import { SuggestionMenuController, createReactInlineContentSpec } from '@blocknote/react';
 import { api } from '@/lib/api';
 import { atLeast } from '@/lib/access';
+import { cn } from '@/lib/utils';
 import { Avatar } from '@/components/ui/avatar';
 import { EntityIcon } from '@/components/ui/icon-picker';
 import { CellEditor, OptionChip } from '@/components/table-view/cells';
@@ -24,6 +25,7 @@ import { EntityPickerRow } from './entity-picker-row';
 import {
   filterMembers,
   mentionInsertContent,
+  recordBreadcrumb,
   recordMentionProps,
   recordRowLabel,
   userMentionProps,
@@ -339,14 +341,120 @@ interface PickerItem {
   breadcrumb?: string | null;
   idChip?: number | null;
   mention: MentionProps;
+  /** #178: owning database of a record row, so the # picker can offer a
+   *  client-side "narrow by database" filter over the current results. */
+  databaseId?: string;
+  databaseName?: string;
 }
 
-/** A record the caller touched recently, from GET /workspaces/{ws}/recent. */
+/** A record the caller touched recently, from GET /workspaces/{ws}/recent.
+ *  #178 enriches this the same way /search rows are — db colour + owning space. */
 interface RecentRecord {
   id: string;
   title: string;
+  number?: number | null;
   database_id: string;
   database_name: string;
+  database_color?: string | null;
+  space_name?: string | null;
+}
+
+/** The active db-narrowing filter in the # picker (#178). Holds the name too so
+ *  the control's label stays correct even when the current query's results no
+ *  longer include that database. */
+interface RecordDbFilter {
+  id: string;
+  name: string;
+}
+
+/** What the shared picker menu needs to paint + drive its optional db filter —
+ *  refreshed by the parent each render and read by the memoized menu component. */
+interface PickerFilterState {
+  value: RecordDbFilter | null;
+  set: (next: RecordDbFilter | null) => void;
+  options: RecordDbFilter[];
+}
+
+/**
+ * The # picker's "Anything ▾" entity/database filter (#178). The payload's `type`
+ * discriminator is coarse (every # hit is a record), so the meaningful narrowing
+ * is by owning database — this control filters the current results to one
+ * database. Purely client-side: picking an option flips the parent's filter
+ * state, which re-runs the search's getItems so the row list AND keyboard
+ * selection narrow together. A small custom popover (not a native <select>) so
+ * the editor's capture-phase key handling and the menu's mousedown-preventDefault
+ * don't fight a browser control.
+ */
+function DbFilterControl({ filter }: { filter: PickerFilterState }) {
+  const [open, setOpen] = useState(false);
+  const label = filter.value?.name ?? 'Anything';
+  return (
+    <span className="relative shrink-0">
+      <button
+        type="button"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+        className="flex items-center gap-0.5 rounded-[var(--radius-control)] border border-border-default bg-hover px-1.5 py-0.5 text-[11px] font-medium text-muted hover:text-ink"
+      >
+        <span className="max-w-24 truncate">{label}</span>
+        <ChevronDown className="h-3 w-3" />
+      </button>
+      {open && (
+        <div className="absolute right-0 z-10 mt-1 max-h-48 w-40 overflow-y-auto rounded-[var(--radius-control)] border border-border-default bg-card p-1 shadow-[0_16px_40px_rgba(15,23,41,0.22)]">
+          <FilterOption
+            label="Anything"
+            active={filter.value == null}
+            onPick={() => {
+              filter.set(null);
+              setOpen(false);
+            }}
+          />
+          {filter.options.map((o) => (
+            <FilterOption
+              key={o.id}
+              label={o.name || 'Untitled'}
+              active={filter.value?.id === o.id}
+              onPick={() => {
+                filter.set(o);
+                setOpen(false);
+              }}
+            />
+          ))}
+        </div>
+      )}
+    </span>
+  );
+}
+
+function FilterOption({
+  label,
+  active,
+  onPick,
+}: {
+  label: string;
+  active: boolean;
+  onPick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onPick();
+      }}
+      className={cn(
+        'flex w-full items-center gap-1.5 rounded-[var(--radius-control)] px-2 py-1 text-left text-[12px] text-ink transition-colors hover:bg-hover',
+        active && 'bg-accent-soft',
+      )}
+    >
+      <Check className={cn('h-3 w-3 shrink-0', active ? 'text-accent' : 'opacity-0')} />
+      <span className="truncate">{label}</span>
+    </button>
+  );
 }
 
 /**
@@ -362,6 +470,11 @@ function makePickerMenu(opts: {
   emptyHeader: string;
   emptyPrompt: string;
   queryRef: MutableRefObject<string>;
+  /** #178: present only for the # (records) menu. The parent keeps `.current`
+   *  fresh each render; selecting a database re-runs `getItems` (BlockNote keys
+   *  its item load on the getItems identity, which the parent changes when the
+   *  filter changes) so the filtered list stays in lock-step with keyboard nav. */
+  filterRef?: MutableRefObject<PickerFilterState>;
 }) {
   return function PickerMenu({
     items,
@@ -371,12 +484,20 @@ function makePickerMenu(opts: {
   }: SuggestionMenuProps<PickerItem>) {
     const isEmptyQuery = opts.queryRef.current.trim() === '';
     const hasItems = items.length > 0;
+    const filter = opts.filterRef?.current;
+    // Show the narrow-by-database control once there's more than one database to
+    // choose between (or a filter is already pinned) — never a dead single-option
+    // control.
+    const showFilter = Boolean(filter && (filter.options.length > 1 || filter.value));
     return (
       <div className="w-72 overflow-hidden rounded-[var(--radius-modal)] border border-border-default bg-card shadow-[0_16px_40px_rgba(15,23,41,0.22)]">
-        {isEmptyQuery && hasItems && (
-          <p className="px-2.5 pb-0.5 pt-2 text-[11px] font-medium uppercase tracking-wider text-faint">
-            {opts.emptyHeader}
-          </p>
+        {(showFilter || (isEmptyQuery && hasItems)) && (
+          <div className="flex items-center justify-between gap-2 px-2.5 pb-0.5 pt-2">
+            <p className="text-[11px] font-medium uppercase tracking-wider text-faint">
+              {isEmptyQuery && hasItems ? opts.emptyHeader : ''}
+            </p>
+            {showFilter && filter && <DbFilterControl filter={filter} />}
+          </div>
         )}
         <div className="max-h-64 overflow-y-auto p-1">
           {hasItems ? (
@@ -431,11 +552,12 @@ function Hint({ children }: { children: React.ReactNode }) {
  *
  * @ offers workspace members (name-filtered locally), each row an avatar + name.
  * # rides the grant-scoped workspace search endpoint — so a guest is only ever
- * offered titles they can open — rendering the owning database's icon, the title,
- * the database as breadcrumb subtext, and the faint #<number> chip (the #227/#228
- * record-chip style). On an empty # query we show the caller's recently-touched
- * records (GET /workspaces/{ws}/recent, the same source the Cmd+K palette uses);
- * recents carry no per-database number so those rows omit the #id chip.
+ * offered titles they can open — rendering the owning database's colour marker
+ * (#178), the title, a `space › database` breadcrumb subtext, and the faint
+ * #<number> chip (the #227/#228 record-chip style). A small "Anything ▾" control
+ * narrows the results to one database (#178). On an empty # query we show the
+ * caller's recently-touched records (GET /workspaces/{ws}/recent, the same source
+ * the Cmd+K palette uses).
  */
 export function MentionSuggestionMenus({
   editor,
@@ -449,9 +571,51 @@ export function MentionSuggestionMenus({
   const memberQuery = useRef('');
   const recordQuery = useRef('');
 
-  const recordIcon = (icon: string | null) => (
-    <EntityIcon icon={icon} color={null} fallback={<span className="text-faint">#</span>} />
-  );
+  // #178: the # picker's narrow-by-database filter. State (not a ref) so a pick
+  // re-renders the parent — which hands SuggestionMenuController a fresh
+  // getRecords identity, the trigger BlockNote uses to re-run item loading, so
+  // the row list and its keyboard selection narrow together. `recordDbOptions`
+  // is mutated in place (stable array ref) so the memoized menu reads live
+  // options without another render.
+  const [recordDbFilter, setRecordDbFilter] = useState<RecordDbFilter | null>(null);
+  const recordDbOptions = useRef<RecordDbFilter[]>([]);
+  const recordFilterRef = useRef<PickerFilterState>({
+    value: recordDbFilter,
+    set: setRecordDbFilter,
+    options: recordDbOptions.current,
+  });
+  recordFilterRef.current = {
+    value: recordDbFilter,
+    set: setRecordDbFilter,
+    options: recordDbOptions.current,
+  };
+
+  // #178: prefer the owning database's colour cylinder (identical to the relation
+  // picker) as the row icon; fall back to the db icon / a faint "#" when unknown.
+  const recordIcon = (color: string | null, icon: string | null) =>
+    color ? (
+      <DbColorMarker color={color} />
+    ) : (
+      <EntityIcon icon={icon} color={null} fallback={<span className="text-faint">#</span>} />
+    );
+
+  // #178: refresh the filter's option list from the FULL result set, then narrow
+  // to the pinned database. Mutating the options array in place keeps its ref
+  // stable for the menu; the pinned db is retained even if this query didn't
+  // surface it so the control's label + active tick stay correct.
+  const finishRecords = (
+    items: Array<PickerItem & { databaseId: string; databaseName: string }>,
+  ): PickerItem[] => {
+    const seen = new Map<string, string>();
+    for (const it of items) seen.set(it.databaseId, it.databaseName);
+    if (recordDbFilter && !seen.has(recordDbFilter.id)) seen.set(recordDbFilter.id, recordDbFilter.name);
+    recordDbOptions.current.length = 0;
+    for (const [id, name] of seen) recordDbOptions.current.push({ id, name });
+    const narrowed = recordDbFilter
+      ? items.filter((it) => it.databaseId === recordDbFilter.id)
+      : items;
+    return narrowed.slice(0, 8);
+  };
 
   const getMembers = async (query: string): Promise<PickerItem[]> => {
     memberQuery.current = query;
@@ -475,26 +639,31 @@ export function MentionSuggestionMenus({
     const q = query.trim();
 
     // Empty query → the caller's recently-touched records (the existing #036
-    // /recent endpoint the Cmd+K palette already reads). These have no public
-    // per-database number, so no #id chip.
+    // /recent endpoint the Cmd+K palette already reads). #178 enriches these with
+    // the db colour marker + `space › database` breadcrumb, matching /search rows.
     if (!q) {
       const { data, error } = await api.GET('/api/v1/workspaces/{ws}/recent', {
         params: { path: { ws } },
       } as never);
       if (error) return [];
       const records = (data as unknown as { records: RecentRecord[] }).records ?? [];
-      return records.slice(0, 8).map((r) => ({
-        key: r.id,
-        icon: recordIcon((r as { database_icon?: string | null }).database_icon ?? null),
-        title: r.title || 'Untitled',
-        breadcrumb: r.database_name,
-        mention: recordMentionProps({
-          id: r.id,
-          title: r.title,
-          database_id: r.database_id,
-          database_name: r.database_name,
-        }),
-      }));
+      return finishRecords(
+        records.map((r) => ({
+          key: r.id,
+          icon: recordIcon(r.database_color ?? null, (r as { database_icon?: string | null }).database_icon ?? null),
+          title: r.title || 'Untitled',
+          breadcrumb: recordBreadcrumb(r.space_name ?? null, r.database_name),
+          idChip: r.number ?? null,
+          mention: recordMentionProps({
+            id: r.id,
+            title: r.title,
+            database_id: r.database_id,
+            database_name: r.database_name,
+          }),
+          databaseId: r.database_id,
+          databaseName: r.database_name,
+        })),
+      );
     }
 
     const { data, error } = await api.GET('/api/v1/workspaces/{ws}/search', {
@@ -502,17 +671,21 @@ export function MentionSuggestionMenus({
     } as never);
     if (error) return [];
     const records = (data as unknown as { records: SearchRecord[] }).records ?? [];
-    return records.slice(0, 8).map((r) => {
-      const row = recordRowLabel(r);
-      return {
-        key: r.id,
-        icon: recordIcon((r as { database_icon?: string | null }).database_icon ?? null),
-        title: row.title,
-        breadcrumb: row.database,
-        idChip: row.number,
-        mention: recordMentionProps(r),
-      };
-    });
+    return finishRecords(
+      records.map((r) => {
+        const row = recordRowLabel(r);
+        return {
+          key: r.id,
+          icon: recordIcon(row.color, (r as { database_icon?: string | null }).database_icon ?? null),
+          title: row.title,
+          breadcrumb: recordBreadcrumb(row.space, row.database),
+          idChip: row.number,
+          mention: recordMentionProps(r),
+          databaseId: r.database_id,
+          databaseName: r.database_name,
+        };
+      }),
+    );
   };
 
   const MemberMenu = useMemo(
@@ -525,6 +698,7 @@ export function MentionSuggestionMenus({
         emptyHeader: 'Recent items',
         emptyPrompt: 'Type an entity or view name',
         queryRef: recordQuery,
+        filterRef: recordFilterRef,
       }),
     [],
   );
