@@ -476,11 +476,12 @@ export class GithubService {
     };
     const issueStates = await stateOptions(issuesDb.id);
     const pullStates = await stateOptions(pullsDb.id);
-    const summary = { issues: 0, pulls: 0, linked: 0, repos };
+    const summary = { issues: 0, pulls: 0, linked: 0, repos, skipped: [] as { repo: string; reason: string }[] };
     // number → record id per repo, for the linking pass
     const issueIds = new Map<string, string>();
 
     for (const repo of repos) {
+     try {
       if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) {
         throw new UnprocessableEntityException(`Invalid repo "${repo}" — use owner/name`);
       }
@@ -526,6 +527,12 @@ export class GithubService {
             .catch(() => undefined);
         }
       }
+     } catch (err) {
+       // #193: one inaccessible or misconfigured repo (403 no-access, 404, 410
+       // issues-disabled, or a bad name) must NOT abort the whole sync. Skip it,
+       // record why, and keep going with the rest.
+       summary.skipped.push({ repo, reason: err instanceof Error ? err.message : String(err) });
+     }
     }
 
     return summary;

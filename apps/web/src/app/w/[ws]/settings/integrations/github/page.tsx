@@ -111,14 +111,25 @@ export default function GitHubIntegrationPage() {
         params: { path: { ws } },
       } as never);
       if (error) throw error;
-      return data as unknown as { issues: number; pulls: number; linked: number };
+      return data as unknown as {
+        issues: number;
+        pulls: number;
+        linked: number;
+        skipped?: { repo: string; reason: string }[];
+      };
     },
     onSuccess: (result) => {
       setSummary(result);
       void qc.invalidateQueries();
-      toast.success(
-        `Synced ${result.issues} issues, ${result.pulls} PRs, ${result.linked} auto-links`,
-      );
+      const skipped = result.skipped ?? [];
+      const base = `Synced ${result.issues} issues, ${result.pulls} PRs, ${result.linked} auto-links`;
+      if (skipped.length > 0) {
+        // #193: partial success — one or more repos couldn't be read (no access /
+        // not found); the rest synced. Name them so the user can fix the config.
+        toast.warning(`${base}. Skipped ${skipped.length}: ${skipped.map((s) => s.repo).join(', ')}`);
+      } else {
+        toast.success(base);
+      }
     },
     onError: (error) =>
       toast.error((error as { error?: { message?: string } })?.error?.message ?? 'Sync failed'),
@@ -425,8 +436,8 @@ function ReviewSettingsSection({ ws }: { ws: string }) {
           </select>
         </Row>
 
-        <div className="border-t border-border-default pt-3">
-          <p className="mb-2 text-[12px] font-medium uppercase tracking-wider text-faint">
+        <div className="flex flex-col gap-4 border-t border-border-default pt-3">
+          <p className="text-[12px] font-medium uppercase tracking-wider text-faint">
             Review notifications
           </p>
           <Row label="Comments & mentions">
