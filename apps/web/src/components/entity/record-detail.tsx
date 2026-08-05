@@ -504,7 +504,11 @@ function BodyRow({
         <button
           type="button"
           aria-label="Drag to reorder"
-          className="absolute -left-5 top-1 hidden cursor-grab touch-none text-faint hover:text-muted group-hover/bodyrow:block sm:-left-6"
+          title="Drag to reorder"
+          className={cn(
+            'absolute -left-6 top-0.5 flex h-6 w-5 touch-none items-center justify-center rounded text-faint opacity-0 transition-opacity hover:bg-hover hover:text-muted group-hover/bodyrow:opacity-100 sm:-left-7',
+            sortable.isDragging ? 'cursor-grabbing' : 'cursor-grab',
+          )}
           {...sortable.attributes}
           {...sortable.listeners}
           onClick={(e) => e.stopPropagation()}
