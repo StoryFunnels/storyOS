@@ -229,7 +229,10 @@ export function mapFilterValues(detail: DatabaseDetail, node: unknown): unknown 
   const f = detail.fields.find((x) => x.apiName === cond.field);
   if (!f) return node;
 
-  const isChoice = f.type === 'select' || f.type === 'multi_select';
+  // #172: a workflow field is single-select-shaped (one coloured option id), so it
+  // resolves labels ↔ ids exactly like `select`. Omitting it here made "Me/label"
+  // filters and writes on the canonical status field 422 with "unknown option id".
+  const isChoice = f.type === 'select' || f.type === 'multi_select' || f.type === 'workflow';
   const isMembership = isChoice || f.type === 'user';
   if (!isMembership) return node;
 
@@ -595,7 +598,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         const o = f.options!.find((x) => x.id === v || x.label.toLowerCase() === String(v).toLowerCase());
         return o ? o.id : v;
       };
-      if (f.type === 'select' && typeof value === 'string') out[key] = toId(value);
+      // #172: workflow is single-select-shaped — resolve its label → id like select.
+      if ((f.type === 'select' || f.type === 'workflow') && typeof value === 'string') out[key] = toId(value);
       else if (f.type === 'multi_select' && Array.isArray(value)) out[key] = value.map(toId);
     }
     return out;
@@ -627,7 +631,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       }
       if (!f.options?.length) continue;
       const toLabel = (x: unknown) => f.options!.find((o) => o.id === x)?.label ?? x;
-      if (f.type === 'select') out[k] = typeof v === 'string' ? toLabel(v) : v;
+      // #172: workflow reads back to its label like select (single option id).
+      if (f.type === 'select' || f.type === 'workflow') out[k] = typeof v === 'string' ? toLabel(v) : v;
       else if (f.type === 'multi_select' && Array.isArray(v)) out[k] = v.map(toLabel);
     }
     return out;
