@@ -1,10 +1,19 @@
 'use client';
 
-import { useEffect, useMemo, useReducer } from 'react';
-import type { ReactNode } from 'react';
+import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import type { CSSProperties, ReactNode, RefObject } from 'react';
 import { ChevronsLeftRight, PanelLeftOpen, X } from 'lucide-react';
 import { useMediaQuery } from '@/lib/use-media-query';
 import { cn } from '@/lib/utils';
+import {
+  SPLIT_RATIO_DEFAULT,
+  SPLIT_RATIO_MAX,
+  SPLIT_RATIO_MIN,
+  SPLIT_RATIO_STEP,
+  clampSplitRatio,
+  ratioFromPointer,
+  useSplitRatio,
+} from '@/lib/split-pane-ratio';
 import { RecordDetail } from './record-detail';
 import { SplitPanelProvider } from './split-panel-context';
 import type { SplitPanelApi } from './split-panel-context';
@@ -60,10 +69,22 @@ export function RecordSurface({ ws, db, rec }: { ws: string; db: string; rec: st
   const view = selectSplitView(state);
   const showStack = isDesktop && state.panels.length > 0;
 
+  // #208: the primary + active panel show as a draggable pair. The divider only
+  // exists in that shared layout — when a pane is maximized or on a rail there's a
+  // single pane and the ratio is inert (the pane just fills with flex-1).
+  const containerRef = useRef<HTMLDivElement>(null);
+  const { ratio, setRatio, persist } = useSplitRatio();
+  const pairMode = !view.primaryOnRail && view.activePanel !== null;
+  // Primary pane gets a fixed basis (its share of the pair); the active pane keeps
+  // flex-1 and takes the rest. Outside pairMode, no override → flex-1 fills.
+  const primaryPaneStyle: CSSProperties | undefined = pairMode
+    ? { flexBasis: `${ratio * 100}%`, flexGrow: 0, flexShrink: 0 }
+    : undefined;
+
   return (
     <SplitPanelProvider value={api}>
       {showStack ? (
-        <div className="flex h-full">
+        <div ref={containerRef} className="flex h-full">
           {/* Primary as a LEFT rail — collapsed independently (#183) or pushed aside
               by a maximized panel (#167). Expand/close both bring it back. */}
           {view.primaryOnRail && (
@@ -85,7 +106,10 @@ export function RecordSurface({ ws, db, rec }: { ws: string; db: string; rec: st
               panel (#182). Its Close stays route-back (the primary can't be removed
               from the split; use its rail's X to dock/restore it). */}
           {!view.primaryOnRail && (
-            <div className="min-w-0 flex-1 overflow-y-auto border-r border-border-default">
+            <div
+              className="min-w-0 flex-1 overflow-y-auto border-r border-border-default"
+              style={primaryPaneStyle}
+            >
               <RecordDetail
                 ws={ws}
                 db={db}
@@ -97,6 +121,16 @@ export function RecordSurface({ ws, db, rec }: { ws: string; db: string; rec: st
                 }
               />
             </div>
+          )}
+
+          {/* #208: draggable divider between the two panes of the shared pair. */}
+          {pairMode && (
+            <SplitPaneDivider
+              ratio={ratio}
+              containerRef={containerRef}
+              onResize={setRatio}
+              onCommit={persist}
+            />
           )}
 
           {view.activePanel && (
@@ -137,6 +171,105 @@ export function RecordSurface({ ws, db, rec }: { ws: string; db: string; rec: st
         <RecordDetail ws={ws} db={db} rec={rec} />
       )}
     </SplitPanelProvider>
+  );
+}
+
+/**
+ * The draggable divider between the two panes of the shared split pair (#208 —
+ * the split-panel sibling of #198's record body↔sidebar divider). A thin hairline
+ * with a wide invisible hit area; dragging sets the primary pane's fraction of the
+ * pair, the active pane takes the rest. Pointer-based (pointerdown captures, window
+ * pointermove updates live, pointerup persists); double-click / Home resets to
+ * 50/50; arrow keys nudge. `role="separator"` + arrow keys make it accessible.
+ *
+ * The ratio is derived from the pointer's position within the container (the pair
+ * fills it in the common case; when extra panels are docked to a right rail the
+ * mapping is a touch approximate but always clamped, never broken).
+ */
+function SplitPaneDivider({
+  ratio,
+  containerRef,
+  onResize,
+  onCommit,
+}: {
+  ratio: number;
+  containerRef: RefObject<HTMLDivElement | null>;
+  onResize: (ratio: number) => void;
+  onCommit: (ratio: number) => void;
+}) {
+  const dragging = useRef(false);
+  const [active, setActive] = useState(false);
+  const ratioRef = useRef(ratio);
+  ratioRef.current = ratio;
+
+  useEffect(() => {
+    function onMove(e: PointerEvent) {
+      if (!dragging.current) return;
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      onResize(ratioFromPointer(e.clientX, rect.left, rect.width));
+    }
+    function onUp() {
+      if (!dragging.current) return;
+      dragging.current = false;
+      setActive(false);
+      onCommit(ratioRef.current);
+    }
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+  }, [containerRef, onResize, onCommit]);
+
+  const nudge = (delta: number) => onCommit(clampSplitRatio(ratioRef.current + delta));
+
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize split panes"
+      aria-valuemin={Math.round(SPLIT_RATIO_MIN * 100)}
+      aria-valuemax={Math.round(SPLIT_RATIO_MAX * 100)}
+      aria-valuenow={Math.round(ratio * 100)}
+      tabIndex={0}
+      title="Drag to resize · double-click to reset"
+      onPointerDown={(e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        e.currentTarget.setPointerCapture?.(e.pointerId);
+        dragging.current = true;
+        setActive(true);
+      }}
+      onDoubleClick={() => onCommit(SPLIT_RATIO_DEFAULT)}
+      onKeyDown={(e) => {
+        if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          nudge(-SPLIT_RATIO_STEP); // give the primary less, the panel more
+        } else if (e.key === 'ArrowRight') {
+          e.preventDefault();
+          nudge(SPLIT_RATIO_STEP);
+        } else if (e.key === 'Home') {
+          e.preventDefault();
+          onCommit(SPLIT_RATIO_DEFAULT);
+        }
+      }}
+      className={cn(
+        'group relative -mx-1 w-2 shrink-0 cursor-col-resize touch-none self-stretch',
+        active && 'select-none',
+      )}
+    >
+      {/* hairline, brightened on hover / focus / drag */}
+      <span
+        aria-hidden
+        className={cn(
+          'pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border-default transition-colors',
+          'group-hover:bg-border-strong group-focus-visible:bg-[var(--accent)]',
+          active && 'bg-[var(--accent)]',
+        )}
+      />
+    </div>
   );
 }
 
