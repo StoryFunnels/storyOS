@@ -258,6 +258,10 @@ export const formulaConfigSchema = z.object({
   expression: z.string().trim().min(1).max(2000),
   ast: z.unknown().optional(),
   result_type: z.enum(['text', 'number', 'checkbox', 'date']).optional(),
+  // #190: a number-result formula can be marked percent so it renders as a
+  // value + progress bar (Fibery parity), mirroring numberConfigSchema.format.
+  // Only 'plain'/'percent' — currency needs a currency_code that formulas don't carry.
+  format: z.enum(['plain', 'percent']).optional(),
 });
 
 /**

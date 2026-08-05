@@ -9,7 +9,7 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Check, GripVertical, Plus, X } from 'lucide-react';
 import { api } from '@/lib/api';
-import { CellDisplay, CellEditor, EmptyFieldAffordance, PressButton, formatNumberValue, isPercentNumberField } from '@/components/table-view/cells';
+import { CellDisplay, CellEditor, EmptyFieldAffordance, PressButton, formatNumberValue, isPercentField } from '@/components/table-view/cells';
 import { DbColorMarker, RelationEditor, patchRelationProjection } from '@/components/table-view/relation-cell';
 import type { LinkChip } from '@/components/table-view/relation-cell';
 import type { Field } from '@/components/table-view/use-table-data';
@@ -262,10 +262,10 @@ function ScalarValue({ field, cell, record, ws, db, rec, members, memberNames, m
         // the cell ("Add/Set <field>"), not dead gray text. Computed / read-only
         // fields show a neutral em dash instead (no fake affordance).
         <EmptyFieldAffordance field={field} editable={editableInline} />
-      ) : isPercentNumberField(field) ? (
-        // #179: a percent-formatted number renders as a value + subtle filled
-        // track (Fibery parity) — only for explicitly percent-formatted number
-        // fields, never guessed from a raw number.
+      ) : isPercentField(field) ? (
+        // #179/#190: a percent-formatted number — or a percent-marked number
+        // formula — renders as a value + subtle filled track (Fibery parity),
+        // only when explicitly percent-formatted, never guessed from a raw number.
         <PercentBar field={field} value={value} />
       ) : PROSE_TYPES.has(field.type) ? (
         <ClampedValue>

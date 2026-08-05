@@ -6,6 +6,26 @@ import type { SelectOption } from './use-table-data';
  * reason paste.ts's logic was untestable before (MN-135).
  */
 
+/** #179: true for a number field the user set to percent format — the only field
+ * kind we render the Fibery-style progress bar for (never guessed from a raw
+ * number, where 57 could be a count). Pure, so it lives here (testable w/o React). */
+export function isPercentNumberField(field: { type: string; config: Record<string, unknown> }): boolean {
+  return field.type === 'number' && field.config['format'] === 'percent';
+}
+
+/** #190: true for any field that should render as a percent + progress bar — a
+ * percent-formatted number OR a formula whose result is a number the user marked
+ * percent. `formatNumberValue` reads the same `config.format`, so the bar and the
+ * text stay in sync. Non-number formula results are never treated as percent. */
+export function isPercentField(field: { type: string; config: Record<string, unknown> }): boolean {
+  if (isPercentNumberField(field)) return true;
+  return (
+    field.type === 'formula' &&
+    field.config['result_type'] === 'number' &&
+    field.config['format'] === 'percent'
+  );
+}
+
 /** Plain text of a BlockNote document, for grid previews. */
 export function richTextPreview(blocks: unknown, max = 200): string {
   const out: string[] = [];

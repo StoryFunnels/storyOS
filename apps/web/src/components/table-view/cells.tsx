@@ -185,13 +185,6 @@ export function formatNumberValue(
   return format === 'percent' ? `${body}%` : body;
 }
 
-/** #179: true for a number field the user has set to percent format — the only
- * field kind we render the Fibery-style progress bar for (no guessing from raw
- * numbers, where 57 could be a count). */
-export function isPercentNumberField(field: { type: string; config: Record<string, unknown> }): boolean {
-  return field.type === 'number' && field.config['format'] === 'percent';
-}
-
 interface DisplayProps {
   field: Field;
   value: unknown;
@@ -212,8 +205,8 @@ interface DisplayProps {
 // Pure text helpers moved to cell-text.ts so they're testable without React
 // (MN-135). Imported for CellDisplay's own use, and re-exported so existing
 // importers don't churn.
-import { cellToText, richTextPreview } from './cell-text';
-export { cellToText, richTextPreview };
+import { cellToText, isPercentField, isPercentNumberField, richTextPreview } from './cell-text';
+export { cellToText, isPercentField, isPercentNumberField, richTextPreview };
 
 export function CellDisplay({ field, value, memberNames, memberImages, wrap, ws }: DisplayProps) {
   const fmt = useDateFormat();

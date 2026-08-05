@@ -69,6 +69,8 @@ export function AddFieldDialog({
   ]);
   const [buttonColor, setButtonColor] = useState('gold');
   const [expression, setExpression] = useState('');
+  // #190: percent-format a number formula so it renders as a progress bar.
+  const [formulaFormat, setFormulaFormat] = useState<'plain' | 'percent'>('plain');
   const databases = useDatabases(ws);
   const spaces = useSpaces(ws);
   const currentDb = useDatabase(ws, db);
@@ -140,7 +142,7 @@ export function AddFieldDialog({
           : type === 'button'
             ? { color: buttonColor, actions: buttonActions }
             : type === 'formula'
-              ? { expression }
+              ? { expression, ...(formulaFormat === 'percent' ? { format: 'percent' } : {}) }
               : config;
       const body: Record<string, unknown> = { display_name: name, type, config: effectiveConfig };
       if (type === 'select' || type === 'multi_select' || type === 'workflow') {
@@ -304,7 +306,15 @@ export function AddFieldDialog({
             </>
           ))}
         {type === 'formula' && (
-          <FormulaEditor ws={ws} db={db} fields={(currentDb.data?.fields ?? []) as Field[]} expression={expression} onChange={setExpression} />
+          <FormulaEditor
+            ws={ws}
+            db={db}
+            fields={(currentDb.data?.fields ?? []) as Field[]}
+            expression={expression}
+            onChange={setExpression}
+            format={formulaFormat}
+            onFormatChange={setFormulaFormat}
+          />
         )}
         {type === 'button' && (
           <div className="flex flex-col gap-1.5">

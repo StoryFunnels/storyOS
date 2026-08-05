@@ -20,12 +20,19 @@ export function FormulaEditor({
   fields: dbFields,
   expression,
   onChange,
+  format,
+  onFormatChange,
 }: {
   ws: string;
   db: string;
   fields: Field[];
   expression: string;
   onChange: (expression: string) => void;
+  /** #190: when provided, a "Show as percentage" toggle appears once the formula
+   *  is known to return a number — so a percent formula renders as a progress bar.
+   *  Omitted where format is irrelevant (e.g. the computed-title editor). */
+  format?: 'plain' | 'percent';
+  onFormatChange?: (format: 'plain' | 'percent') => void;
 }) {
   const infos = dbFields
     .map((f) => {
@@ -51,10 +58,14 @@ export function FormulaEditor({
   });
 
   let feedback: { kind: 'ok' | 'error'; text: string } = { kind: 'ok', text: '' };
+  // #190: surfaced so the percent toggle can appear only when the formula returns
+  // a number (the only result the progress bar makes sense for).
+  let numberResult = false;
   if (expression.trim()) {
     try {
       const ast = parseFormula(expression, infos);
       const resultType = typecheck(ast, infos);
+      numberResult = resultType === 'number';
       let preview = '';
       if (sample.data) {
         const bag: Record<string, unknown> = { name: sample.data.title, ...sample.data.values };
@@ -223,6 +234,18 @@ export function FormulaEditor({
       <p className={cn('text-[12px]', feedback.kind === 'error' ? 'text-error' : 'text-muted')}>
         {feedback.text || 'Reference fields as {Field Name}. Use the buttons above to insert fields and functions.'}
       </p>
+      {/* #190: only meaningful for a numeric result — a percent formula renders as
+          a value + progress bar wherever the field is shown. */}
+      {onFormatChange && numberResult && (
+        <label className="flex items-center gap-2 text-[13px] text-ink">
+          <input
+            type="checkbox"
+            checked={format === 'percent'}
+            onChange={(e) => onFormatChange(e.target.checked ? 'percent' : 'plain')}
+          />
+          Show as percentage (progress bar)
+        </label>
+      )}
       <a
         href="https://github.com/StoryFunnels/storyOS/blob/main/docs/product/formulas.md"
         target="_blank"
