@@ -20,6 +20,7 @@ import {
   Pin,
   PinOff,
   Plus,
+  Search,
   Trash2,
   Ungroup,
   UserRound,
@@ -36,8 +37,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { DatePicker } from '@/components/ui/date-picker';
 import { EntityIcon, IconColorPicker } from '@/components/ui/icon-picker';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Popover, PopoverContent, PopoverParentAnchor, PopoverTrigger } from '@/components/ui/popover';
 import { API_URL, api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import type { Field } from '../table-view/use-table-data';
@@ -378,6 +380,33 @@ export function AddFilterButton({
 
 /** The value editor for one condition — field-type-aware, shared by the compact
  * legacy chip (collection sections) and the full builder's condition rows. */
+
+/** True for any field whose value is a user id — a real `user` field or one of the
+ * system authorship columns (Created by / Last edited by). They share one picker. */
+function isUserField(field: Field): boolean {
+  return field.type === 'user' || SYSTEM_USER_TYPES.has(field.type);
+}
+
+/** The dynamic "Me" value (#191): stored verbatim as the id `'me'`, which the query
+ * compiler's `resolveMe` swaps for the current viewer at query time. Offered on every
+ * user-typed field so an "assigned to me" filter keeps meaning "me" for each teammate
+ * a shared view reaches, instead of pinning to whoever built it. `has`/`has_none`
+ * already map each array element through `resolveMe`, and user fields skip the
+ * option-id validation `select` gets, so `'me'` rides through the AST untouched. */
+export const ME_OPTION = { id: 'me', label: 'Me (current user)' } as const;
+
+/** The `{id,label}` list an options/person picker draws from: user fields lead with
+ * the dynamic "Me" entry then the workspace members; everything else uses the field's
+ * own select options. Shared by the value editor and `describeCondition` so a stored
+ * `'me'` (or option id) renders the same label everywhere. */
+function optionSourceFor(
+  field: Field,
+  members: Array<{ id: string; name: string }>,
+): Array<{ id: string; label: string }> {
+  if (isUserField(field)) return [ME_OPTION, ...members.map((m) => ({ id: m.id, label: m.name }))];
+  return (field.options ?? []).map((o) => ({ id: o.id, label: o.label }));
+}
+
 function FilterValueEditor({
   field,
   members,
@@ -400,10 +429,7 @@ function FilterValueEditor({
     ? 'bg-card text-ink outline-none'
     : 'rounded border border-border-default bg-card px-1 py-0.5 text-[12px] text-ink outline-none';
 
-  const optionSource: Array<{ id: string; label: string }> =
-    field.type === 'user' || SYSTEM_USER_TYPES.has(field.type)
-      ? members.map((m) => ({ id: m.id, label: m.name }))
-      : (field.options ?? []).map((o) => ({ id: o.id, label: o.label }));
+  const optionSource = optionSourceFor(field, members);
 
   if (activeOp.input === 'text') {
     return (
@@ -426,11 +452,10 @@ function FilterValueEditor({
   }
   if (activeOp.input === 'date') {
     return (
-      <input
-        type="date"
-        className={boxed}
-        value={String(condition.value ?? '')}
-        onChange={(e) => onChange({ ...condition, value: e.target.value })}
+      <DateFilterInput
+        value={condition.value == null ? null : String(condition.value)}
+        boxed={boxed}
+        onChange={(v) => onChange({ ...condition, value: v ?? '' })}
       />
     );
   }
@@ -485,6 +510,44 @@ function FilterValueEditor({
   return null;
 }
 
+/** Date value control for a `before`/`after`/`on` filter — the app's own DatePicker
+ * (forgiving text parse + calendar grid + Today/Clear) instead of a bare native
+ * `<input type=date>`, matching the cell editor. A trigger button shows the current
+ * ISO value; clicking it mounts the self-positioning picker over a parent anchor. */
+function DateFilterInput({
+  value,
+  boxed,
+  onChange,
+}: {
+  value: string | null;
+  boxed: string;
+  onChange: (value: string | null) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  return (
+    <span className="relative inline-block">
+      <PopoverParentAnchor />
+      <button
+        type="button"
+        className={cn(boxed, !value && 'text-faint')}
+        onClick={() => setEditing((v) => !v)}
+      >
+        {value ? value.slice(0, 10) : 'pick date…'}
+      </button>
+      {editing && (
+        <DatePicker
+          value={value}
+          onCommit={(v) => {
+            onChange(v);
+            setEditing(false);
+          }}
+          onCancel={() => setEditing(false)}
+        />
+      )}
+    </span>
+  );
+}
+
 /** Default, human-readable description of a condition — e.g. "State is none of
  * Done" — used as the pinned-chip label and the "Edit name" placeholder until the
  * user sets a custom one. Relation values aren't resolved here (that needs an
@@ -501,10 +564,7 @@ function describeCondition(
   if (activeOp.input === 'options') {
     const ids = Array.isArray(condition.value) ? (condition.value as string[]) : [];
     if (ids.length === 0) return `${field.displayName} ${activeOp.label}`;
-    const source =
-      field.type === 'user'
-        ? members.map((m) => ({ id: m.id, label: m.name }))
-        : (field.options ?? []).map((o) => ({ id: o.id, label: o.label }));
+    const source = optionSourceFor(field, members);
     const labels = ids.map((id) => source.find((s) => s.id === id)?.label ?? id);
     return `${field.displayName} ${activeOp.label} ${labels.join(', ')}`;
   }
@@ -1379,6 +1439,13 @@ function GroupMenu({
   );
 }
 
+/**
+ * Multi-select value picker for `is any of` / `is none of` on a select, multi-select,
+ * or user field. Selected values render as removable chips inline (Fibery parity);
+ * the dropdown carries a search box over a scrollable, checkable option list so a
+ * long option/member set stays usable. Option ids (including the dynamic `'me'`) are
+ * stored verbatim — this is a pure `string[]` editor, unaware of what the ids mean.
+ */
 function OptionMultiPick({
   options,
   selected,
@@ -1389,40 +1456,71 @@ function OptionMultiPick({
   onChange: (ids: string[]) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const label =
-    selected.length === 0
-      ? 'pick…'
-      : options
-          .filter((o) => selected.includes(o.id))
-          .map((o) => o.label)
-          .join(', ');
+  const [search, setSearch] = useState('');
+  const selectedOptions = selected.map((id) => options.find((o) => o.id === id) ?? { id, label: id });
+  const q = search.trim().toLowerCase();
+  const filtered = q ? options.filter((o) => o.label.toLowerCase().includes(q)) : options;
+
+  function toggle(id: string) {
+    onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
+  }
+
   return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
-      <DropdownMenuTrigger asChild>
-        <button className={cn('max-w-40 truncate text-left', selected.length ? 'text-ink' : 'text-faint')}>
-          {label}
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent className="max-h-64 overflow-y-auto">
-        {options.map((option) => (
-          <label
-            key={option.id}
-            className="flex items-center gap-2 rounded px-2 py-1.5 text-[13px] text-ink hover:bg-hover"
+    <span className="inline-flex flex-wrap items-center gap-1">
+      {selectedOptions.map((option) => (
+        <span
+          key={option.id}
+          className="inline-flex items-center gap-1 rounded-[var(--radius-control)] border border-border-default bg-hover px-1.5 py-0.5 text-[12px] text-ink"
+        >
+          <span className="max-w-32 truncate">{option.label}</span>
+          <button
+            type="button"
+            onClick={() => toggle(option.id)}
+            className="text-faint hover:text-error"
+            title="Remove"
           >
+            <X className="h-3 w-3" />
+          </button>
+        </span>
+      ))}
+      <DropdownMenu open={open} onOpenChange={(o) => { setOpen(o); if (!o) setSearch(''); }}>
+        <DropdownMenuTrigger asChild>
+          <button type="button" className={cn('text-left', selected.length ? 'text-muted hover:text-ink' : 'text-faint')}>
+            {selected.length ? '+ add' : 'pick…'}
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent className="w-56 p-0">
+          <div className="flex items-center gap-1.5 border-b border-border-default px-2 py-1.5">
+            <Search className="h-3.5 w-3.5 shrink-0 text-faint" />
             <input
-              type="checkbox"
-              checked={selected.includes(option.id)}
-              onChange={(e) =>
-                onChange(
-                  e.target.checked ? [...selected, option.id] : selected.filter((id) => id !== option.id),
-                )
-              }
+              autoFocus
+              placeholder="Search…"
+              className="w-full bg-transparent text-[13px] text-ink outline-none placeholder:text-faint"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              // Radix menus run a typeahead off keydown; let the input own its keys.
+              onKeyDown={(e) => e.stopPropagation()}
             />
-            {option.label}
-          </label>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
+          </div>
+          <div className="max-h-56 overflow-y-auto p-1">
+            {filtered.map((option) => (
+              <label
+                key={option.id}
+                className="flex items-center gap-2 rounded px-2 py-1.5 text-[13px] text-ink hover:bg-hover"
+              >
+                <input
+                  type="checkbox"
+                  checked={selected.includes(option.id)}
+                  onChange={() => toggle(option.id)}
+                />
+                <span className="truncate">{option.label}</span>
+              </label>
+            ))}
+            {filtered.length === 0 && <p className="px-2 py-1.5 text-[12px] text-faint">No matches.</p>}
+          </div>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </span>
   );
 }
 
