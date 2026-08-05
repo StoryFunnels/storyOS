@@ -93,7 +93,9 @@ interface DatabaseDetail {
   qualifiedSlug?: string;
   my_access?: string;
   fields: FieldDef[];
-  views?: Array<{ id: string; name: string; type: string }>;
+  // #191: the detail endpoint returns each view's cleaned `config` too — needed so
+  // update_view can merge a partial change onto the existing config (a true patch).
+  views?: Array<{ id: string; name: string; type: string; config?: Record<string, unknown> }>;
 }
 interface RecordRow {
   id: string;
@@ -1256,7 +1258,12 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     form_redirect_url?: string;
   };
   function buildViewConfig(detail: DatabaseDetail, type: string, o: ViewOpts): Record<string, unknown> {
-    const config: Record<string, unknown> = { sorts: o.sorts ?? [], hidden_field_ids: [], card_field_ids: [], column_widths: {} };
+    // #191: only emit keys the caller actually passed. viewConfigSchema fills the
+    // per-field defaults (sorts:[], hidden_field_ids:[], …) on parse, so create
+    // still gets a complete config — and update can MERGE this partial onto the
+    // existing config without clobbering settings the caller didn't touch.
+    const config: Record<string, unknown> = {};
+    if (o.sorts !== undefined) config.sorts = o.sorts;
     // Saved views take the same AST, so resolve select labels here too (#77).
     if (o.filters) config.filters = mapFilterValues(detail, o.filters);
     if (o.card_fields) config.card_field_ids = o.card_fields.map((f) => anyField(detail, f));
@@ -1383,13 +1390,23 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         const v = resolveView(detail, view);
         const patch: Record<string, unknown> = {};
         if (rename_to) patch.name = rename_to;
+        // #191: `filters` and `sorts` were MISSING here, so `update_view` with only
+        // a filter never rebuilt the config → patch stayed `{}` → the service did a
+        // Drizzle `.set()` with all-undefined → "no values to set" → 500. They're
+        // included now. buildViewConfig returns only the keys the caller passed, and
+        // we MERGE onto the existing config so an update is a true patch (editing the
+        // filter no longer wipes sorts / hidden fields / grouping / form config).
         const CONFIG_KEYS = [
+          'filters', 'sorts',
           'group_by', 'card_fields', 'date_field', 'start_date_field', 'end_date_field',
           'form_title', 'form_description', 'form_submit_text', 'form_fields', 'form_access',
           'form_success_message', 'form_redirect_url',
         ] as const;
         if (CONFIG_KEYS.some((k) => rest[k] !== undefined)) {
-          patch.config = buildViewConfig(detail, v.type, rest);
+          patch.config = {
+            ...((v.config ?? {}) as Record<string, unknown>),
+            ...buildViewConfig(detail, v.type, rest),
+          };
         }
         const updated = await unwrap<unknown>(
           client.PATCH('/api/v1/workspaces/{ws}/databases/{db}/views/{view}', {
