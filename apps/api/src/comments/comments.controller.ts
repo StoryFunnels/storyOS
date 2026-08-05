@@ -18,7 +18,7 @@ import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { DatabasesService } from '../databases/databases.service';
 import { RecordsService } from '../records/records.service';
 import { CommentsService } from './comments.service';
-import type { CommentSegment } from './comments.service';
+import type { CommentBody } from './comments.service';
 
 const segmentSchema = z.union([
   z.object({ type: z.literal('text'), text: z.string().max(5000) }),
@@ -26,7 +26,18 @@ const segmentSchema = z.union([
   // #record mention (#140) — validated against live workspace records server-side.
   z.object({ type: z.literal('record'), record_id: z.uuid(), database_id: z.uuid() }),
 ]);
-const commentBodySchema = z.object({ body: z.array(segmentSchema).min(1).max(200) });
+/** New comments (#180): a BlockNote document, discriminated by `format` so it can
+ *  never be confused with the legacy segment array. `doc` is opaque BlockNote JSON;
+ *  its inline mention nodes are extracted + validated server-side like the legacy
+ *  segments. Stored as-is (jsonb) — dual-format, no migration. */
+const blocknoteBodySchema = z.object({
+  format: z.literal('blocknote'),
+  doc: z.array(z.record(z.string(), z.unknown())).min(1).max(500),
+});
+// Accept BOTH the legacy segment array and the new BlockNote shape.
+const commentBodySchema = z.object({
+  body: z.union([z.array(segmentSchema).min(1).max(200), blocknoteBodySchema]),
+});
 class CommentBodyDto extends createZodDto(commentBodySchema) {}
 
 /**
@@ -78,7 +89,7 @@ export class CommentsController {
     return this.commentsService.create(
       req.membership.workspaceId,
       recordId,
-      body.body as CommentSegment[],
+      body.body as CommentBody,
       req.user.id,
     );
   }
@@ -96,7 +107,7 @@ export class CommentsController {
     return this.commentsService.update(
       recordId,
       commentId,
-      body.body as CommentSegment[],
+      body.body as CommentBody,
       req.user.id,
       req.membership.workspaceId,
     );

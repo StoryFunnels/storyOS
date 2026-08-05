@@ -1,23 +1,65 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useDateFormat } from '@/lib/preferences';
 import { Paperclip, Send, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useCreateBlockNote } from '@blocknote/react';
+import { BlockNoteView } from '@blocknote/mantine';
+import '@blocknote/core/fonts/inter.css';
+import '@blocknote/mantine/style.css';
 import { api, API_URL } from '@/lib/api';
 import { Avatar } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
+import { useTheme } from '@/lib/theme';
 import { Button } from '@/components/ui/button';
-import { EntityPickerRow } from './entity-picker-row';
-import { detectMentionTrigger, filterMembers, type MentionTrigger } from './mention-items';
+import { MentionScope, MentionSuggestionMenus, mentionSchema } from './mentions';
 
 type Segment =
   | { type: 'text'; text: string }
   | { type: 'mention'; user_id: string }
   /** #record mention (#140): id is durable, database_id makes the chip navigable. */
   | { type: 'record'; record_id: string; database_id: string };
+
+/**
+ * New comments (#180) are authored in BlockNote and stored in this discriminated
+ * shape — unambiguously distinct from the legacy `Segment[]` array so the reader
+ * can pick the right renderer. `doc` is the BlockNote document JSON.
+ */
+interface BlocknoteBody {
+  format: 'blocknote';
+  doc: unknown[];
+}
+
+/** A comment body is EITHER the legacy segment array OR the new BlockNote shape. */
+type CommentBody = Segment[] | BlocknoteBody;
+
+function isBlocknoteBody(body: CommentBody): body is BlocknoteBody {
+  return !Array.isArray(body) && (body as BlocknoteBody)?.format === 'blocknote';
+}
+
+/** True when a BlockNote doc carries no text/content — a single empty paragraph,
+ *  as BlockNote always keeps at least one block. Keeps empty comments unpostable. */
+function isDocEmpty(blocks: unknown[]): boolean {
+  return blocks.every((b) => {
+    const block = (b ?? {}) as { type?: string; content?: unknown; children?: unknown };
+    // Any non-paragraph block (heading, list item, image, table…) is real content.
+    if (block.type && block.type !== 'paragraph') return false;
+    const content = block.content;
+    const hasInline = Array.isArray(content)
+      ? content.some((c) => {
+          const node = c as { type?: string; text?: string };
+          return node.type === 'text' ? (node.text ?? '').trim() !== '' : Boolean(node.type);
+        })
+      : typeof content === 'string'
+        ? content.trim() !== ''
+        : Boolean(content);
+    const hasChildren = Array.isArray(block.children) && block.children.length > 0 && !isDocEmpty(block.children);
+    return !hasInline && !hasChildren;
+  });
+}
 
 /** Live-title record chip for a #mention in a comment — store the id, render the label. */
 function CommentRecordChip({ ws, segment }: { ws: string; segment: { record_id: string; database_id: string } }) {
@@ -54,86 +96,51 @@ function CommentRecordChip({ ws, segment }: { ws: string; segment: { record_id: 
 
 interface Comment {
   id: string;
-  body: Segment[];
+  body: CommentBody;
   author: { id: string; name: string; image: string | null };
   created_at: string;
   edited_at: string | null;
 }
 
-/** One ↑↓/↵/esc hint pill in the inline mention picker footer. */
-function Hint({ children }: { children: React.ReactNode }) {
-  return (
-    <kbd className="inline-flex h-4 min-w-[1rem] items-center justify-center rounded border border-border-default bg-hover px-1 font-sans text-[10px] leading-none text-muted">
-      {children}
-    </kbd>
-  );
-}
-
 /**
- * The comment composer (@ mentions, # record mentions, submit) — factored out of
- * CommentsPanel (#76) so the feed view's inline per-card composer reuses the exact
- * same posting logic/UI instead of a second one-off implementation. `compact`
- * collapses the send button until the input is focused or already has a draft in
- * it (expand-on-focus), for a footer-sized inline composer.
+ * The comment composer — a BlockNote rich-text editor (#180). Rich text plus the
+ * shared @/# mention menus and BlockNote's built-in `/` slash menu, identical to
+ * the rich-text fields and the description editor. Factored out of CommentsPanel
+ * (#76) so the feed view's inline per-card composer reuses the exact same posting
+ * logic. `compact` collapses the Send button until the editor is focused or holds
+ * a draft (expand-on-focus), for a footer-sized inline composer.
  *
- * Mentions trigger inline like the rich-text editor (#171): typing `@` opens the
- * member picker and `#` the grant-scoped record picker, both filtered by the text
- * typed after the trigger and driven by ↑↓/↵/esc. Picking inserts the same
- * user/record segment the old explicit @/# buttons did and strips the typed
- * `@query`/`#query` — so there are no buttons to hunt for. Comments stay a
- * segment array (text + user/record mentions), not BlockNote.
+ * On submit the BlockNote document is serialized to JSON and sent as
+ * `{ format: 'blocknote', doc }` — the discriminated shape the server + reader
+ * tell apart from legacy segment-array comments. Send via the button or
+ * Cmd/Ctrl+Enter (plain Enter is a newline, as in any rich editor).
  */
 export function CommentComposer({
   ws,
   db,
   rec,
-  members,
   compact = false,
   onPosted,
 }: {
   ws: string;
   db: string;
   rec: string;
-  members: Array<{ id: string; name: string }>;
   compact?: boolean;
   onPosted?: () => void;
 }) {
   const qc = useQueryClient();
   const key = ['comments', ws, db, rec];
-  const memberNames = useMemo(() => new Map(members.map((m) => [m.id, m.name])), [members]);
-  const [segments, setSegments] = useState<Segment[]>([]);
-  const [text, setText] = useState('');
+  const { resolved: theme } = useTheme();
   const [focused, setFocused] = useState(false);
-  // Inline @/# mention menu (#171): the trigger detected in `text` at the caret,
-  // plus the keyboard-highlighted row. Null when no menu is open.
-  const [trigger, setTrigger] = useState<MentionTrigger | null>(null);
-  const [activeIndex, setActiveIndex] = useState(0);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [hasContent, setHasContent] = useState(false);
+  // Bumped after a successful post to remount a fresh, empty editor (BlockNote has
+  // no clean "reset to empty" — recreating via this dep is the reliable clear).
+  const [resetKey, setResetKey] = useState(0);
 
-  // # rides the same grant-scoped search the old # button used — a guest is only
-  // ever offered records they can open. Keyed on the live query after the `#`.
-  const recordSearch = useQuery({
-    queryKey: ['comment-record-picker', ws, trigger?.query ?? ''],
-    enabled: trigger?.kind === '#' && (trigger?.query.trim().length ?? 0) > 0,
-    queryFn: async () => {
-      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/search', {
-        params: { path: { ws }, query: { q: trigger!.query.trim() } },
-      } as never);
-      if (error) throw error;
-      return (data as unknown as {
-        records: Array<{
-          id: string;
-          title: string;
-          database_id: string;
-          database_name: string;
-          number?: number | null;
-        }>;
-      }).records;
-    },
-  });
+  const editor = useCreateBlockNote({ schema: mentionSchema }, [resetKey]);
 
   const post = useMutation({
-    mutationFn: async (body: Segment[]) => {
+    mutationFn: async (body: BlocknoteBody) => {
       const { error } = await api.POST(
         '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/comments',
         { params: { path: { ws, db, rec } }, body: { body: body as never } },
@@ -141,10 +148,9 @@ export function CommentComposer({
       if (error) throw error;
     },
     onSuccess: () => {
-      setSegments([]);
-      setText('');
+      setHasContent(false);
       setFocused(false);
-      setTrigger(null);
+      setResetKey((k) => k + 1);
       void qc.invalidateQueries({ queryKey: key });
       void qc.invalidateQueries({ queryKey: ['activity', ws, db, rec] });
       onPosted?.();
@@ -153,199 +159,73 @@ export function CommentComposer({
   });
 
   function submit() {
-    const body: Segment[] = [...segments];
-    if (text.trim()) body.push({ type: 'text', text: text.trim() });
-    if (body.length === 0) return;
-    post.mutate(body);
+    const doc = editor.document as unknown[];
+    if (isDocEmpty(doc)) return;
+    post.mutate({ format: 'blocknote', doc });
   }
-
-  // Re-detect an active @/# trigger from the input's value + caret after any edit
-  // or caret move, and reset the keyboard highlight to the top row.
-  function refreshTrigger(el: HTMLInputElement) {
-    setTrigger(detectMentionTrigger(el.value, el.selectionStart ?? el.value.length));
-    setActiveIndex(0);
-  }
-
-  // Commit a picked mention: drop everything before the trigger into a text
-  // segment, append the mention segment, and keep whatever followed the query as
-  // the live input — exactly the segment shape the old @/# buttons produced.
-  function insertMention(segment: Segment) {
-    if (!trigger) return;
-    const caret = trigger.start + 1 + trigger.query.length;
-    const before = text.slice(0, trigger.start);
-    const after = text.slice(caret);
-    setSegments((prev) => [
-      ...prev,
-      ...(before.trim() ? [{ type: 'text', text: `${before.trim()} ` } as Segment] : []),
-      segment,
-    ]);
-    setText(after);
-    setTrigger(null);
-    setActiveIndex(0);
-    requestAnimationFrame(() => {
-      const el = inputRef.current;
-      if (el) {
-        el.focus();
-        el.setSelectionRange(0, 0);
-      }
-    });
-  }
-
-  // The rows offered for the open trigger: members (filtered locally) or record
-  // search hits. Each carries the presentational pieces plus the segment to add.
-  type PickerRow = {
-    key: string;
-    icon: React.ReactNode;
-    title: string;
-    breadcrumb?: string | null;
-    idChip?: number | null;
-    onSelect: () => void;
-  };
-  const rows: PickerRow[] =
-    trigger?.kind === '@'
-      ? filterMembers(members, trigger.query)
-          .slice(0, 8)
-          .map((m) => ({
-            key: m.id,
-            icon: <Avatar userId={m.id} name={m.name} size={20} />,
-            title: m.name,
-            onSelect: () => insertMention({ type: 'mention', user_id: m.id }),
-          }))
-      : trigger?.kind === '#'
-        ? (recordSearch.data ?? []).slice(0, 8).map((r) => ({
-            key: r.id,
-            icon: <span className="text-faint">#</span>,
-            title: r.title || 'Untitled',
-            breadcrumb: r.database_name,
-            idChip: r.number ?? null,
-            onSelect: () =>
-              insertMention({ type: 'record', record_id: r.id, database_id: r.database_id }),
-          }))
-        : [];
 
   // A compact composer only shows the send button once there's something to act
   // on — focused, or a draft already started.
-  const toolbarShown = !compact || focused || segments.length > 0 || text.trim().length > 0;
+  const toolbarShown = !compact || focused || hasContent;
 
   return (
     <div className="flex items-start gap-2">
       <div
         className={cn(
-          'relative flex-1 rounded-[var(--radius-control)] border border-border-default bg-card px-2',
-          compact ? 'py-1' : 'py-1.5',
+          'flex-1 overflow-hidden rounded-[var(--radius-control)] border border-border-default bg-card',
+          compact ? 'py-0.5' : 'py-1.5',
+          '[&_.bn-editor]:bg-transparent [&_.bn-editor]:px-3 [&_.bn-editor]:py-0',
         )}
+        // Cmd/Ctrl+Enter sends; plain Enter stays a newline in the rich editor.
+        // Capture phase so it fires before ProseMirror handles the key.
+        onKeyDownCapture={(e) => {
+          if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+            e.preventDefault();
+            submit();
+          }
+        }}
+        onFocusCapture={() => setFocused(true)}
+        onBlurCapture={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node) && !hasContent) setFocused(false);
+        }}
       >
-        {segments.length > 0 && (
-          <span className="mr-1">
-            {segments.map((segment, i) =>
-              segment.type === 'mention' ? (
-                <span key={i} className="mr-1 rounded bg-accent-soft px-1 text-[12px] font-medium text-ink">
-                  @{memberNames.get(segment.user_id)}
-                </span>
-              ) : segment.type === 'record' ? (
-                <span key={i} className="mr-1 rounded bg-accent-soft px-1 text-[12px] font-medium text-ink">
-                  <CommentRecordChip ws={ws} segment={segment} />
-                </span>
-              ) : (
-                <span key={i} className="mr-1 text-[13px]">{segment.text}</span>
-              ),
-            )}
-          </span>
-        )}
-        <input
-          ref={inputRef}
-          className="w-full bg-card text-[13px] text-ink outline-none placeholder:text-faint"
-          placeholder="Write a comment… (@ people, # records)"
-          value={text}
-          onFocus={() => setFocused(true)}
-          onBlur={() => {
-            if (!text.trim() && segments.length === 0) setFocused(false);
-          }}
-          onChange={(e) => {
-            setText(e.target.value);
-            refreshTrigger(e.target);
-          }}
-          onSelect={(e) => refreshTrigger(e.currentTarget)}
-          onKeyDown={(e) => {
-            // While a mention menu is open, arrows/enter/tab/esc drive it — not
-            // the composer — so typing @/# never accidentally posts a draft.
-            if (trigger) {
-              if (e.key === 'Escape') {
-                e.preventDefault();
-                setTrigger(null);
-                return;
-              }
-              if (e.key === 'ArrowDown' && rows.length > 0) {
-                e.preventDefault();
-                setActiveIndex((i) => (i + 1) % rows.length);
-                return;
-              }
-              if (e.key === 'ArrowUp' && rows.length > 0) {
-                e.preventDefault();
-                setActiveIndex((i) => (i - 1 + rows.length) % rows.length);
-                return;
-              }
-              if (e.key === 'Enter' || e.key === 'Tab') {
-                e.preventDefault();
-                rows[activeIndex]?.onSelect();
-                return;
-              }
-            }
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              submit();
-              return;
-            }
-            if (e.key === 'Escape' && compact) (e.target as HTMLInputElement).blur();
-          }}
-        />
-        {trigger && (
-          <div className="absolute bottom-full left-0 z-30 mb-1 w-72 overflow-hidden rounded-[var(--radius-modal)] border border-border-default bg-card shadow-[0_16px_40px_rgba(15,23,41,0.22)]">
-            <div className="max-h-64 overflow-y-auto p-1">
-              {rows.length > 0 ? (
-                rows.map((row, i) => (
-                  <EntityPickerRow
-                    key={row.key}
-                    icon={row.icon}
-                    title={row.title}
-                    breadcrumb={row.breadcrumb}
-                    idChip={row.idChip}
-                    active={i === activeIndex}
-                    onMouseEnter={() => setActiveIndex(i)}
-                    onClick={row.onSelect}
-                  />
-                ))
-              ) : (
-                <p className="px-2.5 py-6 text-center text-[12px] text-muted">
-                  {trigger.kind === '#'
-                    ? recordSearch.isFetching
-                      ? 'Searching…'
-                      : trigger.query.trim()
-                        ? 'No matches'
-                        : 'Type to search records'
-                    : 'No matches'}
-                </p>
-              )}
-            </div>
-            <div className="flex items-center gap-3 border-t border-border-default px-2.5 py-1.5 text-[11px] text-muted">
-              <span className="flex items-center gap-1">
-                <Hint>↑↓</Hint> navigate
-              </span>
-              <span className="flex items-center gap-1">
-                <Hint>↵</Hint> insert
-              </span>
-              <span className="flex items-center gap-1">
-                <Hint>esc</Hint> close
-              </span>
-            </div>
-          </div>
-        )}
+        <MentionScope ws={ws}>
+          <BlockNoteView
+            editor={editor}
+            editable={!post.isPending}
+            theme={theme}
+            onChange={() => setHasContent(!isDocEmpty(editor.document as unknown[]))}
+          >
+            <MentionSuggestionMenus editor={editor as never} ws={ws} />
+          </BlockNoteView>
+        </MentionScope>
       </div>
       {toolbarShown && (
         <Button size="sm" onClick={submit} disabled={post.isPending}>
           <Send className="h-3.5 w-3.5" />
         </Button>
       )}
+    </div>
+  );
+}
+
+/**
+ * A stored BlockNote comment (#180) rendered read-only — the same editor + shared
+ * `mentionSchema` the composer uses, so @/# mention chips resolve identically, but
+ * non-editable. Legacy segment comments never reach here; they keep the flat
+ * renderer below.
+ */
+function CommentBlockNoteBody({ ws, doc }: { ws: string; doc: unknown[] }) {
+  const { resolved: theme } = useTheme();
+  const editor = useCreateBlockNote({
+    schema: mentionSchema,
+    initialContent: doc.length > 0 ? (doc as never) : undefined,
+  });
+  return (
+    <div className="text-[13px] leading-relaxed text-ink-secondary [&_.bn-editor]:bg-transparent [&_.bn-editor]:px-0 [&_.bn-editor]:py-0">
+      <MentionScope ws={ws}>
+        <BlockNoteView editor={editor} editable={false} theme={theme} />
+      </MentionScope>
     </div>
   );
 }
@@ -414,23 +294,29 @@ export function CommentsPanel({
               )}
             </span>
           </div>
-          <p className="text-[13px] leading-relaxed text-ink-secondary">
-            {comment.body.map((segment, i) =>
-              segment.type === 'text' ? (
-                <span key={i}>{segment.text}</span>
-              ) : segment.type === 'record' ? (
-                <CommentRecordChip key={i} ws={ws} segment={segment} />
-              ) : (
-                <span key={i} className="rounded bg-accent-soft px-1 font-medium text-ink">
-                  @{memberNames.get(segment.user_id) ?? 'unknown'}
-                </span>
-              ),
-            )}
-          </p>
+          {/* #180: new comments are BlockNote docs; legacy comments keep the flat
+              segment renderer untouched. The stored shape decides which path runs. */}
+          {isBlocknoteBody(comment.body) ? (
+            <CommentBlockNoteBody ws={ws} doc={comment.body.doc} />
+          ) : (
+            <p className="text-[13px] leading-relaxed text-ink-secondary">
+              {comment.body.map((segment, i) =>
+                segment.type === 'text' ? (
+                  <span key={i}>{segment.text}</span>
+                ) : segment.type === 'record' ? (
+                  <CommentRecordChip key={i} ws={ws} segment={segment} />
+                ) : (
+                  <span key={i} className="rounded bg-accent-soft px-1 font-medium text-ink">
+                    @{memberNames.get(segment.user_id) ?? 'unknown'}
+                  </span>
+                ),
+              )}
+            </p>
+          )}
         </div>
       ))}
 
-      <CommentComposer ws={ws} db={db} rec={rec} members={members} />
+      <CommentComposer ws={ws} db={db} rec={rec} />
     </div>
   );
 }

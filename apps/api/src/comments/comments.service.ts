@@ -12,7 +12,7 @@ import { activityEvents, comments, databases, memberships, records, user } from 
 import { env } from '../config/env';
 import { EmailService } from '../mail/email.service';
 import { NotificationsService } from '../notifications/notifications.service';
-import { MentionsService } from '../mentions/mentions.service';
+import { MentionsService, collectMentions } from '../mentions/mentions.service';
 import { PreferencesService } from '../users/preferences.service';
 
 export type CommentSegment =
@@ -20,6 +20,74 @@ export type CommentSegment =
   | { type: 'mention'; user_id: string }
   /** #record mention (#140): the id is durable; database_id makes the chip navigable. */
   | { type: 'record'; record_id: string; database_id: string };
+
+/**
+ * Rich comment body (#180): a BlockNote document, discriminated by `format` so it
+ * is unambiguously distinguishable from the legacy `CommentSegment[]` array. New
+ * comments are authored in BlockNote and stored in this shape; old comments keep
+ * their segment array untouched — the two coexist in the same jsonb column with
+ * NO migration.
+ */
+export interface BlocknoteCommentBody {
+  format: 'blocknote';
+  doc: unknown[];
+}
+
+/** A stored comment body is EITHER the legacy segment array OR the BlockNote shape. */
+export type CommentBody = CommentSegment[] | BlocknoteCommentBody;
+
+/** True for the new `{ format: 'blocknote', doc }` shape; false for the legacy array. */
+export function isBlocknoteCommentBody(body: CommentBody): body is BlocknoteCommentBody {
+  return !Array.isArray(body) && (body as BlocknoteCommentBody)?.format === 'blocknote';
+}
+
+/**
+ * The @user + #record mentions a comment references, from EITHER shape (#180).
+ * BlockNote → walk the doc's inline mention nodes with the shared MN-205 walker;
+ * legacy → the typed `mention`/`record` segments. Both paths dedupe.
+ */
+export function commentBodyMentions(body: CommentBody): { userIds: string[]; recordIds: string[] } {
+  if (isBlocknoteCommentBody(body)) return collectMentions(body.doc);
+  const userIds = [
+    ...new Set(body.filter((s) => s.type === 'mention').map((s) => (s as { user_id: string }).user_id)),
+  ];
+  const recordIds = [
+    ...new Set(body.filter((s) => s.type === 'record').map((s) => (s as { record_id: string }).record_id)),
+  ];
+  return { userIds, recordIds };
+}
+
+/**
+ * Flat plain-text preview of a comment, from EITHER shape (#180) — powers the
+ * notification snippet + mention-email excerpt. Mentions collapse to `@…` exactly
+ * as the legacy segment preview did; BlockNote blocks are joined by a space.
+ */
+export function commentBodyText(body: CommentBody): string {
+  if (!isBlocknoteCommentBody(body)) {
+    return body.map((s) => (s.type === 'text' ? s.text : '@…')).join('');
+  }
+  const parts: string[] = [];
+  const walkInline = (nodes: unknown): void => {
+    if (!Array.isArray(nodes)) return;
+    for (const n of nodes) {
+      if (!n || typeof n !== 'object') continue;
+      const o = n as { type?: unknown; text?: unknown };
+      if (o.type === 'mention') parts.push('@…');
+      else if (typeof o.text === 'string') parts.push(o.text);
+    }
+  };
+  const walkBlocks = (blocks: unknown): void => {
+    if (!Array.isArray(blocks)) return;
+    for (const b of blocks) {
+      const o = (b ?? {}) as { content?: unknown; children?: unknown };
+      walkInline(o.content);
+      if (Array.isArray(o.children)) walkBlocks(o.children);
+      parts.push(' ');
+    }
+  };
+  walkBlocks(body.doc);
+  return parts.join('').replace(/\s+/g, ' ').trim();
+}
 
 @Injectable()
 export class CommentsService {
@@ -31,16 +99,16 @@ export class CommentsService {
     private readonly preferences: PreferencesService,
   ) {}
 
-  /** Extracts mentions server-side and validates they are active members (D4). */
+  /** Extracts mentions server-side and validates they are active members (D4).
+   *  Accepts both body shapes (#180) — the ids are collected the same way from
+   *  legacy segments or a BlockNote doc, then validated identically. */
   private async validateBody(
     workspaceId: string,
-    body: CommentSegment[],
+    body: CommentBody,
   ): Promise<{ mentions: string[] }> {
-    // #record segments must point at live records in THIS workspace (#140) — a
+    const { userIds, recordIds } = commentBodyMentions(body);
+    // #record mentions must point at live records in THIS workspace (#140) — a
     // stale/foreign id is refused, not stored.
-    const recordIds = [
-      ...new Set(body.filter((s) => s.type === 'record').map((s) => (s as { record_id: string }).record_id)),
-    ];
     if (recordIds.length > 0) {
       const found = await this.db
         .select({ id: records.id })
@@ -58,7 +126,7 @@ export class CommentsService {
       }
     }
 
-    const mentionIds = [...new Set(body.filter((s) => s.type === 'mention').map((s) => (s as { user_id: string }).user_id))];
+    const mentionIds = userIds;
     if (mentionIds.length === 0) return { mentions: [] };
 
     const rows = await this.db.query.memberships.findMany({
@@ -120,7 +188,7 @@ export class CommentsService {
   async create(
     workspaceId: string,
     recordId: string,
-    body: CommentSegment[],
+    body: CommentBody,
     authorId: string,
   ) {
     const { mentions } = await this.validateBody(workspaceId, body);
@@ -143,10 +211,7 @@ export class CommentsService {
     if (mentions.length > 0) await this.notifyMentions(workspaceId, recordId, authorId, mentions, body);
 
     // MN-049: in-app notifications — mentions first, then the rest of the thread.
-    const snippet = body
-      .map((s) => (s.type === 'text' ? s.text : '@…'))
-      .join('')
-      .slice(0, 120);
+    const snippet = commentBodyText(body).slice(0, 120);
     const record = await this.db.query.records.findFirst({ where: eq(records.id, recordId) });
     if (mentions.length > 0) {
       await this.notificationsService.notify({
@@ -180,7 +245,7 @@ export class CommentsService {
     recordId: string,
     authorId: string,
     mentionIds: string[],
-    body: CommentSegment[],
+    body: CommentBody,
   ) {
     const [record, author, mentioned, prefs] = await Promise.all([
       this.db.query.records.findFirst({ where: eq(records.id, recordId) }),
@@ -188,10 +253,7 @@ export class CommentsService {
       this.db.query.user.findMany({ where: inArray(user.id, mentionIds) }),
       this.preferences.notificationPrefsFor(mentionIds),
     ]);
-    const excerpt = body
-      .map((s) => (s.type === 'text' ? s.text : '@…'))
-      .join('')
-      .slice(0, 200);
+    const excerpt = commentBodyText(body).slice(0, 200);
     for (const target of mentioned) {
       if (target.id === authorId) continue;
       // MN-103: the same "Mentions" toggle that gates the in-app notification
@@ -212,7 +274,7 @@ export class CommentsService {
     }
   }
 
-  async update(recordId: string, commentId: string, body: CommentSegment[], actorId: string, workspaceId: string) {
+  async update(recordId: string, commentId: string, body: CommentBody, actorId: string, workspaceId: string) {
     const comment = await this.getLive(recordId, commentId);
     if (comment.authorId !== actorId) throw new ForbiddenException('Only the author can edit a comment');
     const { mentions } = await this.validateBody(workspaceId, body);

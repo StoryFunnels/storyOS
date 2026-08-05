@@ -6,7 +6,7 @@ import type { MentionsService } from '../mentions/mentions.service';
 import type { PreferencesService } from '../users/preferences.service';
 import { DEFAULT_PREFERENCES } from '../users/preferences.constants';
 import { CommentsService } from './comments.service';
-import type { CommentSegment } from './comments.service';
+import type { CommentBody } from './comments.service';
 
 /** Builds a CommentsService whose private notifyMentions() can be exercised
  * directly (it's the MN-103 send point) without the surrounding create()
@@ -68,12 +68,12 @@ function callNotifyMentions(
   recordId: string,
   authorId: string,
   mentionIds: string[],
-  body: CommentSegment[],
+  body: CommentBody,
   workspaceId = 'ws1', // MN-194 — notifyMentions now takes workspaceId (cost attribution)
 ): Promise<void> {
   return (
     service as unknown as {
-      notifyMentions: (w: string, r: string, a: string, m: string[], b: CommentSegment[]) => Promise<void>;
+      notifyMentions: (w: string, r: string, a: string, m: string[], b: CommentBody) => Promise<void>;
     }
   ).notifyMentions(workspaceId, recordId, authorId, mentionIds, body);
 }
@@ -121,6 +121,27 @@ describe('CommentsService — mention email send point (MN-103)', () => {
     });
 
     await callNotifyMentions(service, 'r1', 'author1', ['u1', 'u2'], [{ type: 'text', text: 'hi @u1 @u2' }]);
+
+    expect(sent).toEqual([{ kind: 'mention', to: 'u1@example.com' }]);
+  });
+
+  it('emails from a BlockNote-format comment body (#180) exactly like a legacy body', async () => {
+    const { service, sent } = buildService({
+      mentionedUsers: [{ id: 'u1', email: 'u1@example.com', name: 'Bob' }],
+    });
+
+    await callNotifyMentions(service, 'r1', 'author1', ['u1'], {
+      format: 'blocknote',
+      doc: [
+        {
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: 'hey ' },
+            { type: 'mention', props: { kind: 'user', id: 'u1', label: 'Bob' } },
+          ],
+        },
+      ],
+    });
 
     expect(sent).toEqual([{ kind: 'mention', to: 'u1@example.com' }]);
   });
