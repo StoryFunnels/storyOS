@@ -8379,6 +8379,10 @@
                 },
                 "color": {
                   "type": "string"
+                },
+                "icon": {
+                  "type": "string",
+                  "maxLength": 120
                 }
               },
               "required": [
@@ -8472,6 +8476,10 @@
               "magenta",
               "rose"
             ]
+          },
+          "icon": {
+            "type": "string",
+            "maxLength": 120
           }
         },
         "required": [
@@ -8505,6 +8513,11 @@
               "magenta",
               "rose"
             ]
+          },
+          "icon": {
+            "type": "string",
+            "maxLength": 120,
+            "nullable": true
           },
           "position": {
             "type": "integer",

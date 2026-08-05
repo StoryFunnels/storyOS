@@ -160,7 +160,7 @@ export class FieldsService {
       display_name: string;
       type: CreatableFieldType;
       config?: Record<string, unknown>;
-      options?: Array<{ label: string; color?: string }>;
+      options?: Array<{ label: string; color?: string; icon?: string | null }>; // #202
     },
   ) {
     await this.assertUniqueDisplayName(databaseId, input.display_name);
@@ -202,6 +202,7 @@ export class FieldsService {
             fieldId: field!.id,
             label: option.label,
             color: option.color ?? 'gray',
+            icon: option.icon ?? null, // #202
             position: i,
           })),
         );
@@ -696,7 +697,7 @@ export class FieldsService {
     return field;
   }
 
-  async addOption(databaseId: string, fieldId: string, input: { label: string; color: string }) {
+  async addOption(databaseId: string, fieldId: string, input: { label: string; color: string; icon?: string | null }) {
     await this.assertSelectField(databaseId, fieldId);
     const existing = await this.db.query.selectOptions.findMany({
       where: eq(selectOptions.fieldId, fieldId),
@@ -708,6 +709,7 @@ export class FieldsService {
         fieldId,
         label: input.label,
         color: input.color,
+        icon: input.icon ?? null, // #202
         position: Math.max(-1, ...existing.map((o) => o.position)) + 1,
       })
       .returning();
@@ -718,7 +720,8 @@ export class FieldsService {
     databaseId: string,
     fieldId: string,
     optionId: string,
-    patch: { label?: string; color?: string; position?: number },
+    // #202: `icon: null` clears it; `undefined` leaves it unchanged (Drizzle skips undefined).
+    patch: { label?: string; color?: string; icon?: string | null; position?: number },
   ) {
     await this.assertSelectField(databaseId, fieldId);
     const [option] = await this.db

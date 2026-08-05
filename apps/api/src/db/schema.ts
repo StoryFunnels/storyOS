@@ -242,6 +242,8 @@ export const selectOptions = pgTable('select_options', {
     .references(() => fields.id, { onDelete: 'cascade' }),
   label: text('label').notNull(),
   color: text('color').notNull().default('gray'),
+  /** #202: optional curated icon (a `set:<name>` / `brand:<slug>` ref), null = none. */
+  icon: text('icon'),
   position: integer('position').notNull().default(0),
   ...timestamps,
 });
