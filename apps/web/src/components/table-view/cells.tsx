@@ -130,18 +130,20 @@ export function optionColor(
 }
 
 /**
- * Select-value badge (#281, "solid mini-tag"): a solid fill in the option's own
- * color, 4px corners (deliberately not a full pill), white text set small-caps-style
- * — uppercase, letter-spaced, semibold, a touch smaller than body text. This is the
- * visual opposite of RelationChips' outline treatment below, on purpose: a category
- * value should never be mistaken for a link to another record.
+ * Select-value badge (#207, soft-tint): a faint wash of the option's own colour
+ * with that colour as the TEXT, normal-case, 4px corners. Replaces the old solid
+ * uppercase white-on-colour "mini-tag" (#281) — in a dense table that read as a
+ * wall of loud colour; this is far calmer while keeping the colour-coding. The
+ * `${color}22` alpha bg is theme-adaptive (tints over cream in light, over ink in
+ * dark). Still visually distinct from RelationChips' outline treatment below, so a
+ * category value is never mistaken for a link to another record.
  */
 export function OptionChip({ option }: { option: SelectOption }) {
   const color = OPTION_COLORS[option.color] ?? OPTION_COLORS.gray!;
   return (
     <span
-      className="inline-flex max-w-full items-center truncate rounded-[var(--radius-chip)] px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.03em] text-white"
-      style={{ backgroundColor: color }}
+      className="inline-flex max-w-full items-center truncate rounded-[var(--radius-chip)] px-1.5 py-0.5 text-[11px] font-medium"
+      style={{ backgroundColor: `${color}22`, color }}
     >
       <span className="truncate">{option.label}</span>
     </span>
