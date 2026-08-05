@@ -433,12 +433,17 @@ export function SidebarField({ field, schemaEditable, onToggleZone, topDivider, 
       <div className="mb-0.5 flex items-center gap-1">
         {schemaEditable && (
           <button
-            className="-ml-1 cursor-grab touch-none text-faint opacity-0 hover:text-muted group-hover:opacity-100"
+            aria-label="Drag to reorder"
+            title="Drag to reorder"
+            className={cn(
+              '-ml-1 flex h-5 w-5 shrink-0 touch-none items-center justify-center rounded text-faint opacity-0 transition-opacity hover:bg-hover hover:text-muted group-hover:opacity-100',
+              sortable.isDragging ? 'cursor-grabbing' : 'cursor-grab',
+            )}
             {...sortable.attributes}
             {...sortable.listeners}
             onClick={(e) => e.stopPropagation()}
           >
-            <GripVertical className="h-3 w-3" />
+            <GripVertical className="h-3.5 w-3.5" />
           </button>
         )}
         {/* #176: per-field collapse caret removed — it implied per-field collapse
@@ -463,12 +468,19 @@ export function TopChip({ field, schemaEditable, onToggleZone, ...vp }: VP & { f
       ref={sortable.setNodeRef}
       style={style}
       className={cn(
-        'group flex items-center gap-2 rounded-md border border-border-default bg-card px-2.5 py-1.5',
+        'group flex items-center gap-1.5 rounded-md border border-border-default bg-card px-2.5 py-1.5',
+        schemaEditable && (sortable.isDragging ? 'cursor-grabbing' : 'cursor-grab'),
         sortable.isDragging && 'z-10 opacity-80 shadow-sm',
       )}
       {...(schemaEditable ? sortable.attributes : {})}
       {...(schemaEditable ? sortable.listeners : {})}
     >
+      {schemaEditable && (
+        <GripVertical
+          aria-hidden
+          className="-ml-1.5 h-3.5 w-3.5 shrink-0 text-faint opacity-0 transition-opacity group-hover:opacity-100"
+        />
+      )}
       <span className="flex items-center gap-1 text-[11px] font-medium uppercase tracking-wide text-muted">
         <Pin className="h-3 w-3 text-accent" /> {field.displayName}
       </span>
