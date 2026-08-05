@@ -9042,6 +9042,13 @@
                   ]
                 }
               },
+              "sorts_nulls": {
+                "type": "string",
+                "enum": [
+                  "first",
+                  "last"
+                ]
+              },
               "hidden_field_ids": {
                 "default": [],
                 "type": "array",
@@ -9394,6 +9401,13 @@
                     "field"
                   ]
                 }
+              },
+              "sorts_nulls": {
+                "type": "string",
+                "enum": [
+                  "first",
+                  "last"
+                ]
               },
               "hidden_field_ids": {
                 "default": [],

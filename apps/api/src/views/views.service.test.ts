@@ -181,3 +181,24 @@ describe('cleanViewConfig — dashboard chart widgets (MN-225 / #168, Phase 2)',
     expect(widgets(undefined as unknown as ViewConfig['dashboard_widgets'])).toEqual([]);
   });
 });
+
+describe('cleanViewConfig — empty-values placement (MN-252 / #196)', () => {
+  const withSort = (over: Partial<ViewConfig>): ViewConfig =>
+    cleanViewConfig(
+      { ...BASE, sorts: [{ field: 'amount', direction: 'asc' }], ...over },
+      new Set(),
+      new Set(['amount']),
+    );
+
+  it('preserves sorts_nulls: "first" so the empty-values toggle survives a save', () => {
+    expect(withSort({ sorts_nulls: 'first' }).sorts_nulls).toBe('first');
+  });
+
+  it('preserves sorts_nulls: "last"', () => {
+    expect(withSort({ sorts_nulls: 'last' }).sorts_nulls).toBe('last');
+  });
+
+  it('leaves sorts_nulls undefined when unset (back-compat: old saved sorts compile unchanged)', () => {
+    expect(withSort({}).sorts_nulls).toBeUndefined();
+  });
+});
