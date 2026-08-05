@@ -143,6 +143,23 @@ export function boardGroupError(
   return `board views cannot group by a "${field.type}" field — use a select, a single user, or a one-to-many relation`;
 }
 
+/**
+ * #181: a Board view for a database that has a `workflow` (status) field defaults
+ * to grouping by that field — the DB's canonical status is the obvious column axis.
+ * Only fills an ABSENT `group_by_field_id`; an explicit choice (or any non-board
+ * view) passes through untouched, so a user's pick is never overridden. Kept pure
+ * so the default is unit-tested without a DB.
+ */
+export function defaultBoardGroupBy(
+  type: ViewType,
+  config: ViewConfig,
+  liveFields: Array<{ id: string; type: string }>,
+): ViewConfig {
+  if (type !== 'board' || config.group_by_field_id) return config;
+  const workflow = liveFields.find((f) => f.type === 'workflow');
+  return workflow ? { ...config, group_by_field_id: workflow.id } : config;
+}
+
 @Injectable()
 export class ViewsService {
   constructor(@Inject(DB) private readonly db: Db) {}
@@ -204,7 +221,11 @@ export class ViewsService {
     input: { name: string; type: ViewType; config: ViewConfig },
     createdBy: string,
   ) {
-    await this.validateConfig(databaseId, input.type, input.config);
+    // #181: default a Board's group-by to the database's workflow field when one
+    // exists and the caller didn't pick one (validation then runs on the result).
+    const live = await this.liveFields(databaseId);
+    const config = defaultBoardGroupBy(input.type, input.config, live);
+    await this.validateConfig(databaseId, input.type, config);
     const siblings = await this.db.query.views.findMany({
       where: eq(views.databaseId, databaseId),
       columns: { position: true },
@@ -215,7 +236,7 @@ export class ViewsService {
         databaseId,
         name: input.name,
         type: input.type,
-        config: input.config,
+        config,
         position: Math.max(-1, ...siblings.map((v) => v.position)) + 1,
         createdBy,
       })

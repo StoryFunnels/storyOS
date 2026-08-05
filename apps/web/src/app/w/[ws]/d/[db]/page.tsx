@@ -273,11 +273,17 @@ function NewViewDialog({
   const boardGroupFields = fields.filter(
     (f) =>
       f.type === 'select' ||
+      // #172: a workflow (status) field groups a board exactly like single-select.
+      f.type === 'workflow' ||
       (f.type === 'user' && f.config?.['multi'] !== true) ||
       (f.type === 'relation' &&
         f.relation?.cardinality === 'one_to_many' &&
         f.relation?.side === 'a'),
   );
+  // #181: a Board defaults to grouping by the database's workflow field when it
+  // has one — the shown default and the created view both prefer it (below).
+  const workflowField = fields.find((f) => f.type === 'workflow');
+  const boardDefaultGroupId = workflowField?.id || boardGroupFields[0]?.id;
   const [groupBy, setGroupBy] = useState('');
 
   return (
@@ -295,7 +301,7 @@ function NewViewDialog({
             // Empty is never sent — fall back to the type's label (MN-222).
             const finalName = name.trim() || VIEW_KIND_LABEL[type];
             const patch: Partial<ViewConfig> = {};
-            if (type === 'board') patch.group_by_field_id = groupBy || boardGroupFields[0]?.id;
+            if (type === 'board') patch.group_by_field_id = groupBy || boardDefaultGroupId;
             if (type === 'list' && groupBy) patch.group_by_field_id = groupBy;
             if (type === 'calendar') patch.date_field_id = dateField || dateFields[0]?.id;
             if (type === 'timeline') {
@@ -400,7 +406,7 @@ function NewViewDialog({
               <select
                 id="group-by"
                 className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-sm text-ink"
-                value={type === 'board' ? groupBy || boardGroupFields[0]?.id || '' : groupBy}
+                value={type === 'board' ? groupBy || boardDefaultGroupId || '' : groupBy}
                 onChange={(e) => setGroupBy(e.target.value)}
               >
                 {type === 'list' && <option value="">None</option>}

@@ -349,7 +349,13 @@ function RuleEditor({
 }) {
   const [name, setName] = useState(rule?.name ?? '');
   const [triggerType, setTriggerType] = useState(rule?.trigger.type ?? 'record_updated');
-  const [triggerFieldId, setTriggerFieldId] = useState(rule?.trigger.field_id ?? '');
+  // #181: a new "record changes" rule defaults its scoped field to the database's
+  // workflow (status) field when one exists — the canonical "when status changes"
+  // flow. Only a default: an existing rule keeps its own field (incl. "any field"),
+  // and the user can still switch to any field or back to "any field".
+  const [triggerFieldId, setTriggerFieldId] = useState(
+    rule ? (rule.trigger.field_id ?? '') : (fields.find((f) => f.type === 'workflow')?.id ?? ''),
+  );
   const [every, setEvery] = useState(rule?.trigger.every ?? 'day');
   const [at, setAt] = useState(rule?.trigger.at ?? '09:00');
   const [actions, setActions] = useState<ButtonAction[]>(
