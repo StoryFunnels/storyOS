@@ -34,6 +34,7 @@ import type { Field } from '@/components/table-view/use-table-data';
 import { DescriptionEditor } from '@/components/entity/description-editor';
 import { ActivityPanel, AttachmentsStrip, CommentsPanel, MentionedIn } from '@/components/entity/panels';
 import {
+  AUDIT_TYPES,
   HIDDEN,
   isCollection,
   isHidden,
@@ -428,13 +429,20 @@ export function RecordDetail({
             </div>
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={(e) => reorderWithin(sidebarFields, e)}>
               <SortableContext items={sidebarFields.map((f) => f.id)} strategy={verticalListSortingStrategy}>
-                <div className="flex flex-col p-1.5">
+                <div className="flex flex-col gap-0.5 p-1.5">
                   {sidebarFields.length === 0 && (
                     <p className="px-1.5 py-2 text-[12px] text-faint">No sidebar properties.</p>
                   )}
-                  {sidebarFields.map((field) => (
-                    <SidebarField key={field.id} field={field} {...vp} />
-                  ))}
+                  {/* #179: mark the first system/audit field that trails a user
+                      field so SidebarField can draw a subtle group divider. */}
+                  {(() => {
+                    const dividerId = sidebarFields.find(
+                      (f, i) => AUDIT_TYPES.has(f.type) && i > 0 && !AUDIT_TYPES.has(sidebarFields[i - 1]!.type),
+                    )?.id;
+                    return sidebarFields.map((field) => (
+                      <SidebarField key={field.id} field={field} topDivider={field.id === dividerId} {...vp} />
+                    ));
+                  })()}
                 </div>
               </SortableContext>
             </DndContext>
