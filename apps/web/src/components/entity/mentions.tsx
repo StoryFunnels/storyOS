@@ -1,15 +1,25 @@
 'use client';
 
-import { createContext, useContext, useMemo, useRef, type MutableRefObject } from 'react';
+import { createContext, useContext, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import Link from 'next/link';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { CircleDashed } from 'lucide-react';
 import { BlockNoteSchema, defaultInlineContentSpecs } from '@blocknote/core';
 import type { BlockNoteEditor } from '@blocknote/core';
 import type { SuggestionMenuProps } from '@blocknote/react';
 import { SuggestionMenuController, createReactInlineContentSpec } from '@blocknote/react';
 import { api } from '@/lib/api';
+import { atLeast } from '@/lib/access';
 import { Avatar } from '@/components/ui/avatar';
 import { EntityIcon } from '@/components/ui/icon-picker';
+import { CellEditor, OptionChip } from '@/components/table-view/cells';
+import { DbColorMarker } from '@/components/table-view/relation-cell';
+import {
+  useDatabase,
+  useMembers,
+  useRecordMutations,
+  type Field,
+} from '@/components/table-view/use-table-data';
 import { EntityPickerRow } from './entity-picker-row';
 import {
   filterMembers,
@@ -78,9 +88,29 @@ function MentionChip(props: MentionProps) {
   return <span className={chipCls}>@{name || 'unknown'}</span>;
 }
 
+/** The resolved referenced record (MN-199 stores the id, we render live values). */
+interface MentionRecord {
+  id: string;
+  number: number | null;
+  title: string;
+  values: Record<string, unknown>;
+}
+
+/**
+ * Rich record chip (#170). Beyond the live title, it surfaces the target's two
+ * at-a-glance key fields inline — the assignee (first `user` field, as an
+ * Avatar) and the state (the DB's single `workflow` field, as the coloured
+ * select badge) — each inline-editable *in place on the referenced record*
+ * through the very editors the table/record panel use (CellEditor →
+ * useRecordMutations PATCH). Degrades in layers: unknown `db` (markdown mention
+ * not yet resolved) or a deleted target falls back to the flat text chip; a
+ * missing assignee/workflow field simply omits that piece; a read-only viewer
+ * (below `editor` on the DB's `my_access`) still sees everything but can't open
+ * the pickers. Fetches are lazy + cached (staleTime) so a paragraph full of
+ * chips doesn't hammer the API, and the two shared caches (`['database', …]`,
+ * `['members', …]`) are the ones the rest of the app already warms.
+ */
 function RecordChip({ ws, id, db, label }: MentionProps & { ws: string }) {
-  // Live title (store the id, render the label — MN-199): resolves when we know the
-  // database; falls back to the snapshot; strikes through when the target is gone.
   const record = useQuery({
     queryKey: ['mention-record', ws, db, id],
     enabled: Boolean(ws && db && id),
@@ -95,23 +125,192 @@ function RecordChip({ ws, id, db, label }: MentionProps & { ws: string }) {
         if (response.status === 404) return { deleted: true as const };
         throw error;
       }
-      return data as unknown as { title: string };
+      return data as unknown as MentionRecord;
     },
   });
 
-  const deleted = record.data && 'deleted' in record.data;
-  const title = record.data && 'title' in record.data ? record.data.title : label;
-  const body = (
-    <span className={deleted ? `${chipCls} line-through opacity-60` : chipCls}>
-      #{title || 'Untitled'}
-      {deleted ? ' (deleted)' : ''}
+  // Schema (for the assignee/workflow field defs + palette) and members (avatar
+  // images + the people picker) — both shared, staleTime-cached queries.
+  const database = useDatabase(ws, db);
+  const memberRows = useMembers(ws, Boolean(ws && db && id));
+  const members = (memberRows.data ?? []).map((m) => m.user);
+  const memberNames = new Map(members.map((u) => [u.id, u.name]));
+  const memberImages = new Map(members.map((u) => [u.id, u.image ?? null]));
+
+  // Only offer the inline pickers when the viewer can actually edit records
+  // here — same `editor` bar the record panel uses to gate inline field edits.
+  const canEdit = atLeast(database.data?.my_access, 'editor');
+
+  const rec = record.data && !('deleted' in record.data) ? record.data : null;
+  const deleted = Boolean(record.data && 'deleted' in record.data);
+  const title = rec?.title ?? label;
+
+  // Degrade: an unresolved db (mention arrived via markdown) or a deleted target
+  // keeps the original flat / struck-through fallback chip.
+  if (!db || deleted) {
+    return (
+      <span className={deleted ? `${chipCls} line-through opacity-60` : chipCls}>
+        #{title || 'Untitled'}
+        {deleted ? ' (deleted)' : ''}
+      </span>
+    );
+  }
+
+  const fields = database.data?.fields ?? [];
+  // Assignee = the first people field (`type === 'user'`; excludes the
+  // system `created_by` audit type). Absent → no avatar.
+  const assigneeField = fields.find((f) => f.type === 'user');
+  // The DB's canonical status field (#172): at most one `workflow`. Absent →
+  // no state badge.
+  const workflowField = fields.find((f) => f.type === 'workflow');
+
+  const assigneeValue = rec && assigneeField ? rec.values[assigneeField.apiName] : undefined;
+  const assigneeId = Array.isArray(assigneeValue)
+    ? (assigneeValue[0] as string | undefined)
+    : ((assigneeValue as string | undefined) ?? undefined);
+
+  const workflowValue = rec && workflowField ? rec.values[workflowField.apiName] : undefined;
+  const workflowOption = workflowField?.options?.find((o) => o.id === workflowValue);
+
+  return (
+    <span
+      contentEditable={false}
+      className="inline-flex max-w-full select-none items-center gap-1 whitespace-nowrap rounded border border-border-default bg-hover px-1 py-0.5 align-baseline text-[0.9em] text-ink"
+    >
+      <EntityIcon
+        icon={database.data?.icon ?? null}
+        color={database.data?.color ?? null}
+        fallback={<DbColorMarker color={database.data?.color ?? 'gray'} />}
+      />
+      <Link
+        href={`/w/${ws}/d/${db}/r/${id}`}
+        className="min-w-0 truncate font-medium no-underline hover:underline"
+      >
+        {title || 'Untitled'}
+      </Link>
+      {rec?.number != null && (
+        <span className="shrink-0 tabular-nums text-[0.85em] text-faint">#{rec.number}</span>
+      )}
+      {assigneeField && (assigneeId || canEdit) && (
+        <InlineFieldEdit
+          ws={ws}
+          db={db}
+          recordId={id}
+          field={assigneeField}
+          value={assigneeValue}
+          members={members}
+          canEdit={canEdit}
+          label="assignee"
+        >
+          {assigneeId ? (
+            <Avatar
+              userId={assigneeId}
+              name={memberNames.get(assigneeId) ?? '?'}
+              image={memberImages.get(assigneeId)}
+              size={16}
+            />
+          ) : (
+            <CircleDashed className="h-3.5 w-3.5 text-faint" aria-label="Unassigned" />
+          )}
+        </InlineFieldEdit>
+      )}
+      {workflowField && (workflowOption || canEdit) && (
+        <InlineFieldEdit
+          ws={ws}
+          db={db}
+          recordId={id}
+          field={workflowField}
+          value={workflowValue ?? null}
+          members={members}
+          canEdit={canEdit}
+          label="state"
+        >
+          {workflowOption ? (
+            <OptionChip option={workflowOption} />
+          ) : (
+            <span className="rounded-[var(--radius-chip)] border border-dashed border-border-default px-1 text-[0.8em] uppercase tracking-[0.03em] text-faint">
+              Status
+            </span>
+          )}
+        </InlineFieldEdit>
+      )}
     </span>
   );
-  if (!db || deleted) return body;
+}
+
+/**
+ * One inline-editable key field inside a record chip. The trigger paints the
+ * current value (avatar / badge); clicking it (editors only) opens the exact
+ * CellEditor the table + record panel use for this field type — the people
+ * picker for `user`, the workflow-option list for `workflow`/`select`. A commit
+ * PATCHes the *referenced* record via the shared `useRecordMutations`, then
+ * refreshes this chip's own `['mention-record', …]` query so the new value shows
+ * without a reload. Read-only viewers get the value with no button.
+ */
+function InlineFieldEdit({
+  ws,
+  db,
+  recordId,
+  field,
+  value,
+  members,
+  canEdit,
+  label,
+  children,
+}: {
+  ws: string;
+  db: string;
+  recordId: string;
+  field: Field;
+  value: unknown;
+  members: Array<{ id: string; name: string; image?: string | null }>;
+  canEdit: boolean;
+  label: string;
+  children: React.ReactNode;
+}) {
+  const [editing, setEditing] = useState(false);
+  const qc = useQueryClient();
+  const { updateRecord } = useRecordMutations(ws, db);
+
+  const commit = (next: unknown) => {
+    setEditing(false);
+    updateRecord.mutate(
+      { rec: recordId, values: { [field.apiName]: next } },
+      {
+        onSettled: () =>
+          void qc.invalidateQueries({ queryKey: ['mention-record', ws, db, recordId] }),
+      },
+    );
+  };
+
+  if (!canEdit) return <span className="inline-flex items-center">{children}</span>;
+
   return (
-    <Link href={`/w/${ws}/d/${db}/r/${id}`} className="no-underline" contentEditable={false}>
-      {body}
-    </Link>
+    <span className="relative inline-flex items-center">
+      <button
+        type="button"
+        aria-label={`Edit ${label}`}
+        className="inline-flex items-center rounded hover:bg-card"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setEditing(true);
+        }}
+      >
+        {children}
+      </button>
+      {editing && (
+        <CellEditor
+          ws={ws}
+          db={db}
+          field={field}
+          value={value}
+          members={members}
+          onCommit={commit}
+          onCancel={() => setEditing(false)}
+        />
+      )}
+    </span>
   );
 }
 
