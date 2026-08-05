@@ -13,7 +13,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useShortcut } from '@/lib/shortcuts';
 import { Dialog, DialogTrigger } from '@/components/ui/dialog';
-import { CellDisplay, CellEditor, PressButton, cellToText, fieldValue } from './cells';
+import { CellDisplay, CellEditor, EmptyFieldAffordance, PressButton, cellToText, fieldValue } from './cells';
 import { AddFieldDialog } from './add-field-dialog';
 import { BatchBar } from './batch-bar';
 import { HeaderCell } from './header-cell';
@@ -44,6 +44,11 @@ const DRAG_THRESHOLD = 6;
 const HIDDEN_TYPES = new Set(['id', 'created_by']);
 // checkbox toggles on click; rich_text edits on the record page; lookup is computed.
 const NO_EDITOR = new Set(['checkbox', 'rich_text', 'lookup', 'button', 'formula', 'created_at', 'updated_at']);
+
+/** #187: empty for the ghost-affordance check — null/blank, or an empty
+ * multi-value (multi_select / user / relation) array. */
+const isEmptyCellValue = (v: unknown): boolean =>
+  v == null || v === '' || (Array.isArray(v) && v.length === 0);
 
 // #296: resolves "which cell is the pointer over right now" from raw client
 // coordinates during a drag — a mousemove event has no React target for the
@@ -813,6 +818,18 @@ export function TableView({
                             disabled={readOnly}
                             onPressed={() => updateRecord.reset()}
                           />
+                        ) : isEmptyCellValue(valueOf(row, field)) &&
+                          !readOnly &&
+                          field.type !== 'id' &&
+                          field.type !== 'title' &&
+                          !NO_EDITOR.has(field.type) ? (
+                          // #187: an empty *editable* cell invites a fill
+                          // ("Add/Set <field>") instead of reading blank. Display
+                          // only — the cell's own click / double-click still owns
+                          // opening the editor. Title keeps its blank + hover
+                          // "Open"; id and computed/read-only types (NO_EDITOR)
+                          // stay blank, never a fake affordance.
+                          <EmptyFieldAffordance field={field} editable />
                         ) : (
                           <>
                             <CellDisplay field={field} value={valueOf(row, field)} memberNames={memberNames} memberImages={memberImages} ws={ws} />

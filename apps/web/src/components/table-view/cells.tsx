@@ -343,6 +343,50 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, ws 
   }
 }
 
+/**
+ * #187: sensible verb for an empty *editable* field's ghost affordance —
+ * "Set Priority" reads better than "Add Priority" for a single choice / date /
+ * person / colour; free-text, numbers, links and multi-value fields take the
+ * "Add" default.
+ */
+export function emptyAffordanceVerb(type: string): 'Add' | 'Set' {
+  switch (type) {
+    case 'select':
+    case 'workflow':
+    case 'date':
+    case 'user':
+    case 'color':
+      return 'Set';
+    default:
+      return 'Add';
+  }
+}
+
+/**
+ * #187: how an empty field cell renders. An *editable* empty shows a faint,
+ * hover-highlighted ghost label ("Add <field>" / "Set <field>", Fibery parity)
+ * that reads as "click to fill this in" — the surrounding cell owns the click
+ * that opens the CellEditor, so this stays display-only. Read-only / computed
+ * empties keep a neutral em dash — never a fake affordance. Mirrors the #176
+ * sidebar empty-state look (text-faint) so the surfaces stay consistent.
+ */
+export function EmptyFieldAffordance({
+  field,
+  editable,
+  className,
+}: {
+  field: Field;
+  editable: boolean;
+  className?: string;
+}) {
+  if (!editable) return <span className={cn('text-[13px] text-faint', className)}>—</span>;
+  return (
+    <span className={cn('truncate text-[13px] text-faint transition-colors hover:text-muted', className)}>
+      {emptyAffordanceVerb(field.type)} {field.displayName}
+    </span>
+  );
+}
+
 /** A record as views see it — scalar values keyed by api_name, plus system columns. */
 export interface ViewRow {
   number: number | null;
