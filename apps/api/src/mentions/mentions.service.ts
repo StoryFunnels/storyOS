@@ -86,11 +86,17 @@ export class MentionsService {
     addFrom(doc?.content);
     const values = (record?.values ?? {}) as Record<string, unknown>;
     for (const f of richTextFields) addFrom(values[f.id]);
-    // Comments carry their own segment shape ({type:'record', record_id}); only the
+    // Comments are dual-format (#180): the legacy segment array
+    // ({type:'record', record_id}) or the new {format:'blocknote', doc}. Only the
     // #record half feeds backlinks here — @s in comments notify via the comment path.
     for (const c of commentRows) {
-      for (const seg of (c.body as Array<{ type?: string; record_id?: string }>) ?? []) {
-        if (seg?.type === 'record' && seg.record_id) recordIdSet.add(seg.record_id);
+      const body = c.body as unknown;
+      if (Array.isArray(body)) {
+        for (const seg of body as Array<{ type?: string; record_id?: string }>) {
+          if (seg?.type === 'record' && seg.record_id) recordIdSet.add(seg.record_id);
+        }
+      } else if (body && (body as { format?: string }).format === 'blocknote') {
+        for (const id of collectMentions((body as { doc?: unknown }).doc).recordIds) recordIdSet.add(id);
       }
     }
     const recordIds = [...recordIdSet];

@@ -4078,7 +4078,13 @@ export interface components {
                 record_id: string;
                 /** Format: uuid */
                 database_id: string;
-            })[];
+            })[] | {
+                /** @enum {string} */
+                format: "blocknote";
+                doc: {
+                    [key: string]: unknown;
+                }[];
+            };
         };
         CreateAutomationDto: {
             name: string;

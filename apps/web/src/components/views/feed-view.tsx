@@ -168,7 +168,7 @@ export function FeedView({
                 </div>
                 {canComment && (
                   <div className="mt-2" onClick={(e) => e.stopPropagation()}>
-                    <CommentComposer ws={ws} db={db} rec={row.id} members={memberList} compact />
+                    <CommentComposer ws={ws} db={db} rec={row.id} compact />
                   </div>
                 )}
               </div>
