@@ -3774,6 +3774,8 @@ export interface components {
                      */
                     direction: "asc" | "desc";
                 }[];
+                /** @enum {string} */
+                sorts_nulls?: "first" | "last";
                 /** @default [] */
                 hidden_field_ids: string[];
                 /** Format: uuid */
@@ -3874,6 +3876,8 @@ export interface components {
                      */
                     direction: "asc" | "desc";
                 }[];
+                /** @enum {string} */
+                sorts_nulls?: "first" | "last";
                 /** @default [] */
                 hidden_field_ids: string[];
                 /** Format: uuid */

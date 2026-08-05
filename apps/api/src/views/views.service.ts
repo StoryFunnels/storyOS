@@ -64,6 +64,8 @@ export function cleanViewConfig(
   return {
     filters: config.filters ? (cleanFilterNode(config.filters, liveApiNames) as ViewConfig['filters']) : undefined,
     sorts: (config.sorts ?? []).filter((s) => liveApiNames.has(s.field)),
+    // MN-252: whole-sort empty-values placement rides alongside `sorts`.
+    sorts_nulls: config.sorts_nulls,
     hidden_field_ids: (config.hidden_field_ids ?? []).filter((id) => liveFieldIds.has(id)),
     group_by_field_id:
       config.group_by_field_id && liveFieldIds.has(config.group_by_field_id)

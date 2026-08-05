@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { filterSchema, sortSchema } from './query';
+import { filterSchema, nullsPlacementSchema, sortSchema } from './query';
 
 export const viewTypeSchema = z.enum([
   'table', 'board', 'calendar', 'gallery', 'list', 'feed', 'timeline', 'form', 'dashboard',
@@ -60,6 +60,14 @@ export type DashboardWidget = z.infer<typeof dashboardWidgetSchema>;
 export const viewConfigSchema = z.object({
   filters: filterSchema.optional(),
   sorts: z.array(sortSchema).max(3).default([]),
+  /**
+   * Whole-sort empty-values placement (MN-252) — where NULL/empty sort values
+   * land, applied uniformly across every key in `sorts` (the toolbar exposes it
+   * as a single "Empty values: Top / Bottom" toggle, not a per-row setting). It
+   * is forwarded to /records/query as the top-level `nulls`. Omitted = 'last',
+   * i.e. the pre-MN-252 default, so old saved views compile unchanged.
+   */
+  sorts_nulls: nullsPlacementSchema.optional(),
   hidden_field_ids: z.array(z.uuid()).default([]),
   /** Board only — must reference a single-select field (v1). */
   group_by_field_id: z.uuid().optional(),
