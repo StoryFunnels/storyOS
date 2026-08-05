@@ -252,8 +252,27 @@ export function reduceSplit(state: SplitStackState, action: SplitAction): SplitS
       return { ...state, panels, maximizedId: action.id };
     }
 
-    case 'restore':
-      return state.maximizedId === null ? state : { ...state, maximizedId: null };
+    case 'restore': {
+      if (state.maximizedId === null) return state;
+      // #210: leaving a PRIMARY maximize is NOT just clearing the flag. Maximizing
+      // the primary collapsed EVERY panel to a rail (see the `maximize` case), so
+      // clearing `maximizedId` alone strands them there — the ~50/50 pair never
+      // returns and Restore looks like it "does nothing" (founder UAT). Re-expand
+      // the most-recent panel (bounded by `collapseOverflow`) so restoring from a
+      // primary-maximize is symmetric with restoring from a panel-maximize, where
+      // the maximized panel was never collapsed and the pair returns for free.
+      if (state.maximizedId === PRIMARY_ID) {
+        const last = state.panels[state.panels.length - 1];
+        const panels = last
+          ? collapseOverflow(
+              state.panels.map((p) => (p.id === last.id ? { ...p, collapsed: false } : p)),
+              last.id,
+            )
+          : state.panels;
+        return { ...state, panels, maximizedId: null };
+      }
+      return { ...state, maximizedId: null };
+    }
 
     case 'close': {
       if (action.id === PRIMARY_ID) {

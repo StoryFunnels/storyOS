@@ -230,12 +230,30 @@ describe('#167/#182 split-screen — maximize / restore from either side', () =>
     expect(view.activePanel?.target).toEqual(a);
   });
 
-  it('restore clears a primary-maximize', () => {
+  it('restore leaves a primary-maximize and brings the panel back as the pair (#210)', () => {
+    // Founder UAT: Maximize on the primary worked, but Restore "did nothing" —
+    // the panel stayed on its rail because restore only cleared the flag.
     let s = open(emptySplitStack(), a);
-    s = reduceSplit(s, { type: 'maximize', id: PRIMARY_ID });
+    s = reduceSplit(s, { type: 'maximize', id: PRIMARY_ID }); // primary fills, a railed
     s = reduceSplit(s, { type: 'restore' });
     expect(s.maximizedId).toBeNull();
-    expect(selectSplitView(s).primaryMaximized).toBe(false);
+    const view = selectSplitView(s);
+    expect(view.primaryMaximized).toBe(false);
+    expect(view.primaryOnRail).toBe(false); // primary pane returns
+    expect(view.activePanel?.target).toEqual(a); // panel comes OFF the rail → ~50/50 pair
+    expect(view.rightRailPanels).toEqual([]);
+  });
+
+  it('restore from a primary-maximize re-expands only the most-recent panel, keeping older ones railed (#210)', () => {
+    let s = open(emptySplitStack(), a);
+    s = open(s, b); // a railed, b active
+    s = reduceSplit(s, { type: 'maximize', id: PRIMARY_ID }); // primary fills, a & b railed
+    s = reduceSplit(s, { type: 'restore' });
+    expect(s.maximizedId).toBeNull();
+    const view = selectSplitView(s);
+    expect(view.primaryOnRail).toBe(false);
+    expect(view.activePanel?.target).toEqual(b); // newest panel is the pair partner
+    expect(view.rightRailPanels.map((p) => p.target)).toEqual([a]); // older stays railed
   });
 
   it('expanding a rail panel steps a maximized primary back down to the pair', () => {
