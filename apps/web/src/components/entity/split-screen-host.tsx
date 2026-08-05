@@ -1,33 +1,36 @@
 'use client';
 
 import { useEffect, useMemo, useReducer } from 'react';
-import { ChevronsLeftRight, PanelLeftOpen } from 'lucide-react';
+import type { ReactNode } from 'react';
+import { ChevronsLeftRight, PanelLeftOpen, X } from 'lucide-react';
 import { useMediaQuery } from '@/lib/use-media-query';
+import { cn } from '@/lib/utils';
 import { RecordDetail } from './record-detail';
 import { SplitPanelProvider } from './split-panel-context';
 import type { SplitPanelApi } from './split-panel-context';
-import { emptySplitStack, reduceSplit, selectSplitView } from './split-screen';
+import { PRIMARY_ID, emptySplitStack, reduceSplit, selectSplitView } from './split-screen';
 import type { SplitTarget } from './split-screen';
 
 /**
- * Split-screen host (#146; stacking #166/#167/#168). Wraps the record page's
- * primary `RecordDetail` and, on desktop (≥ `md`), a STACK of split panels opened
- * by clicking related records (the click handlers live in `split-panel-context.tsx`).
- * All decision-shaped logic is in `split-screen.ts`; this component only renders
- * the `reduceSplit` state and the `selectSplitView` projection, and wires controls
- * back to the reducer.
+ * Split-screen host (#146; stacking #166/#167/#168; fixes #182/#183/#184). Wraps
+ * the record page's primary `RecordDetail` and, on desktop (≥ `md`), a STACK of
+ * split panels opened by clicking related records (the click handlers live in
+ * `split-panel-context.tsx`). All decision-shaped logic is in `split-screen.ts`;
+ * this component only renders the `reduceSplit` state and the `selectSplitView`
+ * projection, and wires controls back to the reducer.
  *
  * Layout, left → right:
- *   - Peek-rails (#166) for every collapsed panel — a slim ~28px column with the
- *     record title as a rotated vertical spine; clicking re-expands it. When a
- *     panel is maximized the primary record docks to its own rail here too, so the
- *     maximized pane can fill the whole area (#167).
- *   - The primary record pane (hidden while a panel is maximized).
- *   - The active panel pane — the shared ~50/50 half, or the full width when
- *     maximized. Each panel carries its own collapse + maximize/restore + close
- *     controls in its header.
+ *   - The primary record — either as a pane on the LEFT, or, when it is collapsed
+ *     (#183) or a panel is maximized (#167), as a slim LEFT rail (a rotated title
+ *     spine) that expands/restores it.
+ *   - The active split panel pane — the shared ~50/50 half, or the full width when
+ *     maximized.
+ *   - Collapsed split panels as RIGHT rails, docked in place on the side they came
+ *     from (#182) — no cross-screen jump.
  *
- * Every pane scrolls independently. Below `md` the entire stack is dropped and the
+ * Every pane exposes the SAME controls (collapse · maximize/restore · close) and
+ * every rail carries a full-name spine + `title=` tooltip and an X (#184). Every
+ * pane scrolls independently. Below `md` the entire stack is dropped and the
  * primary record takes the full width (mobile fallback, plan §3.3).
  */
 export function RecordSurface({ ws, db, rec }: { ws: string; db: string; rec: string }) {
@@ -61,23 +64,38 @@ export function RecordSurface({ ws, db, rec }: { ws: string; db: string; rec: st
     <SplitPanelProvider value={api}>
       {showStack ? (
         <div className="flex h-full">
-          {/* Collapsed panels → peek-rails (#166). */}
-          {view.railPanels.map((panel) => (
-            <PeekRail
-              key={panel.id}
-              title={panel.target.title}
-              number={panel.target.number}
-              onExpand={() => dispatch({ type: 'expand', id: panel.id })}
+          {/* Primary as a LEFT rail — collapsed independently (#183) or pushed aside
+              by a maximized panel (#167). Expand/close both bring it back. */}
+          {view.primaryOnRail && (
+            <Rail
+              side="left"
+              icon={<PanelLeftOpen className="h-3.5 w-3.5 shrink-0" />}
+              label="Record"
+              closeLabel="Restore"
+              onExpand={() =>
+                dispatch(view.activePanelMaximized ? { type: 'restore' } : { type: 'expand', id: PRIMARY_ID })
+              }
+              onClose={() =>
+                dispatch(view.activePanelMaximized ? { type: 'restore' } : { type: 'close', id: PRIMARY_ID })
+              }
             />
-          ))}
+          )}
 
-          {/* While a panel is maximized the primary record docks to its own rail
-              so the maximized pane fills the area; clicking it restores (#167). */}
-          {view.maximized && <PrimaryRail onRestore={() => dispatch({ type: 'restore' })} />}
-
-          {!view.maximized && (
+          {/* Primary pane — with the SAME collapse + maximize/restore controls as a
+              panel (#182). Its Close stays route-back (the primary can't be removed
+              from the split; use its rail's X to dock/restore it). */}
+          {!view.primaryOnRail && (
             <div className="min-w-0 flex-1 overflow-y-auto border-r border-border-default">
-              <RecordDetail ws={ws} db={db} rec={rec} />
+              <RecordDetail
+                ws={ws}
+                db={db}
+                rec={rec}
+                onCollapse={() => dispatch({ type: 'collapse', id: PRIMARY_ID })}
+                isMaximized={view.primaryMaximized}
+                onToggleMaximize={() =>
+                  dispatch(view.primaryMaximized ? { type: 'restore' } : { type: 'maximize', id: PRIMARY_ID })
+                }
+              />
             </div>
           )}
 
@@ -89,10 +107,10 @@ export function RecordSurface({ ws, db, rec }: { ws: string; db: string; rec: st
                 rec={view.activePanel.target.rec}
                 onClose={() => dispatch({ type: 'close', id: view.activePanel!.id })}
                 onCollapse={() => dispatch({ type: 'collapse', id: view.activePanel!.id })}
-                isMaximized={view.maximized}
+                isMaximized={view.activePanelMaximized}
                 onToggleMaximize={() =>
                   dispatch(
-                    view.maximized
+                    view.activePanelMaximized
                       ? { type: 'restore' }
                       : { type: 'maximize', id: view.activePanel!.id },
                   )
@@ -100,6 +118,20 @@ export function RecordSurface({ ws, db, rec }: { ws: string; db: string; rec: st
               />
             </div>
           )}
+
+          {/* Collapsed panels dock to a RIGHT rail, in place (#182). */}
+          {view.rightRailPanels.map((panel) => (
+            <Rail
+              key={panel.id}
+              side="right"
+              icon={<ChevronsLeftRight className="h-3.5 w-3.5 shrink-0" />}
+              label={panel.target.title || 'Untitled'}
+              number={panel.target.number}
+              closeLabel="Close"
+              onExpand={() => dispatch({ type: 'expand', id: panel.id })}
+              onClose={() => dispatch({ type: 'close', id: panel.id })}
+            />
+          ))}
         </div>
       ) : (
         <RecordDetail ws={ws} db={db} rec={rec} />
@@ -109,52 +141,56 @@ export function RecordSurface({ ws, db, rec }: { ws: string; db: string; rec: st
 }
 
 /**
- * A collapsed panel's peek-rail (#166): a slim (~28px) vertical column between the
- * primary pane and the sidebar, showing the record's title as a rotated spine.
- * The whole rail is a button so keyboard + pointer users can re-expand it.
+ * A collapsed pane's peek-rail (#166/#184): a slim (~32px) vertical column showing
+ * the record's full title as a rotated spine (with a `title=` tooltip carrying the
+ * complete title) plus an X to close/restore the pane without expanding it first.
+ * Used for BOTH the primary's left rail and every panel's right rail, so the two
+ * sides look identical; `side` only picks which edge carries the divider border.
  */
-function PeekRail({
-  title,
+function Rail({
+  side,
+  icon,
+  label,
   number,
   onExpand,
+  onClose,
+  closeLabel,
 }: {
-  title?: string | null;
+  side: 'left' | 'right';
+  icon: ReactNode;
+  label: string;
   number?: number | null;
   onExpand: () => void;
+  onClose: () => void;
+  closeLabel: string;
 }) {
-  const label = title || 'Untitled';
   return (
-    <button
-      type="button"
-      title={`Expand ${label}`}
-      aria-label={`Expand ${label}`}
-      onClick={onExpand}
-      className="group flex w-7 shrink-0 flex-col items-center gap-2 overflow-hidden border-r border-border-default bg-card py-3 text-muted hover:bg-hover hover:text-ink"
-    >
-      <ChevronsLeftRight className="h-3.5 w-3.5 shrink-0" />
-      <span className="min-h-0 flex-1 truncate text-[12px] [writing-mode:vertical-rl]">{label}</span>
-      {number != null && (
-        <span className="shrink-0 text-[10px] tabular-nums text-faint">#{number}</span>
+    <div
+      className={cn(
+        'flex w-8 shrink-0 flex-col items-center gap-1 bg-card py-2 text-muted',
+        side === 'left' ? 'border-r border-border-default' : 'border-l border-border-default',
       )}
-    </button>
-  );
-}
-
-/**
- * The primary record's rail, shown only while a panel is maximized (#167) so the
- * maximized pane can fill the split area. Clicking it restores the shared pair.
- */
-function PrimaryRail({ onRestore }: { onRestore: () => void }) {
-  return (
-    <button
-      type="button"
-      title="Restore split view"
-      aria-label="Restore split view"
-      onClick={onRestore}
-      className="group flex w-7 shrink-0 flex-col items-center gap-2 overflow-hidden border-r border-border-default bg-card py-3 text-muted hover:bg-hover hover:text-ink"
     >
-      <PanelLeftOpen className="h-3.5 w-3.5 shrink-0" />
-      <span className="min-h-0 flex-1 truncate text-[12px] [writing-mode:vertical-rl]">Record</span>
-    </button>
+      <button
+        type="button"
+        title={closeLabel}
+        aria-label={`${closeLabel} ${label}`}
+        onClick={onClose}
+        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-faint hover:bg-hover hover:text-ink"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+      <button
+        type="button"
+        title={label}
+        aria-label={`Expand ${label}`}
+        onClick={onExpand}
+        className="group flex min-h-0 flex-1 flex-col items-center gap-2 overflow-hidden rounded py-1 hover:bg-hover hover:text-ink"
+      >
+        {icon}
+        <span className="min-h-0 flex-1 truncate text-[12px] [writing-mode:vertical-rl]">{label}</span>
+      </button>
+      {number != null && <span className="shrink-0 text-[10px] tabular-nums text-faint">#{number}</span>}
+    </div>
   );
 }

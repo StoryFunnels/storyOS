@@ -68,11 +68,13 @@ import type { RecordRow } from '@/components/table-view/use-table-data';
  * `onClose` switches the header's Close control from route-back (the page's own
  * behavior, preserved) to closing the panel (the split host's behavior).
  *
- * When this record is a split panel, the host also passes the panel-chrome
- * controls (#167): `onCollapse` docks it to a peek-rail, and `onToggleMaximize`
- * flips between the shared ~50/50 pair and filling the split area (`isMaximized`
- * picks the Maximize/Minimize icon + label). They're absent on the full page and
- * on the primary pane, where only the base Close control shows.
+ * In a split, the host passes the SAME pane-chrome controls (#167/#182) to every
+ * pane — the primary AND each panel: `onCollapse` docks it to its rail, and
+ * `onToggleMaximize` flips between the shared ~50/50 pair and filling the split
+ * area (`isMaximized` picks the Maximize/Minimize icon + label). They're absent on
+ * the full page. `onClose` is passed to panels (dismiss the panel) but not to the
+ * primary pane, whose Close stays route-back — the primary can't be removed from
+ * the split (dock it via its rail instead).
  */
 export function RecordDetail({
   ws,
@@ -248,8 +250,8 @@ export function RecordDetail({
           {onCollapse && (
             <button
               type="button"
-              title="Collapse to rail"
-              aria-label="Collapse panel to rail"
+              title="Collapse"
+              aria-label="Collapse to rail"
               className="inline-flex h-7 w-7 items-center justify-center rounded text-muted hover:bg-hover hover:text-ink"
               onClick={onCollapse}
             >
@@ -259,8 +261,8 @@ export function RecordDetail({
           {onToggleMaximize && (
             <button
               type="button"
-              title={isMaximized ? 'Restore split' : 'Maximize panel'}
-              aria-label={isMaximized ? 'Restore split view' : 'Maximize panel'}
+              title={isMaximized ? 'Restore' : 'Maximize'}
+              aria-label={isMaximized ? 'Restore split view' : 'Maximize pane'}
               className="inline-flex h-7 w-7 items-center justify-center rounded text-muted hover:bg-hover hover:text-ink"
               onClick={onToggleMaximize}
             >
