@@ -421,9 +421,9 @@ function PercentBar({ field, value }: { field: Field; value: unknown }) {
  */
 const FIELD_LABEL_CLS = 'text-[12px] font-medium text-muted';
 
-function FieldTypeGlyph({ type }: { type: string }) {
+function FieldTypeGlyph({ type, className }: { type: string; className?: string }) {
   const Icon = fieldTypeIcon(type);
-  return <Icon className="h-3.5 w-3.5 shrink-0 text-faint" aria-hidden />;
+  return <Icon className={cn('h-3.5 w-3.5 shrink-0 text-faint', className)} aria-hidden />;
 }
 
 /** Compact draggable property in the right sidebar (label above value). */
@@ -435,7 +435,7 @@ export function SidebarField({ field, schemaEditable, onToggleZone, topDivider, 
       ref={sortable.setNodeRef}
       style={style}
       className={cn(
-        'group rounded-md px-1.5 py-1.5 hover:bg-hover/50',
+        'group relative rounded-md py-1.5 pl-1.5 pr-1.5 hover:bg-hover/50',
         // #179: a hairline + a touch more breathing room above the first system
         // field (created/updated/by) sets the read-only audit block apart from
         // the user's own properties without a heavy divider.
@@ -443,35 +443,39 @@ export function SidebarField({ field, schemaEditable, onToggleZone, topDivider, 
         sortable.isDragging && 'z-10 bg-card opacity-80 shadow-sm',
       )}
     >
-      <div className="mb-0.5 flex items-center gap-1">
-        {schemaEditable && (
-          <button
-            aria-label="Drag to reorder"
-            title="Drag to reorder"
-            className={cn(
-              '-ml-1 flex h-5 w-5 shrink-0 touch-none items-center justify-center rounded text-faint opacity-0 transition-opacity hover:bg-hover hover:text-muted group-hover:opacity-100',
-              sortable.isDragging ? 'cursor-grabbing' : 'cursor-grab',
-            )}
-            {...sortable.attributes}
-            {...sortable.listeners}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <GripVertical className="h-3.5 w-3.5" />
-          </button>
-        )}
-        {/* #176: per-field collapse caret removed — it implied per-field collapse
-            (visual noise). Whole-panel collapsers ("N hidden") live in the panel. */}
-        <FieldTypeGlyph type={field.type} />
-        {/* #174: labels stay text-muted (readable); #176: Title-case-ish, not
-            all-caps, for Fibery parity. #206: shared label style across placements. */}
-        <span className={cn('flex-1 truncate', FIELD_LABEL_CLS)}>{field.displayName}</span>
-        {schemaEditable && <FieldMenu field={field} onToggleZone={onToggleZone} ws={vp.ws} db={vp.db} />}
+      {/* #209: drag grip pulled OUT of the label's flow (absolute) so it no
+          longer indents the label past the value. Appears on row hover. */}
+      {schemaEditable && (
+        <button
+          aria-label="Drag to reorder"
+          title="Drag to reorder"
+          className={cn(
+            'absolute left-0.5 top-2 z-10 flex h-5 w-5 touch-none items-center justify-center rounded text-faint opacity-0 transition-opacity hover:bg-hover hover:text-muted group-hover:opacity-100',
+            sortable.isDragging ? 'cursor-grabbing' : 'cursor-grab',
+          )}
+          {...sortable.attributes}
+          {...sortable.listeners}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <GripVertical className="h-3.5 w-3.5" />
+        </button>
+      )}
+      {/* #209: two-column layout — the type icon lives in a fixed gutter, and the
+          label text + value stack in the second column so they share ONE left
+          edge. The value cell's -mx-1.5 (below) now bleeds relative to this
+          column, landing the value flush under the label — no more drift. */}
+      <div className="flex gap-1.5">
+        <FieldTypeGlyph type={field.type} className="mt-[3px]" />
+        <div className="min-w-0 flex-1">
+          <div className="mb-0.5 flex items-center gap-1">
+            {/* #174: labels stay text-muted (readable); #176: Title-case-ish, not
+                all-caps, for Fibery parity. #206: shared label style. */}
+            <span className={cn('flex-1 truncate', FIELD_LABEL_CLS)}>{field.displayName}</span>
+            {schemaEditable && <FieldMenu field={field} onToggleZone={onToggleZone} ws={vp.ws} db={vp.db} />}
+          </div>
+          <ScalarValue field={field} cell schemaEditable={schemaEditable} onToggleZone={onToggleZone} {...vp} />
+        </div>
       </div>
-      {/* #206: value flush-left with the label row (under the icon gutter). The
-          #176 cell keeps its inner padding but bleeds outward (-mx-1.5) so the
-          value's text left edge lines up with the label row and with chip/badge
-          values (relations), which have no cell — no per-field-type drift. */}
-      <ScalarValue field={field} cell schemaEditable={schemaEditable} onToggleZone={onToggleZone} {...vp} />
     </div>
   );
 }
