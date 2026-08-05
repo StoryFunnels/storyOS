@@ -14,6 +14,25 @@ const FORMULA_TYPE_OF: Record<string, 'text' | 'number' | 'checkbox' | 'date' | 
   rollup: 'number',
 };
 
+/** #204: friendly name for a formula value type. `null` in a spec means "any" (a
+ * slot that accepts any type, e.g. if()'s then/else), never the literal null. */
+function friendlyType(t: string): string {
+  return t === 'checkbox' ? 'true/false' : t === 'null' ? 'any' : t;
+}
+
+/** #204: a compact "takes … → returns" syntax hint built from a function's spec —
+ * the discoverability the old flat list lacked. Variadic args render as `type…`. */
+function fnArgHint(spec: { args: unknown; returns: string }): string {
+  const args = spec.args;
+  let takes: string;
+  if (args === 'variadic-number') takes = 'number…';
+  else if (args === 'variadic-text') takes = 'text…';
+  else if (args === 'variadic-any') takes = 'any…';
+  else if (Array.isArray(args)) takes = args.map((a) => friendlyType(String(a))).join(', ');
+  else takes = '';
+  return `${takes} → ${friendlyType(spec.returns)}`;
+}
+
 export function FormulaEditor({
   ws,
   db,
@@ -85,6 +104,8 @@ export function FormulaEditor({
   }
 
   const [panel, setPanel] = useState<'none' | 'fields' | 'functions'>('none');
+  // #204: filter the functions browser — 20+ functions are tedious to scan.
+  const [funcQuery, setFuncQuery] = useState('');
   const insert = (snippet: string) => onChange(expression + snippet);
 
   // Live autocomplete (MN-18): suggest fields inside {…} and functions on a bare word.
@@ -199,7 +220,7 @@ export function FormulaEditor({
             <button
               key={f.api_name}
               type="button"
-              className="rounded bg-hover px-1.5 py-0.5 text-[12px] text-ink hover:bg-active"
+              className="inline-flex items-center gap-1 rounded bg-hover px-1.5 py-0.5 text-[12px] text-ink hover:bg-active"
               onClick={() => {
                 // If the user just typed "{", complete it; otherwise insert a full {Field}.
                 onChange(expression.endsWith('{') ? `${expression}${f.display_name}}` : `${expression}{${f.display_name}}`);
@@ -207,28 +228,53 @@ export function FormulaEditor({
               }}
             >
               {f.display_name}
+              {/* #204: type badge so the author knows what a field evaluates to. */}
+              <span className="rounded bg-card px-1 text-[10px] font-medium text-muted">{friendlyType(String(f.formula_type))}</span>
             </button>
           ))}
         </div>
       )}
       {panel === 'functions' && (
-        <div className="max-h-40 overflow-y-auto rounded-[var(--radius-card)] border border-border-default bg-card p-1">
-          {Object.entries(FORMULA_FUNCTIONS).map(([name, spec]) => (
-            <button
-              key={name}
-              type="button"
-              title={spec.example}
-              className="flex w-full flex-col rounded px-2 py-1 text-left hover:bg-hover"
-              onClick={() => {
-                const noArgs = name === 'now' || name === 'today';
-                insert(noArgs ? `${name}()` : `${name}(`);
-                setPanel('none');
-              }}
-            >
-              <span className="font-mono text-[12px] text-ink">{spec.example}</span>
-              <span className="text-[11px] text-muted">{spec.doc}</span>
-            </button>
-          ))}
+        <div className="rounded-[var(--radius-card)] border border-border-default bg-card p-1">
+          {/* #204: search + a per-function signature hint ("takes … → returns"),
+              so the 20+ functions are browsable instead of a flat scroll. */}
+          <input
+            autoFocus
+            value={funcQuery}
+            onChange={(e) => setFuncQuery(e.target.value)}
+            onKeyDown={(e) => e.stopPropagation()}
+            placeholder="Search functions…"
+            className="mb-1 w-full rounded border border-border-default bg-card px-1.5 py-1 text-[12px] text-ink outline-none focus:border-border-strong"
+          />
+          <div className="max-h-40 overflow-y-auto">
+            {(() => {
+              const q = funcQuery.trim().toLowerCase();
+              const matches = Object.entries(FORMULA_FUNCTIONS).filter(
+                ([name, spec]) =>
+                  !q || name.includes(q) || spec.doc.toLowerCase().includes(q) || spec.example.toLowerCase().includes(q),
+              );
+              if (matches.length === 0) return <p className="px-2 py-1 text-[12px] text-faint">No functions match “{funcQuery}”.</p>;
+              return matches.map(([name, spec]) => (
+                <button
+                  key={name}
+                  type="button"
+                  className="flex w-full flex-col gap-0.5 rounded px-2 py-1 text-left hover:bg-hover"
+                  onClick={() => {
+                    const noArgs = name === 'now' || name === 'today';
+                    insert(noArgs ? `${name}()` : `${name}(`);
+                    setPanel('none');
+                    setFuncQuery('');
+                  }}
+                >
+                  <span className="flex items-baseline justify-between gap-2">
+                    <span className="font-mono text-[12px] text-ink">{spec.example}</span>
+                    <span className="shrink-0 font-mono text-[10px] text-faint">{fnArgHint(spec)}</span>
+                  </span>
+                  <span className="text-[11px] text-muted">{spec.doc}</span>
+                </button>
+              ));
+            })()}
+          </div>
         </div>
       )}
       <p className={cn('text-[12px]', feedback.kind === 'error' ? 'text-error' : 'text-muted')}>
