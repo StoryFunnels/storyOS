@@ -2,8 +2,8 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useMemo, useState } from 'react';
-import type { ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { CSSProperties, ReactNode, RefObject } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
@@ -57,6 +57,14 @@ import {
   StarButton,
 } from '@/components/entity/record-chrome';
 import { parseRecordParam } from '@/lib/records';
+import {
+  clampSidebarWidth,
+  SIDEBAR_DEFAULT_W,
+  SIDEBAR_MAX_W,
+  SIDEBAR_MIN_W,
+  SIDEBAR_STEP,
+  useRecordSidebarWidth,
+} from '@/lib/record-sidebar-width';
 import { cn } from '@/lib/utils';
 import type { RecordRow } from '@/components/table-view/use-table-data';
 
@@ -202,6 +210,13 @@ export function RecordDetail({
   const [tab, setTab] = useState<'comments' | 'activity'>('comments');
   const [titleDraft, setTitleDraft] = useState<string | null>(null);
 
+  // Resizable properties sidebar (#198). `columnsRef` measures the body+aside
+  // flex row so the drag/keyboard math can keep the body from getting too
+  // narrow. Width applies only at lg+ (see the inline style + ResizeHandle).
+  const columnsRef = useRef<HTMLDivElement | null>(null);
+  const { width: sidebarWidth, setWidth: setSidebarWidth, persist: persistSidebarWidth } =
+    useRecordSidebarWidth();
+
   if (record.isLoading || database.isLoading) return <p className="p-6 text-sm text-muted">Loading…</p>;
   if (!record.data) return <p className="p-6 text-sm text-error">Record not found.</p>;
 
@@ -323,7 +338,7 @@ export function RecordDetail({
         </div>
       </div>
 
-      <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+      <div ref={columnsRef} className="flex flex-col gap-6 lg:flex-row lg:items-start">
         {/* MAIN BODY: title, pinned strip, collections + rich sections, description, discussion */}
         <div className="min-w-0 flex-1">
           <div className="mb-4 flex items-center gap-2">
@@ -453,8 +468,22 @@ export function RecordDetail({
           </div>
         </div>
 
-        {/* RIGHT SIDEBAR: scalar properties */}
-        <aside className="w-full shrink-0 lg:sticky lg:top-6 lg:w-72">
+        {/* Drag divider (#198): resizes the body vs. sidebar at lg+. Hidden on
+            mobile, where the aside stacks full-width below the body. */}
+        <ResizeHandle
+          width={sidebarWidth}
+          containerRef={columnsRef}
+          onResize={setSidebarWidth}
+          onCommit={persistSidebarWidth}
+        />
+
+        {/* RIGHT SIDEBAR: scalar properties. Fixed 288px pre-#198 (lg:w-72); now a
+            resizable, persisted width applied via a CSS var so mobile stays
+            full-width stacked. */}
+        <aside
+          style={{ '--rec-sidebar-w': `${sidebarWidth}px` } as CSSProperties}
+          className="w-full shrink-0 lg:sticky lg:top-6 lg:w-[var(--rec-sidebar-w)]"
+        >
           <div className="rounded-[var(--radius-card)] border border-border-default bg-card">
             <div className="flex items-center justify-between border-b border-border-default px-3 py-2">
               <span className="text-[11px] font-semibold uppercase tracking-wider text-muted">Properties</span>
@@ -554,6 +583,111 @@ function BodyRow({
         </button>
       )}
       {children}
+    </div>
+  );
+}
+
+/**
+ * The draggable divider between the record body and the properties sidebar
+ * (#198). Desktop-only (`hidden lg:block`) — a thin hairline that brightens on
+ * hover/focus/drag, with a wide invisible hit area. Dragging left grows the
+ * sidebar (the body takes the rest); double-click or Home resets to the 288px
+ * default; ArrowLeft/ArrowRight nudge the width. Drag is pointer-event based:
+ * pointerdown captures the start, window pointermove updates the live width
+ * (clamped against the measured container so the body never gets too narrow),
+ * and pointerup persists. `role="separator"` + arrow keys make it accessible.
+ */
+function ResizeHandle({
+  width,
+  containerRef,
+  onResize,
+  onCommit,
+}: {
+  width: number;
+  containerRef: RefObject<HTMLDivElement | null>;
+  onResize: (width: number) => void;
+  onCommit: (width: number) => void;
+}) {
+  const drag = useRef<{ startX: number; startW: number } | null>(null);
+  const [dragging, setDragging] = useState(false);
+  // Keep the latest width in a ref so the window listeners (bound once) read the
+  // current value without re-subscribing on every resize.
+  const widthRef = useRef(width);
+  widthRef.current = width;
+
+  const containerWidth = () => containerRef.current?.getBoundingClientRect().width;
+
+  useEffect(() => {
+    function onMove(e: PointerEvent) {
+      const s = drag.current;
+      if (!s) return;
+      // Sidebar is on the right: dragging the handle left (smaller clientX) grows it.
+      onResize(clampSidebarWidth(s.startW + (s.startX - e.clientX), containerWidth()));
+    }
+    function onUp() {
+      if (!drag.current) return;
+      drag.current = null;
+      setDragging(false);
+      onCommit(widthRef.current);
+    }
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    // containerRef is a stable ref; onResize/onCommit are stable callbacks.
+  }, [containerRef, onResize, onCommit]);
+
+  const nudge = (deltaPx: number) =>
+    onCommit(clampSidebarWidth(widthRef.current + deltaPx, containerWidth()));
+
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize properties sidebar"
+      aria-valuemin={SIDEBAR_MIN_W}
+      aria-valuemax={SIDEBAR_MAX_W}
+      aria-valuenow={Math.round(width)}
+      tabIndex={0}
+      title="Drag to resize · double-click to reset"
+      onPointerDown={(e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        e.currentTarget.setPointerCapture?.(e.pointerId);
+        drag.current = { startX: e.clientX, startW: widthRef.current };
+        setDragging(true);
+      }}
+      onDoubleClick={() => onCommit(SIDEBAR_DEFAULT_W)}
+      onKeyDown={(e) => {
+        if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          nudge(SIDEBAR_STEP); // grow the sidebar
+        } else if (e.key === 'ArrowRight') {
+          e.preventDefault();
+          nudge(-SIDEBAR_STEP); // shrink the sidebar
+        } else if (e.key === 'Home') {
+          e.preventDefault();
+          onCommit(SIDEBAR_DEFAULT_W);
+        }
+      }}
+      className={cn(
+        'group relative hidden shrink-0 cursor-col-resize touch-none self-stretch lg:block',
+        // Negative margins let the wide hit area overlap the gap-6 without adding width.
+        '-mx-2 w-4',
+        dragging && 'select-none',
+      )}
+    >
+      <span
+        aria-hidden
+        className={cn(
+          'pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors',
+          dragging
+            ? 'bg-accent'
+            : 'bg-border-default group-hover:bg-border-strong group-focus-visible:bg-border-strong',
+        )}
+      />
     </div>
   );
 }
