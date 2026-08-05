@@ -3,6 +3,7 @@ import {
   detectMentionTrigger,
   filterMembers,
   mentionInsertContent,
+  recordBreadcrumb,
   recordMentionProps,
   recordRowLabel,
   userMentionProps,
@@ -23,6 +24,8 @@ describe('# record picker mapping (#139)', () => {
       number: 12,
       title: 'Phoenix launch checklist',
       database: 'Open Tasks',
+      color: null,
+      space: null,
     });
   });
 
@@ -30,6 +33,17 @@ describe('# record picker mapping (#139)', () => {
     const row = recordRowLabel({ ...rec, number: null, title: '' });
     expect(row.number).toBeNull();
     expect(row.title).toBe('Untitled');
+  });
+
+  it('#178: carries the db colour + owning space and builds a `space › database` breadcrumb', () => {
+    const row = recordRowLabel({ ...rec, database_color: 'blue', space_name: 'Product' });
+    expect(row.color).toBe('blue');
+    expect(row.space).toBe('Product');
+    expect(recordBreadcrumb(row.space, row.database)).toBe('Product › Open Tasks');
+  });
+
+  it('#178: breadcrumb degrades to the database alone when the space is unknown', () => {
+    expect(recordBreadcrumb(null, 'Open Tasks')).toBe('Open Tasks');
   });
 
   it('builds a record mention that carries the id + db so the chip links and resolves', () => {

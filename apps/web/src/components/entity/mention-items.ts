@@ -22,6 +22,12 @@ export interface SearchRecord {
   database_id: string;
   database_name: string;
   number?: number | null;
+  /** #178: owning database colour (DbColorMarker cylinder), owning space name
+   *  (for the `space › database` breadcrumb) and the coarse entity kind — all
+   *  optional so pre-#178 payloads (and markdown-sourced rows) still render. */
+  database_color?: string | null;
+  space_name?: string | null;
+  type?: string;
 }
 
 /** A workspace member as offered in the @ picker. */
@@ -51,18 +57,30 @@ export function mentionInsertContent(props: MentionProps): [{ type: 'mention'; p
   return [{ type: 'mention', props }, ' '];
 }
 
-/** Row shape for the # record picker: the faint #<number>, the title, and the
- *  owning database (as subtext). Missing numbers degrade to null (no "#"). */
+/** Row shape for the # record picker: the faint #<number>, the title, the
+ *  owning database (as subtext), plus #178's db colour and owning space. Missing
+ *  numbers degrade to null (no "#"); missing colour/space degrade to null so the
+ *  marker / space-prefix are simply omitted. */
 export function recordRowLabel(r: SearchRecord): {
   number: number | null;
   title: string;
   database: string;
+  color: string | null;
+  space: string | null;
 } {
   return {
     number: r.number ?? null,
     title: r.title || 'Untitled',
     database: r.database_name,
+    color: r.database_color ?? null,
+    space: r.space_name ?? null,
   };
+}
+
+/** #178: the `space › database` breadcrumb subtext for a picker row. Falls back
+ *  to the database alone when the owning space name is unknown. */
+export function recordBreadcrumb(space: string | null, database: string): string {
+  return space ? `${space} › ${database}` : database;
 }
 
 /** Case-insensitive name filter for the @ picker's local member list. */

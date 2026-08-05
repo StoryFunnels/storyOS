@@ -94,10 +94,16 @@ export class SearchController {
         database_id: records.databaseId,
         database_name: databases.name,
         database_icon: databases.icon,
+        // #178: the owning database's colour (for the DbColorMarker cylinder) and
+        // its space name (for the `space › database` breadcrumb) so a picker row
+        // reads exactly like a relation chip without a follow-up fetch.
+        database_color: databases.color,
+        space_name: spaces.name,
         updated_at: records.updatedAt,
       })
       .from(records)
       .innerJoin(databases, eq(databases.id, records.databaseId))
+      .innerJoin(spaces, eq(spaces.id, databases.spaceId))
       .where(
         and(
           eq(databases.workspaceId, workspaceId),
@@ -132,7 +138,10 @@ export class SearchController {
     }
 
     return {
-      records: recordRows,
+      // #178: `type` is the entity discriminator every record row carries — coarse
+      // today (all hits are records), it lets the picker filter by kind and stays
+      // consistent with /recent below.
+      records: recordRows.map((r) => ({ ...r, type: 'record' as const })),
       places: [
         ...databaseRows.map((d) => ({ kind: 'database' as const, ...d })),
         ...spaceRows.map((s) => ({ kind: 'space' as const, ...s })),
@@ -228,13 +237,19 @@ export class SearchController {
     const recent = await this.db
       .select({
         id: records.id,
+        number: records.number,
         title: records.title,
         database_id: records.databaseId,
         database_name: databases.name,
         database_icon: databases.icon,
+        // #178: same enrichment as /search so recents render an identical row —
+        // db colour marker + `space › database` breadcrumb.
+        database_color: databases.color,
+        space_name: spaces.name,
       })
       .from(records)
       .innerJoin(databases, eq(databases.id, records.databaseId))
+      .innerJoin(spaces, eq(spaces.id, databases.spaceId))
       .where(
         and(
           inArray(records.id, ids),
@@ -245,6 +260,6 @@ export class SearchController {
       .limit(10);
     const order = new Map(ids.map((id, i) => [id, i]));
     recent.sort((a, b) => (order.get(a.id) ?? 99) - (order.get(b.id) ?? 99));
-    return { records: recent.slice(0, 10) };
+    return { records: recent.slice(0, 10).map((r) => ({ ...r, type: 'record' as const })) };
   }
 }

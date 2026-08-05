@@ -57,6 +57,19 @@ describe('global search (MN-048)', () => {
     expect(hit.database_name).toBe('Open Tasks');
   });
 
+  it('enriches each hit with the db colour, owning space and entity type (#178)', async () => {
+    const res = await inject(admin.token, 'GET', `/workspaces/${wsId}/search?q=phoenix`);
+    const hit = res
+      .json()
+      .records.find((r: { title: string }) => r.title === 'Phoenix launch checklist');
+    expect(hit).toBeDefined();
+    // Every record hit carries the (coarse) entity discriminator + owning space.
+    expect(hit.type).toBe('record');
+    expect(hit.space_name).toBe('General');
+    // `database_color` is present (nullable when the db has no colour set).
+    expect(hit).toHaveProperty('database_color');
+  });
+
   it('scopes guests to granted spaces', async () => {
     const res = await inject(guest.token, 'GET', `/workspaces/${wsId}/search?q=phoenix`);
     expect(res.statusCode, res.body).toBe(200);
