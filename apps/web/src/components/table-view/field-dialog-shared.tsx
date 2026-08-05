@@ -356,6 +356,23 @@ export function ConfigEditor({
       </div>
     );
   }
+  if (type === 'formula') {
+    // #190: expression editing after creation isn't offered here, but a number
+    // formula can be toggled to percent so it renders as a progress bar. The
+    // server stores result_type after compiling, so gate on it; if it's not a
+    // number, there's nothing to format.
+    if (config.result_type !== 'number') return null;
+    return (
+      <label className="flex items-center gap-2 text-[13px] text-ink">
+        <input
+          type="checkbox"
+          checked={config.format === 'percent'}
+          onChange={(e) => set('format', e.target.checked ? 'percent' : 'plain')}
+        />
+        Show as percentage (progress bar)
+      </label>
+    );
+  }
   return null;
 }
 
