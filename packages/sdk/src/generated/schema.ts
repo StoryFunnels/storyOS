@@ -3607,6 +3607,7 @@ export interface components {
             options?: {
                 label: string;
                 color?: string;
+                icon?: string;
             }[];
         };
         UpdateFieldDto: {
@@ -3629,11 +3630,13 @@ export interface components {
              * @enum {string}
              */
             color: "gray" | "brown" | "gold" | "orange" | "red" | "pink" | "purple" | "blue" | "teal" | "green" | "lime" | "cyan" | "indigo" | "magenta" | "rose";
+            icon?: string;
         };
         UpdateOptionDto: {
             label?: string;
             /** @enum {string} */
             color?: "gray" | "brown" | "gold" | "orange" | "red" | "pink" | "purple" | "blue" | "teal" | "green" | "lime" | "cyan" | "indigo" | "magenta" | "rose";
+            icon?: string | null;
             position?: number;
         };
         DeleteOptionDto: {

@@ -1,0 +1,1 @@
+ALTER TABLE "select_options" ADD COLUMN "icon" text;

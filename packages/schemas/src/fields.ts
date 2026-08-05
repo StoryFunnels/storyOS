@@ -340,7 +340,14 @@ export const createFieldSchema = z
     config: z.record(z.string(), z.unknown()).optional(),
     /** Initial options for select/multi_select fields. */
     options: z
-      .array(z.object({ label: z.string().trim().min(1).max(100), color: z.string().optional() }))
+      .array(
+        z.object({
+          label: z.string().trim().min(1).max(100),
+          color: z.string().optional(),
+          // #202: optional curated icon ref (`set:<name>` / `brand:<slug>`).
+          icon: z.string().max(120).optional(),
+        }),
+      )
       .optional(),
   })
   .superRefine((value, ctx) => {
@@ -368,11 +375,15 @@ export const changeFieldTypeSchema = z.object({
 export const createOptionSchema = z.object({
   label: z.string().trim().min(1).max(100),
   color: z.enum(OPTION_COLORS).default('gray'),
+  // #202: optional curated icon ref (`set:<name>` / `brand:<slug>`).
+  icon: z.string().max(120).optional(),
 });
 
 export const updateOptionSchema = z.object({
   label: z.string().trim().min(1).max(100).optional(),
   color: z.enum(OPTION_COLORS).optional(),
+  // #202: nullable so an icon can be cleared (null) or set; omit to leave unchanged.
+  icon: z.string().max(120).nullish(),
   position: z.number().int().optional(),
 });
 
