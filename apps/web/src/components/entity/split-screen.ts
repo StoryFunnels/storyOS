@@ -1,17 +1,21 @@
 /**
- * Split-screen entity panels — pure logic (#146 Phase 1; #166/#167/#168 stacking).
+ * Split-screen entity panels — pure logic (#146 Phase 1; #166/#167/#168 stacking;
+ * #182/#183/#184 fixes).
  *
  * Design: docs/architecture/split-screen-plan.md. Phase 1 shipped ONE side panel
- * beside the record page (desktop ≥ md). This module extends that to a STACK of
- * panels with peek-rails:
- *   - #166: a collapsed panel docks to a slim vertical peek-rail (a rotated title
- *     spine) and re-expands on click; rails may sit on either side.
- *   - #167: each panel can collapse (→ rail) or maximize (fills the split area,
- *     siblings drop to rails) and restore (back to the shared ~50/50 pair).
- *   - #168: opening a further record pushes the stack — the oldest expanded panel
- *     docks to a rail so the active pair (primary record + one panel) is kept;
- *     the rail accumulates pushed panels, each independently re-expandable, and
- *     close/back unwinds the stack one level at a time.
+ * beside the record page (desktop ≥ md). Phase 2 extended that to a STACK of
+ * panels with peek-rails. This module carries the founder-testing fixes on top:
+ *   - #182: symmetric controls + collapse-in-place. Every pane — the primary
+ *     record AND every opened panel — exposes the same collapse / maximize·restore
+ *     / close controls and behaves identically. Collapsing docks a pane to a rail
+ *     ON THE SIDE IT ALREADY OCCUPIES: the primary sits on the left and rails left;
+ *     split panels sit on the right and rail right. No cross-screen jump.
+ *   - #183: the originating (primary) record is a first-class collapsible pane. It
+ *     can collapse to a LEFT rail independently (not only when something else is
+ *     maximized) and expand back — modelled by `primaryCollapsed` + the `PRIMARY_ID`
+ *     sentinel so collapse/expand/maximize/restore/close all accept the primary.
+ *   - #184: rail chrome (rendered by the host) — full-name spine + `title=` tooltip,
+ *     an X on the rail, and tooltips on every control.
  *
  * Everything decision-shaped lives here as pure functions so the mobile-fallback
  * rule AND every stack transition are unit-testable without a DOM (the repo's
@@ -32,34 +36,52 @@ export interface SplitTarget {
   number?: number | null;
 }
 
+/** Which side of the split area a pane occupies — and therefore which rail it
+ * docks to when collapsed (#182). The primary record is always `left`; opened
+ * split panels are always `right`, so a collapse never jumps across the screen. */
+export type SplitSide = 'left' | 'right';
+
 /** One panel in the stack. `id` is a stable identity minted on open (see `seq`)
  * so rails, controls, and React keys track a panel across collapse/expand without
- * keying on `(db, rec)` — the same record may legitimately be opened twice. */
+ * keying on `(db, rec)` — the same record may legitimately be opened twice.
+ * `side` records where the panel lives so it collapses IN PLACE (#182). */
 export interface SplitPanel {
   id: string;
   target: SplitTarget;
   /** Docked to a peek-rail (#166) when true; a full record pane when false. */
   collapsed: boolean;
+  /** The side this panel occupies / rails to. Opened panels are always `right`. */
+  side: SplitSide;
 }
 
+/** Reserved id for the primary (route) record when it participates in the same
+ * collapse/maximize model as the panels (#183). It is never minted for a real
+ * panel (those are `panel-{n}`), so it can safely flow through the same actions. */
+export const PRIMARY_ID = 'primary';
+
 /**
- * The whole split state: an ordered (left→right) panel stack, plus which panel —
- * if any — is maximized to fill the split area (#167), plus a monotonic counter
- * used to mint panel ids. Keeping the counter IN state is what lets `reduceSplit`
- * stay pure/deterministic (no `Math.random` / `Date.now`), which the unit tests
- * rely on. The primary record pane is NOT part of this stack — it's the route's
- * own record, owned by the host; the stack holds only the split-opened panels.
+ * The whole split state: an ordered (left→right) panel stack, whether the primary
+ * record is collapsed to its left rail (#183), which pane — if any — is maximized
+ * to fill the split area (#167; may be a panel id or `PRIMARY_ID`), plus a
+ * monotonic counter used to mint panel ids. Keeping the counter IN state is what
+ * lets `reduceSplit` stay pure/deterministic (no `Math.random` / `Date.now`),
+ * which the unit tests rely on. The primary record pane is NOT part of `panels`
+ * (it's the route's own record, owned by the host); `primaryCollapsed` /
+ * `maximizedId === PRIMARY_ID` are how the primary joins the model.
  */
 export interface SplitStackState {
   panels: SplitPanel[];
-  /** Id of the panel filling the split area, or null for the shared ~50/50 pair.
-   *  Always references a non-collapsed panel (invariant kept by the reducer). */
+  /** The primary record docked to its own LEFT rail (#183) when true. */
+  primaryCollapsed: boolean;
+  /** Id of the pane filling the split area (a panel id or `PRIMARY_ID`), or null
+   *  for the shared ~50/50 pair. Kept valid (points at a live, non-collapsed
+   *  participant) by the reducer. */
   maximizedId: string | null;
   seq: number;
 }
 
 /**
- * How many panels may be expanded (non-collapsed) at once. Phase 2 keeps the
+ * How many split PANELS may be expanded (non-collapsed) at once. Phase 2 keeps the
  * "active pair" — the primary record plus ONE expanded panel — so opening or
  * expanding beyond this docks the oldest expanded panel to a rail (#168). It's a
  * named constant (not a hardcoded 1) so the capacity rule reads intentionally and
@@ -69,7 +91,7 @@ export const MAX_EXPANDED_PANELS = 1;
 
 /** The base (no-panel) state. Used as `useReducer`'s lazy initializer. */
 export function emptySplitStack(): SplitStackState {
-  return { panels: [], maximizedId: null, seq: 0 };
+  return { panels: [], primaryCollapsed: false, maximizedId: null, seq: 0 };
 }
 
 /**
@@ -110,17 +132,21 @@ export type SplitAction =
    *  to rails to keep the active pair; a no-op if the same record is already the
    *  expanded panel (guards double-clicks / re-clicking the active relation). */
   | { type: 'open'; target: SplitTarget }
-  /** Dock a panel to a peek-rail (#166/#167). */
+  /** Dock a pane to its peek-rail (#166/#167/#182). `id` may be a panel id or
+   *  `PRIMARY_ID` — the primary docks to its left rail (#183). */
   | { type: 'collapse'; id: string }
-  /** Re-expand a panel from its rail (#166); docks whatever was expanded so the
-   *  active pair is preserved. */
+  /** Re-expand a pane from its rail (#166/#183). For a panel this docks whatever
+   *  was expanded so the active pair is preserved; for the primary it just brings
+   *  the primary pane back (and clears a sibling's maximize). */
   | { type: 'expand'; id: string }
-  /** Make a panel fill the split area, docking every sibling panel (#167). */
+  /** Make a pane fill the split area, docking every other participant (#167/#182).
+   *  `id` may be a panel id or `PRIMARY_ID`. */
   | { type: 'maximize'; id: string }
   /** Leave maximized mode, back to the shared ~50/50 pair (#167). */
   | { type: 'restore' }
   /** Close a panel; if it was the active pane, the most-recent rail re-expands so
-   *  the stack unwinds one level rather than leaving only rails (#168). */
+   *  the stack unwinds one level rather than leaving only rails (#168). Closing
+   *  `PRIMARY_ID` cannot remove the primary — it restores it to a pane (#184). */
   | { type: 'close'; id: string }
   /** Drop the entire stack — used by the mobile fallback when the viewport shrinks
    *  below `md` (plan §3.3). */
@@ -146,10 +172,16 @@ function collapseOverflow(panels: SplitPanel[], keepId: string): SplitPanel[] {
   return panels.map((p) => (toCollapse.has(p.id) ? { ...p, collapsed: true } : p));
 }
 
-/** Keep `maximizedId` only if it still points at a non-collapsed panel — the
- *  invariant that a maximized panel is always expanded. */
-function validMaximized(panels: SplitPanel[], maximizedId: string | null): string | null {
+/** Keep `maximizedId` only if it still points at a live, non-collapsed participant
+ *  — a panel that exists and is expanded, or the primary while it is not collapsed.
+ *  The invariant that a maximized pane is always visible. */
+function keepMaximized(
+  panels: SplitPanel[],
+  primaryCollapsed: boolean,
+  maximizedId: string | null,
+): string | null {
   if (!maximizedId) return null;
+  if (maximizedId === PRIMARY_ID) return primaryCollapsed ? null : PRIMARY_ID;
   const panel = panels.find((p) => p.id === maximizedId);
   return panel && !panel.collapsed ? maximizedId : null;
 }
@@ -168,30 +200,52 @@ export function reduceSplit(state: SplitStackState, action: SplitAction): SplitS
       );
       if (alreadyActive) return state;
       const id = `panel-${state.seq}`;
-      const pushed: SplitPanel = { id, target: action.target, collapsed: false };
+      const pushed: SplitPanel = { id, target: action.target, collapsed: false, side: 'right' };
       const panels = collapseOverflow([...state.panels, pushed], id);
       // A fresh open lands as the shared pair, never inheriting a prior maximize.
-      return { panels, maximizedId: null, seq: state.seq + 1 };
+      return { ...state, panels, maximizedId: null, seq: state.seq + 1 };
     }
 
     case 'expand': {
+      if (action.id === PRIMARY_ID) {
+        if (!state.primaryCollapsed && state.maximizedId !== PRIMARY_ID) return state;
+        // Bring the primary back as a pane; a maximized sibling steps down so the
+        // shared pair returns.
+        const maximizedId =
+          state.maximizedId === PRIMARY_ID ? null : keepMaximized(state.panels, false, state.maximizedId);
+        return { ...state, primaryCollapsed: false, maximizedId };
+      }
       if (!state.panels.some((p) => p.id === action.id)) return state;
       const panels = collapseOverflow(
         state.panels.map((p) => (p.id === action.id ? { ...p, collapsed: false } : p)),
         action.id,
       );
-      return { ...state, panels, maximizedId: validMaximized(panels, state.maximizedId) };
+      // Expanding a panel restores the shared pair, so a maximized primary steps down.
+      let maximizedId = keepMaximized(panels, state.primaryCollapsed, state.maximizedId);
+      if (maximizedId === PRIMARY_ID) maximizedId = null;
+      return { ...state, panels, maximizedId };
     }
 
     case 'collapse': {
+      if (action.id === PRIMARY_ID) {
+        if (state.primaryCollapsed) return state;
+        const maximizedId = keepMaximized(state.panels, true, state.maximizedId);
+        return { ...state, primaryCollapsed: true, maximizedId };
+      }
       if (!state.panels.some((p) => p.id === action.id)) return state;
       const panels = state.panels.map((p) => (p.id === action.id ? { ...p, collapsed: true } : p));
-      return { ...state, panels, maximizedId: validMaximized(panels, state.maximizedId) };
+      return { ...state, panels, maximizedId: keepMaximized(panels, state.primaryCollapsed, state.maximizedId) };
     }
 
     case 'maximize': {
+      if (action.id === PRIMARY_ID) {
+        // The primary fills the split area; every panel drops to its right rail.
+        const panels = state.panels.map((p) => ({ ...p, collapsed: true }));
+        return { ...state, panels, primaryCollapsed: false, maximizedId: PRIMARY_ID };
+      }
       if (!state.panels.some((p) => p.id === action.id)) return state;
-      // The maximized panel fills the split area; every sibling drops to a rail.
+      // The maximized panel fills the split area; every sibling panel drops to a
+      // rail, and the primary docks to its left rail (derived in `selectSplitView`).
       const panels = state.panels.map((p) =>
         p.id === action.id ? { ...p, collapsed: false } : { ...p, collapsed: true },
       );
@@ -202,11 +256,24 @@ export function reduceSplit(state: SplitStackState, action: SplitAction): SplitS
       return state.maximizedId === null ? state : { ...state, maximizedId: null };
 
     case 'close': {
+      if (action.id === PRIMARY_ID) {
+        // The primary can't be removed — "close" from its rail restores it to a
+        // pane (#184): un-collapse it and drop any primary-maximize.
+        if (!state.primaryCollapsed && state.maximizedId !== PRIMARY_ID) return state;
+        const maximizedId = state.maximizedId === PRIMARY_ID ? null : state.maximizedId;
+        return { ...state, primaryCollapsed: false, maximizedId };
+      }
       const closing = state.panels.find((p) => p.id === action.id);
       if (!closing) return state;
       const wasExpanded = !closing.collapsed;
       let panels = state.panels.filter((p) => p.id !== action.id);
-      const maximizedId = validMaximized(panels, state.maximizedId === action.id ? null : state.maximizedId);
+      // The last panel is gone → back to the plain primary-only view.
+      if (panels.length === 0) return { panels: [], primaryCollapsed: false, maximizedId: null, seq: state.seq };
+      const maximizedId = keepMaximized(
+        panels,
+        state.primaryCollapsed,
+        state.maximizedId === action.id ? null : state.maximizedId,
+      );
       // Unwind (#168): if closing the active pane leaves only rails, pop the
       // most-recent rail back to expanded so the split steps back a level.
       const last = panels[panels.length - 1];
@@ -222,22 +289,45 @@ export function reduceSplit(state: SplitStackState, action: SplitAction): SplitS
 }
 
 /**
- * A render-ready projection of the stack for the host: the collapsed panels (as
- * peek-rails), the single active pane (the maximized panel if any, else the lone
- * expanded one), and whether that pane is maximized (in which case the host also
- * docks the primary record to its own rail). Deriving this here keeps the host
- * free of stack logic and makes the layout decision unit-testable.
+ * A render-ready projection of the stack for the host: the collapsed panels split
+ * by the rail SIDE they dock to (#182), the single active split pane (the maximized
+ * panel if any, else the lone expanded one), and the primary's state — whether it
+ * shows as a pane, sits on its left rail, or fills the area maximized (#183).
+ * Deriving this here keeps the host free of stack logic and makes the layout
+ * decision unit-testable.
  */
 export interface SplitView {
-  railPanels: SplitPanel[];
+  /** Collapsed panels docked to the LEFT rail (reserved; opened panels rail right). */
+  leftRailPanels: SplitPanel[];
+  /** Collapsed panels docked to the RIGHT rail — the common case (#182). */
+  rightRailPanels: SplitPanel[];
+  /** The expanded split panel filling its half (or the whole area if maximized). */
   activePanel: SplitPanel | null;
-  maximized: boolean;
+  /** The active split panel is maximized (fills the split area). */
+  activePanelMaximized: boolean;
+  /** The primary record is maximized (fills the split area). */
+  primaryMaximized: boolean;
+  /** Render the primary as a LEFT rail instead of a pane — because it was collapsed
+   *  independently (#183) OR a panel is maximized and pushed it aside (#167). */
+  primaryOnRail: boolean;
 }
 
 export function selectSplitView(state: SplitStackState): SplitView {
-  const railPanels = state.panels.filter((p) => p.collapsed);
+  const collapsed = state.panels.filter((p) => p.collapsed);
+  const leftRailPanels = collapsed.filter((p) => p.side === 'left');
+  const rightRailPanels = collapsed.filter((p) => p.side === 'right');
   const expanded = state.panels.filter((p) => !p.collapsed);
-  const maximized = expanded.find((p) => p.id === state.maximizedId) ?? null;
-  const activePanel = maximized ?? expanded[0] ?? null;
-  return { railPanels, activePanel, maximized: Boolean(maximized) };
+  const maxPanel = expanded.find((p) => p.id === state.maximizedId) ?? null;
+  const activePanel = maxPanel ?? expanded[0] ?? null;
+  const primaryMaximized = state.maximizedId === PRIMARY_ID;
+  const activePanelMaximized = maxPanel !== null;
+  const primaryOnRail = !primaryMaximized && (state.primaryCollapsed || activePanelMaximized);
+  return {
+    leftRailPanels,
+    rightRailPanels,
+    activePanel,
+    activePanelMaximized,
+    primaryMaximized,
+    primaryOnRail,
+  };
 }
