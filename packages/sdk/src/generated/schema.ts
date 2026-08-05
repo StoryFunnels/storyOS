@@ -3628,12 +3628,12 @@ export interface components {
              * @default gray
              * @enum {string}
              */
-            color: "gray" | "brown" | "gold" | "orange" | "red" | "pink" | "purple" | "blue" | "teal" | "green";
+            color: "gray" | "brown" | "gold" | "orange" | "red" | "pink" | "purple" | "blue" | "teal" | "green" | "lime" | "cyan" | "indigo" | "magenta" | "rose";
         };
         UpdateOptionDto: {
             label?: string;
             /** @enum {string} */
-            color?: "gray" | "brown" | "gold" | "orange" | "red" | "pink" | "purple" | "blue" | "teal" | "green";
+            color?: "gray" | "brown" | "gold" | "orange" | "red" | "pink" | "purple" | "blue" | "teal" | "green" | "lime" | "cyan" | "indigo" | "magenta" | "rose";
             position?: number;
         };
         DeleteOptionDto: {
