@@ -16,7 +16,6 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import {
-  ArrowLeft,
   ChevronDown,
   ChevronRight,
   GripVertical,
@@ -27,7 +26,9 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/auth-client';
-import { useWorkspace } from '@/lib/queries';
+import { useDatabases, useSpaces, useWorkspace } from '@/lib/queries';
+import { EntityIcon } from '@/components/ui/icon-picker';
+import { DbColorMarker } from '@/components/table-view/relation-cell';
 import { atLeast } from '@/lib/access';
 import { useDatabase, useMembers, useRecordMutations } from '@/components/table-view/use-table-data';
 import type { Field } from '@/components/table-view/use-table-data';
@@ -48,7 +49,9 @@ import { CollectionSection } from '@/components/entity/collection-section';
 import { RichTextFieldSection } from '@/components/entity/rich-text-field';
 import {
   AddFieldRow,
+  CopyLinkButton,
   FieldsPopover,
+  HEADER_ICON_BTN,
   HiddenFieldRow,
   RecordActions,
   StarButton,
@@ -97,6 +100,15 @@ export function RecordDetail({
   const router = useRouter();
   const workspace = useWorkspace(ws);
   const database = useDatabase(ws, db);
+  // Breadcrumb context (#197): the database's parent space. Both queries are the
+  // sidebar's cached lists, so this reuses them rather than fetching anew. There
+  // is no dedicated space route yet, so Space renders as text, not a link.
+  const databases = useDatabases(ws);
+  const spaces = useSpaces(ws);
+  const spaceName = useMemo(() => {
+    const summary = databases.data?.find((d) => d.id === db);
+    return summary ? spaces.data?.find((s) => s.id === summary.spaceId)?.name : undefined;
+  }, [databases.data, spaces.data, db]);
   const { data: session } = useSession();
   const readOnly = !atLeast(database.data?.my_access, 'editor');
   const canComment = atLeast(database.data?.my_access, 'commenter');
@@ -221,19 +233,41 @@ export function RecordDetail({
   return (
     <div className="px-4 py-6 sm:px-8">
       <div className="mb-4 flex items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2">
+        {/* Breadcrumb (#197): Space › Database › #id. Database links to its list
+            view and carries the db colour/icon; Space is text-only (no dedicated
+            space route yet). Route-back is preserved by the Close control. */}
+        <nav
+          aria-label="Breadcrumb"
+          className="flex min-w-0 items-center gap-0.5 text-[13px] text-muted"
+        >
+          {spaceName && (
+            <>
+              <span className="hidden max-w-[9rem] truncate sm:inline" title={spaceName}>
+                {spaceName}
+              </span>
+              <ChevronRight className="hidden h-3.5 w-3.5 shrink-0 text-faint sm:inline" aria-hidden />
+            </>
+          )}
           <Link
             href={`/w/${ws}/d/${db}`}
-            className="inline-flex min-w-0 items-center gap-1.5 text-[13px] text-muted hover:text-ink"
+            className="inline-flex min-w-0 items-center gap-1.5 rounded px-1 py-0.5 hover:bg-hover hover:text-ink"
           >
-            <ArrowLeft className="h-3.5 w-3.5 shrink-0" /> <span className="truncate">{database.data?.name}</span>
+            <EntityIcon
+              icon={database.data?.icon ?? null}
+              color={database.data?.color ?? null}
+              fallback={<DbColorMarker color={database.data?.color ?? 'gray'} />}
+            />
+            <span className="truncate">{database.data?.name}</span>
           </Link>
           {record.data.number !== null && (
-            <span className="shrink-0 rounded bg-hover px-1.5 py-0.5 text-[11px] tabular-nums text-faint" title="Public id">
-              #{record.data.number}
-            </span>
+            <>
+              <ChevronRight className="h-3.5 w-3.5 shrink-0 text-faint" aria-hidden />
+              <span className="shrink-0 tabular-nums text-faint" title="Public id">
+                #{record.data.number}
+              </span>
+            </>
           )}
-        </div>
+        </nav>
         <div className="flex shrink-0 items-center gap-1">
           <StarButton ws={ws} rec={recordId} />
           {schemaEditable && <FieldsPopover ws={ws} db={db} fields={allFields} />}
@@ -253,7 +287,7 @@ export function RecordDetail({
               type="button"
               title="Collapse"
               aria-label="Collapse to rail"
-              className="inline-flex h-7 w-7 items-center justify-center rounded text-muted hover:bg-hover hover:text-ink"
+              className={HEADER_ICON_BTN}
               onClick={onCollapse}
             >
               <PanelLeftClose className="h-4 w-4" />
@@ -264,7 +298,7 @@ export function RecordDetail({
               type="button"
               title={isMaximized ? 'Restore' : 'Maximize'}
               aria-label={isMaximized ? 'Restore split view' : 'Maximize pane'}
-              className="inline-flex h-7 w-7 items-center justify-center rounded text-muted hover:bg-hover hover:text-ink"
+              className={HEADER_ICON_BTN}
               onClick={onToggleMaximize}
             >
               {isMaximized ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
@@ -274,7 +308,7 @@ export function RecordDetail({
             type="button"
             title="Close"
             aria-label="Close"
-            className="inline-flex h-7 w-7 items-center justify-center rounded text-muted hover:bg-hover hover:text-ink"
+            className={HEADER_ICON_BTN}
             onClick={() => {
               // In a split panel, Close dismisses the panel (#146). On the full
               // page, return to wherever they came from; fall back to the database
@@ -316,6 +350,9 @@ export function RecordDetail({
                 Computed
               </span>
             )}
+            {/* One-click share (#197): always visible next to the title, copies the
+                same record URL as the … menu's Copy link. */}
+            <CopyLinkButton />
           </div>
 
           {/* Top strip — a few pinned essentials; shown (with an add affordance) so it's discoverable */}

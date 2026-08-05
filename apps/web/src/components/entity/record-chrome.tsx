@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bot, Copy, CopyPlus, MoreHorizontal, SlidersHorizontal, Star, Trash2, Plus } from 'lucide-react';
+import { Bot, Copy, CopyPlus, Link2, MoreHorizontal, SlidersHorizontal, Star, Trash2, Plus } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -13,6 +13,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
@@ -22,6 +23,42 @@ import type { Field } from '@/components/table-view/use-table-data';
 import { useFavorites } from '@/components/sidebar';
 import { AUDIT_TYPES } from './entity-field-utils';
 import { useSetFieldConfig } from './field-controls';
+
+/**
+ * One uniform header icon-button (#197) — every control in the record header's
+ * right-side cluster (Star, Fields, Actions, Copy link, and the split-panel
+ * Collapse/Maximize/Close) shares this so they line up as equal-weight squares
+ * with a consistent hover background. Pair it with a `title=` tooltip.
+ */
+export const HEADER_ICON_BTN =
+  'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted transition-colors hover:bg-hover hover:text-ink';
+
+/** Copy the current record's URL — the single source of truth reused by the
+ * always-visible header chain button and the "Copy link" menu item (#197). */
+async function copyRecordLink() {
+  try {
+    await navigator.clipboard.writeText(window.location.href);
+    toast.success('Link copied');
+  } catch {
+    toast.error('Could not copy link');
+  }
+}
+
+/** Always-visible copy-link (chain) button sitting by the record title (#197) —
+ * one click puts the shareable record URL on the clipboard. */
+export function CopyLinkButton() {
+  return (
+    <button
+      type="button"
+      title="Copy link"
+      aria-label="Copy link to this record"
+      onClick={() => void copyRecordLink()}
+      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-faint transition-colors hover:bg-hover hover:text-ink"
+    >
+      <Link2 className="h-4 w-4" />
+    </button>
+  );
+}
 
 export function HiddenFieldRow({ ws, db, field }: { ws: string; db: string; field: Field }) {
   const setConfig = useSetFieldConfig(ws, db);
@@ -85,7 +122,8 @@ export function StarButton({ ws, rec }: { ws: string; rec: string }) {
     <button
       onClick={() => toggle.mutate()}
       title={starred ? 'Unstar' : 'Star'}
-      className="rounded p-1 text-muted hover:bg-hover hover:text-ink"
+      aria-label={starred ? 'Remove from favorites' : 'Add to favorites'}
+      className={HEADER_ICON_BTN}
     >
       <Star className={cn('h-4 w-4', starred && 'fill-[var(--accent)] text-[var(--accent)]')} />
     </button>
@@ -146,34 +184,27 @@ export function RecordActions({
     onError: () => toast.error('Could not delete'),
   });
 
-  const copyLink = async () => {
-    try {
-      await navigator.clipboard.writeText(window.location.href);
-      toast.success('Link copied');
-    } catch {
-      toast.error('Could not copy link');
-    }
-  };
-
   const [delegateOpen, setDelegateOpen] = useState(false);
 
   return (
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button className="rounded p-1 text-muted hover:bg-hover hover:text-ink" title="Actions">
+          <button className={HEADER_ICON_BTN} title="Actions" aria-label="Record actions">
             <MoreHorizontal className="h-4 w-4" />
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
+          {/* This record — everyday, non-destructive actions (#197). */}
+          <DropdownMenuLabel>This record</DropdownMenuLabel>
+          <DropdownMenuItem onSelect={() => void copyRecordLink()}>
+            <Copy className="mr-2 h-3.5 w-3.5" /> Copy link
+          </DropdownMenuItem>
           {canCreate && (
             <DropdownMenuItem onSelect={() => duplicate.mutate()}>
               <CopyPlus className="mr-2 h-3.5 w-3.5" /> Duplicate
             </DropdownMenuItem>
           )}
-          <DropdownMenuItem onSelect={copyLink}>
-            <Copy className="mr-2 h-3.5 w-3.5" /> Copy link
-          </DropdownMenuItem>
           {isAdmin && (
             <DropdownMenuItem onSelect={() => setDelegateOpen(true)}>
               <Bot className="mr-2 h-3.5 w-3.5" /> Delegate to agent
@@ -182,7 +213,11 @@ export function RecordActions({
           {!readOnly && (
             <>
               <DropdownMenuSeparator />
-              <DropdownMenuItem className="text-error" onSelect={() => remove.mutate()}>
+              <DropdownMenuLabel className="text-error/70">Danger</DropdownMenuLabel>
+              <DropdownMenuItem
+                className="text-error data-[highlighted]:bg-error/10"
+                onSelect={() => remove.mutate()}
+              >
                 <Trash2 className="mr-2 h-3.5 w-3.5" /> Delete
               </DropdownMenuItem>
             </>
@@ -336,6 +371,7 @@ export function FieldsPopover({ ws, db, fields }: { ws: string; db: string; fiel
       onToggle={(f, next) => setConfig.mutate({ fieldId: f.id, config: { entity_hidden: !next } })}
       triggerIcon={SlidersHorizontal}
       triggerLabel="Fields"
+      iconOnly
       align="end"
     />
   );

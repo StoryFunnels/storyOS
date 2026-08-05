@@ -41,6 +41,7 @@ export function FieldsMenu({
   triggerIcon: TriggerIcon,
   triggerLabel,
   triggerActive = false,
+  iconOnly = false,
   align = 'start',
   searchPlaceholder = 'Filter fields…',
   emptyLabel = 'No fields.',
@@ -60,6 +61,9 @@ export function FieldsMenu({
   triggerIcon: LucideIcon;
   triggerLabel: string;
   triggerActive?: boolean;
+  /** Render the trigger as a uniform icon-only button (the record header's icon
+   * cluster, #197) — `triggerLabel` becomes the tooltip instead of visible text. */
+  iconOnly?: boolean;
   align?: 'start' | 'end';
   searchPlaceholder?: string;
   emptyLabel?: string;
@@ -87,14 +91,27 @@ export function FieldsMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button
-          className={cn(
-            'flex items-center gap-1 rounded px-1.5 py-1 text-[12px] hover:bg-hover hover:text-ink',
-            triggerActive ? 'text-ink' : 'text-muted',
-          )}
-        >
-          <TriggerIcon className="h-3.5 w-3.5" /> {triggerLabel}
-        </button>
+        {iconOnly ? (
+          <button
+            title={triggerLabel}
+            aria-label={triggerLabel}
+            className={cn(
+              'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded transition-colors hover:bg-hover hover:text-ink',
+              triggerActive ? 'text-ink' : 'text-muted',
+            )}
+          >
+            <TriggerIcon className="h-4 w-4" />
+          </button>
+        ) : (
+          <button
+            className={cn(
+              'flex items-center gap-1 rounded px-1.5 py-1 text-[12px] hover:bg-hover hover:text-ink',
+              triggerActive ? 'text-ink' : 'text-muted',
+            )}
+          >
+            <TriggerIcon className="h-3.5 w-3.5" /> {triggerLabel}
+          </button>
+        )}
       </DropdownMenuTrigger>
       <DropdownMenuContent align={align} className="w-64">
         <input
