@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ViewConfig } from '@storyos/schemas';
-import { cleanViewConfig } from './views.service';
+import { cleanViewConfig, defaultBoardGroupBy } from './views.service';
 
 /**
  * MN-258: cleanViewConfig's `cleanFilters` walk was already recursive (it has to
@@ -93,6 +93,29 @@ describe('cleanViewConfig — recursive field-name pruning through nested and/or
     const bare = { field: 'estimate', op: 'gt', value: 0 } as unknown as ViewConfig['filters'];
     expect(clean(bare, ['estimate'])).toEqual(bare);
     expect(clean(bare, [])).toBeUndefined();
+  });
+});
+
+describe('defaultBoardGroupBy — Board defaults to the workflow field (#181)', () => {
+  const WF = { id: 'wf-1', type: 'workflow' };
+  const SELECT = { id: 'sel-1', type: 'select' };
+  const cfg = (over: Partial<ViewConfig> = {}): ViewConfig => ({ ...BASE, filters: undefined, ...over });
+
+  it('fills an absent group-by on a Board with the workflow field', () => {
+    expect(defaultBoardGroupBy('board', cfg(), [SELECT, WF]).group_by_field_id).toBe('wf-1');
+  });
+
+  it('never overrides an explicit group-by choice', () => {
+    const out = defaultBoardGroupBy('board', cfg({ group_by_field_id: 'sel-1' }), [SELECT, WF]);
+    expect(out.group_by_field_id).toBe('sel-1');
+  });
+
+  it('leaves the config untouched when the database has no workflow field', () => {
+    expect(defaultBoardGroupBy('board', cfg(), [SELECT]).group_by_field_id).toBeUndefined();
+  });
+
+  it('does not touch non-board views', () => {
+    expect(defaultBoardGroupBy('table', cfg(), [WF]).group_by_field_id).toBeUndefined();
   });
 });
 
