@@ -585,7 +585,14 @@ describe('create_view / update_view (#270)', () => {
       { id: 'f-email', apiName: 'email', displayName: 'Email', type: 'email' },
     ],
     views: [
-      { id: 'view-existing', name: 'All records', type: 'table' },
+      {
+        id: 'view-existing',
+        name: 'All records',
+        type: 'table',
+        // #191: the detail endpoint returns each view's cleaned config; update_view
+        // merges onto it, so these must survive a filter-only edit.
+        config: { sorts: [{ field: 'name', direction: 'asc' }], hidden_field_ids: ['f-email'] },
+      },
       { id: 'view-form', name: 'Signup Form', type: 'form' },
     ],
   };
@@ -724,6 +731,41 @@ describe('create_view / update_view (#270)', () => {
     const { handlers, patched } = registerAndGet(['update_view']);
     await handlers.update_view!({ workspace: 'JCM Agency', database: 'leads_2', view: 'All records', rename_to: 'Renamed' });
     expect(patched[0]!.body).toEqual({ name: 'Renamed' });
+  });
+
+  it('update_view with ONLY filters builds a non-empty config patch — no 500 (#191)', async () => {
+    // The bug: `filters`/`sorts` were absent from CONFIG_KEYS, so a filter-only
+    // update never built config → patch was `{}` → the service did a Drizzle
+    // .set() with all-undefined → "no values to set" → 500.
+    const { handlers, patched } = registerAndGet(['update_view']);
+    const res = (await handlers.update_view!({
+      workspace: 'JCM Agency',
+      database: 'leads_2',
+      view: 'All records',
+      filters: { and: [{ field: 'pipeline_stage', op: 'eq', value: 'New' }] },
+    })) as { isError?: boolean };
+    expect(res.isError).toBeUndefined();
+    const body = patched[0]!.body as { name?: string; config?: Record<string, unknown> };
+    expect(body.config).toBeDefined();
+    expect(body.config!.filters).toBeDefined();
+    // the select label 'New' resolved to its option id, same as create_view
+    // (an eq on a select is translated to an id-array op, #354).
+    expect(JSON.stringify(body.config!.filters)).toContain('opt-new');
+  });
+
+  it('update_view merges the change onto existing config — a filter edit keeps sorts + hidden fields (#191)', async () => {
+    const { handlers, patched } = registerAndGet(['update_view']);
+    await handlers.update_view!({
+      workspace: 'JCM Agency',
+      database: 'leads_2',
+      view: 'All records',
+      filters: { and: [{ field: 'pipeline_stage', op: 'eq', value: 'New' }] },
+    });
+    const config = (patched[0]!.body as { config: Record<string, unknown> }).config;
+    // pre-existing settings survive the patch (not wiped to defaults)
+    expect(config.sorts).toEqual([{ field: 'name', direction: 'asc' }]);
+    expect(config.hidden_field_ids).toEqual(['f-email']);
+    expect(config.filters).toBeDefined();
   });
 });
 
