@@ -1,0 +1,54 @@
+# Delete a PR's head branch once the PR is merged.
+#
+# Why a workflow and not the repo checkbox: "Automatically delete head branches"
+# (Settings → General → Pull Requests) does exactly this, but flipping it needs
+# the Admin repository role. This reproduces it with nothing but the built-in
+# GITHUB_TOKEN, so branch hygiene doesn't wait on a permission grant. If that
+# checkbox is ever enabled, this workflow becomes a harmless no-op — GitHub will
+# have removed the branch first and the delete 404s into the `already gone` path.
+#
+# It exists because the alternative is what we just cleaned up: 147 merged
+# branches accumulated in the remote, all of them squash-landed and dead, which
+# buries the one branch that still carried unmerged work.
+#
+# Safety — this can never touch main:
+#   1. It only ever deletes `pull_request.head.ref`. A PR's head is never its own
+#      base, so a PR into main cannot name main here.
+#   2. The `if` demands a MERGED PR whose head lives in this repo — closed-unmerged
+#      PRs (work someone may still return to) and fork branches are skipped.
+#   3. The "protect main" ruleset carries a `deletion` rule, so the API would
+#      refuse regardless.
+name: Delete merged branch
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: write # delete a ref via the git refs API
+
+jobs:
+  delete:
+    # Merge-queue landings still fire `closed` with merged == true, so squash-via-
+    # queue (how everything lands here) is covered.
+    if: >-
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Delete ${{ github.event.pull_request.head.ref }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          # Branch names carry lane prefixes (web/…, api/…) and so contain slashes;
+          # pass the ref path through unencoded — the API accepts it as-is.
+          if gh api -X DELETE "repos/$REPO/git/refs/heads/$BRANCH"; then
+            echo "Deleted $BRANCH."
+          else
+            # Already deleted by hand, or by the repo-level auto-delete setting.
+            # Not a reason to fail a post-merge job.
+            echo "::notice::$BRANCH already gone — nothing to delete."
+          fi
