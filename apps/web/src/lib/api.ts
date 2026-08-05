@@ -7,7 +7,10 @@ export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001
 // The hosted MCP endpoint shown on the connect pages (#163). Self-host operators
 // set NEXT_PUBLIC_MCP_URL to THEIR own MCP origin at build time (like API_URL);
 // hosted defaults to mcp.storyos.dev so the hosted app is unchanged.
-export const MCP_ORIGIN = process.env.NEXT_PUBLIC_MCP_URL ?? 'https://mcp.storyos.dev';
+// NB: the Docker build passes NEXT_PUBLIC_MCP_URL as an EMPTY STRING when unset,
+// which `??` does NOT treat as absent — that rendered the endpoint as a bare
+// "/mcp". Use `||` (falsy) + trim, and strip a trailing slash so it's never `//mcp`.
+export const MCP_ORIGIN = (process.env.NEXT_PUBLIC_MCP_URL?.trim() || 'https://mcp.storyos.dev').replace(/\/+$/, '');
 export const MCP_ENDPOINT = `${MCP_ORIGIN}/mcp`;
 
 /**
