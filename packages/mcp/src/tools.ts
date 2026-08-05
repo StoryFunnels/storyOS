@@ -1669,6 +1669,18 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
   ) => {
     const detail = await getDetail(wsId, dbId);
     const ids = order.map((ref) => resolveOne(detail, ref));
+    // #140 data-loss guard: names resolve first-match, so two order entries with
+    // the same (or ambiguous) name resolve to the SAME id. Left unchecked, one
+    // real item never receives a position, keeps a stale one, collides, and
+    // effectively vanishes from the reordered list. Fail closed BEFORE mutating
+    // anything so a lossy reorder can't half-apply — the caller uses unique names
+    // or ids instead.
+    if (new Set(ids).size !== ids.length) {
+      throw new Error(
+        `Ambiguous ${key} order: two or more names in \`order\` resolved to the same ${key} (duplicate ${key} names?). ` +
+          `Pass unique names — or ids — so each ${key} maps 1:1, otherwise a ${key} would silently lose its place.`,
+      );
+    }
     for (let i = 0; i < ids.length; i++) {
       await unwrap<unknown>(
         client.PATCH(patchPath, { params: { path: { ws: wsId, db: dbId, [key]: ids[i] } } as never, body: { position: i } as never }),
