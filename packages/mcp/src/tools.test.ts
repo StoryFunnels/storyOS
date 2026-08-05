@@ -18,6 +18,15 @@ const detail = {
         { id: 'opt-high', label: 'High' },
       ],
     },
+    // #172: the canonical status field is a `workflow` (single-select-shaped).
+    {
+      apiName: 'state',
+      type: 'workflow',
+      options: [
+        { id: 'opt-backlog', label: 'Backlog' },
+        { id: 'opt-done', label: 'Done' },
+      ],
+    },
     { apiName: 'assignee', type: 'user' },
     { apiName: 'created_by', type: 'created_by', isSystem: true },
     { apiName: 'title', type: 'text' },
@@ -33,6 +42,13 @@ describe('mapFilterValues (#204)', () => {
   it('translates neq to has_none', () => {
     const out = mapFilterValues(detail, { field: 'priority', op: 'neq', value: 'High' });
     expect(out).toEqual({ field: 'priority', op: 'has_none', value: ['opt-high'] });
+  });
+
+  it('resolves a WORKFLOW field label like a select (regression: state 422 "unknown option id")', () => {
+    // The canonical status field is `workflow`, not `select`; it was omitted from
+    // the choice-field handling, so its labels never resolved to option ids.
+    const out = mapFilterValues(detail, { field: 'state', op: 'eq', value: 'Backlog' });
+    expect(out).toEqual({ field: 'state', op: 'has', value: ['opt-backlog'] });
   });
 
   it('recurses into grouped and/or filters', () => {
