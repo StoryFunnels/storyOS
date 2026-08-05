@@ -700,20 +700,37 @@ function SpaceSection({
             );
           })()}
           {(docs.data ?? []).map((d) => (
-            <div key={d.id} className="group/doc relative flex items-center">
+            // #219: mirror DatabaseRow so documents and databases share ONE left
+            // edge and the same active/hover treatment. Previously the doc row had
+            // no grip gutter and a different active style, so its icon sat ~16px
+            // left of the database icons with a mismatched highlight.
+            <div
+              key={d.id}
+              className={cn(
+                'group/doc flex items-center justify-between rounded px-2 py-[3px] text-[13px]',
+                pathname === `/w/${ws}/doc/${d.id}`
+                  ? 'bg-active text-ink shadow-[inset_2px_0_0_var(--accent)]'
+                  : 'text-ink-secondary hover:bg-hover',
+              )}
+            >
+              {/* Reserve the same grip gutter DatabaseRow shows when editable —
+                  docs aren't drag-reorderable, so it's an invisible spacer that
+                  keeps the icons aligned with the draggable database rows. */}
+              {canEdit && (
+                <span aria-hidden className="-ml-1 mr-0.5 shrink-0 p-0.5">
+                  <span className="block h-3 w-3" />
+                </span>
+              )}
               <Link
                 href={`/w/${ws}/doc/${d.id}`}
-                className={cn(
-                  'flex min-w-0 flex-1 items-center gap-2 rounded px-2 py-[3px] text-[13px] hover:bg-hover',
-                  pathname === `/w/${ws}/doc/${d.id}` ? 'bg-active font-medium text-ink' : 'text-ink-secondary',
-                )}
+                className="flex min-w-0 flex-1 items-center gap-2"
               >
                 <EntityIcon icon={d.icon} color={null} fallback={<FileText className="h-3.5 w-3.5 shrink-0 text-muted" />} className="text-[13px]" />
                 <span className="truncate">{d.title || 'Untitled'}</span>
               </Link>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button className="absolute right-1 rounded p-0.5 text-muted opacity-0 hover:bg-active hover:text-ink group-hover/doc:opacity-100">
+                  <button className="shrink-0 rounded p-0.5 text-muted opacity-0 hover:bg-active hover:text-ink group-hover/doc:opacity-100">
                     <MoreHorizontal className="h-3.5 w-3.5" />
                   </button>
                 </DropdownMenuTrigger>
