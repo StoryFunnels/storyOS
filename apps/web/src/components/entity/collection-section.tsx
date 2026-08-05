@@ -8,7 +8,7 @@ import { ChevronDown, ChevronRight, List, Palette, Plus } from 'lucide-react';
 import { arrayMove } from '@dnd-kit/sortable';
 import { api } from '@/lib/api';
 import { atLeast } from '@/lib/access';
-import { CellDisplay, CellEditor, OPTION_COLORS } from '@/components/table-view/cells';
+import { CellDisplay, CellEditor, EmptyFieldAffordance, OPTION_COLORS } from '@/components/table-view/cells';
 import { DbColorMarker, RelationEditor } from '@/components/table-view/relation-cell';
 import type { LinkChip } from '@/components/table-view/relation-cell';
 import {
@@ -323,7 +323,10 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
                             memberImages={memberImages}
                           />
                         ) : (
-                          <span className="text-faint">—</span>
+                          // #187: empty editable column cell invites a fill
+                          // ("Add/Set <field>") instead of a bare dash; the row's
+                          // own onClick (above) opens the same CellEditor.
+                          <EmptyFieldAffordance field={col} editable={editable} className="text-[12px]" />
                         )}
                         {isEditing && (
                           // CellEditor self-positions (MN-230d, viewport-collision-aware);

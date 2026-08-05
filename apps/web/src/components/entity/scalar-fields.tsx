@@ -9,7 +9,7 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Check, GripVertical, Pin, Plus, X } from 'lucide-react';
 import { api } from '@/lib/api';
-import { CellDisplay, CellEditor, PressButton, formatNumberValue, isPercentNumberField } from '@/components/table-view/cells';
+import { CellDisplay, CellEditor, EmptyFieldAffordance, PressButton, formatNumberValue, isPercentNumberField } from '@/components/table-view/cells';
 import { DbColorMarker, RelationEditor, patchRelationProjection } from '@/components/table-view/relation-cell';
 import type { LinkChip } from '@/components/table-view/relation-cell';
 import type { Field } from '@/components/table-view/use-table-data';
@@ -255,10 +255,10 @@ function ScalarValue({ field, cell, record, ws, db, rec, members, memberNames, m
       }}
     >
       {empty ? (
-        // #176: empty renders as a faint, clickable placeholder inside the cell
-        // (edit-in-place affordance), not dead gray "Empty" text. Computed /
-        // read-only fields show an em dash instead.
-        <span className="text-[13px] text-faint">{editableInline ? 'Empty' : '—'}</span>
+        // #176/#187: empty renders as a faint, clickable ghost affordance inside
+        // the cell ("Add/Set <field>"), not dead gray text. Computed / read-only
+        // fields show a neutral em dash instead (no fake affordance).
+        <EmptyFieldAffordance field={field} editable={editableInline} />
       ) : isPercentNumberField(field) ? (
         // #179: a percent-formatted number renders as a value + subtle filled
         // track (Fibery parity) — only for explicitly percent-formatted number
