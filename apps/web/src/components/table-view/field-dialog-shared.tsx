@@ -48,7 +48,7 @@ export const FIELD_TYPES: Array<{
   { value: 'text', label: 'Text', description: 'A simple plain string', icon: Type },
   { value: 'rich_text', label: 'Rich text', description: 'Headings, lists, bold, links', icon: Pilcrow },
   { value: 'number', label: 'Number', description: 'Plain, percent or currency', icon: Hash },
-  { value: 'select', label: 'Select', description: 'One option from a list', icon: List },
+  { value: 'select', label: 'Single Select', description: 'One option from a list', icon: List },
   { value: 'multi_select', label: 'Multi-select', description: 'Any number of options', icon: Tags },
   // #172: the canonical status field — a database can have at most one.
   { value: 'workflow', label: 'Workflow / Status', description: 'The single status of each item', icon: CircleDot },
