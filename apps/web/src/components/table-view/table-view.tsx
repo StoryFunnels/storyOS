@@ -447,6 +447,14 @@ export function TableView({
 
   function onKeyDown(e: React.KeyboardEvent) {
     if (editing || rows.length === 0) return;
+    // #200 data-loss guard: React portals bubble keydown through the React tree,
+    // so a field-edit/formula dialog's Cmd+A (or Cmd+C/V, arrows, etc.) would
+    // otherwise hit the grid and select/mutate every row behind the modal. Ignore
+    // any key event originating in a dialog, menu, listbox, or editable control.
+    const target = e.target as HTMLElement | null;
+    if (target?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"], [role="menu"], [role="listbox"]')) {
+      return;
+    }
     const max: Cursor = { row: rows.length - 1, col: fields.length - 1 };
     // MN-285: plain arrow moves the single-cell cursor and drops any active range
     // (matching a plain click); shift+arrow instead grows the range's far corner,

@@ -12,6 +12,17 @@ function isTyping(target: EventTarget | null): boolean {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
 }
 
+/**
+ * #200 data-loss guard: a modal/dialog captures the keyboard. App shortcuts
+ * (incl. mod-combos like Cmd+A) must NOT act on the page behind an open modal —
+ * otherwise editing a field in a dialog and hitting Cmd+A selects every row
+ * behind it (and a follow-up Delete trashes them).
+ */
+function isModalOpen(): boolean {
+  if (typeof document === 'undefined') return false;
+  return Boolean(document.querySelector('[role="dialog"][data-state="open"], [aria-modal="true"]'));
+}
+
 let listening = false;
 function ensureListener() {
   if (listening || typeof window === 'undefined') return;
@@ -21,6 +32,9 @@ function ensureListener() {
     const key = `${mod ? 'mod+' : ''}${e.key.toLowerCase()}`;
     const handler = registry.get(key);
     if (!handler) return;
+    // #200: a modal/dialog captures the keyboard — no app shortcut (even a
+    // mod-combo) may act on the page behind it.
+    if (isModalOpen()) return;
     // Plain-letter shortcuts never fire while typing; mod-combos always may.
     if (!mod && isTyping(e.target)) return;
     handler(e);
