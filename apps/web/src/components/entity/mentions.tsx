@@ -16,6 +16,7 @@ import { Avatar } from '@/components/ui/avatar';
 import { EntityIcon } from '@/components/ui/icon-picker';
 import { CellEditor, OptionChip } from '@/components/table-view/cells';
 import { DbColorMarker } from '@/components/table-view/relation-cell';
+import { useOpenInSplit } from './split-panel-context';
 import {
   useDatabase,
   useMembers,
@@ -144,6 +145,12 @@ function RecordChip({ ws, id, db, label }: MentionProps & { ws: string }) {
   // here — same `editor` bar the record panel uses to gate inline field edits.
   const canEdit = atLeast(database.data?.my_access, 'editor');
 
+  // #192: within a record/split context on desktop, clicking the mention opens
+  // the target in the side panel instead of full-navigating — same handler the
+  // relation chips use. A no-op (falls through to the <Link>) elsewhere: comments,
+  // docs, mobile, or a modifier/middle click.
+  const openInSplit = useOpenInSplit();
+
   const rec = record.data && !('deleted' in record.data) ? record.data : null;
   const deleted = Boolean(record.data && 'deleted' in record.data);
   const title = rec?.title ?? label;
@@ -187,6 +194,7 @@ function RecordChip({ ws, id, db, label }: MentionProps & { ws: string }) {
       />
       <Link
         href={`/w/${ws}/d/${db}/r/${id}`}
+        onClick={openInSplit({ db, rec: id, title, number: rec?.number ?? null })}
         className="min-w-0 truncate font-medium no-underline hover:underline"
       >
         {title || 'Untitled'}
