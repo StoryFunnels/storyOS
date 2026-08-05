@@ -1,11 +1,12 @@
 'use client';
 
-import { createContext, useContext, useMemo, useRef, useState, type MutableRefObject } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, ChevronDown, CircleDashed } from 'lucide-react';
 import { BlockNoteSchema, defaultInlineContentSpecs } from '@blocknote/core';
 import type { BlockNoteEditor } from '@blocknote/core';
+import { SuggestionMenu as SuggestionMenuExtension } from '@blocknote/core/extensions';
 import type { SuggestionMenuProps } from '@blocknote/react';
 import { SuggestionMenuController, createReactInlineContentSpec } from '@blocknote/react';
 import { api } from '@/lib/api';
@@ -687,6 +688,31 @@ export function MentionSuggestionMenus({
       }),
     );
   };
+
+  // Esc closes an open @/# picker (#185). BlockNote's React suggestion-menu
+  // keyboard handler only claims ↑↓/PageUp/PageDown/↵ — Escape closing is left to
+  // the popover's Floating-UI `useDismiss`, which doesn't reliably fire here (the
+  // menu's floating element never takes focus and the keystroke originates in the
+  // ProseMirror contenteditable), and our custom `suggestionMenuComponent` renders
+  // a plain container that doesn't handle the key either. So wire Escape straight
+  // to the editor's own SuggestionMenu extension: `closeMenu()` dismisses without
+  // inserting and — unlike `clearQuery()` — leaves the typed `@`/`#` text in place.
+  // Capture phase + a `shown()` guard so we only act (and swallow the key, keeping
+  // the editor from blurring) while a picker is actually open.
+  useEffect(() => {
+    const ext = editor.getExtension(SuggestionMenuExtension) as
+      | { shown: () => boolean; closeMenu: () => void }
+      | undefined;
+    if (!ext) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.isComposing || !ext.shown()) return;
+      ext.closeMenu();
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    document.addEventListener('keydown', onKeyDown, true);
+    return () => document.removeEventListener('keydown', onKeyDown, true);
+  }, [editor]);
 
   const MemberMenu = useMemo(
     () => makePickerMenu({ emptyHeader: 'People', emptyPrompt: 'Type a user name', queryRef: memberQuery }),
