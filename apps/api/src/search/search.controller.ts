@@ -11,7 +11,7 @@ import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 
 /** Field types worth rendering as a dense-row chip in My Work (MN-072). */
-const DENSE_TYPES = new Set(['select', 'multi_select', 'user', 'relation', 'date', 'checkbox']);
+const DENSE_TYPES = new Set(['select', 'multi_select', 'workflow', 'user', 'relation', 'date', 'checkbox']);
 
 /**
  * Global search (MN-048): title trigram over records + name matches on
@@ -34,7 +34,7 @@ export class SearchController {
       orderBy: (f, { asc }) => [asc(f.position)],
     });
     const dense = fieldRows.filter((f) => DENSE_TYPES.has(f.type));
-    const selectIds = dense.filter((f) => f.type === 'select' || f.type === 'multi_select').map((f) => f.id);
+    const selectIds = dense.filter((f) => f.type === 'select' || f.type === 'multi_select' || f.type === 'workflow').map((f) => f.id);
     const opts = selectIds.length
       ? await this.db.query.selectOptions.findMany({ where: inArray(selectOptions.fieldId, selectIds) })
       : [];

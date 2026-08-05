@@ -119,7 +119,7 @@ export function optionColor(
   field: { type: string; options?: SelectOption[] } | undefined,
   value: unknown,
 ): string | null {
-  if (!field || field.type !== 'select') return null;
+  if (!field || (field.type !== 'select' && field.type !== 'workflow')) return null;
   const opt = field.options?.find((o) => o.id === value);
   return opt ? OPTION_COLORS[opt.color] ?? OPTION_COLORS.gray! : null;
 }
@@ -221,7 +221,9 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, ws 
       );
     case 'checkbox':
       return <input type="checkbox" checked={Boolean(value)} readOnly className="pointer-events-none" />;
-    case 'select': {
+    // #172: a workflow value renders as the same coloured state badge as select.
+    case 'select':
+    case 'workflow': {
       const option = field.options?.find((o) => o.id === value);
       return option ? <OptionChip option={option} /> : null;
     }
@@ -380,7 +382,9 @@ export function CellEditor({ ws, db, field, value, members, onCommit, onToggleIm
         />
       );
     }
+    // #172: workflow is edited with the same single-select option picker.
     case 'select':
+    case 'workflow':
       return (
         <OptionList
           ws={ws}

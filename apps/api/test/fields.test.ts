@@ -326,3 +326,123 @@ describe('rich_text fields (MN-041)', () => {
     ]);
   });
 });
+
+describe('workflow / status field — one per database (#172)', () => {
+  let wfDb: string;
+
+  beforeAll(async () => {
+    const spaces = await app.inject({
+      method: 'GET',
+      url: `/api/v1/workspaces/${wsId}/spaces`,
+      headers: authed(admin.token),
+    });
+    wfDb = (
+      await app.inject({
+        method: 'POST',
+        url: `/api/v1/workspaces/${wsId}/databases`,
+        headers: authed(admin.token),
+        payload: { space_id: spaces.json()[0].id, name: 'Workflow WS DB' },
+      })
+    ).json().id;
+  });
+
+  const addField = (payload: Record<string, unknown>) =>
+    app.inject({
+      method: 'POST',
+      url: `/api/v1/workspaces/${wsId}/databases/${wfDb}/fields`,
+      headers: authed(admin.token),
+      payload,
+    });
+
+  it('creates a workflow field with coloured options and round-trips a single value', async () => {
+    const created = await addField({
+      display_name: 'Stage',
+      type: 'workflow',
+      options: [
+        { label: 'Todo', color: 'gray' },
+        { label: 'Doing', color: 'blue' },
+        { label: 'Done', color: 'green' },
+      ],
+    });
+    expect(created.statusCode, created.body).toBe(201);
+    const field = created.json();
+    expect(field.type).toBe('workflow');
+    expect(field.options).toHaveLength(3);
+    const doing = field.options[1].id;
+
+    const rec = await app.inject({
+      method: 'POST',
+      url: `/api/v1/workspaces/${wsId}/databases/${wfDb}/records`,
+      headers: authed(admin.token),
+      payload: { values: { name: 'Ship it', [field.apiName]: doing } },
+    });
+    expect(rec.statusCode, rec.body).toBe(201);
+    expect(rec.json().values[field.apiName]).toBe(doing);
+
+    // Unknown option id rejected exactly like single-select.
+    const bad = await app.inject({
+      method: 'POST',
+      url: `/api/v1/workspaces/${wsId}/databases/${wfDb}/records`,
+      headers: authed(admin.token),
+      payload: { values: { name: 'Bad', [field.apiName]: 'not-an-option' } },
+    });
+    expect(bad.statusCode).toBe(422);
+  });
+
+  it('refuses a SECOND workflow field on the same database (409)', async () => {
+    const second = await addField({ display_name: 'Phase', type: 'workflow', options: [{ label: 'A' }] });
+    expect(second.statusCode).toBe(409);
+    expect(second.json().error.message).toMatch(/already has a Workflow field/i);
+  });
+
+  it('blocks change-type INTO workflow when one already exists (409)', async () => {
+    const sel = (await addField({ display_name: 'Priority', type: 'select', options: [{ label: 'Low' }] })).json();
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/v1/workspaces/${wsId}/databases/${wfDb}/fields/${sel.id}/change-type`,
+      headers: authed(admin.token),
+      payload: { type: 'workflow' },
+    });
+    expect(res.statusCode, res.body).toBe(409);
+    expect(res.json().error.message).toMatch(/already has a Workflow field/i);
+  });
+
+  it('allows select → workflow on a database without one, preserving the option id', async () => {
+    const spaces = await app.inject({
+      method: 'GET',
+      url: `/api/v1/workspaces/${wsId}/spaces`,
+      headers: authed(admin.token),
+    });
+    const freshDb = (
+      await app.inject({
+        method: 'POST',
+        url: `/api/v1/workspaces/${wsId}/databases`,
+        headers: authed(admin.token),
+        payload: { space_id: spaces.json()[0].id, name: 'Fresh WF DB' },
+      })
+    ).json();
+
+    const sel = (
+      await app.inject({
+        method: 'POST',
+        url: `/api/v1/workspaces/${wsId}/databases/${freshDb.id}/fields`,
+        headers: authed(admin.token),
+        payload: { display_name: 'State', type: 'select', options: [{ label: 'Open', color: 'gold' }] },
+      })
+    ).json();
+    const optionId = sel.options[0].id;
+    await db.insert(records).values({ databaseId: freshDb.id, title: 'r', values: { [sel.id]: optionId } });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/v1/workspaces/${wsId}/databases/${freshDb.id}/fields/${sel.id}/change-type`,
+      headers: authed(admin.token),
+      payload: { type: 'workflow' },
+    });
+    expect(res.statusCode, res.body).toBe(201);
+
+    const rows = await db.query.records.findMany({ where: undefined });
+    const converted = rows.find((r) => (r.values as Record<string, unknown>)[sel.id] !== undefined);
+    expect((converted!.values as Record<string, unknown>)[sel.id]).toBe(optionId);
+  });
+});

@@ -158,7 +158,7 @@ export class DatabasesService {
     // Select options ride along so clients (table cells, MCP servers) can
     // render/validate without N+1 field fetches (E4 introspection).
     const selectFieldIds = fieldRows
-      .filter((f) => f.type === 'select' || f.type === 'multi_select')
+      .filter((f) => f.type === 'select' || f.type === 'multi_select' || f.type === 'workflow')
       .map((f) => f.id);
     const options = selectFieldIds.length
       ? await this.db.query.selectOptions.findMany({

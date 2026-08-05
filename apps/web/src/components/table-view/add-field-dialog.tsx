@@ -81,6 +81,12 @@ export function AddFieldDialog({
       .sort((a, b) => a.label.localeCompare(b.label));
   }, [databases.data, spaces.data]);
   const relationFields = (currentDb.data?.fields ?? []).filter((f) => f.type === 'relation');
+  // #172: a database may have at most one Workflow field — disable the type (and
+  // block submit) when one already exists, mirroring the server's one-per-DB rule.
+  const hasWorkflowField = (currentDb.data?.fields ?? []).some((f) => f.type === 'workflow');
+  const disabledTypes = hasWorkflowField
+    ? { workflow: 'This database already has a Workflow field' }
+    : undefined;
   // MN-212: display names are unique per database — flag a duplicate before submit.
   const duplicateName = useMemo(() => {
     const wanted = name.trim().toLowerCase();
@@ -137,7 +143,7 @@ export function AddFieldDialog({
               ? { expression }
               : config;
       const body: Record<string, unknown> = { display_name: name, type, config: effectiveConfig };
-      if (type === 'select' || type === 'multi_select') {
+      if (type === 'select' || type === 'multi_select' || type === 'workflow') {
         body.options = options.filter((o) => o.label.trim()).map(({ label, color }) => ({ label, color }));
       }
       const { error } = await api.POST('/api/v1/workspaces/{ws}/databases/{db}/fields', {
@@ -153,7 +159,7 @@ export function AddFieldDialog({
     onError: () => toast.error('Could not create the field'),
   });
 
-  const isSelect = type === 'select' || type === 'multi_select';
+  const isSelect = type === 'select' || type === 'multi_select' || type === 'workflow';
 
   return (
     <DialogContent title="Add field" className="max-w-2xl">
@@ -175,6 +181,7 @@ export function AddFieldDialog({
           <Label>Type</Label>
           <TypePicker
             value={type}
+            disabledTypes={disabledTypes}
             onChange={(next) => {
               setType(next);
               setConfig({});
@@ -442,6 +449,7 @@ export function AddFieldDialog({
             disabled={
               create.isPending ||
               duplicateName ||
+              (type === 'workflow' && hasWorkflowField) ||
               (type === 'relation' && !targetDb) ||
               (type === 'relation' &&
                 targetDb === db &&

@@ -9,6 +9,7 @@ import {
   CheckSquare,
   ChevronDown,
   ChevronRight,
+  CircleDot,
   Hash,
   Link2,
   List,
@@ -49,6 +50,8 @@ export const FIELD_TYPES: Array<{
   { value: 'number', label: 'Number', description: 'Plain, percent or currency', icon: Hash },
   { value: 'select', label: 'Select', description: 'One option from a list', icon: List },
   { value: 'multi_select', label: 'Multi-select', description: 'Any number of options', icon: Tags },
+  // #172: the canonical status field — a database can have at most one.
+  { value: 'workflow', label: 'Workflow / Status', description: 'The single status of each item', icon: CircleDot },
   { value: 'date', label: 'Date', description: 'Date, optionally with time', icon: Calendar },
   { value: 'checkbox', label: 'Checkbox', description: 'Done / not done', icon: CheckSquare },
   { value: 'user', label: 'Person', description: 'Workspace members', icon: UserRound },
@@ -68,6 +71,7 @@ export const BASIC_FIELD_TYPES = new Set([
   'number',
   'date',
   'select',
+  'workflow',
   'checkbox',
   'user',
   'url',
@@ -81,8 +85,9 @@ export const CONVERTIBLE: Record<string, string[]> = {
   number: ['text'],
   checkbox: ['text'],
   date: ['text'],
-  select: ['text', 'multi_select'],
-  multi_select: ['text', 'select'],
+  select: ['text', 'multi_select', 'workflow'],
+  multi_select: ['text', 'select', 'workflow'],
+  workflow: ['text', 'select', 'multi_select'],
   url: ['text', 'email'],
   email: ['text', 'url'],
   user: [],
@@ -116,39 +121,58 @@ function TypeButtonGrid({
   types,
   value,
   onChange,
+  disabledTypes,
 }: {
   types: typeof FIELD_TYPES;
   value: string;
   onChange: (type: string) => void;
+  /** #172: value → reason. A disabled type can't be picked; the reason is its tooltip. */
+  disabledTypes?: Record<string, string>;
 }) {
   return (
     // 3 columns so the whole catalogue fits without pushing the type config below the
     // fold (#86); falls back to 2 on narrow viewports.
     <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
-      {types.map((t) => (
-        <button
-          key={t.value}
-          type="button"
-          className={cn(
-            'flex items-start gap-2 rounded-[var(--radius-card)] border p-2 text-left',
-            value === t.value
-              ? 'border-[var(--accent)] bg-accent-soft'
-              : 'border-border-default hover:bg-hover',
-          )}
-          onClick={() => onChange(t.value)}
-        >
-          <t.icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted" />
-          <span className="min-w-0">
-            <span className="block text-[13px] font-medium text-ink">{t.label}</span>
-            <span className="block truncate text-[11px] text-muted">{t.description}</span>
-          </span>
-        </button>
-      ))}
+      {types.map((t) => {
+        const disabledReason = disabledTypes?.[t.value];
+        return (
+          <button
+            key={t.value}
+            type="button"
+            disabled={Boolean(disabledReason)}
+            title={disabledReason}
+            className={cn(
+              'flex items-start gap-2 rounded-[var(--radius-card)] border p-2 text-left',
+              value === t.value
+                ? 'border-[var(--accent)] bg-accent-soft'
+                : 'border-border-default hover:bg-hover',
+              disabledReason && 'cursor-not-allowed opacity-50 hover:bg-transparent',
+            )}
+            onClick={() => !disabledReason && onChange(t.value)}
+          >
+            <t.icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted" />
+            <span className="min-w-0">
+              <span className="block text-[13px] font-medium text-ink">{t.label}</span>
+              <span className="block truncate text-[11px] text-muted">
+                {disabledReason ?? t.description}
+              </span>
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }
 
-export function TypePicker({ value, onChange }: { value: string; onChange: (type: string) => void }) {
+export function TypePicker({
+  value,
+  onChange,
+  disabledTypes,
+}: {
+  value: string;
+  onChange: (type: string) => void;
+  disabledTypes?: Record<string, string>;
+}) {
   // #150: lead with the everyday types; tuck the power types (Relation, Lookup,
   // Rollup, Formula, Button, Color, Rich text, Multi-select) under a collapsed
   // "Advanced" heading so non-technical users aren't faced with all 16 at once.
@@ -162,7 +186,7 @@ export function TypePicker({ value, onChange }: { value: string; onChange: (type
 
   return (
     <div className="flex flex-col gap-2">
-      <TypeButtonGrid types={basic} value={value} onChange={onChange} />
+      <TypeButtonGrid types={basic} value={value} onChange={onChange} disabledTypes={disabledTypes} />
       <button
         type="button"
         className="flex w-fit items-center gap-1 text-[12px] font-medium text-muted hover:text-ink"
@@ -176,7 +200,9 @@ export function TypePicker({ value, onChange }: { value: string; onChange: (type
         )}
         Advanced
       </button>
-      {showAdvanced && <TypeButtonGrid types={advanced} value={value} onChange={onChange} />}
+      {showAdvanced && (
+        <TypeButtonGrid types={advanced} value={value} onChange={onChange} disabledTypes={disabledTypes} />
+      )}
     </div>
   );
 }

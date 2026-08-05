@@ -199,7 +199,9 @@ function coerce(field: FieldDef, raw: unknown): { value?: unknown; error?: strin
       const full = body.length === 3 ? body.split('').map((c) => c + c).join('') : body;
       return { value: `#${full}` };
     }
-    case 'select': {
+    // #172: a workflow value is a single option id, validated exactly like select.
+    case 'select':
+    case 'workflow': {
       if (typeof raw !== 'string') return { error: 'expected an option id' };
       if (!field.option_ids?.includes(raw)) return { error: 'unknown option id' };
       return { value: raw };
