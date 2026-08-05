@@ -106,6 +106,10 @@ services:
         # Empty = same-origin: the web bundle calls /api/v1/* relative to the page,
         # and caddy routes it. Set an absolute URL only for split-origin setups.
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
+        # #163: self-host sets NEXT_PUBLIC_MCP_URL to their own MCP origin (e.g.
+        # https://mcp.your-domain.com) so the Connect page shows the right endpoint;
+        # unset = the hosted default (mcp.storyos.dev). Baked at build time.
+        NEXT_PUBLIC_MCP_URL: ${NEXT_PUBLIC_MCP_URL:-}
         # PostHog analytics. NEXT_PUBLIC_* are baked into the client bundle at
         # BUILD time, so they must be passed as build args. No default token —
         # analytics is opt-in. Set your own PostHog project token in .env to

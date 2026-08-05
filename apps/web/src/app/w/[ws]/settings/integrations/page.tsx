@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { toast } from 'sonner';
-import { api } from '@/lib/api';
+import { api, MCP_ENDPOINT } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 
@@ -69,7 +69,6 @@ const ICONS: Record<string, LucideIcon> = {
  * storyfunnels, storypages) have nothing to disconnect.
  */
 const DISCONNECTABLE = new Set(['github', 'linear', 'slack']);
-const MCP_ENDPOINT = 'https://mcp.storyos.dev/mcp';
 
 /**
  * MN-249: the row's primary call-to-action label. Linear gets called out by

@@ -20,9 +20,8 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { IntegrationSetupGuide } from '@/components/integration-setup-guide';
 import { cn } from '@/lib/utils';
+import { MCP_ENDPOINT, MCP_ORIGIN } from '@/lib/api';
 
-const MCP_ENDPOINT = 'https://mcp.storyos.dev/mcp';
-const MCP_ORIGIN = 'https://mcp.storyos.dev';
 /** Public PKCE client registered for Claude's claude.ai and claude.com MCP callbacks. */
 const CLAUDE_OAUTH_CLIENT_ID = 'nLwKFQBfhAnwhztfvCnlrNXyJmwHdJdI';
 
