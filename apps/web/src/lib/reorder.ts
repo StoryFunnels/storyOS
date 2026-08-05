@@ -38,7 +38,7 @@ export function computeReorder<T extends { id: string }>(
  * canonical order. `activeId`/`overId` are always user fields (only those carry
  * a drag handle), so the moved run never crosses into the frozen system prefix.
  */
-export function fieldReorderMoves<T extends { id: string; isSystem: boolean }>(
+export function fieldReorderMoves<T extends { id: string; isSystem: boolean; type: string }>(
   fields: T[],
   activeId: string,
   overId: string,
@@ -49,6 +49,11 @@ export function fieldReorderMoves<T extends { id: string; isSystem: boolean }>(
   if (from < 0 || to < 0) return [];
   return arrayMove(fields, from, to)
     .map((field, index) => ({ field, index }))
-    .filter(({ field }) => !field.isSystem)
+    // #76: the title field is frozen (position 0) but carries isSystem:false, so
+    // it slipped this filter and got a needless (API-rejected) position write on
+    // every reorder. `type === 'title'` is the frozen marker used everywhere else
+    // in the app, so exclude it here too — no isSystem flip (that would ripple
+    // into the many surfaces that filter on isSystem).
+    .filter(({ field }) => !field.isSystem && field.type !== 'title')
     .map(({ field, index }) => ({ fieldId: field.id, position: index }));
 }

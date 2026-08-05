@@ -54,20 +54,24 @@ describe('computeReorder', () => {
 });
 
 describe('fieldReorderMoves', () => {
-  // A realistic field list: frozen system prefix, then user fields.
+  // A realistic field list: frozen system prefix, then user fields. Note the
+  // title carries isSystem:false but type:'title' (the real schema, #76) — it
+  // must still be excluded from position writes via the type guard.
   const fields = [
-    { id: 'f_id', isSystem: true },
-    { id: 'f_title', isSystem: true },
-    { id: 'f_created', isSystem: true },
-    { id: 'status', isSystem: false },
-    { id: 'priority', isSystem: false },
-    { id: 'assignee', isSystem: false },
+    { id: 'f_id', isSystem: true, type: 'id' },
+    { id: 'f_title', isSystem: false, type: 'title' },
+    { id: 'f_created', isSystem: true, type: 'created_at' },
+    { id: 'status', isSystem: false, type: 'select' },
+    { id: 'priority', isSystem: false, type: 'select' },
+    { id: 'assignee', isSystem: false, type: 'user' },
   ];
 
-  it('never writes system fields, and positions are full-list indices', () => {
+  it('never writes system or title fields, and positions are full-list indices', () => {
     // Drag "assignee" (5) before "status" (3).
     const moves = fieldReorderMoves(fields, 'assignee', 'status');
     expect(moves.every((m) => !m.fieldId.startsWith('f_'))).toBe(true);
+    // #76: the title field (isSystem:false, type:title) is never emitted.
+    expect(moves.some((m) => m.fieldId === 'f_title')).toBe(false);
     // Resulting user order: assignee, status, priority — at full indices 3,4,5.
     expect(moves).toEqual([
       { fieldId: 'assignee', position: 3 },
