@@ -11,6 +11,10 @@ WORKDIR /app
 FROM base AS build
 ARG NEXT_PUBLIC_API_URL=
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+# #163: the MCP endpoint shown on the connect pages. Self-host sets this to their
+# own MCP origin; unset = the hosted default (mcp.storyos.dev), baked at build time.
+ARG NEXT_PUBLIC_MCP_URL=
+ENV NEXT_PUBLIC_MCP_URL=$NEXT_PUBLIC_MCP_URL
 # PostHog analytics — NEXT_PUBLIC_* are inlined into the client bundle at BUILD
 # time (Next.js constraint), so the values must be present here, not just at
 # runtime. Passed through from docker-compose (see the web service build args).

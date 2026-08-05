@@ -4,6 +4,12 @@ import { createStoryOSClient } from '@storyos/sdk';
 // the localhost default is for `pnpm dev` where web and api run on separate ports.
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
+// The hosted MCP endpoint shown on the connect pages (#163). Self-host operators
+// set NEXT_PUBLIC_MCP_URL to THEIR own MCP origin at build time (like API_URL);
+// hosted defaults to mcp.storyos.dev so the hosted app is unchanged.
+export const MCP_ORIGIN = process.env.NEXT_PUBLIC_MCP_URL ?? 'https://mcp.storyos.dev';
+export const MCP_ENDPOINT = `${MCP_ORIGIN}/mcp`;
+
 /**
  * The ONLY way the web app talks to the backend (CONTRIBUTING.md).
  * Cookie-authenticated: the SDK sends credentials, better-auth sets the cookie.
