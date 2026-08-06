@@ -19,6 +19,11 @@ import { ApprovalsService } from './approvals.service';
 /** Full token match — `{payload.a.b.0}`, nothing else in the string. */
 const PAYLOAD_VALUE_TOKEN_RE = /^\{payload\.([^{}]+)\}$/;
 
+/** #244: full-value match — `{linked.Due Date}`, nothing else. Like the payload
+ * form, a value that is entirely one linked token resolves to the underlying
+ * TYPED field value (a date, number, relation array), not a stringified one. */
+const LINKED_VALUE_TOKEN_RE = /^\{linked\.([^{}]+)\}$/;
+
 /**
  * MN-254: the only actions that don't require a triggering record — safe to
  * run from a webhook_received rule. Everything else (set_values, add_comment,
@@ -74,6 +79,22 @@ export interface ActionContext {
    * run, so a job enqueued mid-execute() can carry the SAME id its eventual
    * automationRuns row gets — see buildIdempotencyKey. */
   runId?: string;
+  /**
+   * #244: for a `record_linked` trigger, the specific record(s) just linked or
+   * unlinked on the OTHER side of the relation — so an action can read their
+   * fields via `{linked.Field}` instead of only the host record. The first
+   * entry is the primary linked record. Empty/undefined for every other trigger.
+   */
+  linkedRecords?: ProjectedRecord[];
+  /** #244: the database the `linkedRecords` live in — execute() resolves its
+   * display-name → api-name map from this so `{linked.Status}` works the same
+   * way `{Status}` does for the host record. */
+  linkedDatabaseId?: string | null;
+  /** #244: the relation field whose change fired this run. */
+  changedRelationFieldId?: string | null;
+  /** #244: display-name → api-name for `linkedDatabaseId`, populated by execute()
+   * once per run (the linked record is in a different database than the host). */
+  linkedDisplayToApi?: Map<string, string>;
 }
 
 export interface ActionEffect {
@@ -306,6 +327,7 @@ export class AutomationActionsService {
     const out: Record<string, unknown> = {};
     for (const [key, raw] of Object.entries(values)) {
       const payloadMatch = typeof raw === 'string' ? raw.match(PAYLOAD_VALUE_TOKEN_RE) : null;
+      const linkedMatch = typeof raw === 'string' ? raw.match(LINKED_VALUE_TOKEN_RE) : null;
       if (raw === '@me') out[key] = ctx.actorId;
       else if (raw === '@now') out[key] = new Date().toISOString();
       else if (raw === '@today') out[key] = new Date().toISOString().slice(0, 10);
@@ -313,9 +335,27 @@ export class AutomationActionsService {
       // underlying typed value (number, object, …), not a stringified one — this
       // is a field VALUE, not text being templated.
       else if (payloadMatch) out[key] = getJsonPath(ctx.payload ?? {}, payloadMatch[1]!) ?? null;
+      // #244: same idea for {linked.Field} — set a field straight from the just-
+      // linked record's typed value (the "Start Date = linked Task's Due Date" case).
+      else if (linkedMatch) out[key] = this.linkedFieldValue(ctx, linkedMatch[1]!) ?? null;
       else out[key] = raw;
     }
     return out;
+  }
+
+  /**
+   * #244: resolve one field off the primary linked record (`ctx.linkedRecords[0]`),
+   * mapping a display name via the linked database's own map. `title`/the name
+   * field resolve to the record's title. Returns undefined when there is no
+   * linked record (non-relation trigger) or the field is unknown.
+   */
+  private linkedFieldValue(ctx: ActionContext, rawKey: string): unknown {
+    const linked = ctx.linkedRecords?.[0];
+    if (!linked) return undefined;
+    const key = rawKey.trim();
+    const apiName = ctx.linkedDisplayToApi?.get(key) ?? key;
+    if (apiName === 'name' || key.toLowerCase() === 'title') return linked.title;
+    return linked.values[apiName];
   }
 
   /**
@@ -341,6 +381,20 @@ export class AutomationActionsService {
         if (value === undefined || value === null) return escape('—');
         if (Array.isArray(value)) return escape(value.map((v) => String(v)).join(', '));
         if (typeof value === 'object') return escape(JSON.stringify(value));
+        return escape(String(value));
+      }
+      // #244: {linked.Field} templates the just-linked record's value into text
+      // (e.g. an add_comment body), the same way {Field} does for the host record.
+      if (trimmed.toLowerCase().startsWith('linked.')) {
+        if (!ctx.linkedRecords?.length) return escape('—');
+        const value = this.linkedFieldValue(ctx, trimmed.slice('linked.'.length));
+        if (value === undefined || value === null) return escape('—');
+        if (Array.isArray(value))
+          return escape(
+            value
+              .map((v) => (typeof v === 'object' && v ? ((v as { title?: string }).title ?? '') : String(v)))
+              .join(', '),
+          );
         return escape(String(value));
       }
       const apiName = displayToApi.get(trimmed) ?? trimmed;
@@ -505,6 +559,15 @@ export class AutomationActionsService {
       where: and(eq(fields.databaseId, ctx.databaseId), isNull(fields.deletedAt)),
     });
     const displayToApi = new Map(live.map((f) => [f.displayName, f.apiName]));
+
+    // #244: the linked record (record_linked trigger) is in another database, so
+    // resolve THAT database's display→api map once so `{linked.Status}` works.
+    if (ctx.linkedDatabaseId && !ctx.linkedDisplayToApi) {
+      const linkedFields = await this.db.query.fields.findMany({
+        where: and(eq(fields.databaseId, ctx.linkedDatabaseId), isNull(fields.deletedAt)),
+      });
+      ctx.linkedDisplayToApi = new Map(linkedFields.map((f) => [f.displayName, f.apiName]));
+    }
 
     const effects: ActionEffect[] = [];
     for (const [actionIndex, action] of actions.entries()) {
