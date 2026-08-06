@@ -13,6 +13,8 @@ export interface SelectOption {
   id: string;
   label: string;
   color: string;
+  /** #202: optional curated icon ref (`set:<name>` / `brand:<slug>`), null = none. */
+  icon?: string | null;
 }
 
 export interface Field {
