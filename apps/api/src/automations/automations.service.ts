@@ -16,6 +16,7 @@ import { automationJobs, automationRuns, automations, databases, records, worksp
 import { compileFilter } from '../records/query-compiler';
 import type { FilterNode } from '@storyos/schemas';
 import { RecordsService } from '../records/records.service';
+import type { ProjectedRecord } from '../records/records.service';
 import { DomainEventsService } from '../events/domain-events.service';
 import type { DomainEvent } from '../events/domain-events.service';
 import { EntitlementsService } from '../billing/entitlements.service';
@@ -34,6 +35,19 @@ interface Trigger {
   every?: 'hour' | 'day' | 'week';
   at?: string;
   weekday?: number;
+}
+
+/**
+ * #244 — the "other side" of a `record_linked` event, threaded from handle()
+ * into the run so an action can read the specific linked record via
+ * `{linked.Field}`. The DomainEvent already carries this (relationFieldId +
+ * linkedRelations[].otherRecordIds); it was simply dropped at the handle()
+ * boundary before now.
+ */
+interface LinkedTriggerInfo {
+  changedRelationFieldId: string;
+  otherDatabaseId: string;
+  linkedRecordIds: string[];
 }
 
 const MAX_DEPTH = 2;
@@ -549,8 +563,29 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         );
         continue;
       }
-      await this.runRule(rule.id, event.workspaceId, event.databaseId, event.recordId, event.depth);
+      await this.runRule(
+        rule.id,
+        event.workspaceId,
+        event.databaseId,
+        event.recordId,
+        event.depth,
+        this.linkedInfoFromEvent(event),
+      );
     }
+  }
+
+  /** #244 — pull the linked record ids + relation field off a record_linked
+   * event so runRule can expose them to actions. Undefined for any other event
+   * (or a link event that carried no matching relation entry). */
+  private linkedInfoFromEvent(event: DomainEvent): LinkedTriggerInfo | undefined {
+    if (event.type !== 'record_linked' || !event.relationFieldId) return undefined;
+    const entry = event.linkedRelations?.find((r) => r.fieldId === event.relationFieldId);
+    if (!entry || entry.otherRecordIds.length === 0) return undefined;
+    return {
+      changedRelationFieldId: event.relationFieldId,
+      otherDatabaseId: entry.otherDatabaseId,
+      linkedRecordIds: entry.otherRecordIds,
+    };
   }
 
   private async runRule(
@@ -559,6 +594,8 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
     databaseId: string,
     recordId: string,
     depth: number,
+    /** #244 — present only for a record_linked trigger. */
+    linkInfo?: LinkedTriggerInfo,
   ) {
     const started = Date.now();
     // MN-253: pre-minted, like startHookRun's runId — actions.execute() needs
@@ -640,6 +677,19 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
       });
       runRowInserted = true;
 
+      // #244 — for a record_linked trigger, load the specific linked record(s)
+      // so actions can read their fields via {linked.Field}. Best-effort: a
+      // since-deleted linked record just drops out (filtered), same as the host.
+      let linkedRecords: ProjectedRecord[] | undefined;
+      if (linkInfo) {
+        const fetched = await Promise.all(
+          linkInfo.linkedRecordIds.map((id) =>
+            this.recordsService.get(linkInfo.otherDatabaseId, id).catch(() => null),
+          ),
+        );
+        linkedRecords = fetched.filter((r): r is ProjectedRecord => r !== null);
+      }
+
       const effects = await this.actions.execute(rule.actions as AutomationAction[], {
         workspaceId,
         databaseId,
@@ -648,6 +698,9 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         depth: depth + 1,
         ruleId,
         runId,
+        linkedRecords,
+        linkedDatabaseId: linkInfo?.otherDatabaseId ?? null,
+        changedRelationFieldId: linkInfo?.changedRelationFieldId ?? null,
       });
       await this.db
         .update(automationRuns)

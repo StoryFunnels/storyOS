@@ -323,4 +323,68 @@ describe('MN-168 — entitlements wiring for the automations engine', () => {
       await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}`, { enabled: false });
     }
   });
+
+  it('record_linked trigger exposes the specific linked record to actions via {linked.Field} (#244)', async () => {
+    // Two databases joined many-to-many: Tickets (host) ←→ Milestones. The rule
+    // lives on the host but needs to read the MILESTONE it was just linked to —
+    // impossible before #244, which only ever exposed the host record.
+    const spaceId = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
+    const milestonesId = (await inject('POST', `/workspaces/${wsId}/databases`, {
+      space_id: spaceId,
+      name: 'Milestones',
+    })).json().id;
+    const targetApi = (await inject('POST', `/workspaces/${wsId}/databases/${milestonesId}/fields`, {
+      display_name: 'Target',
+      type: 'text',
+      config: {},
+    })).json().apiName;
+
+    const rel = (await inject('POST', `/workspaces/${wsId}/relations`, {
+      database_a_id: dbId,
+      database_b_id: milestonesId,
+      cardinality: 'many_to_many',
+    })).json();
+    const hostRelationFieldId: string = rel.field_a.id; // the Tickets-side relation field
+
+    const rule = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/automations`, {
+      name: 'Announce the linked milestone',
+      trigger: { type: 'record_linked', relation_field_id: hostRelationFieldId },
+      actions: [
+        // interpolate path: {linked.Title} + a display-named field from the OTHER db.
+        { type: 'add_comment', body_template: 'Linked to {linked.Title} (target {linked.Target})' },
+        // typed whole-value path: copy the linked record's field straight onto the host.
+        { type: 'set_values', values: { [notesApi]: '{linked.Target}' } },
+      ],
+    })).json();
+    expect(rule.id).toBeTruthy();
+
+    const milestone = (await inject('POST', `/workspaces/${wsId}/databases/${milestonesId}/records`, {
+      values: { name: 'Q3 Launch', [targetApi]: '2026-09-01' },
+    })).json();
+    const ticket = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records`, {
+      values: { name: 'Ship it' },
+    })).json();
+
+    // Link the milestone to the ticket → fires the record_linked trigger.
+    const link = await inject(
+      'POST',
+      `/workspaces/${wsId}/databases/${dbId}/records/${ticket.id}/links/${hostRelationFieldId}`,
+      { record_ids: [milestone.id] },
+    );
+    expect(link.statusCode, link.body).toBe(201);
+    await engine.settle(ticket.id);
+    await wait(50);
+
+    const comments = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/records/${ticket.id}/comments`)).json();
+    expect(
+      comments.data.some(
+        (c: { body: Array<{ text: string }> }) => c.body[0]?.text === 'Linked to Q3 Launch (target 2026-09-01)',
+      ),
+    ).toBe(true);
+
+    const host = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/records/${ticket.id}`)).json();
+    expect(host.values[notesApi]).toBe('2026-09-01');
+
+    await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}`, { enabled: false });
+  });
 });
