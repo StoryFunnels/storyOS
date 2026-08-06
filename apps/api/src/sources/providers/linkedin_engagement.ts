@@ -129,6 +129,10 @@ export const linkedinEngagementProvider: SourceProviderDescriptor = {
   id: 'linkedin.org_engagement',
   label: 'LinkedIn — org post comments',
   connectionProvider: 'http',
+  // #111 — off until an operator enables LinkedIn actions on the server. Gating
+  // it here (not just throwing in sync()) keeps the provider out of the "Sync
+  // from…" picker so nobody can create a source that would only fail at sync.
+  enabled: () => env().LINKEDIN_ACTIONS_ENABLED,
   configSchema: linkedinEngagementConfigSchema,
   description:
     'Needs an HTTP connection holding a LinkedIn organization access token (the r_organization_social ' +

@@ -6,6 +6,7 @@ import {
   NotFoundException,
   OnModuleDestroy,
   OnModuleInit,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { and, desc, eq, gte, inArray, isNull, or, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
@@ -19,8 +20,7 @@ import { defaultConnectionFetcher } from '../connections/providers/types';
 import type { ConnectionFetcher } from '../connections/providers/types';
 import { DEFAULT_SOURCE_RECURRENCE } from '@storyos/schemas';
 import type { SourceRecurrence } from '@storyos/schemas';
-import { SOURCE_PROVIDER_REGISTRY } from './providers';
-import { SourceSyncError } from './providers';
+import { SOURCE_PROVIDER_REGISTRY, SourceSyncError, isProviderEnabled } from './providers';
 import { listChannels } from './providers/youtube';
 import type { SourceProviderDescriptor, SourceSyncContext } from './providers';
 import { isRecurrenceDue, scheduleFromRecurrence } from './recurrence';
@@ -74,7 +74,10 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
 
   listProviders() {
     return {
-      data: [...SOURCE_PROVIDER_REGISTRY.values()].map((p) => ({
+      // #111 — an env-disabled provider (e.g. LinkedIn before app review clears)
+      // is hidden from the catalog, so the "Sync from…" dialog never offers a
+      // source that would always fail at sync.
+      data: [...SOURCE_PROVIDER_REGISTRY.values()].filter(isProviderEnabled).map((p) => ({
         id: p.id,
         label: p.label,
         connection_provider: p.connectionProvider,
@@ -150,6 +153,18 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
     return descriptor;
   }
 
+  /** #111 — reject creating a source for a provider the operator has disabled,
+   * defending the API even if a stale client still shows it in the picker. */
+  private requireEnabledProvider(id: string): SourceProviderDescriptor {
+    const descriptor = this.requireProvider(id);
+    if (!isProviderEnabled(descriptor)) {
+      throw new UnprocessableEntityException(
+        `Source provider "${descriptor.id}" is disabled on this server`,
+      );
+    }
+    return descriptor;
+  }
+
   async create(
     workspaceId: string,
     databaseId: string,
@@ -165,7 +180,7 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
     },
     actorId: string,
   ) {
-    const descriptor = this.requireProvider(input.provider_source);
+    const descriptor = this.requireEnabledProvider(input.provider_source);
     const connection = await this.requireConnectionForProvider(workspaceId, input.connection_id, descriptor);
     const parsedConfig = descriptor.configSchema.safeParse(input.config ?? {});
     if (!parsedConfig.success) {
