@@ -57,6 +57,11 @@ export interface SourceProviderDescriptor {
   label: string;
   /** connections.provider id this source's connection must be (e.g. "google"). */
   connectionProvider: string;
+  /** #111 — false when the provider is disabled by env (e.g. an integration
+   * pending platform review, gated behind a feature flag). Disabled providers
+   * are hidden from listProviders() and rejected on create, so a user can never
+   * select a source that would always fail at sync. Defaults to enabled. */
+  enabled?(): boolean;
   configSchema: ZodObject<ZodRawShape>;
   /** Shown as-is under the provider picker in the "Sync from…" dialog — MN-262's
    * responsibility framing ("Actors run under YOUR Apify account…") is this,
@@ -77,4 +82,14 @@ export interface SourceProviderDescriptor {
      * verbatim on the run row (`source_runs.stats`). Omit for nothing to show. */
     stats?: Record<string, unknown>;
   }>;
+}
+
+/**
+ * #111 — a provider with no `enabled()` is always on; one that defines it is on
+ * only when it returns true (e.g. LinkedIn gated on LINKEDIN_ACTIONS_ENABLED).
+ * The catalog filters on this and `create` rejects disabled ones, so a user can
+ * never pick a source that would only ever fail at sync.
+ */
+export function isProviderEnabled(p: SourceProviderDescriptor): boolean {
+  return p.enabled?.() ?? true;
 }
