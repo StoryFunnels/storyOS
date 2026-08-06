@@ -6,7 +6,7 @@ import type { MentionsService } from '../mentions/mentions.service';
 import type { PreferencesService } from '../users/preferences.service';
 import { DEFAULT_PREFERENCES } from '../users/preferences.constants';
 import { CommentsService } from './comments.service';
-import type { CommentBody } from './comments.service';
+import { renderCommentText } from './comment-render';
 
 /** Builds a CommentsService whose private notifyMentions() can be exercised
  * directly (it's the MN-103 send point) without the surrounding create()
@@ -17,10 +17,10 @@ function buildService(opts: {
   recordTitle?: string;
   authorName?: string;
 }) {
-  const sent: Array<{ kind: string; to: string }> = [];
+  const sent: Array<{ kind: string; to: string; excerpt?: string; url?: string }> = [];
   const emailService = {
-    send: vi.fn(async (input: { kind: string; to: string }) => {
-      sent.push({ kind: input.kind, to: input.to });
+    send: vi.fn(async (input: { kind: string; to: string; excerpt?: string; url?: string }) => {
+      sent.push({ kind: input.kind, to: input.to, excerpt: input.excerpt, url: input.url });
     }),
   } as unknown as EmailService;
 
@@ -67,26 +67,45 @@ function callNotifyMentions(
   service: CommentsService,
   recordId: string,
   authorId: string,
-  mentionIds: string[],
-  body: CommentBody,
-  workspaceId = 'ws1', // MN-194 — notifyMentions now takes workspaceId (cost attribution)
+  mentioned: Array<{ id: string; name: string | null; email: string }>,
+  rendered = 'hi there',
+  commentId = 'c1',
+  workspaceId = 'ws1', // MN-194 — notifyMentions takes workspaceId (cost attribution)
 ): Promise<void> {
+  // #235 — notifyMentions now receives the already-loaded mentioned users and the
+  // comment pre-rendered once by create(), so email matches the inbox snippet.
   return (
     service as unknown as {
-      notifyMentions: (w: string, r: string, a: string, m: string[], b: CommentBody) => Promise<void>;
+      notifyMentions: (
+        w: string,
+        r: string,
+        a: string,
+        c: string,
+        m: Array<{ id: string; name: string | null; email: string }>,
+        rendered: string,
+      ) => Promise<void>;
     }
-  ).notifyMentions(workspaceId, recordId, authorId, mentionIds, body);
+  ).notifyMentions(workspaceId, recordId, authorId, commentId, mentioned, rendered);
 }
 
 describe('CommentsService — mention email send point (MN-103)', () => {
-  it('emails a mentioned user who has not opted out', async () => {
+  it('emails a mentioned user who has not opted out, with the comment text and an exact-comment deep link', async () => {
     const { service, sent } = buildService({
       mentionedUsers: [{ id: 'u1', email: 'u1@example.com', name: 'Bob' }],
     });
 
-    await callNotifyMentions(service, 'r1', 'author1', ['u1'], [{ type: 'text', text: 'hi @u1' }]);
+    await callNotifyMentions(
+      service,
+      'r1',
+      'author1',
+      [{ id: 'u1', email: 'u1@example.com', name: 'Bob' }],
+      'hey @Bob take a look',
+    );
 
-    expect(sent).toEqual([{ kind: 'mention', to: 'u1@example.com' }]);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ kind: 'mention', to: 'u1@example.com', excerpt: 'hey @Bob take a look' });
+    // #235 — the link targets the exact comment, shared across every channel.
+    expect(sent[0]!.url).toContain('/r/r1?comment=c1');
   });
 
   it('honors the existing "Mentions" notification toggle as the v1 email opt-out (#31/MN-103)', async () => {
@@ -95,7 +114,7 @@ describe('CommentsService — mention email send point (MN-103)', () => {
       mentionedToggleByUser: { u1: false },
     });
 
-    await callNotifyMentions(service, 'r1', 'author1', ['u1'], [{ type: 'text', text: 'hi @u1' }]);
+    await callNotifyMentions(service, 'r1', 'author1', [{ id: 'u1', email: 'u1@example.com', name: 'Bob' }]);
 
     expect(preferences.notificationPrefsFor).toHaveBeenCalledWith(['u1']);
     expect(sent).toEqual([]);
@@ -106,7 +125,9 @@ describe('CommentsService — mention email send point (MN-103)', () => {
       mentionedUsers: [{ id: 'author1', email: 'author@example.com', name: 'Ada' }],
     });
 
-    await callNotifyMentions(service, 'r1', 'author1', ['author1'], [{ type: 'text', text: 'note to self' }]);
+    await callNotifyMentions(service, 'r1', 'author1', [
+      { id: 'author1', email: 'author@example.com', name: 'Ada' },
+    ]);
 
     expect(sent).toEqual([]);
   });
@@ -120,29 +141,39 @@ describe('CommentsService — mention email send point (MN-103)', () => {
       mentionedToggleByUser: { u2: false },
     });
 
-    await callNotifyMentions(service, 'r1', 'author1', ['u1', 'u2'], [{ type: 'text', text: 'hi @u1 @u2' }]);
+    await callNotifyMentions(service, 'r1', 'author1', [
+      { id: 'u1', email: 'u1@example.com', name: 'Bob' },
+      { id: 'u2', email: 'u2@example.com', name: 'Cara' },
+    ]);
 
-    expect(sent).toEqual([{ kind: 'mention', to: 'u1@example.com' }]);
+    expect(sent.map((s) => ({ kind: s.kind, to: s.to }))).toEqual([{ kind: 'mention', to: 'u1@example.com' }]);
   });
 
-  it('emails from a BlockNote-format comment body (#180) exactly like a legacy body', async () => {
+  it('emails a BlockNote body (#180) with the mention resolved to a readable @Name (#235)', async () => {
     const { service, sent } = buildService({
       mentionedUsers: [{ id: 'u1', email: 'u1@example.com', name: 'Bob' }],
     });
 
-    await callNotifyMentions(service, 'r1', 'author1', ['u1'], {
-      format: 'blocknote',
-      doc: [
-        {
-          type: 'paragraph',
-          content: [
-            { type: 'text', text: 'hey ' },
-            { type: 'mention', props: { kind: 'user', id: 'u1', label: 'Bob' } },
-          ],
-        },
-      ],
-    });
+    // create() renders the body once with resolved names; notifyMentions gets that string.
+    const rendered = renderCommentText(
+      {
+        format: 'blocknote',
+        doc: [
+          {
+            type: 'paragraph',
+            content: [
+              { type: 'text', text: 'hey ' },
+              { type: 'mention', props: { kind: 'user', id: 'u1' } },
+            ],
+          },
+        ],
+      },
+      { userNames: new Map([['u1', 'Bob']]) },
+    );
 
-    expect(sent).toEqual([{ kind: 'mention', to: 'u1@example.com' }]);
+    await callNotifyMentions(service, 'r1', 'author1', [{ id: 'u1', email: 'u1@example.com', name: 'Bob' }], rendered);
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ kind: 'mention', to: 'u1@example.com', excerpt: 'hey @Bob' });
   });
 });

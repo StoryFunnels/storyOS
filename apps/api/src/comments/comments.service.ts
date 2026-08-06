@@ -12,8 +12,13 @@ import { activityEvents, comments, databases, memberships, records, user } from 
 import { env } from '../config/env';
 import { EmailService } from '../mail/email.service';
 import { NotificationsService } from '../notifications/notifications.service';
-import { MentionsService, collectMentions } from '../mentions/mentions.service';
+import { MentionsService } from '../mentions/mentions.service';
 import { PreferencesService } from '../users/preferences.service';
+import { commentDeepLink, commentMentionIds, renderCommentText, truncateForPreview } from './comment-render';
+
+// #235 — the body-shape guard now lives in the leaf render module; re-exported
+// here so existing importers (`from './comments.service'`) keep working.
+export { isBlocknoteCommentBody } from './comment-render';
 
 export type CommentSegment =
   | { type: 'text'; text: string }
@@ -36,57 +41,22 @@ export interface BlocknoteCommentBody {
 /** A stored comment body is EITHER the legacy segment array OR the BlockNote shape. */
 export type CommentBody = CommentSegment[] | BlocknoteCommentBody;
 
-/** True for the new `{ format: 'blocknote', doc }` shape; false for the legacy array. */
-export function isBlocknoteCommentBody(body: CommentBody): body is BlocknoteCommentBody {
-  return !Array.isArray(body) && (body as BlocknoteCommentBody)?.format === 'blocknote';
-}
-
 /**
  * The @user + #record mentions a comment references, from EITHER shape (#180).
- * BlockNote → walk the doc's inline mention nodes with the shared MN-205 walker;
- * legacy → the typed `mention`/`record` segments. Both paths dedupe.
+ * Delegates to the shared render module (#235) — kept as a named export for
+ * existing importers.
  */
 export function commentBodyMentions(body: CommentBody): { userIds: string[]; recordIds: string[] } {
-  if (isBlocknoteCommentBody(body)) return collectMentions(body.doc);
-  const userIds = [
-    ...new Set(body.filter((s) => s.type === 'mention').map((s) => (s as { user_id: string }).user_id)),
-  ];
-  const recordIds = [
-    ...new Set(body.filter((s) => s.type === 'record').map((s) => (s as { record_id: string }).record_id)),
-  ];
-  return { userIds, recordIds };
+  return commentMentionIds(body);
 }
 
 /**
- * Flat plain-text preview of a comment, from EITHER shape (#180) — powers the
- * notification snippet + mention-email excerpt. Mentions collapse to `@…` exactly
- * as the legacy segment preview did; BlockNote blocks are joined by a space.
+ * Flat plain-text preview of a comment, from EITHER shape (#180). Now backed by
+ * the shared `renderCommentText` (#235) so unresolved mentions read as
+ * "@someone"/"#record"; pass a render context there when names are available.
  */
 export function commentBodyText(body: CommentBody): string {
-  if (!isBlocknoteCommentBody(body)) {
-    return body.map((s) => (s.type === 'text' ? s.text : '@…')).join('');
-  }
-  const parts: string[] = [];
-  const walkInline = (nodes: unknown): void => {
-    if (!Array.isArray(nodes)) return;
-    for (const n of nodes) {
-      if (!n || typeof n !== 'object') continue;
-      const o = n as { type?: unknown; text?: unknown };
-      if (o.type === 'mention') parts.push('@…');
-      else if (typeof o.text === 'string') parts.push(o.text);
-    }
-  };
-  const walkBlocks = (blocks: unknown): void => {
-    if (!Array.isArray(blocks)) return;
-    for (const b of blocks) {
-      const o = (b ?? {}) as { content?: unknown; children?: unknown };
-      walkInline(o.content);
-      if (Array.isArray(o.children)) walkBlocks(o.children);
-      parts.push(' ');
-    }
-  };
-  walkBlocks(body.doc);
-  return parts.join('').replace(/\s+/g, ' ').trim();
+  return renderCommentText(body);
 }
 
 @Injectable()
@@ -208,12 +178,22 @@ export class CommentsService {
       return comment!;
     });
 
-    if (mentions.length > 0) await this.notifyMentions(workspaceId, recordId, authorId, mentions, body);
-
+    // #235 — resolve the mentioned users' names ONCE, then render the comment a
+    // single time so email, inbox, and any future channel show identical text
+    // with readable "@Name" mentions instead of a bare "@…".
+    const mentionedUsers = mentions.length
+      ? await this.db.query.user.findMany({
+          where: inArray(user.id, mentions),
+          columns: { id: true, name: true, email: true },
+        })
+      : [];
+    const userNames = new Map(mentionedUsers.map((u) => [u.id, u.name ?? 'someone']));
+    const rendered = renderCommentText(body, { userNames });
     // MN-049: in-app notifications — mentions first, then the rest of the thread.
-    const snippet = commentBodyText(body).slice(0, 120);
+    const snippet = truncateForPreview(rendered, 120);
     const record = await this.db.query.records.findFirst({ where: eq(records.id, recordId) });
     if (mentions.length > 0) {
+      await this.notifyMentions(workspaceId, recordId, authorId, created.id, mentionedUsers, rendered);
       await this.notificationsService.notify({
         workspaceId,
         databaseId: record?.databaseId,
@@ -244,16 +224,19 @@ export class CommentsService {
     workspaceId: string,
     recordId: string,
     authorId: string,
-    mentionIds: string[],
-    body: CommentBody,
+    commentId: string,
+    /** Already-loaded mentioned users (name for the shared render, email to send to). */
+    mentioned: Array<{ id: string; name: string | null; email: string }>,
+    /** The comment rendered once by the caller (#235) — email truncates the same
+     * string the inbox snippet came from, so the two channels never diverge. */
+    rendered: string,
   ) {
-    const [record, author, mentioned, prefs] = await Promise.all([
+    const [record, author, prefs] = await Promise.all([
       this.db.query.records.findFirst({ where: eq(records.id, recordId) }),
       this.db.query.user.findFirst({ where: eq(user.id, authorId) }),
-      this.db.query.user.findMany({ where: inArray(user.id, mentionIds) }),
-      this.preferences.notificationPrefsFor(mentionIds),
+      this.preferences.notificationPrefsFor(mentioned.map((m) => m.id)),
     ]);
-    const excerpt = commentBodyText(body).slice(0, 200);
+    const excerpt = truncateForPreview(rendered, 200);
     for (const target of mentioned) {
       if (target.id === authorId) continue;
       // MN-103: the same "Mentions" toggle that gates the in-app notification
@@ -267,7 +250,7 @@ export class CommentsService {
           actorName: author?.name ?? 'Someone',
           recordTitle: record?.title ?? 'a record',
           excerpt,
-          url: `${env().WEB_URL}/r/${recordId}`,
+          url: commentDeepLink(env().WEB_URL, recordId, commentId),
         },
         workspaceId, // MN-194 — attributes this send's cost to the mentioning workspace
       );
