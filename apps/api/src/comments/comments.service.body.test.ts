@@ -57,11 +57,11 @@ describe('comment body (#180) — legacy segments vs BlockNote', () => {
     expect(commentBodyMentions(blocknote)).toEqual({ userIds: ['u1'], recordIds: ['rec-1'] });
   });
 
-  it('builds a plain-text preview from a legacy body (mentions collapse to @…)', () => {
-    expect(commentBodyText(legacy)).toBe('hi @… see @…@…');
+  it('builds a plain-text preview from a legacy body (#235 — unresolved @user → @someone, #record → #record)', () => {
+    expect(commentBodyText(legacy)).toBe('hi @someone see #record@someone');
   });
 
   it('builds a plain-text preview from a BlockNote doc, blocks space-joined', () => {
-    expect(commentBodyText(blocknote)).toBe('hi @… see @…@… second line');
+    expect(commentBodyText(blocknote)).toBe('hi @someone see #record@someone second line');
   });
 });
