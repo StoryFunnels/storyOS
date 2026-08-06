@@ -35,7 +35,7 @@ function isBlankSortValue(v: unknown): boolean {
  * label (mirrors describeCondition's approach in view-toolbar.tsx), dates by
  * timestamp, numbers numerically, everything else as a string. */
 function compareSortValues(a: unknown, b: unknown, field: SortableDenseField): number {
-  if (field.type === 'select') {
+  if (field.type === 'select' || field.type === 'workflow') {
     const label = (v: unknown) => field.options?.find((o) => o.id === v)?.label ?? '';
     return label(a).localeCompare(label(b));
   }

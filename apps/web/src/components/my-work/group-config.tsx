@@ -156,7 +156,7 @@ export function MyWorkGroupToolbar({
   onChange: (next: MyWorkDbConfig) => void;
 }) {
   const adapted = fields.map(toField);
-  const groupable = fields.filter((f) => f.type === 'select' || f.type === 'user');
+  const groupable = fields.filter((f) => f.type === 'select' || f.type === 'workflow' || f.type === 'user');
   const colorable = adapted.filter((f) => f.type === 'select' || f.type === 'multi_select');
   const currentVisible = new Set(visibleFields(fields, config).map((f) => f.id));
 

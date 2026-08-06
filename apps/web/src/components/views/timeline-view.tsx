@@ -32,7 +32,7 @@ const MAX_COL = 640;
 
 function defaultColW(field: Field): number {
   if (field.type === 'title') return 240;
-  if (field.type === 'select' || field.type === 'multi_select' || field.type === 'relation') return 168;
+  if (field.type === 'select' || field.type === 'workflow' || field.type === 'multi_select' || field.type === 'relation') return 168;
   return 150;
 }
 
@@ -182,7 +182,9 @@ export function TimelineView({
   const dateFields = useMemo(() => fields.filter((f) => isDateField(f)), [fields]);
   const startField = fields.find((f) => f.id === config.start_date_field_id && isDateField(f));
   const endField = fields.find((f) => f.id === config.end_date_field_id && isDateField(f));
-  const colorField = fields.find((f) => f.id === config.color_by_field_id && f.type === 'select');
+  const colorField = fields.find(
+    (f) => f.id === config.color_by_field_id && (f.type === 'select' || f.type === 'workflow'),
+  );
 
   // Left-panel columns: title always, plus every non-hidden field (mirrors the
   // table view's "Hide fields" semantics; the toolbar writes hidden_field_ids).

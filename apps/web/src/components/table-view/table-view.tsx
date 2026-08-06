@@ -772,6 +772,7 @@ export function TableView({
                             // reach a copyable "selected, not editing" state (Cmd+C bailed
                             // out while editing). Double-click or Enter opens the editor.
                             field.type !== 'select' &&
+                            field.type !== 'workflow' &&
                             field.type !== 'relation' &&
                             !NO_EDITOR.has(field.type)
                           ) {
@@ -784,7 +785,7 @@ export function TableView({
                           // (select/relation, MN-292) stay reachable.
                           if (
                             !readOnly &&
-                            (field.type === 'title' || field.type === 'select' || field.type === 'relation')
+                            (field.type === 'title' || field.type === 'select' || field.type === 'workflow' || field.type === 'relation')
                           ) {
                             setRangeEnd(null);
                             setCursor({ row: item.index, col: colIndex });
