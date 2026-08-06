@@ -13,6 +13,7 @@ import { RelationChips } from './relation-cell';
 import type { LinkChip } from './relation-cell';
 import { AgentRefCell } from './agent-ref-cell';
 import { isAgentConfigRefValue } from '@/lib/database-labels';
+import { ICON_BY_NAME, brandIconSlug, brandIconSrc, setIconName } from '@/components/ui/icon-set';
 import type { Field, SelectOption } from './use-table-data';
 import { useDateFormat } from '@/lib/preferences';
 import { useConfirm } from '@/components/ui/confirm-dialog';
@@ -138,13 +139,49 @@ export function optionColor(
  * dark). Still visually distinct from RelationChips' outline treatment below, so a
  * category value is never mistaken for a link to another record.
  */
+/**
+ * #202/#214: an option's optional curated icon, rendered before its label on the
+ * badge. Uses the cycle-free icon-set module (NOT icon-picker, which reads
+ * OPTION_COLORS from THIS file at module-init — importing it here would deadlock).
+ * The icon inherits the chip's text colour via `currentColor`.
+ */
+function OptionIcon({ icon }: { icon?: string | null }) {
+  const setName = setIconName(icon);
+  if (setName) {
+    const Icon = ICON_BY_NAME[setName];
+    return Icon ? <Icon className="h-3 w-3 shrink-0" strokeWidth={2} aria-hidden /> : null;
+  }
+  const brand = brandIconSlug(icon);
+  if (brand) {
+    const src = `url("${brandIconSrc(brand)}")`;
+    return (
+      <span
+        aria-hidden
+        className="inline-block h-3 w-3 shrink-0 bg-current"
+        style={{
+          WebkitMaskImage: src,
+          maskImage: src,
+          WebkitMaskSize: 'contain',
+          maskSize: 'contain',
+          WebkitMaskRepeat: 'no-repeat',
+          maskRepeat: 'no-repeat',
+          WebkitMaskPosition: 'center',
+          maskPosition: 'center',
+        }}
+      />
+    );
+  }
+  return null;
+}
+
 export function OptionChip({ option }: { option: SelectOption }) {
   const color = OPTION_COLORS[option.color] ?? OPTION_COLORS.gray!;
   return (
     <span
-      className="inline-flex max-w-full items-center truncate rounded-[var(--radius-chip)] px-1.5 py-0.5 text-[11px] font-medium"
+      className="inline-flex max-w-full items-center gap-1 truncate rounded-[var(--radius-chip)] px-1.5 py-0.5 text-[11px] font-medium"
       style={{ backgroundColor: `${color}22`, color }}
     >
+      <OptionIcon icon={option.icon} />
       <span className="truncate">{option.label}</span>
     </span>
   );
