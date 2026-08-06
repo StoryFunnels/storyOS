@@ -30,9 +30,10 @@ export function feedActionFields(
   config: { color_by_field_id?: string },
 ): FeedActionFields {
   const configuredStatus = fields.find(
-    (f) => f.id === config.color_by_field_id && f.type === 'select',
+    (f) => f.id === config.color_by_field_id && (f.type === 'select' || f.type === 'workflow'),
   );
-  const statusField = configuredStatus ?? fields.find((f) => f.type === 'select');
+  // #172: the canonical Workflow field is the real status; prefer it, then any select.
+  const statusField = configuredStatus ?? fields.find((f) => f.type === 'workflow') ?? fields.find((f) => f.type === 'select');
   const checkboxField = fields.find((f) => f.type === 'checkbox');
   const userField = fields.find((f) => f.type === 'user');
   return { statusField, checkboxField, userField };

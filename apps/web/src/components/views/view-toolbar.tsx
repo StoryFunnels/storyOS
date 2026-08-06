@@ -114,6 +114,14 @@ export const OPS_BY_TYPE: Record<string, Array<{ op: string; label: string; inpu
     { op: 'has_none', label: 'is none of', input: 'options' },
     { op: 'is_empty', label: 'is empty', input: 'none' },
   ],
+  // #172: a workflow (canonical Status) field is single-select-shaped — one
+  // coloured option id — so it filters exactly like `select`. Omitting it here
+  // dropped Status out of the Filter/Sort/Color field pickers entirely.
+  workflow: [
+    { op: 'has', label: 'is any of', input: 'options' },
+    { op: 'has_none', label: 'is none of', input: 'options' },
+    { op: 'is_empty', label: 'is empty', input: 'none' },
+  ],
   multi_select: [
     { op: 'has', label: 'includes any of', input: 'options' },
     { op: 'has_none', label: 'includes none of', input: 'options' },
@@ -147,7 +155,8 @@ const RELATIVE_RANGES = [
 ];
 
 export const SORTABLE = new Set([
-  'title', 'text', 'number', 'date', 'url', 'email', 'select', 'checkbox', 'created_at', 'updated_at',
+  // #172: workflow sorts like select (the API SORTABLE set already includes it).
+  'title', 'text', 'number', 'date', 'url', 'email', 'select', 'workflow', 'checkbox', 'created_at', 'updated_at',
   // MN-260: formula is materialized server-side and reads through fieldExpr()
   // like any stored field now — SortButton further narrows to same-record-only
   // formulas via isSortableFormula (sort-config.ts).
@@ -258,10 +267,10 @@ export function ViewToolbar({
         </select>
       )}
 
-      {/* Color-by (MN-102): tint rows/cards by a select field's option color. */}
+      {/* Color-by (MN-102): tint rows/cards by a select/workflow field's option color. */}
       {(viewType === 'list' || viewType === 'feed' || viewType === 'timeline') && (
         <ColorByButton
-          fields={fields.filter((f) => f.type === 'select')}
+          fields={fields.filter((f) => f.type === 'select' || f.type === 'workflow')}
           value={config.color_by_field_id}
           onChange={(color_by_field_id) => onPatch({ color_by_field_id })}
         />

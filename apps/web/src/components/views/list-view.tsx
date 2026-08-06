@@ -48,7 +48,9 @@ export function ListView({
   );
 
   const rows = useMemo(() => (records.data?.pages ?? []).flatMap((p) => p.data), [records.data]);
-  const groupField = database.data?.fields.find((f) => f.id === config.group_by_field_id && f.type === 'select');
+  const groupField = database.data?.fields.find(
+    (f) => f.id === config.group_by_field_id && (f.type === 'select' || f.type === 'workflow'),
+  );
   const colorField = database.data?.fields.find((f) => f.id === config.color_by_field_id);
   // Preserve the saved card_field_ids order (MN-151), not schema order.
   const cardFields = useMemo(

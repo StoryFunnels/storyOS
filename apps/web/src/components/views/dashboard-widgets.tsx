@@ -61,7 +61,7 @@ const SELECT_CLASS =
   'h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink';
 
 /** Field types a widget can group records by (categorical / date). */
-const GROUPABLE_TYPES = new Set(['select', 'multi_select', 'date', 'checkbox']);
+const GROUPABLE_TYPES = new Set(['select', 'workflow', 'multi_select', 'date', 'checkbox']);
 
 const WIDGET_TYPE_LABEL: Record<ChartWidgetType, string> = {
   bar: 'Bar chart',

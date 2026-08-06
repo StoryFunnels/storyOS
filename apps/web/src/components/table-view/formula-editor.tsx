@@ -90,7 +90,7 @@ export function FormulaEditor({
         const bag: Record<string, unknown> = { name: sample.data.title, ...sample.data.values };
         // Map select ids to labels so previews match server behavior.
         for (const f of dbFields) {
-          if (f.type === 'select' && typeof bag[f.apiName] === 'string') {
+          if ((f.type === 'select' || f.type === 'workflow') && typeof bag[f.apiName] === 'string') {
             bag[f.apiName] = f.options?.find((o) => o.id === bag[f.apiName])?.label ?? bag[f.apiName];
           }
         }

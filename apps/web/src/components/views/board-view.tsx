@@ -109,7 +109,7 @@ export function BoardView({
   const columns = useMemo(() => {
     if (!groupField) return [];
     const defs: Array<{ id: string; label: string; color: string }> =
-      groupField.type === 'select'
+      groupField.type === 'select' || groupField.type === 'workflow'
         ? (groupField.options ?? []).map((o) => ({
             id: o.id,
             label: o.label,
@@ -136,7 +136,7 @@ export function BoardView({
       ...defs.map((def) => ({ ...def, rows: buckets.get(def.id)! })),
       {
         id: NO_VALUE,
-        label: groupField.type === 'select' ? 'No value' : 'Unassigned',
+        label: groupField.type === 'select' || groupField.type === 'workflow' ? 'No value' : 'Unassigned',
         color: OPTION_COLORS.gray!,
         rows: buckets.get(NO_VALUE)!,
       },
@@ -530,7 +530,7 @@ export function CardFieldChip({
   memberNames: Map<string, string>;
   memberImages?: Map<string, string | null>;
 }) {
-  if (field.type === 'select' || field.type === 'multi_select') {
+  if (field.type === 'select' || field.type === 'multi_select' || field.type === 'workflow') {
     return <CellDisplay field={field} value={value} memberNames={memberNames} memberImages={memberImages} />;
   }
   if (field.type === 'user') {
