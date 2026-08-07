@@ -42,16 +42,6 @@ export function EmptyState({
   );
 }
 
-/**
- * Best-effort singular noun for a database, derived from its display name
- * (e.g. "Tasks" → "task"). There is no dedicated noun field on a database yet,
- * so this is intentionally light; callers get "item" when no name is available.
- */
-export function databaseNoun(name?: string | null): string {
-  const trimmed = name?.trim();
-  if (!trimmed) return 'item';
-  const lower = trimmed.toLowerCase();
-  // Strip a trailing plural "s" (but keep short words like "os" intact).
-  const singular = lower.length > 3 && lower.endsWith('s') ? lower.slice(0, -1) : lower;
-  return singular || 'item';
-}
+// #149 — the noun helper moved to @/lib/records so every surface can share it;
+// re-exported here so existing importers keep working.
+export { databaseNoun } from '@/lib/records';

@@ -14,6 +14,8 @@ import { useConfirm } from '@/components/ui/confirm-dialog';
 import { CellEditor, cellToText } from './cells';
 import { useFieldMutations } from './field-dialog-shared';
 import type { Field, RecordRow } from './use-table-data';
+import { useDatabase } from './use-table-data';
+import { databaseNoun, pluralNoun } from '@/lib/records';
 
 /** Escape one CSV cell (quotes, commas, newlines). */
 function csvCell(value: string): string {
@@ -56,6 +58,9 @@ export function BatchBar({
 }) {
   const { invalidate } = useFieldMutations(ws, db);
   const confirm = useConfirm();
+  // #149 — speak the operator's noun ("3 tasks"), not the schema word "records".
+  const database = useDatabase(ws, db);
+  const noun = databaseNoun(database.data?.name);
   const [settingField, setSettingField] = useState<Field | null>(null);
   const [linkingField, setLinkingField] = useState<Field | null>(null);
   const [busy, setBusy] = useState(false);
@@ -112,7 +117,7 @@ export function BatchBar({
     if (
       selected.length > 25 &&
       !(await confirm({
-        title: `Move ${selected.length} records to trash?`,
+        title: `Move ${selected.length} ${pluralNoun(noun, selected.length)} to trash?`,
         message: 'They can be restored from the trash for 30 days.',
         confirmLabel: 'Move to trash',
         danger: true,
