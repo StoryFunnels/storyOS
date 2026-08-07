@@ -464,4 +464,62 @@ describe('MN-168 — entitlements wiring for the automations engine', () => {
 
     await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}`, { enabled: false });
   });
+
+  it('record_linked condition tests the LINKED record — fires only when the linked record matches (#271)', async () => {
+    const spaceId = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
+    const msDb = (await inject('POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name: 'Milestones-271' })).json().id;
+    const ms = (await inject('POST', `/workspaces/${wsId}/databases/${msDb}/fields`, {
+      display_name: 'MStatus',
+      type: 'select',
+      config: {},
+      options: [{ label: 'Active' }, { label: 'Inactive' }],
+    })).json();
+    const msStatusApi = ms.apiName;
+    const activeId = ms.options.find((o: { label: string }) => o.label === 'Active').id;
+
+    const rel = (await inject('POST', `/workspaces/${wsId}/relations`, {
+      database_a_id: dbId,
+      database_b_id: msDb,
+      cardinality: 'many_to_many',
+    })).json();
+    const hostRelField = rel.field_a.id;
+
+    // Condition references a field on the LINKED (Milestones) database, not the host.
+    const rule = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/automations`, {
+      name: 'Only active milestones',
+      trigger: { type: 'record_linked', relation_field_id: hostRelField },
+      condition: { field: msStatusApi, op: 'has', value: [activeId] },
+      actions: [{ type: 'add_comment', body_template: 'Linked to an active milestone' }],
+    })).json();
+    expect(rule.id, JSON.stringify(rule)).toBeTruthy();
+
+    const activeMs = (await inject('POST', `/workspaces/${wsId}/databases/${msDb}/records`, {
+      values: { name: 'M-active', [msStatusApi]: activeId },
+    })).json();
+    const inactiveMs = (await inject('POST', `/workspaces/${wsId}/databases/${msDb}/records`, {
+      values: { name: 'M-inactive' },
+    })).json();
+
+    // Ticket A links an ACTIVE milestone → the linked-record condition matches → fires.
+    const ticketA = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records`, { values: { name: 'Ticket A' } })).json();
+    await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records/${ticketA.id}/links/${hostRelField}`, {
+      record_ids: [activeMs.id],
+    });
+    await engine.settle(ticketA.id);
+    await wait(50);
+    const aComments = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/records/${ticketA.id}/comments`)).json();
+    expect(aComments.data.some((c: { body: Array<{ text: string }> }) => c.body[0]?.text === 'Linked to an active milestone')).toBe(true);
+
+    // Ticket B links an INACTIVE milestone → condition fails on the linked record → does NOT fire.
+    const ticketB = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records`, { values: { name: 'Ticket B' } })).json();
+    await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records/${ticketB.id}/links/${hostRelField}`, {
+      record_ids: [inactiveMs.id],
+    });
+    await engine.settle(ticketB.id);
+    await wait(50);
+    const bComments = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/records/${ticketB.id}/comments`)).json();
+    expect(bComments.data).toHaveLength(0);
+
+    await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}`, { enabled: false });
+  });
 });
