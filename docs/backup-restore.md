@@ -126,6 +126,58 @@ time against a running project:
 - **Scheduling.** Drive `backup.sh` from cron/systemd on the host. Rotate old
   `backups/*` directories to fit your retention window.
 
+## Automating it: encrypted, off-box, pruned (#294)
+
+The three bullets above are what `ship-offbox.sh` does for you. It **wraps**
+`backup.sh` — same recovery points, same `restore.sh` rehearsal — and adds the
+parts that make an on-box backup survive losing the box:
+
+```sh
+# one-time, on a machine that is NOT the server:
+age-keygen -o storyos-backup.key      # keep this file OFF the server, in a password manager
+#   -> public key: age1…              # only the public key goes on the server
+
+# on the server, in the repo root:
+export BACKUP_AGE_RECIPIENT='age1…'                    # PUBLIC key only
+export BACKUP_RCLONE_REMOTE='b2:storyos-backups/prod'   # any rclone remote
+./scripts/backup-restore/ship-offbox.sh                 # backup -> encrypt -> upload -> prune
+DRY_RUN=1 ./scripts/backup-restore/ship-offbox.sh       # see what it would do, touch nothing
+```
+
+Why the **public** key: the server can create backups it cannot read. If it held
+the private key, anyone who compromised the box would own every historical
+backup too — which is most of the reason to keep copies elsewhere at all.
+
+**Schedule it** (nightly at 03:15 UTC, with freshness checked an hour later):
+
+```cron
+15 3 * * * cd /root/storyOS && /usr/bin/env BACKUP_AGE_RECIPIENT=age1… BACKUP_RCLONE_REMOTE=b2:storyos-backups/prod ./scripts/backup-restore/ship-offbox.sh >> /var/log/storyos-backup.log 2>&1
+15 4 * * * cd /root/storyOS && /usr/bin/env BACKUP_RCLONE_REMOTE=b2:storyos-backups/prod ./scripts/backup-restore/check-freshness.sh
+```
+
+`check-freshness.sh` prints nothing on success and exits non-zero with a reason
+when the newest **remote** point is older than `MAX_AGE_HOURS` (default 26 — a
+nightly job plus clock drift shouldn't page anyone, a skipped night should). Cron
+mails stderr, so a silent cron is a healthy cron; wire it to your uptime checker
+if you'd rather be told actively.
+
+**Retention** is `KEEP_DAILY` (7) most-recent points plus the newest point of each
+of the last `KEEP_MONTHLY` (4) calendar months, pruned both locally and on the
+remote. It is named *monthly* because that is what it is — the bucket is `YYYY-MM`.
+
+### Restoring from an off-box copy
+
+```sh
+rclone copyto b2:storyos-backups/prod/<label>.tar.age ./<label>.tar.age
+age -d -i storyos-backup.key -o <label>.tar <label>.tar.age    # needs the PRIVATE key
+tar -xf <label>.tar -C backups/
+./scripts/backup-restore/restore.sh backups/<label>             # the usual rehearsal
+```
+
+Note there is no second restore procedure: decrypt, unpack, then the same
+`restore.sh` isolated-clone rehearsal documented above. Fewer paths, fewer things
+to rot.
+
 ## Larger deployments: Postgres PITR
 
 The dump-and-restore flow here has an RPO of "your last backup". Deployments that
