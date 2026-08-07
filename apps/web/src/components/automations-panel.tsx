@@ -9,6 +9,7 @@ import { useDateFormat } from '@/lib/preferences';
 import { ButtonActionsEditor } from '@/components/table-view/button-actions-editor';
 import type { ButtonAction } from '@/components/table-view/button-actions-editor';
 import { useDatabase, useMembers } from '@/components/table-view/use-table-data';
+import { availableRecipes } from '@/components/automation-recipes';
 import type { Field } from '@/components/table-view/use-table-data';
 import { OPS_BY_TYPE } from '@/components/views/view-toolbar';
 import { Button } from '@/components/ui/button';
@@ -373,6 +374,9 @@ function RuleEditor({
   const [hookSecret, setHookSecret] = useState(rule?.hookSecret ?? null);
   const [regenBusy, setRegenBusy] = useState(false);
   const [showLastPayload, setShowLastPayload] = useState(false);
+  // #156 — a NEW rule starts at the recipe gallery; editing an existing rule goes
+  // straight to the form. "Start from scratch" is always one click away.
+  const [showRecipes, setShowRecipes] = useState(!rule);
   const confirm = useConfirm();
   const membersQuery = useMembers(ws, true);
   const members = (membersQuery.data ?? []).map((m) => ({ id: m.user.id, name: m.user.name }));
@@ -504,6 +508,63 @@ function RuleEditor({
     }
     toast.success(rule ? 'Rule updated' : 'Rule created');
     onDone(data as unknown as Rule);
+  }
+
+  /** #156 — apply a recipe's prepared fill to the same state the manual path uses. */
+  function applyRecipe(fill: ReturnType<typeof availableRecipes>[number]['fill']) {
+    setName(fill.name);
+    setTriggerType(fill.triggerType);
+    setTriggerFieldId(fill.triggerFieldId ?? '');
+    setConditionField(fill.condition?.field ?? '');
+    setConditionOp(fill.condition?.op ?? '');
+    const v = fill.condition?.value;
+    setConditionValue(Array.isArray(v) ? String(v[0] ?? '') : v === undefined ? '' : String(v));
+    setActions(fill.actions);
+    setShowRecipes(false);
+  }
+
+  // #156 — the recipe gallery: pick a "When X → do Y" sentence instead of
+  // assembling a trigger + condition + actions from scratch. Only recipes this
+  // database can actually run are listed (a recipe needing a person field isn't
+  // offered when there is none), so nothing here produces a broken rule.
+  if (showRecipes) {
+    const recipes = availableRecipes(fields);
+    return (
+      <div className="flex flex-col gap-3 rounded-[var(--radius-card)] border border-border-default p-3">
+        <div>
+          <p className="text-[13px] font-medium text-ink">Start from a recipe</p>
+          <p className="text-[12px] text-muted">
+            Pick one and edit it — every recipe fills in the same form you'd build by hand.
+          </p>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          {recipes.map(({ recipe, fill }) => (
+            <button
+              key={recipe.id}
+              type="button"
+              className="rounded-[var(--radius-card)] border border-border-default p-2 text-left hover:bg-hover"
+              onClick={() => applyRecipe(fill)}
+            >
+              <p className="text-[13px] text-ink">{recipe.title}</p>
+              <p className="text-[11px] text-faint">{recipe.description}</p>
+            </button>
+          ))}
+          {recipes.length === 0 && (
+            <p className="text-[12px] text-faint">
+              No recipes fit this database yet — build a rule from scratch below.
+            </p>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="secondary" size="sm" onClick={() => setShowRecipes(false)}>
+            Start from scratch
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => onDone()}>
+            Cancel
+          </Button>
+        </div>
+      </div>
+    );
   }
 
   return (
