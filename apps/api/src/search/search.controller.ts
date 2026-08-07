@@ -83,7 +83,10 @@ export class SearchController {
     const visible = await this.visibleDatabaseIds(req);
     if (visible !== null && visible.length === 0) return { records: [], places: [] };
 
-    const pattern = `%${query.replace(/[%_]/g, '\\$&')}%`;
+    // LIKE metacharacters must be neutralised for both the match and the ranking
+    // predicates below — a title containing "%" must not turn into a wildcard.
+    const escaped = query.replace(/[%_]/g, '\\$&');
+    const pattern = `%${escaped}%`;
     const recordRows = await this.db
       .select({
         id: records.id,
@@ -112,8 +115,21 @@ export class SearchController {
           ...(visible !== null ? [inArray(records.databaseId, visible)] : []),
         ),
       )
+      // #252 — rank by RELEVANCE, not just recency: an exact title match beats a
+      // prefix match, which beats a match at a word boundary ("plan" matching
+      // "Launch plan"), which beats a bare substring ("plan" in "Unplanned").
+      // Recency only breaks ties inside a tier, so typing a title you know lands
+      // it first instead of burying it under whatever you touched most recently.
       .orderBy(
-        sql`(${records.title} ILIKE ${query.replace(/[%_]/g, '\\$&') + '%'}) DESC`,
+        sql`CASE
+              WHEN lower(${records.title}) = lower(${query}) THEN 0
+              WHEN ${records.title} ILIKE ${escaped + '%'} THEN 1
+              WHEN ${records.title} ILIKE ${'% ' + escaped + '%'} THEN 2
+              ELSE 3
+            END`,
+        // Shorter titles are the tighter match at the same tier ("Plan" over
+        // "Plan the offsite roadshow") — then most-recently-updated.
+        sql`length(${records.title})`,
         desc(records.updatedAt),
       )
       .limit(15);

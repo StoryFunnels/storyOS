@@ -78,6 +78,28 @@ describe('global search (MN-048)', () => {
     expect(titles).not.toContain('Phoenix secret roadmap');
   });
 
+  it('ranks by relevance: exact beats prefix beats word-start beats substring (#252)', async () => {
+    // One database, four titles that all match "plan" in different ways. Created
+    // oldest-first so pure recency ordering would REVERSE the expected result —
+    // proving the relevance tiers, not creation order, decide the ranking.
+    const db = (await inject(admin.token, 'POST', `/workspaces/${wsId}/databases`, {
+      space_id: spaceAId,
+      name: 'Rank Fixtures',
+    })).json();
+    for (const name of ['Unplanned work', 'Launch plan', 'Plan the offsite', 'Plan']) {
+      await inject(admin.token, 'POST', `/workspaces/${wsId}/databases/${db.id}/records`, { values: { name } });
+    }
+
+    const res = await inject(admin.token, 'GET', `/workspaces/${wsId}/search?q=plan`);
+    expect(res.statusCode, res.body).toBe(200);
+    const titles: string[] = res.json().records.map((r: { title: string }) => r.title);
+    const rank = (t: string) => titles.indexOf(t);
+
+    expect(rank('Plan')).toBe(0); // exact match wins outright
+    expect(rank('Plan the offsite')).toBeLessThan(rank('Launch plan')); // prefix > word-start
+    expect(rank('Launch plan')).toBeLessThan(rank('Unplanned work')); // word-start > substring
+  });
+
   it('matches databases as places and returns recents from activity', async () => {
     const res = await inject(admin.token, 'GET', `/workspaces/${wsId}/search?q=secret`);
     expect(res.json().places.some((p: { name: string }) => p.name === 'Secret Plans')).toBe(true);
