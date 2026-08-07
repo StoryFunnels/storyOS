@@ -10,6 +10,7 @@ import { useDatabases } from '@/lib/queries';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { EntityIcon } from '@/components/ui/icon-picker';
+import { withShortcut } from '@/lib/shortcuts';
 
 /**
  * Mobile quick-capture (mobile-responsive-plan.md, MN-230c): "a fast 'new
@@ -59,7 +60,7 @@ export function QuickAddFab() {
         type="button"
         onClick={() => setOpen(true)}
         aria-label="Quick add a record"
-        title="New record"
+        title={withShortcut('New record', 'new-record')}
         className="fixed bottom-5 right-4 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-[var(--text-on-dark)] shadow-[0_8px_24px_rgba(15,23,41,0.25)] hover:bg-primary-hover md:hidden"
       >
         <Plus className="h-6 w-6" />

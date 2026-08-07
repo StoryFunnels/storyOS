@@ -56,3 +56,50 @@ export const OPEN_PALETTE_EVENT = 'storyos:open-palette';
 export function openPalette() {
   window.dispatchEvent(new CustomEvent(OPEN_PALETTE_EVENT));
 }
+
+/**
+ * #254 — the single source of truth for every user-facing shortcut. Both the "?"
+ * cheat-sheet (shortcuts-overlay.tsx) and the hover tooltips read this, so a
+ * shortcut can never be renamed in one place and go stale in the other.
+ *
+ * `keys` is the DISPLAY form (⌘K, not mod+k) — the registry that actually binds
+ * handlers is `useShortcut`'s own key strings, which stay lowercase/`mod+`.
+ */
+export interface ShortcutSpec {
+  /** Stable id used by withShortcut() at call sites. */
+  id: string;
+  /** Display form, e.g. "⌘K". */
+  keys: string;
+  /** What it does, as shown in the cheat-sheet. */
+  label: string;
+}
+
+export const SHORTCUTS: ShortcutSpec[] = [
+  { id: 'palette', keys: '⌘K', label: 'Search & commands' },
+  { id: 'new-record', keys: 'n', label: 'New record (on a database)' },
+  { id: 'select-row', keys: 'x', label: 'Select row under cursor' },
+  { id: 'select-range', keys: '⇧ + click', label: 'Select a range' },
+  { id: 'select-all', keys: '⌘A', label: 'Select all loaded rows' },
+  { id: 'open-record', keys: 'e', label: 'Open record under cursor' },
+  { id: 'edit-cell', keys: 'Enter', label: 'Edit the focused cell' },
+  { id: 'cancel', keys: 'Esc', label: 'Clear selection / cancel edit' },
+  { id: 'help', keys: '?', label: 'Keyboard shortcuts' },
+];
+
+const BY_ID = new Map(SHORTCUTS.map((s) => [s.id, s]));
+
+/** The display keys for a registered shortcut, or null when the id is unknown. */
+export function shortcutKeys(id: string): string | null {
+  return BY_ID.get(id)?.keys ?? null;
+}
+
+/**
+ * #254 — append a shortcut to a tooltip/aria label: `withShortcut('New record',
+ * 'new-record')` → `"New record (n)"`. Returns the bare title when the id isn't
+ * registered, so a typo degrades to today's behaviour instead of rendering
+ * "undefined".
+ */
+export function withShortcut(title: string, id: string): string {
+  const keys = shortcutKeys(id);
+  return keys ? `${title} (${keys})` : title;
+}
