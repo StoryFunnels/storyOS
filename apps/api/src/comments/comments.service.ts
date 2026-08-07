@@ -14,6 +14,7 @@ import { EmailService } from '../mail/email.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { MentionsService } from '../mentions/mentions.service';
 import { PreferencesService } from '../users/preferences.service';
+import { SlackService } from '../integrations/slack.service';
 import { commentDeepLink, commentMentionIds, renderCommentText, truncateForPreview } from './comment-render';
 
 // #235 — the body-shape guard now lives in the leaf render module; re-exported
@@ -67,6 +68,7 @@ export class CommentsService {
     private readonly mentionsService: MentionsService,
     private readonly emailService: EmailService,
     private readonly preferences: PreferencesService,
+    private readonly slackService: SlackService,
   ) {}
 
   /** Extracts mentions server-side and validates they are active members (D4).
@@ -255,6 +257,15 @@ export class CommentsService {
         workspaceId, // MN-194 — attributes this send's cost to the mentioning workspace
       );
     }
+
+    // #268 — mirror the mention to the workspace's default Slack channel (channel
+    // v1; per-user DM is blocked on Slack phase-2). Reuses the SAME shared render
+    // as email/inbox. Best-effort: sendMessage throws when Slack isn't connected,
+    // and we swallow it — a comment must never fail because Slack is down/unset.
+    const slackText =
+      `💬 *${author?.name ?? 'Someone'}* mentioned you on *${record?.title ?? 'a record'}*\n` +
+      `> ${excerpt}\n<${commentDeepLink(env().WEB_URL, recordId, commentId)}|Open in StoryOS>`;
+    await this.slackService.sendMessage(workspaceId, { text: slackText }).catch(() => undefined);
   }
 
   async update(recordId: string, commentId: string, body: CommentBody, actorId: string, workspaceId: string) {

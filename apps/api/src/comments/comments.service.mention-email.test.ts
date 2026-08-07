@@ -4,6 +4,7 @@ import type { EmailService } from '../mail/email.service';
 import type { NotificationsService } from '../notifications/notifications.service';
 import type { MentionsService } from '../mentions/mentions.service';
 import type { PreferencesService } from '../users/preferences.service';
+import type { SlackService } from '../integrations/slack.service';
 import { DEFAULT_PREFERENCES } from '../users/preferences.constants';
 import { CommentsService } from './comments.service';
 import { renderCommentText } from './comment-render';
@@ -16,6 +17,7 @@ function buildService(opts: {
   mentionedToggleByUser?: Record<string, boolean>;
   recordTitle?: string;
   authorName?: string;
+  slackConfigured?: boolean;
 }) {
   const sent: Array<{ kind: string; to: string; excerpt?: string; url?: string }> = [];
   const emailService = {
@@ -49,14 +51,26 @@ function buildService(opts: {
     },
   } as unknown as Db;
 
+  // #268 — Slack posts: a connected workspace resolves; an unconfigured one throws
+  // (which notifyMentions swallows). `slackConfigured` picks which.
+  const slackPosts: string[] = [];
+  const slackService = {
+    sendMessage: vi.fn(async (_ws: string, msg: { text: string }) => {
+      if (!opts.slackConfigured) throw new Error('Slack not configured');
+      slackPosts.push(msg.text);
+      return { ok: true as const, via: 'bot' as const };
+    }),
+  } as unknown as SlackService;
+
   const service = new CommentsService(
     db,
     {} as unknown as NotificationsService,
     {} as unknown as MentionsService,
     emailService,
     preferences,
+    slackService,
   );
-  return { service, sent, preferences };
+  return { service, sent, preferences, slackPosts };
 }
 
 /** notifyMentions is private — this is the send point MN-103 wires up, and the
@@ -106,6 +120,32 @@ describe('CommentsService — mention email send point (MN-103)', () => {
     expect(sent[0]).toMatchObject({ kind: 'mention', to: 'u1@example.com', excerpt: 'hey @Bob take a look' });
     // #235 — the link targets the exact comment, shared across every channel.
     expect(sent[0]!.url).toContain('/r/r1?comment=c1');
+  });
+
+  it('posts the mention to Slack when the workspace has Slack configured (#268)', async () => {
+    const { service, slackPosts } = buildService({
+      mentionedUsers: [{ id: 'u1', email: 'u1@example.com', name: 'Bob' }],
+      recordTitle: 'Launch plan',
+      authorName: 'Ada',
+      slackConfigured: true,
+    });
+    await callNotifyMentions(service, 'r1', 'author1', [{ id: 'u1', email: 'u1@example.com', name: 'Bob' }], 'ping @Bob');
+    // One channel post, carrying the same rendered comment + a deep link.
+    expect(slackPosts).toHaveLength(1);
+    expect(slackPosts[0]).toContain('ping @Bob');
+    expect(slackPosts[0]).toContain('Launch plan');
+    expect(slackPosts[0]).toContain('/r/r1?comment=c1');
+  });
+
+  it('never fails the comment when Slack is not configured (#268)', async () => {
+    const { service, sent, slackPosts } = buildService({
+      mentionedUsers: [{ id: 'u1', email: 'u1@example.com', name: 'Bob' }],
+      slackConfigured: false,
+    });
+    // sendMessage throws (not connected) → swallowed; email still sends.
+    await callNotifyMentions(service, 'r1', 'author1', [{ id: 'u1', email: 'u1@example.com', name: 'Bob' }], 'ping');
+    expect(slackPosts).toHaveLength(0);
+    expect(sent).toHaveLength(1);
   });
 
   it('honors the existing "Mentions" notification toggle as the v1 email opt-out (#31/MN-103)', async () => {
