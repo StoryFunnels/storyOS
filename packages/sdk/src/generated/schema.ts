@@ -1503,6 +1503,417 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/attachments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Attachments on a record */
+        get: operations["AttachmentsController_list"];
+        put?: never;
+        /** Upload a file (multipart field "file"; size-capped) */
+        post: operations["AttachmentsController_upload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/attachments/{att}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download the file (authz-checked, streamed) */
+        get: operations["AttachmentsController_download"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/attachments/{att}/thumbnail": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Image thumbnail (404 for non-images) */
+        get: operations["AttachmentsController_thumbnail"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/attachments/{att}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete an attachment (object removed best-effort) */
+        delete: operations["AttachmentsController_remove"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Upload an image for the editor (multipart "file"); returns { id, url } */
+        post: operations["FilesController_upload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/files/{id}/download-url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mint a signed, expiring download URL for a file (#201) */
+        post: operations["FilesController_mintDownloadUrl"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/files/{id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke a file — kills its capability URL and any signed download URLs (#201) */
+        post: operations["FilesController_revoke"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/files/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Serve an uploaded editor image by id (capability URL, or access-checked under private-attachments mode) */
+        get: operations["PublicFilesController_serve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/files/{id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download a file via a signed, expiring URL (#201) */
+        get: operations["FileDownloadController_download"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Search records by title + databases/spaces by name (grant-scoped) */
+        get: operations["SearchController_search"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/my-work": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Records across databases assigned to me or created by me (MN-049, #36) */
+        get: operations["SearchController_myWork"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/recent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Records the caller touched most recently (from activity) */
+        get: operations["SearchController_recent"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import CSV: fields "file", "mapping" (JSON), "dry_run" ("true"/"false") */
+        post: operations["ImportController_run"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/buttons/{field}/press": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Press a button field (editor+); actions run as the presser */
+        post: operations["ButtonsController_press"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/automations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List rules */
+        get: operations["AutomationsController_list"];
+        put?: never;
+        /** Create a rule (trigger + condition + actions) */
+        post: operations["AutomationsController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/automations/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a rule */
+        delete: operations["AutomationsController_remove"];
+        options?: never;
+        head?: never;
+        /** Update / enable / disable a rule */
+        patch: operations["AutomationsController_update"];
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Run history (90-day retention, MN-264) */
+        get: operations["AutomationsController_runs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Dry-run a rule against one record */
+        post: operations["AutomationsController_test"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/regenerate-hook": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rotate a webhook_received rule's token + secret — the old URL 404s immediately */
+        post: operations["AutomationsController_regenerateHook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/last-payload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The most recent payload a webhook_received rule received (for token mapping) */
+        get: operations["AutomationsController_lastPayload"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hooks/{workspaceSlug}/{hookToken}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Inbound webhook receiver for a webhook_received automation rule */
+        post: operations["HooksController_receive"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/approvals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List approvals for this workspace, optionally filtered by status */
+        get: operations["ApprovalsController_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/approvals/{id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve a pending approval — enqueues the gated action from its frozen snapshot (human-only) */
+        post: operations["ApprovalsController_approve"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/approvals/{id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reject a pending approval — the gated action never runs (human-only) */
+        post: operations["ApprovalsController_reject"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/integrations": {
         parameters: {
             query?: never;
@@ -2185,417 +2596,6 @@ export interface paths {
         get: operations["SourcesController_runs"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/attachments": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Attachments on a record */
-        get: operations["AttachmentsController_list"];
-        put?: never;
-        /** Upload a file (multipart field "file"; size-capped) */
-        post: operations["AttachmentsController_upload"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/attachments/{att}/download": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Download the file (authz-checked, streamed) */
-        get: operations["AttachmentsController_download"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/attachments/{att}/thumbnail": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Image thumbnail (404 for non-images) */
-        get: operations["AttachmentsController_thumbnail"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/attachments/{att}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /** Delete an attachment (object removed best-effort) */
-        delete: operations["AttachmentsController_remove"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/files": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Upload an image for the editor (multipart "file"); returns { id, url } */
-        post: operations["FilesController_upload"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/files/{id}/download-url": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Mint a signed, expiring download URL for a file (#201) */
-        post: operations["FilesController_mintDownloadUrl"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/files/{id}/revoke": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Revoke a file — kills its capability URL and any signed download URLs (#201) */
-        post: operations["FilesController_revoke"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/files/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Serve an uploaded editor image by id (capability URL, or access-checked under private-attachments mode) */
-        get: operations["PublicFilesController_serve"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/files/{id}/download": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Download a file via a signed, expiring URL (#201) */
-        get: operations["FileDownloadController_download"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/search": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Search records by title + databases/spaces by name (grant-scoped) */
-        get: operations["SearchController_search"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/my-work": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Records across databases assigned to me or created by me (MN-049, #36) */
-        get: operations["SearchController_myWork"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/recent": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Records the caller touched most recently (from activity) */
-        get: operations["SearchController_recent"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/databases/{db}/import": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Import CSV: fields "file", "mapping" (JSON), "dry_run" ("true"/"false") */
-        post: operations["ImportController_run"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/buttons/{field}/press": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Press a button field (editor+); actions run as the presser */
-        post: operations["ButtonsController_press"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/databases/{db}/automations": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List rules */
-        get: operations["AutomationsController_list"];
-        put?: never;
-        /** Create a rule (trigger + condition + actions) */
-        post: operations["AutomationsController_create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/databases/{db}/automations/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /** Delete a rule */
-        delete: operations["AutomationsController_remove"];
-        options?: never;
-        head?: never;
-        /** Update / enable / disable a rule */
-        patch: operations["AutomationsController_update"];
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/runs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Run history (90-day retention, MN-264) */
-        get: operations["AutomationsController_runs"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/test": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Dry-run a rule against one record */
-        post: operations["AutomationsController_test"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/regenerate-hook": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Rotate a webhook_received rule's token + secret — the old URL 404s immediately */
-        post: operations["AutomationsController_regenerateHook"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/last-payload": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** The most recent payload a webhook_received rule received (for token mapping) */
-        get: operations["AutomationsController_lastPayload"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/hooks/{workspaceSlug}/{hookToken}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Inbound webhook receiver for a webhook_received automation rule */
-        post: operations["HooksController_receive"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/approvals": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List approvals for this workspace, optionally filtered by status */
-        get: operations["ApprovalsController_list"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/approvals/{id}/approve": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Approve a pending approval — enqueues the gated action from its frozen snapshot (human-only) */
-        post: operations["ApprovalsController_approve"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/approvals/{id}/reject": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Reject a pending approval — the gated action never runs (human-only) */
-        post: operations["ApprovalsController_reject"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4128,155 +4128,6 @@ export interface components {
                 }[];
             };
         };
-        GithubConfigDto: {
-            token?: string;
-            repos?: string[];
-            webhook_secret?: string;
-            /** Format: uuid */
-            link_database_id?: string;
-            state_automation?: {
-                opened?: string | null;
-                reopened?: string | null;
-                review_requested?: string | null;
-                review_approved?: string | null;
-                review_changes_requested?: string | null;
-                merged?: string | null;
-                closed?: string | null;
-                pushed?: string | null;
-            };
-        };
-        ReviewCommentDto: {
-            path: string;
-            line: number;
-            /** @enum {string} */
-            side: "LEFT" | "RIGHT";
-            body: string;
-        };
-        ReviewReplyDto: {
-            body: string;
-        };
-        ReviewReactionDto: {
-            /** @enum {string} */
-            content: "+1" | "-1" | "laugh" | "confused" | "heart" | "hooray" | "rocket" | "eyes";
-        };
-        SubmitReviewDto: {
-            /** @enum {string} */
-            event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
-            body?: string;
-        };
-        ReviewSettingsDto: {
-            enabled?: boolean;
-            auto_convert_draft?: boolean;
-            /** @enum {string} */
-            default_merge_strategy?: "merge" | "squash" | "rebase";
-            /** @enum {string} */
-            code_theme?: "auto" | "light" | "dark";
-            /** @enum {string} */
-            code_font?: "mono" | "mono_lig" | "system";
-            notifications?: {
-                review_requests?: boolean;
-                comments_mentions?: boolean;
-            };
-        };
-        LinearConfigDto: {
-            api_key?: string;
-            team_keys?: string[];
-        };
-        SlackConfigDto: {
-            bot_token?: string;
-            default_channel?: string;
-            /** Format: uri */
-            webhook_url?: string;
-        };
-        ShopifyCatalogueDto: {
-            /** Format: uuid */
-            space_id: string;
-            /** Format: uuid */
-            connection_id: string;
-            name_prefix?: string;
-        };
-        CreateConnectionDto: {
-            provider: string;
-            name: string;
-            auth: {
-                [key: string]: unknown;
-            };
-        };
-        DiscoverSourceDto: {
-            /** Format: uuid */
-            connection_id: string;
-            provider_source: string;
-            /** @default {} */
-            config: {
-                [key: string]: unknown;
-            };
-        };
-        CreateSourceDto: {
-            name: string;
-            /** Format: uuid */
-            connection_id: string;
-            provider_source: string;
-            /** @default {} */
-            config: {
-                [key: string]: unknown;
-            };
-            field_mapping: {
-                [key: string]: string;
-            };
-            /** Format: uuid */
-            external_key_field_id: string;
-            /** @enum {string} */
-            schedule?: "15m" | "hour" | "day";
-            recurrence?: {
-                /** @enum {string} */
-                kind: "hourly";
-                minute: number;
-            } | {
-                /** @enum {string} */
-                kind: "daily";
-                hour: number;
-                minute: number;
-            } | {
-                /** @enum {string} */
-                kind: "weekly";
-                weekday: number;
-                hour: number;
-                minute: number;
-            };
-        };
-        UpdateSourceDto: {
-            name?: string;
-            /** Format: uuid */
-            connection_id?: string;
-            config?: {
-                [key: string]: unknown;
-            };
-            field_mapping?: {
-                [key: string]: string;
-            };
-            /** Format: uuid */
-            external_key_field_id?: string;
-            /** @enum {string} */
-            schedule?: "15m" | "hour" | "day";
-            recurrence?: {
-                /** @enum {string} */
-                kind: "hourly";
-                minute: number;
-            } | {
-                /** @enum {string} */
-                kind: "daily";
-                hour: number;
-                minute: number;
-            } | {
-                /** @enum {string} */
-                kind: "weekly";
-                weekday: number;
-                hour: number;
-                minute: number;
-            };
-            /** @enum {string} */
-            status?: "active" | "paused" | "error";
-        };
         CreateAutomationDto: {
             name: string;
             trigger: {
@@ -4292,8 +4143,6 @@ export interface components {
                 type: "record_linked";
                 /** Format: uuid */
                 relation_field_id: string;
-                /** @enum {string} */
-                direction?: "link" | "unlink";
             } | {
                 /** @enum {string} */
                 type: "schedule";
@@ -4450,8 +4299,6 @@ export interface components {
                 type: "record_linked";
                 /** Format: uuid */
                 relation_field_id: string;
-                /** @enum {string} */
-                direction?: "link" | "unlink";
             } | {
                 /** @enum {string} */
                 type: "schedule";
@@ -4599,6 +4446,155 @@ export interface components {
         };
         RejectApprovalDto: {
             reason?: string;
+        };
+        GithubConfigDto: {
+            token?: string;
+            repos?: string[];
+            webhook_secret?: string;
+            /** Format: uuid */
+            link_database_id?: string;
+            state_automation?: {
+                opened?: string | null;
+                reopened?: string | null;
+                review_requested?: string | null;
+                review_approved?: string | null;
+                review_changes_requested?: string | null;
+                merged?: string | null;
+                closed?: string | null;
+                pushed?: string | null;
+            };
+        };
+        ReviewCommentDto: {
+            path: string;
+            line: number;
+            /** @enum {string} */
+            side: "LEFT" | "RIGHT";
+            body: string;
+        };
+        ReviewReplyDto: {
+            body: string;
+        };
+        ReviewReactionDto: {
+            /** @enum {string} */
+            content: "+1" | "-1" | "laugh" | "confused" | "heart" | "hooray" | "rocket" | "eyes";
+        };
+        SubmitReviewDto: {
+            /** @enum {string} */
+            event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
+            body?: string;
+        };
+        ReviewSettingsDto: {
+            enabled?: boolean;
+            auto_convert_draft?: boolean;
+            /** @enum {string} */
+            default_merge_strategy?: "merge" | "squash" | "rebase";
+            /** @enum {string} */
+            code_theme?: "auto" | "light" | "dark";
+            /** @enum {string} */
+            code_font?: "mono" | "mono_lig" | "system";
+            notifications?: {
+                review_requests?: boolean;
+                comments_mentions?: boolean;
+            };
+        };
+        LinearConfigDto: {
+            api_key?: string;
+            team_keys?: string[];
+        };
+        SlackConfigDto: {
+            bot_token?: string;
+            default_channel?: string;
+            /** Format: uri */
+            webhook_url?: string;
+        };
+        ShopifyCatalogueDto: {
+            /** Format: uuid */
+            space_id: string;
+            /** Format: uuid */
+            connection_id: string;
+            name_prefix?: string;
+        };
+        CreateConnectionDto: {
+            provider: string;
+            name: string;
+            auth: {
+                [key: string]: unknown;
+            };
+        };
+        DiscoverSourceDto: {
+            /** Format: uuid */
+            connection_id: string;
+            provider_source: string;
+            /** @default {} */
+            config: {
+                [key: string]: unknown;
+            };
+        };
+        CreateSourceDto: {
+            name: string;
+            /** Format: uuid */
+            connection_id: string;
+            provider_source: string;
+            /** @default {} */
+            config: {
+                [key: string]: unknown;
+            };
+            field_mapping: {
+                [key: string]: string;
+            };
+            /** Format: uuid */
+            external_key_field_id: string;
+            /** @enum {string} */
+            schedule?: "15m" | "hour" | "day";
+            recurrence?: {
+                /** @enum {string} */
+                kind: "hourly";
+                minute: number;
+            } | {
+                /** @enum {string} */
+                kind: "daily";
+                hour: number;
+                minute: number;
+            } | {
+                /** @enum {string} */
+                kind: "weekly";
+                weekday: number;
+                hour: number;
+                minute: number;
+            };
+        };
+        UpdateSourceDto: {
+            name?: string;
+            /** Format: uuid */
+            connection_id?: string;
+            config?: {
+                [key: string]: unknown;
+            };
+            field_mapping?: {
+                [key: string]: string;
+            };
+            /** Format: uuid */
+            external_key_field_id?: string;
+            /** @enum {string} */
+            schedule?: "15m" | "hour" | "day";
+            recurrence?: {
+                /** @enum {string} */
+                kind: "hourly";
+                minute: number;
+            } | {
+                /** @enum {string} */
+                kind: "daily";
+                hour: number;
+                minute: number;
+            } | {
+                /** @enum {string} */
+                kind: "weekly";
+                weekday: number;
+                hour: number;
+                minute: number;
+            };
+            /** @enum {string} */
+            status?: "active" | "paused" | "error";
         };
         CreateCalendarBindingDto: {
             /** Format: uuid */
@@ -7322,6 +7318,552 @@ export interface operations {
             };
         };
     };
+    AttachmentsController_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                rec: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AttachmentsController_upload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                rec: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AttachmentsController_download: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                rec: string;
+                att: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AttachmentsController_thumbnail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                rec: string;
+                att: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AttachmentsController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                rec: string;
+                att: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    FilesController_upload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    FilesController_mintDownloadUrl: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    FilesController_revoke: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PublicFilesController_serve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    FileDownloadController_download: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SearchController_search: {
+        parameters: {
+            query: {
+                q: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SearchController_myWork: {
+        parameters: {
+            query: {
+                tab: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SearchController_recent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ImportController_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ButtonsController_press: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                rec: string;
+                field: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AutomationsController_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AutomationsController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAutomationDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AutomationsController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AutomationsController_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateAutomationDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AutomationsController_runs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AutomationsController_test: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TestAutomationDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AutomationsController_regenerateHook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AutomationsController_lastPayload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    HooksController_receive: {
+        parameters: {
+            query?: never;
+            header: {
+                "x-storyos-signature": string;
+                "x-storyos-timestamp": string;
+                "content-type": string;
+            };
+            path: {
+                workspaceSlug: string;
+                hookToken: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ApprovalsController_list: {
+        parameters: {
+            query: {
+                status: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ApprovalsController_approve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ApprovalsController_reject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RejectApprovalDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     IntegrationsDirectoryController_list: {
         parameters: {
             query?: never;
@@ -8271,552 +8813,6 @@ export interface operations {
         requestBody?: never;
         responses: {
             200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    AttachmentsController_list: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-                rec: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    AttachmentsController_upload: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-                rec: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    AttachmentsController_download: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-                rec: string;
-                att: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    AttachmentsController_thumbnail: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-                rec: string;
-                att: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    AttachmentsController_remove: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-                rec: string;
-                att: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    FilesController_upload: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    FilesController_mintDownloadUrl: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    FilesController_revoke: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    PublicFilesController_serve: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    FileDownloadController_download: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    SearchController_search: {
-        parameters: {
-            query: {
-                q: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    SearchController_myWork: {
-        parameters: {
-            query: {
-                tab: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    SearchController_recent: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    ImportController_run: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    ButtonsController_press: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-                rec: string;
-                field: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    AutomationsController_list: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    AutomationsController_create: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateAutomationDto"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    AutomationsController_remove: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    AutomationsController_update: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateAutomationDto"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    AutomationsController_runs: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    AutomationsController_test: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TestAutomationDto"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    AutomationsController_regenerateHook: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    AutomationsController_lastPayload: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    HooksController_receive: {
-        parameters: {
-            query?: never;
-            header: {
-                "x-storyos-signature": string;
-                "x-storyos-timestamp": string;
-                "content-type": string;
-            };
-            path: {
-                workspaceSlug: string;
-                hookToken: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    ApprovalsController_list: {
-        parameters: {
-            query: {
-                status: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    ApprovalsController_approve: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    ApprovalsController_reject: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RejectApprovalDto"];
-            };
-        };
-        responses: {
-            201: {
                 headers: {
                     [name: string]: unknown;
                 };
