@@ -620,28 +620,45 @@ function RuleEditor({
                   Regenerate
                 </Button>
               </div>
-              <p className="text-[11px] text-faint">
-                Sign requests with this secret (X-StoryOS-Signature: sha256=…, X-StoryOS-Timestamp)
-                to have them verified; unsigned requests are accepted if no signature is sent.{' '}
-                {'{payload.path}'} tokens read the delivered body in any action field below — e.g.{' '}
-                {'{payload.email}'} or {'{payload.answers.0.value}'}.
+              {/* #158 — lead with what a non-technical user actually does: paste the
+                  URL into the tool that will call it. Signing/tokens/raw payload are
+                  developer concerns and move behind Advanced. */}
+              <p className="text-[11px] text-muted">
+                Paste this URL into the tool that should trigger this rule — in Typeform:
+                <em> Connect → Webhooks → Add a webhook</em>; in Zapier or Make: choose a
+                “Webhooks” action and paste it as the destination URL. Nothing else is
+                required — send a test from that tool and this rule runs.
               </p>
-              <button
-                type="button"
-                className="self-start text-[12px] text-muted hover:text-ink"
-                onClick={() => setShowLastPayload((s) => !s)}
-              >
-                {showLastPayload ? 'Hide' : 'Show'} last received payload
-              </button>
-              {showLastPayload && (
-                <pre className="max-h-40 overflow-auto rounded border border-border-default bg-card p-2 text-[11px] text-muted">
-                  {lastPayloadQuery.isLoading
-                    ? 'Loading…'
-                    : lastPayloadQuery.data?.last_hook_payload
-                      ? JSON.stringify(lastPayloadQuery.data.last_hook_payload, null, 2)
-                      : 'No delivery received yet.'}
-                </pre>
-              )}
+              <details className="rounded border border-border-default">
+                <summary className="cursor-pointer select-none px-2 py-1 text-[11px] text-muted hover:text-ink">
+                  Advanced — signing, payload tokens &amp; last delivery
+                </summary>
+                <div className="flex flex-col gap-1.5 border-t border-border-default p-2">
+                  <p className="text-[11px] text-faint">
+                    Sign requests with the secret above (X-StoryOS-Signature: sha256=…,
+                    X-StoryOS-Timestamp) to have them verified; unsigned requests are accepted
+                    if no signature is sent.{' '}
+                    {'{payload.path}'} tokens read the delivered body in any action field below —
+                    e.g. {'{payload.email}'} or {'{payload.answers.0.value}'}.
+                  </p>
+                  <button
+                    type="button"
+                    className="self-start text-[12px] text-muted hover:text-ink"
+                    onClick={() => setShowLastPayload((s) => !s)}
+                  >
+                    {showLastPayload ? 'Hide' : 'Show'} last received payload
+                  </button>
+                  {showLastPayload && (
+                    <pre className="max-h-40 overflow-auto rounded border border-border-default bg-card p-2 text-[11px] text-muted">
+                      {lastPayloadQuery.isLoading
+                        ? 'Loading…'
+                        : lastPayloadQuery.data?.last_hook_payload
+                          ? JSON.stringify(lastPayloadQuery.data.last_hook_payload, null, 2)
+                          : 'No delivery received yet.'}
+                    </pre>
+                  )}
+                </div>
+              </details>
             </>
           )}
         </div>
