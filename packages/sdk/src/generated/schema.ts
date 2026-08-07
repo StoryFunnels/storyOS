@@ -4143,6 +4143,8 @@ export interface components {
                 type: "record_linked";
                 /** Format: uuid */
                 relation_field_id: string;
+                /** @enum {string} */
+                direction?: "link" | "unlink";
             } | {
                 /** @enum {string} */
                 type: "schedule";
@@ -4299,6 +4301,8 @@ export interface components {
                 type: "record_linked";
                 /** Format: uuid */
                 relation_field_id: string;
+                /** @enum {string} */
+                direction?: "link" | "unlink";
             } | {
                 /** @enum {string} */
                 type: "schedule";

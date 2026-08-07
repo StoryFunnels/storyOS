@@ -522,4 +522,55 @@ describe('MN-168 — entitlements wiring for the automations engine', () => {
 
     await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}`, { enabled: false });
   });
+
+  it('record_linked direction: a link-only rule fires on link not unlink, and vice versa (#270)', async () => {
+    const spaceId = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
+    const relDb = (await inject('POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name: 'Rel-270' })).json().id;
+    const rel = (await inject('POST', `/workspaces/${wsId}/relations`, {
+      database_a_id: dbId,
+      database_b_id: relDb,
+      cardinality: 'many_to_many',
+    })).json();
+    const hostRelField = rel.field_a.id;
+
+    const linkRule = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/automations`, {
+      name: 'On link only',
+      trigger: { type: 'record_linked', relation_field_id: hostRelField, direction: 'link' },
+      actions: [{ type: 'add_comment', body_template: 'LINKED' }],
+    })).json();
+    const unlinkRule = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/automations`, {
+      name: 'On unlink only',
+      trigger: { type: 'record_linked', relation_field_id: hostRelField, direction: 'unlink' },
+      actions: [{ type: 'add_comment', body_template: 'UNLINKED' }],
+    })).json();
+    expect(linkRule.id, JSON.stringify(linkRule)).toBeTruthy();
+    expect(unlinkRule.id, JSON.stringify(unlinkRule)).toBeTruthy();
+
+    const other = (await inject('POST', `/workspaces/${wsId}/databases/${relDb}/records`, { values: { name: 'Other' } })).json();
+    const ticket = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records`, { values: { name: 'Dir ticket' } })).json();
+
+    const textsFor = async () => {
+      const c = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/records/${ticket.id}/comments`)).json();
+      return c.data.map((x: { body: Array<{ text: string }> }) => x.body[0]?.text);
+    };
+
+    // Link → only the link rule fires.
+    await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records/${ticket.id}/links/${hostRelField}`, { record_ids: [other.id] });
+    await engine.settle(ticket.id);
+    await wait(50);
+    let texts = await textsFor();
+    expect(texts.filter((t: string) => t === 'LINKED')).toHaveLength(1);
+    expect(texts).not.toContain('UNLINKED');
+
+    // Unlink → only the unlink rule fires; the link rule does NOT fire again.
+    await inject('DELETE', `/workspaces/${wsId}/databases/${dbId}/records/${ticket.id}/links/${hostRelField}`, { record_ids: [other.id] });
+    await engine.settle(ticket.id);
+    await wait(50);
+    texts = await textsFor();
+    expect(texts.filter((t: string) => t === 'LINKED')).toHaveLength(1); // unchanged
+    expect(texts.filter((t: string) => t === 'UNLINKED')).toHaveLength(1);
+
+    await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${linkRule.id}`, { enabled: false });
+    await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${unlinkRule.id}`, { enabled: false });
+  });
 });

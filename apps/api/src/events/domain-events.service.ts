@@ -17,6 +17,13 @@ export interface DomainEvent {
   titleChanged?: boolean;
   relationFieldId?: string;
   /**
+   * #270 — for a `record_linked` event, whether records were LINKED or UNLINKED
+   * through `relationFieldId`. Lets a record_linked automation trigger fire on
+   * only one direction. Undefined for a `replaceLinks` set-operation (mixed) and
+   * for every non-relation event.
+   */
+  linkDirection?: 'link' | 'unlink';
+  /**
    * MN-267: precise before∪after other-side target ids for every relation
    * field this write touched — captured by RecordsService.writeLinks() AT
    * WRITE TIME (before the delete-then-insert replace), never reconstructed
