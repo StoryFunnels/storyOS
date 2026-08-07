@@ -95,6 +95,9 @@ export interface ActionContext {
   linkedDatabaseId?: string | null;
   /** #244: the relation field whose change fired this run. */
   changedRelationFieldId?: string | null;
+  /** #270: whether that relation change was a link or an unlink (null for a
+   * set-op / non-relation trigger). */
+  changedRelationDirection?: 'link' | 'unlink' | null;
   /** #244: display-name → api-name for `linkedDatabaseId`, populated by execute()
    * once per run (the linked record is in a different database than the host). */
   linkedDisplayToApi?: Map<string, string>;

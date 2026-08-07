@@ -479,6 +479,7 @@ export class RelationsService {
         databaseId,
         recordId: ctx.record.id,
         relationFieldId: fieldId,
+        linkDirection: 'link', // #270
         actorId,
         depth: 0,
         linkedRelations: [
@@ -624,6 +625,7 @@ export class RelationsService {
         databaseId,
         recordId: ctx.record.id,
         relationFieldId: fieldId,
+        linkDirection: 'unlink', // #270
         actorId,
         depth: 0,
         linkedRelations: [

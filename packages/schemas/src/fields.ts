@@ -426,7 +426,13 @@ export const deleteOptionSchema = z.object({
 export const automationTriggerSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('record_created') }),
   z.object({ type: z.literal('record_updated'), field_id: z.uuid().optional() }),
-  z.object({ type: z.literal('record_linked'), relation_field_id: z.uuid() }),
+  z.object({
+    type: z.literal('record_linked'),
+    relation_field_id: z.uuid(),
+    /** #270 — fire only when records are linked ('link') or only when unlinked
+     * ('unlink') through this relation field. Omit to fire on both. */
+    direction: z.enum(['link', 'unlink']).optional(),
+  }),
   z.object({
     type: z.literal('schedule'),
     every: z.enum(['hour', 'day', 'week']),

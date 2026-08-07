@@ -32,6 +32,8 @@ interface Trigger {
   type: string;
   field_id?: string;
   relation_field_id?: string;
+  /** #270 — a record_linked trigger may fire on only 'link' or only 'unlink'. */
+  direction?: 'link' | 'unlink';
   every?: 'hour' | 'day' | 'week';
   at?: string;
   weekday?: number;
@@ -46,6 +48,8 @@ interface Trigger {
  */
 interface LinkedTriggerInfo {
   changedRelationFieldId: string;
+  /** #270 — link vs unlink for this record_linked event (undefined for a set-op). */
+  direction?: 'link' | 'unlink';
   otherDatabaseId: string;
   linkedRecordIds: string[];
 }
@@ -591,6 +595,16 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
       }
       if (trigger.type === 'record_linked' && trigger.relation_field_id !== event.relationFieldId)
         continue;
+      // #270 — a direction-scoped record_linked trigger fires on only one of
+      // link/unlink. An event with no definite direction (a replaceLinks set-op)
+      // matches either scope, so it's never skipped here.
+      if (
+        trigger.type === 'record_linked' &&
+        trigger.direction &&
+        event.linkDirection &&
+        trigger.direction !== event.linkDirection
+      )
+        continue;
 
       if (event.depth >= MAX_DEPTH) {
         await this.logRun(
@@ -625,6 +639,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
     if (!entry || entry.otherRecordIds.length === 0) return undefined;
     return {
       changedRelationFieldId: event.relationFieldId,
+      direction: event.linkDirection,
       otherDatabaseId: entry.otherDatabaseId,
       linkedRecordIds: entry.otherRecordIds,
     };
@@ -744,6 +759,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         linkedRecords,
         linkedDatabaseId: linkInfo?.otherDatabaseId ?? null,
         changedRelationFieldId: linkInfo?.changedRelationFieldId ?? null,
+        changedRelationDirection: linkInfo?.direction ?? null,
       });
       await this.db
         .update(automationRuns)
