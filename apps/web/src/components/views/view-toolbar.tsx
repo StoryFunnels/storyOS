@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
@@ -1553,17 +1553,7 @@ function RecordPicker({
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [titles, setTitles] = useState<Record<string, string>>({});
-  const ref = useRef<HTMLSpanElement>(null);
   const targetDb = field.relation?.target_database_id ?? '';
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [open]);
 
   const results = useQuery({
     queryKey: ['relation-filter-picker', ws, targetDb, search],
@@ -1618,60 +1608,66 @@ function RecordPicker({
     onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
   }
 
+  // #276: render the dropdown in a portal (Popover) rather than a plain
+  // `absolute` div. The filter builder's condition list is an overflow-y-auto
+  // scroll container (FilterBuilderPanel), which CLIPPED the old inline dropdown
+  // — leaving a cramped, barely-clickable sliver. A portaled Popover escapes
+  // that clip, so options render full-size and the whole row is clickable.
   return (
-    <span ref={ref} className="relative">
-      <button
-        type="button"
-        className={cn('max-w-40 truncate text-left', selected.length ? 'text-ink' : 'text-faint')}
-        onClick={() => setOpen((o) => !o)}
-      >
-        {label}
-      </button>
-      {open && (
-        <div className="absolute left-0 top-full z-30 mt-1 w-64 rounded-[var(--radius-card)] border border-border-default bg-card shadow-[0_4px_12px_rgba(15,23,41,0.08)]">
-          {selected.length > 0 && (
-            <div className="flex flex-wrap gap-1 border-b border-border-default p-2">
-              {selected.map((id) => (
-                <span
-                  key={id}
-                  className="inline-flex items-center gap-1 rounded border border-border-default bg-hover px-1.5 py-0.5 text-[12px] text-ink"
-                >
-                  <span className="max-w-32 truncate">{titleFor(id)}</span>
-                  <button onClick={() => toggle(id)} className="text-faint hover:text-error">
-                    <X className="h-3 w-3" />
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
-          <input
-            autoFocus
-            placeholder={`Search ${field.relation?.target_database_name ?? 'records'}…`}
-            className="w-full border-b border-border-default bg-card px-3 py-2 text-[13px] text-ink outline-none placeholder:text-faint"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-          <div className="max-h-56 overflow-y-auto p-1">
-            {(results.data ?? []).map((row) => (
-              <button
-                key={row.id}
-                className={cn(
-                  'flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-[13px] text-ink hover:bg-hover',
-                  selected.includes(row.id) && 'bg-hover',
-                )}
-                onClick={() => toggle(row.id)}
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={cn('max-w-40 truncate text-left', selected.length ? 'text-ink' : 'text-faint')}
+        >
+          {label}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-64 p-0" onClick={(e) => e.stopPropagation()}>
+        {selected.length > 0 && (
+          <div className="flex flex-wrap gap-1 border-b border-border-default p-2">
+            {selected.map((id) => (
+              <span
+                key={id}
+                className="inline-flex items-center gap-1 rounded border border-border-default bg-hover px-1.5 py-0.5 text-[12px] text-ink"
               >
-                <span className="truncate">{row.title || 'Untitled'}</span>
-                {selected.includes(row.id) && <Check className="h-3.5 w-3.5 text-accent" />}
-              </button>
+                <span className="max-w-32 truncate">{titleFor(id)}</span>
+                <button onClick={() => toggle(id)} className="text-faint hover:text-error">
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
             ))}
-            {results.data?.length === 0 && (
-              <p className="px-2 py-1.5 text-[12px] text-faint">No matches.</p>
-            )}
           </div>
+        )}
+        <input
+          autoFocus
+          placeholder={`Search ${field.relation?.target_database_name ?? 'records'}…`}
+          className="w-full border-b border-border-default bg-card px-3 py-2 text-[13px] text-ink outline-none placeholder:text-faint"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          // Keep keystrokes in the box — the popover mustn't treat them as typeahead.
+          onKeyDown={(e) => e.stopPropagation()}
+        />
+        <div className="max-h-56 overflow-y-auto p-1">
+          {(results.data ?? []).map((row) => (
+            <button
+              key={row.id}
+              className={cn(
+                'flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-[13px] text-ink hover:bg-hover',
+                selected.includes(row.id) && 'bg-hover',
+              )}
+              onClick={() => toggle(row.id)}
+            >
+              <span className="truncate">{row.title || 'Untitled'}</span>
+              {selected.includes(row.id) && <Check className="h-3.5 w-3.5 text-accent" />}
+            </button>
+          ))}
+          {results.data?.length === 0 && (
+            <p className="px-2 py-1.5 text-[12px] text-faint">No matches.</p>
+          )}
         </div>
-      )}
-    </span>
+      </PopoverContent>
+    </Popover>
   );
 }
 
