@@ -3,7 +3,9 @@ import { and, eq, isNull } from 'drizzle-orm';
 import type { AutomationAction } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { connections, databases, fields, memberships, relations, user } from '../db/schema';
+import { connections, databases, fields, memberships, records, relations, user } from '../db/schema';
+import { compileFilter } from '../records/query-compiler';
+import type { FilterNode } from '@storyos/schemas';
 import { CommentsService } from '../comments/comments.service';
 import { WebhooksService } from '../webhooks/webhooks.service';
 import { SlackService } from '../integrations/slack.service';
@@ -547,6 +549,27 @@ export class AutomationActionsService {
   }
 
   /**
+   * #245 — does a per-action `condition` hold for the triggering record? Same
+   * evaluation as a rule's own condition (AutomationsService.conditionMatches):
+   * compile the filter AST and re-select the trigger record with it applied. No
+   * record in context (webhook_received) → nothing to test, so the action runs.
+   */
+  private async actionConditionPasses(ctx: ActionContext, condition: unknown): Promise<boolean> {
+    if (!ctx.record) return true;
+    const defs = await this.recordsService.fieldDefs(ctx.databaseId);
+    const where = compileFilter(condition as FilterNode, {
+      defs: new Map(defs.map((d) => [d.api_name, d])),
+      currentUserId: ctx.actorId,
+    });
+    const [row] = await this.db
+      .select({ id: records.id })
+      .from(records)
+      .where(and(eq(records.id, ctx.record.id), where))
+      .limit(1);
+    return Boolean(row);
+  }
+
+  /**
    * Executes actions in order. Any failure throws — callers wrap a press in
    * one logical transaction by re-validating first; individual service calls
    * are already transactional, and a mid-list validation error aborts before
@@ -571,6 +594,16 @@ export class AutomationActionsService {
 
     const effects: ActionEffect[] = [];
     for (const [actionIndex, action] of actions.entries()) {
+      // #245: an optional per-action condition gates JUST this action. A
+      // non-match skips it (reported as skipped, not failed) and later actions
+      // still run — so a side-effecting action (http_request, send_email) can be
+      // fired only when a check passes, no outbound call otherwise.
+      if (action.condition !== undefined && action.condition !== null) {
+        if (!(await this.actionConditionPasses(ctx, action.condition))) {
+          effects.push({ type: 'skipped', summary: `Skipped ${action.type}: condition not met` });
+          continue;
+        }
+      }
       // MN-256: send_email defaults to gated UNLESS every rendered recipient
       // resolves to a workspace member's email — that can only be known at
       // RUN time (the addresses come from {Field}/{payload} tokens), unlike

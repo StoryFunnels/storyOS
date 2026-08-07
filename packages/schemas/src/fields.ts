@@ -62,7 +62,19 @@ export const userConfigSchema = z.object({ multi: z.boolean().default(false) });
  * send_email default to true) are enforced in AutomationActionsService.validate(),
  * not here — the schema only says the flag is legal on every action type.
  */
-const gated = { require_approval: z.boolean().optional() };
+const gated = {
+  require_approval: z.boolean().optional(),
+  /**
+   * #245 — an optional filter (the same AST as a trigger/view filter) checked
+   * against the triggering record BEFORE this action runs. When present and it
+   * does not match, THIS action is skipped (reported as skipped, not failed) and
+   * later actions still run — so a rule can validate first, then conditionally
+   * fire a side-effecting action (e.g. an http_request) without splitting into
+   * many rules. Loose (`unknown`) like the rule-level `condition` above: it's
+   * compiled/validated at run time by the query compiler, not here.
+   */
+  condition: z.unknown().optional(),
+};
 
 /** Button actions (MN-046, shared with MN-047 automations). */
 export const actionSchema = z.discriminatedUnion('type', [
