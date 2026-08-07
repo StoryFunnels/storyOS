@@ -31,7 +31,9 @@ export type NotificationType =
   // from approval_requested (#210's agent-run gate, above) — that type's
   // record IS the thing being approved; here the record (if any) is just the
   // triggering context, and `ref_id` carries the actual approvals.id to act on.
-  | 'action_approval_requested';
+  | 'action_approval_requested'
+  // #236: a record you WATCH changed — snippet carries the "what changed" summary.
+  | 'record_changed';
 export interface NotificationRow {
   id: string;
   type: NotificationType;
@@ -62,6 +64,7 @@ export const NOTIFICATION_VERBS: Record<NotificationType, string> = {
   auto_reload_failed: 'flagged an auto-reload failure',
   automation_disabled: 'disabled an automation',
   action_approval_requested: 'needs your approval to run',
+  record_changed: 'changed',
 };
 const VERBS = NOTIFICATION_VERBS;
 

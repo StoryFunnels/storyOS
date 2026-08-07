@@ -240,6 +240,27 @@ export class RecordsController {
     );
   }
 
+  @Post(':rec/watch')
+  @ApiOperation({ summary: 'Watch this record — get notified (inbox/email) on any change (#236)' })
+  async watch(@Req() req: WorkspaceRequest, @Param('db') databaseId: string, @Param('rec') recordId: string) {
+    await this.assertDb(req, databaseId); // if you can see it, you can watch it
+    return this.recordsService.watch(req.membership.workspaceId, recordId, req.user.id);
+  }
+
+  @Delete(':rec/watch')
+  @ApiOperation({ summary: 'Stop watching this record (#236)' })
+  async unwatch(@Req() req: WorkspaceRequest, @Param('db') databaseId: string, @Param('rec') recordId: string) {
+    await this.assertDb(req, databaseId);
+    return this.recordsService.unwatch(recordId, req.user.id);
+  }
+
+  @Get(':rec/watchers')
+  @ApiOperation({ summary: "List this record's watchers + whether I watch it (#236)" })
+  async watchers(@Req() req: WorkspaceRequest, @Param('db') databaseId: string, @Param('rec') recordId: string) {
+    await this.assertDb(req, databaseId);
+    return this.recordsService.listWatchers(recordId, req.user.id);
+  }
+
   @Post(':rec/move')
   @ApiOperation({ summary: 'Atomic move: fractional reposition + optional value patch (kanban drop)' })
   async move(
