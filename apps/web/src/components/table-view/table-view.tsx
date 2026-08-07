@@ -28,7 +28,7 @@ import {
 } from './use-table-data';
 import type { Field, RecordRow } from './use-table-data';
 import type { ViewConfig } from '../views/use-view-state';
-import { recordHref } from '@/lib/records';
+import { databaseNoun, recordHref } from '@/lib/records';
 import { atLeast } from '@/lib/access';
 import { cn } from '@/lib/utils';
 
@@ -88,6 +88,8 @@ export function TableView({
   onPatch?: (updates: Partial<ViewConfig>) => void;
 }) {
   const database = useDatabase(ws, db);
+  // #149 — the operator's word for a row ("task"), not "record".
+  const noun = databaseNoun(database.data?.name);
   const records = useRecordsInfinite(ws, db, queryBody);
   const { updateRecord, createRecord, deleteRecord } = useRecordMutations(ws, db);
 
@@ -691,7 +693,7 @@ export function TableView({
                           to expand a row (#90) — no duplicate icon here. */}
                       {!readOnly && (
                         <button
-                          title="Delete record"
+                          title={`Delete ${noun}`}
                           className="rounded p-0.5 text-faint hover:text-error"
                           onClick={() => deleteRecord.mutate(row.id)}
                         >

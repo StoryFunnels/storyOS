@@ -49,3 +49,28 @@ export function parseRecordParam(seg: string): { kind: 'id'; value: string } | {
   if (m) return { kind: 'number', value: Number.parseInt(m[1]!, 10) };
   return { kind: 'id', value: raw };
 }
+
+/**
+ * #149 — the friendly singular noun for a database, derived from its display name
+ * ("Tasks" → "task"). End-user copy should say "task"/"client"/"invoice" — the
+ * operator's own word — not the schema word "record"/"entity". Falls back to
+ * "item" (Notion's default) when there's no name to work from.
+ *
+ * Lives here rather than in a view component so every surface (batch bar, table,
+ * empty states, dialogs) can share ONE definition; the previous home
+ * (views/empty-state) re-exports it for existing importers.
+ */
+export function databaseNoun(name?: string | null): string {
+  const trimmed = name?.trim();
+  if (!trimmed) return 'item';
+  const lower = trimmed.toLowerCase();
+  // Strip a trailing plural "s" (but keep short words like "os" intact).
+  const singular = lower.length > 3 && lower.endsWith('s') ? lower.slice(0, -1) : lower;
+  return singular || 'item';
+}
+
+/** #149 — plural form for counts ("3 tasks"). Naive by design; the noun is a
+ * display nicety, not data, so an odd plural is a cosmetic issue, never a bug. */
+export function pluralNoun(noun: string, count: number): string {
+  return count === 1 ? noun : `${noun}s`;
+}
