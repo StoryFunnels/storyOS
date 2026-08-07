@@ -178,21 +178,30 @@ export function ButtonActionsEditor({
               {/* MN-254: a webhook_received rule has no triggering record, so only
                   WEBHOOK_SAFE_ACTIONS are offered — the backend rejects the rest with
                   a clear 422 either way, but hiding them here avoids a round-trip. */}
-              {offersAction('set_values') && (
-                <option value="set_values">Set fields on this record</option>
-              )}
-              <option value="create_record">Create a record</option>
-              {offersAction('update_linked') && (
-                <option value="update_linked">Update linked records</option>
-              )}
-              {offersAction('add_comment') && <option value="add_comment">Add a comment</option>}
-              <option value="notify_user">Notify a person</option>
-              <option value="send_slack_message">Send a Slack message</option>
-              <option value="send_webhook">Send a webhook</option>
-              {offersAction('send_email') && <option value="send_email">Send an email</option>}
-              {offersAction('http_request') && (
-                <option value="http_request">Call an API (HTTP request)</option>
-              )}
+              {/* #152 — the everyday actions come first; the two that are really
+                  API-integration developer tooling (raw webhooks, arbitrary HTTP
+                  with headers/json-path) sit in their own group so a
+                  non-technical user isn't offered them as peers of "Add a
+                  comment". Same options, honestly labelled. */}
+              <optgroup label="Common">
+                {offersAction('set_values') && (
+                  <option value="set_values">Set fields on this record</option>
+                )}
+                <option value="create_record">Create a record</option>
+                {offersAction('update_linked') && (
+                  <option value="update_linked">Update linked records</option>
+                )}
+                {offersAction('add_comment') && <option value="add_comment">Add a comment</option>}
+                <option value="notify_user">Notify a person</option>
+                <option value="send_slack_message">Send a Slack message</option>
+                {offersAction('send_email') && <option value="send_email">Send an email</option>}
+              </optgroup>
+              <optgroup label="Advanced · developer">
+                <option value="send_webhook">Send a webhook</option>
+                {offersAction('http_request') && (
+                  <option value="http_request">Call an API (HTTP request)</option>
+                )}
+              </optgroup>
             </select>
             <button
               type="button"
@@ -316,17 +325,22 @@ export function ButtonActionsEditor({
                 value={action.url}
                 onChange={(e) => patch(i, { ...action, url: e.target.value })}
               />
-              <textarea
-                className="min-h-[56px] rounded border border-border-default bg-card px-2 py-1 font-mono text-[12px] text-ink"
-                placeholder={`Body (optional) — JSON is sent as-is, {Field Name} interpolates${payloadHint}.\nLeave empty to send the whole record.`}
-                value={action.body_template ?? ''}
-                onChange={(e) =>
-                  patch(i, { ...action, body_template: e.target.value || undefined })
-                }
-              />
               <p className="text-[11px] text-faint">
-                Signed with the workspace webhook secret; failures retry automatically.
+                Sends the whole record, signed with the workspace webhook secret; failures
+                retry automatically.
               </p>
+              {/* #152 — a hand-written JSON body is developer tooling: the default
+                  (send the whole record) is what most people want. */}
+              <AdvancedDetails label="Custom JSON body">
+                <textarea
+                  className="min-h-[56px] w-full rounded border border-border-default bg-card px-2 py-1 font-mono text-[12px] text-ink"
+                  placeholder={`JSON is sent as-is, {Field Name} interpolates${payloadHint}.\nLeave empty to send the whole record.`}
+                  value={action.body_template ?? ''}
+                  onChange={(e) =>
+                    patch(i, { ...action, body_template: e.target.value || undefined })
+                  }
+                />
+              </AdvancedDetails>
             </div>
           )}
 
@@ -851,8 +865,10 @@ function HttpRequestEditor({
         />
       </div>
 
-      <div className="flex flex-col gap-1 rounded border border-border-default p-1.5">
-        <p className="text-[11px] font-medium text-muted">Headers</p>
+      {/* #152 — raw HTTP headers are developer tooling; a connection (below) is the
+          non-technical way to send auth. Collapsed unless you go looking. */}
+      <AdvancedDetails label="Headers">
+        <div className="flex flex-col gap-1">
         {Object.entries(headers).map(([name, value]) => {
           const isSecret = typeof value !== 'string'; // { __keep: true }
           return (
@@ -882,7 +898,8 @@ function HttpRequestEditor({
         >
           <Plus className="h-3 w-3" /> Add header
         </button>
-      </div>
+        </div>
+      </AdvancedDetails>
 
       {action.method !== 'GET' && (
         <textarea
@@ -918,16 +935,19 @@ function HttpRequestEditor({
         )}
       </div>
 
-      <CaptureRowsEditor
-        settable={settable}
-        capture={capture}
-        onChange={(next) => onChange({ ...action, capture: next })}
-      />
-
-      <p className="text-[11px] text-faint">
-        Response captured via json-path (e.g. <code>id</code> or <code>items.0.id</code>) onto the
-        fields above. Secrets from the connection are never shown in run results.
-      </p>
+      {/* #152 — json-path response capture (items.0.id) is the most developer-y
+          control in the editor: gated, with the explanation inside it. */}
+      <AdvancedDetails label="Capture the response onto fields">
+        <CaptureRowsEditor
+          settable={settable}
+          capture={capture}
+          onChange={(next) => onChange({ ...action, capture: next })}
+        />
+        <p className="text-[11px] text-faint">
+          Response captured via json-path (e.g. <code>id</code> or <code>items.0.id</code>) onto the
+          fields above. Secrets from the connection are never shown in run results.
+        </p>
+      </AdvancedDetails>
 
       {ruleId && <SendTestRequestButton ws={ws} db={db} ruleId={ruleId} actionIndex={actionIndex} />}
     </div>
@@ -1257,5 +1277,22 @@ function ActionConditionRow({
         />
       )}
     </div>
+  );
+}
+
+/**
+ * #152 — a plain progressive-disclosure wrapper for developer-grade controls
+ * (raw JSON bodies, HTTP headers, json-path capture). Native <details> so it is
+ * keyboard-accessible and needs no state plumbing; collapsed by default, and it
+ * stays open once a user opens it while the editor is mounted.
+ */
+function AdvancedDetails({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <details className="rounded border border-border-default">
+      <summary className="cursor-pointer select-none px-2 py-1 text-[11px] text-muted hover:text-ink">
+        {label}
+      </summary>
+      <div className="flex flex-col gap-1 border-t border-border-default p-2">{children}</div>
+    </details>
   );
 }
