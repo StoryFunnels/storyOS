@@ -7,6 +7,14 @@ export interface DomainEvent {
   recordId: string;
   changedFieldIds?: string[];
   /**
+   * #273 — the before/after values behind `changedFieldIds`, keyed by field id
+   * (exactly RecordsService.update()'s own diff, passed through at no cost). Lets
+   * a firing automation render the `{changesSummary}` token without re-reading a
+   * pre-write state it can no longer see. Resolution to labels happens lazily,
+   * only for a rule whose actions actually use the token.
+   */
+  changedValues?: Record<string, { from: unknown; to: unknown }>;
+  /**
    * #132: this record's own title (the `records.title` column) changed. Kept
    * SEPARATE from `changedFieldIds` on purpose — the title has a field id, but
    * automations/auto-link key off `changedFieldIds` and must not newly fire on a

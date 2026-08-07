@@ -626,6 +626,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         event.recordId,
         event.depth,
         this.linkedInfoFromEvent(event),
+        event.changedValues, // #273 — feeds the {changesSummary} token
       );
     }
   }
@@ -653,6 +654,8 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
     depth: number,
     /** #244 — present only for a record_linked trigger. */
     linkInfo?: LinkedTriggerInfo,
+    /** #273 — before/after per changed field, for the {changesSummary} token. */
+    changedValues?: Record<string, { from: unknown; to: unknown }>,
   ) {
     const started = Date.now();
     // MN-253: pre-minted, like startHookRun's runId — actions.execute() needs
@@ -748,6 +751,15 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         linkedRecords = fetched.filter((r): r is ProjectedRecord => r !== null);
       }
 
+      // #273 — resolve the "what changed" summary ONLY when this rule's actions
+      // actually reference {changesSummary}. Label/option lookups cost two queries,
+      // so a rule that doesn't use the token pays nothing.
+      const usesChangesSummary =
+        Boolean(changedValues) && JSON.stringify(rule.actions ?? []).includes('changesSummary');
+      const changesSummary = usesChangesSummary
+        ? await this.recordsService.renderChangeSummary(databaseId, changedValues!).catch(() => '')
+        : undefined;
+
       const effects = await this.actions.execute(rule.actions as AutomationAction[], {
         workspaceId,
         databaseId,
@@ -760,6 +772,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         linkedDatabaseId: linkInfo?.otherDatabaseId ?? null,
         changedRelationFieldId: linkInfo?.changedRelationFieldId ?? null,
         changedRelationDirection: linkInfo?.direction ?? null,
+        changesSummary,
       });
       await this.db
         .update(automationRuns)

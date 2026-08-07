@@ -1677,6 +1677,7 @@ export class RecordsService {
       databaseId,
       recordId,
       changedFieldIds: Object.keys(diff).filter((k) => k !== 'title'),
+      changedValues: diff, // #273 — feeds the {changesSummary} automation token
       titleChanged: diff['title'] !== undefined, // #132: drives cross-record name recompute for records that look this up
       actorId,
       depth,
@@ -1794,14 +1795,49 @@ export class RecordsService {
     const recipients = rows.map((r) => r.userId).filter((id) => id !== actorId);
     if (recipients.length === 0) return;
 
-    const changedIds = Object.keys(diff).filter((k) => k !== 'title');
-    const changedDefs = defs.filter((d) => changedIds.includes(d.id));
-    const nameRows = changedDefs.length
-      ? await this.db.query.fields.findMany({
-          where: and(eq(fields.databaseId, databaseId), inArray(fields.id, changedDefs.map((d) => d.id))),
-          columns: { id: true, displayName: true },
-        })
-      : [];
+    const summary = await this.renderChangeSummary(
+      databaseId,
+      Object.fromEntries(
+        Object.keys(diff)
+          .filter((k) => k !== 'title')
+          .map((id) => [id, { from: before[id], to: after[id] }]),
+      ),
+      defs,
+    );
+
+    await this.notificationsService.notify({
+      workspaceId,
+      databaseId,
+      recordId,
+      actorId,
+      type: 'record_changed',
+      recipients,
+      snippet: summary || undefined,
+    });
+  }
+
+  /**
+   * #236/#273 — render a human "Field: from → to · …" line for a set of changed
+   * values (keyed by field id, as `RecordsService.update()`'s own diff is). Shared
+   * by the watcher notification (#236) and the `{changesSummary}` automation token
+   * (#273) so both read identically. `defs` is optional — pass it when the caller
+   * already has them to save a lookup.
+   */
+  async renderChangeSummary(
+    databaseId: string,
+    changedValues: Record<string, { from: unknown; to: unknown }>,
+    defs?: FieldDef[],
+  ): Promise<string> {
+    const changedIds = Object.keys(changedValues).filter((k) => k !== 'title');
+    if (changedIds.length === 0) return '';
+    const allDefs = defs ?? (await this.fieldDefs(databaseId));
+    const changedDefs = allDefs.filter((d) => changedIds.includes(d.id));
+    if (changedDefs.length === 0) return '';
+
+    const nameRows = await this.db.query.fields.findMany({
+      where: and(eq(fields.databaseId, databaseId), inArray(fields.id, changedDefs.map((d) => d.id))),
+      columns: { id: true, displayName: true },
+    });
     const nameById = new Map(nameRows.map((r) => [r.id, r.displayName]));
     const optionFieldIds = changedDefs
       .filter((d) => d.type === 'select' || d.type === 'workflow' || d.type === 'multi_select')
@@ -1816,17 +1852,9 @@ export class RecordsService {
       label: nameById.get(d.id) ?? d.api_name,
       type: d.type,
     }));
-    const summary = summarizeChanges(changed, before, after, optionLabels);
-
-    await this.notificationsService.notify({
-      workspaceId,
-      databaseId,
-      recordId,
-      actorId,
-      type: 'record_changed',
-      recipients,
-      snippet: summary || undefined,
-    });
+    const before = Object.fromEntries(changedIds.map((id) => [id, changedValues[id]!.from]));
+    const after = Object.fromEntries(changedIds.map((id) => [id, changedValues[id]!.to]));
+    return summarizeChanges(changed, before, after, optionLabels);
   }
 
   /** MN-231: version history, newest first (cursor-paginated like ActivityService.listForRecord). */
@@ -1941,6 +1969,7 @@ export class RecordsService {
       databaseId,
       recordId,
       changedFieldIds: Object.keys(diff).filter((k) => k !== 'title'),
+      changedValues: diff, // #273 — feeds the {changesSummary} automation token
       titleChanged: diff['title'] !== undefined, // #132: restore may change the title too
       actorId,
       depth: 0,
