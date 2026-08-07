@@ -63,6 +63,24 @@ plan-gated and tiny (Free none · Pro 1d · Business 7d · Enterprise 30d), Free
 capture off; whole-record restore ships before per-field revert; this is
 history/restore, **not** workspace backup (#320/#322).
 
+## Running the API tests without Docker (#98)
+
+`apps/api/test/global-setup.ts` spins up a disposable `postgres:16-alpine` via
+Testcontainers **only when `DATABASE_URL` is unset**. When Docker is down or its
+image pull hangs (#98, recurring), supply one and Testcontainers is skipped:
+
+```sh
+createdb storyos_test_local
+DATABASE_URL="postgres://$(whoami)@localhost:5432/storyos_test_local" \
+  pnpm --filter @storyos/api test
+```
+
+- **Use a fresh database per full run.** Reusing one makes `test/auth.test.ts`
+  fail with 422 (its fixed signup email already exists) — a false failure that
+  looks like a regression. `dropdb`/`createdb` before diagnosing.
+- `test/backup-restore.test.ts` starts its own container regardless, so that one
+  file still needs Docker — the single expected failure when Docker is down.
+
 ## Before you push
 
 Run the full local CI — CI failures after push waste a queue slot:
