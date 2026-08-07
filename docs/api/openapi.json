@@ -4058,870 +4058,6 @@
         ]
       }
     },
-    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/attachments": {
-      "get": {
-        "operationId": "AttachmentsController_list",
-        "parameters": [
-          {
-            "name": "db",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "rec",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Attachments on a record",
-        "tags": [
-          "attachments"
-        ]
-      },
-      "post": {
-        "operationId": "AttachmentsController_upload",
-        "parameters": [
-          {
-            "name": "db",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "rec",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Upload a file (multipart field \"file\"; size-capped)",
-        "tags": [
-          "attachments"
-        ]
-      }
-    },
-    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/attachments/{att}/download": {
-      "get": {
-        "operationId": "AttachmentsController_download",
-        "parameters": [
-          {
-            "name": "db",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "rec",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "att",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Download the file (authz-checked, streamed)",
-        "tags": [
-          "attachments"
-        ]
-      }
-    },
-    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/attachments/{att}/thumbnail": {
-      "get": {
-        "operationId": "AttachmentsController_thumbnail",
-        "parameters": [
-          {
-            "name": "db",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "rec",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "att",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Image thumbnail (404 for non-images)",
-        "tags": [
-          "attachments"
-        ]
-      }
-    },
-    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/attachments/{att}": {
-      "delete": {
-        "operationId": "AttachmentsController_remove",
-        "parameters": [
-          {
-            "name": "db",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "rec",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "att",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Delete an attachment (object removed best-effort)",
-        "tags": [
-          "attachments"
-        ]
-      }
-    },
-    "/api/v1/workspaces/{ws}/files": {
-      "post": {
-        "operationId": "FilesController_upload",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Upload an image for the editor (multipart \"file\"); returns { id, url }",
-        "tags": [
-          "files"
-        ]
-      }
-    },
-    "/api/v1/workspaces/{ws}/files/{id}/download-url": {
-      "post": {
-        "operationId": "FilesController_mintDownloadUrl",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Mint a signed, expiring download URL for a file (#201)",
-        "tags": [
-          "files"
-        ]
-      }
-    },
-    "/api/v1/workspaces/{ws}/files/{id}/revoke": {
-      "post": {
-        "operationId": "FilesController_revoke",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Revoke a file — kills its capability URL and any signed download URLs (#201)",
-        "tags": [
-          "files"
-        ]
-      }
-    },
-    "/api/v1/files/{id}": {
-      "get": {
-        "operationId": "PublicFilesController_serve",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "summary": "Serve an uploaded editor image by id (capability URL, or access-checked under private-attachments mode)",
-        "tags": [
-          "files"
-        ]
-      }
-    },
-    "/api/v1/files/{id}/download": {
-      "get": {
-        "operationId": "FileDownloadController_download",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "summary": "Download a file via a signed, expiring URL (#201)",
-        "tags": [
-          "files"
-        ]
-      }
-    },
-    "/api/v1/workspaces/{ws}/search": {
-      "get": {
-        "operationId": "SearchController_search",
-        "parameters": [
-          {
-            "name": "q",
-            "required": true,
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "summary": "Search records by title + databases/spaces by name (grant-scoped)",
-        "tags": [
-          "search"
-        ]
-      }
-    },
-    "/api/v1/workspaces/{ws}/my-work": {
-      "get": {
-        "operationId": "SearchController_myWork",
-        "parameters": [
-          {
-            "name": "tab",
-            "required": true,
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "summary": "Records across databases assigned to me or created by me (MN-049, #36)",
-        "tags": [
-          "search"
-        ]
-      }
-    },
-    "/api/v1/workspaces/{ws}/recent": {
-      "get": {
-        "operationId": "SearchController_recent",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "summary": "Records the caller touched most recently (from activity)",
-        "tags": [
-          "search"
-        ]
-      }
-    },
-    "/api/v1/workspaces/{ws}/databases/{db}/import": {
-      "post": {
-        "operationId": "ImportController_run",
-        "parameters": [
-          {
-            "name": "db",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "summary": "Import CSV: fields \"file\", \"mapping\" (JSON), \"dry_run\" (\"true\"/\"false\")",
-        "tags": [
-          "import"
-        ]
-      }
-    },
-    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/buttons/{field}/press": {
-      "post": {
-        "operationId": "ButtonsController_press",
-        "parameters": [
-          {
-            "name": "db",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "rec",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "field",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "summary": "Press a button field (editor+); actions run as the presser",
-        "tags": [
-          "buttons"
-        ]
-      }
-    },
-    "/api/v1/workspaces/{ws}/databases/{db}/automations": {
-      "get": {
-        "operationId": "AutomationsController_list",
-        "parameters": [
-          {
-            "name": "db",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "summary": "List rules",
-        "tags": [
-          "automations"
-        ]
-      },
-      "post": {
-        "operationId": "AutomationsController_create",
-        "parameters": [
-          {
-            "name": "db",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateAutomationDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "summary": "Create a rule (trigger + condition + actions)",
-        "tags": [
-          "automations"
-        ]
-      }
-    },
-    "/api/v1/workspaces/{ws}/databases/{db}/automations/{id}": {
-      "patch": {
-        "operationId": "AutomationsController_update",
-        "parameters": [
-          {
-            "name": "db",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateAutomationDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "summary": "Update / enable / disable a rule",
-        "tags": [
-          "automations"
-        ]
-      },
-      "delete": {
-        "operationId": "AutomationsController_remove",
-        "parameters": [
-          {
-            "name": "db",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "summary": "Delete a rule",
-        "tags": [
-          "automations"
-        ]
-      }
-    },
-    "/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/runs": {
-      "get": {
-        "operationId": "AutomationsController_runs",
-        "parameters": [
-          {
-            "name": "db",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "summary": "Run history (90-day retention, MN-264)",
-        "tags": [
-          "automations"
-        ]
-      }
-    },
-    "/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/test": {
-      "post": {
-        "operationId": "AutomationsController_test",
-        "parameters": [
-          {
-            "name": "db",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/TestAutomationDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "summary": "Dry-run a rule against one record",
-        "tags": [
-          "automations"
-        ]
-      }
-    },
-    "/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/regenerate-hook": {
-      "post": {
-        "operationId": "AutomationsController_regenerateHook",
-        "parameters": [
-          {
-            "name": "db",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "summary": "Rotate a webhook_received rule's token + secret — the old URL 404s immediately",
-        "tags": [
-          "automations"
-        ]
-      }
-    },
-    "/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/last-payload": {
-      "get": {
-        "operationId": "AutomationsController_lastPayload",
-        "parameters": [
-          {
-            "name": "db",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "summary": "The most recent payload a webhook_received rule received (for token mapping)",
-        "tags": [
-          "automations"
-        ]
-      }
-    },
-    "/api/v1/hooks/{workspaceSlug}/{hookToken}": {
-      "post": {
-        "operationId": "HooksController_receive",
-        "parameters": [
-          {
-            "name": "workspaceSlug",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "hookToken",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "x-storyos-signature",
-            "required": true,
-            "in": "header",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "x-storyos-timestamp",
-            "required": true,
-            "in": "header",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "content-type",
-            "required": true,
-            "in": "header",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "202": {
-            "description": ""
-          }
-        },
-        "summary": "Inbound webhook receiver for a webhook_received automation rule",
-        "tags": [
-          "hooks"
-        ]
-      }
-    },
-    "/api/v1/workspaces/{ws}/approvals": {
-      "get": {
-        "operationId": "ApprovalsController_list",
-        "parameters": [
-          {
-            "name": "status",
-            "required": true,
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "summary": "List approvals for this workspace, optionally filtered by status",
-        "tags": [
-          "approvals"
-        ]
-      }
-    },
-    "/api/v1/workspaces/{ws}/approvals/{id}/approve": {
-      "post": {
-        "operationId": "ApprovalsController_approve",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "summary": "Approve a pending approval — enqueues the gated action from its frozen snapshot (human-only)",
-        "tags": [
-          "approvals"
-        ]
-      }
-    },
-    "/api/v1/workspaces/{ws}/approvals/{id}/reject": {
-      "post": {
-        "operationId": "ApprovalsController_reject",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RejectApprovalDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "summary": "Reject a pending approval — the gated action never runs (human-only)",
-        "tags": [
-          "approvals"
-        ]
-      }
-    },
     "/api/v1/workspaces/{ws}/integrations": {
       "get": {
         "operationId": "IntegrationsDirectoryController_list",
@@ -6323,6 +5459,870 @@
         "summary": "Recent sync runs for one source (fetched/created/updated/errors)",
         "tags": [
           "sources"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/attachments": {
+      "get": {
+        "operationId": "AttachmentsController_list",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "rec",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Attachments on a record",
+        "tags": [
+          "attachments"
+        ]
+      },
+      "post": {
+        "operationId": "AttachmentsController_upload",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "rec",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Upload a file (multipart field \"file\"; size-capped)",
+        "tags": [
+          "attachments"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/attachments/{att}/download": {
+      "get": {
+        "operationId": "AttachmentsController_download",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "rec",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "att",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Download the file (authz-checked, streamed)",
+        "tags": [
+          "attachments"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/attachments/{att}/thumbnail": {
+      "get": {
+        "operationId": "AttachmentsController_thumbnail",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "rec",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "att",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Image thumbnail (404 for non-images)",
+        "tags": [
+          "attachments"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/attachments/{att}": {
+      "delete": {
+        "operationId": "AttachmentsController_remove",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "rec",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "att",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Delete an attachment (object removed best-effort)",
+        "tags": [
+          "attachments"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/files": {
+      "post": {
+        "operationId": "FilesController_upload",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Upload an image for the editor (multipart \"file\"); returns { id, url }",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/files/{id}/download-url": {
+      "post": {
+        "operationId": "FilesController_mintDownloadUrl",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Mint a signed, expiring download URL for a file (#201)",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/files/{id}/revoke": {
+      "post": {
+        "operationId": "FilesController_revoke",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Revoke a file — kills its capability URL and any signed download URLs (#201)",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/v1/files/{id}": {
+      "get": {
+        "operationId": "PublicFilesController_serve",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Serve an uploaded editor image by id (capability URL, or access-checked under private-attachments mode)",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/v1/files/{id}/download": {
+      "get": {
+        "operationId": "FileDownloadController_download",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Download a file via a signed, expiring URL (#201)",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/search": {
+      "get": {
+        "operationId": "SearchController_search",
+        "parameters": [
+          {
+            "name": "q",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Search records by title + databases/spaces by name (grant-scoped)",
+        "tags": [
+          "search"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/my-work": {
+      "get": {
+        "operationId": "SearchController_myWork",
+        "parameters": [
+          {
+            "name": "tab",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Records across databases assigned to me or created by me (MN-049, #36)",
+        "tags": [
+          "search"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/recent": {
+      "get": {
+        "operationId": "SearchController_recent",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Records the caller touched most recently (from activity)",
+        "tags": [
+          "search"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/import": {
+      "post": {
+        "operationId": "ImportController_run",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Import CSV: fields \"file\", \"mapping\" (JSON), \"dry_run\" (\"true\"/\"false\")",
+        "tags": [
+          "import"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/buttons/{field}/press": {
+      "post": {
+        "operationId": "ButtonsController_press",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "rec",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "field",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Press a button field (editor+); actions run as the presser",
+        "tags": [
+          "buttons"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/automations": {
+      "get": {
+        "operationId": "AutomationsController_list",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "List rules",
+        "tags": [
+          "automations"
+        ]
+      },
+      "post": {
+        "operationId": "AutomationsController_create",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAutomationDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Create a rule (trigger + condition + actions)",
+        "tags": [
+          "automations"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/automations/{id}": {
+      "patch": {
+        "operationId": "AutomationsController_update",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAutomationDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Update / enable / disable a rule",
+        "tags": [
+          "automations"
+        ]
+      },
+      "delete": {
+        "operationId": "AutomationsController_remove",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Delete a rule",
+        "tags": [
+          "automations"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/runs": {
+      "get": {
+        "operationId": "AutomationsController_runs",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Run history (90-day retention, MN-264)",
+        "tags": [
+          "automations"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/test": {
+      "post": {
+        "operationId": "AutomationsController_test",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestAutomationDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Dry-run a rule against one record",
+        "tags": [
+          "automations"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/regenerate-hook": {
+      "post": {
+        "operationId": "AutomationsController_regenerateHook",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Rotate a webhook_received rule's token + secret — the old URL 404s immediately",
+        "tags": [
+          "automations"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/last-payload": {
+      "get": {
+        "operationId": "AutomationsController_lastPayload",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "The most recent payload a webhook_received rule received (for token mapping)",
+        "tags": [
+          "automations"
+        ]
+      }
+    },
+    "/api/v1/hooks/{workspaceSlug}/{hookToken}": {
+      "post": {
+        "operationId": "HooksController_receive",
+        "parameters": [
+          {
+            "name": "workspaceSlug",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "hookToken",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-storyos-signature",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-storyos-timestamp",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "content-type",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": ""
+          }
+        },
+        "summary": "Inbound webhook receiver for a webhook_received automation rule",
+        "tags": [
+          "hooks"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/approvals": {
+      "get": {
+        "operationId": "ApprovalsController_list",
+        "parameters": [
+          {
+            "name": "status",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "List approvals for this workspace, optionally filtered by status",
+        "tags": [
+          "approvals"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/approvals/{id}/approve": {
+      "post": {
+        "operationId": "ApprovalsController_approve",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Approve a pending approval — enqueues the gated action from its frozen snapshot (human-only)",
+        "tags": [
+          "approvals"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/approvals/{id}/reject": {
+      "post": {
+        "operationId": "ApprovalsController_reject",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RejectApprovalDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Reject a pending approval — the gated action never runs (human-only)",
+        "tags": [
+          "approvals"
         ]
       }
     },
@@ -10323,6 +10323,597 @@
           "body"
         ]
       },
+      "GithubConfigDto": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "repos": {
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[\\w.-]+\\/[\\w.-]+$"
+            }
+          },
+          "webhook_secret": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 255
+          },
+          "link_database_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "state_automation": {
+            "type": "object",
+            "properties": {
+              "opened": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100,
+                "nullable": true
+              },
+              "reopened": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100,
+                "nullable": true
+              },
+              "review_requested": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100,
+                "nullable": true
+              },
+              "review_approved": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100,
+                "nullable": true
+              },
+              "review_changes_requested": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100,
+                "nullable": true
+              },
+              "merged": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100,
+                "nullable": true
+              },
+              "closed": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100,
+                "nullable": true
+              },
+              "pushed": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100,
+                "nullable": true
+              }
+            }
+          }
+        }
+      },
+      "ReviewCommentDto": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          },
+          "line": {
+            "type": "integer",
+            "exclusiveMinimum": true,
+            "maximum": 9007199254740991,
+            "minimum": 0
+          },
+          "side": {
+            "type": "string",
+            "enum": [
+              "LEFT",
+              "RIGHT"
+            ]
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 65536
+          }
+        },
+        "required": [
+          "path",
+          "line",
+          "side",
+          "body"
+        ]
+      },
+      "ReviewReplyDto": {
+        "type": "object",
+        "properties": {
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 65536
+          }
+        },
+        "required": [
+          "body"
+        ]
+      },
+      "ReviewReactionDto": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string",
+            "enum": [
+              "+1",
+              "-1",
+              "laugh",
+              "confused",
+              "heart",
+              "hooray",
+              "rocket",
+              "eyes"
+            ]
+          }
+        },
+        "required": [
+          "content"
+        ]
+      },
+      "SubmitReviewDto": {
+        "type": "object",
+        "properties": {
+          "event": {
+            "type": "string",
+            "enum": [
+              "APPROVE",
+              "REQUEST_CHANGES",
+              "COMMENT"
+            ]
+          },
+          "body": {
+            "type": "string",
+            "maxLength": 65536
+          }
+        },
+        "required": [
+          "event"
+        ]
+      },
+      "ReviewSettingsDto": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "auto_convert_draft": {
+            "type": "boolean"
+          },
+          "default_merge_strategy": {
+            "type": "string",
+            "enum": [
+              "merge",
+              "squash",
+              "rebase"
+            ]
+          },
+          "code_theme": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "light",
+              "dark"
+            ]
+          },
+          "code_font": {
+            "type": "string",
+            "enum": [
+              "mono",
+              "mono_lig",
+              "system"
+            ]
+          },
+          "notifications": {
+            "type": "object",
+            "properties": {
+              "review_requests": {
+                "type": "boolean"
+              },
+              "comments_mentions": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      },
+      "LinearConfigDto": {
+        "type": "object",
+        "properties": {
+          "api_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "team_keys": {
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 20
+            }
+          }
+        }
+      },
+      "SlackConfigDto": {
+        "type": "object",
+        "properties": {
+          "bot_token": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "default_channel": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "webhook_url": {
+            "type": "string",
+            "maxLength": 500,
+            "format": "uri"
+          }
+        }
+      },
+      "ShopifyCatalogueDto": {
+        "type": "object",
+        "properties": {
+          "space_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "connection_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "name_prefix": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60
+          }
+        },
+        "required": [
+          "space_id",
+          "connection_id"
+        ]
+      },
+      "CreateConnectionDto": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "auth": {
+            "type": "object",
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "provider",
+          "name",
+          "auth"
+        ]
+      },
+      "DiscoverSourceDto": {
+        "type": "object",
+        "properties": {
+          "connection_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "provider_source": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "config": {
+            "default": {},
+            "type": "object",
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "connection_id",
+          "provider_source"
+        ]
+      },
+      "CreateSourceDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "connection_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "provider_source": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "config": {
+            "default": {},
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "field_mapping": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          "external_key_field_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "schedule": {
+            "type": "string",
+            "enum": [
+              "15m",
+              "hour",
+              "day"
+            ]
+          },
+          "recurrence": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "hourly"
+                    ]
+                  },
+                  "minute": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 59
+                  }
+                },
+                "required": [
+                  "kind",
+                  "minute"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "daily"
+                    ]
+                  },
+                  "hour": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 23
+                  },
+                  "minute": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 59
+                  }
+                },
+                "required": [
+                  "kind",
+                  "hour",
+                  "minute"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "weekly"
+                    ]
+                  },
+                  "weekday": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 6
+                  },
+                  "hour": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 23
+                  },
+                  "minute": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 59
+                  }
+                },
+                "required": [
+                  "kind",
+                  "weekday",
+                  "hour",
+                  "minute"
+                ]
+              }
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "connection_id",
+          "provider_source",
+          "field_mapping",
+          "external_key_field_id"
+        ]
+      },
+      "UpdateSourceDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "connection_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "config": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "field_mapping": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          "external_key_field_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "schedule": {
+            "type": "string",
+            "enum": [
+              "15m",
+              "hour",
+              "day"
+            ]
+          },
+          "recurrence": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "hourly"
+                    ]
+                  },
+                  "minute": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 59
+                  }
+                },
+                "required": [
+                  "kind",
+                  "minute"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "daily"
+                    ]
+                  },
+                  "hour": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 23
+                  },
+                  "minute": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 59
+                  }
+                },
+                "required": [
+                  "kind",
+                  "hour",
+                  "minute"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "weekly"
+                    ]
+                  },
+                  "weekday": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 6
+                  },
+                  "hour": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 23
+                  },
+                  "minute": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 59
+                  }
+                },
+                "required": [
+                  "kind",
+                  "weekday",
+                  "hour",
+                  "minute"
+                ]
+              }
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "paused",
+              "error"
+            ]
+          }
+        }
+      },
       "CreateAutomationDto": {
         "type": "object",
         "properties": {
@@ -10379,6 +10970,13 @@
                     "type": "string",
                     "format": "uuid",
                     "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "direction": {
+                    "type": "string",
+                    "enum": [
+                      "link",
+                      "unlink"
+                    ]
                   }
                 },
                 "required": [
@@ -10972,6 +11570,13 @@
                     "type": "string",
                     "format": "uuid",
                     "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "direction": {
+                    "type": "string",
+                    "enum": [
+                      "link",
+                      "unlink"
+                    ]
                   }
                 },
                 "required": [
@@ -11530,597 +12135,6 @@
           "reason": {
             "type": "string",
             "maxLength": 2000
-          }
-        }
-      },
-      "GithubConfigDto": {
-        "type": "object",
-        "properties": {
-          "token": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 255
-          },
-          "repos": {
-            "maxItems": 20,
-            "type": "array",
-            "items": {
-              "type": "string",
-              "pattern": "^[\\w.-]+\\/[\\w.-]+$"
-            }
-          },
-          "webhook_secret": {
-            "type": "string",
-            "minLength": 16,
-            "maxLength": 255
-          },
-          "link_database_id": {
-            "type": "string",
-            "format": "uuid",
-            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-          },
-          "state_automation": {
-            "type": "object",
-            "properties": {
-              "opened": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 100,
-                "nullable": true
-              },
-              "reopened": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 100,
-                "nullable": true
-              },
-              "review_requested": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 100,
-                "nullable": true
-              },
-              "review_approved": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 100,
-                "nullable": true
-              },
-              "review_changes_requested": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 100,
-                "nullable": true
-              },
-              "merged": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 100,
-                "nullable": true
-              },
-              "closed": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 100,
-                "nullable": true
-              },
-              "pushed": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 100,
-                "nullable": true
-              }
-            }
-          }
-        }
-      },
-      "ReviewCommentDto": {
-        "type": "object",
-        "properties": {
-          "path": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 1024
-          },
-          "line": {
-            "type": "integer",
-            "exclusiveMinimum": true,
-            "maximum": 9007199254740991,
-            "minimum": 0
-          },
-          "side": {
-            "type": "string",
-            "enum": [
-              "LEFT",
-              "RIGHT"
-            ]
-          },
-          "body": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 65536
-          }
-        },
-        "required": [
-          "path",
-          "line",
-          "side",
-          "body"
-        ]
-      },
-      "ReviewReplyDto": {
-        "type": "object",
-        "properties": {
-          "body": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 65536
-          }
-        },
-        "required": [
-          "body"
-        ]
-      },
-      "ReviewReactionDto": {
-        "type": "object",
-        "properties": {
-          "content": {
-            "type": "string",
-            "enum": [
-              "+1",
-              "-1",
-              "laugh",
-              "confused",
-              "heart",
-              "hooray",
-              "rocket",
-              "eyes"
-            ]
-          }
-        },
-        "required": [
-          "content"
-        ]
-      },
-      "SubmitReviewDto": {
-        "type": "object",
-        "properties": {
-          "event": {
-            "type": "string",
-            "enum": [
-              "APPROVE",
-              "REQUEST_CHANGES",
-              "COMMENT"
-            ]
-          },
-          "body": {
-            "type": "string",
-            "maxLength": 65536
-          }
-        },
-        "required": [
-          "event"
-        ]
-      },
-      "ReviewSettingsDto": {
-        "type": "object",
-        "properties": {
-          "enabled": {
-            "type": "boolean"
-          },
-          "auto_convert_draft": {
-            "type": "boolean"
-          },
-          "default_merge_strategy": {
-            "type": "string",
-            "enum": [
-              "merge",
-              "squash",
-              "rebase"
-            ]
-          },
-          "code_theme": {
-            "type": "string",
-            "enum": [
-              "auto",
-              "light",
-              "dark"
-            ]
-          },
-          "code_font": {
-            "type": "string",
-            "enum": [
-              "mono",
-              "mono_lig",
-              "system"
-            ]
-          },
-          "notifications": {
-            "type": "object",
-            "properties": {
-              "review_requests": {
-                "type": "boolean"
-              },
-              "comments_mentions": {
-                "type": "boolean"
-              }
-            }
-          }
-        }
-      },
-      "LinearConfigDto": {
-        "type": "object",
-        "properties": {
-          "api_key": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 255
-          },
-          "team_keys": {
-            "maxItems": 20,
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 20
-            }
-          }
-        }
-      },
-      "SlackConfigDto": {
-        "type": "object",
-        "properties": {
-          "bot_token": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 255
-          },
-          "default_channel": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 200
-          },
-          "webhook_url": {
-            "type": "string",
-            "maxLength": 500,
-            "format": "uri"
-          }
-        }
-      },
-      "ShopifyCatalogueDto": {
-        "type": "object",
-        "properties": {
-          "space_id": {
-            "type": "string",
-            "format": "uuid",
-            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-          },
-          "connection_id": {
-            "type": "string",
-            "format": "uuid",
-            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-          },
-          "name_prefix": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 60
-          }
-        },
-        "required": [
-          "space_id",
-          "connection_id"
-        ]
-      },
-      "CreateConnectionDto": {
-        "type": "object",
-        "properties": {
-          "provider": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 50
-          },
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 100
-          },
-          "auth": {
-            "type": "object",
-            "additionalProperties": {}
-          }
-        },
-        "required": [
-          "provider",
-          "name",
-          "auth"
-        ]
-      },
-      "DiscoverSourceDto": {
-        "type": "object",
-        "properties": {
-          "connection_id": {
-            "type": "string",
-            "format": "uuid",
-            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-          },
-          "provider_source": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 100
-          },
-          "config": {
-            "default": {},
-            "type": "object",
-            "additionalProperties": {}
-          }
-        },
-        "required": [
-          "connection_id",
-          "provider_source"
-        ]
-      },
-      "CreateSourceDto": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 100
-          },
-          "connection_id": {
-            "type": "string",
-            "format": "uuid",
-            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-          },
-          "provider_source": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 100
-          },
-          "config": {
-            "default": {},
-            "type": "object",
-            "additionalProperties": {}
-          },
-          "field_mapping": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "string",
-              "format": "uuid",
-              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-            }
-          },
-          "external_key_field_id": {
-            "type": "string",
-            "format": "uuid",
-            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-          },
-          "schedule": {
-            "type": "string",
-            "enum": [
-              "15m",
-              "hour",
-              "day"
-            ]
-          },
-          "recurrence": {
-            "oneOf": [
-              {
-                "type": "object",
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "hourly"
-                    ]
-                  },
-                  "minute": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 59
-                  }
-                },
-                "required": [
-                  "kind",
-                  "minute"
-                ]
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "daily"
-                    ]
-                  },
-                  "hour": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 23
-                  },
-                  "minute": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 59
-                  }
-                },
-                "required": [
-                  "kind",
-                  "hour",
-                  "minute"
-                ]
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "weekly"
-                    ]
-                  },
-                  "weekday": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 6
-                  },
-                  "hour": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 23
-                  },
-                  "minute": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 59
-                  }
-                },
-                "required": [
-                  "kind",
-                  "weekday",
-                  "hour",
-                  "minute"
-                ]
-              }
-            ]
-          }
-        },
-        "required": [
-          "name",
-          "connection_id",
-          "provider_source",
-          "field_mapping",
-          "external_key_field_id"
-        ]
-      },
-      "UpdateSourceDto": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 100
-          },
-          "connection_id": {
-            "type": "string",
-            "format": "uuid",
-            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-          },
-          "config": {
-            "type": "object",
-            "additionalProperties": {}
-          },
-          "field_mapping": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "string",
-              "format": "uuid",
-              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-            }
-          },
-          "external_key_field_id": {
-            "type": "string",
-            "format": "uuid",
-            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-          },
-          "schedule": {
-            "type": "string",
-            "enum": [
-              "15m",
-              "hour",
-              "day"
-            ]
-          },
-          "recurrence": {
-            "oneOf": [
-              {
-                "type": "object",
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "hourly"
-                    ]
-                  },
-                  "minute": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 59
-                  }
-                },
-                "required": [
-                  "kind",
-                  "minute"
-                ]
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "daily"
-                    ]
-                  },
-                  "hour": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 23
-                  },
-                  "minute": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 59
-                  }
-                },
-                "required": [
-                  "kind",
-                  "hour",
-                  "minute"
-                ]
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "weekly"
-                    ]
-                  },
-                  "weekday": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 6
-                  },
-                  "hour": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 23
-                  },
-                  "minute": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 59
-                  }
-                },
-                "required": [
-                  "kind",
-                  "weekday",
-                  "hour",
-                  "minute"
-                ]
-              }
-            ]
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "active",
-              "paused",
-              "error"
-            ]
           }
         }
       },
