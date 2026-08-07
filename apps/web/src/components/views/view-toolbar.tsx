@@ -675,6 +675,21 @@ export function FiltersSection({
   const [scope, setScope] = useState<FilterScope>('global');
   const canUsePersonalScope = Boolean(ws && db && viewId);
 
+  /**
+   * #278 — while the builder is OPEN, edits go into a draft; they are committed
+   * once, when it closes. Before this, every keystroke and every option tick
+   * re-queried the view, so composing a filter thrashed the board (and, for the
+   * Personal scope, fired a server mutation per edit).
+   *
+   * Buffered per scope because the two persist to different places. Pinned chips
+   * live OUTSIDE this panel and deliberately keep applying immediately — they're
+   * one-click toggles on an already-composed filter, which is the opposite
+   * interaction.
+   */
+  type FilterDraft = { connector: FilterConnector; nodes: FilterNode[] } | null;
+  const [draftGlobal, setDraftGlobal] = useState<FilterDraft>(null);
+  const [draftPersonal, setDraftPersonal] = useState<FilterDraft>(null);
+
   const connector = filterConnector(filters);
   const nodes = filterConditions(filters);
   // MN-258: pinned chips + the active count read every LEAF condition in the tree,
@@ -690,6 +705,10 @@ export function FiltersSection({
   function setNodes(next: FilterNode[]) {
     onChange(buildFilterGroup(connector, next));
   }
+
+  /** What the panel renders: the draft while open, the saved tree otherwise. */
+  const shownConnector = draftGlobal?.connector ?? connector;
+  const shownNodes = draftGlobal?.nodes ?? nodes;
   function updateLeafAt(path: number[], next: FilterCondition) {
     setNodes(updateNodeAt(nodes, path, () => next));
   }
@@ -707,8 +726,32 @@ export function FiltersSection({
     if (group) setPersonal.mutate({ viewId, filter: group as never });
     else clearPersonal.mutate(viewId);
   }
-  function setPersonalNodes(next: FilterNode[]) {
-    persistPersonalGroup(buildFilterGroup(personalConnector, next));
+  /** #278 — seed both drafts from what's saved, then open. */
+  function openBuilder() {
+    setDraftGlobal({ connector, nodes });
+    setDraftPersonal({ connector: personalConnector, nodes: personalNodes });
+    setOpen(true);
+  }
+
+  /**
+   * #278 — commit on close. Only scopes whose draft actually differs are written,
+   * so closing without editing performs no mutation and no re-query (JSON compare:
+   * these trees are small, plain and already serialised for the API).
+   */
+  function closeBuilder() {
+    const changed = (a: unknown, b: unknown) => JSON.stringify(a) !== JSON.stringify(b);
+    if (draftGlobal && (changed(draftGlobal.nodes, nodes) || draftGlobal.connector !== connector)) {
+      onChange(buildFilterGroup(draftGlobal.connector, draftGlobal.nodes));
+    }
+    if (
+      draftPersonal &&
+      (changed(draftPersonal.nodes, personalNodes) || draftPersonal.connector !== personalConnector)
+    ) {
+      persistPersonalGroup(buildFilterGroup(draftPersonal.connector, draftPersonal.nodes));
+    }
+    setDraftGlobal(null);
+    setDraftPersonal(null);
+    setOpen(false);
   }
 
   return (
@@ -722,7 +765,7 @@ export function FiltersSection({
             field={field}
             condition={leaf.node}
             members={members}
-            onOpenBuilder={() => setOpen(true)}
+            onOpenBuilder={openBuilder}
             onUnpin={() => updateLeafAt(leaf.path, { ...leaf.node, pinned: false })}
           />
         );
@@ -735,7 +778,7 @@ export function FiltersSection({
           type="button"
           onClick={() => {
             setScope('personal');
-            setOpen(true);
+            openBuilder();
           }}
           title="A personal filter narrows this view for you only — teammates don't see it"
           className="flex items-center gap-1 rounded-[var(--radius-control)] border border-[var(--accent)] bg-accent-soft px-1.5 py-0.5 text-[12px] text-ink"
@@ -750,10 +793,10 @@ export function FiltersSection({
           onClick={() => {
             // Opening via THIS button always lands on Global — only the
             // "Personal filter" badge above opens straight into Personal.
-            if (open) setOpen(false);
+            if (open) closeBuilder();
             else {
               setScope('global');
-              setOpen(true);
+              openBuilder();
             }
           }}
           className={cn(
@@ -770,7 +813,8 @@ export function FiltersSection({
                 panel below nests Radix dropdowns (option pickers, the "…" menu)
                 that portal outside this subtree, so contains()-based outside-click
                 detection would misfire and close the builder mid-interaction. */}
-            <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+            {/* #278 — clicking away closes AND commits the draft. */}
+            <div className="fixed inset-0 z-40" onClick={closeBuilder} />
             <div className="absolute left-0 top-full z-50 mt-1 w-[26rem] max-w-[calc(100vw-2rem)] rounded-[var(--radius-card)] border border-border-default bg-card shadow-[0_4px_12px_rgba(15,23,41,0.08)]">
               {canUsePersonalScope && (
                 <FilterScopeToggle value={scope} onChange={setScope} personalActive={hasPersonalFilter} />
@@ -780,20 +824,24 @@ export function FiltersSection({
                   fields={fields}
                   members={members}
                   ws={ws}
-                  connector={connector}
-                  nodes={nodes}
-                  onNodesChange={setNodes}
-                  onConnectorChange={(next) => onChange(buildFilterGroup(next, nodes))}
+                  connector={shownConnector}
+                  nodes={shownNodes}
+                  onNodesChange={(next) => setDraftGlobal({ connector: shownConnector, nodes: next })}
+                  onConnectorChange={(next) => setDraftGlobal({ connector: next, nodes: shownNodes })}
                 />
               ) : (
                 <FilterBuilderPanel
                   fields={fields}
                   members={members}
                   ws={ws}
-                  connector={personalConnector}
-                  nodes={personalNodes}
-                  onNodesChange={setPersonalNodes}
-                  onConnectorChange={(next) => persistPersonalGroup(buildFilterGroup(next, personalNodes))}
+                  connector={draftPersonal?.connector ?? personalConnector}
+                  nodes={draftPersonal?.nodes ?? personalNodes}
+                  onNodesChange={(next) =>
+                    setDraftPersonal({ connector: draftPersonal?.connector ?? personalConnector, nodes: next })
+                  }
+                  onConnectorChange={(next) =>
+                    setDraftPersonal({ connector: next, nodes: draftPersonal?.nodes ?? personalNodes })
+                  }
                   personalScopeHint
                 />
               )}
