@@ -4157,6 +4157,7 @@ export interface components {
             condition?: unknown;
             actions: ({
                 require_approval?: boolean;
+                condition?: unknown;
                 /** @enum {string} */
                 type: "set_values";
                 values: {
@@ -4164,6 +4165,7 @@ export interface components {
                 };
             } | {
                 require_approval?: boolean;
+                condition?: unknown;
                 /** @enum {string} */
                 type: "create_record";
                 /** Format: uuid */
@@ -4176,17 +4178,20 @@ export interface components {
                 link_via_relation_field_id?: string;
             } | {
                 require_approval?: boolean;
+                condition?: unknown;
                 /** @enum {string} */
                 type: "add_comment";
                 body_template: string;
             } | {
                 require_approval?: boolean;
+                condition?: unknown;
                 /** @enum {string} */
                 type: "notify_user";
                 user: string;
                 message: string;
             } | {
                 require_approval?: boolean;
+                condition?: unknown;
                 /** @enum {string} */
                 type: "update_linked";
                 /** Format: uuid */
@@ -4196,12 +4201,14 @@ export interface components {
                 };
             } | {
                 require_approval?: boolean;
+                condition?: unknown;
                 /** @enum {string} */
                 type: "send_slack_message";
                 text: string;
                 channel?: string;
             } | {
                 require_approval?: boolean;
+                condition?: unknown;
                 /** @enum {string} */
                 type: "send_webhook";
                 /** Format: uri */
@@ -4215,6 +4222,7 @@ export interface components {
                 };
             } | {
                 require_approval?: boolean;
+                condition?: unknown;
                 /** @enum {string} */
                 type: "run_agent";
                 agent: string;
@@ -4228,6 +4236,7 @@ export interface components {
                 dry_run?: boolean;
             } | {
                 require_approval?: boolean;
+                condition?: unknown;
                 /** @enum {string} */
                 type: "send_email";
                 /** Format: uuid */
@@ -4239,6 +4248,7 @@ export interface components {
                 body_markdown: string;
             } | {
                 require_approval?: boolean;
+                condition?: unknown;
                 /** @enum {string} */
                 type: "http_request";
                 /** @enum {string} */
@@ -4289,6 +4299,7 @@ export interface components {
             condition?: unknown;
             actions?: ({
                 require_approval?: boolean;
+                condition?: unknown;
                 /** @enum {string} */
                 type: "set_values";
                 values: {
@@ -4296,6 +4307,7 @@ export interface components {
                 };
             } | {
                 require_approval?: boolean;
+                condition?: unknown;
                 /** @enum {string} */
                 type: "create_record";
                 /** Format: uuid */
@@ -4308,17 +4320,20 @@ export interface components {
                 link_via_relation_field_id?: string;
             } | {
                 require_approval?: boolean;
+                condition?: unknown;
                 /** @enum {string} */
                 type: "add_comment";
                 body_template: string;
             } | {
                 require_approval?: boolean;
+                condition?: unknown;
                 /** @enum {string} */
                 type: "notify_user";
                 user: string;
                 message: string;
             } | {
                 require_approval?: boolean;
+                condition?: unknown;
                 /** @enum {string} */
                 type: "update_linked";
                 /** Format: uuid */
@@ -4328,12 +4343,14 @@ export interface components {
                 };
             } | {
                 require_approval?: boolean;
+                condition?: unknown;
                 /** @enum {string} */
                 type: "send_slack_message";
                 text: string;
                 channel?: string;
             } | {
                 require_approval?: boolean;
+                condition?: unknown;
                 /** @enum {string} */
                 type: "send_webhook";
                 /** Format: uri */
@@ -4347,6 +4364,7 @@ export interface components {
                 };
             } | {
                 require_approval?: boolean;
+                condition?: unknown;
                 /** @enum {string} */
                 type: "run_agent";
                 agent: string;
@@ -4360,6 +4378,7 @@ export interface components {
                 dry_run?: boolean;
             } | {
                 require_approval?: boolean;
+                condition?: unknown;
                 /** @enum {string} */
                 type: "send_email";
                 /** Format: uuid */
@@ -4371,6 +4390,7 @@ export interface components {
                 body_markdown: string;
             } | {
                 require_approval?: boolean;
+                condition?: unknown;
                 /** @enum {string} */
                 type: "http_request";
                 /** @enum {string} */

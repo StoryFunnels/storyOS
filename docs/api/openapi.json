@@ -10447,6 +10447,7 @@
                     "require_approval": {
                       "type": "boolean"
                     },
+                    "condition": {},
                     "type": {
                       "type": "string",
                       "enum": [
@@ -10469,6 +10470,7 @@
                     "require_approval": {
                       "type": "boolean"
                     },
+                    "condition": {},
                     "type": {
                       "type": "string",
                       "enum": [
@@ -10502,6 +10504,7 @@
                     "require_approval": {
                       "type": "boolean"
                     },
+                    "condition": {},
                     "type": {
                       "type": "string",
                       "enum": [
@@ -10525,6 +10528,7 @@
                     "require_approval": {
                       "type": "boolean"
                     },
+                    "condition": {},
                     "type": {
                       "type": "string",
                       "enum": [
@@ -10554,6 +10558,7 @@
                     "require_approval": {
                       "type": "boolean"
                     },
+                    "condition": {},
                     "type": {
                       "type": "string",
                       "enum": [
@@ -10582,6 +10587,7 @@
                     "require_approval": {
                       "type": "boolean"
                     },
+                    "condition": {},
                     "type": {
                       "type": "string",
                       "enum": [
@@ -10610,6 +10616,7 @@
                     "require_approval": {
                       "type": "boolean"
                     },
+                    "condition": {},
                     "type": {
                       "type": "string",
                       "enum": [
@@ -10663,6 +10670,7 @@
                     "require_approval": {
                       "type": "boolean"
                     },
+                    "condition": {},
                     "type": {
                       "type": "string",
                       "enum": [
@@ -10725,6 +10733,7 @@
                     "require_approval": {
                       "type": "boolean"
                     },
+                    "condition": {},
                     "type": {
                       "type": "string",
                       "enum": [
@@ -10774,6 +10783,7 @@
                     "require_approval": {
                       "type": "boolean"
                     },
+                    "condition": {},
                     "type": {
                       "type": "string",
                       "enum": [
@@ -10983,6 +10993,7 @@
                     "require_approval": {
                       "type": "boolean"
                     },
+                    "condition": {},
                     "type": {
                       "type": "string",
                       "enum": [
@@ -11005,6 +11016,7 @@
                     "require_approval": {
                       "type": "boolean"
                     },
+                    "condition": {},
                     "type": {
                       "type": "string",
                       "enum": [
@@ -11038,6 +11050,7 @@
                     "require_approval": {
                       "type": "boolean"
                     },
+                    "condition": {},
                     "type": {
                       "type": "string",
                       "enum": [
@@ -11061,6 +11074,7 @@
                     "require_approval": {
                       "type": "boolean"
                     },
+                    "condition": {},
                     "type": {
                       "type": "string",
                       "enum": [
@@ -11090,6 +11104,7 @@
                     "require_approval": {
                       "type": "boolean"
                     },
+                    "condition": {},
                     "type": {
                       "type": "string",
                       "enum": [
@@ -11118,6 +11133,7 @@
                     "require_approval": {
                       "type": "boolean"
                     },
+                    "condition": {},
                     "type": {
                       "type": "string",
                       "enum": [
@@ -11146,6 +11162,7 @@
                     "require_approval": {
                       "type": "boolean"
                     },
+                    "condition": {},
                     "type": {
                       "type": "string",
                       "enum": [
@@ -11199,6 +11216,7 @@
                     "require_approval": {
                       "type": "boolean"
                     },
+                    "condition": {},
                     "type": {
                       "type": "string",
                       "enum": [
@@ -11261,6 +11279,7 @@
                     "require_approval": {
                       "type": "boolean"
                     },
+                    "condition": {},
                     "type": {
                       "type": "string",
                       "enum": [
@@ -11310,6 +11329,7 @@
                     "require_approval": {
                       "type": "boolean"
                     },
+                    "condition": {},
                     "type": {
                       "type": "string",
                       "enum": [

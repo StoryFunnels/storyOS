@@ -387,4 +387,45 @@ describe('MN-168 — entitlements wiring for the automations engine', () => {
 
     await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}`, { enabled: false });
   });
+
+  it('per-action conditions run exactly one of two opposing actions; a skip does not block later ones (#245)', async () => {
+    // Two comment actions with opposing conditions. When Status = Done, the
+    // first (urgent) is SKIPPED and the second (done) still runs — proving a
+    // skip only drops its own action.
+    const rule = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/automations`, {
+      name: 'Branch on status',
+      trigger: { type: 'record_updated', field_id: stateFieldId },
+      actions: [
+        { type: 'add_comment', body_template: 'URGENT path', condition: { field: stateApi, op: 'has', value: [urgentId] } },
+        { type: 'add_comment', body_template: 'DONE path', condition: { field: stateApi, op: 'has', value: [doneId] } },
+      ],
+    })).json();
+    expect(rule.id).toBeTruthy();
+
+    const rec = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records`, {
+      values: { name: 'Branch me' },
+    })).json();
+
+    await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/records/${rec.id}`, {
+      values: { [stateApi]: doneId },
+    });
+    await engine.settle(rec.id);
+    await wait(50);
+
+    const comments = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/records/${rec.id}/comments`)).json();
+    const texts = comments.data.map((c: { body: Array<{ text: string }> }) => c.body[0]?.text);
+    expect(texts).toContain('DONE path');
+    expect(texts).not.toContain('URGENT path');
+
+    // The urgent action is recorded as skipped (not failed) in the run's effects.
+    const runs = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}/runs`)).json();
+    const okRun = runs.data.find((r: { status: string }) => r.status === 'ok');
+    expect(okRun).toBeTruthy();
+    expect(
+      (okRun.effects ?? []).some((e: { type: string }) => e.type === 'skipped'),
+      'the false-condition action is logged as skipped',
+    ).toBe(true);
+
+    await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}`, { enabled: false });
+  });
 });
