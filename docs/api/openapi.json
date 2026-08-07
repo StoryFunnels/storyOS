@@ -10508,6 +10508,55 @@
                     "type": {
                       "type": "string",
                       "enum": [
+                        "create_records"
+                      ]
+                    },
+                    "database_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "count": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 200
+                        },
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 100
+                        }
+                      ]
+                    },
+                    "values": {
+                      "default": {},
+                      "type": "object",
+                      "additionalProperties": {}
+                    },
+                    "link_via_relation_field_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "database_id",
+                    "count"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "require_approval": {
+                      "type": "boolean"
+                    },
+                    "condition": {},
+                    "type": {
+                      "type": "string",
+                      "enum": [
                         "add_comment"
                       ]
                     },
@@ -11042,6 +11091,55 @@
                   "required": [
                     "type",
                     "database_id"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "require_approval": {
+                      "type": "boolean"
+                    },
+                    "condition": {},
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "create_records"
+                      ]
+                    },
+                    "database_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "count": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 200
+                        },
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 100
+                        }
+                      ]
+                    },
+                    "values": {
+                      "default": {},
+                      "type": "object",
+                      "additionalProperties": {}
+                    },
+                    "link_via_relation_field_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "database_id",
+                    "count"
                   ]
                 },
                 {

@@ -90,6 +90,23 @@ export const actionSchema = z.discriminatedUnion('type', [
     values: z.record(z.string(), z.unknown()).default({}),
     link_via_relation_field_id: z.uuid().optional(),
   }),
+  /**
+   * #246 — create a DYNAMIC number of records in one action, so the "one Day
+   * per missing sprint day" case needs neither a script nor a self-triggering
+   * rule (which the loop guard rightly blocks). `count` is a literal number OR a
+   * `{Field}`/`@`-token string resolved against the trigger record at run time
+   * (clamped to [0, 200]). Each record's `values` share one template; the
+   * `{index}` token (1-based) differentiates them ("Day {index}"). Optionally
+   * links every created record back to the trigger record like create_record.
+   */
+  z.object({
+    ...gated,
+    type: z.literal('create_records'),
+    database_id: z.uuid(),
+    count: z.union([z.number().int().min(0).max(200), z.string().min(1).max(100)]),
+    values: z.record(z.string(), z.unknown()).default({}),
+    link_via_relation_field_id: z.uuid().optional(),
+  }),
   z.object({
     ...gated,
     type: z.literal('add_comment'),

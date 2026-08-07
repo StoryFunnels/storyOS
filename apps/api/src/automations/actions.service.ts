@@ -34,6 +34,7 @@ const LINKED_VALUE_TOKEN_RE = /^\{linked\.([^{}]+)\}$/;
  */
 const WEBHOOK_SAFE_ACTIONS = new Set([
   'create_record',
+  'create_records',
   'send_slack_message',
   'send_webhook',
   'notify_user',
@@ -97,7 +98,14 @@ export interface ActionContext {
   /** #244: display-name → api-name for `linkedDatabaseId`, populated by execute()
    * once per run (the linked record is in a different database than the host). */
   linkedDisplayToApi?: Map<string, string>;
+  /** #246: 1-based position of the current record within a create_records batch,
+   * exposed as the `{index}` token so each created record can differ. */
+  itemIndex?: number;
 }
+
+/** #246 — hard ceiling on one create_records action, so a bad count can't spawn
+ * an unbounded number of records. */
+const MAX_BATCH_CREATE = 200;
 
 export interface ActionEffect {
   type: string;
@@ -229,12 +237,12 @@ export class AutomationActionsService {
           }
         }
       }
-      if (action.type === 'create_record') {
+      if (action.type === 'create_record' || action.type === 'create_records') {
         const target = await this.db.query.databases.findFirst({
           where: and(eq(databases.id, action.database_id), eq(databases.workspaceId, workspaceId)),
         });
         if (!target)
-          throw new UnprocessableEntityException('create_record targets an unknown database');
+          throw new UnprocessableEntityException(`${action.type} targets an unknown database`);
         if (action.link_via_relation_field_id) {
           const relField = await this.db.query.fields.findFirst({
             where: and(
@@ -333,6 +341,8 @@ export class AutomationActionsService {
       if (raw === '@me') out[key] = ctx.actorId;
       else if (raw === '@now') out[key] = new Date().toISOString();
       else if (raw === '@today') out[key] = new Date().toISOString().slice(0, 10);
+      // #246: {index} as an entire value resolves to the batch item's number.
+      else if (raw === '{index}' && ctx.itemIndex !== undefined) out[key] = ctx.itemIndex;
       // MN-254: a value that's *entirely* one {payload.…} token resolves to the
       // underlying typed value (number, object, …), not a stringified one — this
       // is a field VALUE, not text being templated.
@@ -376,6 +386,9 @@ export class AutomationActionsService {
   ): string {
     return template.replace(/\{([^{}]+)\}/g, (_, name: string) => {
       const trimmed = name.trim();
+      // #246: {index} → the 1-based batch item number (create_records); a no-op
+      // ("") outside a batch, so a stray {index} never renders an em dash.
+      if (trimmed.toLowerCase() === 'index') return escape(ctx.itemIndex !== undefined ? String(ctx.itemIndex) : '');
       // MN-254: {payload.a.b.0} reads the inbound webhook body, independent of
       // any field on this database — it has no display-name/api-name mapping.
       if (trimmed.toLowerCase().startsWith('payload.')) {
@@ -445,6 +458,13 @@ export class AutomationActionsService {
           snapshot: { ...action, values },
           previewText: `Create a record${typeof values.name === 'string' ? ` "${values.name}"` : ''}`,
         };
+      }
+      case 'create_records': {
+        // #246: the per-item {index}/token resolution happens at execute() time
+        // (one snapshot can't stand in for N records), so the frozen snapshot is
+        // the action verbatim — the preview just states the batch intent.
+        const count = this.resolveBatchCount(action.count, ctx, displayToApi);
+        return { snapshot: action, previewText: `Create ${count} record${count === 1 ? '' : 's'}` };
       }
       case 'add_comment': {
         const text = this.interpolate(action.body_template, ctx, displayToApi);
@@ -567,6 +587,18 @@ export class AutomationActionsService {
       .where(and(eq(records.id, ctx.record.id), where))
       .limit(1);
     return Boolean(row);
+  }
+
+  /**
+   * #246 — resolve a create_records `count`: a literal number, or a `{Field}`/
+   * `{payload.…}` token string rendered against the trigger record and parsed to
+   * an int. Clamped to [0, MAX_BATCH_CREATE]; anything unparseable/negative → 0
+   * (a safe no-op rather than a crash).
+   */
+  private resolveBatchCount(count: number | string, ctx: ActionContext, displayToApi: Map<string, string>): number {
+    const n = typeof count === 'number' ? count : Number.parseInt(this.interpolate(count, ctx, displayToApi), 10);
+    if (!Number.isFinite(n) || n < 0) return 0;
+    return Math.min(Math.floor(n), MAX_BATCH_CREATE);
   }
 
   /**
@@ -757,6 +789,39 @@ export class AutomationActionsService {
           type: 'create_record',
           record_id: created.id,
           summary: `Created "${created.title}"`,
+        });
+      } else if (action.type === 'create_records') {
+        // #246: a dynamic-count batch create. Each record shares one template;
+        // {index} (1-based) differentiates them. Sidesteps the loop guard — the
+        // rule fires once and this action fans out N records in-line.
+        const count = this.resolveBatchCount(action.count, ctx, displayToApi);
+        let createdCount = 0;
+        for (let i = 0; i < count; i++) {
+          const itemCtx: ActionContext = { ...ctx, itemIndex: i + 1 };
+          const values = this.resolveTokens(action.values, itemCtx);
+          if (typeof values.name === 'string') values.name = this.interpolate(values.name, itemCtx, displayToApi);
+          const created = await this.recordsService.create(
+            ctx.workspaceId,
+            action.database_id,
+            values,
+            ctx.actorId,
+            ctx.depth ?? 0,
+          );
+          createdCount += 1;
+          if (action.link_via_relation_field_id && ctx.record) {
+            await this.relationsService.addLinks(
+              ctx.workspaceId,
+              action.database_id,
+              created.id,
+              action.link_via_relation_field_id,
+              [ctx.record.id],
+              ctx.actorId,
+            );
+          }
+        }
+        effects.push({
+          type: 'create_records',
+          summary: `Created ${createdCount} record${createdCount === 1 ? '' : 's'}`,
         });
       } else if (action.type === 'add_comment') {
         // validate() already refused this action on a record-less (webhook)
