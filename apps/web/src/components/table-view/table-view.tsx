@@ -29,6 +29,7 @@ import {
 import type { Field, RecordRow } from './use-table-data';
 import type { ViewConfig } from '../views/use-view-state';
 import { databaseNoun, recordHref } from '@/lib/records';
+import { systemFieldId } from '@storyos/schemas';
 import { atLeast } from '@/lib/access';
 import { cn } from '@/lib/utils';
 
@@ -100,6 +101,18 @@ export function TableView({
       ),
     [database.data, hiddenFieldIds],
   );
+  // #289 — the public id renders in the row GUTTER, not as a column, so
+  // hidden_field_ids couldn't reach it and it was the one visible column nobody
+  // could turn off. The Fields picker now offers it via the canonical system-field
+  // id (`__sys_number`), and this is where that choice takes effect. Falls back to
+  // a real `number` field row's id when the database has one.
+  const numberHidden = useMemo(() => {
+    const hidden = new Set(hiddenFieldIds ?? []);
+    if (hidden.has(systemFieldId('number'))) return true;
+    const real = (database.data?.fields ?? []).find((f) => f.apiName === 'number');
+    return real ? hidden.has(real.id) : false;
+  }, [hiddenFieldIds, database.data]);
+
   const hasUserField = fields.some((f) => f.type === 'user');
   const members = useMembers(ws, hasUserField && !readOnly);
   const memberList = useMemo(
@@ -660,8 +673,9 @@ export function TableView({
                       selected.has(row.id) ? 'bg-accent-soft' : 'bg-card group-hover:bg-hover',
                     )}
                   >
-                    {/* Public id in the gutter by default (MN-087) — fades to row actions on hover. */}
-                    {row.number !== null && (
+                    {/* Public id in the gutter by default (MN-087) — fades to row actions on
+                        hover, and can be hidden entirely from Fields (#289). */}
+                    {row.number !== null && !numberHidden && (
                       <span
                         className={cn(
                           'text-[11px] tabular-nums text-faint',
