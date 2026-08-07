@@ -98,6 +98,13 @@ export interface ActionContext {
   /** #270: whether that relation change was a link or an unlink (null for a
    * set-op / non-relation trigger). */
   changedRelationDirection?: 'link' | 'unlink' | null;
+  /**
+   * #273: a rendered "Field: from → to · …" line for the change that fired this
+   * run, exposed as the `{changesSummary}` token. Undefined unless the rule's
+   * actions reference the token (the caller resolves it lazily) or the trigger
+   * carried no value diff.
+   */
+  changesSummary?: string;
   /** #244: display-name → api-name for `linkedDatabaseId`, populated by execute()
    * once per run (the linked record is in a different database than the host). */
   linkedDisplayToApi?: Map<string, string>;
@@ -392,6 +399,8 @@ export class AutomationActionsService {
       // #246: {index} → the 1-based batch item number (create_records); a no-op
       // ("") outside a batch, so a stray {index} never renders an em dash.
       if (trimmed.toLowerCase() === 'index') return escape(ctx.itemIndex !== undefined ? String(ctx.itemIndex) : '');
+      // #273: {changesSummary} → what actually changed on the triggering record.
+      if (trimmed.toLowerCase() === 'changessummary') return escape(ctx.changesSummary ?? '');
       // MN-254: {payload.a.b.0} reads the inbound webhook body, independent of
       // any field on this database — it has no display-name/api-name mapping.
       if (trimmed.toLowerCase().startsWith('payload.')) {

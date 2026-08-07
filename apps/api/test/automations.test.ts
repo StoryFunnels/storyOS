@@ -573,4 +573,34 @@ describe('MN-168 — entitlements wiring for the automations engine', () => {
     await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${linkRule.id}`, { enabled: false });
     await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${unlinkRule.id}`, { enabled: false });
   });
+
+  it('{changesSummary} renders what actually changed, with select labels (#273)', async () => {
+    const rule = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/automations`, {
+      name: 'Report the change',
+      trigger: { type: 'record_updated', field_id: stateFieldId },
+      actions: [{ type: 'add_comment', body_template: 'Changed: {changesSummary}' }],
+    })).json();
+    expect(rule.id, JSON.stringify(rule)).toBeTruthy();
+
+    const rec = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records`, {
+      values: { name: 'Summarize me', [stateApi]: urgentId },
+    })).json();
+
+    // Urgent → Done: the summary names the FIELD and both option LABELS (not ids).
+    await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/records/${rec.id}`, {
+      values: { [stateApi]: doneId },
+    });
+    await engine.settle(rec.id);
+    await wait(50);
+
+    const comments = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/records/${rec.id}/comments`)).json();
+    const text = comments.data.map((c: { body: Array<{ text: string }> }) => c.body[0]?.text).find((t: string) => t?.startsWith('Changed:'));
+    expect(text, JSON.stringify(comments.data)).toBeTruthy();
+    expect(text).toContain('State');
+    expect(text).toContain('Urgent');
+    expect(text).toContain('Done');
+    expect(text).not.toContain(urgentId); // labels, never raw option ids
+
+    await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}`, { enabled: false });
+  });
 });
