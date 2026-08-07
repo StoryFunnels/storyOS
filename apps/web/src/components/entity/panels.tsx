@@ -1,7 +1,8 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useDateFormat } from '@/lib/preferences';
 import { Paperclip, Send, Trash2 } from 'lucide-react';
@@ -262,6 +263,26 @@ export function CommentsPanel({
     },
   });
 
+  // #269 — a notification links to /r/{rec}?comment={id}; once the thread loads,
+  // scroll that comment into view and flash a highlight so it's obvious which
+  // one the email/inbox pointed at. A missing/stale id just no-ops (opens thread).
+  const searchParams = useSearchParams();
+  const targetCommentId = searchParams.get('comment');
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const scrolledForRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!targetCommentId || !comments.data) return;
+    if (scrolledForRef.current === targetCommentId) return;
+    if (!comments.data.some((c) => c.id === targetCommentId)) return;
+    scrolledForRef.current = targetCommentId;
+    const el = document.getElementById(`comment-${targetCommentId}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setHighlightedId(targetCommentId);
+    const timer = setTimeout(() => setHighlightedId(null), 2200);
+    return () => clearTimeout(timer);
+  }, [targetCommentId, comments.data]);
+
   const remove = useMutation({
     mutationFn: async (id: string) => {
       const { error } = await api.DELETE(
@@ -276,7 +297,14 @@ export function CommentsPanel({
   return (
     <div className="flex flex-col gap-3">
       {(comments.data ?? []).map((comment) => (
-        <div key={comment.id} className="group rounded-[var(--radius-card)] border border-border-default bg-card p-3">
+        <div
+          key={comment.id}
+          id={`comment-${comment.id}`}
+          className={cn(
+            'group rounded-[var(--radius-card)] border border-border-default bg-card p-3 transition-shadow duration-500',
+            highlightedId === comment.id && 'ring-2 ring-info',
+          )}
+        >
           <div className="mb-1 flex items-center justify-between">
             <span className="flex items-center gap-1.5 text-[12px] font-medium text-ink">
               <Avatar userId={comment.author.id} name={comment.author.name} image={comment.author.image} size={20} />
