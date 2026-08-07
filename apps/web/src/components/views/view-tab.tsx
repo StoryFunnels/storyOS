@@ -90,20 +90,21 @@ export function ViewTab({
         sortable.isDragging && 'z-10 opacity-70',
       )}
     >
-      <button
-        className={cn('flex items-center gap-1.5', canManage && !renaming && 'touch-none')}
-        onClick={onNavigate}
-        type="button"
-        {...(canManage && !renaming ? { ...sortable.attributes, ...sortable.listeners } : {})}
-      >
-        <Icon className="h-3.5 w-3.5" />
-        {renaming ? (
+      {renaming ? (
+        // The rename input must NOT live inside the navigate <button>: pressing
+        // Space in a text field nested in a button bubbled up and activated the
+        // button, navigating away (the "page refresh" while renaming). Rendered
+        // standalone here, and keydown is stopped so no ancestor/global shortcut
+        // handler reacts to Space either.
+        <span className="flex items-center gap-1.5">
+          <Icon className="h-3.5 w-3.5" />
           <Input
             autoFocus
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onBlur={commitRename}
             onKeyDown={(e) => {
+              e.stopPropagation();
               if (e.key === 'Enter') commitRename();
               if (e.key === 'Escape') {
                 setDraft(view.name);
@@ -113,11 +114,19 @@ export function ViewTab({
             onClick={(e) => e.stopPropagation()}
             className="h-5 w-28 px-1 py-0 text-[13px]"
           />
-        ) : (
+        </span>
+      ) : (
+        <button
+          className={cn('flex items-center gap-1.5', canManage && 'touch-none')}
+          onClick={onNavigate}
+          type="button"
+          {...(canManage ? { ...sortable.attributes, ...sortable.listeners } : {})}
+        >
+          <Icon className="h-3.5 w-3.5" />
           <span className="whitespace-nowrap">{view.name}</span>
-        )}
-        {view.isDefault && <Pin className="h-3 w-3 text-faint" aria-label="Default view" />}
-      </button>
+          {view.isDefault && <Pin className="h-3 w-3 text-faint" aria-label="Default view" />}
+        </button>
+      )}
 
       {canManage && !renaming && (
         <DropdownMenu>
