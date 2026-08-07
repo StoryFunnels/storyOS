@@ -206,6 +206,25 @@ export function ViewToolbar({
   const augmented = useMemo(() => withSystemFields(fields), [fields]);
   const filterable = augmented.filter((f) => OPS_BY_TYPE[f.type]);
 
+  /**
+   * #289 — what the Hide-fields / Cards pickers may offer. Every column a view
+   * actually RENDERS, plus the public id: it renders in the table's row gutter
+   * rather than as a column, so it never had a field id to hide by and was the
+   * one visible thing no user could turn off. Offered here under the canonical
+   * system-field id so table-view can honour it (see `numberHidden` there).
+   *
+   * Only `title` stays non-togglable — hiding it would leave rows unidentifiable.
+   * Types the views don't render (created_by / id-as-column) are deliberately NOT
+   * listed: a toggle that can't change what you see is worse than no toggle.
+   */
+  const togglable = useMemo(() => {
+    const rendered = fields.filter((f) => !NON_TOGGLABLE.has(f.type));
+    const hasNumber = fields.some((f) => f.apiName === 'number');
+    if (hasNumber) return rendered;
+    const numberEntry = augmented.find((f) => f.apiName === 'number');
+    return numberEntry ? [...rendered, numberEntry] : rendered;
+  }, [fields, augmented]);
+
   return (
     <div className="flex min-h-9 flex-wrap items-center gap-1.5 border-b border-border-default bg-app px-3 py-1">
       {/* Filters (MN-253): the builder + pinned chips — one spec (ViewConfig.filters)
@@ -237,7 +256,7 @@ export function ViewToolbar({
           — the generic Cards popover no longer applies to them. */}
       {viewType === 'board' || viewType === 'calendar' || viewType === 'gallery' || viewType === 'list' || viewType === 'feed' ? (
         <CardFieldsButton
-          fields={fields.filter((f) => !NON_TOGGLABLE.has(f.type))}
+          fields={togglable}
           shown={config.card_field_ids}
           onChange={(card_field_ids) => onPatch({ card_field_ids })}
           size={viewType === 'board' || viewType === 'gallery' ? config.card_size ?? 'medium' : undefined}
@@ -245,7 +264,7 @@ export function ViewToolbar({
         />
       ) : viewType === 'form' ? null : (
         <HiddenFieldsButton
-          fields={fields.filter((f) => !NON_TOGGLABLE.has(f.type))}
+          fields={togglable}
           hidden={config.hidden_field_ids}
           onChange={(hidden_field_ids) => onPatch({ hidden_field_ids })}
           onReorder={onReorderFields}
