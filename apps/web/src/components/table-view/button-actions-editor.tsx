@@ -9,9 +9,18 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useDatabase, useMailConnections, useMembers } from './use-table-data';
+import { OPS_BY_TYPE } from '@/components/views/view-toolbar';
 import type { Field } from './use-table-data';
 
-export type ButtonAction =
+/**
+ * #274 — an optional per-action condition (#245's backend): this action runs only
+ * when the filter matches the triggering record; a non-match skips just this
+ * action (the run log records it as skipped) and later actions still run. One
+ * flat clause is enough here and is itself a valid FilterNode server-side.
+ */
+export type ActionCondition = { field: string; op: string; value?: unknown };
+
+export type ButtonAction = ({ condition?: ActionCondition } & (
   | { type: 'set_values'; values: Record<string, unknown> }
   | {
       type: 'create_record';
@@ -54,7 +63,8 @@ export type ButtonAction =
       body_template?: string;
       connection_id?: string;
       capture?: { path: string; target_field_id: string }[];
-    };
+    }
+));
 
 /** MN-254: the only actions a webhook_received rule can run — no triggering record. */
 const WEBHOOK_SAFE_ACTIONS = new Set([
@@ -192,6 +202,18 @@ export function ButtonActionsEditor({
               <Trash2 className="h-3.5 w-3.5" />
             </button>
           </div>
+
+          {/* #274 — the per-action "Only if…" gate (#245's backend). Hidden for a
+              webhook_received rule: it has no triggering record, so the server
+              can't evaluate a record filter and would just run the action anyway
+              — offering the control there would be a lie. */}
+          {!restrictToWebhookSafe && (
+          <ActionConditionRow
+            fields={dbFields}
+            condition={action.condition}
+            onChange={(condition) => patch(i, { ...action, condition })}
+          />
+          )}
 
           {action.type === 'set_values' && (
             <FieldValuesEditor
@@ -1102,6 +1124,138 @@ function UpdateLinkedEditor({
         addLabel="＋ field to set on linked…"
         onChange={(values) => onChange({ ...action, values })}
       />
+    </div>
+  );
+}
+
+/** Ops that take no value at all — the value input disappears for these. */
+const NO_VALUE_ACTION_OPS = new Set(['is_empty', 'not_empty']);
+
+/**
+ * #274 — the compact per-action "Only if …" gate. Mirrors the rule-level condition
+ * editor's flat field/op/value shape (automations-panel.tsx) rather than the full
+ * nested filter builder: one clause is what the use-case needs ("only call the API
+ * when Status is X"), and a single clause is already a valid server-side FilterNode.
+ *
+ * Choosing "always run" clears the condition entirely, so an action never carries a
+ * half-built clause that would 422 on save.
+ */
+function ActionConditionRow({
+  fields,
+  condition,
+  onChange,
+}: {
+  fields: Field[];
+  condition?: ActionCondition;
+  onChange: (condition: ActionCondition | undefined) => void;
+}) {
+  const conditionable = fields.filter((f) => OPS_BY_TYPE[f.type]);
+  const field = fields.find((f) => f.apiName === condition?.field);
+  const ops = field ? (OPS_BY_TYPE[field.type] ?? []) : [];
+  const op = ops.find((o) => o.op === condition?.op);
+  const needsValue = Boolean(condition?.op) && !NO_VALUE_ACTION_OPS.has(condition!.op);
+
+  /** A select/multi-select/workflow clause stores an array of option ids. */
+  const isOptionInput = op?.input === 'options';
+  const valueAsText = Array.isArray(condition?.value)
+    ? String(condition!.value[0] ?? '')
+    : condition?.value === undefined || condition?.value === null
+      ? ''
+      : String(condition.value);
+
+  function setValue(raw: string) {
+    if (!condition) return;
+    let value: unknown = raw;
+    if (isOptionInput) value = raw ? [raw] : [];
+    else if (op?.input === 'number') value = raw === '' ? 0 : Number(raw);
+    else if (op?.input === 'boolean') value = raw === 'true';
+    onChange({ ...condition, value });
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-1 border-t border-border-default pt-1.5">
+      <span className="text-[11px] text-faint">Only if</span>
+      <select
+        className="h-6 rounded border border-border-default bg-card px-1 text-[11px] text-ink"
+        value={condition?.field ?? ''}
+        onChange={(e) => {
+          const apiName = e.target.value;
+          if (!apiName) return onChange(undefined); // "always run" clears it
+          const next = fields.find((f) => f.apiName === apiName);
+          const firstOp = next ? OPS_BY_TYPE[next.type]?.[0] : undefined;
+          if (!firstOp) return onChange(undefined);
+          onChange({
+            field: apiName,
+            op: firstOp.op,
+            ...(NO_VALUE_ACTION_OPS.has(firstOp.op) ? {} : { value: firstOp.input === 'options' ? [] : '' }),
+          });
+        }}
+      >
+        <option value="">always run</option>
+        {conditionable.map((f) => (
+          <option key={f.id} value={f.apiName}>
+            {f.displayName}
+          </option>
+        ))}
+      </select>
+
+      {condition && ops.length > 0 && (
+        <select
+          className="h-6 rounded border border-border-default bg-card px-1 text-[11px] text-ink"
+          value={condition.op}
+          onChange={(e) => {
+            const nextOp = ops.find((o) => o.op === e.target.value);
+            if (!nextOp) return;
+            onChange({
+              field: condition.field,
+              op: nextOp.op,
+              ...(NO_VALUE_ACTION_OPS.has(nextOp.op) ? {} : { value: nextOp.input === 'options' ? [] : '' }),
+            });
+          }}
+        >
+          {ops.map((o) => (
+            <option key={o.op} value={o.op}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      )}
+
+      {condition && needsValue && isOptionInput && (
+        <select
+          className="h-6 rounded border border-border-default bg-card px-1 text-[11px] text-ink"
+          value={valueAsText}
+          onChange={(e) => setValue(e.target.value)}
+        >
+          <option value="">choose…</option>
+          {(field?.options ?? []).map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      )}
+
+      {condition && needsValue && op?.input === 'boolean' && (
+        <select
+          className="h-6 rounded border border-border-default bg-card px-1 text-[11px] text-ink"
+          value={valueAsText || 'true'}
+          onChange={(e) => setValue(e.target.value)}
+        >
+          <option value="true">checked</option>
+          <option value="false">unchecked</option>
+        </select>
+      )}
+
+      {condition && needsValue && !isOptionInput && op?.input !== 'boolean' && (
+        <Input
+          className="h-6 w-36 text-[11px]"
+          type={op?.input === 'number' ? 'number' : 'text'}
+          placeholder="value"
+          value={valueAsText}
+          onChange={(e) => setValue(e.target.value)}
+        />
+      )}
     </div>
   );
 }
