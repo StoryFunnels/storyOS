@@ -4,7 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, usePathname, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { Database, FileText, FolderOpen, Home, LayoutTemplate, Plus, Search, Settings, UserPlus, UserRound } from 'lucide-react';
+import { toast } from 'sonner';
 import { api } from '@/lib/api';
+import { useDatabases } from '@/lib/queries';
 import { EntityIcon } from '@/components/ui/icon-picker';
 import { OPEN_PALETTE_EVENT, useShortcut } from '@/lib/shortcuts';
 import { cn } from '@/lib/utils';
@@ -23,7 +25,7 @@ interface PlaceHit {
   icon: string | null;
 }
 
-type Group = 'Records' | 'Places' | 'Actions';
+type Group = 'Records' | 'Create' | 'Places' | 'Actions';
 
 interface Row {
   key: string;
@@ -34,7 +36,7 @@ interface Row {
   run: () => void;
 }
 
-const GROUP_ORDER: Group[] = ['Records', 'Places', 'Actions'];
+const GROUP_ORDER: Group[] = ['Records', 'Create', 'Places', 'Actions'];
 
 /** Cmd+K palette (MN-048): search + navigate + quick actions, keyboard-first. */
 export function CommandPalette() {
@@ -97,6 +99,34 @@ export function CommandPalette() {
   });
 
   const onDatabasePage = pathname.includes('/d/');
+  // #253 — the database we're currently looking at (if any), so "Create …" offers
+  // it first. Read off the path rather than a prop: the palette is mounted app-wide.
+  const currentDbId = pathname.match(/\/d\/([0-9a-f-]{36})/i)?.[1] ?? null;
+
+  // #253 — creating from the palette needs the workspace's databases. Only
+  // fetched while the palette is open, so it costs nothing on a normal page.
+  const databases = useDatabases(ws, open);
+
+  /**
+   * #253 — create a record titled by the typed query, then jump straight into it.
+   * Keyboard-only: type a title, arrow to "Create … in <db>", Enter, and you land
+   * on the new record. Errors surface as a toast rather than silently closing.
+   */
+  const createRecord = useCallback(
+    async (databaseId: string, title: string) => {
+      const { data, error } = await api.POST('/api/v1/workspaces/{ws}/databases/{db}/records', {
+        params: { path: { ws, db: databaseId } },
+        body: { values: { name: title } } as never,
+      });
+      if (error || !data) {
+        toast.error('Could not create the record');
+        return;
+      }
+      setOpen(false);
+      router.push(`/w/${ws}/d/${databaseId}/r/${(data as unknown as { id: string }).id}`);
+    },
+    [ws, router],
+  );
 
   const rows = useMemo<Row[]>(() => {
     const out: Row[] = [];
@@ -115,6 +145,29 @@ export function CommandPalette() {
         run: () => go(`/w/${ws}/d/${hit.database_id}/r/${hit.id}`),
       });
     }
+    // #253 — "Create <query> in <database>": only while a query is typed (an empty
+    // query has no title to create), current database first when we're on one, and
+    // capped so the palette stays scannable.
+    const typed = debounced.trim();
+    if (typed) {
+      const dbs = [...(databases.data ?? [])].sort((a, b) => {
+        const cur = currentDbId;
+        if (cur && a.id === cur) return -1;
+        if (cur && b.id === cur) return 1;
+        return a.name.localeCompare(b.name);
+      });
+      for (const d of dbs.slice(0, 5)) {
+        out.push({
+          key: `new:${d.id}`,
+          group: 'Create',
+          icon: <Plus className="h-3.5 w-3.5" />,
+          label: `Create “${typed}” in ${d.name}`,
+          hint: 'New record',
+          run: () => void createRecord(d.id, typed),
+        });
+      }
+    }
+
     for (const place of search.data?.places ?? []) {
       out.push({
         key: `place:${place.id}`,
@@ -142,7 +195,7 @@ export function CommandPalette() {
       }
     }
     return out;
-  }, [search.data, recents.data, searching, debounced, ws, router, onDatabasePage]);
+  }, [search.data, recents.data, searching, debounced, ws, router, onDatabasePage, databases.data, currentDbId, createRecord]);
 
   useEffect(() => setIndex(0), [rows.length, debounced]);
 
