@@ -4180,6 +4180,20 @@ export interface components {
                 require_approval?: boolean;
                 condition?: unknown;
                 /** @enum {string} */
+                type: "create_records";
+                /** Format: uuid */
+                database_id: string;
+                count: number | string;
+                /** @default {} */
+                values: {
+                    [key: string]: unknown;
+                };
+                /** Format: uuid */
+                link_via_relation_field_id?: string;
+            } | {
+                require_approval?: boolean;
+                condition?: unknown;
+                /** @enum {string} */
                 type: "add_comment";
                 body_template: string;
             } | {
@@ -4312,6 +4326,20 @@ export interface components {
                 type: "create_record";
                 /** Format: uuid */
                 database_id: string;
+                /** @default {} */
+                values: {
+                    [key: string]: unknown;
+                };
+                /** Format: uuid */
+                link_via_relation_field_id?: string;
+            } | {
+                require_approval?: boolean;
+                condition?: unknown;
+                /** @enum {string} */
+                type: "create_records";
+                /** Format: uuid */
+                database_id: string;
+                count: number | string;
                 /** @default {} */
                 values: {
                     [key: string]: unknown;

@@ -428,4 +428,40 @@ describe('MN-168 — entitlements wiring for the automations engine', () => {
 
     await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}`, { enabled: false });
   });
+
+  it('create_records fans out N records from a dynamic count, with {index} (#246)', async () => {
+    // The sprint-days case: one rule fires once and spawns one "Day" per the
+    // trigger record's Count — no self-triggering loop, no script.
+    const spaceId = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
+    const daysDb = (await inject('POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name: 'Days' })).json().id;
+    const countApi = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/fields`, {
+      display_name: 'Count',
+      type: 'number',
+      config: {},
+    })).json().apiName;
+
+    const rule = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/automations`, {
+      name: 'Spawn days',
+      trigger: { type: 'record_updated', field_id: stateFieldId },
+      actions: [
+        { type: 'create_records', database_id: daysDb, count: '{Count}', values: { name: 'Day {index}' } },
+      ],
+    })).json();
+    expect(rule.id, JSON.stringify(rule)).toBeTruthy();
+
+    const ticket = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records`, {
+      values: { name: 'Sprint 1', [countApi]: 3 },
+    })).json();
+    await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/records/${ticket.id}`, {
+      values: { [stateApi]: urgentId },
+    });
+    await engine.settle(ticket.id);
+    await wait(50);
+
+    const days = (await inject('POST', `/workspaces/${wsId}/databases/${daysDb}/records/query`, {})).json();
+    expect(days.data).toHaveLength(3);
+    expect(days.data.map((r: { title: string }) => r.title).sort()).toEqual(['Day 1', 'Day 2', 'Day 3']);
+
+    await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}`, { enabled: false });
+  });
 });
