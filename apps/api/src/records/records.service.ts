@@ -11,12 +11,14 @@ import type { FormulaNode } from '@storyos/schemas';
 import type { FieldDef, FilterNode } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { activityEvents, databases, documents, fields, memberships, recordLinks, recordVersions, records, relations, selectOptions, user } from '../db/schema';
+import { activityEvents, databases, documents, fields, memberships, recordLinks, recordVersions, recordWatchers, records, relations, selectOptions, user } from '../db/schema';
 import type { QueryRecordsInput } from '@storyos/schemas';
 import { compileFilter, cursorCondition, filterReferencedFields, sortExpr } from './query-compiler';
 import type { CompilerContext, SortSpec } from './query-compiler';
 import { keyBetween, keysAfter } from './rank';
 import { diffSnapshots } from './record-diff';
+import { summarizeChanges } from './record-change-summary';
+import type { ChangeSummaryField } from './record-change-summary';
 import { NotificationsService } from '../notifications/notifications.service';
 import { DomainEventsService } from '../events/domain-events.service';
 import { MentionsService } from '../mentions/mentions.service';
@@ -1734,7 +1736,97 @@ export class RecordsService {
         });
       }
     }
+
+    // #236 — anyone WATCHING this record hears about ANY change (not only
+    // assignees on a select change), carrying a "what changed" summary. Never
+    // fails the write.
+    await this.notifyWatchers(workspaceId, databaseId, recordId, actorId, defs, before, merged, diff).catch(() =>
+      undefined,
+    );
     return this.project(updated, defs);
+  }
+
+  // ── watch / subscribe (#236) ─────────────────────────────────────────────
+
+  /** Subscribe the user to this record's changes (idempotent). */
+  async watch(workspaceId: string, recordId: string, userId: string): Promise<{ watching: true }> {
+    await this.db
+      .insert(recordWatchers)
+      .values({ workspaceId, recordId, userId })
+      .onConflictDoNothing();
+    return { watching: true };
+  }
+
+  /** Unsubscribe the user (idempotent). */
+  async unwatch(recordId: string, userId: string): Promise<{ watching: false }> {
+    await this.db
+      .delete(recordWatchers)
+      .where(and(eq(recordWatchers.recordId, recordId), eq(recordWatchers.userId, userId)));
+    return { watching: false };
+  }
+
+  /** The record's watchers + whether the caller is one (for the watch toggle UI). */
+  async listWatchers(recordId: string, callerId: string): Promise<{ watching: boolean; watchers: string[] }> {
+    const rows = await this.db.query.recordWatchers.findMany({
+      where: eq(recordWatchers.recordId, recordId),
+      columns: { userId: true },
+    });
+    const watchers = rows.map((r) => r.userId);
+    return { watching: watchers.includes(callerId), watchers };
+  }
+
+  /** #236 — fan a `record_changed` notification out to every watcher (minus the
+   * actor), with a resolved "what changed" summary as the snippet. */
+  private async notifyWatchers(
+    workspaceId: string,
+    databaseId: string,
+    recordId: string,
+    actorId: string,
+    defs: FieldDef[],
+    before: Record<string, unknown>,
+    after: Record<string, unknown>,
+    diff: Record<string, unknown>,
+  ): Promise<void> {
+    const rows = await this.db.query.recordWatchers.findMany({
+      where: eq(recordWatchers.recordId, recordId),
+      columns: { userId: true },
+    });
+    const recipients = rows.map((r) => r.userId).filter((id) => id !== actorId);
+    if (recipients.length === 0) return;
+
+    const changedIds = Object.keys(diff).filter((k) => k !== 'title');
+    const changedDefs = defs.filter((d) => changedIds.includes(d.id));
+    const nameRows = changedDefs.length
+      ? await this.db.query.fields.findMany({
+          where: and(eq(fields.databaseId, databaseId), inArray(fields.id, changedDefs.map((d) => d.id))),
+          columns: { id: true, displayName: true },
+        })
+      : [];
+    const nameById = new Map(nameRows.map((r) => [r.id, r.displayName]));
+    const optionFieldIds = changedDefs
+      .filter((d) => d.type === 'select' || d.type === 'workflow' || d.type === 'multi_select')
+      .map((d) => d.id);
+    const optionLabels = new Map<string, string>();
+    if (optionFieldIds.length) {
+      const opts = await this.db.query.selectOptions.findMany({ where: inArray(selectOptions.fieldId, optionFieldIds) });
+      for (const o of opts) optionLabels.set(o.id, o.label);
+    }
+    const changed: ChangeSummaryField[] = changedDefs.map((d) => ({
+      id: d.id,
+      label: nameById.get(d.id) ?? d.api_name,
+      type: d.type,
+    }));
+    const summary = summarizeChanges(changed, before, after, optionLabels);
+
+    await this.notificationsService.notify({
+      workspaceId,
+      databaseId,
+      recordId,
+      actorId,
+      type: 'record_changed',
+      recipients,
+      snippet: summary || undefined,
+    });
   }
 
   /** MN-231: version history, newest first (cursor-paginated like ActivityService.listForRecord). */

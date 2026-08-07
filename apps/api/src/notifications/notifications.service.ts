@@ -12,6 +12,12 @@ export type NotificationType =
   | 'commented'
   | 'state_changed'
   /**
+   * #236 — a record you WATCH changed (any field), sent to its watchers who
+   * aren't the actor. Opt-out-able like the other "something happened" pings
+   * (it has a `record_changed` toggle in DEFAULT_PREFERENCES.notifications).
+   */
+  | 'record_changed'
+  /**
    * An agent run staged a gated action and is waiting on its owner (#210,
    * ADR-0010 §4). Not an opt-out ping — see OPT_OUT_TYPES.
    */

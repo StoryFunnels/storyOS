@@ -680,6 +680,31 @@ export const notifications = pgTable(
   (t) => [index('notifications_user_idx').on(t.userId, t.workspaceId, t.readAt, t.createdAt)],
 );
 
+/**
+ * #236 — per-record watch/subscribe (JIRA-style). A watcher receives a
+ * `record_changed` notification (+ email) whenever the record's fields change,
+ * even when they are neither an assignee nor a mention target. Unique per
+ * (record, user); keyed by better-auth user id (text), like notifications.
+ */
+export const recordWatchers = pgTable(
+  'record_watchers',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    recordId: uuid('record_id')
+      .notNull()
+      .references(() => records.id, { onDelete: 'cascade' }),
+    userId: text('user_id').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('record_watchers_record_user_uniq').on(t.recordId, t.userId),
+    index('record_watchers_record_idx').on(t.recordId),
+  ],
+);
+
 /** Per-user preferences blob (#30/#31): notification toggles now, regional
  * formats next. Keyed by better-auth user id (text; the user table lives in
  * auth-schema and isn't managed here, like notifications/favorites). */

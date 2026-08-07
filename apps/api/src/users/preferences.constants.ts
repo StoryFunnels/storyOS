@@ -51,6 +51,9 @@ export interface UserPreferences {
     commented: boolean;
     /** A select field (status/priority/…) changed on a record I'm assigned to (MN-073). */
     state_changed: boolean;
+    /** Any field changed on a record I WATCH (#236). Distinct from state_changed:
+     * fires for a watcher on any change, not just an assignee on a select change. */
+    record_changed: boolean;
   };
   /** How dates/times render across the app. 'system' = the browser locale (default,
    * so nothing changes until the user picks). */
@@ -97,7 +100,7 @@ export interface UserPreferences {
 }
 
 export const DEFAULT_PREFERENCES: UserPreferences = {
-  notifications: { assigned: true, mentioned: true, commented: true, state_changed: true },
+  notifications: { assigned: true, mentioned: true, commented: true, state_changed: true, record_changed: true },
   regional: { dateFormat: 'system', timeFormat: 'system', firstDayOfWeek: 'system' },
   myWork: {},
   viewFilters: {},
