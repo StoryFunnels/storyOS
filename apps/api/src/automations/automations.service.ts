@@ -12,7 +12,7 @@ import { and, desc, eq, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm
 import type { AutomationAction } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { automationJobs, automationRuns, automations, databases, records, workspaces } from '../db/schema';
+import { automationJobs, automationRuns, automations, databases, fields, records, relations, workspaces } from '../db/schema';
 import { compileFilter } from '../records/query-compiler';
 import type { FilterNode } from '@storyos/schemas';
 import { RecordsService } from '../records/records.service';
@@ -131,7 +131,9 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         'webhook_received rules cannot use a condition yet — payload-based conditions are not supported in v1.',
       );
     }
-    if (input.condition) await this.assertConditionCompiles(databaseId, input.condition, actorId);
+    if (input.condition) {
+      await this.assertConditionCompiles(await this.conditionDbFor(databaseId, input.trigger), input.condition, actorId);
+    }
     const [rule] = await this.db
       .insert(automations)
       .values({
@@ -177,7 +179,9 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         'webhook_received rules cannot use a condition yet — payload-based conditions are not supported in v1.',
       );
     }
-    if (patch.condition) await this.assertConditionCompiles(databaseId, patch.condition, actorId);
+    if (patch.condition) {
+      await this.assertConditionCompiles(await this.conditionDbFor(databaseId, trigger), patch.condition, actorId);
+    }
     // Mint a hook identity the moment a rule becomes (or starts life as, via a
     // trigger patch) webhook_received and doesn't have one yet; clear it the
     // moment the trigger moves away, so a stale rule never keeps a live URL.
@@ -327,6 +331,24 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  /**
+   * #271 — which database a rule's condition is authored against. For a
+   * record_linked trigger the condition tests the LINKED record, so it must be
+   * validated (and later evaluated) against the relation field's TARGET
+   * database, not the rule's own. Every other trigger uses the rule's database.
+   */
+  private async conditionDbFor(databaseId: string, trigger: Trigger): Promise<string> {
+    if (trigger.type !== 'record_linked' || !trigger.relation_field_id) return databaseId;
+    const field = await this.db.query.fields.findFirst({
+      where: and(eq(fields.id, trigger.relation_field_id), eq(fields.databaseId, databaseId), isNull(fields.deletedAt)),
+    });
+    if (!field || field.type !== 'relation') return databaseId;
+    const cfg = field.config as { relation_id: string; side: 'a' | 'b' };
+    const relation = await this.db.query.relations.findFirst({ where: eq(relations.id, cfg.relation_id) });
+    if (!relation) return databaseId;
+    return cfg.side === 'a' ? relation.databaseBId : relation.databaseAId;
+  }
+
   private async conditionMatches(
     databaseId: string,
     condition: FilterNode,
@@ -344,6 +366,26 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
       .where(and(eq(records.id, recordId), where))
       .limit(1);
     return Boolean(row);
+  }
+
+  /**
+   * #271 — a record_linked trigger's condition is tested against the LINKED
+   * record(s) in the OTHER database, not the host. Fires if ANY just-linked
+   * record matches (natural "when linked to a Milestone matching criteria").
+   * Reuses conditionMatches with the linked db + record, so relation/@me/etc.
+   * all compile exactly the same way.
+   */
+  private async linkedConditionMatches(
+    linkInfo: LinkedTriggerInfo,
+    condition: FilterNode,
+    actorId: string,
+  ): Promise<boolean> {
+    for (const linkedId of linkInfo.linkedRecordIds) {
+      if (await this.conditionMatches(linkInfo.otherDatabaseId, condition, linkedId, actorId)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   // --- webhook hook path (MN-254) ---
@@ -616,12 +658,13 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
     if (!rule || !rule.enabled) return;
     try {
       if (rule.condition) {
-        const matches = await this.conditionMatches(
-          databaseId,
-          rule.condition as FilterNode,
-          recordId,
-          rule.createdBy ?? '',
-        );
+        // #271 — a record_linked rule's condition tests the LINKED record(s)
+        // (the thing just linked — "fire only when the linked Milestone matches
+        // criteria"); every other trigger tests the trigger record itself. The
+        // actions still run on the host record either way.
+        const matches = linkInfo
+          ? await this.linkedConditionMatches(linkInfo, rule.condition as FilterNode, rule.createdBy ?? '')
+          : await this.conditionMatches(databaseId, rule.condition as FilterNode, recordId, rule.createdBy ?? '');
         if (!matches) {
           return; // silent non-match: no run row (intended behavior; run log stays signal, not noise)
         }
