@@ -17,7 +17,7 @@ import { AutomationsPanel } from '@/components/automations-panel';
 import { ImportWizard } from '@/components/import-wizard';
 import { SourcesDialog } from '@/components/sources-dialog';
 import { InboxPanel, useUnreadCount } from '@/components/inbox-panel';
-import { openPalette } from '@/lib/shortcuts';
+import { openPalette, shortcutKeys } from '@/lib/shortcuts';
 import { useDatabases, useSidebarMutations, useSpaces, useWorkspace } from '@/lib/queries';
 import { useHidden } from '@/lib/hidden-sidebar';
 import type { DatabaseSummary, Space } from '@/lib/queries';
@@ -148,7 +148,8 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
           onClick={openPalette}
         >
           <Search className="h-3.5 w-3.5" /> Search
-          <span className="ml-auto text-[10px] text-faint">⌘K</span>
+          {/* #254 — from the shared registry, so it can't drift from the binding. */}
+          <span className="ml-auto text-[10px] text-faint">{shortcutKeys('palette')}</span>
         </button>
         <button
           className="flex w-full items-center gap-2 rounded px-2 py-[3px] text-[13px] text-ink-secondary hover:bg-hover"
