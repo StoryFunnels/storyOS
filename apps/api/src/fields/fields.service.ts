@@ -587,10 +587,34 @@ export class FieldsService {
     // record's title when the resulting mode is `computed` (or the template
     // changed) so existing rows aren't left on their old names.
     let backfillTitles = false;
+    let recompiledFormula = false;
     let nextConfig: object | undefined;
     if (field.type === 'title' && patch.config !== undefined) {
       nextConfig = await this.compileTitleConfig(databaseId, field, patch.config);
       backfillTitles = (nextConfig as { name_mode?: string }).name_mode === 'computed';
+    } else if (field.type === 'formula' && patch.config !== undefined) {
+      // A formula's config is a COMPILED artifact — `expression` plus the `ast`
+      // and `result_type` derived from it at save time — so it is not a merge
+      // target. The generic shallow merge below kept the OLD `ast` next to the
+      // NEW `expression`: the field displayed one formula and computed another,
+      // silently, with a 200. Recompile (which also re-validates: a bad
+      // expression is now a 422 instead of stored garbage) and replace wholesale,
+      // exactly as the title field already does.
+      //
+      // `expression` is defaulted from the stored config so a config-only patch
+      // that touches just `format` (#190's percent toggle) doesn't blank the
+      // formula.
+      const stored = field.config as Record<string, unknown>;
+      const merged = {
+        ...stored,
+        ...patch.config,
+        expression: patch.config['expression'] ?? stored['expression'] ?? '',
+      };
+      // compileFormulaConfig returns ONLY { expression, ast, result_type }, so the
+      // compiled trio is layered OVER `merged` rather than replacing it — otherwise
+      // a percent toggle (#190's `format`) would be dropped on every save.
+      nextConfig = { ...merged, ...(await this.compileFormulaConfig(databaseId, merged, field.apiName)) };
+      recompiledFormula = String(merged.expression) !== String(stored['expression'] ?? '');
     } else {
       const restored = patch.config ? restoreFieldConfig(patch.config, field.config) : undefined;
       nextConfig = restored ? { ...(field.config as object), ...restored } : undefined;
@@ -608,6 +632,15 @@ export class FieldsService {
     // never fail the config-save the caller is waiting on. Chunked internally.
     if (backfillTitles) {
       await this.recordsService.recomputeTitlesForAllRecords(databaseId).catch(() => undefined);
+    }
+    // The materialized sort key (computed_values) was written from the OLD
+    // expression, so without this a re-saved formula would sort by the previous
+    // formula until each record happened to be written again. Same best-effort
+    // isolation as backfillFormulaField — a big database must not fail the save.
+    if (recompiledFormula) {
+      await this.recordsService
+        .materializeFormulaFieldForAllRecords(databaseId, fieldId)
+        .catch(() => undefined);
     }
     return this.withOptions(this.db, updated!);
   }

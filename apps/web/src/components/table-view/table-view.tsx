@@ -44,7 +44,14 @@ const DRAG_THRESHOLD = 6;
 // The public id renders in the row gutter (Airtable-style), not as its own column.
 const HIDDEN_TYPES = new Set(['id', 'created_by']);
 // checkbox toggles on click; rich_text edits on the record page; lookup is computed.
-const NO_EDITOR = new Set(['checkbox', 'rich_text', 'lookup', 'button', 'formula', 'created_at', 'updated_at']);
+// Types with no inline editor. `rollup` was missing, which had two consequences:
+// an empty rollup cell offered a fake "Add <field>" affordance, and double-clicking
+// one opened an editor on a value the server computes and will never accept.
+// created_by/updated_by are system columns for the same reason.
+const NO_EDITOR = new Set([
+  'checkbox', 'rich_text', 'lookup', 'rollup', 'button', 'formula',
+  'created_at', 'updated_at', 'created_by', 'updated_by',
+]);
 
 /** #187: empty for the ghost-affordance check — null/blank, or an empty
  * multi-value (multi_select / user / relation) array. */

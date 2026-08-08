@@ -49,6 +49,90 @@ describe('formula fields (MN-043)', () => {
     expect(rec.values.remaining).toBe(1);
   });
 
+  it('RECOMPILES on edit — a re-saved expression must not keep the old compiled ast', async () => {
+    // The bug: fields.service.update() shallow-merged a formula's config, so a new
+    // `expression` landed next to the OLD `ast`/`result_type`. The field then
+    // DISPLAYED one formula and COMPUTED another, silently, with a 200.
+    // Pin the inputs — earlier tests in this file mutate the shared record, so
+    // hard-coding 10/4 here would couple this test to their execution order.
+    await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/records/${recId}`, {
+      values: { estimate: 10, spent: 4 },
+    });
+    const created = await inject('POST', `/workspaces/${wsId}/databases/${dbId}/fields`, {
+      display_name: 'Editable', type: 'formula', config: { expression: '{Estimate} - {Spent}' },
+    });
+    expect(created.statusCode, created.body).toBe(201);
+    const fieldId = created.json().id;
+    let rec = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/records/${recId}`)).json();
+    expect(rec.values.editable).toBe(6); // 10 - 4
+
+    const patched = await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/fields/${fieldId}`, {
+      config: { expression: '{Estimate} + {Spent}' },
+    });
+    expect(patched.statusCode, patched.body).toBeLessThan(300);
+    expect(patched.json().config.expression).toBe('{Estimate} + {Spent}');
+
+    rec = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/records/${recId}`)).json();
+    expect(rec.values.editable).toBe(14); // 10 + 4 — the NEW formula, not the old one
+  });
+
+  it('recompiles the result_type too, so a text formula stops claiming to be a number', async () => {
+    const created = await inject('POST', `/workspaces/${wsId}/databases/${dbId}/fields`, {
+      display_name: 'Retyped', type: 'formula', config: { expression: '{Estimate} * 2' },
+    });
+    const fieldId = created.json().id;
+    expect(created.json().config.result_type).toBe('number');
+
+    const patched = await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/fields/${fieldId}`, {
+      config: { expression: 'upper({Name})' },
+    });
+    expect(patched.statusCode, patched.body).toBeLessThan(300);
+    expect(patched.json().config.result_type).toBe('text');
+  });
+
+  it('rejects an invalid edited expression instead of storing it', async () => {
+    await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/records/${recId}`, {
+      values: { estimate: 10, spent: 4 },
+    });
+    const created = await inject('POST', `/workspaces/${wsId}/databases/${dbId}/fields`, {
+      display_name: 'Guarded', type: 'formula', config: { expression: '{Estimate} + 1' },
+    });
+    const fieldId = created.json().id;
+
+    const bad = await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/fields/${fieldId}`, {
+      config: { expression: '{Estimate} +' },
+    });
+    expect(bad.statusCode).toBe(422);
+    const unknown = await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/fields/${fieldId}`, {
+      config: { expression: '{Ghost} + 1' },
+    });
+    expect(unknown.statusCode).toBe(422);
+    // …and the field still computes what it did before the rejected edits.
+    const rec = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/records/${recId}`)).json();
+    expect(rec.values.guarded).toBe(11);
+  });
+
+  it('a config-only patch (percent format) does not blank the expression', async () => {
+    // compileFormulaConfig reads `expression` from the patch; a #190 percent toggle
+    // sends only `format`, which must not compile an empty formula over the top.
+    await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/records/${recId}`, {
+      values: { estimate: 10, spent: 4 },
+    });
+    const created = await inject('POST', `/workspaces/${wsId}/databases/${dbId}/fields`, {
+      display_name: 'Ratio', type: 'formula', config: { expression: '{Spent} / {Estimate}' },
+    });
+    const fieldId = created.json().id;
+
+    const patched = await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/fields/${fieldId}`, {
+      config: { format: 'percent' },
+    });
+    expect(patched.statusCode, patched.body).toBeLessThan(300);
+    expect(patched.json().config.expression).toBe('{Spent} / {Estimate}');
+    expect(patched.json().config.format).toBe('percent');
+    const rec = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/records/${recId}`)).json();
+    expect(rec.values.ratio).toBeCloseTo(0.4);
+  });
+
   it('compares select labels and chains formula-over-formula', async () => {
     const detail = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}`)).json();
     const state = detail.fields.find((f: { apiName: string }) => f.apiName === 'state');

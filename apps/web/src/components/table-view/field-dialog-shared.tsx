@@ -271,6 +271,32 @@ export function ConfigEditor({
     return <TitleNameConfig ws={ws} db={db} fields={fields ?? []} config={config} onChange={onChange} />;
   }
 
+  // A formula field had NO editor here, so "Edit field" on one offered only a
+  // rename: the expression could be written once and never corrected — you had to
+  // delete the field (losing it from every view) and start again. Same editor the
+  // create dialog uses; the server recompiles `ast`/`result_type` from
+  // `expression` on save (fields.service.update), so only the expression and the
+  // #190 percent flag are sent.
+  if (type === 'formula' && ws && db) {
+    const expression = typeof config.expression === 'string' ? config.expression : '';
+    return (
+      <div className="flex flex-col gap-1.5">
+        <Label>Formula</Label>
+        <FormulaEditor
+          ws={ws}
+          db={db}
+          fields={(fields ?? []).filter((f) => f.type !== 'formula' || f.config?.expression !== expression)}
+          expression={expression}
+          onChange={(next) => onChange({ ...config, expression: next })}
+          format={config.format === 'percent' ? 'percent' : 'plain'}
+          onFormatChange={(next) =>
+            onChange(next === 'percent' ? { ...config, format: 'percent' } : { ...config, format: undefined })
+          }
+        />
+      </div>
+    );
+  }
+
   if (type === 'text') {
     return (
       <label className="flex items-center gap-2 text-[13px] text-ink">

@@ -273,6 +273,10 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, ws 
       const rt = field.config['result_type'] as string | undefined;
       if (rt === 'checkbox') return <input type="checkbox" checked={value === true} readOnly className="pointer-events-none" />;
       if (rt === 'number') return <span className="w-full truncate text-right text-[13px] tabular-nums">{formatNumberValue(field, value)}</span>;
+      // A date-returning formula used to fall through to String(value) and render
+      // the raw ISO ("2026-02-28T00:00:00.000Z"). #288's add_months/end_of_month/
+      // to_date made that the common case rather than a curiosity.
+      if (rt === 'date') return <span className="truncate text-[13px] tabular-nums text-ink-secondary">{formatDateValue(fmt, value)}</span>;
       return <span className="truncate text-[13px] text-ink-secondary">{String(value)}</span>;
     }
     case 'rollup': {
@@ -292,7 +296,13 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, ws 
         );
       }
       if (typeof value !== 'number') {
-        return <span className="truncate text-[13px] text-ink-secondary">{value === true ? '✓' : value === false ? '—' : String(value)}</span>;
+        if (value === true || value === false) {
+          return <span className="truncate text-[13px] text-ink-secondary">{value === true ? '✓' : '—'}</span>;
+        }
+        // A first/last rollup over a date field returns an ISO string — same raw-ISO
+        // problem as the formula branch above, so route it through the same formatter.
+        const asDate = formatDateValue(fmt, value);
+        return <span className="truncate text-[13px] text-ink-secondary">{asDate ?? String(value)}</span>;
       }
       const shown = Number.isInteger(value) ? String(value) : value.toFixed(2);
       return <span className="w-full truncate text-right text-[13px] tabular-nums">{shown}</span>;
@@ -447,6 +457,26 @@ export interface ViewRow {
   values: Record<string, unknown>;
   created_at?: string;
   updated_at?: string;
+}
+
+/**
+ * A computed (formula / rollup) value that IS a date, formatted for display.
+ * Returns null when the value isn't a date at all, so callers can fall back to
+ * their own rendering instead of printing "Invalid Date".
+ *
+ * Date-only vs date-time is decided by the string itself (>10 chars ⇒ carries a
+ * time), matching how the formula engine preserves the two shapes.
+ */
+export function formatDateValue(
+  fmt: { date: (d: Date) => string; dateTime: (d: Date) => string },
+  value: unknown,
+): string | null {
+  if (typeof value !== 'string' && !(value instanceof Date)) return null;
+  const raw = value instanceof Date ? value.toISOString() : value;
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return null;
+  const midnightUtc = raw.length <= 10 || /T00:00:00(\.000)?Z?$/.test(raw);
+  return midnightUtc ? fmt.date(d) : fmt.dateTime(d);
 }
 
 /** created_at/updated_at are date-typed system fields — usable anywhere a date is (MN-150). */

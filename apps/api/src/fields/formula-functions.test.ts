@@ -204,9 +204,20 @@ describe('casts', () => {
     expect(run('to_number({Name})', { name: 'abc' })).toBeNull();
   });
 
-  it('to_date parses or gives null', () => {
-    expect(run('to_date({Name})', { name: '2026-03-15' })).toBe('2026-03-15T00:00:00.000Z');
+  it('to_date parses or gives null, keeping a date-only input date-only', () => {
+    // Widening "2026-03-15" to a timestamp made every downstream date function
+    // return a "…T00:00:00.000Z" nobody asked for, and the cell rendered it raw.
+    expect(run('to_date({Name})', { name: '2026-03-15' })).toBe('2026-03-15');
+    expect(run('to_date({Name})', { name: '2026-03-15T13:45:00Z' })).toBe('2026-03-15T13:45:00.000Z');
     expect(run('to_date({Name})', { name: 'not a date' })).toBeNull();
+  });
+
+  it('date functions composed over to_date stay date-only', () => {
+    // The exact chain that surfaced this: add_months(to_date("2026-01-31"), 1)
+    // must read 2026-02-28, not 2026-02-28T00:00:00.000Z.
+    expect(run('add_months(to_date("2026-01-31"), 1)')).toBe('2026-02-28');
+    expect(run('end_of_month(to_date("2026-02-10"))')).toBe('2026-02-28');
+    expect(run('add_days(to_date("2026-01-31"), 1)')).toBe('2026-02-01');
   });
 
   it('nullif blanks a sentinel value', () => {
