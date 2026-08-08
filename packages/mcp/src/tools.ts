@@ -390,7 +390,12 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         'READ:  list_workspaces → list_databases → describe_database (READ THE SCHEMA first) → query_records / search / get_record.',
         'WRITE: describe_database first, then create_record / update_record. Fill the FULL field template, not just a couple of fields.',
         'BUILD: list_spaces → create_space → create_database → add_field → create_view → create_relation. Then create_record to populate.',
-        'AUTOMATE (admin): describe_database first, then create_automation = trigger (record_created/_updated/_linked, schedule, or webhook_received) + optional condition (a query_records-style filter) + 1–10 actions (set/create/comment/notify/email/webhook/http_request/run_agent). list_automations / get_automation read them back with names AND ids; update_automation enables/disables or edits; delete_automation needs confirm=true; get_runs shows why a rule did or didn\'t fire.',
+        'AUTOMATE (admin): describe_database first, then create_automation = trigger (record_created/_updated/_linked, schedule, or webhook_received) + optional condition (a query_records-style filter) + 1–10 actions (set/create/create_records/comment/notify/email/webhook/http_request/run_agent). ' +
+        // #297: these all shipped and worked, but nothing an agent reads mentioned
+        // them — so in practice they did not exist.
+        'A record_linked trigger takes direction:"link"|"unlink" (omit = both). EVERY action takes an optional `condition` — a non-match skips just that action. ' +
+        'Template tokens: {Field Name} · {linked.Field Name} (the just-linked record) · {changesSummary} → "State: Urgent → Done" · {index} inside create_records. ' +
+        'list_automations / get_automation read them back with names AND ids; update_automation enables/disables or edits (it replaces a trigger WHOLE — read first, pass back what you keep); delete_automation needs confirm=true; get_runs shows why a rule did or didn\'t fire.',
         '',
         'Refs: address a database by its qualified "space/database" slug (from list_databases) — a bare name that exists in two spaces is rejected. Never invent ids; they come from search / list_* / a prior result. Names, slugs and select labels are resolved server-side.',
         'Values: select/multi_select take the human label (e.g. "High"); rich_text fields accept Markdown (headings, lists, links, code — parsed to blocks) and are returned to you as Markdown.',
@@ -1915,9 +1920,13 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     const out: unknown[] = [];
     for (const raw of actions) {
       const a = raw as Record<string, unknown>;
-      if (a?.type === 'create_record') {
+      // #297: `create_records` (#246) fell through to the generic branch, making it
+      // the ONLY action whose target database had to be a raw uuid — an agent
+      // couldn't say "Tasks". Both types resolve identically; `count` and the rest
+      // pass through untouched.
+      if (a?.type === 'create_record' || a?.type === 'create_records') {
         const ref = (a.database ?? a.database_id) as string | undefined;
-        if (ref === undefined) throw new Error('create_record action needs a target "database".');
+        if (ref === undefined) throw new Error(`${String(a.type)} action needs a target "database".`);
         const targetDb = await resolveDatabase(client, wsId, ref);
         const targetDetail = await getDetail(wsId, targetDb.id);
         const rest = { ...a };
@@ -2051,21 +2060,35 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Create automation',
       description:
-        '#334: create an automation rule = trigger + optional condition + 1–10 actions. TRIGGERS: ' +
-        '{type:"record_created"} · {type:"record_updated", field?:"<name>"} · {type:"record_linked", relation_field:"<name>"} · ' +
+'#334: create an automation rule = trigger + optional condition + 1–10 actions. TRIGGERS: ' +
+        '{type:"record_created"} · {type:"record_updated", field?:"<name>"} · ' +
+        // #297: `direction` shipped in #270 but was undocumented AND silently dropped.
+        '{type:"record_linked", relation_field:"<name>", direction?:"link"|"unlink"} (omit direction to fire on both) · ' +
         '{type:"schedule", every:"hour"|"day"|"week", at?:"HH:MM", weekday?:0-6} · {type:"webhook_received"}. ' +
-        'ACTIONS (array): set_values{values} · create_record{database, values, link_via_relation_field?} · add_comment{body_template} · ' +
+        'ACTIONS (array): set_values{values} · create_record{database, values, link_via_relation_field?} · ' +
+        // #246 + #297: create_records was reachable but undocumented, and its target db needed a raw uuid.
+        'create_records{database, count, values, link_via_relation_field?} — batch-create `count` records, where count is a number ' +
+        'or a {token} resolved at run time (max 200); use {index} in templates for the 1-based position · ' +
+        'add_comment{body_template} · ' +
         'notify_user{user:"@me"|"<person field>", message} · update_linked{relation_field, values} · send_slack_message{text, channel?} · ' +
         'send_webhook{url, body_template?, headers?} · send_email{connection_id, to, subject, body_markdown} · ' +
         'http_request{method, url, headers?, body_template?, connection_id?, capture?:[{path, target_field}]} · ' +
-        'run_agent{agent, prompt?, ...}. Field/relation/person names and select labels resolve server-side; describe_database first. ' +
+        'run_agent{agent, prompt?, ...}. ' +
+        // #245: per-action condition — shipped, previously undocumented here.
+        'ANY action also takes an optional `condition` (a filter AST, same shape as query_records) — that ONE action is SKIPPED when it ' +
+        'does not match, and the rest of the rule still runs. NOTE: an action condition is passed through raw, so it must use api_names ' +
+        '(not display names); the API validates it. ' +
+        // #244 + #273: template tokens that exist but were not listed anywhere an agent looks.
+        'TEMPLATE TOKENS usable in any templated field: {Field Name} for the triggering record · {linked.Field Name} for the record that ' +
+        'was just linked/unlinked (record_linked triggers) · {changesSummary} renders "State: Urgent → Done" · {index} inside create_records. ' +
+        'Field/relation/person names and select labels resolve server-side; describe_database first. ' +
         'The API validates the whole rule and returns a structured error for any bad reference. Rules are enabled by default.',
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
         database: z.string().describe('Database name, api slug, or id (the rule\'s home database).'),
         name: z.string().describe('Human name for the rule.'),
-        trigger: z.any().describe('Trigger object — see the tool description for the shapes.'),
-        actions: z.any().describe('Array of 1–10 action objects — see the tool description.'),
+        trigger: z.any().describe('Trigger object — see the tool description for the shapes. record_linked accepts direction:"link"|"unlink".'),
+        actions: z.any().describe('Array of 1–10 action objects — see the tool description. Each may carry its own optional `condition` (api_names).'),
         condition: z
           .any()
           .optional()
@@ -2108,7 +2131,12 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       description:
         '#334: edit an existing rule — rename, enable/disable, or replace its trigger / condition / actions. Every field is ' +
         'optional; omit what you are not changing. To disable a rule pass { enabled: false }. Trigger and action shapes match ' +
-        'create_automation (names/labels resolve server-side). Pass condition: null to clear a condition. Re-validated the same way.',
+        'create_automation (names/labels resolve server-side), INCLUDING record_linked\'s direction:"link"|"unlink" and each ' +
+        // #297: get_automation → update_automation used to ERASE the direction on a
+        // rule created in the UI, because the write side dropped it. Say it is kept.
+        'action\'s optional `condition`. Replacing a trigger replaces it WHOLE — read it with get_automation first and pass back ' +
+        'the parts you want to keep (direction included), or they are dropped. Pass condition: null to clear a condition. ' +
+        'Re-validated the same way.',
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
         database: z.string().describe('Database name, api slug, or id.'),

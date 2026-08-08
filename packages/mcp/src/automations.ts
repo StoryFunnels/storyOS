@@ -96,6 +96,8 @@ export interface TriggerInput {
   field_id?: string;
   relation_field?: string;
   relation_field_id?: string;
+  /** #270/#297: fire only when records are LINKED, or only when UNLINKED. */
+  direction?: string;
   every?: string;
   at?: string;
   weekday?: number;
@@ -135,10 +137,22 @@ export function buildAutomationTrigger(input: TriggerInput, detail: AutoDetail):
     case 'record_linked': {
       const ref = input.relation_field ?? input.relation_field_id;
       if (ref === undefined) throw new Error('record_linked trigger needs a "relation_field".');
-      return {
+      const t: Record<string, unknown> = {
         type: 'record_linked',
         relation_field_id: findField(detail.fields, ref, { types: ['relation'], kind: 'relation' }).id,
       };
+      // #297: this used to be DROPPED. Silently, which is the worst version:
+      // an agent asks for "when an Issue is UNLINKED, do X", gets a success
+      // receipt, and the saved rule also fires on LINK — running emails/webhooks
+      // at exactly the moments the author excluded. Validated rather than passed
+      // through raw so a typo is an error, not a rule that fires on both.
+      if (input.direction !== undefined && input.direction !== null) {
+        if (input.direction !== 'link' && input.direction !== 'unlink') {
+          throw new Error(`record_linked "direction" must be "link" or "unlink" (got ${JSON.stringify(input.direction)}). Omit it to fire on both.`);
+        }
+        t.direction = input.direction;
+      }
+      return t;
     }
     case 'schedule': {
       if (!input.every) throw new Error('schedule trigger needs "every" (hour | day | week).');
