@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { CreatableFieldType, FilterNode, FormulaFieldInfo, FormulaType, SystemFieldType } from '@storyos/schemas';
-import { activeFilter, FormulaError, formulaRefs, parseFormula, SYSTEM_FIELDS, titleConfigSchema, typecheck } from '@storyos/schemas';
+import { activeFilter, FormulaError, formulaRefs, parseFormula, SYSTEM_FIELDS, systemFieldDefsFor, titleConfigSchema, typecheck } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { fields, records, relations, selectOptions } from '../db/schema';
@@ -16,6 +16,7 @@ import { slugify } from '../databases/databases.service';
 import { presentFieldConfig, restoreFieldConfig } from '../common/webhook-headers';
 import { RecordsService } from '../records/records.service';
 import { compileFilter } from '../records/query-compiler';
+import { isPickOneOp } from '../records/rollup-pick-one';
 import type { CompilerContext } from '../records/query-compiler';
 
 type Field = typeof fields.$inferSelect;
@@ -291,6 +292,18 @@ export class FieldsService {
         if (rt) infos.push({ api_name: f.apiName, display_name: f.displayName, formula_type: rt as never });
         continue;
       }
+      // #286: formulaTypeOf maps every rollup to `number`, which was true while
+      // the only ops were count/sum/avg/min/max. A first/last rollup returns the
+      // TARGET field's value (often text) or a record chip, so typing it as a
+      // number would let `{Last Ticket} + 1` typecheck and then evaluate to null.
+      if (f.type === 'rollup' && isPickOneOp((f.config as Record<string, unknown>)['op'])) {
+        if ((f.config as Record<string, unknown>)['target_field_api_name']) {
+          infos.push({ api_name: f.apiName, display_name: f.displayName, formula_type: 'text' });
+        }
+        // A chip-valued rollup has no scalar formula type at all — leaving it out
+        // makes a reference to it a clear "unknown field" rather than a silent null.
+        continue;
+      }
       const ft = FieldsService.formulaTypeOf(f.type);
       if (ft) infos.push({ api_name: f.apiName, display_name: f.displayName, formula_type: ft });
     }
@@ -377,7 +390,18 @@ export class FieldsService {
     }
   }
 
-  static readonly ROLLUP_OPS = new Set(['count', 'sum', 'avg', 'min', 'max']);
+  static readonly ROLLUP_OPS = new Set(['count', 'sum', 'avg', 'min', 'max', 'first', 'last']);
+
+  /**
+   * #286: field types a first/last rollup may ORDER BY. Ordering by a
+   * multi-value or opaque field (relation, multi_select, files, rich text) has
+   * no single defensible answer, so it is refused at config time instead of
+   * quietly resolving to null forever.
+   */
+  static readonly ROLLUP_ORDER_BY_TYPES = new Set([
+    'number', 'date', 'text', 'title', 'select', 'workflow', 'checkbox', 'email', 'url',
+    'id', 'created_at', 'updated_at',
+  ]);
 
   /**
    * MN-064: count needs no target; sum/avg/min/max aggregate a NUMBER field on
@@ -390,10 +414,41 @@ export class FieldsService {
   private async assertRollupConfig(databaseId: string, config: Record<string, unknown>) {
     const op = config['op'] as string | undefined;
     if (!op || !FieldsService.ROLLUP_OPS.has(op)) {
-      throw new UnprocessableEntityException('rollup op must be one of count, sum, avg, min, max');
+      throw new UnprocessableEntityException('rollup op must be one of count, sum, avg, min, max, first, last');
     }
     const targetApiName = config['target_field_api_name'] as string | undefined | null;
     const targetDbId = await this.resolveRelationTargetDb(databaseId, config['relation_field_id'] as string | undefined);
+
+    // #286: first/last is a DIFFERENT contract from the aggregates — it needs an
+    // ordering field, and its target field is the value to RETURN (any type, or
+    // none at all for a link to the record), not a number to aggregate.
+    if (isPickOneOp(op)) {
+      const orderByApiName = config['order_by_field_api_name'] as string | undefined | null;
+      if (!orderByApiName) {
+        throw new UnprocessableEntityException(`rollup op "${op}" needs an order_by_field_api_name (the field to order the related records by)`);
+      }
+      const orderByType = await this.rollupFieldType(targetDbId, orderByApiName);
+      if (!orderByType) {
+        throw new UnprocessableEntityException('order_by_field_api_name does not exist on the related database');
+      }
+      if (!FieldsService.ROLLUP_ORDER_BY_TYPES.has(orderByType)) {
+        // formula/rollup/lookup are excluded on purpose, not by oversight: a
+        // lookup is never stored, and a formula/rollup only lands in
+        // `computed_values` under conditions this ordering can't check — so
+        // allowing them would order by null for some rows and look like data
+        // loss. Refusing with a reason beats a field that quietly never works.
+        throw new UnprocessableEntityException(`rollup "${op}" cannot order by a ${orderByType} field — pick a field with a single stored, comparable value`);
+      }
+      // Omitted target = "return a link to the record itself", which the founder
+      // asked for explicitly; so unlike the aggregates it is NOT an error.
+      if (targetApiName && !(await this.rollupFieldType(targetDbId, targetApiName))) {
+        throw new UnprocessableEntityException('target_field_api_name does not exist on the related database');
+      }
+      const filterNode = config['filter'] as FilterNode | undefined;
+      if (filterNode) await this.assertRollupFilter(targetDbId, filterNode);
+      return;
+    }
+
     if (op !== 'count' || targetApiName) {
       if (!targetApiName) {
         throw new UnprocessableEntityException(`rollup op "${op}" needs a target_field_api_name`);
@@ -411,6 +466,23 @@ export class FieldsService {
 
     const filter = config['filter'] as FilterNode | undefined;
     if (filter) await this.assertRollupFilter(targetDbId, filter);
+  }
+
+  /**
+   * #286: the type of a field on the RELATED database, or null if it has none.
+   * Goes through recordsService.fieldDefs (not a raw `fields` query) so the
+   * system fields from the #351 registry — `number`/`id`, `created_at`,
+   * `updated_at` — resolve too. "Last Ticket by ID" is the headline example in
+   * the ticket, and `number` has no stored `fields` row at all.
+   */
+  private async rollupFieldType(targetDbId: string, apiName: string): Promise<string | null> {
+    const defs = await this.recordsService.fieldDefs(targetDbId);
+    const found = defs.find((d) => d.api_name === apiName);
+    if (found) return found.type;
+    // fieldDefs() returns only stored rows; the registry's purely-synthetic
+    // system fields (notably `number`) have none, and "Last Ticket by ID" is the
+    // ticket's headline example. Additive, so a real field of the same name wins.
+    return systemFieldDefsFor(defs.map((d) => d.api_name)).find((d) => d.api_name === apiName)?.type ?? null;
   }
 
   /** MN-295: compiles the rollup's filter against the related database's fields, purely

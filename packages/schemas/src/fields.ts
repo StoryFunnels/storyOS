@@ -306,8 +306,22 @@ export const formulaConfigSchema = z.object({
  */
 export const rollupConfigSchema = z.object({
   relation_field_id: z.uuid(),
-  op: z.enum(['count', 'sum', 'avg', 'min', 'max']),
+  op: z.enum(['count', 'sum', 'avg', 'min', 'max', 'first', 'last']),
+  /**
+   * For count/sum/avg/min/max: the number field to AGGREGATE.
+   * For first/last (#286): the field to RETURN from the winning record — any
+   * type, or omitted entirely to return a link (chip) to the record itself.
+   */
   target_field_api_name: z.string().trim().min(1).nullish(),
+  /**
+   * #286, first/last only (and required for them): the related database's field
+   * to ORDER BY. `first` takes the smallest value, `last` the largest — which is
+   * the whole direction story, so there is no separate `direction` knob to
+   * contradict it. Enforced in FieldsService.assertRollupConfig, alongside the
+   * existing target-field checks, rather than by a schema refinement: this object
+   * is `.extend`ed elsewhere and a ZodEffects wrapper cannot be.
+   */
+  order_by_field_api_name: z.string().trim().min(1).nullish(),
   filter: filterSchema.optional(),
 });
 

@@ -277,8 +277,24 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, ws 
     }
     case 'rollup': {
       if (value === null || value === undefined) return <span className="text-faint"> </span>;
-      const n = value as number;
-      const shown = Number.isInteger(n) ? String(n) : n.toFixed(2);
+      // #286: a first/last rollup is no longer necessarily a number — it can be
+      // the winning record's own field value (text/date/boolean) or a chip
+      // pointing at that record. `toFixed` on a string used to throw here.
+      if (typeof value === 'object') {
+        const chip = value as LinkChip & { database_id?: string };
+        return (
+          <RelationChips
+            chips={[chip]}
+            ws={ws}
+            targetDb={chip.database_id}
+            color={field.relation?.target_database_color}
+          />
+        );
+      }
+      if (typeof value !== 'number') {
+        return <span className="truncate text-[13px] text-ink-secondary">{value === true ? '✓' : value === false ? '—' : String(value)}</span>;
+      }
+      const shown = Number.isInteger(value) ? String(value) : value.toFixed(2);
       return <span className="w-full truncate text-right text-[13px] tabular-nums">{shown}</span>;
     }
     case 'lookup': {
