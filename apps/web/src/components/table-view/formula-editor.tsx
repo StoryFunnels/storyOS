@@ -3,7 +3,7 @@
 import { useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import { FORMULA_FUNCTIONS, evaluateFormula, parseFormula, typecheck } from '@storyos/schemas';
+import { FORMULA_FUNCTIONS, FORMULA_OPERATORS, evaluateFormula, parseFormula, typecheck } from '@storyos/schemas';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import type { Field } from './use-table-data';
@@ -253,14 +253,22 @@ export function FormulaEditor({
                 ([name, spec]) =>
                   !q || name.includes(q) || spec.doc.toLowerCase().includes(q) || spec.example.toLowerCase().includes(q),
               );
-              if (matches.length === 0) return <p className="px-2 py-1 text-[12px] text-faint">No functions match “{funcQuery}”.</p>;
+              // Only claim nothing matched when the operators below miss too —
+              // "No functions match" printed directly above a list of matching
+              // operators reads like a bug.
+              const opMatch = FORMULA_OPERATORS.some(
+                (o) => o.op.includes(q) || o.doc.toLowerCase().includes(q) || o.example.toLowerCase().includes(q),
+              );
+              if (matches.length === 0) {
+                return opMatch ? null : <p className="px-2 py-1 text-[12px] text-faint">No functions match “{funcQuery}”.</p>;
+              }
               return matches.map(([name, spec]) => (
                 <button
                   key={name}
                   type="button"
                   className="flex w-full flex-col gap-0.5 rounded px-2 py-1 text-left hover:bg-hover"
                   onClick={() => {
-                    const noArgs = name === 'now' || name === 'today';
+                    const noArgs = Array.isArray(spec.args) && spec.args.length === 0;
                     insert(noArgs ? `${name}()` : `${name}(`);
                     setPanel('none');
                     setFuncQuery('');
@@ -273,6 +281,42 @@ export function FormulaEditor({
                   <span className="text-[11px] text-muted">{spec.doc}</span>
                 </button>
               ));
+            })()}
+            {/* #288: `and`/`or`/`not` and the comparisons are parsed as INFIX
+                OPERATORS, so they can never appear in FORMULA_FUNCTIONS — and
+                users searching this list for "and" concluded StoryOS had no
+                logic support. Same list, same search, clearly labelled. */}
+            {(() => {
+              const q = funcQuery.trim().toLowerCase();
+              const ops = FORMULA_OPERATORS.filter(
+                (o) => !q || o.op.includes(q) || o.doc.toLowerCase().includes(q) || o.example.toLowerCase().includes(q),
+              );
+              if (ops.length === 0) return null;
+              return (
+                <>
+                  <p className="px-2 pb-0.5 pt-2 text-[10px] font-medium uppercase tracking-wide text-faint">
+                    Operators (written between values, not called)
+                  </p>
+                  {ops.map((o) => (
+                    <button
+                      key={o.op}
+                      type="button"
+                      className="flex w-full flex-col gap-0.5 rounded px-2 py-1 text-left hover:bg-hover"
+                      onClick={() => {
+                        insert(` ${o.op} `);
+                        setPanel('none');
+                        setFuncQuery('');
+                      }}
+                    >
+                      <span className="flex items-baseline justify-between gap-2">
+                        <span className="font-mono text-[12px] text-ink">{o.example}</span>
+                        <span className="shrink-0 font-mono text-[10px] text-faint">{o.op}</span>
+                      </span>
+                      <span className="text-[11px] text-muted">{o.doc}</span>
+                    </button>
+                  ))}
+                </>
+              );
             })()}
           </div>
         </div>

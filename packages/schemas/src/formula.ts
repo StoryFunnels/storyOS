@@ -34,7 +34,7 @@ export class FormulaError extends Error {
 
 interface FnSpec {
   args: FormulaType[] | 'variadic-number' | 'variadic-text' | 'variadic-any';
-  returns: FormulaType | 'same-as-arg2';
+  returns: FormulaType | 'same-as-arg2' | 'same-as-arg3';
   doc: string;
   example: string;
   impl: (...args: unknown[]) => unknown;
@@ -133,7 +133,255 @@ export const FORMULA_FUNCTIONS: Record<string, FnSpec> = {
   },
   year: { args: ['date'], returns: 'number', doc: 'Year of a date.', example: 'year({Due})', impl: (d) => asDate(d)?.getFullYear() ?? null },
   month: { args: ['date'], returns: 'number', doc: 'Month (1-12).', example: 'month({Due})', impl: (d) => { const date = asDate(d); return date ? date.getMonth() + 1 : null; } },
+
+  /* ---------- #288: the Sheets/SQL basics a user hits immediately ----------
+   *
+   * NOT added here on purpose: and / or / not. Those already exist as INFIX
+   * OPERATORS (`{A} = 1 and {B} = 2`) — see the tokenizer. Adding function
+   * twins would give two ways to write one thing, which is the trap #287 warns
+   * about; the real gap was that operators aren't listed in the editor's help,
+   * which FORMULA_OPERATORS below fixes.
+   *
+   * Every function here is FIXED arity. Optional trailing args are modelled in
+   * this engine as `'null'` slots plus a per-function arity fudge (see the
+   * `round` special case in the typechecker) — worth avoiding for a batch this
+   * size, so `substring`/`date_diff`/`split` take all their arguments.
+   */
+
+  // -- choice --------------------------------------------------------------
+  switch: {
+    args: 'variadic-any',
+    returns: 'same-as-arg3',
+    doc: 'SQL CASE WHEN: switch(value, case1, result1, case2, result2, …, default). Compares value to each case and returns the matching result, else the final default.',
+    example: 'switch({State}, "Done", 100, "Doing", 50, 0)',
+    impl: (...vs) => {
+      const [value, ...rest] = vs;
+      // Trailing default when the remainder is odd; no default → null.
+      const hasDefault = rest.length % 2 === 1;
+      const fallback = hasDefault ? rest[rest.length - 1] : null;
+      const pairs = hasDefault ? rest.slice(0, -1) : rest;
+      for (let i = 0; i + 1 < pairs.length; i += 2) {
+        if (pairs[i] === value) return pairs[i + 1];
+      }
+      return fallback ?? null;
+    },
+  },
+
+  // -- text ----------------------------------------------------------------
+  contains: {
+    args: ['text', 'text'],
+    returns: 'checkbox',
+    doc: 'True when the first text contains the second (case-sensitive).',
+    example: 'contains({Notes}, "urgent")',
+    impl: (s, find) => asStr(s).includes(asStr(find)),
+  },
+  starts_with: {
+    args: ['text', 'text'],
+    returns: 'checkbox',
+    doc: 'True when the text starts with the given prefix.',
+    example: 'starts_with({Code}, "INV-")',
+    impl: (s, find) => asStr(s).startsWith(asStr(find)),
+  },
+  ends_with: {
+    args: ['text', 'text'],
+    returns: 'checkbox',
+    doc: 'True when the text ends with the given suffix.',
+    example: 'ends_with({File}, ".pdf")',
+    impl: (s, find) => asStr(s).endsWith(asStr(find)),
+  },
+  left: {
+    args: ['text', 'number'],
+    returns: 'text',
+    doc: 'First N characters.',
+    example: 'left({Name}, 3)',
+    impl: (s, n) => { const c = asNum(n); return c === null ? '' : asStr(s).slice(0, Math.max(0, Math.trunc(c))); },
+  },
+  right: {
+    args: ['text', 'number'],
+    returns: 'text',
+    doc: 'Last N characters.',
+    example: 'right({Phone}, 4)',
+    impl: (s, n) => { const c = asNum(n); if (c === null) return ''; const k = Math.max(0, Math.trunc(c)); return k === 0 ? '' : asStr(s).slice(-k); },
+  },
+  substring: {
+    args: ['text', 'number', 'number'],
+    returns: 'text',
+    doc: 'Characters from a 1-based start position, for a given length.',
+    example: 'substring({Code}, 5, 3)',
+    impl: (s, start, len) => {
+      const from = asNum(start);
+      const count = asNum(len);
+      if (from === null || count === null) return '';
+      const zero = Math.max(0, Math.trunc(from) - 1); // 1-based, like Sheets MID
+      return asStr(s).slice(zero, zero + Math.max(0, Math.trunc(count)));
+    },
+  },
+  find: {
+    args: ['text', 'text'],
+    returns: 'number',
+    doc: 'Position (1-based) of the search text, or 0 when absent.',
+    example: 'find({Email}, "@")',
+    impl: (s, search) => asStr(s).indexOf(asStr(search)) + 1,
+  },
+  split: {
+    args: ['text', 'text', 'number'],
+    returns: 'text',
+    doc: 'Splits on a separator and returns the 1-based part (empty when out of range).',
+    example: 'split({Email}, "@", 2)',
+    impl: (s, sep, index) => {
+      const i = asNum(index);
+      if (i === null) return '';
+      return asStr(s).split(asStr(sep))[Math.trunc(i) - 1] ?? '';
+    },
+  },
+
+  // -- math ----------------------------------------------------------------
+  ceil: { args: ['number'], returns: 'number', doc: 'Rounds up to a whole number.', example: 'ceil({Hours})', impl: (n) => { const v = asNum(n); return v === null ? null : Math.ceil(v); } },
+  floor: { args: ['number'], returns: 'number', doc: 'Rounds down to a whole number.', example: 'floor({Hours})', impl: (n) => { const v = asNum(n); return v === null ? null : Math.floor(v); } },
+  mod: {
+    args: ['number', 'number'],
+    returns: 'number',
+    doc: 'Remainder after division.',
+    example: 'mod({Count}, 2)',
+    impl: (a, b) => { const x = asNum(a); const y = asNum(b); return x === null || y === null || y === 0 ? null : x % y; },
+  },
+  sqrt: { args: ['number'], returns: 'number', doc: 'Square root.', example: 'sqrt({Area})', impl: (n) => { const v = asNum(n); return v === null || v < 0 ? null : Math.sqrt(v); } },
+  pow: {
+    args: ['number', 'number'],
+    returns: 'number',
+    doc: 'First number raised to the power of the second.',
+    example: 'pow({Base}, 2)',
+    impl: (a, b) => { const x = asNum(a); const y = asNum(b); if (x === null || y === null) return null; const r = x ** y; return Number.isFinite(r) ? r : null; },
+  },
+  sum: {
+    args: 'variadic-number',
+    returns: 'number',
+    doc: 'Adds the arguments together. (To add up a RELATED database, use a Rollup field.)',
+    example: 'sum({Fees}, {Tax})',
+    impl: (...vs) => { const nums = vs.map(asNum).filter((v): v is number => v !== null); return nums.length ? nums.reduce((a, b) => a + b, 0) : null; },
+  },
+
+  // -- dates ---------------------------------------------------------------
+  day: { args: ['date'], returns: 'number', doc: 'Day of the month (1-31).', example: 'day({Due})', impl: (d) => asDate(d)?.getDate() ?? null },
+  weekday: { args: ['date'], returns: 'number', doc: 'Day of the week, 1 = Monday … 7 = Sunday.', example: 'weekday({Due})', impl: (d) => { const date = asDate(d); if (!date) return null; const js = date.getUTCDay(); return js === 0 ? 7 : js; } },
+  hour: { args: ['date'], returns: 'number', doc: 'Hour (0-23), UTC.', example: 'hour({Started})', impl: (d) => asDate(d)?.getUTCHours() ?? null },
+  minute: { args: ['date'], returns: 'number', doc: 'Minute (0-59), UTC.', example: 'minute({Started})', impl: (d) => asDate(d)?.getUTCMinutes() ?? null },
+  date_diff: {
+    args: ['date', 'date', 'text'],
+    returns: 'number',
+    doc: 'Whole units from the first date to the second. Unit: "days", "weeks", "months" or "years".',
+    example: 'date_diff({Start}, today(), "months")',
+    impl: (a, b, unit) => {
+      const da = asDate(a);
+      const db = asDate(b);
+      if (!da || !db) return null;
+      const u = asStr(unit).toLowerCase();
+      if (u === 'days') return Math.round((db.getTime() - da.getTime()) / 86_400_000);
+      if (u === 'weeks') return Math.trunc(Math.round((db.getTime() - da.getTime()) / 86_400_000) / 7);
+      // Calendar-aware for months/years: 2026-01-31 → 2026-02-28 is 0 months,
+      // not 1, which is what people mean by "how many months has it been".
+      const months = (db.getUTCFullYear() - da.getUTCFullYear()) * 12 + (db.getUTCMonth() - da.getUTCMonth());
+      const partial = db.getUTCDate() < da.getUTCDate() ? 1 : 0;
+      if (u === 'months') return months - partial;
+      if (u === 'years') return Math.trunc((months - partial) / 12);
+      return null;
+    },
+  },
+  add_months: {
+    args: ['date', 'number'],
+    returns: 'date',
+    doc: 'Date shifted by N months, clamped to the end of a shorter month.',
+    example: 'add_months({Start}, 3)',
+    impl: (d, n) => {
+      const date = asDate(d);
+      const num = asNum(n);
+      if (!date || num === null) return null;
+      const day = date.getUTCDate();
+      const out = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + Math.trunc(num), 1,
+        date.getUTCHours(), date.getUTCMinutes(), date.getUTCSeconds()));
+      // Jan 31 + 1 month is Feb 28/29, never Mar 3.
+      const lastDay = new Date(Date.UTC(out.getUTCFullYear(), out.getUTCMonth() + 1, 0)).getUTCDate();
+      out.setUTCDate(Math.min(day, lastDay));
+      return String(d).length > 10 ? out.toISOString() : out.toISOString().slice(0, 10);
+    },
+  },
+  end_of_month: {
+    args: ['date'],
+    returns: 'date',
+    doc: 'Last day of that date\'s month.',
+    example: 'end_of_month({Invoiced})',
+    impl: (d) => {
+      const date = asDate(d);
+      if (!date) return null;
+      const out = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0));
+      return String(d).length > 10 ? out.toISOString() : out.toISOString().slice(0, 10);
+    },
+  },
+  is_before: { args: ['date', 'date'], returns: 'checkbox', doc: 'True when the first date is earlier than the second.', example: 'is_before({Due}, today())', impl: (a, b) => { const da = asDate(a); const db = asDate(b); return da && db ? da.getTime() < db.getTime() : null; } },
+  is_after: { args: ['date', 'date'], returns: 'checkbox', doc: 'True when the first date is later than the second.', example: 'is_after({Due}, today())', impl: (a, b) => { const da = asDate(a); const db = asDate(b); return da && db ? da.getTime() > db.getTime() : null; } },
+  workdays_between: {
+    args: ['date', 'date'],
+    returns: 'number',
+    doc: 'Whole weekdays (Mon-Fri) from the first date to the second. Ignores public holidays.',
+    example: 'workdays_between({Opened}, today())',
+    impl: (a, b) => {
+      const da = asDate(a);
+      const db = asDate(b);
+      if (!da || !db) return null;
+      const sign = db.getTime() < da.getTime() ? -1 : 1;
+      const from = sign === 1 ? da : db;
+      const to = sign === 1 ? db : da;
+      let days = 0;
+      const cur = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate()));
+      const end = Date.UTC(to.getUTCFullYear(), to.getUTCMonth(), to.getUTCDate());
+      while (cur.getTime() < end) {
+        cur.setUTCDate(cur.getUTCDate() + 1);
+        const wd = cur.getUTCDay();
+        if (wd !== 0 && wd !== 6) days += 1;
+      }
+      return days * sign;
+    },
+  },
+
+  // -- casts ---------------------------------------------------------------
+  to_number: {
+    args: ['text'],
+    returns: 'number',
+    doc: 'Text as a number, or empty when it isn\'t one.',
+    example: 'to_number({Code})',
+    impl: (v) => { const n = Number(asStr(v).trim().replace(/,/g, '')); return Number.isFinite(n) && asStr(v).trim() !== '' ? n : null; },
+  },
+  to_date: { args: ['text'], returns: 'date', doc: 'Text as a date, or empty when unparseable.', example: 'to_date({Imported})', impl: (v) => asDate(v)?.toISOString() ?? null },
+  nullif: {
+    args: 'variadic-any',
+    returns: 'same-as-arg2',
+    doc: 'Empty when the two arguments are equal, else the first.',
+    example: 'nullif({Status}, "Unknown")',
+    impl: (a, b) => (a === b ? null : a),
+  },
 };
+
+/**
+ * #288 — the infix operators, listed for the editor's help panel. They are NOT
+ * in FORMULA_FUNCTIONS (they're parsed as operators, not calls), which is why a
+ * user searching the function list for "and" found nothing and concluded logic
+ * wasn't supported. Same discoverability failure as #287's COUNT.
+ */
+export const FORMULA_OPERATORS: Array<{ op: string; doc: string; example: string }> = [
+  { op: 'and', doc: 'True when both sides are true.', example: '{Done} and {Approved}' },
+  { op: 'or', doc: 'True when either side is true.', example: '{Urgent} or {Overdue}' },
+  { op: 'not', doc: 'Inverts a true/false value.', example: 'not {Done}' },
+  { op: '=', doc: 'Equal to.', example: '{State} = "Done"' },
+  { op: '!=', doc: 'Not equal to.', example: '{State} != "Done"' },
+  { op: '>', doc: 'Greater than.', example: '{Estimate} > 5' },
+  { op: '>=', doc: 'Greater than or equal to.', example: '{Estimate} >= 5' },
+  { op: '<', doc: 'Less than.', example: '{Estimate} < 5' },
+  { op: '<=', doc: 'Less than or equal to.', example: '{Estimate} <= 5' },
+  { op: '+', doc: 'Adds numbers (or joins text).', example: '{Fees} + {Tax}' },
+  { op: '-', doc: 'Subtracts.', example: '{Total} - {Paid}' },
+  { op: '*', doc: 'Multiplies.', example: '{Rate} * {Hours}' },
+  { op: '/', doc: 'Divides.', example: '{Total} / {Count}' },
+];
 
 /* ---------- tokenizer ---------- */
 
@@ -257,7 +505,9 @@ export function parseFormula(src: string, fields: FormulaFieldInfo[]): FormulaNo
     if (token.t === 'op' && token.v === '-') return { kind: 'unary', op: 'neg', operand: parsePrimary() };
     if (token.t === 'ident') {
       const name = token.v.toLowerCase();
-      if (!(name in FORMULA_FUNCTIONS)) throw new FormulaError(`Unknown function "${token.v}"`, token.pos);
+      // hasOwn, not `in`: `in` also matches Object.prototype keys, so
+      // `toString(1)` parsed as a call and then crashed on an undefined spec.
+      if (!Object.hasOwn(FORMULA_FUNCTIONS, name)) throw new FormulaError(`Unknown function "${token.v}"`, token.pos);
       expect('lparen');
       const args: FormulaNode[] = [];
       if (peek()?.t !== 'rparen') {
@@ -362,8 +612,22 @@ export function typecheck(node: FormulaNode, fields: FormulaFieldInfo[]): Formul
             }
           });
         }
+        // `variadic-any` has no arity check by construction, so the few
+        // functions with a REQUIRED shape state it themselves — otherwise
+        // `switch({State})` silently evaluates to null instead of erroring.
+        if (n.name === 'switch' && n.args.length < 3) {
+          throw new FormulaError('switch() needs at least a value, one case and one result');
+        }
+        if (n.name === 'nullif' && n.args.length !== 2) {
+          throw new FormulaError('nullif() takes exactly 2 arguments');
+        }
         if (spec.returns === 'same-as-arg2') {
           return argTypes.find((t) => t !== 'null') ?? 'text';
+        }
+        if (spec.returns === 'same-as-arg3') {
+          // switch(value, case, RESULT, …): the type is the results', not the
+          // compared value's — so skip the first two arguments.
+          return argTypes.slice(2).find((t) => t !== 'null') ?? 'text';
         }
         return spec.returns;
       }
