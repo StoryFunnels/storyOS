@@ -68,6 +68,32 @@ Expenses), pipeline value per client (sum-rollup over Opportunity `Amount`), and
 | `days_between(a, b)` | number | Whole days a → b | `days_between(today(), {Due})` |
 | `add_days(d, n)` | date | Shift a date | `add_days({Start}, 7)` |
 | `year(d)` / `month(d)` | number | Date parts | `year({Due})` |
+| `switch(x, c1, r1, …, default)` | results' type | Compare `x` to each case, return the matching result | `switch({State}, "Done", 100, "Doing", 50, 0)` |
+| `contains(s, find)` | checkbox | Text contains text | `contains({Notes}, "urgent")` |
+| `starts_with(s, p)` / `ends_with(s, p)` | checkbox | Prefix / suffix test | `ends_with({File}, ".pdf")` |
+| `left(s, n)` / `right(s, n)` | text | First / last N characters | `right({Phone}, 4)` |
+| `substring(s, start, len)` | text | Characters from a **1-based** start | `substring({Code}, 5, 3)` |
+| `find(s, search)` | number | Position (1-based), `0` when absent | `find({Email}, "@")` |
+| `split(s, sep, n)` | text | The Nth part after splitting | `split({Email}, "@", 2)` |
+| `ceil(n)` / `floor(n)` | number | Round up / down | `ceil({Hours})` |
+| `mod(a, b)` | number | Remainder | `mod({Count}, 2)` |
+| `sqrt(n)` / `pow(a, b)` | number | Square root / power | `pow({Base}, 2)` |
+| `sum(…)` | number | Add the arguments | `sum({Fees}, {Tax})` |
+| `day(d)` / `weekday(d)` | number | Day of month / of week (1 = Mon) | `weekday({Due})` |
+| `hour(d)` / `minute(d)` | number | Time parts, UTC | `hour({Started})` |
+| `date_diff(a, b, unit)` | number | Whole `"days"`/`"weeks"`/`"months"`/`"years"` | `date_diff({Start}, today(), "months")` |
+| `add_months(d, n)` | date | Shift months, clamped to a shorter month | `add_months({Start}, 3)` |
+| `end_of_month(d)` | date | Last day of that month | `end_of_month({Invoiced})` |
+| `is_before(a, b)` / `is_after(a, b)` | checkbox | Date comparison | `is_before({Due}, today())` |
+| `workdays_between(a, b)` | number | Weekdays a → b (ignores holidays) | `workdays_between({Opened}, today())` |
+| `to_number(s)` / `to_date(s)` | number / date | Cast text, empty when unparseable | `to_number({Code})` |
+| `nullif(a, b)` | a's type | Empty when `a` equals `b` | `nullif({Status}, "Unknown")` |
+
+`and`, `or` and `not` are **operators**, not functions — write `{Done} and {Approved}`, never
+`and({Done}, {Approved})`. They're listed alongside the functions in the editor's help panel.
+
+`sum()` adds its own arguments. To add up values across a **relation**, use a Rollup field and then
+reference the rollup.
 
 ## Limits (v1)
 
