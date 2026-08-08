@@ -18,6 +18,7 @@ import type { Ctx, EffectiveScope } from './client.js';
 const STATE = '11111111-1111-4111-8111-111111111111';
 const OWNER = '22222222-2222-4222-8222-222222222222';
 const REL = '33333333-3333-4333-8333-333333333333';
+const TASKS_DB = '44444444-4444-4444-8444-444444444444';
 const detail: AutoDetail = {
   id: 'db-1',
   name: 'Issues',
@@ -50,6 +51,43 @@ describe('buildAutomationTrigger (#334)', () => {
       type: 'record_linked',
       relation_field_id: REL,
     });
+  });
+
+  // #297: `direction` (#270) was silently DROPPED here — the rule saved without it
+  // and fired on link AND unlink, i.e. ran side-effecting actions at the exact
+  // moments the author excluded, with a success receipt and no warning.
+  it('passes a record_linked direction through', () => {
+    expect(buildAutomationTrigger({ type: 'record_linked', relation_field: 'project', direction: 'unlink' }, detail)).toEqual({
+      type: 'record_linked',
+      relation_field_id: REL,
+      direction: 'unlink',
+    });
+    expect(buildAutomationTrigger({ type: 'record_linked', relation_field: 'project', direction: 'link' }, detail)).toEqual({
+      type: 'record_linked',
+      relation_field_id: REL,
+      direction: 'link',
+    });
+  });
+
+  it('omits direction when not asked for, so the rule fires on both', () => {
+    expect(buildAutomationTrigger({ type: 'record_linked', relation_field: 'project' }, detail)).not.toHaveProperty('direction');
+  });
+
+  it('rejects a bad direction instead of dropping it', () => {
+    // The failure mode being prevented: a typo silently becoming "fire on both".
+    expect(() =>
+      buildAutomationTrigger({ type: 'record_linked', relation_field: 'project', direction: 'unlinked' }, detail),
+    ).toThrow(/must be "link" or "unlink"/);
+  });
+
+  it('round-trips a direction read back from get_automation', () => {
+    // annotateTrigger is the read side; a get → update cycle must not erase it.
+    const saved = buildAutomationTrigger({ type: 'record_linked', relation_field: 'project', direction: 'unlink' }, detail);
+    const readBack = annotateTrigger(saved, detail)!;
+    expect(readBack.direction).toBe('unlink');
+    expect(
+      buildAutomationTrigger(readBack as never, detail),
+    ).toEqual(saved);
   });
 
   it('builds a schedule trigger verbatim', () => {
@@ -209,7 +247,13 @@ interface Row {
 
 function makeCtx(store: Row[]) {
   const wsList = [{ id: 'ws-1', name: 'Eng', slug: 'eng' }];
-  const dbList = [{ id: 'db-1', name: 'Issues', apiSlug: 'issues', spaceSlug: 'eng', qualifiedSlug: 'eng/issues' }];
+  const dbList = [
+    { id: 'db-1', name: 'Issues', apiSlug: 'issues', spaceSlug: 'eng', qualifiedSlug: 'eng/issues' },
+    // #297: a SECOND database with a real-uuid id, so a create_record(s) action's
+    // target-database-by-name resolution is observable (and passes the API's uuid
+    // check) rather than resolving to the rule's own database by accident.
+    { id: TASKS_DB, name: 'Tasks', apiSlug: 'tasks', spaceSlug: 'eng', qualifiedSlug: 'eng/tasks' },
+  ];
   const client = {
     GET: async (path: string) => {
       if (path === '/api/v1/workspaces') return { data: wsList };
@@ -286,6 +330,94 @@ describe('automation tools end-to-end (#334)', () => {
     expect(store[0]!.actions).toEqual([{ type: 'set_values', values: { state: 'opt-done' } }]);
     // …and it read back with human-readable names alongside.
     expect((out.trigger as Record<string, unknown>).field_name).toBe('State');
+  });
+
+  // #297: before this, `direction` never reached the API — the stored rule fired on
+  // link AND unlink.
+  it('create_automation saves an unlink-only record_linked rule', async () => {
+    const store: Row[] = [];
+    const { server, handlers } = fakeServer();
+    registerTools(server, makeCtx(store));
+    const { res, json } = await call(handlers, 'create_automation', {
+      workspace: 'Eng',
+      database: 'eng/issues',
+      name: 'On unlink only',
+      trigger: { type: 'record_linked', relation_field: 'Project', direction: 'unlink' },
+      actions: [{ type: 'add_comment', body_template: 'unlinked' }],
+    });
+    expect(res.isError).toBeFalsy();
+    expect(store[0]!.trigger).toEqual({ type: 'record_linked', relation_field_id: REL, direction: 'unlink' });
+    // …and it reads back, so a get → update cycle can't erase it.
+    expect((json().trigger as Record<string, unknown>).direction).toBe('unlink');
+  });
+
+  it('create_automation surfaces a bad direction as a structured error, never a dropped field', async () => {
+    const store: Row[] = [];
+    const { server, handlers } = fakeServer();
+    registerTools(server, makeCtx(store));
+    const { res } = await call(handlers, 'create_automation', {
+      workspace: 'Eng',
+      database: 'eng/issues',
+      name: 'Bad direction',
+      trigger: { type: 'record_linked', relation_field: 'Project', direction: 'both' },
+      actions: [{ type: 'add_comment', body_template: 'x' }],
+    });
+    expect(res.isError).toBe(true);
+    expect(store).toHaveLength(0);
+  });
+
+  // #297: create_records (#246) was the ONLY action whose target database had to be
+  // a raw uuid, because the resolver special-cased create_record alone.
+  it('create_automation resolves a create_records target database BY NAME', async () => {
+    const store: Row[] = [];
+    const { server, handlers } = fakeServer();
+    registerTools(server, makeCtx(store));
+    const { res } = await call(handlers, 'create_automation', {
+      workspace: 'Eng',
+      database: 'eng/issues',
+      name: 'Batch subtasks',
+      trigger: { type: 'record_created' },
+      actions: [
+        {
+          type: 'create_records',
+          database: 'Tasks',
+          count: 3,
+          values: { State: 'Done' },
+          link_via_relation_field: 'Project',
+        },
+      ],
+    });
+    expect(res.isError, res.content[0]!.text).toBeFalsy();
+    expect(store[0]!.actions).toEqual([
+      {
+        type: 'create_records',
+        database_id: TASKS_DB,
+        count: 3,
+        values: { state: 'opt-done' }, // resolved against the TARGET database
+        link_via_relation_field_id: REL,
+      },
+    ]);
+  });
+
+  it('leaves an unknown action key untouched so a new API capability still passes through', async () => {
+    const store: Row[] = [];
+    const { server, handlers } = fakeServer();
+    registerTools(server, makeCtx(store));
+    const { res } = await call(handlers, 'create_automation', {
+      workspace: 'Eng',
+      database: 'eng/issues',
+      name: 'Conditional action',
+      trigger: { type: 'record_created' },
+      // #245's per-action condition is passed through raw (api_names) and validated
+      // by the API — this pins that MCP does not strip it.
+      actions: [{ type: 'add_comment', body_template: 'hi', condition: { field: 'state', op: 'eq', value: 'opt-done' } }],
+    });
+    expect(res.isError, JSON.stringify(store)).toBeFalsy();
+    expect((store[0]!.actions as Array<Record<string, unknown>>)[0]!.condition).toEqual({
+      field: 'state',
+      op: 'eq',
+      value: 'opt-done',
+    });
   });
 
   it('create_automation supports a schedule trigger firing an action', async () => {
