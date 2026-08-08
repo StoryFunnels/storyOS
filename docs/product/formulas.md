@@ -38,6 +38,13 @@ Other favorites: event budget vs actual (`{Budget} - {Spent}` where Spent is a s
 Expenses), pipeline value per client (sum-rollup over Opportunity `Amount`), and simple counts
 ("Open requests" = count-rollup, no target field needed).
 
+A rollup can also **pick one** related record instead of aggregating them all (#286): choose
+*Latest* or *Earliest*, the field to order by, and the field to show. "Last Ticket" = order the
+linked Issues by `Number`, show their `Name`; leave the shown field empty and the rollup becomes a
+clickable link to that record. The optional rollup filter applies first, so "latest Invoice that is
+still unpaid" works. Because these resolve on read, they can't be sorted or filtered by yet — the
+API says so explicitly rather than returning an empty page.
+
 ## Language
 
 - **Field refs**: `{Estimate}`, `{State}` — text, number, checkbox, date, select (compares its

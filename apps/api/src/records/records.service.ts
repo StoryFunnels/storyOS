@@ -18,6 +18,8 @@ import type { CompilerContext, SortSpec } from './query-compiler';
 import { keyBetween, keysAfter } from './rank';
 import { diffSnapshots } from './record-diff';
 import { summarizeChanges } from './record-change-summary';
+import { isPickOneOp, pickOneRow, rollupFieldValue } from './rollup-pick-one';
+import type { PickOneOp } from './rollup-pick-one';
 import type { ChangeSummaryField } from './record-change-summary';
 import { NotificationsService } from '../notifications/notifications.service';
 import { DomainEventsService } from '../events/domain-events.service';
@@ -192,7 +194,15 @@ export class RecordsService {
     if (rollupDefs.length === 0 || projected.length === 0) return projected;
 
     for (const def of rollupDefs) {
-      const op = def.config['op'] as 'count' | 'sum' | 'avg' | 'min' | 'max';
+      const rawOp = def.config['op'];
+      // #286: first/last is argmax/argmin, not an aggregate — it orders the
+      // linked records and reads a value off the ONE that wins, so it shares
+      // nothing with the numeric path below beyond the relation + filter.
+      if (isPickOneOp(rawOp)) {
+        await this.attachPickOneRollup(def, defs, projected, rawOp);
+        continue;
+      }
+      const op = rawOp as 'count' | 'sum' | 'avg' | 'min' | 'max';
       const targetApiName = def.config['target_field_api_name'] as string | undefined | null;
       const filterNode = activeFilter(def.config['filter'] as FilterNode | undefined);
       const relationDef = defs.find((d) => d.id === def.config['relation_field_id']);
@@ -268,6 +278,100 @@ export class RecordsService {
     return projected;
   }
 
+  /**
+   * #286: resolves ONE `first`/`last` rollup for a page of records.
+   *
+   * Same shape as the aggregate path — one target-defs load and one batched
+   * target-rows query per field, never per record — but the reduction is
+   * `pickOneRow` (see rollup-pick-one.ts) instead of sum/avg/min/max, and the
+   * returned value is whatever field the config names on the WINNING record.
+   *
+   * With no `target_field_api_name` the value is a relation-style chip
+   * (`{ id, title }`) pointing AT that record, which is what the founder asked
+   * for: "Last Ticket" should be clickable, not a dead string.
+   */
+  private async attachPickOneRollup(
+    def: FieldDef,
+    defs: FieldDef[],
+    projected: ProjectedRecord[],
+    op: PickOneOp,
+  ): Promise<void> {
+    const relationDef = defs.find((d) => d.id === def.config['relation_field_id']);
+    if (!relationDef || relationDef.type !== 'relation') return; // dangling — resolve to nothing
+    const orderByApiName = def.config['order_by_field_api_name'] as string | undefined | null;
+    if (!orderByApiName) return; // config invariant, enforced at field-create time
+    const targetApiName = def.config['target_field_api_name'] as string | undefined | null;
+    const filterNode = activeFilter(def.config['filter'] as FilterNode | undefined);
+
+    const side = relationDef.config['side'] as 'a' | 'b';
+    const relation = await this.db.query.relations.findFirst({
+      where: eq(relations.id, relationDef.config['relation_id'] as string),
+    });
+    if (!relation) return;
+    const targetDbId = side === 'a' ? relation.databaseBId : relation.databaseAId;
+    const storedDefs = await this.fieldDefs(targetDbId);
+    // #351 overlay: `number` (and friends) have no stored `fields` row, and
+    // ordering by the public #id is the ticket's headline case. Additive — a real
+    // field of the same api_name always wins.
+    const targetDefs = [...storedDefs, ...systemFieldDefsFor(storedDefs.map((d) => d.api_name))];
+    const orderByDef = targetDefs.find((d) => d.api_name === orderByApiName);
+    if (!orderByDef) return; // ordering field was deleted — no defensible winner
+    const targetDef = targetApiName ? targetDefs.find((d) => d.api_name === targetApiName) : undefined;
+    if (targetApiName && !targetDef) return;
+
+    // Select ids are opaque uuids; both the ordering and the returned value want
+    // the LABEL — ordering by option id is ordering by random bytes.
+    const labelledDefs = [orderByDef, targetDef].filter(
+      (d): d is FieldDef => !!d && ['select', 'workflow', 'multi_select'].includes(d.type),
+    );
+    const optionLabels = new Map<string, string>();
+    if (labelledDefs.length > 0) {
+      const options = await this.db.query.selectOptions.findMany({
+        where: inArray(selectOptions.fieldId, labelledDefs.map((d) => d.id)),
+      });
+      for (const option of options) optionLabels.set(option.id, option.label);
+    }
+
+    const linkedIds = new Set<string>();
+    for (const record of projected) {
+      const chips = record.values[relationDef.api_name] as Array<{ id: string }> | undefined;
+      chips?.forEach((chip) => linkedIds.add(chip.id));
+    }
+    // Explicitly null rather than left undefined, so a record with no links
+    // serializes as an empty cell instead of a missing key.
+    for (const record of projected) record.values[def.api_name] = null;
+    if (linkedIds.size === 0) return;
+
+    const conditions = [inArray(records.id, [...linkedIds]), isNull(records.deletedAt)];
+    if (filterNode) {
+      const ctx: CompilerContext = {
+        defs: new Map(targetDefs.map((d) => [d.api_name, d])),
+        currentUserId: '', // rollup filters may not reference "me" (validated at field-create time)
+      };
+      conditions.push(compileFilter(filterNode, ctx));
+    }
+    const targetRows = await this.db.query.records.findMany({ where: and(...conditions) });
+    const rowById = new Map(targetRows.map((row) => [row.id, row]));
+
+    for (const record of projected) {
+      const chips = (record.values[relationDef.api_name] as Array<{ id: string }> | undefined) ?? [];
+      // The filter is applied by the query above, so a chip with no row here was
+      // either filtered out or deleted — both mean "not a candidate".
+      const candidates = chips.flatMap((chip) => {
+        const row = rowById.get(chip.id);
+        return row ? [row] : [];
+      });
+      const winner = pickOneRow(candidates, op, (row) => rollupFieldValue(row, orderByDef, optionLabels));
+      if (!winner) continue;
+      record.values[def.api_name] = targetDef
+        ? (rollupFieldValue(winner, targetDef, optionLabels) ?? null)
+        // Same shape as a relation chip PLUS `database_id`: a relation cell gets
+        // the target db from its own field metadata, but a rollup's field has no
+        // relation block, so the chip has to carry what the link needs or "Last
+        // Ticket" renders as unclickable text — the opposite of the ask.
+        : { id: winner.id, title: winner.title, number: winner.number, database_id: targetDbId };
+    }
+  }
 
   /**
    * Resolves lookup values through the already-attached relation chips
@@ -659,7 +763,15 @@ export class RecordsService {
     if (recordIds.length === 0) return;
     const defs = await this.fieldDefs(databaseId);
     const rollupDefs = defs.filter(
-      (d) => d.type === 'rollup' && d.config['relation_field_id'] === relationFieldId,
+      (d) =>
+        d.type === 'rollup' &&
+        d.config['relation_field_id'] === relationFieldId &&
+        // #286: first/last resolves at read time (attachPickOneRollup) and is
+        // deliberately NOT materialized — its value can be a chip or any field
+        // type, not the single numeric column computed_values is cast through.
+        // Excluded here rather than downstream so the null-filling loop below
+        // never overwrites anything for it.
+        !isPickOneOp(d.config['op']),
     );
     if (rollupDefs.length === 0) return;
 
@@ -789,6 +901,7 @@ export class RecordsService {
     const defs = await this.fieldDefs(databaseId);
     const def = defs.find((d) => d.id === fieldId);
     if (!def || def.type !== 'rollup') return;
+    if (isPickOneOp(def.config['op'])) return; // #286: read-time only, nothing to backfill
     const relationFieldId = def.config['relation_field_id'] as string | undefined;
     if (!relationFieldId) return;
     const CHUNK = 500;
@@ -2229,6 +2342,14 @@ export class RecordsService {
       // `rollup` is no longer excluded here (see formulaDependsOnlyOnOwnRecord's
       // doc comment) — it has real invalidation plumbing now, same as a formula
       // referencing another formula.
+      // #286: same reason the filter compiler refuses it — a first/last rollup is
+      // computed on read and never materialized, so sorting by it would order the
+      // whole page by null and look like the sort was ignored.
+      if (def.type === 'rollup' && isPickOneOp(def.config['op'])) {
+        throw new UnprocessableEntityException(
+          `cannot sort by "${s.field}" — a "${String(def.config['op'])}" rollup is computed at read time and isn't stored, so it can't be sorted yet`,
+        );
+      }
       if (def.type === 'formula' && !formulaDependsOnlyOnOwnRecord(def, byApiName)) {
         throw new UnprocessableEntityException(
           `cannot sort by formula field "${s.field}" — it depends on a related record (through a lookup), which isn't materialized yet`,

@@ -56,6 +56,10 @@ export function AddFieldDialog({
   const [lookupRelationId, setLookupRelationId] = useState(initialRelationId ?? '');
   const [lookupTargetApi, setLookupTargetApi] = useState('');
   const [rollupOp, setRollupOp] = useState('count');
+  // #286: first/last ("latest / earliest") orders the linked records by this
+  // field and reads the target field off the ONE that wins. Only meaningful for
+  // those two ops — cleared whenever the op or relation changes.
+  const [rollupOrderBy, setRollupOrderBy] = useState('');
   // MN-295: the rollup's optional filter, in the same {and:[...]}/{or:[...]}
   // tree shape ViewConfig.filters already uses — collapses to `undefined`
   // (no filter — unconditional aggregate, same as before MN-295) when empty.
@@ -98,9 +102,17 @@ export function AddFieldDialog({
   const lookupRelation = relationFields.find((f) => f.id === lookupRelationId);
   const lookupTargetDb = useDatabase(ws, lookupRelation?.relation?.target_database_id ?? '');
   const LOOKUPABLE = new Set(['title', 'text', 'number', 'checkbox', 'date', 'select', 'multi_select', 'url', 'email']);
+  // #286: a first/last rollup RETURNS a field rather than aggregating one, so
+  // any lookupable type is fair game — unlike sum/avg/min/max, which need a number.
+  const pickOne = type === 'rollup' && (rollupOp === 'first' || rollupOp === 'last');
   const lookupTargetFields = (lookupTargetDb.data?.fields ?? []).filter((f) =>
-    type === 'rollup' ? f.type === 'number' : LOOKUPABLE.has(f.type),
+    type === 'rollup' && !pickOne ? f.type === 'number' : LOOKUPABLE.has(f.type),
   );
+  // Mirrors FieldsService.ROLLUP_ORDER_BY_TYPES: a single stored, comparable
+  // value. Formulas/rollups/lookups are excluded server-side (not materialized
+  // reliably), so they're not offered here either.
+  const ORDERABLE = new Set(['title', 'text', 'number', 'checkbox', 'date', 'select', 'workflow', 'url', 'email', 'id', 'created_at', 'updated_at']);
+  const rollupOrderFields = (lookupTargetDb.data?.fields ?? []).filter((f) => ORDERABLE.has(f.type));
   // MN-295: the rollup filter builder operates over the RELATED database's
   // fields (same "filterable" gate FiltersSection uses — OPS_BY_TYPE), and
   // needs member names for its "me"/user-field pickers.
@@ -137,6 +149,7 @@ export function AddFieldDialog({
                 relation_field_id: lookupRelationId,
                 op: rollupOp,
                 ...(lookupTargetApi ? { target_field_api_name: lookupTargetApi } : {}),
+                ...(pickOne && rollupOrderBy ? { order_by_field_api_name: rollupOrderBy } : {}),
                 ...(rollupFilter ? { filter: rollupFilter } : {}),
               }
           : type === 'button'
@@ -216,12 +229,27 @@ export function AddFieldDialog({
                     value={rollupOp}
                     onChange={(e) => setRollupOp(e.target.value)}
                   >
-                    <option value="count">Count linked records</option>
-                    <option value="sum">Sum</option>
-                    <option value="avg">Average</option>
-                    <option value="min">Min</option>
-                    <option value="max">Max</option>
+                    <optgroup label="Aggregate them">
+                      <option value="count">Count linked records</option>
+                      <option value="sum">Sum</option>
+                      <option value="avg">Average</option>
+                      <option value="min">Min</option>
+                      <option value="max">Max</option>
+                    </optgroup>
+                    {/* #286: a separate group because these do something
+                        categorically different — they pick ONE record and read a
+                        field off it, rather than reducing a column. */}
+                    <optgroup label="Pick one of them">
+                      <option value="last">Latest (highest order value)</option>
+                      <option value="first">Earliest (lowest order value)</option>
+                    </optgroup>
                   </select>
+                  {pickOne && (
+                    <p className="text-[11px] text-muted">
+                      Orders the linked records by a field, then shows something from that single record — e.g. “Last
+                      Ticket” or “Owner of the most recent Order”.
+                    </p>
+                  )}
                 </div>
               )}
               <div className="flex flex-col gap-1.5">
@@ -234,6 +262,7 @@ export function AddFieldDialog({
                   onChange={(e) => {
                     setLookupRelationId(e.target.value);
                     setLookupTargetApi('');
+                    setRollupOrderBy(''); // #286: order-by field belongs to the OLD relation's target db too
                     setRollupFilter(undefined); // MN-295: filter fields belong to the OLD relation's target db
                   }}
                 >
@@ -247,18 +276,43 @@ export function AddFieldDialog({
                   ))}
                 </select>
               </div>
+              {pickOne && lookupRelation && (
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="rollup-order-by">Ordered by</Label>
+                  <select
+                    id="rollup-order-by"
+                    required
+                    className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-sm text-ink"
+                    value={rollupOrderBy}
+                    onChange={(e) => setRollupOrderBy(e.target.value)}
+                  >
+                    <option value="" disabled>
+                      Pick a field…
+                    </option>
+                    {rollupOrderFields.map((f) => (
+                      <option key={f.id} value={f.apiName}>
+                        {f.displayName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               {lookupRelation && (type !== 'rollup' || rollupOp !== 'count') && (
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="lookup-target">{type === 'rollup' ? 'Number field to aggregate' : 'Field to show'}</Label>
+                  <Label htmlFor="lookup-target">
+                    {pickOne ? 'Show which field of it' : type === 'rollup' ? 'Number field to aggregate' : 'Field to show'}
+                  </Label>
                   <select
                     id="lookup-target"
-                    required
+                    required={!pickOne}
                     className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-sm text-ink"
                     value={lookupTargetApi}
                     onChange={(e) => setLookupTargetApi(e.target.value)}
                   >
-                    <option value="" disabled>
-                      Pick a field…
+                    {/* #286: "no field" is a real, useful choice here — it makes the
+                        rollup a link to the record itself, so "Last Ticket" is clickable. */}
+                    <option value="" disabled={!pickOne}>
+                      {pickOne ? 'A link to the record itself' : 'Pick a field…'}
                     </option>
                     {lookupTargetFields.map((f) => (
                       <option key={f.id} value={f.apiName}>
@@ -467,7 +521,11 @@ export function AddFieldDialog({
               (type === 'button' && buttonActions.length === 0) ||
               (type === 'formula' && !expression.trim()) ||
               (type === 'lookup' && (!lookupRelationId || !lookupTargetApi)) ||
-              (type === 'rollup' && (!lookupRelationId || (rollupOp !== 'count' && !lookupTargetApi)))
+              (type === 'rollup' &&
+                (!lookupRelationId ||
+                  // #286: first/last needs the ORDER-BY field; its target field is
+                  // optional (omitted = link to the record).
+                  (pickOne ? !rollupOrderBy : rollupOp !== 'count' && !lookupTargetApi)))
             }
           >
             Add field

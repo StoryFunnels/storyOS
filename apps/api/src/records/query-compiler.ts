@@ -2,6 +2,7 @@ import { UnprocessableEntityException } from '@nestjs/common';
 import { SQL, sql } from 'drizzle-orm';
 import type { FieldDef, FilterNode, FilterOp, RelativeDateRange } from '@storyos/schemas';
 import { SYSTEM_FIELD_BY_API_NAME, SYSTEM_FIELD_TYPES } from '@storyos/schemas';
+import { isPickOneOp } from './rollup-pick-one';
 import { recordLinks, records } from '../db/schema';
 
 /**
@@ -108,6 +109,15 @@ function compileCondition(fieldName: string, op: FilterOp, value: unknown, ctx: 
   if (systemSpec && !systemSpec.filter_ops.includes(op)) {
     throw err(
       `op "${op}" not valid for system field "${def.api_name}" (allowed: ${systemSpec.filter_ops.join(', ')})`,
+    );
+  }
+
+  // #286: a first/last rollup is read-time only — it has nothing in
+  // computed_values, so filtering it would compare every row against null and
+  // silently match NOTHING. Say so instead of returning a confidently empty page.
+  if (def.type === 'rollup' && isPickOneOp(def.config['op'])) {
+    throw err(
+      `cannot filter by "${def.api_name}" — a "${String(def.config['op'])}" rollup is computed at read time and isn't stored, so it can't be filtered yet`,
     );
   }
 
