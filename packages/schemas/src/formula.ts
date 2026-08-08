@@ -351,7 +351,21 @@ export const FORMULA_FUNCTIONS: Record<string, FnSpec> = {
     example: 'to_number({Code})',
     impl: (v) => { const n = Number(asStr(v).trim().replace(/,/g, '')); return Number.isFinite(n) && asStr(v).trim() !== '' ? n : null; },
   },
-  to_date: { args: ['text'], returns: 'date', doc: 'Text as a date, or empty when unparseable.', example: 'to_date({Imported})', impl: (v) => asDate(v)?.toISOString() ?? null },
+  to_date: {
+    args: ['text'],
+    returns: 'date',
+    doc: 'Text as a date, or empty when unparseable.',
+    example: 'to_date({Imported})',
+    // Date-only in, date-only out. Widening "2026-01-31" to a full timestamp made
+    // every downstream date function (add_months, end_of_month) return a
+    // "…T00:00:00.000Z" the user never asked for — the same date-only/date-time
+    // distinction add_days already preserves.
+    impl: (v) => {
+      const d = asDate(v);
+      if (!d) return null;
+      return String(v).trim().length <= 10 ? d.toISOString().slice(0, 10) : d.toISOString();
+    },
+  },
   nullif: {
     args: 'variadic-any',
     returns: 'same-as-arg2',
