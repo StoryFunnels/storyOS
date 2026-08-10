@@ -279,9 +279,10 @@ export function ConfigEditor({
   // #190 percent flag are sent.
   if (type === 'formula' && ws && db) {
     const expression = typeof config.expression === 'string' ? config.expression : '';
+    // No <Label> here — FormulaEditor renders its own, and a second one stacked
+    // "Formula / Formula" above the box.
     return (
       <div className="flex flex-col gap-1.5">
-        <Label>Formula</Label>
         <FormulaEditor
           ws={ws}
           db={db}
