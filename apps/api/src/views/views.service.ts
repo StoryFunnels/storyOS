@@ -90,21 +90,25 @@ export function cleanViewConfig(
         ? config.end_date_field_id
         : undefined,
     form: config.form,
-    // Dashboard tiles (MN-225 / #168): keep count tiles always; drop a
-    // numeric-op tile whose target field (by api_name) has been deleted.
+    // Dashboard tiles (MN-225 / #168): drop a tile that POINTS AT a field which
+    // no longer exists — never one that simply hasn't been pointed anywhere yet.
+    // #305: this used to require `field_api_name` for any non-count op, so
+    // switching a tile Count→Sum (or adding one on a database with no number
+    // field) produced `{op:'sum'}` with no field, and the tile was silently
+    // garbage-collected on the very next read — the card "deleted itself".
+    // "Unconfigured" and "dangling" are different states; only the latter is junk.
     dashboard_tiles: (config.dashboard_tiles ?? []).filter(
-      (t) => t.op === 'count' || (t.field_api_name != null && liveApiNames.has(t.field_api_name)),
+      (t) => t.field_api_name == null || liveApiNames.has(t.field_api_name),
     ),
-    // Dashboard chart/table widgets (MN-225 / #168, Phase 2): drop a widget
-    // whose group-by field, or whose numeric-measure target field, no longer
-    // exists (by api_name). A count-measure widget survives as long as its
-    // group-by field does.
+    // Dashboard chart/table widgets (MN-225 / #168, Phase 2): same rule.
+    // #305: requiring a live `group_by_field_api_name` meant a freshly added
+    // chart (created with no group-by, by design — you pick it afterwards) was
+    // stripped before the user could ever configure it, so "Add chart" could
+    // never stick. Drop only fields that are NAMED and missing.
     dashboard_widgets: (config.dashboard_widgets ?? []).filter(
       (w) =>
-        w.group_by_field_api_name != null &&
-        liveApiNames.has(w.group_by_field_api_name) &&
-        (w.measure.op === 'count' ||
-          (w.measure.field_api_name != null && liveApiNames.has(w.measure.field_api_name))),
+        (w.group_by_field_api_name == null || liveApiNames.has(w.group_by_field_api_name)) &&
+        (w.measure.field_api_name == null || liveApiNames.has(w.measure.field_api_name)),
     ),
     column_widths: Object.fromEntries(
       Object.entries(config.column_widths ?? {}).filter(([id]) => liveFieldIds.has(id)),
