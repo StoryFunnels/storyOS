@@ -142,6 +142,16 @@ describe('cleanViewConfig — dashboard metric tiles (MN-225 / #168)', () => {
     expect(result).toHaveLength(0);
   });
 
+  // #305: switching a tile Count→Sum yields {op:'sum'} with no field yet — on a
+  // database with no number field there is nothing to default it to. That tile is
+  // UNCONFIGURED, not dangling, and stripping it here made the card vanish from
+  // the UI on the next read ("as soon as I change count to smth else it deletes
+  // the card"). Only a NAMED-but-missing field is junk.
+  it('keeps a numeric tile that has no target field yet (mid-configuration, #305)', () => {
+    const result = tiles([{ id: '55555555-5555-5555-5555-555555555555', label: '', op: 'sum' }]);
+    expect(result).toHaveLength(1);
+  });
+
   it('defaults to an empty array when tiles are absent', () => {
     expect(tiles(undefined as unknown as ViewConfig['dashboard_tiles'])).toEqual([]);
   });
@@ -175,6 +185,19 @@ describe('cleanViewConfig — dashboard chart widgets (MN-225 / #168, Phase 2)',
 
   it('drops a numeric widget whose measure field was deleted', () => {
     expect(widgets([w({ measure: { op: 'avg', field_api_name: 'ghost' } })])).toHaveLength(0);
+  });
+
+  // #305: "Add chart" creates a widget with NO group-by — you pick the field
+  // afterwards. Requiring one here stripped the widget on the very next read, so a
+  // new chart could never survive long enough to be configured.
+  it('keeps a freshly added widget that has no group-by field yet (#305)', () => {
+    expect(widgets([w({ group_by_field_api_name: undefined })])).toHaveLength(1);
+  });
+
+  it('keeps an unconfigured widget whose numeric measure has no field yet (#305)', () => {
+    expect(
+      widgets([w({ group_by_field_api_name: undefined, measure: { op: 'sum' } })]),
+    ).toHaveLength(1);
   });
 
   it('defaults to an empty array when widgets are absent', () => {
