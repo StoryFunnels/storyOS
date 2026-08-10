@@ -11,6 +11,7 @@ import { DashboardView } from '@/components/views/dashboard-view';
 import { CalendarView } from '@/components/views/calendar-view';
 import { GalleryView } from '@/components/views/gallery-view';
 import { ListView } from '@/components/views/list-view';
+import { canGroupBoardBy, canGroupListBy } from '@/components/views/groupable-fields';
 import { FeedView } from '@/components/views/feed-view';
 import { TimelineView } from '@/components/views/timeline-view';
 import { FormView } from '@/components/views/form-view';
@@ -267,19 +268,15 @@ function NewViewDialog({
   const [dateField, setDateField] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
-  const selectFields = fields.filter((f) => f.type === 'select');
+  // #272: both group-by pickers now read the SHARED rule (./groupable-fields), which
+  // mirrors the API's `boardGroupError`. This List list used to be
+  // `f.type === 'select'` inline, which silently hid the workflow/State field from
+  // "Group by" on a List even though list-view renders workflow groups fine — the
+  // same drift #267 already fixed once elsewhere.
+  const listGroupFields = fields.filter(canGroupListBy);
   // MN-079: a board column per value needs a single-valued field — select, a single
   // user, or the single side of a one-to-many relation. The API enforces the same rule.
-  const boardGroupFields = fields.filter(
-    (f) =>
-      f.type === 'select' ||
-      // #172: a workflow (status) field groups a board exactly like single-select.
-      f.type === 'workflow' ||
-      (f.type === 'user' && f.config?.['multi'] !== true) ||
-      (f.type === 'relation' &&
-        f.relation?.cardinality === 'one_to_many' &&
-        f.relation?.side === 'a'),
-  );
+  const boardGroupFields = fields.filter(canGroupBoardBy);
   // #181: a Board defaults to grouping by the database's workflow field when it
   // has one — the shown default and the created view both prefer it (below).
   const workflowField = fields.find((f) => f.type === 'workflow');
@@ -400,7 +397,7 @@ function NewViewDialog({
               </select>
             </div>
           )}
-          {((type === 'board' && boardGroupFields.length > 0) || (type === 'list' && selectFields.length > 0)) && (
+          {((type === 'board' && boardGroupFields.length > 0) || (type === 'list' && listGroupFields.length > 0)) && (
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="group-by">Group by{type === 'list' ? ' (optional)' : ''}</Label>
               <select
@@ -410,7 +407,7 @@ function NewViewDialog({
                 onChange={(e) => setGroupBy(e.target.value)}
               >
                 {type === 'list' && <option value="">None</option>}
-                {(type === 'board' ? boardGroupFields : selectFields).map((f) => (
+                {(type === 'board' ? boardGroupFields : listGroupFields).map((f) => (
                   <option key={f.id} value={f.id}>
                     {f.displayName}
                   </option>
