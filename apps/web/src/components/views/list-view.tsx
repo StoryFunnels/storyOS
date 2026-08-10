@@ -10,6 +10,7 @@ import { useDatabase, useMembers, useRecordMutations, useRecordsInfinite } from 
 import type { RecordRow } from '../table-view/use-table-data';
 import { CardFieldChip } from './board-view';
 import { EmptyState, databaseNoun } from './empty-state';
+import { canGroupListBy } from './groupable-fields';
 import type { FilterNode, ViewConfig } from './use-view-state';
 import { queryBodyFromConfig } from './use-view-state';
 
@@ -48,8 +49,10 @@ export function ListView({
   );
 
   const rows = useMemo(() => (records.data?.pages ?? []).flatMap((p) => p.data), [records.data]);
+  // #272: the SAME predicate the New-view/Group-by picker uses (./groupable-fields),
+  // so the renderer and the picker can never disagree about what a List can group by.
   const groupField = database.data?.fields.find(
-    (f) => f.id === config.group_by_field_id && (f.type === 'select' || f.type === 'workflow'),
+    (f) => f.id === config.group_by_field_id && canGroupListBy(f),
   );
   const colorField = database.data?.fields.find((f) => f.id === config.color_by_field_id);
   // Preserve the saved card_field_ids order (MN-151), not schema order.
