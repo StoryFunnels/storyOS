@@ -82,6 +82,54 @@ describe('public forms (MN-101)', () => {
     expect(def.fields[1]).toMatchObject({ api_name: 'message', help: 'What can we help with?' });
   });
 
+  // #303 — the public form renders the app's own coloured option chip, so the
+  // definition must carry each option's colour. It must NOT start carrying personal
+  // data along the way: this endpoint is unauthenticated, so anyone with the link
+  // reads it. Member avatars/emails are deliberately withheld (id + name only).
+  it('#303: option colours travel to the public definition, member avatars/emails do NOT', async () => {
+    const stage = (
+      await as('POST', `/workspaces/${wsId}/databases/${dbId}/fields`, {
+        display_name: 'Stage',
+        type: 'select',
+        options: [{ label: 'New', color: 'blue' }, { label: 'Won', color: 'green' }],
+      })
+    ).json();
+    const owner = (
+      await as('POST', `/workspaces/${wsId}/databases/${dbId}/fields`, {
+        display_name: 'Owner',
+        type: 'user',
+      })
+    ).json();
+    await as('PATCH', `/workspaces/${wsId}/databases/${dbId}/views/${(await makeForm('public', 'tok-chips')).id}`, {
+      config: {
+        sorts: [],
+        hidden_field_ids: [],
+        card_field_ids: [],
+        column_widths: {},
+        form: {
+          title: 'Contact us',
+          access: 'public',
+          public_token: 'tok-chips',
+          fields: [{ field_id: stage.id }, { field_id: owner.id }],
+        },
+      },
+    });
+
+    const def = (await pub('GET', '/public/forms/tok-chips')).json();
+    const stageField = def.fields.find((f: { api_name: string }) => f.api_name === stage.apiName);
+    expect(stageField.options).toEqual([
+      expect.objectContaining({ label: 'New', color: 'blue' }),
+      expect.objectContaining({ label: 'Won', color: 'green' }),
+    ]);
+
+    // The privacy line: names are needed to pick a person, nothing more.
+    const ownerField = def.fields.find((f: { api_name: string }) => f.api_name === owner.apiName);
+    for (const m of ownerField.members ?? []) {
+      expect(Object.keys(m).sort()).toEqual(['id', 'name']);
+    }
+    expect(JSON.stringify(def)).not.toContain('@test.storyos.dev');
+  });
+
   it('#269: "Powered by StoryOS" shows for a free workspace, off for a paid one', async () => {
     // Free by default (no billing_subscriptions row) — attribution is present.
     const free = await pub('GET', '/public/forms/tok-public');
