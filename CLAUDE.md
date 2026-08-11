@@ -28,6 +28,30 @@ Monorepo: pnpm + Turbo. `apps/api` (NestJS/Fastify), `apps/web` (Next.js),
 5. **Don't mention the reference tool by name** in anything public-facing —
    code comments, docs, or commit messages say "the reference tool".
 
+## Touching a field surface (cells, forms, pickers) — reuse, don't re-case
+
+The same defect has shipped four times (#267, #272 twice, #303): a surface
+re-implemented "how do I draw field type T" or "can field T do X", the copies
+drifted, and nothing failed to compile. Full rationale + the checklist:
+[docs/architecture/field-surfaces.md](docs/architecture/field-surfaces.md).
+The load-bearing rules:
+
+- **Render through `table-view/cells.tsx`** (`CellDisplay`/`CellEditor`,
+  `OPTION_COLORS`, `OptionList`, `RelationChip`, `Avatar`). Different chrome
+  wraps the shared control; it never re-renders it. Never copy styles between
+  surfaces "to match" — that is how they drift again.
+- **Never inline `.filter(f => f.type === …)`** for a capability gate. Use a
+  named shared predicate (`components/views/groupable-fields.ts`), and where the
+  server has the authority (`boardGroupError`), the predicate mirrors it and the
+  comment says so.
+- **Widen a renderer and its picker in the same commit** — a picker that offers
+  less than its renderer draws (or more) IS the bug.
+- **Unconfigured ≠ invalid.** Config-cleaning drops only *dangling* references;
+  keeping mid-edit state is required (#305 deleted users' dashboard tiles by
+  conflating the two).
+- **Test the rejections and what a filter must KEEP** — #305's six existing
+  assertions all passed unchanged under the corrected rule.
+
 ## Adding an integration (provider) — do it the tiered way
 
 Every connection provider must be cloud/self-managed-correct by construction.
