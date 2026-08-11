@@ -2,6 +2,8 @@
 
 import { use, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { OptionChip } from '@/components/table-view/cells';
+import type { SelectOption } from '@/components/table-view/use-table-data';
 
 const API = process.env.NEXT_PUBLIC_API_URL || '';
 
@@ -12,7 +14,8 @@ interface FormField {
   label: string;
   help: string | null;
   required: boolean;
-  options?: Array<{ id: string; label: string }>;
+  /** #303 — carries color/icon so the public form draws the SAME chip as the app. */
+  options?: SelectOption[];
   /** Relation fields only (#224) — the record picker's target + cardinality. */
   relation?: { target_database_id: string; target_database_name: string | null; single: boolean };
   /** User fields only (#224) — the workspace roster, id + name only (no PII). */
@@ -164,6 +167,36 @@ export default function PublicFormPage({ params }: { params: Promise<{ token: st
   );
 }
 
+/**
+ * #303 — the public form's option control. Wraps the SHARED `OptionChip` so an
+ * external respondent sees the same coloured chip a member sees in the table, board
+ * and record page. The chip is never redrawn here; only the button affordance and the
+ * selected/unselected treatment live in this file.
+ * See docs/architecture/field-surfaces.md.
+ */
+function PublicOptionToggle({
+  option,
+  selected,
+  onClick,
+}: {
+  option: SelectOption;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={selected}
+      className={`rounded-[var(--radius-chip)] outline-none transition-opacity ${
+        selected ? 'opacity-100' : 'opacity-45 hover:opacity-80'
+      }`}
+    >
+      <OptionChip option={option} />
+    </button>
+  );
+}
+
 function Input({
   token,
   field,
@@ -183,21 +216,40 @@ function Input({
       <input type="checkbox" checked={Boolean(value)} onChange={(e) => onChange(e.target.checked)} className="h-4 w-4" />
     );
   }
-  if (t === 'select' || t === 'multi_select') {
+  // #303: the SAME OptionChip the app draws everywhere, instead of the OS dropdown.
+  // Splitting select from multi_select also fixes a real bug: both shared one single
+  // <select>, so a multi-select could only ever submit ONE value — each pick replaced
+  // the array rather than adding to it.
+  if (t === 'select' || t === 'workflow') {
+    const selected = (value as string) ?? '';
     return (
-      <select
-        className={base}
-        value={(value as string) ?? ''}
-        onChange={(e) => onChange(t === 'multi_select' ? [e.target.value] : e.target.value)}
-        required={field.required}
-      >
-        <option value="">Select…</option>
+      <div className="flex flex-wrap gap-1.5">
         {(field.options ?? []).map((o) => (
-          <option key={o.id} value={o.id}>
-            {o.label}
-          </option>
+          <PublicOptionToggle
+            key={o.id}
+            option={o}
+            selected={selected === o.id}
+            onClick={() => onChange(selected === o.id ? undefined : o.id)}
+          />
         ))}
-      </select>
+      </div>
+    );
+  }
+  if (t === 'multi_select') {
+    const ids = Array.isArray(value) ? (value as string[]) : [];
+    return (
+      <div className="flex flex-wrap gap-1.5">
+        {(field.options ?? []).map((o) => (
+          <PublicOptionToggle
+            key={o.id}
+            option={o}
+            selected={ids.includes(o.id)}
+            onClick={() =>
+              onChange(ids.includes(o.id) ? ids.filter((id) => id !== o.id) : [...ids, o.id])
+            }
+          />
+        ))}
+      </div>
     );
   }
   if (t === 'user') {

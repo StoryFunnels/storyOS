@@ -107,10 +107,18 @@ export class FormsService {
           orderBy: [asc(selectOptions.position)],
         })
       : [];
-    const optsByField = new Map<string, { id: string; label: string }[]>();
+    // #303: carry `color`/`icon` so the public form can render the SAME coloured
+    // option chip the app uses (table cells, board cards, record page) instead of a
+    // native <select>. These are workspace SCHEMA, not personal data — unlike member
+    // avatars, which are deliberately still withheld from this unauthenticated
+    // payload (see `workspaceMembers` below).
+    const optsByField = new Map<
+      string,
+      { id: string; label: string; color: string; icon: string | null }[]
+    >();
     for (const o of options) {
       const list = optsByField.get(o.fieldId) ?? [];
-      list.push({ id: o.id, label: o.label });
+      list.push({ id: o.id, label: o.label, color: o.color, icon: o.icon ?? null });
       optsByField.set(o.fieldId, list);
     }
 
