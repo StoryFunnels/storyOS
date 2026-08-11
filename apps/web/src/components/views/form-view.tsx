@@ -9,9 +9,12 @@ import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { api } from '@/lib/api';
+import { cn } from '@/lib/utils';
 import { FreeGuestTip } from '@/components/free-guest-tip';
+import { OptionChip } from '../table-view/cells';
+import { Avatar } from '@/components/ui/avatar';
 import { useDatabase, useMembers, useRecordMutations } from '../table-view/use-table-data';
-import type { Field } from '../table-view/use-table-data';
+import type { Field, SelectOption } from '../table-view/use-table-data';
 import type { ViewConfig } from './use-view-state';
 import {
   FORM_FIELD_TYPES,
@@ -60,7 +63,13 @@ export function FormView({
 
   const hasUserField = fields.some((f) => f.type === 'user');
   const members = useMembers(ws, hasUserField && !readOnly);
-  const memberList = (members.data ?? []).map((m) => ({ id: m.user.id, name: m.user.name }));
+  // #303: carry `image` so the person picker can show the same Avatar the table cells
+  // and record page use — a bare name list was a form-only invention.
+  const memberList = (members.data ?? []).map((m) => ({
+    id: m.user.id,
+    name: m.user.name,
+    image: m.user.image,
+  }));
 
   const hasTitleField = fields.some((f) => f.type === 'title');
   const heading = config.form?.title || database.data?.name || 'Form';
@@ -188,6 +197,38 @@ function Row({ label, required, children }: { label: string; required?: boolean;
   );
 }
 
+/**
+ * #303 — a form's option control: the SHARED `OptionChip` badge made selectable.
+ * The chip itself is never re-drawn here; this only adds the button affordance and
+ * the unselected/selected treatment, so a form can never drift from how the table,
+ * board and record page draw the very same option.
+ * See docs/architecture/field-surfaces.md.
+ */
+function OptionToggle({
+  option,
+  selected,
+  onClick,
+}: {
+  option: SelectOption;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={selected}
+      className={cn(
+        'rounded-[var(--radius-chip)] outline-none transition-opacity',
+        'focus-visible:ring-2 focus-visible:ring-border-strong',
+        selected ? 'opacity-100' : 'opacity-45 hover:opacity-80',
+      )}
+    >
+      <OptionChip option={option} />
+    </button>
+  );
+}
+
 function FieldInput({
   ws,
   field,
@@ -198,7 +239,7 @@ function FieldInput({
   ws: string;
   field: Field;
   value: unknown;
-  members: Array<{ id: string; name: string }>;
+  members: Array<{ id: string; name: string; image?: string | null }>;
   onChange: (v: unknown) => void;
 }) {
   const base =
@@ -213,30 +254,41 @@ function FieldInput({
     case 'url':
     case 'email':
       return <input type={field.type} className={base} value={(value as string) ?? ''} onChange={(e) => onChange(e.target.value)} />;
+    // #303: options render as the SHARED OptionChip badge — the same coloured pill
+    // the table cells, board cards and record page draw. This used to be a native
+    // <select>, i.e. the OS dropdown, which is why a form looked like a different
+    // (older) product than the app around it. See docs/architecture/field-surfaces.md.
     case 'select':
+    case 'workflow': {
+      const selected = (value as string) ?? '';
       return (
-        <select className={base} value={(value as string) ?? ''} onChange={(e) => onChange(e.target.value || undefined)}>
-          <option value="">—</option>
+        <div className="flex flex-wrap gap-1.5">
           {field.options?.map((o) => (
-            <option key={o.id} value={o.id}>{o.label}</option>
+            <OptionToggle
+              key={o.id}
+              option={o}
+              selected={selected === o.id}
+              // Single-select: picking the selected one again clears it, so a
+              // non-required field can be emptied without a separate "—" entry.
+              onClick={() => onChange(selected === o.id ? undefined : o.id)}
+            />
           ))}
-        </select>
+        </div>
       );
+    }
     case 'multi_select': {
       const ids = (value as string[]) ?? [];
       return (
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-1.5">
           {field.options?.map((o) => (
-            <label key={o.id} className="flex items-center gap-1.5 text-[13px] text-ink">
-              <input
-                type="checkbox"
-                checked={ids.includes(o.id)}
-                onChange={(e) =>
-                  onChange(e.target.checked ? [...ids, o.id] : ids.filter((id) => id !== o.id))
-                }
-              />
-              {o.label}
-            </label>
+            <OptionToggle
+              key={o.id}
+              option={o}
+              selected={ids.includes(o.id)}
+              onClick={() =>
+                onChange(ids.includes(o.id) ? ids.filter((id) => id !== o.id) : [...ids, o.id])
+              }
+            />
           ))}
         </div>
       );
@@ -244,11 +296,14 @@ function FieldInput({
     case 'user': {
       const multi = field.config['multi'] === true;
       const ids = multi ? ((value as string[]) ?? []) : value ? [value as string] : [];
+      // #303: the shared Avatar, same as cells.tsx renders for a person field. The
+      // radio/checkbox stays — a form needs an explicit, keyboard-reachable control
+      // and the native input carries that for free — but a person is now recognisable.
       return (
         <div className="flex flex-col gap-1.5 rounded-[var(--radius-control)] border border-border-default bg-card p-2">
           {members.length === 0 && <span className="text-[12px] text-faint">No members</span>}
           {members.map((m) => (
-            <label key={m.id} className="flex items-center gap-1.5 text-[13px] text-ink">
+            <label key={m.id} className="flex cursor-pointer items-center gap-2 text-[13px] text-ink">
               <input
                 type={multi ? 'checkbox' : 'radio'}
                 name={field.id}
@@ -258,6 +313,7 @@ function FieldInput({
                   onChange(ids.includes(m.id) ? ids.filter((id) => id !== m.id) : [...ids, m.id]);
                 }}
               />
+              <Avatar userId={m.id} name={m.name} image={m.image} size={16} />
               {m.name}
             </label>
           ))}
