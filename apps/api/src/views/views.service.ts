@@ -97,9 +97,17 @@ export function cleanViewConfig(
     // field) produced `{op:'sum'}` with no field, and the tile was silently
     // garbage-collected on the very next read — the card "deleted itself".
     // "Unconfigured" and "dangling" are different states; only the latter is junk.
-    dashboard_tiles: (config.dashboard_tiles ?? []).filter(
-      (t) => t.field_api_name == null || liveApiNames.has(t.field_api_name),
-    ),
+    dashboard_tiles: (config.dashboard_tiles ?? [])
+      .filter((t) => t.field_api_name == null || liveApiNames.has(t.field_api_name))
+      // #304: a tile's own filter gets the same pruning the view's filter gets —
+      // a condition on a deleted field is dropped rather than left to fail at query
+      // time. The TILE itself survives (it is still configured); only the dead
+      // condition goes, exactly as cleanFilterNode does for the view.
+      .map((t) =>
+        t.filter
+          ? { ...t, filter: cleanFilterNode(t.filter, liveApiNames) as typeof t.filter }
+          : t,
+      ),
     // Dashboard chart/table widgets (MN-225 / #168, Phase 2): same rule.
     // #305: requiring a live `group_by_field_api_name` meant a freshly added
     // chart (created with no group-by, by design — you pick it afterwards) was

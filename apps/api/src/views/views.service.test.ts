@@ -152,6 +152,36 @@ describe('cleanViewConfig — dashboard metric tiles (MN-225 / #168)', () => {
     expect(result).toHaveLength(1);
   });
 
+  // #304: a tile carries its OWN filter so each tile can measure a different slice.
+  // It must survive the read path (the zod config would strip an unknown key) and get
+  // the same dead-field pruning the view's own filter gets.
+  it('keeps a tile filter, and prunes only its dead conditions (#304)', () => {
+    const result = tiles([
+      {
+        id: '66666666-6666-6666-6666-666666666666',
+        label: '',
+        op: 'count',
+        filter: { and: [{ field: 'amount', op: 'gt', value: 5 }] },
+      } as never,
+    ]);
+    expect(result).toHaveLength(1);
+    expect(result![0]!.filter).toEqual({ and: [{ field: 'amount', op: 'gt', value: 5 }] });
+  });
+
+  it('drops a tile-filter condition on a deleted field but keeps the tile (#304)', () => {
+    const result = tiles([
+      {
+        id: '77777777-7777-7777-7777-777777777777',
+        label: '',
+        op: 'count',
+        filter: { and: [{ field: 'ghost', op: 'eq', value: 1 }] },
+      } as never,
+    ]);
+    // The tile is still configured — only the dead condition goes (#305's rule).
+    expect(result).toHaveLength(1);
+    expect(result![0]!.filter).toBeUndefined();
+  });
+
   it('defaults to an empty array when tiles are absent', () => {
     expect(tiles(undefined as unknown as ViewConfig['dashboard_tiles'])).toEqual([]);
   });

@@ -3839,6 +3839,7 @@ export interface components {
                     /** @enum {string} */
                     op: "count" | "sum" | "avg" | "min" | "max";
                     field_api_name?: string;
+                    filter?: components["schemas"]["CreateViewDto__schema0"];
                 }[];
                 /** @default [] */
                 dashboard_widgets: {
@@ -3941,6 +3942,7 @@ export interface components {
                     /** @enum {string} */
                     op: "count" | "sum" | "avg" | "min" | "max";
                     field_api_name?: string;
+                    filter?: components["schemas"]["UpdateViewDto__schema0"];
                 }[];
                 /** @default [] */
                 dashboard_widgets: {

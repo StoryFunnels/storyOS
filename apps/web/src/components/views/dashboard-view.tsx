@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
-import { useDatabase, useRecordsInfinite } from '../table-view/use-table-data';
-import type { FilterNode, ViewConfig } from './use-view-state';
-import { queryBodyFromConfig } from './use-view-state';
+import { useDatabase, useMembers, useRecordsInfinite } from '../table-view/use-table-data';
+import type { FilterNode, ViewConfig, FilterGroup } from './use-view-state';
+import { andFilterNodes, queryBodyFromConfig } from './use-view-state';
+import { FiltersSection } from './view-toolbar';
 import {
   TILE_OPS,
   computeTileValue,
@@ -23,6 +24,8 @@ export interface DashboardTile {
   label: string;
   op: TileOp;
   field_api_name?: string;
+  /** #304 — this tile's own scope, ANDed with the view's filter. */
+  filter?: FilterNode;
 }
 
 const SELECT_CLASS =
@@ -57,6 +60,12 @@ export function DashboardView({
   onPatch: (updates: Partial<ViewConfig>) => void;
 }) {
   const database = useDatabase(ws, db);
+  // #304 — the tile filter builder needs the roster for person-field conditions.
+  const members = useMembers(ws, !readOnly);
+  const memberList = useMemo(
+    () => (members.data ?? []).map((m) => ({ id: m.user.id, name: m.user.name })),
+    [members.data],
+  );
   const queryBody = useMemo(() => queryBodyFromConfig(config, personalFilter), [config, personalFilter]);
   const records = useRecordsInfinite(ws, db, queryBody);
 
@@ -125,7 +134,6 @@ export function DashboardView({
 
       <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
         {tiles.map((tile) => {
-          const value = loading ? null : computeTileValue(tile.op, tile.field_api_name, rows);
           const heading = tile.label.trim() || defaultTileLabel(tile.op, fieldName.get(tile.field_api_name ?? ''));
           return (
             <div
@@ -146,7 +154,7 @@ export function DashboardView({
                 )}
               </div>
               <span className="text-3xl font-semibold tabular-nums text-ink">
-                {loading ? <span className="text-muted">…</span> : formatTileValue(value)}
+                <TileValue ws={ws} db={db} config={config} personalFilter={personalFilter} tile={tile} />
               </span>
 
               {!readOnly && (
@@ -157,6 +165,18 @@ export function DashboardView({
                     value={tile.label}
                     onChange={(e) => updateTile(tile.id, { label: e.target.value })}
                     className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink placeholder:text-faint"
+                  />
+                  {/* #304 — this tile's own scope. The SAME builder the view toolbar
+                      uses (one filter spec, one UI), so a tile can measure a slice
+                      instead of every tile repeating the view's total. No viewId is
+                      passed: Personal scope is a per-VIEW override, not a per-tile one. */}
+                  <FiltersSection
+                    ws={ws}
+                    db={db}
+                    fields={fields}
+                    members={memberList}
+                    filters={tile.filter as FilterGroup | undefined}
+                    onChange={(filter) => updateTile(tile.id, { filter: filter as FilterNode | undefined })}
                   />
                   <div className="flex gap-1.5">
                     <select
@@ -244,4 +264,50 @@ export function DashboardView({
       )}
     </div>
   );
+}
+
+/**
+ * #304 — one tile's number, fetched with THAT tile's own scope.
+ *
+ * A tile is its own component precisely so it can own a query: the tile filter is
+ * ANDed onto the view's (and the viewer's personal) filter and sent to the SAME
+ * grant-scoped /records/query path every other view uses. That reuses the server's
+ * filter semantics instead of re-implementing operator behaviour client-side, and
+ * it keeps a tile from ever reading past the viewer's access.
+ *
+ * Two tiles with identical scope share one request — react-query dedupes on the
+ * query key, so N tiles do not mean N round trips.
+ */
+function TileValue({
+  ws,
+  db,
+  config,
+  personalFilter,
+  tile,
+}: {
+  ws: string;
+  db: string;
+  config: ViewConfig;
+  personalFilter?: FilterNode;
+  tile: DashboardTile;
+}) {
+  const scoped = useMemo(
+    () => andFilterNodes(personalFilter, tile.filter),
+    [personalFilter, tile.filter],
+  );
+  const queryBody = useMemo(
+    () => queryBodyFromConfig(config, scoped as FilterNode | undefined),
+    [config, scoped],
+  );
+  const records = useRecordsInfinite(ws, db, queryBody);
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = records;
+  // Aggregate over the whole matching set, not just page 1.
+  useEffect(() => {
+    if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+  const rows = useMemo(() => (records.data?.pages ?? []).flatMap((p) => p.data), [records.data]);
+  const loading = records.isLoading || hasNextPage || isFetchingNextPage;
+  if (loading) return <span className="text-muted">…</span>;
+  return <>{formatTileValue(computeTileValue(tile.op, tile.field_api_name, rows))}</>;
 }

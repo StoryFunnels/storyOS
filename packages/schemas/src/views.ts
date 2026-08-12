@@ -19,6 +19,13 @@ export const dashboardTileSchema = z.object({
   op: z.enum(['count', 'sum', 'avg', 'min', 'max']),
   /** Required for sum/avg/min/max; omitted (ignored) for count. */
   field_api_name: z.string().trim().min(1).max(100).optional(),
+  /**
+   * #304 — this tile's OWN scope, ANDed with the view's filter. Without it every
+   * tile on a dashboard necessarily shows the same number, which is what made the
+   * feature useless ("I can't select what to show. Except for how to aggregate").
+   * Same filter AST as views / /records/query / rollups — never a second language.
+   */
+  filter: filterSchema.optional(),
 });
 export type DashboardTile = z.infer<typeof dashboardTileSchema>;
 
