@@ -9252,6 +9252,9 @@
                       "type": "string",
                       "minLength": 1,
                       "maxLength": 100
+                    },
+                    "filter": {
+                      "$ref": "#/components/schemas/CreateViewDto__schema0"
                     }
                   },
                   "required": [
@@ -9612,6 +9615,9 @@
                       "type": "string",
                       "minLength": 1,
                       "maxLength": 100
+                    },
+                    "filter": {
+                      "$ref": "#/components/schemas/UpdateViewDto__schema0"
                     }
                   },
                   "required": [
