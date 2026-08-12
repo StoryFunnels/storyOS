@@ -71,6 +71,8 @@ export function cleanViewConfig(
       config.group_by_field_id && liveFieldIds.has(config.group_by_field_id)
         ? config.group_by_field_id
         : undefined,
+    // #307 — rides alongside group_by_field_id (period per column for a date board).
+    group_by_granularity: config.group_by_granularity,
     color_by_field_id:
       config.color_by_field_id && liveFieldIds.has(config.color_by_field_id)
         ? config.color_by_field_id
@@ -142,6 +144,9 @@ export function boardGroupError(
   const config = (field.config ?? {}) as Record<string, unknown>;
   // #172: a workflow (status) field groups a board exactly like single-select.
   if (field.type === 'select' || field.type === 'workflow') return null;
+  // #307: a date field groups into periods (week/month/quarter/year). Still exactly
+  // one column per record, so the single-valued rule this function enforces holds.
+  if (field.type === 'date') return null;
   if (field.type === 'user') {
     return config['multi'] === true
       ? 'board views cannot group by a multi-user field — a card would land in several columns'

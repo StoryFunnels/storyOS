@@ -20,6 +20,14 @@ import { recordHref } from '@/lib/records';
 import { cn } from '@/lib/utils';
 import { Avatar } from '@/components/ui/avatar';
 import { CellDisplay, OPTION_COLORS, fieldValue } from '../table-view/cells';
+import {
+  bucketColumnsFor,
+  bucketLabel,
+  bucketStartISO,
+  dateBucketKey,
+  isDateGranularity,
+} from './date-buckets';
+import type { DateGranularity } from './date-buckets';
 import { RelationChip } from '../table-view/relation-cell';
 import type { LinkChip } from '../table-view/relation-cell';
 import {
@@ -51,6 +59,11 @@ export function BoardView({
   const database = useDatabase(ws, db);
   const qc = useQueryClient();
   const groupField = database.data?.fields.find((f) => f.id === config.group_by_field_id);
+  // #307 — period per column when grouping by a date. Month is the roadmap default;
+  // an unset/legacy config therefore renders sensibly rather than not at all.
+  const granularity: DateGranularity = isDateGranularity(config.group_by_granularity)
+    ? config.group_by_granularity
+    : 'month';
   const hasSorts = config.sorts.length > 0;
 
   const queryBody = useMemo(() => queryBodyFromConfig(config, personalFilter), [config, personalFilter]);
@@ -101,15 +114,29 @@ export function BoardView({
       if (!groupField) return NO_VALUE;
       const raw = row.values[groupField.apiName];
       if (groupField.type === 'relation') return (raw as LinkChip[] | undefined)?.[0]?.id ?? NO_VALUE;
+      // #307: a date field groups into periods, so the column id is the bucket key.
+      if (groupField.type === 'date') return dateBucketKey(raw, granularity) ?? NO_VALUE;
       return (raw as string | null | undefined) ?? NO_VALUE;
     },
-    [groupField],
+    [groupField, granularity],
   );
 
   const columns = useMemo(() => {
     if (!groupField) return [];
     const defs: Array<{ id: string; label: string; color: string }> =
-      groupField.type === 'select' || groupField.type === 'workflow'
+      // #307: a date axis has no schema to enumerate — columns come from the data,
+      // chronologically. Emitting every period between min and max would explode
+      // into empty columns the moment one record has a far-future date.
+      groupField.type === 'date'
+        ? bucketColumnsFor(
+            rows.map((r) => r.values[groupField.apiName]),
+            granularity,
+          ).map((key) => ({
+            id: key,
+            label: bucketLabel(key, granularity),
+            color: OPTION_COLORS.gray!,
+          }))
+        : groupField.type === 'select' || groupField.type === 'workflow'
         ? (groupField.options ?? []).map((o) => ({
             id: o.id,
             label: o.label,
@@ -136,7 +163,12 @@ export function BoardView({
       ...defs.map((def) => ({ ...def, rows: buckets.get(def.id)! })),
       {
         id: NO_VALUE,
-        label: groupField.type === 'select' || groupField.type === 'workflow' ? 'No value' : 'Unassigned',
+        label:
+          groupField.type === 'date'
+            ? 'No date'
+            : groupField.type === 'select' || groupField.type === 'workflow'
+              ? 'No value'
+              : 'Unassigned',
         color: OPTION_COLORS.gray!,
         rows: buckets.get(NO_VALUE)!,
       },
@@ -287,7 +319,14 @@ export function BoardView({
     if (!changesColumn && Object.keys(anchor).length === 0) return;
     if (readOnly) return;
 
-    const value = targetColumn === NO_VALUE ? null : targetColumn;
+    // #307: dropping into a period column writes that period's FIRST day, which is
+    // the only value that re-buckets into the same column (see date-buckets tests).
+    const value =
+      targetColumn === NO_VALUE
+        ? null
+        : groupField.type === 'date'
+          ? bucketStartISO(targetColumn, granularity)
+          : targetColumn;
     move.mutate({
       rec: recId,
       ...anchor,

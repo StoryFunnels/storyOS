@@ -28,6 +28,10 @@ export interface GroupableField {
  */
 export function canGroupBoardBy(field: GroupableField): boolean {
   if (field.type === 'select' || field.type === 'workflow') return true;
+  // #307: a date groups into one column per period (week/month/quarter/year). A
+  // record has exactly one date, so a card still belongs to exactly one column —
+  // the single-valued rule holds. Columns come from the DATA, not from options.
+  if (field.type === 'date') return true;
   if (field.type === 'user') return field.config?.['multi'] !== true;
   if (field.type === 'relation') {
     return field.relation?.cardinality === 'one_to_many' && field.relation?.side === 'a';
@@ -62,7 +66,6 @@ export function boardGroupDisabledReason(field: GroupableField): string | null {
       : 'only the single side of a one-to-many relation can group a board';
   }
   if (field.type === 'multi_select') return 'a multi-select would put one card in several columns';
-  if (field.type === 'date') return 'date grouping (by week/month/quarter) is not built yet';
   if (field.type === 'number') return 'number grouping (into bins) is not built yet';
   if (field.type === 'formula' || field.type === 'rollup' || field.type === 'lookup') {
     return 'computed fields cannot group a board yet';

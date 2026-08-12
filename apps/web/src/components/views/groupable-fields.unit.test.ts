@@ -52,7 +52,13 @@ describe('canGroupBoardBy — mirrors the API boardGroupError', () => {
     expect(canGroupBoardBy(f('relation', { relation: null }))).toBe(false);
   });
 
-  it.each(['text', 'number', 'date', 'checkbox', 'multi_select', 'rich_text', 'formula'])(
+  // #307 shipped date grouping, so `date` moved OUT of this list — the assertion
+  // that used to pin it here is the one that caught the change.
+  it('allows a date field, which groups into periods (#307)', () => {
+    expect(canGroupBoardBy(f('date'))).toBe(true);
+  });
+
+  it.each(['text', 'number', 'checkbox', 'multi_select', 'rich_text', 'formula'])(
     'rejects %s',
     (type) => {
       expect(canGroupBoardBy(f(type))).toBe(false);
@@ -98,7 +104,8 @@ describe('boardGroupDisabledReason — #225: say WHY, never silently omit', () =
   });
 
   it('distinguishes not-built-yet from cannot-work, so the roadmap is legible', () => {
-    expect(boardGroupDisabledReason(f('date'))).toContain('not built yet');
+    // date is groupable as of #307 — no reason, because it isn't disabled.
+    expect(boardGroupDisabledReason(f('date'))).toBeNull();
     expect(boardGroupDisabledReason(f('number'))).toContain('not built yet');
     expect(boardGroupDisabledReason(f('formula'))).toContain('computed');
   });

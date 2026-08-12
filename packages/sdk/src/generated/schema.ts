@@ -3818,6 +3818,8 @@ export interface components {
                 hidden_field_ids: string[];
                 /** Format: uuid */
                 group_by_field_id?: string;
+                /** @enum {string} */
+                group_by_granularity?: "week" | "month" | "quarter" | "year";
                 /** Format: uuid */
                 color_by_field_id?: string;
                 /** @default [] */
@@ -3921,6 +3923,8 @@ export interface components {
                 hidden_field_ids: string[];
                 /** Format: uuid */
                 group_by_field_id?: string;
+                /** @enum {string} */
+                group_by_granularity?: "week" | "month" | "quarter" | "year";
                 /** Format: uuid */
                 color_by_field_id?: string;
                 /** @default [] */
