@@ -11,7 +11,11 @@ import { DashboardView } from '@/components/views/dashboard-view';
 import { CalendarView } from '@/components/views/calendar-view';
 import { GalleryView } from '@/components/views/gallery-view';
 import { ListView } from '@/components/views/list-view';
-import { canGroupBoardBy, canGroupListBy } from '@/components/views/groupable-fields';
+import {
+  boardGroupDisabledReason,
+  canGroupBoardBy,
+  listGroupDisabledReason,
+} from '@/components/views/groupable-fields';
 import { FeedView } from '@/components/views/feed-view';
 import { TimelineView } from '@/components/views/timeline-view';
 import { FormView } from '@/components/views/form-view';
@@ -273,7 +277,6 @@ function NewViewDialog({
   // `f.type === 'select'` inline, which silently hid the workflow/State field from
   // "Group by" on a List even though list-view renders workflow groups fine — the
   // same drift #267 already fixed once elsewhere.
-  const listGroupFields = fields.filter(canGroupListBy);
   // MN-079: a board column per value needs a single-valued field — select, a single
   // user, or the single side of a one-to-many relation. The API enforces the same rule.
   const boardGroupFields = fields.filter(canGroupBoardBy);
@@ -397,7 +400,7 @@ function NewViewDialog({
               </select>
             </div>
           )}
-          {((type === 'board' && boardGroupFields.length > 0) || (type === 'list' && listGroupFields.length > 0)) && (
+          {((type === 'board' && boardGroupFields.length > 0) || type === 'list') && (
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="group-by">Group by{type === 'list' ? ' (optional)' : ''}</Label>
               <select
@@ -407,11 +410,19 @@ function NewViewDialog({
                 onChange={(e) => setGroupBy(e.target.value)}
               >
                 {type === 'list' && <option value="">None</option>}
-                {(type === 'board' ? boardGroupFields : listGroupFields).map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.displayName}
-                  </option>
-                ))}
+                {/* #225: every field is listed. One that can't group is disabled with
+                    the reason, because a silently-omitted field reads as a bug — that
+                    is literally how #267 and #272 were both reported. */}
+                {fields.map((f) => {
+                  const reason =
+                    type === 'board' ? boardGroupDisabledReason(f) : listGroupDisabledReason(f);
+                  return (
+                    <option key={f.id} value={f.id} disabled={reason !== null}>
+                      {f.displayName}
+                      {reason ? ` — ${reason}` : ''}
+                    </option>
+                  );
+                })}
               </select>
             </div>
           )}

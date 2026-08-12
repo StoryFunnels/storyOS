@@ -44,3 +44,35 @@ export function canGroupBoardBy(field: GroupableField): boolean {
 export function canGroupListBy(field: GroupableField): boolean {
   return field.type === 'select' || field.type === 'workflow';
 }
+
+/**
+ * #225 — why a field can't be grouped by, in the user's words. A picker that
+ * silently omits a field is indistinguishable from a bug: that misreading is what
+ * #267 and #272 were both reported as. Show every field; disable the ones that
+ * can't work and say why.
+ *
+ * Returns null when the field IS groupable for that view type.
+ */
+export function boardGroupDisabledReason(field: GroupableField): string | null {
+  if (canGroupBoardBy(field)) return null;
+  if (field.type === 'user') return 'a multi-person field would put one card in several columns';
+  if (field.type === 'relation') {
+    return field.relation?.cardinality === 'many_to_many'
+      ? 'a many-to-many relation would put one card in several columns'
+      : 'only the single side of a one-to-many relation can group a board';
+  }
+  if (field.type === 'multi_select') return 'a multi-select would put one card in several columns';
+  if (field.type === 'date') return 'date grouping (by week/month/quarter) is not built yet';
+  if (field.type === 'number') return 'number grouping (into bins) is not built yet';
+  if (field.type === 'formula' || field.type === 'rollup' || field.type === 'lookup') {
+    return 'computed fields cannot group a board yet';
+  }
+  return `a ${field.type} field cannot group a board`;
+}
+
+export function listGroupDisabledReason(field: GroupableField): string | null {
+  if (canGroupListBy(field)) return null;
+  return canGroupBoardBy(field)
+    ? 'a list can only group by a select or status field — try a board'
+    : (boardGroupDisabledReason(field) ?? 'this field cannot group a list');
+}
