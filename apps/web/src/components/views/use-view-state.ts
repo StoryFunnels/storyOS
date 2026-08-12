@@ -22,6 +22,8 @@ export interface ViewConfig {
   sorts_nulls?: NullsPlacement;
   hidden_field_ids: string[];
   group_by_field_id?: string;
+  /** #307 — period per column when grouping a board by a date field. */
+  group_by_granularity?: 'week' | 'month' | 'quarter' | 'year';
   /** Color rows/cards by a select field's option color (MN-102). */
   color_by_field_id?: string;
   card_field_ids: string[];

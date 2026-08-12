@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ViewConfig } from '@storyos/schemas';
-import { cleanViewConfig, defaultBoardGroupBy } from './views.service';
+import { boardGroupError, cleanViewConfig, defaultBoardGroupBy } from './views.service';
 
 /**
  * MN-258: cleanViewConfig's `cleanFilters` walk was already recursive (it has to
@@ -253,5 +253,42 @@ describe('cleanViewConfig — empty-values placement (MN-252 / #196)', () => {
 
   it('leaves sorts_nulls undefined when unset (back-compat: old saved sorts compile unchanged)', () => {
     expect(withSort({}).sorts_nulls).toBeUndefined();
+  });
+});
+
+describe('boardGroupError — #307: a date field groups a board into periods', () => {
+  it('accepts a date field', () => {
+    expect(boardGroupError({ type: 'date', config: {} }, null)).toBeNull();
+  });
+
+  it('still accepts select / workflow / single user / 1:M side a', () => {
+    expect(boardGroupError({ type: 'select', config: {} }, null)).toBeNull();
+    expect(boardGroupError({ type: 'workflow', config: {} }, null)).toBeNull();
+    expect(boardGroupError({ type: 'user', config: {} }, null)).toBeNull();
+    expect(
+      boardGroupError({ type: 'relation', config: { side: 'a' } }, { cardinality: 'one_to_many' }),
+    ).toBeNull();
+  });
+
+  it('still REJECTS the multi-valued cases — a card cannot live in two columns', () => {
+    expect(boardGroupError({ type: 'user', config: { multi: true } }, null)).toContain(
+      'several columns',
+    );
+    expect(
+      boardGroupError({ type: 'relation', config: { side: 'b' } }, { cardinality: 'one_to_many' }),
+    ).toContain('several columns');
+    expect(
+      boardGroupError({ type: 'relation', config: { side: 'a' } }, { cardinality: 'many_to_many' }),
+    ).toContain('several columns');
+    expect(boardGroupError({ type: 'multi_select', config: {} }, null)).toBeTruthy();
+  });
+
+  it('carries group_by_granularity through cleanViewConfig', () => {
+    const out = cleanViewConfig(
+      { ...BASE, filters: undefined, group_by_granularity: 'quarter' } as ViewConfig,
+      new Set(),
+      new Set(),
+    );
+    expect(out.group_by_granularity).toBe('quarter');
   });
 });

@@ -78,6 +78,11 @@ export const viewConfigSchema = z.object({
   hidden_field_ids: z.array(z.uuid()).default([]),
   /** Board only — must reference a single-select field (v1). */
   group_by_field_id: z.uuid().optional(),
+  /**
+   * #307 — when `group_by_field_id` points at a DATE field, this is the period each
+   * board column covers. Ignored for every other group-by type.
+   */
+  group_by_granularity: z.enum(['week', 'month', 'quarter', 'year']).optional(),
   /** Color rows/cards by a select field's option color (MN-102). */
   color_by_field_id: z.uuid().optional(),
   /** Board/gallery/list card body fields (also calendar chip fields). */

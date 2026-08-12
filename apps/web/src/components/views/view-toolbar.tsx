@@ -271,6 +271,25 @@ export function ViewToolbar({
         />
       )}
 
+      {/* #307 — period per column, shown only when a board is grouped by a DATE
+          field (the one case where the columns come from data, not from options). */}
+      {viewType === 'board' &&
+        augmented.find((f) => f.id === config.group_by_field_id)?.type === 'date' && (
+          <select
+            className="h-6 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+            value={config.group_by_granularity ?? 'month'}
+            onChange={(e) =>
+              onPatch({ group_by_granularity: e.target.value as ViewConfig['group_by_granularity'] })
+            }
+            title="Column period"
+          >
+            <option value="week">By week</option>
+            <option value="month">By month</option>
+            <option value="quarter">By quarter</option>
+            <option value="year">By year</option>
+          </select>
+        )}
+
       {viewType === 'calendar' && (
         <select
           className="h-6 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
