@@ -1,7 +1,16 @@
 'use client';
 
 import { useMemo, useRef, useState } from 'react';
-import { ArrowUpDown, GripVertical, ListFilter, MoreHorizontal, Pin, PinOff } from 'lucide-react';
+import {
+  ArrowUpDown,
+  EyeOff,
+  FilterX,
+  GripVertical,
+  ListFilter,
+  MoreHorizontal,
+  Pin,
+  PinOff,
+} from 'lucide-react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { toast } from 'sonner';
@@ -19,7 +28,13 @@ import { useDeleteField } from './field-dialog-shared';
 import type { Field } from './use-table-data';
 import { OPS_BY_TYPE, SORTABLE, defaultValueFor } from '../views/view-toolbar';
 import type { ViewConfig } from '../views/use-view-state';
-import { buildFilterGroup, filterConditions, filterConnector } from '../views/filter-config';
+import {
+  buildFilterGroup,
+  clearConditionsForField,
+  conditionPathsForField,
+  filterConditions,
+  filterConnector,
+} from '../views/filter-config';
 import { MAX_SORTS, isSortableFormula } from '../views/sort-config';
 
 export function HeaderCell({
@@ -89,6 +104,31 @@ export function HeaderCell({
     });
   }
 
+  // #224: a filtered column has to SAY so. The menu could already add a filter, but
+  // nothing on the header indicated one was active, so a narrowed table read as
+  // "the filter silently did nothing". Counts conditions at any depth, and the
+  // clear is one action rather than a trip to the toolbar's builder.
+  const filteredCount = useMemo(
+    () => (config ? conditionPathsForField(filterConditions(config.filters), field.apiName).length : 0),
+    [config, field.apiName],
+  );
+  const isFiltered = filteredCount > 0;
+  function clearFilterOnField() {
+    if (!config || !onPatch) return;
+    const remaining = clearConditionsForField(filterConditions(config.filters), field.apiName);
+    onPatch({ filters: buildFilterGroup(filterConnector(config.filters), remaining) });
+  }
+
+  // #224 AC3: hide a column from its own header, not only from the toolbar's Fields
+  // panel. Writes the same `hidden_field_ids` the toolbar's HiddenFieldsButton owns
+  // — one persisted shape, so the two surfaces can't drift (field-surfaces.md).
+  const canHide = Boolean(config && onPatch);
+  function hideField() {
+    if (!config || !onPatch) return;
+    if (config.hidden_field_ids.includes(field.id)) return;
+    onPatch({ hidden_field_ids: [...config.hidden_field_ids, field.id] });
+  }
+
   // Header ⋯ menu: cycle this field's sort asc → desc → none, capped at MAX_SORTS
   // (MN-225; the cap and the seeded default now live in sort-config.ts, MN-252,
   // shared with the toolbar's sort builder rather than duplicated here).
@@ -147,6 +187,20 @@ export function HeaderCell({
           <GripVertical className="-ml-1 h-3 w-3 shrink-0 text-faint opacity-0 group-hover/header:opacity-100" />
         )}
         <span className="truncate">{field.displayName}</span>
+        {/* #224: always visible, not hover-gated — an active filter is state the
+            user needs to see without hunting for it. */}
+        {isFiltered && (
+          <span
+            className="shrink-0 text-accent"
+            title={
+              filteredCount === 1
+                ? `Filtered by ${field.displayName}`
+                : `${filteredCount} filters on ${field.displayName}`
+            }
+          >
+            <ListFilter className="h-3 w-3" />
+          </span>
+        )}
       </span>
       {isFirst && onTogglePin && (
         <button
@@ -178,6 +232,16 @@ export function HeaderCell({
             {canSort && (
               <DropdownMenuItem onSelect={sortByField}>
                 <ArrowUpDown className="mr-2 h-3.5 w-3.5" /> {sortLabel}
+              </DropdownMenuItem>
+            )}
+            {isFiltered && (
+              <DropdownMenuItem onSelect={clearFilterOnField}>
+                <FilterX className="mr-2 h-3.5 w-3.5" /> Clear filter on this field
+              </DropdownMenuItem>
+            )}
+            {canHide && (
+              <DropdownMenuItem onSelect={hideField}>
+                <EyeOff className="mr-2 h-3.5 w-3.5" /> Hide field
               </DropdownMenuItem>
             )}
             <DropdownMenuItem className="text-error" onSelect={() => deleteField.mutate()}>
