@@ -159,7 +159,11 @@ export function AddFieldDialog({
               : config;
       const body: Record<string, unknown> = { display_name: name, type, config: effectiveConfig };
       if (type === 'select' || type === 'multi_select' || type === 'workflow') {
-        body.options = options.filter((o) => o.label.trim()).map(({ label, color }) => ({ label, color }));
+        // #202: carry the option's icon through creation too — otherwise an icon
+        // chosen while building the field is silently dropped on save.
+        body.options = options
+          .filter((o) => o.label.trim())
+          .map(({ label, color, icon }) => ({ label, color, ...(icon ? { icon } : {}) }));
       }
       const { error } = await api.POST('/api/v1/workspaces/{ws}/databases/{db}/fields', {
         params: { path: { ws, db } },

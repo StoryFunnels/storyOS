@@ -25,7 +25,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import type { Field } from './use-table-data';
-import { ColorDot, nextColor, useFieldMutations } from './field-dialog-shared';
+import { OptionAppearance, nextColor, useFieldMutations } from './field-dialog-shared';
 import type { OptionDraft } from './field-dialog-shared';
 
 let draftKey = 0;
@@ -55,9 +55,22 @@ export function DraftOptionsEditor({
     <div className="flex flex-col gap-1.5">
       {options.map((option) => (
         <div key={option.key} className="flex items-center gap-2">
-          <ColorDot
+          <OptionAppearance
+            icon={option.icon}
             color={option.color}
-            onPick={(color) => onChange(options.map((o) => (o.key === option.key ? { ...o, color } : o)))}
+            onChange={(patch) =>
+              onChange(
+                options.map((o) =>
+                  o.key === option.key
+                    ? {
+                        ...o,
+                        ...(patch.color !== undefined && patch.color !== null ? { color: patch.color } : {}),
+                        ...(patch.icon !== undefined ? { icon: patch.icon } : {}),
+                      }
+                    : o,
+                ),
+              )
+            }
           />
           <Input
             className="h-8"
@@ -120,7 +133,7 @@ export function LiveOptionsEditor({ ws, db, field }: { ws: string; db: string; f
   });
 
   const patchOption = useMutation({
-    mutationFn: async ({ id, ...body }: { id: string; label?: string; color?: string; position?: number }) => {
+    mutationFn: async ({ id, ...body }: { id: string; label?: string; color?: string; icon?: string | null; position?: number }) => {
       const { error } = await api.PATCH(
         '/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/options/{option}',
         { params: { path: { ws, db, field: field.id, option: id } }, body: body as never },
@@ -195,6 +208,7 @@ export function LiveOptionsEditor({ ws, db, field }: { ws: string; db: string; f
               key={option.id}
               option={option}
               onRecolor={(color) => patchOption.mutate({ id: option.id, color })}
+              onSetIcon={(icon) => patchOption.mutate({ id: option.id, icon })}
               onRename={(label) => patchOption.mutate({ id: option.id, label })}
               onRemove={() => removeOption.mutate(option.id)}
             />
@@ -225,11 +239,14 @@ export function LiveOptionsEditor({ ws, db, field }: { ws: string; db: string; f
 function SortableOptionRow({
   option,
   onRecolor,
+  onSetIcon,
   onRename,
   onRemove,
 }: {
-  option: { id: string; label: string; color: string };
+  option: { id: string; label: string; color: string; icon?: string | null };
   onRecolor: (color: string) => void;
+  /** #202 — set/clear this option's curated icon. */
+  onSetIcon: (icon: string | null) => void;
   onRename: (label: string) => void;
   onRemove: () => void;
 }) {
@@ -250,7 +267,15 @@ function SortableOptionRow({
       >
         <GripVertical className="h-3.5 w-3.5" />
       </button>
-      <ColorDot color={option.color} onPick={onRecolor} />
+      <OptionAppearance
+        icon={option.icon}
+        color={option.color}
+        onChange={(patch) => {
+          if (patch.color !== undefined && patch.color !== null) onRecolor(patch.color);
+          // #202: `null` clears the icon; the API treats undefined as "leave alone".
+          if (patch.icon !== undefined) onSetIcon(patch.icon);
+        }}
+      />
       <Input
         className="h-8"
         defaultValue={option.label}

@@ -36,6 +36,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { OPTION_COLORS } from './cells';
+import { EntityIcon, IconColorPicker } from '@/components/ui/icon-picker';
 import { FormulaEditor } from './formula-editor';
 import type { Field } from './use-table-data';
 
@@ -113,6 +114,8 @@ export interface OptionDraft {
   key: number;
   label: string;
   color: string;
+  /** #202 — optional curated icon ref (`set:<name>` / `brand:<slug>`). */
+  icon?: string | null;
 }
 
 /* ---------- shared building blocks ---------- */
@@ -204,6 +207,52 @@ export function TypePicker({
         <TypeButtonGrid types={advanced} value={value} onChange={onChange} disabledTypes={disabledTypes} />
       )}
     </div>
+  );
+}
+
+/**
+ * #202/#213 — an option's appearance: icon AND colour, in one control.
+ *
+ * Reuses `IconColorPicker`, the same picker a database icon uses, rather than adding
+ * a second parallel icon UI — the storage (`select_options.icon`) and the rendering
+ * (`OptionChip` → `OptionIcon`) already shipped; only this was missing, so an icon
+ * could be stored and drawn but never SET. See docs/architecture/field-surfaces.md.
+ */
+export function OptionAppearance({
+  icon,
+  color,
+  onChange,
+}: {
+  icon?: string | null;
+  color: string;
+  onChange: (patch: { icon?: string | null; color?: string | null }) => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          title="Icon & colour"
+          aria-label="Icon and colour"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-control)] border border-border-default hover:bg-hover"
+        >
+          <EntityIcon
+            icon={icon ?? null}
+            color={color}
+            size={14}
+            fallback={
+              <span
+                className="h-3.5 w-3.5 rounded-full"
+                style={{ backgroundColor: OPTION_COLORS[color] ?? OPTION_COLORS.gray }}
+              />
+            }
+          />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-auto p-2">
+        <IconColorPicker icon={icon ?? null} color={color} onChange={onChange} />
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
