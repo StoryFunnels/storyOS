@@ -3,7 +3,15 @@ import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { eq } from 'drizzle-orm';
 import { DB } from '../src/db/db.module';
 import type { Db } from '../src/db/client';
-import { databases, memberships, records, spaces, views } from '../src/db/schema';
+import {
+  databases,
+  memberships,
+  notifications,
+  records,
+  spaceDocuments,
+  spaces,
+  views,
+} from '../src/db/schema';
 import { createTestApp } from './helpers/app';
 import { authed, signUpUser } from './helpers/users';
 
@@ -22,6 +30,7 @@ let db: Db;
 let owner: { token: string };
 let ownerId: string;
 let admin: { token: string };
+let adminId: string;
 let wsId: string;
 let sharedSpace: string;
 let sharedDb: string;
@@ -43,6 +52,7 @@ beforeAll(async () => {
   admin = await signUpUser(app, 'PersonalAdmin');
   owner = await signUpUser(app, 'PersonalOwner');
   ownerId = (await as(owner.token, 'GET', '/me')).json().id;
+  adminId = (await as(admin.token, 'GET', '/me')).json().id;
 
   wsId = (await as(admin.token, 'POST', '/workspaces', { name: 'Personal WS' })).json().id;
   sharedSpace = (await as(admin.token, 'GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
@@ -169,5 +179,61 @@ describe('#291 member removal — hard delete, but ONLY personal rows', () => {
 
     // …and the shared database itself is untouched.
     expect(await db.query.databases.findFirst({ where: eq(databases.id, sharedDb) })).toBeDefined();
+  });
+});
+
+describe('#293 — a mention inside personal content must never notify', () => {
+  /**
+   * The ADR rule: an @mention in personal content produces NO notification and NO
+   * stored inbox snippet. Since #235 a notification carries the TEXT, so suppressing
+   * at DELIVERY would still persist a private draft's words in the notifications
+   * table — which is why the rule is "never create it", not "don't send it".
+   *
+   * Today this holds by ABSENCE: space_documents has no mention/notify path at all.
+   * That is an accident, not a guarantee — the moment someone wires mentions into
+   * space documents (rich mentions, #169/#170) the promise breaks silently and
+   * nothing else in the suite notices. This test is the invariant.
+   */
+  it('writing an @mention into a personal document creates no notification row', async () => {
+    const [personal] = await db
+      .insert(spaces)
+      .values({
+        workspaceId: wsId,
+        name: 'Personal 2',
+        slug: `personal2-${ownerId.slice(0, 8)}`,
+        personal: true,
+        ownerUserId: ownerId,
+      })
+      .returning();
+
+    const before = await db.query.notifications.findMany({
+      where: eq(notifications.workspaceId, wsId),
+    });
+
+    // A private draft that mentions the ADMIN — the person who must NOT be told.
+    await db.insert(spaceDocuments).values({
+      workspaceId: wsId,
+      spaceId: personal!.id,
+      title: 'Private draft',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: 'Thinking about ', styles: {} },
+            { type: 'mention', props: { kind: 'user', id: adminId, label: 'PersonalAdmin' } },
+          ],
+        },
+      ] as never,
+      createdBy: ownerId,
+    });
+
+    const after = await db.query.notifications.findMany({
+      where: eq(notifications.workspaceId, wsId),
+    });
+    expect(after.length, 'a private draft must not notify the person it mentions').toBe(
+      before.length,
+    );
+    // Nor may anything carrying the draft's words be persisted for someone else.
+    expect(JSON.stringify(after)).not.toContain('Thinking about');
   });
 });
