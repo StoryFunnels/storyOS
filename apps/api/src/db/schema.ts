@@ -210,6 +210,19 @@ export const databases = pgTable(
     position: integer('position').notNull().default(0),
     /** Allocator for per-database sequential public record numbers (MN-087). */
     recordCounter: integer('record_counter').notNull().default(0),
+    /**
+     * #310 — the record DESCRIPTION as a positioned, optional element.
+     *
+     * The description is a `documents` row (versioned, optimistic-concurrency), NOT a
+     * field, so it has no field config to carry `entity_order`/`entity_hidden` like
+     * every other body element. These two columns are that missing config, and they
+     * live on the database because "does this database want descriptions" and "where
+     * does it sit" are schema decisions, not per-viewer preferences.
+     *
+     * `descriptionOrder` null = keep the historical position (after all body fields).
+     */
+    descriptionHidden: boolean('description_hidden').notNull().default(false),
+    descriptionOrder: integer('description_order'),
     ...timestamps,
   },
   (t) => [uniqueIndex('databases_space_slug_uq').on(t.spaceId, t.apiSlug)],

@@ -40,6 +40,9 @@ export interface Field {
 
 export interface DatabaseDetail {
   id: string;
+  /** #310 — description block placement (see useUpdateDescriptionPlacement). */
+  descriptionHidden?: boolean;
+  descriptionOrder?: number | null;
   name: string;
   icon: string | null;
   color: string | null;
@@ -86,6 +89,37 @@ export function useDatabase(ws: string, db: string) {
  * updates without waiting on a refetch, and invalidates the sidebar's
  * `['databases', ws]` list so it reflects the same change immediately.
  */
+/**
+ * #310 — the record description's placement: hidden or not, and where it sits among
+ * the body fields. Stored on the DATABASE (a schema decision, shared by everyone)
+ * rather than per viewer. The description itself stays a versioned `documents` row —
+ * this only moves the block, never the content.
+ */
+export function useUpdateDescriptionPlacement(ws: string, db: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (patch: { description_hidden?: boolean; description_order?: number | null }) => {
+      const { data, error } = await api.PATCH('/api/v1/workspaces/{ws}/databases/{db}', {
+        params: { path: { ws, db } },
+        body: patch as never,
+      });
+      if (error) throw error;
+      return data as unknown as DatabaseDetail;
+    },
+    onSuccess: (data) => {
+      qc.setQueryData(['database', ws, db], (prev: DatabaseDetail | undefined) =>
+        prev
+          ? {
+              ...prev,
+              descriptionHidden: (data as unknown as DatabaseDetail).descriptionHidden,
+              descriptionOrder: (data as unknown as DatabaseDetail).descriptionOrder,
+            }
+          : prev,
+      );
+    },
+  });
+}
+
 export function useUpdateDatabaseIcon(ws: string, db: string) {
   const qc = useQueryClient();
   return useMutation({

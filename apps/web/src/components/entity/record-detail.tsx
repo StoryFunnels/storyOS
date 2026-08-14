@@ -30,7 +30,12 @@ import { useDatabases, useSpaces, useWorkspace } from '@/lib/queries';
 import { EntityIcon } from '@/components/ui/icon-picker';
 import { DbColorMarker } from '@/components/table-view/relation-cell';
 import { atLeast } from '@/lib/access';
-import { useDatabase, useMembers, useRecordMutations } from '@/components/table-view/use-table-data';
+import {
+  useDatabase,
+  useMembers,
+  useRecordMutations,
+  useUpdateDescriptionPlacement,
+} from '@/components/table-view/use-table-data';
 import type { Field } from '@/components/table-view/use-table-data';
 import { DescriptionEditor } from '@/components/entity/description-editor';
 import {
@@ -126,6 +131,8 @@ export function RecordDetail({
   const readOnly = !atLeast(database.data?.my_access, 'editor');
   const canComment = atLeast(database.data?.my_access, 'commenter');
   const schemaEditable = atLeast(database.data?.my_access, 'creator');
+  // #310 — moves/hides the description BLOCK; never touches its content.
+  const updateDescription = useUpdateDescriptionPlacement(ws, db);
   const { updateRecord } = useRecordMutations(ws, db);
 
   const record = useQuery({
@@ -179,15 +186,33 @@ export function RecordDetail({
   const topFields = useMemo(() => byOrder(visibleFields.filter((f) => zonesOf(f).includes('top'))), [visibleFields, byOrder]);
   const sidebarFields = useMemo(() => byOrder(visibleFields.filter((f) => zonesOf(f).includes('sidebar'))), [visibleFields, byOrder]);
   const bodyFields = useMemo(() => byOrder(visibleFields.filter((f) => zonesOf(f).includes('body'))), [visibleFields, byOrder]);
+  /**
+   * #310 — the description joins the body ordering model.
+   *
+   * It is NOT a field (it's a versioned `documents` row), so it has no field config
+   * to carry entity_order. Its position and visibility live on the DATABASE, and it
+   * takes part here as a virtual item so one drag reorders fields and the
+   * description together, in a single integer space.
+   */
+  const descriptionHidden = database.data?.descriptionHidden === true;
+  const descriptionOrder = database.data?.descriptionOrder;
+  const bodyItems = useMemo(() => {
+    const items: Array<{ id: string; field?: Field }> = bodyFields.map((f) => ({ id: f.id, field: f }));
+    if (descriptionHidden) return items;
+    // null order = the historical position: after every body field.
+    const at = descriptionOrder == null ? items.length : Math.max(0, Math.min(items.length, descriptionOrder));
+    items.splice(at, 0, { id: DESCRIPTION_ITEM_ID });
+    return items;
+  }, [bodyFields, descriptionHidden, descriptionOrder]);
+
   // #301: the rows that actually participate in the drag. Everything in the body is
   // sortable when the schema is editable; nothing is when it isn't. Renumbering must
   // run over THIS list, or a drop would rewrite entity_order for rows the user can't
   // move and the persisted order wouldn't match the order the drag previewed.
-  const sortableBodyFields = useMemo(
-    () => (schemaEditable ? bodyFields : []),
-    [schemaEditable, bodyFields],
+  const sortableBodyIds = useMemo(
+    () => (schemaEditable ? bodyItems.map((i) => i.id) : []),
+    [schemaEditable, bodyItems],
   );
-  const sortableBodyIds = useMemo(() => sortableBodyFields.map((f) => f.id), [sortableBodyFields]);
   // Fields eligible to be pinned to the top strip (movable, not already there).
   const topCandidates = useMemo(
     () => visibleFields.filter((f) => f.type !== 'rich_text' && !isCollection(f) && !zonesOf(f).includes('top')),
@@ -201,6 +226,29 @@ export function RecordDetail({
 
   const setFieldConfig = useSetFieldConfig(ws, db);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+
+  /**
+   * #310 — reorder a body list that mixes fields with the description block. One
+   * integer space: each item's new index is persisted to its own home — a field's to
+   * its `entity_order` field-config, the description's to the database's
+   * `description_order`.
+   */
+  function reorderBody(items: Array<{ id: string; field?: Field }>, event: DragEndEvent) {
+    if (!event.over || event.active.id === event.over.id) return;
+    const from = items.findIndex((i) => i.id === event.active.id);
+    const to = items.findIndex((i) => i.id === event.over!.id);
+    if (from < 0 || to < 0) return;
+    arrayMove(items, from, to).forEach((item, i) => {
+      if (item.id === DESCRIPTION_ITEM_ID) {
+        if (database.data?.descriptionOrder !== i) updateDescription.mutate({ description_order: i });
+        return;
+      }
+      const f = item.field!;
+      if (orderKey(f, apiIndex.get(f.id) ?? 0) !== i) {
+        setFieldConfig.mutate({ fieldId: f.id, config: { entity_order: i } });
+      }
+    });
+  }
 
   function reorderWithin(list: Field[], event: DragEndEvent) {
     if (!event.over || event.active.id === event.over.id) return;
@@ -409,20 +457,38 @@ export function RecordDetail({
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
-            onDragEnd={(e) => reorderWithin(sortableBodyFields, e)}
+            onDragEnd={(e) => reorderBody(bodyItems, e)}
           >
             {/* #301: a row that isn't sortable must be OUT of this list, not merely
                 `disabled`. dnd-kit still lays out and transforms a disabled member,
                 which is what made a tall rich-text card slide over its neighbours
                 mid-drag and read as one field nested inside another. */}
             <SortableContext items={sortableBodyIds} strategy={verticalListSortingStrategy}>
-              {bodyFields.map((field) =>
-                field.type === 'rich_text' ? (
-                  // #301: was draggable={false}, which froze Details / Acceptance
-                  // Criteria / User Story in place — exactly the rows a long record
-                  // most needs reordered. A tall card is now practical to drag
-                  // because #309 lets you collapse it first.
-                  <BodyRow key={field.id} field={field} draggable={schemaEditable}>
+              {bodyItems.map((item) => {
+                // #310 — the description block sorts alongside the fields.
+                if (!item.field) {
+                  return (
+                    <BodyRow key={item.id} rowId={item.id} draggable={schemaEditable}>
+                      <DescriptionSection
+                        ws={ws}
+                        db={db}
+                        recordId={recordId}
+                        readOnly={readOnly}
+                        onHide={
+                          schemaEditable
+                            ? () => updateDescription.mutate({ description_hidden: true })
+                            : undefined
+                        }
+                      />
+                    </BodyRow>
+                  );
+                }
+                const field = item.field;
+                // #301: rich-text was draggable={false}, which froze Details /
+                // Acceptance Criteria / User Story — exactly the rows a long record
+                // most needs moved. Practical now that #309 can collapse them.
+                return field.type === 'rich_text' ? (
+                  <BodyRow key={field.id} rowId={field.id} draggable={schemaEditable}>
                     <RichTextFieldSection
                       ws={ws}
                       db={db}
@@ -435,22 +501,17 @@ export function RecordDetail({
                     />
                   </BodyRow>
                 ) : field.type === 'relation' ? (
-                  <BodyRow key={field.id} field={field} draggable={schemaEditable}>
+                  <BodyRow key={field.id} rowId={field.id} draggable={schemaEditable}>
                     <CollectionSection field={field} {...vp} />
                   </BodyRow>
                 ) : (
-                  <BodyRow key={field.id} field={field} draggable={schemaEditable}>
+                  <BodyRow key={field.id} rowId={field.id} draggable={schemaEditable}>
                     <BodyScalar field={field} {...vp} />
                   </BodyRow>
-                ),
-              )}
+                );
+              })}
             </SortableContext>
           </DndContext>
-
-          {/* #309 — Description folds with the same control as any rich-text field.
-              It has to be wired separately because it isn't a field at all: it's
-              hard-coded here, outside the SortableContext (see #310). */}
-          <DescriptionSection ws={ws} db={db} recordId={recordId} readOnly={readOnly} />
 
           <div className="mb-6 mt-5">
             <AttachmentsStrip ws={ws} db={db} rec={recordId} readOnly={readOnly} />
@@ -539,17 +600,37 @@ export function RecordDetail({
               </SortableContext>
             </DndContext>
 
-            {schemaEditable && hiddenFields.length > 0 && (
+            {schemaEditable && (hiddenFields.length > 0 || descriptionHidden) && (
               <div className="border-t border-border-default px-3 py-1.5">
                 <button
                   className="flex items-center gap-1 text-[12px] text-faint hover:text-ink"
                   onClick={() => setShowHidden((s) => !s)}
                 >
                   {showHidden ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-                  {hiddenFields.length} hidden
+                  {hiddenFields.length + (descriptionHidden ? 1 : 0)} hidden
                 </button>
-                {showHidden &&
-                  hiddenFields.map((field) => <HiddenFieldRow key={field.id} ws={ws} db={db} field={field} />)}
+                {showHidden && (
+                  <>
+                    {/* #310 — hiding the description must not be a one-way door: it
+                        comes back from the same place every hidden field does. Its
+                        CONTENT was never deleted, only the block. */}
+                    {descriptionHidden && (
+                      <div className="flex items-center justify-between py-1 text-[13px] text-muted">
+                        <span>Description</span>
+                        <button
+                          type="button"
+                          className="rounded px-1.5 py-0.5 text-[12px] text-info hover:bg-hover"
+                          onClick={() => updateDescription.mutate({ description_hidden: false })}
+                        >
+                          Show
+                        </button>
+                      </div>
+                    )}
+                    {hiddenFields.map((field) => (
+                      <HiddenFieldRow key={field.id} ws={ws} db={db} field={field} />
+                    ))}
+                  </>
+                )}
               </div>
             )}
             {schemaEditable && (
@@ -570,16 +651,20 @@ export function RecordDetail({
  * `draggable={false}` (rich-text sections) marks the row non-sortable — no handle,
  * and it is neither draggable nor a drop target, so other rows reorder around it.
  */
+/** #310 — the virtual sortable id for the description block (it has no field id). */
+const DESCRIPTION_ITEM_ID = '__description__';
+
 function BodyRow({
-  field,
+  rowId,
   draggable,
   children,
 }: {
-  field: Field;
+  /** #310 — a field id, or the virtual description id; BodyRow no longer needs the Field. */
+  rowId: string;
   draggable: boolean;
   children: ReactNode;
 }) {
-  const sortable = useSortable({ id: field.id, disabled: !draggable });
+  const sortable = useSortable({ id: rowId, disabled: !draggable });
   // #301: never transform a row that isn't participating in the sort — a stale
   // transform on a tall card is what made rows visually overlap during a drag.
   const style = draggable
@@ -730,11 +815,15 @@ function DescriptionSection({
   db,
   recordId,
   readOnly,
+  onHide,
 }: {
   ws: string;
   db: string;
   recordId: string;
   readOnly: boolean;
+  /** #310 — remove the description block from this DATABASE's records. Content is
+   * kept (the documents row is untouched); switching it back on restores it. */
+  onHide?: () => void;
 }) {
   const { collapsed, toggle } = useCollapsedSection(db, 'description');
   return (
@@ -742,6 +831,16 @@ function DescriptionSection({
       <div className="mb-2 flex items-center gap-1">
         <CollapseToggle collapsed={collapsed} onToggle={toggle} label="Description" />
         <h2 className="text-[12px] font-medium uppercase tracking-wider text-muted">Description</h2>
+        {onHide && (
+          <button
+            type="button"
+            onClick={onHide}
+            title="Remove Description from this database's records"
+            className="ml-1 rounded p-0.5 text-faint opacity-0 transition-opacity hover:bg-hover hover:text-danger group-hover/bodyrow:opacity-100"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
       </div>
       <CollapsibleBody collapsed={collapsed}>
         <DescriptionEditor ws={ws} db={db} rec={recordId} readOnly={readOnly} />

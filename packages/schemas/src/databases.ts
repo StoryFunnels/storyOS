@@ -33,6 +33,14 @@ export const updateDatabaseSchema = z.object({
   /** Sidebar folder (MN-096); null moves the database to the space root. */
   folder_id: z.uuid().nullable().optional(),
   position: z.number().int().optional(),
+  /**
+   * #310 — the record description as a positioned, optional element. It is a
+   * versioned `documents` row rather than a field, so it has no field config to
+   * carry these; they live on the database because both are schema decisions.
+   */
+  description_hidden: z.boolean().optional(),
+  /** null = the historical position (after all body fields). */
+  description_order: z.number().int().nullable().optional(),
 });
 
 export const deleteDatabaseSchema = z.object({
