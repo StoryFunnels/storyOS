@@ -38,10 +38,22 @@ interface MentionNode {
   content?: undefined;
 }
 type Inline = TextNode | LinkNode | MentionNode;
+/**
+ * #308 — a table block's `content` is NOT an inline array but BlockNote's
+ * `tableContent` object. Shape taken from @blocknote/core 0.51.4
+ * (schema/blocks/types.d.ts): rows[].cells accepts `InlineContent[][]`, and
+ * `headerRows` marks how many leading rows are headers.
+ */
+interface TableContent {
+  type: 'tableContent';
+  columnWidths?: (number | undefined)[];
+  headerRows?: number;
+  rows: Array<{ cells: Inline[][] }>;
+}
 interface Block {
   type: string;
   props?: Record<string, unknown>;
-  content?: Inline[];
+  content?: Inline[] | TableContent;
 }
 
 // ---------- blocks → markdown ----------
@@ -69,6 +81,32 @@ function inlineToMarkdown(content: unknown): string {
       return t;
     })
     .join('');
+}
+
+/** A cell's text, with pipes escaped so a value containing "|" can't fake a column. */
+function cellToMarkdown(cell: Inline[]): string {
+  return inlineToMarkdown(cell).replace(/\|/g, '\\|').trim();
+}
+
+/**
+ * #308 — a BlockNote table → GFM. Emitted with a header row and the `|---|`
+ * separator so it round-trips back through markdownToBlocks into the same table.
+ * A table with no `headerRows` still gets its first row treated as the header,
+ * because GFM has no way to express a header-less table.
+ */
+function tableToMarkdown(content: TableContent): string {
+  const rows = Array.isArray(content?.rows) ? content.rows : [];
+  if (rows.length === 0) return '';
+  const cols = Math.max(...rows.map((r) => (Array.isArray(r?.cells) ? r.cells.length : 0)), 1);
+  const line = (cells: Inline[][]) => {
+    const out: string[] = [];
+    for (let c = 0; c < cols; c++) out.push(cellToMarkdown(cells[c] ?? []));
+    return `| ${out.join(' | ')} |`;
+  };
+  const lines = [line(rows[0]!.cells ?? [])];
+  lines.push(`| ${Array.from({ length: cols }, () => '---').join(' | ')} |`);
+  for (const row of rows.slice(1)) lines.push(line(row?.cells ?? []));
+  return lines.join('\n');
 }
 
 const LIST_TYPES = new Set(['bulletListItem', 'numberedListItem', 'checkListItem']);
@@ -105,6 +143,11 @@ export function blocksToMarkdown(blocks: unknown): string {
         md = `\`\`\`${lang}\n${text}\n\`\`\``;
         break;
       }
+      // #308: without this a table serialised to its bare text and was lost on the
+      // way OUT too — a table made in the editor never survived being read back.
+      case 'table':
+        md = tableToMarkdown(block.content as TableContent);
+        break;
       default:
         md = text;
     }
@@ -164,6 +207,37 @@ function parseInline(input: string): Inline[] {
 }
 
 /** Parse Markdown into a BlockNote document. Always returns at least one block. */
+/** Split a GFM table row on unescaped pipes, dropping the outer delimiters. */
+function splitRow(line: string): string[] {
+  const cells: string[] = [];
+  let cur = '';
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]!;
+    if (ch === '\\' && line[i + 1] === '|') {
+      cur += '|'; // an escaped pipe is DATA, not a column break
+      i++;
+    } else if (ch === '|') {
+      cells.push(cur);
+      cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  cells.push(cur);
+  // A GFM row is conventionally wrapped in pipes, which yields empty first/last
+  // parts — drop those, not genuinely empty interior cells.
+  if (cells.length && cells[0]!.trim() === '') cells.shift();
+  if (cells.length && cells[cells.length - 1]!.trim() === '') cells.pop();
+  return cells.map((c) => c.trim());
+}
+
+/** `|---|:--:|` — the separator line that makes the line above it a header row. */
+function isSeparatorRow(line: string): boolean {
+  if (!line.includes('-') || !line.includes('|')) return false;
+  const parts = splitRow(line);
+  return parts.length > 0 && parts.every((p) => /^:?-{1,}:?$/.test(p));
+}
+
 export function markdownToBlocks(markdown: string): Block[] {
   const lines = markdown.replace(/\r\n/g, '\n').split('\n');
   const blocks: Block[] = [];
@@ -190,6 +264,39 @@ export function markdownToBlocks(markdown: string): Block[] {
 
     if (line.trim() === '') {
       i++;
+      continue;
+    }
+
+    // #308 — a GFM table: a pipe row followed by a |---| separator. Checked BEFORE
+    // the single-line matchers, because otherwise every row falls through to the
+    // paragraph default and the table becomes a stack of pipe characters.
+    // Requiring the separator is what keeps an ordinary sentence containing "|"
+    // (or a line of inline code) a paragraph.
+    if (line.includes('|') && i + 1 < lines.length && isSeparatorRow(lines[i + 1]!)) {
+      const header = splitRow(line);
+      const cols = header.length;
+      const rows: Array<{ cells: Inline[][] }> = [
+        { cells: header.map((c) => parseInline(c)) },
+      ];
+      i += 2; // consume the header and the separator
+      while (i < lines.length && lines[i]!.includes('|') && lines[i]!.trim() !== '') {
+        const cells = splitRow(lines[i]!);
+        // Ragged rows are padded/truncated to the header width rather than
+        // rejected — a half-written table should still render as a table.
+        const padded: Inline[][] = [];
+        for (let c = 0; c < cols; c++) padded.push(parseInline(cells[c] ?? ''));
+        rows.push({ cells: padded });
+        i++;
+      }
+      blocks.push({
+        type: 'table',
+        content: {
+          type: 'tableContent',
+          columnWidths: Array.from({ length: cols }, () => undefined),
+          headerRows: 1,
+          rows,
+        },
+      });
       continue;
     }
 
