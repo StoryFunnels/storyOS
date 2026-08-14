@@ -3626,6 +3626,8 @@ export interface components {
             /** Format: uuid */
             folder_id?: string | null;
             position?: number;
+            description_hidden?: boolean;
+            description_order?: number | null;
         };
         DeleteDatabaseDto: {
             confirm: string;

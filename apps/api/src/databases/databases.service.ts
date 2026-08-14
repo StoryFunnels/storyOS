@@ -360,7 +360,17 @@ export class DatabasesService {
   async update(
     membership: Membership,
     databaseId: string,
-    patch: { name?: string; icon?: string | null; color?: string | null; space_id?: string; folder_id?: string | null; position?: number },
+    patch: {
+      name?: string;
+      icon?: string | null;
+      color?: string | null;
+      space_id?: string;
+      folder_id?: string | null;
+      position?: number;
+      /** #310 — the description block's visibility + position on the record page. */
+      description_hidden?: boolean;
+      description_order?: number | null;
+    },
   ) {
     const current = await this.db.query.databases.findFirst({
       where: and(eq(databases.id, databaseId), eq(databases.workspaceId, membership.workspaceId)),
@@ -396,6 +406,8 @@ export class DatabasesService {
         apiSlug,
         folderId: patch.folder_id,
         position: patch.position,
+        descriptionHidden: patch.description_hidden,
+        descriptionOrder: patch.description_order,
       })
       .where(eq(databases.id, databaseId))
       .returning();
