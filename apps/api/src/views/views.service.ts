@@ -91,6 +91,19 @@ export function cleanViewConfig(
       config.end_date_field_id && liveFieldIds.has(config.end_date_field_id)
         ? config.end_date_field_id
         : undefined,
+    // #227 — the timeline's baseline (planned) pair, pruned by the SAME rule as the
+    // primary pair: dropped only when the field it names is gone. Omitting these
+    // here is what made #227 look broken end to end — the keys saved to the database
+    // correctly and then vanished on every read, because this function is an
+    // explicit allowlist and anything unlisted is silently discarded.
+    baseline_start_date_field_id:
+      config.baseline_start_date_field_id && liveFieldIds.has(config.baseline_start_date_field_id)
+        ? config.baseline_start_date_field_id
+        : undefined,
+    baseline_end_date_field_id:
+      config.baseline_end_date_field_id && liveFieldIds.has(config.baseline_end_date_field_id)
+        ? config.baseline_end_date_field_id
+        : undefined,
     form: config.form,
     // Dashboard tiles (MN-225 / #168): drop a tile that POINTS AT a field which
     // no longer exists — never one that simply hasn't been pointed anywhere yet.
