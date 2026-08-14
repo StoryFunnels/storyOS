@@ -271,6 +271,13 @@ export function RecordDetail({
 
   const [tab, setTab] = useState<'comments' | 'activity'>('comments');
   const [titleDraft, setTitleDraft] = useState<string | null>(null);
+  // #312 — retire the title draft only once the saved value has actually arrived, so
+  // the input never falls back to a stale title mid-save. If the save fails the draft
+  // stays, which is the right outcome: the user keeps what they typed.
+  const serverTitle = record.data?.title;
+  useEffect(() => {
+    if (titleDraft !== null && serverTitle === titleDraft) setTitleDraft(null);
+  }, [serverTitle, titleDraft]);
 
   // Resizable properties sidebar (#198). `columnsRef` measures the body+aside
   // flex row so the drag/keyboard math can keep the body from getting too
@@ -412,8 +419,14 @@ export function RecordDetail({
               title={titleComputed ? 'This name is computed from a template — edit the template in the Name field’s settings.' : undefined}
               onChange={(e) => setTitleDraft(e.target.value)}
               onBlur={() => {
+                // #312: don't drop the draft here when it differs — `value` is
+                // `titleDraft ?? record.data.title`, so clearing it synchronously
+                // snaps the input back to the STALE title until the save's refetch
+                // lands, i.e. your new title visibly reverts and then re-applies.
+                // The effect below clears it once the server agrees.
                 if (titleDraft !== null && titleDraft !== record.data!.title) {
                   updateRecord.mutate({ rec: recordId, values: { name: titleDraft } });
+                  return;
                 }
                 setTitleDraft(null);
               }}
