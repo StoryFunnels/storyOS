@@ -17,25 +17,17 @@ import { ICON_BY_NAME, brandIconSlug, brandIconSrc, setIconName } from '@/compon
 import type { Field, SelectOption } from './use-table-data';
 import { useDateFormat } from '@/lib/preferences';
 import { useConfirm } from '@/components/ui/confirm-dialog';
+import { OPTION_COLORS } from './option-colors';
 
-/** Warm-tuned chip colors (docs/design/design-system.md). */
-export const OPTION_COLORS: Record<string, string> = {
-  gray: '#64748B',
-  brown: '#9C6B43',
-  gold: '#B7791F',
-  orange: '#E4551F',
-  red: '#DC2626',
-  pink: '#DB2777',
-  purple: '#7C3AED',
-  blue: '#2563EB',
-  teal: '#0D9488',
-  green: '#15803D',
-  lime: '#4D7C0F',
-  cyan: '#0E7490',
-  indigo: '#4F46E5',
-  magenta: '#A21CAF',
-  rose: '#E11D48',
-};
+/**
+ * Warm-tuned chip colours now live in the import-free `./option-colors` leaf
+ * module and are re-exported here so the many `from '.../cells'` importers keep
+ * working. They MOVED because this file imports `ui/avatar`, which read the
+ * table back at module scope — a cycle that crashed any route where `cells.tsx`
+ * evaluated first (the public form page, in production). Read the header of
+ * option-colors.ts before moving them back.
+ */
+export { OPTION_COLORS } from './option-colors';
 
 /** First palette color not already in use, so inline-created options don't
  * all land on gray (mirrors `nextColor` in field-dialog-shared.tsx — kept as

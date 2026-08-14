@@ -1,7 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { OPTION_COLORS } from '@/components/table-view/cells';
+// Leaf module, not cells.tsx: this value is read at MODULE SCOPE below, and
+// importing it from cells.tsx forms a cycle that leaves it in its temporal dead
+// zone on any route where cells.tsx evaluates first (see option-colors.ts).
+import { OPTION_COLORS } from '@/components/table-view/option-colors';
 import { cn } from '@/lib/utils';
 
 const COLOR_KEYS = Object.keys(OPTION_COLORS);
