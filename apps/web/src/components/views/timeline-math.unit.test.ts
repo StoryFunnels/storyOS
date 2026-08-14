@@ -6,6 +6,8 @@ import {
   dragValuesToPersist,
   pxToDeltaDays,
   shiftDateString,
+  slippageDays,
+  slippageLabel,
 } from './timeline-math';
 
 /**
@@ -169,5 +171,33 @@ describe('dependencyEdges', () => {
       { blockerId: 'a', blockedId: 'b' },
       { blockerId: 'c', blockedId: 'b' },
     ]);
+  });
+});
+
+/**
+ * #227 — baseline (planned vs actual) variance. The null cases carry the weight:
+ * a record with no baseline must read as "no answer", never as "on time".
+ */
+describe('slippageDays / slippageLabel', () => {
+  it('is null when either side is missing — absent is not on-time', () => {
+    expect(slippageDays({ end: 10 }, null)).toBeNull();
+    expect(slippageDays(null, { end: 10 })).toBeNull();
+    expect(slippageDays(undefined, undefined)).toBeNull();
+    expect(slippageLabel(null)).toBeNull();
+  });
+
+  it('is zero and reads "on time" when the ends match', () => {
+    expect(slippageDays({ end: 10 }, { end: 10 })).toBe(0);
+    expect(slippageLabel(0)).toBe('on time');
+  });
+
+  it('is positive and reads "late" when actual runs past planned', () => {
+    expect(slippageDays({ end: 13 }, { end: 10 })).toBe(3);
+    expect(slippageLabel(3)).toBe('3d late');
+  });
+
+  it('is negative and reads "early" when actual finishes first', () => {
+    expect(slippageDays({ end: 8 }, { end: 10 })).toBe(-2);
+    expect(slippageLabel(-2)).toBe('2d early');
   });
 });

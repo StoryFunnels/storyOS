@@ -3834,6 +3834,10 @@ export interface components {
                 start_date_field_id?: string;
                 /** Format: uuid */
                 end_date_field_id?: string;
+                /** Format: uuid */
+                baseline_start_date_field_id?: string;
+                /** Format: uuid */
+                baseline_end_date_field_id?: string;
                 /** @default [] */
                 dashboard_tiles: {
                     /** Format: uuid */
@@ -3946,6 +3950,10 @@ export interface components {
                 start_date_field_id?: string;
                 /** Format: uuid */
                 end_date_field_id?: string;
+                /** Format: uuid */
+                baseline_start_date_field_id?: string;
+                /** Format: uuid */
+                baseline_end_date_field_id?: string;
                 /** @default [] */
                 dashboard_tiles: {
                     /** Format: uuid */

@@ -12,7 +12,15 @@ import type { Field, RecordRow } from '../table-view/use-table-data';
 import type { FilterNode, ViewConfig } from './use-view-state';
 import { queryBodyFromConfig } from './use-view-state';
 import type { DragKind } from './timeline-math';
-import { applyDrag, clampDragDelta, dependencyEdges, dragValuesToPersist, pxToDeltaDays } from './timeline-math';
+import {
+  applyDrag,
+  clampDragDelta,
+  dependencyEdges,
+  dragValuesToPersist,
+  pxToDeltaDays,
+  slippageDays,
+  slippageLabel,
+} from './timeline-math';
 
 const DAY = 86_400_000;
 type Zoom = 'day' | 'week' | 'month' | 'quarter';
@@ -182,6 +190,15 @@ export function TimelineView({
   const dateFields = useMemo(() => fields.filter((f) => isDateField(f)), [fields]);
   const startField = fields.find((f) => f.id === config.start_date_field_id && isDateField(f));
   const endField = fields.find((f) => f.id === config.end_date_field_id && isDateField(f));
+  /* #227 — the optional baseline (planned) pair. Independent of the primary pair;
+     dragging a bar rewrites only the primary dates, so the baseline stays put and
+     the comparison remains meaningful. */
+  const baselineStartField = fields.find(
+    (f) => f.id === config.baseline_start_date_field_id && isDateField(f),
+  );
+  const baselineEndField = fields.find(
+    (f) => f.id === config.baseline_end_date_field_id && isDateField(f),
+  );
   const colorField = fields.find(
     (f) => f.id === config.color_by_field_id && (f.type === 'select' || f.type === 'workflow'),
   );
@@ -232,16 +249,34 @@ export function TimelineView({
     return out;
   }, [rows, startField, endField]);
 
+  /* #227 — baseline spans by record id. A record missing the baseline pair simply
+     has no entry and renders its primary bar alone, rather than being dropped or
+     drawn against a fabricated zero-length baseline. */
+  const baselineById = useMemo(() => {
+    const map = new Map<string, { start: number; end: number }>();
+    if (!baselineStartField) return map;
+    for (const row of rows) {
+      const start = toDay(fieldValue(row, baselineStartField));
+      if (start === null) continue;
+      const rawEnd = baselineEndField ? toDay(fieldValue(row, baselineEndField)) : null;
+      map.set(row.id, { start, end: rawEnd !== null && rawEnd > start ? rawEnd : start });
+    }
+    return map;
+  }, [rows, baselineStartField, baselineEndField]);
+
   const undated = rows.length - bars.length;
 
   const today = Math.floor(Date.now() / DAY);
   const range = useMemo(() => {
     const pad = ZOOM[zoom].pad;
     if (bars.length === 0) return { min: today - pad, max: today + pad };
-    const min = Math.min(...bars.map((b) => b.start), today);
-    const max = Math.max(...bars.map((b) => b.end), today);
+    // #227 — baseline spans widen the axis too; a planned range outside the actual
+    // one would otherwise render off-screen with no hint it existed.
+    const baselines = [...baselineById.values()];
+    const min = Math.min(...bars.map((b) => b.start), ...baselines.map((b) => b.start), today);
+    const max = Math.max(...bars.map((b) => b.end), ...baselines.map((b) => b.end), today);
     return { min: min - pad, max: max + pad };
-  }, [bars, zoom, today]);
+  }, [bars, zoom, today, baselineById]);
 
   const axisWidth = (range.max - range.min + 1) * px;
 
@@ -452,6 +487,47 @@ export function TimelineView({
                 ))}
               </select>
             </label>
+            {/* #227 — the baseline pair. Offered right beside the primary pair
+                because the renderer now draws it; a picker that offers less than
+                the renderer draws is the bug (field-surfaces.md). Choosing a
+                baseline start is what turns the feature on — the end is optional,
+                exactly like the primary pair, so a single planned date still
+                renders as a point rather than being rejected. */}
+            <label className="flex items-center gap-1 text-[12px] text-faint">
+              Planned
+              <select
+                className="h-6 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+                value={baselineStartField?.id ?? ''}
+                onChange={(e) =>
+                  onPatch({
+                    baseline_start_date_field_id: e.target.value || undefined,
+                    // Clearing the start makes the end meaningless — drop it too,
+                    // rather than leave a dangling half-configured baseline.
+                    ...(e.target.value ? {} : { baseline_end_date_field_id: undefined }),
+                  })
+                }
+              >
+                <option value="">None</option>
+                {dateFields.map((f) => (
+                  <option key={f.id} value={f.id}>{f.displayName}</option>
+                ))}
+              </select>
+            </label>
+            {baselineStartField && (
+              <label className="flex items-center gap-1 text-[12px] text-faint">
+                to
+                <select
+                  className="h-6 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+                  value={baselineEndField?.id ?? ''}
+                  onChange={(e) => onPatch({ baseline_end_date_field_id: e.target.value || undefined })}
+                >
+                  <option value="">None</option>
+                  {dateFields.filter((f) => f.id !== baselineStartField.id).map((f) => (
+                    <option key={f.id} value={f.id}>{f.displayName}</option>
+                  ))}
+                </select>
+              </label>
+            )}
           </div>
         )}
       </div>
@@ -644,8 +720,28 @@ export function TimelineView({
                 );
               }
               const width = Math.max(px, (end - start + 1) * px);
+              /* #227 — the baseline sits BEHIND the primary bar as a slimmer, muted
+                 outline, so the two are comparable at a glance without competing:
+                 the actual dates are the thing you act on, the plan is the ruler.
+                 It is not interactive — dragging must only ever move the primary. */
+              const base = baselineById.get(row.id);
+              const slip = slippageDays(bar, base);
+              const slipText = slippageLabel(slip);
               return (
                 <div key={row.id} className="relative border-b border-border-default" style={{ height: ROW_H }}>
+                  {base && (
+                    <div
+                      aria-hidden
+                      title={`Planned${slipText ? ` · ${slipText}` : ''}`}
+                      className="pointer-events-none absolute rounded-[3px] border border-dashed border-border-strong bg-hover"
+                      style={{
+                        left: (base.start - range.min) * px,
+                        top: ROW_H / 2 + 9,
+                        width: Math.max(px, (base.end - base.start + 1) * px),
+                        height: 6,
+                      }}
+                    />
+                  )}
                   <button
                     onClick={handleClick}
                     onPointerDown={(e) => startBarPointer(e, bar, 'move')}
@@ -658,6 +754,17 @@ export function TimelineView({
                   >
                     <span className="truncate px-1.5">{row.title || 'Untitled'}</span>
                   </button>
+                  {slipText && slip !== 0 && (
+                    <span
+                      className={cn(
+                        'pointer-events-none absolute text-[10px] tabular-nums',
+                        slip! > 0 ? 'text-error' : 'text-success',
+                      )}
+                      style={{ left: x + width + 6, top: ROW_H / 2 - 6 }}
+                    >
+                      {slipText}
+                    </span>
+                  )}
                   {!readOnly && endField && (
                     <>
                       <span

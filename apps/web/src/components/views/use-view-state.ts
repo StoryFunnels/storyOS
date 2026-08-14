@@ -33,6 +33,9 @@ export interface ViewConfig {
   /** Timeline (MN-092). */
   start_date_field_id?: string;
   end_date_field_id?: string;
+  /** #227 — optional baseline (planned) pair drawn behind the primary bar. */
+  baseline_start_date_field_id?: string;
+  baseline_end_date_field_id?: string;
   /** Form (MN-094, MN-101). */
   form?: {
     title?: string;

@@ -96,6 +96,15 @@ export const viewConfigSchema = z.object({
   start_date_field_id: z.uuid().optional(),
   end_date_field_id: z.uuid().optional(),
   /**
+   * #227 — an optional SECOND date pair rendered as a baseline behind the primary
+   * bar, so planned-vs-actual slippage is visible on the same row. Independent of
+   * the primary pair: dragging a bar rewrites the primary dates and must never
+   * touch these, or the baseline would chase the thing it exists to be compared
+   * against.
+   */
+  baseline_start_date_field_id: z.uuid().optional(),
+  baseline_end_date_field_id: z.uuid().optional(),
+  /**
    * Dashboard (MN-225 / #168) — ordered metric tiles. Unlike other view types
    * a dashboard's `filters`/`sorts` still apply (they scope every tile's
    * aggregate); it just renders KPI tiles instead of a record list. Phase 1 is
