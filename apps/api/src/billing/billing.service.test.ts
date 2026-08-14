@@ -324,3 +324,47 @@ describe('BillingService.getStatus — MN-192 lazy trial-expiry sweep', () => {
     expect(updates).toHaveLength(0);
   });
 });
+
+/**
+ * Regression coverage for a real bug: settingsUrl() built bare
+ * `${WEB_URL}/settings/billing` with no `/w/:workspaceId` segment, which
+ * 404s — the actual route is `/w/[ws]/settings/billing`. Caught via a live
+ * production checkout (payment succeeded, the success redirect 404'd), not
+ * by any prior test — there was none.
+ */
+describe('BillingService — checkout/portal redirect URLs include the workspace id', () => {
+  function stripeWithCapture() {
+    const checkoutCreate = vi.fn().mockResolvedValue({ url: 'https://checkout.stripe.com/c/pay/cs_test_1' });
+    const portalCreate = vi.fn().mockResolvedValue({ url: 'https://billing.stripe.com/p/session/bps_test_1' });
+    const stripe = {
+      client: {
+        checkout: { sessions: { create: checkoutCreate } },
+        billingPortal: { sessions: { create: portalCreate } },
+      },
+    } as unknown as StripeService;
+    return { stripe, checkoutCreate, portalCreate };
+  }
+
+  it('createCheckoutSession points success_url/cancel_url at the workspace-scoped settings route', async () => {
+    const { db } = makeDb({ customerRow: { workspaceId: 'ws1', stripeCustomerId: 'cus_1' } as unknown as { workspaceId: string } });
+    const { stripe, checkoutCreate } = stripeWithCapture();
+    const svc = new BillingService(db, stripe, accessStub, aiCreditsStub, referralsStub);
+
+    await svc.createCheckoutSession('ws1', 'pro');
+
+    const params = checkoutCreate.mock.calls[0]![0] as { success_url: string; cancel_url: string };
+    expect(params.success_url).toBe('http://localhost:3000/w/ws1/settings/billing?status=success');
+    expect(params.cancel_url).toBe('http://localhost:3000/w/ws1/settings/billing?status=canceled');
+  });
+
+  it('createPortalSession points return_url at the workspace-scoped settings route', async () => {
+    const { db } = makeDb({ customerRow: { workspaceId: 'ws1', stripeCustomerId: 'cus_1' } as unknown as { workspaceId: string } });
+    const { stripe, portalCreate } = stripeWithCapture();
+    const svc = new BillingService(db, stripe, accessStub, aiCreditsStub, referralsStub);
+
+    await svc.createPortalSession('ws1');
+
+    const params = portalCreate.mock.calls[0]![0] as { return_url: string };
+    expect(params.return_url).toBe('http://localhost:3000/w/ws1/settings/billing?status=portal_return');
+  });
+});
