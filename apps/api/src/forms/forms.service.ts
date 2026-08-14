@@ -5,6 +5,11 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import {
+  visibleFormFields,
+  type FormVisibilityRule,
+  type PublicFormVisibilityRule,
+} from '@storyos/schemas';
 import { BillingService } from '../billing/billing.service';
 import { resolveDatabaseColor } from '../common/database-color';
 import { DB } from '../db/db.module';
@@ -34,6 +39,8 @@ interface FormFieldCfg {
   required?: boolean;
   label?: string;
   help?: string;
+  /** #263 — show this field only when an earlier answer matches. */
+  visible_when?: FormVisibilityRule;
 }
 
 /**
@@ -202,6 +209,22 @@ export class FormsService {
     const billingStatus = await this.billing.getStatus(database.workspaceId);
     const hideBranding = billingStatus.plan !== 'free';
 
+    // #263 — translate visibility rules from internal field ids to api_names, and
+    // keep ONLY rules whose controlling field this form exposes EARLIER in the
+    // order. Walking in order is what makes "depends on an earlier answer" true
+    // rather than merely intended, and it makes a rule cycle impossible by
+    // construction (a field can never control itself or anything before it).
+    const visibleWhenByField = new Map<string, PublicFormVisibilityRule>();
+    const seenApiNames = new Set<string>();
+    for (const f of chosen) {
+      const rule = cfgById.get(f.id)?.visible_when;
+      const controller = rule ? chosen.find((c) => c.id === rule.field_id) : undefined;
+      if (rule && controller && seenApiNames.has(controller.apiName)) {
+        visibleWhenByField.set(f.id, { field: controller.apiName, op: rule.op, value: rule.value });
+      }
+      seenApiNames.add(f.apiName);
+    }
+
     return {
       title: form.title || database.name,
       description: form.description ?? null,
@@ -216,6 +239,13 @@ export class FormsService {
         label: cfgById.get(f.id)?.label || f.displayName,
         help: cfgById.get(f.id)?.help ?? null,
         required: cfgById.get(f.id)?.required ?? false,
+        // #263 — rendered keyed by api_name, which is what the renderer matches
+        // against its own answer keys. A rule pointing at a field this form
+        // doesn't expose (or one
+        // that isn't EARLIER in the order) is dropped rather than served: a
+        // dangling reference the renderer can't evaluate would hide the field
+        // forever. Dropping only the DANGLING case, not merely-unconfigured ones.
+        visible_when: visibleWhenByField.get(f.id),
         options: optsByField.get(f.id),
         relation: f.type === 'relation' ? relationInfoByField.get(f.id) : undefined,
         members: f.type === 'user' ? workspaceMembers : undefined,
@@ -272,8 +302,17 @@ export class FormsService {
     const def = await this.getDefinition(token);
     const { database } = await this.resolve(token);
 
-    // Enforce the form's own required flags (a form concern, not a DB constraint).
-    const missing = def.fields
+    // #263 — resolve which fields the submitted answers actually reveal. This is
+    // the SAME evaluator the renderer uses (packages/schemas), so the browser and
+    // the server can't drift into disagreeing about what was on screen.
+    const visible = visibleFormFields(def.fields, values);
+    const visibleNames = new Set(visible.map((f) => f.api_name));
+
+    // Enforce the form's own required flags (a form concern, not a DB constraint)
+    // — but only for fields the submitter could actually SEE. A required field
+    // hidden by its own rule would otherwise make the form unsubmittable, which
+    // is the obvious way conditional forms break.
+    const missing = visible
       .filter((f) => f.required)
       .filter((f) => {
         const v = values[f.api_name];
@@ -284,8 +323,10 @@ export class FormsService {
       throw new UnprocessableEntityException(`Required: ${missing.join(', ')}`);
     }
 
-    // Only accept values for fields the form actually exposes (ignore the rest).
-    const allowed = new Set(def.fields.map((f) => f.api_name));
+    // Only accept values for fields the form exposes AND the rules reveal (#263):
+    // a hidden field's value is refused server-side, so hiding is a real gate and
+    // not merely a client-side courtesy a crafted POST could walk straight past.
+    const allowed = visibleNames;
     const clean: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(values)) if (allowed.has(k)) clean[k] = v;
 

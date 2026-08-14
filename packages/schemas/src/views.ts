@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { formVisibilityRuleSchema } from './form-visibility';
 import { filterSchema, nullsPlacementSchema, sortSchema } from './query';
 
 export const viewTypeSchema = z.enum([
@@ -121,6 +122,8 @@ export const viewConfigSchema = z.object({
             required: z.boolean().optional(),
             label: z.string().max(100).optional(),
             help: z.string().max(500).optional(),
+            /** #263 — show this field only when an EARLIER answer matches. */
+            visible_when: formVisibilityRuleSchema.optional(),
           }),
         )
         .default([]),

@@ -3876,6 +3876,13 @@ export interface components {
                         required?: boolean;
                         label?: string;
                         help?: string;
+                        visible_when?: {
+                            /** Format: uuid */
+                            field_id: string;
+                            /** @enum {string} */
+                            op: "eq" | "neq" | "is_empty" | "not_empty" | "in";
+                            value?: unknown;
+                        };
                     }[];
                     public_token?: string;
                     /**
@@ -3981,6 +3988,13 @@ export interface components {
                         required?: boolean;
                         label?: string;
                         help?: string;
+                        visible_when?: {
+                            /** Format: uuid */
+                            field_id: string;
+                            /** @enum {string} */
+                            op: "eq" | "neq" | "is_empty" | "not_empty" | "in";
+                            value?: unknown;
+                        };
                     }[];
                     public_token?: string;
                     /**

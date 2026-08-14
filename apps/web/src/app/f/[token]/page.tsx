@@ -2,6 +2,7 @@
 
 import { use, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { visibleFormFields, type PublicFormVisibilityRule } from '@storyos/schemas';
 import { OptionChip } from '@/components/table-view/cells';
 import type { SelectOption } from '@/components/table-view/use-table-data';
 
@@ -23,6 +24,10 @@ interface FormField {
   /** User fields only (#224) — must match the field's own single/multi config;
    * the write path rejects an array for a non-multi field and vice versa. */
   multi?: boolean;
+  /** #263 — show this field only when an earlier answer matches. Keyed by
+   * api_name so it lines up with `values`, and evaluated by the SAME shared
+   * `visibleFormFields` the server runs on submit. */
+  visible_when?: PublicFormVisibilityRule;
 }
 interface FormDef {
   title: string;
@@ -128,7 +133,7 @@ export default function PublicFormPage({ params }: { params: Promise<{ token: st
           <h1 className="text-xl font-semibold text-neutral-900">{def!.title}</h1>
           {def!.description && <p className="mt-1 text-sm text-neutral-500">{def!.description}</p>}
         </div>
-        {def!.fields.map((f) => (
+        {visibleFormFields(def!.fields, values).map((f) => (
           <label key={f.field_id} className="flex flex-col gap-1.5">
             <span className="text-[13px] font-medium text-neutral-800">
               {f.label}

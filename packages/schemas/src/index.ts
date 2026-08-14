@@ -8,6 +8,7 @@ export * from './query';
 export * from './system-fields';
 export * from './relations';
 export * from './views';
+export * from './form-visibility';
 export * from './access';
 
 /**

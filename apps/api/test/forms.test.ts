@@ -187,6 +187,113 @@ describe('public forms (MN-101)', () => {
     expect(res.statusCode).toBe(422);
   });
 
+  /**
+   * #263 — conditional fields. The server half is the load-bearing one: hiding a
+   * field in the renderer is a courtesy, refusing its value on submit is the gate.
+   */
+  describe('#263 conditional fields', () => {
+    /** name (title, required) -> message, shown only when name is exactly "reveal". */
+    async function makeConditionalForm(tok: string) {
+      const res = await as('POST', `/workspaces/${wsId}/databases/${dbId}/views`, {
+        name: `Cond ${tok}`,
+        type: 'form',
+        config: {
+          sorts: [],
+          hidden_field_ids: [],
+          card_field_ids: [],
+          column_widths: {},
+          form: {
+            title: 'Conditional',
+            access: 'public',
+            public_token: tok,
+            fields: [
+              { field_id: nameFieldId, label: 'Your name' },
+              {
+                field_id: msgFieldId,
+                required: true,
+                visible_when: { field_id: nameFieldId, op: 'eq', value: 'reveal' },
+              },
+            ],
+          },
+        },
+      });
+      expect(res.statusCode, res.body).toBe(201);
+    }
+
+    it('serves the rule keyed by api_name, never by internal field id', async () => {
+      await makeConditionalForm('tok-cond');
+      const def = (await pub('GET', '/public/forms/tok-cond')).json();
+      const message = def.fields.find((f: { api_name: string }) => f.api_name === 'message');
+      // Keyed by api_name, which is what the renderer has to match its own answer
+      // keys against. (`field_id` is separately exposed per field and always has
+      // been — the relation endpoints need it — so this is not an id-leak claim.)
+      expect(message.visible_when).toEqual({ field: 'name', op: 'eq', value: 'reveal' });
+    });
+
+    it('does NOT require a field its own rule hides — the form stays submittable', async () => {
+      // `message` is required, but hidden while name !== 'reveal'. Requiring it
+      // anyway would make this form impossible to submit.
+      const res = await pub('POST', '/public/forms/tok-cond', { values: { name: 'someone' } });
+      expect(res.statusCode, res.body).toBe(201);
+    });
+
+    it('still requires the field once the rule reveals it', async () => {
+      const res = await pub('POST', '/public/forms/tok-cond', { values: { name: 'reveal' } });
+      expect(res.statusCode).toBe(422);
+    });
+
+    it('REFUSES a value for a hidden field, even when the POST is crafted by hand', async () => {
+      const res = await pub('POST', '/public/forms/tok-cond', {
+        values: { name: 'someone', message: 'smuggled past the hidden gate' },
+      });
+      expect(res.statusCode, res.body).toBe(201);
+      const created = (
+        await as('POST', `/workspaces/${wsId}/databases/${dbId}/records/query`, { limit: 100 })
+      ).json().data.find((r: { title: string }) => r.title === 'someone') as
+        | { values: Record<string, unknown> }
+        | undefined;
+      expect(created, 'the submit must have created a record').toBeTruthy();
+      // Hiding is a real server-side gate, not a client-side courtesy.
+      expect(created!.values.message ?? null).toBeNull();
+    });
+
+    it('accepts the value once the rule reveals the field', async () => {
+      const res = await pub('POST', '/public/forms/tok-cond', {
+        values: { name: 'reveal', message: 'legitimately visible' },
+      });
+      expect(res.statusCode, res.body).toBe(201);
+    });
+
+    it('drops a DANGLING rule rather than hiding the field forever', async () => {
+      // A rule pointing at a field the form does not expose cannot be evaluated by
+      // the renderer, so serving it would hide the field permanently. #305's lesson
+      // applied: drop the dangling reference, keep the field.
+      const orphan = (await as('POST', `/workspaces/${wsId}/databases/${dbId}/fields`, {
+        display_name: 'Not on the form',
+        type: 'text',
+      })).json().id;
+      await as('POST', `/workspaces/${wsId}/databases/${dbId}/views`, {
+        name: 'Dangling',
+        type: 'form',
+        config: {
+          sorts: [], hidden_field_ids: [], card_field_ids: [], column_widths: {},
+          form: {
+            access: 'public',
+            public_token: 'tok-dangling',
+            fields: [
+              { field_id: nameFieldId },
+              { field_id: msgFieldId, visible_when: { field_id: orphan, op: 'not_empty' } },
+            ],
+          },
+        },
+      });
+      const def = (await pub('GET', '/public/forms/tok-dangling')).json();
+      const message = def.fields.find((f: { api_name: string }) => f.api_name === 'message');
+      expect(message).toBeDefined();
+      expect(message.visible_when).toBeUndefined();
+    });
+  });
+
   it('honeypot submissions are silently dropped (no record)', async () => {
     const before = (await as('POST', `/workspaces/${wsId}/databases/${dbId}/records/query`, { limit: 100 })).json().data.length;
     const res = await pub('POST', '/public/forms/tok-public', {
