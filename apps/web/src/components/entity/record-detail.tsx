@@ -33,6 +33,11 @@ import { atLeast } from '@/lib/access';
 import { useDatabase, useMembers, useRecordMutations } from '@/components/table-view/use-table-data';
 import type { Field } from '@/components/table-view/use-table-data';
 import { DescriptionEditor } from '@/components/entity/description-editor';
+import {
+  CollapseToggle,
+  CollapsibleBody,
+  useCollapsedSection,
+} from '@/components/entity/collapsible-section';
 import { ActivityPanel, AttachmentsStrip, CommentsPanel, MentionedIn } from '@/components/entity/panels';
 import {
   AUDIT_TYPES,
@@ -425,8 +430,10 @@ export function RecordDetail({
             </SortableContext>
           </DndContext>
 
-          <h2 className="mb-2 text-[12px] font-medium uppercase tracking-wider text-muted">Description</h2>
-          <DescriptionEditor ws={ws} db={db} rec={recordId} readOnly={readOnly} />
+          {/* #309 — Description folds with the same control as any rich-text field.
+              It has to be wired separately because it isn't a field at all: it's
+              hard-coded here, outside the SortableContext (see #310). */}
+          <DescriptionSection ws={ws} db={db} recordId={recordId} readOnly={readOnly} />
 
           <div className="mb-6 mt-5">
             <AttachmentsStrip ws={ws} db={db} rec={recordId} readOnly={readOnly} />
@@ -688,6 +695,39 @@ function ResizeHandle({
             : 'bg-border-default group-hover:bg-border-strong group-focus-visible:bg-border-strong',
         )}
       />
+    </div>
+  );
+}
+
+/**
+ * #309 — the Description block, foldable like every other rich-text section.
+ *
+ * Its own component only because Description is not a field: it's hard-coded into
+ * the page rather than living in the body-field list, so it can't reuse
+ * RichTextFieldSection. #310 tracks making it first-class; when that lands, this
+ * wrapper should disappear rather than grow.
+ */
+function DescriptionSection({
+  ws,
+  db,
+  recordId,
+  readOnly,
+}: {
+  ws: string;
+  db: string;
+  recordId: string;
+  readOnly: boolean;
+}) {
+  const { collapsed, toggle } = useCollapsedSection(db, 'description');
+  return (
+    <div>
+      <div className="mb-2 flex items-center gap-1">
+        <CollapseToggle collapsed={collapsed} onToggle={toggle} label="Description" />
+        <h2 className="text-[12px] font-medium uppercase tracking-wider text-muted">Description</h2>
+      </div>
+      <CollapsibleBody collapsed={collapsed}>
+        <DescriptionEditor ws={ws} db={db} rec={recordId} readOnly={readOnly} />
+      </CollapsibleBody>
     </div>
   );
 }
