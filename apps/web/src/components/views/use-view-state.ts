@@ -118,14 +118,42 @@ export function useViewState(
   const save = useMutation({
     mutationFn: async () => {
       if (!activeView || !draft) return;
+      const saved = draft;
       const { error } = await api.PATCH('/api/v1/workspaces/{ws}/databases/{db}/views/{view}', {
         params: { path: { ws, db, view: activeView.id } },
-        body: { config: draft as never },
+        body: { config: saved as never },
       });
       if (error) throw error;
+      return { viewId: activeView.id, saved };
     },
-    onSuccess: () => {
-      setDraft(null);
+    /**
+     * #312 — the three-step flicker: hide a column and it hid, REAPPEARED, then hid
+     * again.
+     *
+     * `config` is `draft ?? activeView.config`. Clearing the draft synchronously
+     * dropped back to the CACHED view config, which still had the old value because
+     * the refetch hadn't landed — so the column came back for one render and
+     * vanished again when the fresh data arrived.
+     *
+     * Fix: fold the saved config into the cache FIRST, so the value the draft falls
+     * back to already matches. The invalidate then revalidates in the background
+     * with nothing to change, and there is no intermediate frame.
+     */
+    onSuccess: (result) => {
+      if (!result) return;
+      qc.setQueryData(['database', ws, db], (prev: DatabaseDetail | undefined) =>
+        prev
+          ? {
+              ...prev,
+              views: prev.views.map((v) =>
+                v.id === result.viewId ? { ...v, config: result.saved } : v,
+              ),
+            }
+          : prev,
+      );
+      // Only drop the draft if the user hasn't edited again while this was in flight
+      // — otherwise a fast second edit would be thrown away by its own save.
+      setDraft((cur) => (cur && JSON.stringify(cur) === JSON.stringify(result.saved) ? null : cur));
       void qc.invalidateQueries({ queryKey: ['database', ws, db] });
     },
     onError: () => toast.error('Could not save the view'),
