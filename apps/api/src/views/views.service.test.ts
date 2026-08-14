@@ -292,3 +292,84 @@ describe('boardGroupError — #307: a date field groups a board into periods', (
     expect(out.group_by_granularity).toBe('quarter');
   });
 });
+
+/**
+ * #227 + a guard for every key after it. `cleanViewConfig` is an explicit
+ * ALLOWLIST: it rebuilds the config key by key, so any key added to
+ * `viewConfigSchema` but not copied here is silently discarded on read. That is
+ * how #227's baseline pair shipped broken — it saved to the database correctly
+ * and vanished on every read, so the picker could never show it back.
+ *
+ * TypeScript cannot catch this (every added key is optional, so an object
+ * literal that omits it still satisfies `ViewConfig`), which is exactly why it
+ * needs a test.
+ */
+describe('#227 — the timeline baseline pair survives a read', () => {
+  const FIELD_A = '11111111-1111-4111-8111-111111111111';
+  const FIELD_B = '22222222-2222-4222-8222-222222222222';
+
+  const withBaseline = (over: Partial<ViewConfig> = {}): ViewConfig => ({
+    ...BASE,
+    filters: undefined,
+    start_date_field_id: FIELD_A,
+    end_date_field_id: FIELD_B,
+    baseline_start_date_field_id: FIELD_A,
+    baseline_end_date_field_id: FIELD_B,
+    ...over,
+  });
+
+  it('keeps both baseline ids when the fields they name are live', () => {
+    const out = cleanViewConfig(withBaseline(), new Set([FIELD_A, FIELD_B]), new Set());
+    expect(out.baseline_start_date_field_id).toBe(FIELD_A);
+    expect(out.baseline_end_date_field_id).toBe(FIELD_B);
+  });
+
+  it('drops a baseline id whose field was deleted — dangling, like the primary pair', () => {
+    const out = cleanViewConfig(withBaseline(), new Set([FIELD_A]), new Set());
+    expect(out.baseline_start_date_field_id).toBe(FIELD_A);
+    expect(out.baseline_end_date_field_id).toBeUndefined();
+  });
+
+  it('leaves a view with no baseline configured alone (absent is not invalid)', () => {
+    const out = cleanViewConfig(
+      withBaseline({ baseline_start_date_field_id: undefined, baseline_end_date_field_id: undefined }),
+      new Set([FIELD_A, FIELD_B]),
+      new Set(),
+    );
+    expect(out.baseline_start_date_field_id).toBeUndefined();
+    expect(out.start_date_field_id).toBe(FIELD_A);
+  });
+});
+
+/**
+ * The generic guard. Rather than trusting whoever adds the NEXT config key to
+ * remember this function, assert that every scalar id-ish key the schema accepts
+ * still comes back out. If this fails, someone widened `viewConfigSchema` and
+ * forgot `cleanViewConfig` — the failure message names the key.
+ */
+describe('cleanViewConfig — no schema key is silently dropped on read', () => {
+  it('round-trips every *_field_id key the schema accepts', () => {
+    const LIVE = '33333333-3333-4333-8333-333333333333';
+    // Every scalar UUID-valued key in viewConfigSchema. Add to this list when the
+    // schema grows one; the point is that the list and the function stay in step.
+    const idKeys = [
+      'group_by_field_id',
+      'color_by_field_id',
+      'date_field_id',
+      'start_date_field_id',
+      'end_date_field_id',
+      'baseline_start_date_field_id',
+      'baseline_end_date_field_id',
+    ] as const;
+
+    const config = { ...BASE, filters: undefined } as unknown as Record<string, unknown>;
+    for (const k of idKeys) config[k] = LIVE;
+
+    const out = cleanViewConfig(config as unknown as ViewConfig, new Set([LIVE]), new Set()) as unknown as Record<
+      string,
+      unknown
+    >;
+    const dropped = idKeys.filter((k) => out[k] !== LIVE);
+    expect(dropped, `cleanViewConfig dropped these live keys: ${dropped.join(', ')}`).toEqual([]);
+  });
+});
