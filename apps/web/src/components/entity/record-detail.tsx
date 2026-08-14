@@ -179,6 +179,15 @@ export function RecordDetail({
   const topFields = useMemo(() => byOrder(visibleFields.filter((f) => zonesOf(f).includes('top'))), [visibleFields, byOrder]);
   const sidebarFields = useMemo(() => byOrder(visibleFields.filter((f) => zonesOf(f).includes('sidebar'))), [visibleFields, byOrder]);
   const bodyFields = useMemo(() => byOrder(visibleFields.filter((f) => zonesOf(f).includes('body'))), [visibleFields, byOrder]);
+  // #301: the rows that actually participate in the drag. Everything in the body is
+  // sortable when the schema is editable; nothing is when it isn't. Renumbering must
+  // run over THIS list, or a drop would rewrite entity_order for rows the user can't
+  // move and the persisted order wouldn't match the order the drag previewed.
+  const sortableBodyFields = useMemo(
+    () => (schemaEditable ? bodyFields : []),
+    [schemaEditable, bodyFields],
+  );
+  const sortableBodyIds = useMemo(() => sortableBodyFields.map((f) => f.id), [sortableBodyFields]);
   // Fields eligible to be pinned to the top strip (movable, not already there).
   const topCandidates = useMemo(
     () => visibleFields.filter((f) => f.type !== 'rich_text' && !isCollection(f) && !zonesOf(f).includes('top')),
@@ -400,12 +409,20 @@ export function RecordDetail({
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
-            onDragEnd={(e) => reorderWithin(bodyFields, e)}
+            onDragEnd={(e) => reorderWithin(sortableBodyFields, e)}
           >
-            <SortableContext items={bodyFields.map((f) => f.id)} strategy={verticalListSortingStrategy}>
+            {/* #301: a row that isn't sortable must be OUT of this list, not merely
+                `disabled`. dnd-kit still lays out and transforms a disabled member,
+                which is what made a tall rich-text card slide over its neighbours
+                mid-drag and read as one field nested inside another. */}
+            <SortableContext items={sortableBodyIds} strategy={verticalListSortingStrategy}>
               {bodyFields.map((field) =>
                 field.type === 'rich_text' ? (
-                  <BodyRow key={field.id} field={field} draggable={false}>
+                  // #301: was draggable={false}, which froze Details / Acceptance
+                  // Criteria / User Story in place — exactly the rows a long record
+                  // most needs reordered. A tall card is now practical to drag
+                  // because #309 lets you collapse it first.
+                  <BodyRow key={field.id} field={field} draggable={schemaEditable}>
                     <RichTextFieldSection
                       ws={ws}
                       db={db}
@@ -563,10 +580,11 @@ function BodyRow({
   children: ReactNode;
 }) {
   const sortable = useSortable({ id: field.id, disabled: !draggable });
-  const style = {
-    transform: CSS.Transform.toString(sortable.transform),
-    transition: sortable.transition,
-  };
+  // #301: never transform a row that isn't participating in the sort — a stale
+  // transform on a tall card is what made rows visually overlap during a drag.
+  const style = draggable
+    ? { transform: CSS.Transform.toString(sortable.transform), transition: sortable.transition }
+    : undefined;
   return (
     <div
       ref={sortable.setNodeRef}
