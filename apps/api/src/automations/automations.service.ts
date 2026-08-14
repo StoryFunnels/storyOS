@@ -847,6 +847,21 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
 
   /** One scheduler pass — public so tests can invoke it directly. */
   async tick(): Promise<void> {
+    try {
+      await this.tickInner();
+    } catch (err) {
+      /**
+       * A transient DB blip here must NEVER take the whole process down with it.
+       * This fires from an untracked `setInterval(() => void this.tick(), 60_000)`
+       * callback, so an uncaught rejection is fatal to the entire API — not just to
+       * automations. Mirrors WebhooksService.tick(), which already guards exactly
+       * this; automations was the outlier.
+       */
+      this.logger.error(`automations tick failed: ${String(err)}`);
+    }
+  }
+
+  private async tickInner(): Promise<void> {
     // MN-255: expire pending approvals nobody decided on within 7 days —
     // piggybacks this tick rather than owning a second timer, same as
     // JobRunnerService's reaper piggybacks its own tick().
