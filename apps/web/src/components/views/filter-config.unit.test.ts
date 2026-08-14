@@ -7,6 +7,8 @@ import {
   canTurnIntoGroup,
   duplicateNodeAt,
   filterConditions,
+  clearConditionsForField,
+  conditionPathsForField,
   filterConnector,
   flattenFilterTree,
   getNodeAt,
@@ -446,5 +448,56 @@ describe('activeFilterNode — recursive pruning through nested groups (MN-258)'
     expect(activeFilterNode(filters)).toEqual({
       and: [{ field: 'a', op: 'eq', value: 'done' }, { field: 'b', op: 'eq', value: 'done' }],
     });
+  });
+});
+
+/**
+ * #224: a table column header must be able to say "this column is filtered" and
+ * clear it in one action. The nesting cases are the point — a condition can sit
+ * inside a group, and removing the last one must not leave an empty group behind
+ * (query.ts rejects a zero-child group).
+ */
+describe('#224 per-column filter helpers', () => {
+  const at = (field: string, value = 'x'): FilterCondition => ({ field, op: 'eq', value });
+
+  it('finds a top-level condition on the field, and ignores other fields', () => {
+    const list = filterConditions(buildFilterGroup('and', [at('state'), at('owner')]));
+    expect(conditionPathsForField(list, 'state')).toEqual([[0]]);
+    expect(conditionPathsForField(list, 'owner')).toEqual([[1]]);
+    expect(conditionPathsForField(list, 'nope')).toEqual([]);
+  });
+
+  it('finds conditions nested inside a group', () => {
+    const list = filterConditions(
+      buildFilterGroup('and', [at('owner'), { or: [at('state'), at('state')] }]),
+    );
+    expect(conditionPathsForField(list, 'state')).toEqual([
+      [1, 0],
+      [1, 1],
+    ]);
+  });
+
+  it('clears every condition on the field and leaves the others untouched', () => {
+    const list = filterConditions(
+      buildFilterGroup('and', [at('state', 'a'), at('owner'), at('state', 'b')]),
+    );
+    expect(clearConditionsForField(list, 'state')).toEqual([at('owner')]);
+  });
+
+  it('removes a group that clearing empties, rather than leaving a zero-child group', () => {
+    const list = filterConditions(
+      buildFilterGroup('and', [at('owner'), { or: [at('state', 'a'), at('state', 'b')] }]),
+    );
+    expect(clearConditionsForField(list, 'state')).toEqual([at('owner')]);
+  });
+
+  it('keeps a group that still has a surviving child', () => {
+    const list = filterConditions(buildFilterGroup('and', [{ or: [at('state'), at('owner')] }]));
+    expect(clearConditionsForField(list, 'state')).toEqual([{ or: [at('owner')] }]);
+  });
+
+  it('is a no-op when the field has no condition', () => {
+    const list = filterConditions(buildFilterGroup('and', [at('owner')]));
+    expect(clearConditionsForField(list, 'state')).toEqual([at('owner')]);
   });
 });

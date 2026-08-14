@@ -204,6 +204,39 @@ export function removeNodeCascade(list: FilterNode[], path: number[]): FilterNod
   return next;
 }
 
+/**
+ * #224 — every condition (at ANY depth) targeting one field's api_name, so a table
+ * column header can say it is filtered. The header menu could already ADD a filter
+ * but nothing indicated one was active, which read as "the filter didn't apply".
+ */
+export function conditionPathsForField(list: FilterNode[], apiName: string): number[][] {
+  return flattenFilterTree(list)
+    .filter((entry) => !isFilterGroup(entry.node) && (entry.node as FilterCondition).field === apiName)
+    .map((entry) => entry.path);
+}
+
+/**
+ * #224 — the header menu's one-action "clear the filter on this column". Removes
+ * every condition on `apiName` at any depth, deepest/last path FIRST so remaining
+ * paths stay valid mid-loop, and cascades so a group left empty by the removal
+ * disappears instead of persisting as an invalid zero-child group (query.ts
+ * requires >= 1 child).
+ */
+export function clearConditionsForField(list: FilterNode[], apiName: string): FilterNode[] {
+  return conditionPathsForField(list, apiName)
+    .sort(comparePathsDesc)
+    .reduce((acc, path) => removeNodeCascade(acc, path), list);
+}
+
+/** Deepest/last-first: removing a later sibling never shifts an earlier one's index. */
+function comparePathsDesc(a: number[], b: number[]): number {
+  for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
+    const diff = (b[i] ?? -1) - (a[i] ?? -1);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
 export function updateNodeAt(
   list: FilterNode[],
   path: number[],
