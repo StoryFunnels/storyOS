@@ -1,4 +1,6 @@
-import { ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Inject, Injectable, NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import { and, asc, eq, inArray, isNull, or } from 'drizzle-orm';
 import { normalizeIconInput } from '@storyos/schemas/icons';
 import { resolveDatabaseColor, randomDatabaseColor } from '../common/database-color';
@@ -252,6 +254,15 @@ export class DatabasesService {
       where: and(eq(spaces.id, input.space_id), eq(spaces.workspaceId, membership.workspaceId)),
     });
     if (!space) throw new NotFoundException('Space not found');
+    // #291/#290 §2: v1 Personal holds documents and views only. A private DATABASE is
+    // a private SCHEMA — relations, rollups and automations pointing at it would have
+    // to reason about data the reader can't see, and that leak would be silent.
+    // Revisit only through #296, never by relaxing this quietly.
+    if (space.personal) {
+      throw new UnprocessableEntityException(
+        'A personal space holds documents and views only — create the database in a shared space.',
+      );
+    }
 
     const siblings = await this.db.query.databases.findMany({
       where: eq(databases.spaceId, input.space_id),

@@ -5,10 +5,10 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { accessGrants, databases, memberships, spaces } from '../db/schema';
+import { accessGrants, databases, memberships, spaces, views } from '../db/schema';
 import type { Membership } from '../workspaces/workspace-access.guard';
 
 /** ADR-0007: graded access. admin/member are workspace-wide fast paths. */
@@ -63,6 +63,37 @@ export class AccessService {
     });
   }
 
+
+  /**
+   * #291 — is this personal space readable by this member?
+   *
+   * The ONE rule: a personal space belongs to its owner and to nobody else, admins
+   * included (#290 decided no admin bypass, and the ADR's offboarding consequence
+   * depends on it). Everything that lists or resolves spaces routes through here or
+   * through `notOthersPersonal()` below, so the rule can't be forgotten at one
+   * endpoint — which is how a privacy leak stays silent.
+   */
+  canSeePersonal(
+    membership: Membership,
+    space: { personal: boolean | null; ownerUserId: string | null },
+  ): boolean {
+    if (!space.personal) return true;
+    return space.ownerUserId === membership.userId;
+  }
+
+  /**
+   * #291 — SQL predicate for any query that lists spaces: keep shared spaces, plus
+   * this member's OWN personal space. Compose it into an existing `and(...)`.
+   */
+  notOthersPersonal(membership: Membership) {
+    return or(eq(spaces.personal, false), eq(spaces.ownerUserId, membership.userId));
+  }
+
+  /** #291 — same rule for views: shared views, plus this member's own personal ones. */
+  notOthersPersonalView(membership: Membership) {
+    return or(isNull(views.ownerUserId), eq(views.ownerUserId, membership.userId));
+  }
+
   /** Effective role for one database. null = no access (render as 404). */
   async effectiveForDatabase(
     membership: Membership,
@@ -89,6 +120,14 @@ export class AccessService {
    * ADR-0009), guest → their grant on this space.
    */
   async effectiveForSpace(membership: Membership, spaceId: string): Promise<EffectiveRole | null> {
+    // #291: check PERSONAL first. This used to return admin/creator without looking
+    // at the space at all, which made every personal space readable by every member
+    // and admin by construction.
+    const space = await this.db.query.spaces.findFirst({
+      where: eq(spaces.id, spaceId),
+      columns: { personal: true, ownerUserId: true },
+    });
+    if (space && !this.canSeePersonal(membership, space)) return null;
     if (membership.role === 'admin') return 'admin';
     if (membership.role === 'member') return 'creator';
     const grants = await this.guestGrants(membership);

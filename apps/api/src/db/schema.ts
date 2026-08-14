@@ -110,9 +110,27 @@ export const spaces = pgTable(
     icon: text('icon'),
     color: text('color'),
     position: integer('position').notNull().default(0),
+    /**
+     * #291 — a PERSONAL space: visible only to `ownerUserId`, including to admins
+     * (#290 decided no admin bypass). Excluded from the workspace export.
+     *
+     * The flag and the owner travel together: `personal` is what every access check
+     * branches on, `ownerUserId` is who may see it. A personal row without an owner
+     * would be visible to nobody and unreachable, so the two are set as a pair.
+     */
+    personal: boolean('personal').notNull().default(false),
+    /** Plain text like `createdBy` — the auth `user` table isn't in this schema, and
+     *  #291 requires an EXPLICIT hard delete on member removal, not a DB cascade. */
+    ownerUserId: text('owner_user_id'),
     ...timestamps,
   },
-  (t) => [uniqueIndex('spaces_workspace_slug_uq').on(t.workspaceId, t.slug)],
+  (t) => [
+    uniqueIndex('spaces_workspace_slug_uq').on(t.workspaceId, t.slug),
+    // One personal space per user per workspace.
+    uniqueIndex('spaces_workspace_owner_uq')
+      .on(t.workspaceId, t.ownerUserId)
+      .where(sql`${t.personal}`),
+  ],
 );
 
 export const memberships = pgTable(
@@ -273,6 +291,16 @@ export const views = pgTable('views', {
   /** The view a database opens with; at most one true per database (MN-241). */
   isDefault: boolean('is_default').notNull().default(false),
   createdBy: text('created_by'),
+  /**
+   * #291 — a PERSONAL view: visible only to this user, including to admins.
+   *
+   * NOT a space_id. A view belongs to its DATABASE and always has — a personal view
+   * is a private WINDOW onto shared data, not a private container. `createdBy`
+   * records authorship and is not a privacy signal; this column is.
+   *
+   * null = an ordinary shared view (every view today).
+   */
+  ownerUserId: text('owner_user_id'),
   ...timestamps,
 });
 

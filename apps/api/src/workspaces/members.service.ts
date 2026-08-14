@@ -9,7 +9,7 @@ import {
 import { and, eq, inArray } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { memberships, user } from '../db/schema';
+import { memberships, spaces, user, views } from '../db/schema';
 import type { MembershipRole } from '@storyos/schemas';
 import { BillingService } from '../billing/billing.service';
 import { EntitlementsService } from '../billing/entitlements.service';
@@ -119,6 +119,33 @@ export class MembersService {
     if (target.role === 'admin') await this.assertNotLastAdmin(workspaceId, membershipId);
 
     await this.db.delete(memberships).where(eq(memberships.id, membershipId));
+
+    /**
+     * #291/#290 — HARD-DELETE this member's personal content.
+     *
+     * The ADR promises a departing member's personal docs are gone, with no
+     * break-glass path. Leaving the rows behind while merely hiding them would be
+     * the worst outcome: the privacy promise broken AND the content unreachable.
+     *
+     * Scope is deliberately narrow and is the load-bearing part: the personal SPACE
+     * (its space_documents and space_folders cascade from it) and this member's
+     * personal VIEWS. Never records, never databases — a personal view is a saved
+     * query over SHARED data, so deleting it must not touch a single record that a
+     * private board happened to point at.
+     */
+    await this.db
+      .delete(views)
+      .where(eq(views.ownerUserId, target.userId));
+    await this.db
+      .delete(spaces)
+      .where(
+        and(
+          eq(spaces.workspaceId, workspaceId),
+          eq(spaces.personal, true),
+          eq(spaces.ownerUserId, target.userId),
+        ),
+      );
+
     if (BILLABLE_ROLES.includes(target.role)) {
       await this.billing.syncSeatQuantity(workspaceId).catch(() => undefined);
     }

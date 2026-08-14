@@ -29,11 +29,22 @@ export class SpaceDocumentsService {
     };
   }
 
-  private async assertSpace(workspaceId: string, spaceId: string) {
+  /**
+   * #291 — a PERSONAL space is reachable only by its owner, admins included.
+   *
+   * 404s rather than 403s, matching the convention elsewhere: a distinguishable
+   * "forbidden" would confirm that a given person has a personal space and that a
+   * particular document id lives in it, which is itself the disclosure.
+   */
+  private async assertSpace(workspaceId: string, spaceId: string, actorUserId: string) {
     const space = await this.db.query.spaces.findFirst({
       where: and(eq(spaces.id, spaceId), eq(spaces.workspaceId, workspaceId)),
+      columns: { id: true, personal: true, ownerUserId: true },
     });
     if (!space) throw new NotFoundException('Space not found');
+    if (space.personal && space.ownerUserId !== actorUserId) {
+      throw new NotFoundException('Space not found');
+    }
   }
 
   private async row(workspaceId: string, docId: string) {
@@ -44,8 +55,8 @@ export class SpaceDocumentsService {
     return row;
   }
 
-  async list(workspaceId: string, spaceId: string) {
-    await this.assertSpace(workspaceId, spaceId);
+  async list(workspaceId: string, spaceId: string, actorUserId: string) {
+    await this.assertSpace(workspaceId, spaceId, actorUserId);
     const rows = await this.db.query.spaceDocuments.findMany({
       where: and(eq(spaceDocuments.spaceId, spaceId), isNull(spaceDocuments.deletedAt)),
       orderBy: [asc(spaceDocuments.position), asc(spaceDocuments.createdAt)],
@@ -54,7 +65,7 @@ export class SpaceDocumentsService {
   }
 
   async create(workspaceId: string, spaceId: string, input: { title?: string; icon?: string }, actorId: string) {
-    await this.assertSpace(workspaceId, spaceId);
+    await this.assertSpace(workspaceId, spaceId, actorId);
     const [last] = await this.db
       .select({ position: spaceDocuments.position })
       .from(spaceDocuments)

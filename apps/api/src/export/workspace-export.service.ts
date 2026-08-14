@@ -70,8 +70,17 @@ export class WorkspaceExportService {
 
     // Structural metadata is small and read eagerly; the bulk (records, links,
     // attachment bytes) is streamed lazily below as archiver consumes each entry.
+    /**
+     * #291/#290 — PERSONAL spaces are excluded from the export, unconditionally.
+     *
+     * The export is triggerable by an owner/admin, so including personal content
+     * would make it the back door that "no admin bypass" exists to prevent — and a
+     * silent one, since the ZIP is rarely read by the person whose notes are in it.
+     * The accepted consequence is on the ticket: a departing member's personal docs
+     * are not recoverable from an export either.
+     */
     const spaceRows = await this.db.query.spaces.findMany({
-      where: eq(spaces.workspaceId, workspaceId),
+      where: and(eq(spaces.workspaceId, workspaceId), eq(spaces.personal, false)),
       orderBy: [asc(spaces.position), asc(spaces.id)],
     });
     const databaseRows = (
