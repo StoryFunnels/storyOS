@@ -63,7 +63,8 @@ export function coercePaste(target: Field, text: string, copied: CopiedCell | nu
   if (
     copied &&
     copied.field.type === target.type &&
-    !['select', 'multi_select', 'relation', 'user'].includes(target.type)
+    // #311: `workflow` pastes exactly like a single-select (option label → id).
+    !['select', 'workflow', 'multi_select', 'relation', 'user'].includes(target.type)
   ) {
     return copied.value;
   }

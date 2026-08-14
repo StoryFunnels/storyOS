@@ -32,6 +32,7 @@ import { NOT_INLINE } from './entity-field-utils';
 import type { CollectionView, VP } from './entity-field-utils';
 import { FieldMenu, useSetFieldConfig } from './field-controls';
 import { FieldsMenu } from '@/components/views/fields-menu';
+import { isSingleOption } from '@/components/table-view/field-kinds';
 import { SelectDriftBanner } from './select-drift-banner';
 import { useOpenInSplit } from './split-panel-context';
 
@@ -40,6 +41,9 @@ const COLLECTION_CAP = 20;
 /** Field types worth showing inline in a relation section (MN-206). */
 const INLINE_COLUMN_TYPES = new Set([
   'select',
+  // #311: `workflow` (State/Status) is select-shaped and was simply missing here, so
+  // the State column could never be switched on for a linked-records list.
+  'workflow',
   'multi_select',
   'user',
   'date',
@@ -174,7 +178,11 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
   // choice via the Fields picker, else a sensible default (first status + assignee).
   const columnCandidates = targetFields.filter((f) => INLINE_COLUMN_TYPES.has(f.type));
   const defaultColumns = useMemo(() => {
-    const status = columnCandidates.find((f) => f.type === 'select');
+    // #311/#181: prefer the database's actual State field for the default status
+    // column; fall back to any single-select, as before.
+    const status =
+      columnCandidates.find((f) => f.type === 'workflow') ??
+      columnCandidates.find((f) => f.type === 'select');
     const person = columnCandidates.find((f) => f.type === 'user');
     return [status, person].filter((f): f is Field => Boolean(f)).map((f) => f.apiName);
   }, [columnCandidates]);
@@ -220,7 +228,7 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
               onNullsChange={(sorts_nulls) => setCv({ sorts_nulls })}
             />
             <ColorByButton
-              fields={targetFields.filter((f) => f.type === 'select')}
+              fields={targetFields.filter(isSingleOption)}
               value={cv.color_by}
               onChange={(color_by) => setCv({ color_by })}
             />

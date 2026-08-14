@@ -101,7 +101,8 @@ export function AddFieldDialog({
   }, [name, currentDb.data]);
   const lookupRelation = relationFields.find((f) => f.id === lookupRelationId);
   const lookupTargetDb = useDatabase(ws, lookupRelation?.relation?.target_database_id ?? '');
-  const LOOKUPABLE = new Set(['title', 'text', 'number', 'checkbox', 'date', 'select', 'multi_select', 'url', 'email']);
+  // #311: a lookup of a related record's State is as valid as any other select.
+  const LOOKUPABLE = new Set(['title', 'text', 'number', 'checkbox', 'date', 'select', 'workflow', 'multi_select', 'url', 'email']);
   // #286: a first/last rollup RETURNS a field rather than aggregating one, so
   // any lookupable type is fair game — unlike sum/avg/min/max, which need a number.
   const pickOne = type === 'rollup' && (rollupOp === 'first' || rollupOp === 'last');

@@ -28,6 +28,9 @@ export const FORM_FIELD_TYPES = new Set([
   'url',
   'email',
   'select',
+  // #311: State is a normal field on a form — it renders through the same option
+  // control as select (which was already allowed), so this adds no new exposure.
+  'workflow',
   'multi_select',
   'user',
   'relation',
