@@ -53,8 +53,14 @@ export class BillingService {
     private readonly referrals: ReferralsService,
   ) {}
 
-  private settingsUrl(query: string): string {
-    return `${env().WEB_URL}/settings/billing?${query}`;
+  /**
+   * Stripe return URLs. The workspace id is REQUIRED: the billing page lives at
+   * `/w/[ws]/settings/billing` and there is no root `/settings` route, so a bare
+   * `/settings/billing` 404s. That shipped, and a real customer hit it — payment
+   * succeeded, the success redirect landed on a 404.
+   */
+  private settingsUrl(workspaceId: string, query: string): string {
+    return `${env().WEB_URL}/w/${workspaceId}/settings/billing?${query}`;
   }
 
   /** Current plan state, defaulting to Free for a workspace that never billed. */
@@ -221,8 +227,8 @@ export class BillingService {
       mode: 'subscription',
       customer,
       line_items: lineItems,
-      success_url: this.settingsUrl('status=success'),
-      cancel_url: this.settingsUrl('status=canceled'),
+      success_url: this.settingsUrl(workspaceId, 'status=success'),
+      cancel_url: this.settingsUrl(workspaceId, 'status=canceled'),
       subscription_data: { metadata: { workspaceId } },
       metadata: { workspaceId, plan },
     };
@@ -243,7 +249,7 @@ export class BillingService {
     const customer = await this.ensureCustomer(workspaceId);
     const session = await this.stripe.client.billingPortal.sessions.create({
       customer,
-      return_url: this.settingsUrl('status=portal_return'),
+      return_url: this.settingsUrl(workspaceId, 'status=portal_return'),
     });
     return session.url;
   }
