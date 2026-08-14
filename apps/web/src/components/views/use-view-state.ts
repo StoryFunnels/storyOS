@@ -185,7 +185,8 @@ export function useViewState(
     patch,
     reset: () => setDraft(null),
     save: () => save.mutate(),
-    personalFilter: personalFilter.data,
+    // null (no override) collapses to undefined here — see usePersonalFilter.
+    personalFilter: personalFilter.data ?? undefined,
   };
 }
 
@@ -313,7 +314,17 @@ export function usePersonalFilter(ws: string, db: string, viewId: string | undef
         { params: { path: { ws, db, view: viewId! } } },
       );
       if (error) throw error;
-      return (data as unknown as { filter: FilterNode | null }).filter ?? undefined;
+      /**
+       * Return null, NOT undefined, when the viewer has no personal filter — which
+       * is the COMMON case (the endpoint answers `{"filter": null}`). react-query
+       * rejects an undefined queryFn result outright ("Query data cannot be
+       * undefined"), so `?? undefined` threw on every table/board/calendar load
+       * that had no override, leaving the query permanently in an error state and
+       * refetching. The absent case is converted back to undefined once, where
+       * useViewState hands it to consumers, so their `FilterNode | undefined`
+       * contract is unchanged.
+       */
+      return (data as unknown as { filter: FilterNode | null }).filter ?? null;
     },
     enabled: Boolean(viewId),
   });
@@ -329,7 +340,9 @@ export function useSetPersonalFilter(ws: string, db: string) {
         { params: { path: { ws, db, view: viewId } }, body: { filter: filter as never } },
       );
       if (error) throw error;
-      return (data as unknown as { filter: FilterNode | null }).filter ?? undefined;
+      // Null for "no override", matching usePersonalFilter — onSuccess writes this
+      // straight into that same cache key, so the two must agree on the shape.
+      return (data as unknown as { filter: FilterNode | null }).filter ?? null;
     },
     onSuccess: (filter, { viewId }) => qc.setQueryData(['personal-filter', ws, db, viewId], filter),
     onError: () => toast.error('Could not save your personal filter'),
