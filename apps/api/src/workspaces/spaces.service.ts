@@ -24,7 +24,13 @@ export class SpacesService {
         : visible.size > 0
           ? and(eq(spaces.workspaceId, membership.workspaceId), inArray(spaces.id, [...visible]))
           : and(eq(spaces.workspaceId, membership.workspaceId), inArray(spaces.id, ['00000000-0000-0000-0000-000000000000']));
-    return this.db.query.spaces.findMany({ where: scope, orderBy: [asc(spaces.position)] });
+    // #291: another member's PERSONAL space never appears in the list — including for
+    // admins. `visible === null` (admin/member "sees everything") is exactly the case
+    // that would otherwise leak it, so the predicate is ANDed onto every branch.
+    return this.db.query.spaces.findMany({
+      where: and(scope, this.access.notOthersPersonal(membership)),
+      orderBy: [asc(spaces.position)],
+    });
   }
 
   /** Slug unique per workspace (MN-153) — namespaces the databases inside it. */

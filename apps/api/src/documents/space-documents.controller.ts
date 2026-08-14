@@ -34,7 +34,7 @@ export class SpaceDocumentsController {
   @Get('spaces/:space/documents')
   @ApiOperation({ summary: 'Standalone documents in a space (MN-095)' })
   async list(@Req() req: WorkspaceRequest, @Param('space') space: string) {
-    return { data: await this.docs.list(req.membership.workspaceId, space) };
+    return { data: await this.docs.list(req.membership.workspaceId, space, req.user.id) };
   }
 
   @Post('spaces/:space/documents')
