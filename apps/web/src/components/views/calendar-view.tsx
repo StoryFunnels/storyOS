@@ -13,7 +13,7 @@ import {
 } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { CellDisplay, fieldValue, isSystemDate } from '../table-view/cells';
+import { CellDisplay, fieldValue, isSystemDate, optionColor } from '../table-view/cells';
 import { useDatabase, useMembers, useRecordMutations, useRecordsInfinite } from '../table-view/use-table-data';
 import type { Field, RecordRow } from '../table-view/use-table-data';
 import { fmtDate, MONTH_NAMES, monthMatrix } from '@/lib/dates';
@@ -85,6 +85,16 @@ export function CalendarView({
   const chipFields = useMemo(
     () => (database.data?.fields ?? []).filter((f) => config.card_field_ids.includes(f.id)),
     [database.data, config.card_field_ids],
+  );
+  /* #226 — colour the whole card, not a left accent bar. Same `color_by_field_id`
+     the feed/list/timeline views already read (MN-102), resolved through the same
+     shared `optionColor`, so the calendar can't drift into its own colour rule. */
+  const colorField = useMemo(
+    () =>
+      (database.data?.fields ?? []).find(
+        (f) => f.id === config.color_by_field_id && (f.type === 'select' || f.type === 'workflow'),
+      ),
+    [database.data, config.color_by_field_id],
   );
 
   const byDay = useMemo(() => {
@@ -199,6 +209,7 @@ export function CalendarView({
                 isToday={iso === todayStr}
                 chips={chips}
                 chipFields={chipFields}
+                colorField={colorField}
                 memberNames={memberNames}
                 readOnly={readOnly}
                 onOpen={(id) => {
@@ -217,6 +228,7 @@ export function CalendarView({
         month={view.month}
         byDay={byDay}
         chipFields={chipFields}
+        colorField={colorField}
         memberNames={memberNames}
         readOnly={readOnly}
         todayStr={todayStr}
@@ -238,6 +250,7 @@ function AgendaList({
   month,
   byDay,
   chipFields,
+  colorField,
   memberNames,
   readOnly,
   todayStr,
@@ -248,6 +261,8 @@ function AgendaList({
   month: number;
   byDay: Map<string, RecordRow[]>;
   chipFields: Field[];
+  /** #226 — select/workflow field whose option colour fills the whole card. */
+  colorField: Field | undefined;
   memberNames: Map<string, string>;
   readOnly: boolean;
   todayStr: string;
@@ -277,10 +292,16 @@ function AgendaList({
                   </button>
                 )
               ) : (
-                chips.map((row) => (
+                chips.map((row) => {
+                  // #226 — the mobile agenda paints from the SAME colour rule as the
+                  // month grid. Colouring only the desktop grid is how two surfaces
+                  // showing the same records start disagreeing (field-surfaces.md).
+                  const fill = colorField ? optionColor(colorField, row.values[colorField.apiName]) : null;
+                  return (
                   <button
                     key={row.id}
                     type="button"
+                    style={fill ? { backgroundColor: `${fill}22`, borderColor: `${fill}55` } : undefined}
                     className="block w-full rounded border border-border-default bg-card px-2 py-1 text-left hover:border-border-strong"
                     onClick={() => onOpen(row.id)}
                   >
@@ -295,7 +316,8 @@ function AgendaList({
                       );
                     })}
                   </button>
-                ))
+                  );
+                })
               )}
             </div>
           </div>
@@ -317,6 +339,7 @@ function DayCell({
   isToday,
   chips,
   chipFields,
+  colorField,
   memberNames,
   readOnly,
   onOpen,
@@ -328,6 +351,8 @@ function DayCell({
   isToday: boolean;
   chips: RecordRow[];
   chipFields: Field[];
+  /** #226 — select/workflow field whose option colour fills the whole card. */
+  colorField: Field | undefined;
   memberNames: Map<string, string>;
   readOnly: boolean;
   onOpen: (id: string) => void;
@@ -363,6 +388,7 @@ function DayCell({
           key={row.id}
           row={row}
           chipFields={chipFields}
+          colorField={colorField}
           memberNames={memberNames}
           disabled={readOnly}
           onOpen={() => onOpen(row.id)}
@@ -386,22 +412,34 @@ function DayCell({
 function CalendarChip({
   row,
   chipFields,
+  colorField,
   memberNames,
   disabled,
   onOpen,
 }: {
   row: RecordRow;
   chipFields: Field[];
+  colorField: Field | undefined;
   memberNames: Map<string, string>;
   disabled: boolean;
   onOpen: () => void;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: row.id, disabled });
+  /**
+   * #226 — "Color fill the task card instead of just showing a bar on the left."
+   * The fill is the option's own colour at low alpha with that colour as the
+   * border, matching the soft-tint treatment #207 established for select badges.
+   * A month grid of fully saturated cards reads as a wall of colour; the tint keeps
+   * the coding legible and stays theme-adaptive, since the `22`/`55` alphas
+   * composite over whatever the theme paints beneath (cream in light, ink in dark).
+   */
+  const fill = colorField ? optionColor(colorField, row.values[colorField.apiName]) : null;
   return (
     <div
       ref={setNodeRef}
       {...attributes}
       {...listeners}
+      style={fill ? { backgroundColor: `${fill}22`, borderColor: `${fill}55` } : undefined}
       className={cn(
         'mb-0.5 cursor-pointer rounded border border-border-default bg-card px-1.5 py-0.5 hover:border-border-strong',
         isDragging && 'opacity-40',
