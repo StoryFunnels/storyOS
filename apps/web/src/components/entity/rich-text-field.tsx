@@ -9,6 +9,7 @@ import type { Field } from '@/components/table-view/use-table-data';
 import { MarkdownActions } from './markdown-actions';
 import { MentionScope, MentionSuggestionMenus, mentionSchema } from './mentions';
 import { FieldMenu } from './field-controls';
+import { CollapseToggle, CollapsibleBody, useCollapsedSection } from './collapsible-section';
 import type { Zone } from './entity-field-utils';
 
 /** Full-width BlockNote section for a rich_text field (MN-041). */
@@ -32,6 +33,9 @@ export function RichTextFieldSection({
   onCommit: (value: unknown) => void;
 }) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // #309 — fold a long field away. Keyed per database+field, so the preference
+  // holds across records rather than resetting on every one.
+  const { collapsed, toggle } = useCollapsedSection(db, field.id);
   const { resolved: theme } = useTheme();
   const editor = useCreateBlockNote({
     schema: mentionSchema,
@@ -43,12 +47,14 @@ export function RichTextFieldSection({
   return (
     <div className="group mb-5">
       <div className="mb-1.5 flex items-center gap-1">
+        <CollapseToggle collapsed={collapsed} onToggle={toggle} label={field.displayName} />
         <h2 className="text-[12px] font-medium uppercase tracking-wider text-muted">{field.displayName}</h2>
         {schemaEditable && <FieldMenu ws={ws} db={db} field={field} onToggleZone={onToggleZone} collection />}
         <span className="ml-auto">
           <MarkdownActions editor={editor} filename={field.displayName} />
         </span>
       </div>
+      <CollapsibleBody collapsed={collapsed}>
       <div className="rounded-[var(--radius-card)] border border-border-default bg-card py-3 [&_.bn-editor]:bg-transparent">
         <MentionScope ws={ws}>
           <BlockNoteView
@@ -68,6 +74,7 @@ export function RichTextFieldSection({
           </BlockNoteView>
         </MentionScope>
       </div>
+      </CollapsibleBody>
     </div>
   );
 }
