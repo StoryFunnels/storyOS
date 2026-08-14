@@ -305,8 +305,14 @@ export function ViewToolbar({
         </select>
       )}
 
-      {/* Color-by (MN-102): tint rows/cards by a select/workflow field's option color. */}
-      {(viewType === 'list' || viewType === 'feed' || viewType === 'timeline') && (
+      {/* Color-by (MN-102): tint rows/cards by a select/workflow field's option color.
+          #226 adds `calendar` — the calendar now fills its cards from this same
+          field, and a renderer whose picker doesn't offer it is unreachable
+          (field-surfaces.md: widen the renderer and its picker together). */}
+      {(viewType === 'list' ||
+        viewType === 'feed' ||
+        viewType === 'timeline' ||
+        viewType === 'calendar') && (
         <ColorByButton
           fields={fields.filter((f) => f.type === 'select' || f.type === 'workflow')}
           value={config.color_by_field_id}
