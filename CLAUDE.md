@@ -52,6 +52,24 @@ The load-bearing rules:
 - **Test the rejections and what a filter must KEEP** — #305's six existing
   assertions all passed unchanged under the corrected rule.
 
+## Personal space (#87 / #290–#293) — the rules are decided, don't re-litigate
+
+Per-member private space. Full ADR:
+[docs/architecture/personal-space.md](docs/architecture/personal-space.md).
+The load-bearing decisions:
+
+- **Private from admins too**, and excluded from export. The accepted consequence:
+  a departing member's personal content is unrecoverable — so the UI must say so,
+  and removal must really delete, not hide.
+- **Documents + views only. No private databases** in v1 (#296 revisits it).
+- A personal **view is a lens on shared data**: deleting a record through it
+  deletes it for everyone, so the confirmation names the blast radius. Deleting the
+  view itself is safe. Databases are never reachable from a personal lens.
+- **Mentions in personal content never notify** — suppress at EMIT time, never by
+  filtering on read (a digest or Slack delivery would leak what the UI hides).
+- **Promote/demote is reversible**; demoting does not recall notifications already
+  sent.
+
 ## Adding an integration (provider) — do it the tiered way
 
 Every connection provider must be cloud/self-managed-correct by construction.
