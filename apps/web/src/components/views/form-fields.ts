@@ -1,3 +1,5 @@
+import type { FormVisibilityRule } from '@storyos/schemas';
+
 /**
  * Pure state logic for the form-fields sidebar builder (#224). Kept dependency-free
  * (no React) so it's directly unit-testable — see form-fields.unit.test.ts.
@@ -8,6 +10,8 @@ export interface FormFieldCfg {
   required?: boolean;
   label?: string;
   help?: string;
+  /** #263 — show this field only when an earlier answer matches. */
+  visible_when?: FormVisibilityRule;
 }
 
 /**

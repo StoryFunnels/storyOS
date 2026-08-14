@@ -8,6 +8,7 @@ import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from 
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import type { FormVisibilityRule } from '@storyos/schemas';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { FreeGuestTip } from '@/components/free-guest-tip';
@@ -601,11 +602,16 @@ function FormFieldsSidebar({
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
             <SortableContext items={selectedIds} strategy={verticalListSortingStrategy}>
               <div className="flex flex-col gap-1.5">
-                {selected.map((field) => (
+                {selected.map((field, i) => (
                   <SortableFormField
                     key={field.id}
                     field={field}
                     cfg={cfgByField.get(field.id) ?? { field_id: field.id }}
+                    /* #263 — only EARLIER fields can control this one. Passing the
+                       prefix (rather than every field) makes a forward or circular
+                       rule unbuildable instead of merely discouraged; the server
+                       drops any rule that isn't earlier anyway. */
+                    earlierFields={selected.slice(0, i)}
                     onRemove={() => toggle(field.id)}
                     onPatch={(u) => patchField(field.id, u)}
                   />
@@ -638,11 +644,14 @@ function FormFieldsSidebar({
 function SortableFormField({
   field,
   cfg,
+  earlierFields,
   onRemove,
   onPatch,
 }: {
   field: Field;
   cfg: FormFieldCfg;
+  /** #263 — the fields above this one; the only legal rule controllers. */
+  earlierFields: Field[];
   onRemove: () => void;
   onPatch: (u: Partial<Omit<FormFieldCfg, 'field_id'>>) => void;
 }) {
@@ -688,6 +697,105 @@ function SortableFormField({
             />
             Required
           </label>
+          <VisibilityRuleRow
+            rule={cfg.visible_when}
+            earlierFields={earlierFields}
+            onChange={(visible_when) => onPatch({ visible_when })}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * #263 — one rule row: "show this field only when <earlier field> <op> <value>".
+ * Deliberately one condition, not a logic graph (the ticket asks for a small rule
+ * row per field).
+ *
+ * The value picker is type-aware on purpose. A select/workflow input submits the
+ * OPTION ID, not its label, so a free-text value box here would produce rules that
+ * silently never match — the worst kind of broken, because the builder looks fine.
+ */
+function VisibilityRuleRow({
+  rule,
+  earlierFields,
+  onChange,
+}: {
+  rule: FormVisibilityRule | undefined;
+  earlierFields: Field[];
+  onChange: (rule: FormVisibilityRule | undefined) => void;
+}) {
+  if (earlierFields.length === 0) {
+    return (
+      <p className="text-[11px] text-faint">
+        Always shown — only a field below another one can depend on it.
+      </p>
+    );
+  }
+  const controller = earlierFields.find((f) => f.id === rule?.field_id);
+  const needsValue = rule ? rule.op === 'eq' || rule.op === 'neq' : false;
+  const controlOptions = controller?.options ?? [];
+  const select = 'h-7 rounded border border-border-default bg-card px-1 text-[12px] text-ink';
+
+  return (
+    <div className="flex flex-col gap-1 rounded border border-border-default bg-card p-1.5">
+      <span className="text-[11px] font-medium uppercase tracking-wider text-faint">Show only when</span>
+      <select
+        className={select}
+        value={rule?.field_id ?? ''}
+        onChange={(e) =>
+          onChange(e.target.value ? { field_id: e.target.value, op: 'not_empty' } : undefined)
+        }
+      >
+        <option value="">Always show</option>
+        {earlierFields.map((f) => (
+          <option key={f.id} value={f.id}>
+            {f.displayName}
+          </option>
+        ))}
+      </select>
+      {rule && (
+        <div className="flex gap-1">
+          <select
+            className={cn(select, 'flex-1')}
+            value={rule.op}
+            /* Changing to is_empty/not_empty drops the value: a stored value for an
+               operator that ignores it would reappear if the user switched back,
+               silently resurrecting a condition they thought they had cleared. */
+            onChange={(e) => {
+              const op = e.target.value as FormVisibilityRule['op'];
+              const keepsValue = op === 'eq' || op === 'neq' || op === 'in';
+              onChange({ ...rule, op, value: keepsValue ? rule.value : undefined });
+            }}
+          >
+            <option value="not_empty">is answered</option>
+            <option value="is_empty">is empty</option>
+            <option value="eq">is</option>
+            <option value="neq">is not</option>
+          </select>
+          {needsValue &&
+            (controlOptions.length > 0 ? (
+              <select
+                className={cn(select, 'flex-1')}
+                value={(rule.value as string) ?? ''}
+                onChange={(e) => onChange({ ...rule, value: e.target.value || undefined })}
+              >
+                <option value="">Pick a value…</option>
+                {controlOptions.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                className={cn(select, 'flex-1')}
+                value={(rule.value as string) ?? ''}
+                placeholder="value"
+                onChange={(e) => onChange({ ...rule, value: e.target.value || undefined })}
+              />
+            ))}
         </div>
       )}
     </div>
