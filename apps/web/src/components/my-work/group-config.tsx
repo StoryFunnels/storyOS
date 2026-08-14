@@ -10,6 +10,7 @@ import { ColorByButton, FiltersSection, SortButton } from '@/components/views/vi
 import type { FilterCondition, FilterGroup } from '@/components/views/filter-config';
 import type { NullsPlacement, SortSpec } from '@/components/views/sort-config';
 import { OPTION_COLORS } from '@/components/table-view/cells';
+import { isOptioned } from '@/components/table-view/field-kinds';
 import type { Field } from '@/components/table-view/use-table-data';
 import { cn } from '@/lib/utils';
 // MN-252/MN-297: sortMyWorkRecords and matchesFilters live in plain .ts sibling
@@ -58,7 +59,9 @@ export function toField(f: DenseField): Field {
   };
 }
 
-const CHIP_ORDER = ['select', 'multi_select', 'user', 'relation', 'date', 'checkbox'];
+// #311: State (workflow) is select-shaped and belongs first — it's the chip people
+// most want on a My Work row.
+const CHIP_ORDER = ['workflow', 'select', 'multi_select', 'user', 'relation', 'date', 'checkbox'];
 
 /** Which dense fields render as chips: explicit visibility if configured, else the
  * top-4 by priority (the part-1 default). */
@@ -104,7 +107,7 @@ export function groupRecords<T extends { values: Record<string, unknown> }>(
       push('_none', `No ${field.display_name}`, null, r);
       continue;
     }
-    if (field.type === 'select' || field.type === 'multi_select') {
+    if (isOptioned(field)) {
       const opt = field.options?.find((o) => o.id === v);
       push(String(v), opt?.label ?? String(v), opt ? OPTION_COLORS[opt.color] ?? null : null, r);
     } else if (field.type === 'user') {
@@ -135,7 +138,8 @@ export function rowColor(
   const field = config.color_by_field_id
     ? fields.find((f) => f.id === config.color_by_field_id)
     : undefined;
-  if (!field || (field.type !== 'select' && field.type !== 'multi_select')) return null;
+  // #311: colouring by State works exactly like colouring by a select.
+  if (!field || !isOptioned(field)) return null;
   const raw = values[field.api_name];
   const v = Array.isArray(raw) ? raw[0] : raw;
   const opt = field.options?.find((o) => o.id === v);
@@ -157,7 +161,7 @@ export function MyWorkGroupToolbar({
 }) {
   const adapted = fields.map(toField);
   const groupable = fields.filter((f) => f.type === 'select' || f.type === 'workflow' || f.type === 'user');
-  const colorable = adapted.filter((f) => f.type === 'select' || f.type === 'multi_select');
+  const colorable = adapted.filter(isOptioned);
   const currentVisible = new Set(visibleFields(fields, config).map((f) => f.id));
 
   return (
