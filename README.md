@@ -78,6 +78,11 @@ cp apps/api/.env.example apps/api/.env
 pnpm dev                                          # api on :3001, web on :3000
 ```
 
+`apps/api/.env` is read in development only, and never overrides a variable that
+is already set — so `DATABASE_URL=… pnpm dev` still wins over the file. In
+production the container reads real environment variables and no `.env` is read
+or required.
+
 `pnpm test` runs the API integration suite (Testcontainers), `pnpm lint` / `pnpm typecheck` are the gates, `pnpm sdk:generate` regenerates the typed SDK from the OpenAPI spec.
 
 ## Principles

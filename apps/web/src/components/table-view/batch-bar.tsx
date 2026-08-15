@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { toast } from 'sonner';
+import { DESTRUCTIVE_TOAST_MS, pushUndo } from '@/lib/undo';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import {
@@ -138,15 +139,29 @@ export function BatchBar({
     const result = data as unknown as { deleted: number; record_ids: string[] };
     invalidate();
     onClear();
+    // #265: one restore closure shared by the toast button and the Cmd-Z stack.
+    const restore = async () => {
+      const { error: restoreError } = await api.POST(
+        '/api/v1/workspaces/{ws}/databases/{db}/records/batch-restore',
+        { params: { path: { ws, db } }, body: { record_ids: result.record_ids } as never },
+      );
+      if (restoreError) throw restoreError;
+      invalidate();
+    };
+    pushUndo({
+      label: `Restored ${result.deleted} ${pluralNoun(noun, result.deleted)}`,
+      run: restore,
+    });
     toast.success(`${result.deleted} moved to trash`, {
+      duration: DESTRUCTIVE_TOAST_MS,
       action: {
         label: 'Undo',
         onClick: async () => {
-          await api.POST('/api/v1/workspaces/{ws}/databases/{db}/records/batch-restore', {
-            params: { path: { ws, db } },
-            body: { record_ids: result.record_ids } as never,
-          });
-          invalidate();
+          try {
+            await restore();
+          } catch {
+            toast.error('Could not restore');
+          }
         },
       },
     });

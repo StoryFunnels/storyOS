@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { FreeGuestTip } from '@/components/free-guest-tip';
 
 interface Member {
   id: string;
@@ -400,7 +401,11 @@ function InviteDialog({
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<'admin' | 'member' | 'guest'>(initialRole ?? 'member');
   const [spaceIds, setSpaceIds] = useState<string[]>(initialSpaceIds ?? []);
-  const [grantRole, setGrantRole] = useState(initialGrantRole ?? 'editor');
+  // #327: 'viewer', not 'editor'. This is the LAST guest-invite entry point —
+  // fixing the three deep links but leaving the dialog's own default billable
+  // would just move the bug, and it would contradict the free-guest tip shown
+  // directly above this control. An admin can still raise it deliberately.
+  const [grantRole, setGrantRole] = useState(initialGrantRole ?? 'viewer');
   const [acceptUrl, setAcceptUrl] = useState<string | null>(null);
 
   const invite = useMutation({
@@ -483,6 +488,20 @@ function InviteDialog({
               invite.mutate();
             }}
           >
+            {/*
+             * #330: #99 shipped this tip on the share dialog and the form view
+             * but not here — the one surface onboarding actually deep-links
+             * into. Someone arriving from "invite your client" saw role and
+             * access controls and nothing about cost, which is exactly the
+             * moment the reassurance is worth something. No `href`: the link
+             * would point at this dialog.
+             */}
+            {role === 'guest' && (
+              <FreeGuestTip dismissKey={`members-invite-${ws}`}>
+                Viewer and commenter guests are free, always — never a paid seat. Scope them to the
+                spaces they need below.
+              </FreeGuestTip>
+            )}
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="invite-email">Email</Label>
               <Input

@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { guestInviteHref } from '@/lib/guest-invite';
 import { cn } from '@/lib/utils';
 
 export interface TemplatePreview {
@@ -94,7 +95,10 @@ export async function installTemplate(
 /** Where to go after an install — the client-space flow ends on the invite dialog. */
 export function postInstallPath(ws: string, result: InstallResult, endsWithInvite?: boolean) {
   if (endsWithInvite) {
-    return `/w/${ws}/settings/members?invite=guest&space=${result.space_id}&grant=editor`;
+    // #327: this used to hard-code `grant=editor`, which IS a billable seat —
+    // silently contradicting the "guests are free" promise the same flow makes.
+    // The shared helper defaults to the free viewer tier.
+    return guestInviteHref({ ws, spaceId: result.space_id });
   }
   const firstDb = Object.values(result.databases)[0];
   return firstDb ? `/w/${ws}/d/${firstDb}` : `/w/${ws}`;

@@ -542,11 +542,27 @@ function SpaceSection({
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className="mb-1"
     >
+      {/*
+       * #322: the drag was wired here all along but had NO affordance — computed
+       * cursor was `auto`, no grip, nothing in the context menu — so the founder
+       * looked, found nothing, and concluded reordering wasn't built. A feature
+       * with no affordance is a missing feature.
+       *
+       * Treatment follows the precedent already paid for on table columns
+       * (header-cell.tsx): the WHOLE row is the handle with `cursor-grab`, and
+       * the grip is only a hint. That file's comment records why — a 12px
+       * opacity-0 grip "was too hard to grab, so reorder felt broken".
+       * The PointerSensor's `distance: 6` keeps a plain click navigating.
+       */}
       <div
-        className="group flex items-center justify-between px-2 py-1"
+        className="group flex cursor-grab touch-none items-center justify-between px-2 py-1 active:cursor-grabbing"
         {...attributes}
         {...listeners}
       >
+        <GripVertical
+          className="-ml-1.5 mr-0.5 h-3 w-3 shrink-0 text-faint opacity-0 transition-opacity group-hover:opacity-100"
+          aria-hidden
+        />
         {renaming ? (
           <RenameInline
             initial={space.name}
@@ -935,17 +951,22 @@ function DatabaseRow({
           ? 'bg-active text-ink shadow-[inset_2px_0_0_var(--accent)]'
           : 'text-ink-secondary hover:bg-hover',
         isDragging && 'opacity-50',
+        // #322: the row itself is the handle. It used to be ONLY the 12px
+        // opacity-0 grip below — the exact thing header-cell.tsx records as
+        // "too hard to grab, so reorder felt broken" (MN-225). Same treatment
+        // as the space row above so the two sidebar levels behave alike.
+        canDrag && 'cursor-grab touch-none active:cursor-grabbing',
       )}
+      {...(canDrag ? attributes : {})}
+      {...(canDrag ? listeners : {})}
+      title={canDrag ? 'Drag to reorder' : undefined}
     >
       {canDrag && (
-        <button
-          className="-ml-1 mr-0.5 shrink-0 cursor-grab touch-none rounded p-0.5 text-faint opacity-0 hover:bg-active group-hover:opacity-100"
-          title="Drag to reorder"
-          {...attributes}
-          {...listeners}
-        >
-          <GripVertical className="h-3 w-3" />
-        </button>
+        // A hint now, not the handle — hence a span, not a dead button.
+        <GripVertical
+          className="-ml-1 mr-0.5 h-3 w-3 shrink-0 text-faint opacity-0 transition-opacity group-hover:opacity-100"
+          aria-hidden
+        />
       )}
       {renaming ? (
         <RenameInline

@@ -22,8 +22,12 @@ export function FreeGuestTip({
 }: {
   /** Scopes the dismissal — e.g. a space/database id or a form's db id. */
   dismissKey: string;
-  /** Deep link to Settings → Members, optionally prefilled (see members page). */
-  href: string;
+  /**
+   * Deep link to Settings → Members, optionally prefilled (see members page).
+   * OMIT it on the invite dialog itself (#330) — a "Invite a guest →" link
+   * pointing at the surface you are already looking at is just noise.
+   */
+  href?: string;
   children: React.ReactNode;
 }) {
   const key = `storyos:free-guest-tip-dismissed:${dismissKey}`;
@@ -38,10 +42,15 @@ export function FreeGuestTip({
   return (
     <div className="flex items-start gap-2 rounded-[var(--radius-control)] border border-border-default bg-accent-soft px-3 py-2 text-[12px] text-ink">
       <span className="flex-1">
-        {children}{' '}
-        <Link href={href} className="font-medium text-accent underline-offset-2 hover:underline">
-          Invite a guest →
-        </Link>
+        {children}
+        {href && (
+          <>
+            {' '}
+            <Link href={href} className="font-medium text-accent underline-offset-2 hover:underline">
+              Invite a guest →
+            </Link>
+          </>
+        )}
       </span>
       <button
         type="button"

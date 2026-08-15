@@ -98,6 +98,36 @@ import type { RecordRow } from '@/components/table-view/use-table-data';
  * primary pane, whose Close stays route-back — the primary can't be removed from
  * the split (dock it via its rail instead).
  */
+/**
+ * The one record fetch, shared. Extracted for #325: the split-screen host needs
+ * the primary record's TITLE for its collapsed rail spine, and the rail used to
+ * hard-code the literal "Record" because it had no way to reach it. Two
+ * consumers of the same query key deduplicate to a single request, so the rail
+ * reads whatever `RecordDetail` already loaded rather than fetching again.
+ */
+export function useRecordQuery(ws: string, db: string, rec: string) {
+  return useQuery({
+    queryKey: ['record', ws, db, rec],
+    queryFn: async () => {
+      // Resolve either a legacy UUID or a pretty `slug-{number}` URL (MN-087).
+      const parsed = parseRecordParam(rec);
+      if (parsed.kind === 'number') {
+        const { data, error } = await api.GET(
+          '/api/v1/workspaces/{ws}/databases/{db}/records/by-number/{number}',
+          { params: { path: { ws, db, number: String(parsed.value) } } } as never,
+        );
+        if (error) throw error;
+        return data as unknown as RecordRow;
+      }
+      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}', {
+        params: { path: { ws, db, rec: parsed.value } },
+      });
+      if (error) throw error;
+      return data as unknown as RecordRow;
+    },
+  });
+}
+
 export function RecordDetail({
   ws,
   db,
@@ -135,26 +165,7 @@ export function RecordDetail({
   const updateDescription = useUpdateDescriptionPlacement(ws, db);
   const { updateRecord } = useRecordMutations(ws, db);
 
-  const record = useQuery({
-    queryKey: ['record', ws, db, rec],
-    queryFn: async () => {
-      // Resolve either a legacy UUID or a pretty `slug-{number}` URL (MN-087).
-      const parsed = parseRecordParam(rec);
-      if (parsed.kind === 'number') {
-        const { data, error } = await api.GET(
-          '/api/v1/workspaces/{ws}/databases/{db}/records/by-number/{number}',
-          { params: { path: { ws, db, number: String(parsed.value) } } } as never,
-        );
-        if (error) throw error;
-        return data as unknown as RecordRow;
-      }
-      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}', {
-        params: { path: { ws, db, rec: parsed.value } },
-      });
-      if (error) throw error;
-      return data as unknown as RecordRow;
-    },
-  });
+  const record = useRecordQuery(ws, db, rec);
 
   const members = useMembers(ws, !readOnly);
   const memberList = useMemo(

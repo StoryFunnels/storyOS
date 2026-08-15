@@ -505,6 +505,13 @@
       "when": 1786674765370,
       "tag": "0071_romantic_praxagora",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1786761369579,
+      "tag": "0072_first_jackpot",
+      "breakpoints": true
     }
   ]
 }

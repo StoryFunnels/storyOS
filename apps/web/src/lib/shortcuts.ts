@@ -83,6 +83,10 @@ export const SHORTCUTS: ShortcutSpec[] = [
   { id: 'open-record', keys: 'e', label: 'Open record under cursor' },
   { id: 'edit-cell', keys: 'Enter', label: 'Edit the focused cell' },
   { id: 'cancel', keys: 'Esc', label: 'Clear selection / cancel edit' },
+  // #265: registered here so the overlay lists it. #322's lesson — a feature
+  // nobody can discover is the same as a missing feature — and the founder
+  // reported "no undo" while the product already had one.
+  { id: 'undo', keys: '⌘Z', label: 'Undo the last delete' },
   { id: 'help', keys: '?', label: 'Keyboard shortcuts' },
 ];
 

@@ -8,6 +8,7 @@ import {
 } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api, apiErrorMessage } from '@/lib/api';
+import { DESTRUCTIVE_TOAST_MS, pushUndo } from '@/lib/undo';
 
 export interface SelectOption {
   id: string;
@@ -320,16 +321,29 @@ export function useRecordMutations(ws: string, db: string) {
             }
           : old,
       );
+      // #265: one restore closure, used by BOTH the toast button and the
+      // Cmd-Z stack, so the two routes can't drift into doing different things.
+      const restore = async () => {
+        const { error } = await api.POST(
+          '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/restore',
+          { params: { path: { ws, db, rec } } },
+        );
+        if (error) throw error;
+        void qc.invalidateQueries({ queryKey: key });
+      };
+      pushUndo({ label: 'Restored from trash', run: restore });
       toast.success('Moved to trash', {
+        // #265: a delete decision shouldn't expire as fast as "Copied". Cmd-Z
+        // still works after this lapses — the toast is the hint, not the only route.
+        duration: DESTRUCTIVE_TOAST_MS,
         action: {
           label: 'Undo',
           onClick: async () => {
-            const { error } = await api.POST(
-              '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/restore',
-              { params: { path: { ws, db, rec } } },
-            );
-            if (error) toast.error('Could not restore');
-            else void qc.invalidateQueries({ queryKey: key });
+            try {
+              await restore();
+            } catch {
+              toast.error('Could not restore');
+            }
           },
         },
       });

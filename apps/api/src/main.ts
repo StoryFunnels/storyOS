@@ -1,3 +1,6 @@
+// #316: MUST be the first import — it loads apps/api/.env in development, and
+// `env()` runs during Nest module init, i.e. while the imports below evaluate.
+import './config/load-env';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter } from '@nestjs/platform-fastify';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';

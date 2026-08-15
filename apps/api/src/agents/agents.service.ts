@@ -5,7 +5,7 @@ import {
   OnModuleInit,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, asc, eq, isNull } from 'drizzle-orm';
 import { blocksToMarkdown, markdownToBlocks, TOKEN_SCOPE_RANK } from '@storyos/schemas';
 import type { AutomationAction, TokenScope } from '@storyos/schemas';
 import { DB } from '../db/db.module';
@@ -232,8 +232,14 @@ export class AgentsService implements OnModuleInit {
    * a domain event carries no membership.
    */
   async findPackDbs(workspaceId: string) {
+    // #318: only FLAGGED databases are candidates. Matching on name alone meant
+    // a user's own database called "Runs" could be handed to the agent runtime,
+    // which would then write run records into it and mutate its schema.
+    // Deterministic order so a duplicated flag can't make the pack move between
+    // calls.
     const all = await this.db.query.databases.findMany({
-      where: eq(databasesTable.workspaceId, workspaceId),
+      where: and(eq(databasesTable.workspaceId, workspaceId), eq(databasesTable.isSystem, true)),
+      orderBy: [asc(databasesTable.createdAt), asc(databasesTable.id)],
     });
     return {
       agentsDb: all.find((d) => d.name === 'Agents'),
@@ -344,6 +350,8 @@ export class AgentsService implements OnModuleInit {
       agentsDb = (await this.databasesService.create(membership, {
         space_id: space.id,
         name: 'Agents',
+        // #318: flagged at creation — this is how findPackDbs locates it.
+        is_system: true,
         icon: '🤖',
       })) as Database;
 
@@ -435,6 +443,8 @@ export class AgentsService implements OnModuleInit {
       runsDb = (await this.databasesService.create(membership, {
         space_id: space.id,
         name: 'Runs',
+        // #318: flagged at creation — this is how findPackDbs locates it.
+        is_system: true,
         icon: '▶️',
       })) as Database;
 
@@ -544,6 +554,8 @@ export class AgentsService implements OnModuleInit {
       triggersDb = (await this.databasesService.create(membership, {
         space_id: space.id,
         name: 'Agent Triggers',
+        // #318: flagged at creation — this is how findPackDbs locates it.
+        is_system: true,
         icon: '⚡',
       })) as Database;
 

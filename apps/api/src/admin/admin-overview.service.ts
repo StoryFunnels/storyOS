@@ -1,16 +1,16 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, isNull, notInArray, sql } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { billingSubscriptions, databases, records, user, workspaces } from '../db/schema';
 import { AccessService } from '../access/access.service';
-import { SYSTEM_DATABASE_NAMES } from '../common/system-databases';
 import { PLANS, seatOverage, SEAT_PRICE_USD, type PlanId } from '../billing/plans';
 
 /** Exclude system-database records (Members, the Agentic OS pack) from operator
  *  record metrics — they are auto-provisioned projections, not user content.
- *  Case-insensitive: names are stored in display case. */
-const NOT_SYSTEM_DATABASE = notInArray(sql`lower(${databases.name})`, [...SYSTEM_DATABASE_NAMES]);
+ *  #317: keyed off the `is_system` flag, not the display name, so a user's own
+ *  database called "Runs" still counts as the user content it is. */
+const NOT_SYSTEM_DATABASE = eq(databases.isSystem, false);
 
 export interface AdminOverview {
   totalWorkspaces: number;

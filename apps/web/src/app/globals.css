@@ -14,7 +14,13 @@
   --text-primary: #0f1729;
   --text-secondary: #3d3a30;
   --text-muted: #6b6658;
-  --text-faint: #b5b0a5;
+  /* #326: was #b5b0a5, which measured 2.02:1 on --bg-app — below even the 3:1
+     incidental-text floor. `faint` is now reserved for genuinely decorative
+     text (record numbers, "Saved", empty-computed em dashes); anything that
+     carries an affordance uses --text-muted, which clears AA. Measured after:
+     3.44:1 on card, 3.22:1 on app, 3.00:1 on sidebar. Still clearly softer
+     than muted (5.36:1 on app), so the three-step hierarchy holds. */
+  --text-faint: #8f8a7e;
   --text-on-dark: #faf7f1;
 
   /* Borders */
@@ -72,7 +78,9 @@
   --text-primary: #f3efe7;
   --text-secondary: #d0cabc;
   --text-muted: #9a9488;
-  --text-faint: #63605a;
+  /* #326: was #63605a — 2.72:1 on --bg-card. See the light-theme note above;
+     measured after: 3.89:1 on card, against muted's 5.66:1. */
+  --text-faint: #7d786f;
   --text-on-dark: #faf7f1;
 
   /* Borders */

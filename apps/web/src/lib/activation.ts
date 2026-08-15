@@ -57,7 +57,10 @@ export function buildActivationSteps(state: OnboardingState, ctx: ActivationCont
       done: state.teammate_invited,
       href: `/w/${ctx.ws}/settings/members`,
     },
-    { key: 'ai_connected', label: 'Connect your AI (MCP)', done: state.ai_connected, href: `/w/${ctx.ws}/settings/api` },
+    // #329: no acronym on the first-run checklist — this is the very first
+    // surface a new user reads, and "MCP" tells them nothing on day one. The
+    // settings page keeps the term because it explains it in context.
+    { key: 'ai_connected', label: 'Connect your AI', done: state.ai_connected, href: `/w/${ctx.ws}/settings/api` },
     {
       key: 'business_pack_installed',
       label: 'Install a Business Pack',

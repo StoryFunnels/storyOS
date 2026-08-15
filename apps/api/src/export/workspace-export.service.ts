@@ -16,7 +16,6 @@ import {
   workspaces,
 } from '../db/schema';
 import { getStorage } from '../attachments/storage';
-import { isSystemDatabaseName } from '../common/system-databases';
 
 /**
  * The format version this exporter writes. A future importer keys off this so an
@@ -92,7 +91,12 @@ export class WorkspaceExportService {
       // projections provisioned per workspace, not user content — exporting a
       // stale membership mirror into a fresh workspace on import would be wrong.
       // Excluded here so the archive is the owner's actual data.
-    ).filter((d) => !isSystemDatabaseName(d.name));
+      //
+      // #317: this used to filter on the NAME, which silently dropped a user's
+      // own database if they happened to call it Members/Agents/Runs — their
+      // data, missing from their export, with no warning. The flag only marks
+      // what a service actually provisioned.
+    ).filter((d) => !d.isSystem);
     const relationRows = await this.db.query.relations.findMany({
       where: eq(relations.workspaceId, workspaceId),
     });

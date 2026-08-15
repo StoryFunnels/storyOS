@@ -35,7 +35,6 @@ import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { packInstallItems, packInstalls, workspaces } from '../db/schema';
 import { redactSecrets } from '../common/redact-secrets';
-import { SYSTEM_DATABASE_NAMES } from '../common/system-databases';
 import { AgentsService } from '../agents/agents.service';
 import { ArchitectService } from '../agents/architect.service';
 import { AutomationsService } from '../automations/automations.service';
@@ -54,10 +53,6 @@ import { deref, findRawUuids, refify } from './pack-refs';
 const MAX_SCAN = 200;
 
 const norm = (s: string) => s.trim().toLowerCase();
-
-/** The system databases — provisioned by their owning service (Agentic OS pack
- *  via `ensurePack`, Members via `MembersDbService`), never exported. */
-const SYSTEM_DBS = new Set<string>(SYSTEM_DATABASE_NAMES);
 
 /**
  * Field types whose values are portable between workspaces.
@@ -391,7 +386,9 @@ export class PacksService {
       // `ensurePack`, not by manifests. Exporting them as ordinary databases
       // would make install try to create a second "Agents" — and the agent
       // records inside them are exported properly, as `agents`.
-      if (SYSTEM_DBS.has(norm(db.name))) continue;
+      // #317: by flag, not by name — a user's own database called "Runs" is
+      // theirs and belongs in the pack they are exporting.
+      if (db.isSystem) continue;
       const detail = await this.databases.get(membership, db.id);
       slice.push({
         id: db.id,
