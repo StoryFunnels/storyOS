@@ -470,7 +470,29 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         space: detail.spaceSlug ?? undefined,
         my_access: detail.my_access,
         fields: describeFields(detail),
-        views: (detail.views ?? []).map((v) => ({ name: v.name, type: v.type })),
+        /*
+         * #332 — the view's ID is included, not just its name.
+         *
+         * Without it a shared view URL (`?view=<uuid>`) could not be mapped back
+         * to anything: the id was in hand here and dropped on the way out, while
+         * `resolveView` below has always ACCEPTED an id. So the product could
+         * consume a view id it refused to emit, and "work everything in this
+         * view" needed a human to translate the link into a name first.
+         *
+         * `filter`/`sorts` come along when the view has them, so an agent can say
+         * what a view selects — and reuse the same AST with query_records —
+         * rather than guessing from the name.
+         */
+        views: (detail.views ?? []).map((v) => {
+          const config = (v.config ?? {}) as { filter?: unknown; sorts?: unknown };
+          return {
+            id: v.id,
+            name: v.name,
+            type: v.type,
+            ...(config.filter ? { filter: config.filter } : {}),
+            ...(Array.isArray(config.sorts) && config.sorts.length ? { sorts: config.sorts } : {}),
+          };
+        }),
       });
     }),
   );
