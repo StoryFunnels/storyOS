@@ -34,11 +34,29 @@ const FIELD_TYPES: Record<string, 'text' | 'number' | 'date' | 'checkbox'> = {
   Done: 'checkbox', Approved: 'checkbox', Overdue: 'checkbox', Urgent: 'checkbox',
 };
 
-const FIELDS: FormulaFieldInfo[] = Object.entries(FIELD_TYPES).map(([display, type]) => ({
-  api_name: display.toLowerCase(),
-  display_name: display,
-  formula_type: type,
-}));
+const FIELDS: FormulaFieldInfo[] = [
+  ...Object.entries(FIELD_TYPES).map(([display, type]) => ({
+    api_name: display.toLowerCase(),
+    display_name: display,
+    formula_type: type,
+  })),
+  /*
+   * #298 — the fixture needs a relation, because the language now has
+   * cross-record references and the examples below use them. Without it the
+   * "every example parses" guarantee could only be met by functions whose help
+   * text avoids the relation form — i.e. by hiding the feature from the help
+   * panel, which is precisely the failure #299 exists to prevent.
+   */
+  {
+    api_name: 'issues',
+    display_name: 'Issues',
+    formula_type: 'relation',
+    related: [
+      { api_name: 'estimate', display_name: 'Estimate', formula_type: 'number' },
+      { api_name: 'state', display_name: 'State', formula_type: 'text' },
+    ],
+  },
+];
 
 function run(src: string, values: Record<string, unknown> = {}): unknown {
   const ast = parseFormula(src, FIELDS);

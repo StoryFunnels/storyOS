@@ -5,21 +5,48 @@
  * Name} in source but stored as api_names in the AST so renames never break.
  */
 
-export type FormulaType = 'text' | 'number' | 'checkbox' | 'date' | 'null';
+/**
+ * #298 — `relation` is a marker type, not a value type. It exists so a bare
+ * relation reference typechecks ONLY as an aggregate's first argument; any
+ * attempt to add it, compare it or print it is a save-time error rather than a
+ * silent null at read time.
+ */
+export type FormulaType = 'text' | 'number' | 'checkbox' | 'date' | 'null' | 'relation';
 
 export type FormulaNode =
   | { kind: 'lit'; value: string | number | boolean | null }
   | { kind: 'ref'; api_name: string }
   | { kind: 'unary'; op: 'not' | 'neg'; operand: FormulaNode }
   | { kind: 'binary'; op: string; left: FormulaNode; right: FormulaNode }
-  | { kind: 'call'; name: string; args: FormulaNode[] };
+  | { kind: 'call'; name: string; args: FormulaNode[] }
+  /**
+   * #298 — a reference across a relation, written `{Issues}` or `{Issues.Estimate}`.
+   *
+   * A separate node kind rather than an optional field on `ref`, deliberately:
+   * every switch over FormulaNode is then forced to say what it does with a
+   * cross-record value, instead of silently treating it like an own-record one.
+   */
+  | { kind: 'rel'; relation: string; field?: string };
 
 export interface FormulaFieldInfo {
   api_name: string;
   display_name: string;
   /** Underlying field type mapped to a formula type ('text' for selects/lookups-of-text etc). */
   formula_type: FormulaType;
+  /**
+   * #298 — for a `relation` field only: the fields of the database it points at,
+   * so the right-hand side of `{Issues.Estimate}` has a scope to resolve against.
+   * Absent everywhere else.
+   */
+  related?: FormulaFieldInfo[];
 }
+
+/**
+ * #298 — functions that reduce over a relation. `sum`/`avg`/`min`/`max` need a
+ * related FIELD to aggregate (`{Issues.Estimate}`); `count` counts records, so it
+ * takes the bare relation (`{Issues}`).
+ */
+export const RELATION_AGGREGATES = new Set(['count', 'sum', 'avg', 'min', 'max']);
 
 export class FormulaError extends Error {
   constructor(
@@ -253,11 +280,31 @@ export const FORMULA_FUNCTIONS: Record<string, FnSpec> = {
     example: 'pow({Base}, 2)',
     impl: (a, b) => { const x = asNum(a); const y = asNum(b); if (x === null || y === null) return null; const r = x ** y; return Number.isFinite(r) ? r : null; },
   },
+  /**
+   * #298 — counts the records on the other side of a link. Relation-only: there
+   * is nothing sensible to "count" about a list of own-record values, so the
+   * typechecker requires `{Relation}` as the first argument and this impl is
+   * unreachable in practice.
+   */
+  count: {
+    args: 'variadic-any',
+    returns: 'number',
+    doc: 'Counts linked records. Optionally only those matching a condition.',
+    example: 'count({Issues}, {Issues.State} = "Done")',
+    impl: () => null,
+  },
+  avg: {
+    args: 'variadic-number',
+    returns: 'number',
+    doc: 'Average of the arguments, or of a linked field.',
+    example: 'avg({Issues.Estimate})',
+    impl: (...vs) => { const nums = vs.map(asNum).filter((v): v is number => v !== null); return nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : null; },
+  },
   sum: {
     args: 'variadic-number',
     returns: 'number',
-    doc: 'Adds the arguments together. (To add up a RELATED database, use a Rollup field.)',
-    example: 'sum({Fees}, {Tax})',
+    doc: 'Adds the arguments together, or adds up a field across a link.',
+    example: 'sum({Issues.Estimate})',
     impl: (...vs) => { const nums = vs.map(asNum).filter((v): v is number => v !== null); return nums.length ? nums.reduce((a, b) => a + b, 0) : null; },
   },
 
@@ -457,6 +504,20 @@ function tokenize(src: string): Token[] {
       i += 2;
       continue;
     }
+    /*
+     * #298 — a single `=` means equality.
+     *
+     * FORMULA_OPERATORS has documented `=` since it was written ({ op: '=',
+     * example: '{State} = "Done"' }) but the tokenizer only ever accepted `==`,
+     * so the help panel advertised an operator the parser rejected with
+     * "Unexpected character". Same class of defect as #288: anything the help
+     * says the language can do, it must actually do. `==` keeps working.
+     */
+    if (c === '=') {
+      tokens.push({ t: 'op', v: '==', pos: i });
+      i++;
+      continue;
+    }
     if ('+-*/%<>'.includes(c)) {
       tokens.push({ t: 'op', v: c, pos: i });
       i++;
@@ -511,8 +572,46 @@ export function parseFormula(src: string, fields: FormulaFieldInfo[]): FormulaNo
     if (!token) throw new FormulaError('Unexpected end of formula', src.length);
     if (token.t === 'num' || token.t === 'str' || token.t === 'bool') return { kind: 'lit', value: token.v };
     if (token.t === 'ref') {
+      /*
+       * #298 — a dotted reference crosses a relation: `{Issues.Estimate}`.
+       *
+       * Split on the FIRST dot only. A display name may legitimately contain a
+       * dot ("Est. Hours"), and the relation segment is always the leading one,
+       * so splitting greedily would break names that are fine today.
+       */
+      const dot = token.v.indexOf('.');
+      if (dot > 0) {
+        const left = token.v.slice(0, dot).trim();
+        const right = token.v.slice(dot + 1).trim();
+        const relApi = byDisplay.get(left.toLowerCase()) ?? (byApi.has(left) ? left : undefined);
+        if (!relApi) throw new FormulaError(`Unknown field "{${left}}"`, token.pos);
+        const relField = fields.find((f) => f.api_name === relApi);
+        if (!relField || relField.formula_type !== 'relation') {
+          throw new FormulaError(
+            `"{${left}}" is not a link to another database, so "{${token.v}}" has nothing to look through`,
+            token.pos,
+          );
+        }
+        const related = relField.related ?? [];
+        const target =
+          related.find((f) => f.display_name.toLowerCase() === right.toLowerCase()) ??
+          related.find((f) => f.api_name === right);
+        if (!target) {
+          throw new FormulaError(
+            `"${right}" is not a field on the records "{${left}}" links to`,
+            token.pos,
+          );
+        }
+        return { kind: 'rel', relation: relApi, field: target.api_name };
+      }
+
       const apiName = byDisplay.get(token.v.toLowerCase()) ?? (byApi.has(token.v) ? token.v : undefined);
       if (!apiName) throw new FormulaError(`Unknown field "{${token.v}}"`, token.pos);
+      // A bare reference to a relation field is only meaningful as an
+      // aggregate's subject; `rel` with no `field` is exactly that, and the
+      // typechecker is what refuses it anywhere else.
+      const info = fields.find((f) => f.api_name === apiName);
+      if (info?.formula_type === 'relation') return { kind: 'rel', relation: apiName };
       return { kind: 'ref', api_name: apiName };
     }
     if (token.t === 'op' && token.v === 'not') return { kind: 'unary', op: 'not', operand: parsePrimary() };
@@ -566,6 +665,12 @@ export function parseFormula(src: string, fields: FormulaFieldInfo[]): FormulaNo
 
 export function typecheck(node: FormulaNode, fields: FormulaFieldInfo[]): FormulaType {
   const typeByApi = new Map(fields.map((f) => [f.api_name, f.formula_type]));
+  // #298 — relation api_name → its related fields' types, for `{Rel.Field}`.
+  const relatedTypes = new Map(
+    fields
+      .filter((f) => f.formula_type === 'relation')
+      .map((f) => [f.api_name, new Map((f.related ?? []).map((r) => [r.api_name, r.formula_type]))]),
+  );
 
   function check(n: FormulaNode): FormulaType {
     switch (n.kind) {
@@ -574,6 +679,11 @@ export function typecheck(node: FormulaNode, fields: FormulaFieldInfo[]): Formul
         return typeof n.value === 'number' ? 'number' : typeof n.value === 'boolean' ? 'checkbox' : 'text';
       case 'ref':
         return typeByApi.get(n.api_name) ?? 'text';
+      case 'rel':
+        // A bare relation is the marker type; only an aggregate accepts it, and
+        // the 'call' case below is what enforces that.
+        if (!n.field) return 'relation';
+        return relatedTypes.get(n.relation)?.get(n.field) ?? 'text';
       case 'unary': {
         const t = check(n.operand);
         if (n.op === 'not' && t !== 'checkbox' && t !== 'null') throw new FormulaError('"not" needs a true/false value');
@@ -583,6 +693,14 @@ export function typecheck(node: FormulaNode, fields: FormulaFieldInfo[]): Formul
       case 'binary': {
         const l = check(n.left);
         const r = check(n.right);
+        // #298 — a bare relation is a set of records, not a value. Saying so
+        // here is the whole point of the marker type: without it, `{Issues} + 1`
+        // would typecheck and then evaluate to null at read time.
+        if (l === 'relation' || r === 'relation') {
+          throw new FormulaError(
+            'A link field is a set of records — wrap it in count(), sum(), avg(), min() or max()',
+          );
+        }
         const both = (t: FormulaType) => (l === t || l === 'null') && (r === t || r === 'null');
         if (['and', 'or'].includes(n.op)) {
           if (!both('checkbox')) throw new FormulaError(`"${n.op}" needs true/false on both sides`);
@@ -603,7 +721,42 @@ export function typecheck(node: FormulaNode, fields: FormulaFieldInfo[]): Formul
       }
       case 'call': {
         const spec = FORMULA_FUNCTIONS[n.name]!;
+        /*
+         * #298 — the relation-aggregate form, dispatched on the ARGUMENT rather
+         * than on a separate function name. `sum({Fees}, {Tax})` (own-record,
+         * #288) and `sum({Issues.Estimate})` (across a relation) are the same
+         * function with one meaning: "add these up". A `sum_of` twin would make
+         * the user pick the implementation, which is our problem, not theirs.
+         */
+        const first = n.args[0];
+        if (first && first.kind === 'rel' && RELATION_AGGREGATES.has(n.name)) {
+          if (n.name === 'count') {
+            if (first.field) {
+              throw new FormulaError('count() counts linked records — use {Relation}, not {Relation.Field}');
+            }
+          } else if (!first.field) {
+            throw new FormulaError(
+              `${n.name}() needs a field to aggregate — write {${first.relation}.SomeField}`,
+            );
+          } else if (check(first) !== 'number' && check(first) !== 'null') {
+            throw new FormulaError(`${n.name}() needs a number field, got ${check(first)}`);
+          }
+          if (n.args.length > 2) {
+            throw new FormulaError(`${n.name}() takes the link and an optional condition`);
+          }
+          // The optional condition is an ordinary boolean expression, evaluated
+          // once per related record — so it typechecks like any other.
+          if (n.args[1] && check(n.args[1]!) !== 'checkbox') {
+            throw new FormulaError(`${n.name}()'s condition must be true/false`);
+          }
+          return n.name === 'count' ? 'number' : 'number';
+        }
         const argTypes = n.args.map(check);
+        if (argTypes.includes('relation')) {
+          throw new FormulaError(
+            `${n.name}() cannot take a link field — only count(), sum(), avg(), min() and max() can`,
+          );
+        }
         if (n.name === 'if') {
           if (n.args.length !== 3) throw new FormulaError('if() takes exactly 3 arguments');
           if (argTypes[0] !== 'checkbox' && argTypes[0] !== 'null') throw new FormulaError('if() condition must be true/false');
@@ -652,7 +805,19 @@ export function typecheck(node: FormulaNode, fields: FormulaFieldInfo[]): Formul
 
 /* ---------- evaluator ---------- */
 
-export function evaluateFormula(node: FormulaNode, values: Record<string, unknown>): unknown {
+/**
+ * #298 — the related records' value bags, keyed by relation api_name, for
+ * formulas that aggregate across a relation. Supplied by the caller that can
+ * batch-load them (the API's `attachFormulas`); omitted everywhere else, in
+ * which case an aggregate reads as an empty relation.
+ */
+export type RelatedBags = Record<string, Array<Record<string, unknown>>>;
+
+export function evaluateFormula(
+  node: FormulaNode,
+  values: Record<string, unknown>,
+  related?: RelatedBags,
+): unknown {
   switch (node.kind) {
     case 'lit':
       return node.value;
@@ -660,14 +825,25 @@ export function evaluateFormula(node: FormulaNode, values: Record<string, unknow
       const v = values[node.api_name];
       return v === undefined ? null : v;
     }
+    case 'rel': {
+      /*
+       * Reached only INSIDE an aggregate's condition, where `values` is the
+       * current related record's bag (see the 'call' case). A `rel` node that
+       * escapes to the top level is a typecheck error, so this cannot be the
+       * path by which a relation leaks into an ordinary value.
+       */
+      if (!node.field) return null;
+      const v = values[node.field];
+      return v === undefined ? null : v;
+    }
     case 'unary': {
-      const v = evaluateFormula(node.operand, values);
+      const v = evaluateFormula(node.operand, values, related);
       if (v === null) return null;
       return node.op === 'not' ? v !== true : -(asNum(v) ?? NaN) || (asNum(v) === null ? null : -(asNum(v) as number));
     }
     case 'binary': {
-      const l = evaluateFormula(node.left, values);
-      const r = evaluateFormula(node.right, values);
+      const l = evaluateFormula(node.left, values, related);
+      const r = evaluateFormula(node.right, values, related);
       if (node.op === 'and') return l === true && r === true;
       if (node.op === 'or') return l === true || r === true;
       if (node.op === '==') return l === r;
@@ -696,11 +872,39 @@ export function evaluateFormula(node: FormulaNode, values: Record<string, unknow
     }
     case 'call': {
       const spec = FORMULA_FUNCTIONS[node.name]!;
-      if (node.name === 'if') {
-        const cond = evaluateFormula(node.args[0]!, values);
-        return evaluateFormula(cond === true ? node.args[1]! : node.args[2]!, values);
+      const subject = node.args[0];
+      if (subject && subject.kind === 'rel' && RELATION_AGGREGATES.has(node.name)) {
+        const bags = related?.[subject.relation] ?? [];
+        const condition = node.args[1];
+        // The condition is evaluated against each RELATED record's bag — that is
+        // what makes `{Issues.State}` inside it mean "this issue's state".
+        const matching = condition
+          ? bags.filter((bag) => evaluateFormula(condition, bag, related) === true)
+          : bags;
+
+        if (node.name === 'count') return matching.length;
+
+        const nums = matching
+          .map((bag) => asNum(subject.field ? bag[subject.field] : null))
+          .filter((n): n is number => n !== null);
+        /*
+         * Empty relation → null for sum/avg/min/max, 0 for count. This matches
+         * ROLLUP's behaviour deliberately: the two paths compute the same thing
+         * over the same data, and a user who has both must never see them
+         * disagree. (An empty sum of 0 would also be a lie — "no data" and "adds
+         * up to zero" are different answers.)
+         */
+        if (nums.length === 0) return null;
+        if (node.name === 'sum') return nums.reduce((a, b) => a + b, 0);
+        if (node.name === 'avg') return nums.reduce((a, b) => a + b, 0) / nums.length;
+        if (node.name === 'min') return Math.min(...nums);
+        return Math.max(...nums);
       }
-      const args = node.args.map((a) => evaluateFormula(a, values));
+      if (node.name === 'if') {
+        const cond = evaluateFormula(node.args[0]!, values, related);
+        return evaluateFormula(cond === true ? node.args[1]! : node.args[2]!, values, related);
+      }
+      const args = node.args.map((a) => evaluateFormula(a, values, related));
       return spec.impl(...args);
     }
   }
@@ -711,6 +915,9 @@ export function formulaRefs(node: FormulaNode): string[] {
   const out = new Set<string>();
   const walk = (n: FormulaNode) => {
     if (n.kind === 'ref') out.add(n.api_name);
+    // #298 — a relation aggregate DEPENDS on its relation field, so cycle
+    // detection and dependency ordering must see it like any other ref.
+    else if (n.kind === 'rel') out.add(n.relation);
     else if (n.kind === 'unary') walk(n.operand);
     else if (n.kind === 'binary') {
       walk(n.left);
