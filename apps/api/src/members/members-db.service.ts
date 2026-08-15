@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import {
@@ -9,6 +9,7 @@ import {
   records as recordsTable,
   selectOptions,
   user as userTable,
+  views as viewsTable,
 } from '../db/schema';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { DatabasesService } from '../databases/databases.service';
@@ -16,11 +17,17 @@ import { FieldsService } from '../fields/fields.service';
 import { RecordsService } from '../records/records.service';
 import { SpacesService } from '../workspaces/spaces.service';
 
-/** The Members database name. Identified by name, like the Agentic OS pack
- *  (`AgentsService.findPackDbs`) — there is no per-database `is_system` column,
- *  so the name IS the flag. `SYSTEM_DATABASE_NAMES` (common/system-databases.ts)
- *  is the single source of truth that keeps it out of exports and onboarding
- *  progress the same way `SYSTEM_DBS` did for the Agentic OS pack. */
+/**
+ * What to CALL the Members database when provisioning it. Not how to find one —
+ * see `findMembersDb`.
+ *
+ * #318: resolving by name was a real bug, not a stylistic one. A user who
+ * created their own database named "Members" was handed the projection: this
+ * service mutated their schema to add User ID / Email / Avatar / Active,
+ * wrote every colleague's email and avatar into their records, and — because
+ * the real projection was never found — stopped tombstoning members on removal,
+ * so a removed person stayed resolvable. The name is free text again.
+ */
 export const MEMBERS_DB_NAME = 'Members';
 
 /** How many Member rows one upsert/tombstone scans to find an existing row.
@@ -80,12 +87,23 @@ export class MembersDbService {
   // ── Provisioning ──────────────────────────────────────────────────────────
 
   /** Find the workspace's Members database by name, if provisioned. */
+  /**
+   * The workspace's Members projection, by FLAG (#318).
+   *
+   * Ordered by `createdAt` so that if a workspace somehow carries two flagged
+   * rows (a half-applied backfill, a restored snapshot), this resolves to the
+   * same one every time rather than whichever the planner returned — a
+   * projection that moves between calls would corrupt data far more quietly
+   * than one that is merely wrong.
+   */
   private async findMembersDb(workspaceId: string) {
     return this.db.query.databases.findFirst({
       where: and(
         eq(databasesTable.workspaceId, workspaceId),
+        eq(databasesTable.isSystem, true),
         eq(databasesTable.name, MEMBERS_DB_NAME),
       ),
+      orderBy: [asc(databasesTable.createdAt), asc(databasesTable.id)],
     });
   }
 
@@ -133,6 +151,9 @@ export class MembersDbService {
       space_id: space.id,
       name: MEMBERS_DB_NAME,
       icon: '👥',
+      // #318: the flag is what makes this findable next time. Without it this
+      // would provision a fresh Members database on every single call.
+      is_system: true,
     })) as { id: string };
 
     await this.ensureMemberFields(database.id);
@@ -169,11 +190,49 @@ export class MembersDbService {
     });
     // The projection key: better-auth user id, stable across name/email/role
     // changes. Kept as a plain text field so upsert/tombstone can locate the row.
+    //
+    // #319: `entity_hidden` keeps it out of the RECORD panel (same treatment the
+    // agent pack gives its "Pending action" field). The value is still stored and
+    // served — `findMemberRow` matches on it — only its display is suppressed.
     await this.ensureField(databaseId, 'user_id', {
       display_name: 'User ID',
       type: 'text',
-      config: {},
+      config: { entity_hidden: true },
     });
+    await this.hideUserIdColumn(databaseId);
+  }
+
+  /**
+   * #319 — keep the raw better-auth id out of the Members TABLE.
+   *
+   * A column of opaque strings like `neVSKSy6W1YzWwOhw8Brnyf7XPesnGTG` is
+   * internal plumbing; #148's rule is that internal ids are never end-user text.
+   * It is HIDDEN, never deleted: `findMemberRow` locates a member's row by
+   * matching `values['user_id']`, so removing the field would break upsert and
+   * tombstoning outright.
+   *
+   * Idempotent, and deliberately additive — it only ever ADDS this one id to
+   * `hidden_field_ids`, so a user who later unhides the column, or hides others,
+   * keeps their choice on the next provisioning pass.
+   */
+  private async hideUserIdColumn(databaseId: string): Promise<void> {
+    const field = await this.db.query.fields.findFirst({
+      where: and(eq(fieldsTable.databaseId, databaseId), eq(fieldsTable.apiName, 'user_id')),
+    });
+    if (!field) return;
+
+    const dbViews = await this.db.query.views.findMany({
+      where: eq(viewsTable.databaseId, databaseId),
+    });
+    for (const view of dbViews) {
+      const config = (view.config ?? {}) as { hidden_field_ids?: string[] };
+      const hidden = config.hidden_field_ids ?? [];
+      if (hidden.includes(field.id)) continue;
+      await this.db
+        .update(viewsTable)
+        .set({ config: { ...config, hidden_field_ids: [...hidden, field.id] } })
+        .where(eq(viewsTable.id, view.id));
+    }
   }
 
   private async ensureField(

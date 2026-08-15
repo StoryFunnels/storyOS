@@ -14,7 +14,6 @@ import {
   views,
   workspaces,
 } from '../db/schema';
-import { SYSTEM_DATABASE_NAMES } from '../common/system-databases';
 import { AuthGuard } from '../auth/auth.guard';
 import { WorkspaceAccessGuard } from './workspace-access.guard';
 import type { WorkspaceRequest } from './workspace-access.guard';
@@ -48,9 +47,10 @@ export class OnboardingController {
 
     // #128: system databases (Members, and the Agentic OS pack) are provisioned
     // FOR the user, not BY them — they must not light up "create a database" or
-    // "add a record" on an otherwise-empty workspace. Filtered case-insensitively
-    // (names are stored in display case; SYSTEM_DATABASE_NAMES are lowercased).
-    const notSystemDatabase = notInArray(sql`lower(${databases.name})`, [...SYSTEM_DATABASE_NAMES]);
+    // "add a record" on an otherwise-empty workspace.
+    // #317: by flag, not by name — a user who names their first real database
+    // "Agents" has genuinely created a database and the checklist must say so.
+    const notSystemDatabase = eq(databases.isSystem, false);
 
     const [
       database_created,

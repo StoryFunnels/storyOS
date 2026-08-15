@@ -241,6 +241,21 @@ export const databases = pgTable(
      */
     descriptionHidden: boolean('description_hidden').notNull().default(false),
     descriptionOrder: integer('description_order'),
+    /**
+     * #317/#318/#319 — provisioned by a service, not by a user.
+     *
+     * System databases (the Members projection, the Agentic OS pack's Agents /
+     * Runs / Agent Triggers) deliberately reuse the ordinary
+     * databases/records/fields tables, and until now the only way to recognise
+     * one was its DISPLAY NAME. That made the name load-bearing, so a user who
+     * created their own database called "Members" collided with the projection:
+     * its schema was mutated, colleagues' personal data was written into user
+     * content, and member removals stopped tombstoning (#318).
+     *
+     * The flag is the identity now. Names are free text again — call a database
+     * whatever you like. Mirrors `fields.isSystem`.
+     */
+    isSystem: boolean('is_system').notNull().default(false),
     ...timestamps,
   },
   (t) => [uniqueIndex('databases_space_slug_uq').on(t.spaceId, t.apiSlug)],

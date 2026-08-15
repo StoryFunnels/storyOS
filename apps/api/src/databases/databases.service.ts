@@ -248,7 +248,20 @@ export class DatabasesService {
   /** Creates the database + title/system fields + default table view, atomically (B2). */
   async create(
     membership: Membership,
-    input: { space_id: string; name: string; icon?: string; color?: string },
+    input: {
+      space_id: string;
+      name: string;
+      icon?: string;
+      color?: string;
+      /**
+       * #317/#318/#319 — set ONLY by a service provisioning its own database
+       * (the Members projection, the Agentic OS pack). Never settable over
+       * HTTP: `createDatabaseSchema` does not carry it, so a user cannot forge
+       * a system database, and creating one called "Members" is now simply a
+       * database called Members.
+       */
+      is_system?: boolean;
+    },
   ) {
     const space = await this.db.query.spaces.findFirst({
       where: and(eq(spaces.id, input.space_id), eq(spaces.workspaceId, membership.workspaceId)),
@@ -297,6 +310,7 @@ export class DatabasesService {
               color: input.color ?? randomDatabaseColor(),
               apiSlug,
               position,
+              isSystem: input.is_system ?? false,
             })
             .returning();
 
