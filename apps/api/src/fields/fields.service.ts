@@ -307,6 +307,47 @@ export class FieldsService {
       const ft = FieldsService.formulaTypeOf(f.type);
       if (ft) infos.push({ api_name: f.apiName, display_name: f.displayName, formula_type: ft });
     }
+    /*
+     * #298 — relation fields, carrying the SCOPE that makes `{Issues.Estimate}`
+     * resolvable: the related database's own fields.
+     *
+     * Only one level deep, deliberately. `{A.B.C}` would need the parser to walk
+     * an arbitrary chain and the loader to issue a query per hop, and every hop
+     * multiplies the rows read — a feature that quietly degrades with data size
+     * is worse than one that isn't offered.
+     */
+    for (const f of live) {
+      if (f.type !== 'relation') continue;
+      const relConfig = f.config as { relation_id?: string; side?: 'a' | 'b' };
+      if (!relConfig.relation_id) continue;
+      const relation = await this.db.query.relations.findFirst({
+        where: eq(relations.id, relConfig.relation_id),
+      });
+      if (!relation) continue; // dangling — resolves to nothing, same as a rollup
+      const targetDbId = relConfig.side === 'a' ? relation.databaseBId : relation.databaseAId;
+      const targetFields = await this.db.query.fields.findMany({
+        where: and(eq(fields.databaseId, targetDbId), isNull(fields.deletedAt)),
+      });
+      const related: FormulaFieldInfo[] = [];
+      for (const t of targetFields) {
+        // A related FORMULA is readable (it has a result_type); a related
+        // relation is not, since that would be the second hop ruled out above.
+        if (t.type === 'relation') continue;
+        if (t.type === 'formula') {
+          const rt = (t.config as { result_type?: string }).result_type;
+          if (rt) related.push({ api_name: t.apiName, display_name: t.displayName, formula_type: rt as never });
+          continue;
+        }
+        const ft = FieldsService.formulaTypeOf(t.type);
+        if (ft) related.push({ api_name: t.apiName, display_name: t.displayName, formula_type: ft });
+      }
+      infos.push({
+        api_name: f.apiName,
+        display_name: f.displayName,
+        formula_type: 'relation',
+        related,
+      });
+    }
     // MN-129: additive system fields with no stored row (e.g. the canonical
     // `number` handle for the sequential #id). A real field row of the same
     // api_name always wins, so a user field literally named `number` is unaffected.
