@@ -6,7 +6,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, or, sql, SQL } from 'drizzle-orm';
-import { activeFilter, evaluateFormula, formulaRefs, systemFieldDefsFor, validateRecordValues } from '@storyos/schemas';
+import { activeFilter, applyFieldDefaults, evaluateFormula, formulaRefs, systemFieldDefsFor, validateRecordValues } from '@storyos/schemas';
 import type { FormulaNode } from '@storyos/schemas';
 import type { FieldDef, FilterNode } from '@storyos/schemas';
 import { DB } from '../db/db.module';
@@ -1536,10 +1536,21 @@ export class RecordsService {
     options: { suppressAutomations?: boolean } = {},
   ): Promise<ProjectedRecord[]> {
     const defs = await this.fieldDefs(databaseId);
+    /*
+     * #203 — field defaults are applied BEFORE validation, so a default goes
+     * through exactly the same checks as a caller-supplied value; a
+     * misconfigured default fails loudly here instead of landing as an
+     * unvalidated value in the row.
+     *
+     * One `now` for the whole batch: importing 500 rows should stamp one
+     * creation date, not a spread across however long the insert took.
+     */
+    const now = new Date();
+    const withDefaults = inputs.map((input) => applyFieldDefaults(defs, input, now));
     // MN-118: people resolve to real ids before validation, so a name can never be
     // stored verbatim and reported as success.
     const resolved = await Promise.all(
-      inputs.map((input) => this.resolveUserInputs(workspaceId, defs, input)),
+      withDefaults.map((input) => this.resolveUserInputs(workspaceId, defs, input)),
     );
     const validated = resolved.map((input) => this.validateOrThrow(defs, input));
     // Resolved up front: an unknown target must fail before any record is inserted.

@@ -435,7 +435,22 @@ export function SidebarField({ field, schemaEditable, onToggleZone, topDivider, 
       ref={sortable.setNodeRef}
       style={style}
       className={cn(
-        'group relative rounded-md py-1.5 pl-1.5 pr-1.5 hover:bg-hover/50',
+        'group relative rounded-md py-1.5 pr-1.5 hover:bg-hover/50',
+        /*
+         * #331 — the grip needs its own lane. It is absolutely positioned (see
+         * #209 below) and 20px wide, while the type glyph starts at the content
+         * edge; with the old flat `pl-1.5` the two occupied the same 14px and
+         * the grip's z-10 painted OVER the glyph, so hovering a row replaced
+         * its type icon with grip dots.
+         *
+         * Padding the ROW rather than the label is what keeps #209 satisfied:
+         * its requirement was that the label and value share one left edge, and
+         * row padding moves BOTH together. Reserved at render, not on hover, so
+         * nothing shifts under the pointer — and only when the row is actually
+         * draggable, so read-only rows don't indent for an affordance they
+         * never get.
+         */
+        schemaEditable ? 'pl-6' : 'pl-1.5',
         // #179: a hairline + a touch more breathing room above the first system
         // field (created/updated/by) sets the read-only audit block apart from
         // the user's own properties without a heavy divider.
@@ -450,7 +465,9 @@ export function SidebarField({ field, schemaEditable, onToggleZone, topDivider, 
           aria-label="Drag to reorder"
           title="Drag to reorder"
           className={cn(
-            'absolute left-0.5 top-2 z-10 flex h-5 w-5 touch-none items-center justify-center rounded text-faint opacity-0 transition-opacity hover:bg-hover hover:text-muted group-hover:opacity-100',
+            // #331: sits in the lane reserved by the row's pl-6 above, so it
+            // lands BESIDE the type glyph instead of on top of it.
+            'absolute left-0 top-2 z-10 flex h-5 w-5 touch-none items-center justify-center rounded text-faint opacity-0 transition-opacity hover:bg-hover hover:text-muted group-hover:opacity-100',
             sortable.isDragging ? 'cursor-grabbing' : 'cursor-grab',
           )}
           {...sortable.attributes}
