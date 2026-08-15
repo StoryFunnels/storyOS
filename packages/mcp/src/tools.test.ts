@@ -329,7 +329,15 @@ function buildFakeClient() {
     spaceSlug: 'ops',
     qualifiedSlug: 'ops/issues',
     fields: [] as unknown[],
-    views: [{ id: 'view-uuid-1', name: 'Board', type: 'board' }],
+    views: [
+      { id: 'view-uuid-1', name: 'Board', type: 'board' },
+      {
+        id: 'view-uuid-2',
+        name: 'My Epic',
+        type: 'table',
+        config: { filter: { field: 'state', op: 'eq', value: 'ToDo' }, sorts: [{ field: 'number', dir: 'asc' }] },
+      },
+    ],
   };
   const records = new Map<string, FakeRow>();
   records.set('rec-uuid-1', { id: 'rec-uuid-1', number: 42, title: 'Fix the bug', values: {} });
@@ -496,6 +504,29 @@ describe('record url field (#268): get_record / query_records / create_record / 
     expect(record.url).toBe(`${TEST_WEB_URL}/w/ws-uuid-1/d/db-uuid-1/r/fix-the-bug-42`);
   });
 });
+
+  it('describe_database returns each view id, and the filter/sorts when it has them (#332)', async () => {
+    const out = (await callTool(buildHandlers(), 'describe_database', {
+      workspace: 'Acme Co',
+      database: 'Issues',
+    })) as {
+      views: Array<{ id: string; name: string; type: string; filter?: unknown; sorts?: unknown }>;
+    };
+
+    // The id is the whole point: a `?view=<uuid>` link is unresolvable without it.
+    const board = out.views.find((v) => v.name === 'Board')!;
+    expect(board.id).toBe('view-uuid-1');
+
+    // A filtered view reports WHAT it selects, in the same AST query_records takes.
+    const epic = out.views.find((v) => v.name === 'My Epic')!;
+    expect(epic.id).toBe('view-uuid-2');
+    expect(epic.filter).toEqual({ field: 'state', op: 'eq', value: 'ToDo' });
+    expect(epic.sorts).toEqual([{ field: 'number', dir: 'asc' }]);
+
+    // A view with no filter doesn't carry empty keys — noise in every response.
+    expect('filter' in board).toBe(false);
+    expect('sorts' in board).toBe(false);
+  });
 
 describe('get_links (#268)', () => {
   it('resolves the database link on its own', async () => {
