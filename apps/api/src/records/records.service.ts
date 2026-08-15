@@ -380,6 +380,96 @@ export class RecordsService {
    * render without the target schema.
    */
   /** MN-043: evaluates formula fields after lookups resolve; select ids become labels in the value bag. */
+  /**
+   * #298 — the related records' value bags for every relation a formula
+   * aggregates over, for the WHOLE page at once.
+   *
+   * The shape that matters is the query count: one pass per referenced RELATION,
+   * never one per record. A page of 200 projects with `count({Issues})` issues
+   * the same number of round trips as a page of 1 — mirroring attachLookups /
+   * attachRollups, which already batch this way.
+   *
+   * Returns recordId → { relationApiName → related bags }, ready to hand to
+   * `evaluateFormula`.
+   */
+  private async loadRelatedBags(
+    projected: ProjectedRecord[],
+    defs: FieldDef[],
+    relationApiNames: Set<string>,
+  ): Promise<Map<string, Record<string, Array<Record<string, unknown>>>>> {
+    const out = new Map<string, Record<string, Array<Record<string, unknown>>>>();
+    if (relationApiNames.size === 0 || projected.length === 0) return out;
+
+    for (const apiName of relationApiNames) {
+      const relationDef = defs.find((d) => d.api_name === apiName && d.type === 'relation');
+      if (!relationDef) continue; // not a relation (or gone) — resolves to nothing
+
+      // Every linked id on this page, deduplicated: two projects sharing an
+      // issue read it once.
+      const linkedIds = new Set<string>();
+      for (const record of projected) {
+        const chips = record.values[apiName] as Array<{ id: string }> | undefined;
+        chips?.forEach((chip) => linkedIds.add(chip.id));
+      }
+      if (linkedIds.size === 0) continue;
+
+      const relation = await this.db.query.relations.findFirst({
+        where: eq(relations.id, relationDef.config['relation_id'] as string),
+      });
+      if (!relation) continue;
+      const side = relationDef.config['side'] as 'a' | 'b';
+      const targetDbId = side === 'a' ? relation.databaseBId : relation.databaseAId;
+      const targetDefs = await this.fieldDefs(targetDbId);
+
+      // Formulas compare select LABELS, not option ids — same rule the
+      // own-record bag follows below, so `{Issues.State} = "Done"` means what it
+      // looks like.
+      const selectDefs = targetDefs.filter((d) => d.type === 'select' || d.type === 'workflow');
+      const labelByOption = new Map<string, string>();
+      if (selectDefs.length > 0) {
+        const options = await this.db.query.selectOptions.findMany({
+          where: inArray(selectOptions.fieldId, selectDefs.map((d) => d.id)),
+        });
+        for (const option of options) labelByOption.set(option.id, option.label);
+      }
+
+      const rows = await this.db.query.records.findMany({
+        where: and(inArray(records.id, [...linkedIds]), isNull(records.deletedAt)),
+      });
+      const bagById = new Map<string, Record<string, unknown>>();
+      for (const row of rows) {
+        const stored = row.values as Record<string, unknown>;
+        const bag: Record<string, unknown> = {};
+        for (const def of targetDefs) {
+          // `records.values` is keyed by FIELD ID; formulas address api_names.
+          if (def.type === 'title') {
+            bag[def.api_name] = row.title ?? null;
+            continue;
+          }
+          let value = stored[def.id];
+          if ((def.type === 'select' || def.type === 'workflow') && typeof value === 'string') {
+            value = labelByOption.get(value) ?? value;
+          }
+          bag[def.api_name] = value ?? null;
+        }
+        bag['number'] = row.number ?? null;
+        bagById.set(row.id, bag);
+      }
+
+      for (const record of projected) {
+        const chips = record.values[apiName] as Array<{ id: string }> | undefined;
+        if (!chips?.length) continue;
+        // Soft-deleted targets simply drop out — the same way a dangling
+        // reference resolves to nothing everywhere else.
+        const bags = chips.map((chip) => bagById.get(chip.id)).filter((b): b is Record<string, unknown> => Boolean(b));
+        const existing = out.get(record.id) ?? {};
+        existing[apiName] = bags;
+        out.set(record.id, existing);
+      }
+    }
+    return out;
+  }
+
   private async attachFormulas(projected: ProjectedRecord[], defs: FieldDef[]): Promise<ProjectedRecord[]> {
     const formulaDefs = defs.filter((d) => d.type === 'formula' && (d.config['ast'] as unknown));
     if (formulaDefs.length === 0 || projected.length === 0) return projected;
@@ -396,6 +486,21 @@ export class RecordsService {
 
     // Topological order so formula-over-formula chains resolve (save-time cap = 5).
     const ordered = orderFormulasByDependency(formulaDefs);
+
+    /*
+     * #298 — collect every relation the page's formulas aggregate over, then
+     * load them ONCE for the whole page before the per-record loop below. Doing
+     * it inside that loop would be one query per record per relation, which is
+     * the thing the AC forbids.
+     */
+    const relationApiNames = new Set<string>();
+    const relationDefApiNames = new Set(defs.filter((d) => d.type === 'relation').map((d) => d.api_name));
+    for (const def of ordered) {
+      for (const ref of formulaRefs(def.config['ast'] as FormulaNode)) {
+        if (relationDefApiNames.has(ref)) relationApiNames.add(ref);
+      }
+    }
+    const relatedByRecord = await this.loadRelatedBags(projected, defs, relationApiNames);
 
     for (const record of projected) {
       const bag: Record<string, unknown> = { name: record.title };
@@ -417,9 +522,10 @@ export class RecordsService {
       // it under both system handles so `{Number}`/`{ID}` resolve in formulas.
       bag.number = record.number ?? null;
       bag.id = record.number ?? null;
+      const related = relatedByRecord.get(record.id);
       for (const def of ordered) {
         try {
-          const result = evaluateFormula(def.config['ast'] as FormulaNode, bag);
+          const result = evaluateFormula(def.config['ast'] as FormulaNode, bag, related);
           record.values[def.api_name] = result ?? null;
           bag[def.api_name] = result ?? null;
         } catch {
@@ -437,11 +543,17 @@ export class RecordsService {
    *
    * Deliberately narrower than attachFormulas(): only formulas that pass
    * formulaDependsOnlyOnOwnRecord are computed here, straight off `row.values`
-   * — no lookup/rollup resolution, no related-record query. A formula that
-   * reaches into a lookup or rollup would freeze against a related record we
-   * don't have in hand at this record's own write time (the exact cross-record
-   * problem rollups have); it's simply not written here and stays excluded
-   * from SORTABLE, rather than materializing a value that's wrong from the start.
+   * — no lookup resolution, no related-record query. A formula that reaches
+   * into a LOOKUP, or across a RELATION (#298's `count({Issues})`), would freeze
+   * against a related record we don't have in hand at this record's own write
+   * time; it's simply not written here and stays excluded from SORTABLE, rather
+   * than materializing a value that's wrong from the start.
+   *
+   * ROLLUPS are the exception and are deliberately included (MN-267): they have
+   * an invalidation subscriber that recomputes them when a related record or a
+   * link set changes, so their materialized value does not go stale. This
+   * comment used to say "lookup or rollup"; that stopped being true when MN-267
+   * landed, and the code has been correct since.
    *
    * Runs as a small follow-up transaction after the record's own write commits
    * — the displayed value (attachFormulas, called on every read) is untouched
@@ -2528,6 +2640,18 @@ function formulaDependsOnlyOnOwnRecord(def: FieldDef, byApiName: Map<string, Fie
       const target = byApiName.get(apiName);
       if (!target) continue; // dangling ref resolves to null at eval time — not a cross-record concern
       if (target.type === 'lookup') return false;
+      /*
+       * #298 — a relation ref means the formula aggregates ACROSS records
+       * (`count({Issues})`), so it is cross-record by definition and must not be
+       * frozen at this record's own write time.
+       *
+       * NOT rollup: MN-267 deliberately made rollups (and formulas over them)
+       * materialized and sortable, because RollupInvalidationSubscriber
+       * recomputes them when a related record or link set changes. A relation
+       * aggregate has no such invalidation yet — that is exactly what #300 is
+       * for — so until it does, it stays out.
+       */
+      if (target.type === 'relation') return false;
       if (target.type === 'formula') {
         const targetAst = target.config['ast'] as FormulaNode | undefined;
         if (targetAst && !walk(targetAst)) return false;
