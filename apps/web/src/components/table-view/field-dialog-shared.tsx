@@ -361,13 +361,41 @@ export function ConfigEditor({
   }
   if (type === 'date') {
     return (
+      <div className="flex flex-col gap-2">
+        <label className="flex items-center gap-2 text-[13px] text-ink">
+          <input
+            type="checkbox"
+            checked={Boolean(config.include_time)}
+            onChange={(e) => set('include_time', e.target.checked)}
+          />
+          Include time
+        </label>
+        {/*
+         * #203 — a flag, not a date input. A literal default date is correct for
+         * about a day and silently wrong after that; "today" is the only date
+         * default that stays true, and it resolves server-side at insert.
+         */}
+        <label className="flex items-center gap-2 text-[13px] text-ink">
+          <input
+            type="checkbox"
+            checked={Boolean(config.default_today)}
+            onChange={(e) => set('default_today', e.target.checked)}
+          />
+          Default new records to today
+        </label>
+      </div>
+    );
+  }
+  if (type === 'checkbox') {
+    // #203 — two states, so a literal default is the whole story here.
+    return (
       <label className="flex items-center gap-2 text-[13px] text-ink">
         <input
           type="checkbox"
-          checked={Boolean(config.include_time)}
-          onChange={(e) => set('include_time', e.target.checked)}
+          checked={Boolean(config.default)}
+          onChange={(e) => set('default', e.target.checked)}
         />
-        Include time
+        Checked by default on new records
       </label>
     );
   }

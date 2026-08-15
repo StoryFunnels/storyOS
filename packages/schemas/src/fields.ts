@@ -51,7 +51,25 @@ export const numberConfigSchema = z.object({
   format: z.enum(['plain', 'percent', 'currency']).default('plain'),
   currency_code: z.string().length(3).optional(),
 });
-export const dateConfigSchema = z.object({ include_time: z.boolean().default(false) });
+export const dateConfigSchema = z.object({
+  include_time: z.boolean().default(false),
+  /**
+   * #203 — prefill new records with the creation date.
+   *
+   * Deliberately a FLAG, not a stored date. "1 August" as a literal default is
+   * right for about a day and quietly wrong forever after; the only date default
+   * that stays correct is one resolved at insert time. Anything richer (a
+   * relative offset like "in 7 days") is a separate ask — this covers the common
+   * case honestly rather than half-building a date-expression language.
+   */
+  default_today: z.boolean().default(false),
+});
+
+/**
+ * #203 — a checkbox's value for new records. Unlike the date case a literal IS
+ * the whole story here: there are only two states and neither goes stale.
+ */
+export const checkboxConfigSchema = z.object({ default: z.boolean().default(false) });
 export const userConfigSchema = z.object({ multi: z.boolean().default(false) });
 /**
  * MN-255: any action can be gated behind a human approval instead of running
@@ -355,7 +373,7 @@ export const fieldConfigSchemas: Record<CreatableFieldType, z.ZodType> = {
   text: textConfigSchema,
   rich_text: emptyConfigSchema,
   number: numberConfigSchema,
-  checkbox: emptyConfigSchema,
+  checkbox: checkboxConfigSchema,
   date: dateConfigSchema,
   select: emptyConfigSchema,
   multi_select: emptyConfigSchema,
@@ -483,3 +501,56 @@ export const updateAutomationSchema = z.object({
   /** MN-255: nullable so a rule can revert to defaulting the rule owner. */
   approverId: z.string().nullable().optional(),
 });
+
+/**
+ * #203 — the value a field prefills onto a NEW record, or `undefined` when it
+ * has no default.
+ *
+ * ONE resolver, shared by the server (which applies it on insert) and any
+ * surface that wants to preview it, so "what does this field default to" has a
+ * single answer. Per the field-surfaces rule, a second copy of this logic in the
+ * UI is exactly how these things drift.
+ *
+ * `now` is injected rather than read from the clock so the caller controls the
+ * timestamp — every record in one batch gets the same creation date, and the
+ * behaviour is testable without freezing time.
+ */
+export function fieldDefaultValue(
+  type: string,
+  config: Record<string, unknown> | null | undefined,
+  now: Date,
+): unknown {
+  const cfg = config ?? {};
+  if (type === 'checkbox') {
+    return cfg['default'] === true ? true : undefined;
+  }
+  if (type === 'date') {
+    if (cfg['default_today'] !== true) return undefined;
+    // Match the shape the field already stores: a date-only field keeps a bare
+    // YYYY-MM-DD, so defaulting must not smuggle a time into it and silently
+    // change how every downstream formatter reads that column.
+    return cfg['include_time'] === true ? now.toISOString() : now.toISOString().slice(0, 10);
+  }
+  return undefined;
+}
+
+/**
+ * #203 — fill in defaults for fields the caller did not supply.
+ *
+ * Only ABSENT keys are filled. An explicit `null` is a deliberate "leave this
+ * empty" and must survive: a user who clears a defaulted checkbox on the create
+ * form should not have the server put it back.
+ */
+export function applyFieldDefaults(
+  defs: Array<{ api_name: string; type: string; config?: Record<string, unknown> | null }>,
+  input: Record<string, unknown>,
+  now: Date,
+): Record<string, unknown> {
+  const out = { ...input };
+  for (const def of defs) {
+    if (def.api_name in out) continue;
+    const value = fieldDefaultValue(def.type, def.config, now);
+    if (value !== undefined) out[def.api_name] = value;
+  }
+  return out;
+}
