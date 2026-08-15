@@ -43,6 +43,12 @@ import type { Field } from './use-table-data';
 export const FIELD_TYPES: Array<{
   value: string;
   label: string;
+  /**
+   * #321 — the phrase shown FIRST in the type picker, for types whose real name
+   * is database jargon. Present only where it earns its place; see the note on
+   * lookup/rollup below.
+   */
+  plainLabel?: string;
   description: string;
   icon: LucideIcon;
 }> = [
@@ -60,8 +66,33 @@ export const FIELD_TYPES: Array<{
   { value: 'email', label: 'Email', description: 'An email address', icon: AtSign },
   { value: 'color', label: 'Color', description: 'A hex color with a swatch', icon: Palette },
   { value: 'relation', label: 'Relation', description: 'Link to another list', icon: Workflow },
-  { value: 'lookup', label: 'Lookup', description: 'Show info from a linked item', icon: Search },
-  { value: 'rollup', label: 'Rollup', description: 'Count or total linked items', icon: Calculator },
+  /*
+   * #321 — `plainLabel` leads in the PICKER and demotes the jargon to a sub-note.
+   *
+   * Only these two carry it. "Text", "Date", "Relation", "Formula" are already
+   * ordinary English a first-time user can parse; "lookup" and "rollup" are
+   * database vocabulary that means nothing until someone teaches it to you.
+   *
+   * `label` deliberately stays the short noun, because it is ALSO used inline in
+   * prose (change-type-dialog: "Rollup fields cannot be converted") — lengthening
+   * it there would produce nonsense. Keeping the jargon visible as the sub-note
+   * is not a compromise either: it is the word people migrating from other tools
+   * search for.
+   */
+  {
+    value: 'lookup',
+    label: 'Lookup',
+    plainLabel: 'Show info from a linked item',
+    description: 'Show info from a linked item',
+    icon: Search,
+  },
+  {
+    value: 'rollup',
+    label: 'Rollup',
+    plainLabel: 'Count or total linked items',
+    description: 'Count or total linked items',
+    icon: Calculator,
+  },
   { value: 'button', label: 'Button', description: 'One click runs actions on the item', icon: MousePointerClick },
   { value: 'formula', label: 'Formula', description: 'Auto-calculated value', icon: Sigma },
 ];
@@ -155,9 +186,14 @@ function TypeButtonGrid({
           >
             <t.icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted" />
             <span className="min-w-0">
-              <span className="block text-[13px] font-medium text-ink">{t.label}</span>
+              {/* #321: a type with a plainLabel leads with the plain phrase and
+                  shows its real name underneath, so the jargon stays findable
+                  without being the first thing a newcomer has to decode. */}
+              <span className="block text-[13px] font-medium text-ink">
+                {t.plainLabel ?? t.label}
+              </span>
               <span className="block truncate text-[11px] text-muted">
-                {disabledReason ?? t.description}
+                {disabledReason ?? (t.plainLabel ? t.label : t.description)}
               </span>
             </span>
           </button>
