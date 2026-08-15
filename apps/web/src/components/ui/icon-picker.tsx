@@ -104,6 +104,14 @@ export function IconColorPicker({
           </CatChip>
         </div>
       )}
+      {/*
+       * #314: the selection ring is INSET on every swatch below. An outward
+       * `ring` is painted outside the element's box, so this scroll container
+       * clipped the top pixels of any selected item in the first row — there is
+       * no preceding row to donate the space. Padding the container would also
+       * hide it, but only until someone changes the layout again; an inset ring
+       * cannot leave the box, so it cannot be re-broken.
+       */}
       <div className="max-h-40 overflow-y-auto">
         <div className="grid grid-cols-8 gap-0.5">
           {icons.map((d) => {
@@ -115,7 +123,7 @@ export function IconColorPicker({
                 title={d.name.replace(/-/g, ' ')}
                 className={cn(
                   'flex h-7 w-7 items-center justify-center rounded hover:bg-hover',
-                  selected && 'bg-accent-soft ring-1 ring-[var(--accent)]',
+                  selected && 'bg-accent-soft ring-1 ring-inset ring-[var(--accent)]',
                 )}
                 onClick={() => pickIcon(d.name)}
                 style={color ? { color: OPTION_COLORS[color] } : undefined}
@@ -133,7 +141,7 @@ export function IconColorPicker({
                 title={d.name}
                 className={cn(
                   'flex h-7 w-7 items-center justify-center rounded hover:bg-hover',
-                  selected && 'bg-accent-soft ring-1 ring-[var(--accent)]',
+                  selected && 'bg-accent-soft ring-1 ring-inset ring-[var(--accent)]',
                 )}
                 onClick={() => pickBrand(d.slug)}
                 style={color ? { color: OPTION_COLORS[color] } : undefined}
@@ -158,7 +166,7 @@ export function IconColorPicker({
               title={c}
               className={cn(
                 'flex h-7 w-7 items-center justify-center rounded hover:bg-hover',
-                c === color && 'ring-1 ring-[var(--accent)]',
+                c === color && 'ring-1 ring-inset ring-[var(--accent)]',
               )}
               onClick={() => onChange({ color: c === color ? null : c })}
             >

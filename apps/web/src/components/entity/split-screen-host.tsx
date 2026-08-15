@@ -14,7 +14,7 @@ import {
   ratioFromPointer,
   useSplitRatio,
 } from '@/lib/split-pane-ratio';
-import { RecordDetail } from './record-detail';
+import { RecordDetail, useRecordQuery } from './record-detail';
 import { SplitPanelProvider } from './split-panel-context';
 import type { SplitPanelApi } from './split-panel-context';
 import { PRIMARY_ID, emptySplitStack, reduceSplit, selectSplitView } from './split-screen';
@@ -68,6 +68,9 @@ export function RecordSurface({ ws, db, rec }: { ws: string; db: string; rec: st
 
   const view = selectSplitView(state);
   const showStack = isDesktop && state.panels.length > 0;
+  // #325: shares RecordDetail's query key, so this is the already-loaded record,
+  // not a second request. Only read for the collapsed rail's title spine.
+  const primary = useRecordQuery(ws, db, rec);
 
   // #208: the primary + active panel show as a draggable pair. The divider only
   // exists in that shared layout — when a pane is maximized or on a rail there's a
@@ -91,7 +94,14 @@ export function RecordSurface({ ws, db, rec }: { ws: string; db: string; rec: st
             <Rail
               side="left"
               icon={<PanelLeftOpen className="h-3.5 w-3.5 shrink-0" />}
-              label="Record"
+              // #325: the real record title, not the literal word "Record".
+              // Every RIGHT rail already showed its panel's title, so a docked
+              // primary was the only spine in the layout that couldn't tell you
+              // what it was — precisely when you need it, since docking is how
+              // you park a record to look at something else. Same
+              // `title || 'Untitled'` fallback the right rails use.
+              label={primary.data?.title || 'Untitled'}
+              number={primary.data?.number}
               closeLabel="Restore"
               onExpand={() =>
                 dispatch(view.activePanelMaximized ? { type: 'restore' } : { type: 'expand', id: PRIMARY_ID })

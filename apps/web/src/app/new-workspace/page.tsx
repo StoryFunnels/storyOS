@@ -23,6 +23,7 @@ import { AuthCard } from '../(auth)/auth-card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { guestInviteHref } from '@/lib/guest-invite';
 import { cn } from '@/lib/utils';
 
 interface PackCard {
@@ -197,9 +198,9 @@ export default function NewWorkspacePage() {
         // matches the share dialog / FreeGuestTip promise that viewer and
         // commenter guests are never a paid seat (#106, #271). Granting an
         // editor guest here would contradict that and may bill a seat.
-        router.replace(
-          `/w/${wsId}/settings/members?invite=guest&space=${firstSpace.id}&grant=viewer`,
-        );
+        // #327: the free default now lives in the shared helper, so the other
+        // two surfaces cannot drift away from it again.
+        router.replace(guestInviteHref({ ws: wsId, spaceId: firstSpace.id }));
         return;
       }
       const firstDatabase = result.databases.find((database) => database.action !== 'skipped');

@@ -4,7 +4,8 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
-import { Toaster } from 'sonner';
+import { StoryOSToaster } from '@/components/ui/toaster';
+import { UndoHotkey } from '@/components/undo-hotkey';
 import { useSession } from '@/lib/auth-client';
 import { AccountMenu } from '@/components/account-menu';
 import { CommandPalette } from '@/components/command-palette';
@@ -94,7 +95,8 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
       <CommandPalette />
       <ShortcutsOverlay />
       <QuickAddFab />
-      <Toaster position="bottom-right" />
+      <UndoHotkey />
+      <StoryOSToaster />
     </div>
   );
 }

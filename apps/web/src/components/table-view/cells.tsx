@@ -434,9 +434,21 @@ export function EmptyFieldAffordance({
   editable: boolean;
   className?: string;
 }) {
+  // An em dash on a read-only/computed field is decoration, not a control —
+  // nothing to click, so `faint` is the right weight for it.
   if (!editable) return <span className={cn('text-[13px] text-faint', className)}>—</span>;
+  /*
+   * #326: `muted`, not `faint`. Measured on the record page, `faint` gave
+   * 2.72:1 in dark and 2.02:1 in light — under WCAG AA (4.5:1) and under even
+   * the 3:1 large-text floor. That is not acceptable here specifically because
+   * this text IS the affordance: "Set Priority" is the click target for an
+   * empty Priority field, so on a mostly-empty record the entire column of
+   * things the user is looking for was the faintest text on the page.
+   * `muted` measures 5.66:1 dark / 5.36:1 light and is still clearly softer
+   * than a filled value (`text-ink`), so the hierarchy survives.
+   */
   return (
-    <span className={cn('truncate text-[13px] text-faint transition-colors hover:text-muted', className)}>
+    <span className={cn('truncate text-[13px] text-muted transition-colors hover:text-ink', className)}>
       {emptyAffordanceVerb(field.type)} {field.displayName}
     </span>
   );
