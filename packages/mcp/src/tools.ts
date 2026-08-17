@@ -196,6 +196,37 @@ function describeFields(db: DatabaseDetail) {
  * filtering looked completely broken. Unknown labels raise a helpful error naming
  * the valid options instead of failing at the API.
  */
+/**
+ * #334 — a structured (object/array) tool parameter that may arrive as a JSON
+ * STRING, because plenty of MCP clients serialise object arguments.
+ *
+ * Applied in the HANDLERS rather than as a zod `preprocess` on the input shape.
+ * A schema-layer fix only runs on the path where the SDK validates input, which
+ * makes it both untestable through the handler and silently absent anywhere the
+ * handler is reached directly.
+ *
+ * These params are declared `z.any()`, which accepts a string happily and hands
+ * it straight to code that expects an object. `create_automation` was therefore
+ * unusable from any such client: every call died on `trigger must be an object
+ * with a "type"` — blaming the trigger, which was correct, when the transport
+ * was the problem. `mapFilterValues` already tolerated this for `filter`, so
+ * query_records worked from the very same client and the failure read like
+ * caller error. This makes the tolerance uniform instead of incidental.
+ *
+ * A string that isn't valid JSON is a real caller mistake, and the error says
+ * exactly that rather than mislabelling it as a shape problem.
+ */
+export function parseStructuredParam(value: unknown, label: string): unknown {
+  if (typeof value !== 'string') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    throw new Error(
+      `${label} must be an object or a JSON string; got a string that isn't valid JSON: ${value.slice(0, 80)}`,
+    );
+  }
+}
+
 export function mapFilterValues(detail: DatabaseDetail, node: unknown): unknown {
   // Tolerate a stringified filter (a common LLM mistake) — parse it once up front.
   if (typeof node === 'string') {
@@ -720,7 +751,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       const row = await unwrap<RecordRow>(
         client.POST('/api/v1/workspaces/{ws}/databases/{db}/records', {
           params: { path: { ws: ws.id, db: db.id } },
-          body: { values: mapWriteValues(detail, values) } as never,
+          body: { values: mapWriteValues(detail, parseStructuredParam(values, 'values') as Record<string, unknown>) } as never,
         }),
       );
       const record = { ...row, values: labelize(detail, row.values), url: recordUrl(ws.id, db.id, row) };
@@ -754,7 +785,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         const row = await unwrap<RecordRow>(
           client.PATCH('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}', {
             params: { path: { ws: ws.id, db: db.id, rec } },
-            body: { values: mapWriteValues(detail, values) } as never,
+            body: { values: mapWriteValues(detail, parseStructuredParam(values, 'values') as Record<string, unknown>) } as never,
           }),
         );
         return text({ ...row, values: labelize(detail, row.values), url: recordUrl(ws.id, db.id, row) });
@@ -2126,8 +2157,10 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         const detail = await getDetail(ws.id, db.id);
         const body: Record<string, unknown> = {
           name,
-          trigger: buildAutomationTrigger(trigger as TriggerInput, detail as never),
-          actions: await resolveAutomationActions(actions, detail, ws.id),
+          // #334: coerce before building — these arrive JSON-encoded from
+          // clients that serialise object arguments.
+          trigger: buildAutomationTrigger(parseStructuredParam(trigger, 'trigger') as TriggerInput, detail as never),
+          actions: await resolveAutomationActions(parseStructuredParam(actions, 'actions'), detail, ws.id),
         };
         if (condition !== undefined && condition !== null) body.condition = mapFilterValues(detail, condition);
         if (enabled !== undefined) body.enabled = enabled;
@@ -2178,9 +2211,14 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         const detail = await getDetail(ws.id, db.id);
         const body: Record<string, unknown> = {};
         if (name !== undefined) body.name = name;
-        if (trigger !== undefined) body.trigger = buildAutomationTrigger(trigger as TriggerInput, detail as never);
-        if (actions !== undefined) body.actions = await resolveAutomationActions(actions, detail, ws.id);
-        if (condition !== undefined) body.condition = condition === null ? null : mapFilterValues(detail, condition);
+        // #334: same coercion as create_automation — a rule read back from
+        // list_automations must be passable straight into update_automation.
+        if (trigger !== undefined)
+          body.trigger = buildAutomationTrigger(parseStructuredParam(trigger, 'trigger') as TriggerInput, detail as never);
+        if (actions !== undefined)
+          body.actions = await resolveAutomationActions(parseStructuredParam(actions, 'actions'), detail, ws.id);
+        if (condition !== undefined)
+          body.condition = condition === null ? null : mapFilterValues(detail, parseStructuredParam(condition, 'condition'));
         if (enabled !== undefined) body.enabled = enabled;
         if (approver !== undefined) body.approverId = approver;
         const row = await unwrap<AutomationRow>(

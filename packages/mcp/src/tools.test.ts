@@ -1135,3 +1135,21 @@ describe('FILTER_GUIDE documents system fields (#354)', () => {
     }
   });
 });
+
+/**
+ * #334 — the record-write params take the JSON encoding too. A client that
+ * serialises one object argument serialises all of them, so fixing only the
+ * automation params would have left the same client unable to write records.
+ */
+describe('write params accept JSON strings (#334)', () => {
+  it('create_record takes values as a JSON string', async () => {
+    const result = await callTool(buildHandlers(), 'create_record', {
+      workspace: 'Acme Co',
+      database: 'Issues',
+      values: JSON.stringify({ name: 'Ship it' }),
+    });
+    const record = result.record ?? result;
+    // Identical to the object form's assertion above — the title made it through.
+    expect(record.url).toBe(`${TEST_WEB_URL}/w/ws-uuid-1/d/db-uuid-1/r/ship-it-43`);
+  });
+});
