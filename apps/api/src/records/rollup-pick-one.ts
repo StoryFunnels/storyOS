@@ -165,3 +165,53 @@ export function rollupFieldValue(
   }
   return raw;
 }
+
+/**
+ * #300 — the SQL-comparable type a pick-one rollup's stored value has.
+ *
+ * `computed_values` is one JSONB column read through a single cast per field
+ * type (query-compiler.fieldExpr). Numeric rollups needed no discriminator
+ * because every op — count/sum/avg/min/max — is a number. A pick-one rollup
+ * returns whatever the SHOWN field holds, so without this a number would sort
+ * lexicographically ("10" before "9") and a date would sort by whatever its
+ * string happens to look like. Mirrors formula's `result_type`.
+ *
+ * A pick-one with no shown field resolves to a record CHIP; its stored sort key
+ * is the winning record's title, so it compares as text.
+ *
+ * Not every field type gets its own bucket: select/workflow are stored as their
+ * LABEL and multi_select as a joined label list, both of which are text, and
+ * `user` is an opaque id that only ever compared as text anyway.
+ */
+export function pickOneValueType(targetType: string | undefined | null): 'text' | 'number' | 'date' | 'checkbox' {
+  if (!targetType) return 'text'; // chip — sorted by the winner's title
+  if (targetType === 'number' || targetType === 'id') return 'number';
+  if (targetType === 'date' || targetType === 'created_at' || targetType === 'updated_at') return 'date';
+  if (targetType === 'checkbox') return 'checkbox';
+  return 'text';
+}
+
+/**
+ * #300 — flatten a pick-one's resolved value into the scalar that goes in
+ * `computed_values`.
+ *
+ * The READ path (attachPickOneRollup) still returns the rich value — a chip
+ * object stays a chip so "Last Ticket" renders clickable. This is only the sort
+ * key, and it must be a scalar: a chip object in computed_values would compare
+ * as its JSON text, ordering by `{"id":"0f9…` — the record's uuid, which is
+ * random.
+ */
+export function pickOneSortKey(value: unknown): string | number | boolean | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value;
+  if (value instanceof Date) return value.toISOString();
+  // A chip: sort by its title, which is what the cell displays.
+  if (typeof value === 'object' && 'title' in (value as Record<string, unknown>)) {
+    const title = (value as { title: unknown }).title;
+    return typeof title === 'string' ? title : null;
+  }
+  // multi_select resolves to a label array — join so it compares stably rather
+  // than as JSON punctuation.
+  if (Array.isArray(value)) return value.filter((v) => typeof v === 'string').join(', ') || null;
+  return null;
+}

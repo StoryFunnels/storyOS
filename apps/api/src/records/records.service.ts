@@ -18,7 +18,7 @@ import type { CompilerContext, SortSpec } from './query-compiler';
 import { keyBetween, keysAfter } from './rank';
 import { diffSnapshots } from './record-diff';
 import { summarizeChanges } from './record-change-summary';
-import { isPickOneOp, pickOneRow, rollupFieldValue } from './rollup-pick-one';
+import { isPickOneOp, pickOneRow, pickOneSortKey, rollupFieldValue } from './rollup-pick-one';
 import type { PickOneOp } from './rollup-pick-one';
 import type { ChangeSummaryField } from './record-change-summary';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -874,18 +874,24 @@ export class RecordsService {
   ): Promise<void> {
     if (recordIds.length === 0) return;
     const defs = await this.fieldDefs(databaseId);
-    const rollupDefs = defs.filter(
-      (d) =>
-        d.type === 'rollup' &&
-        d.config['relation_field_id'] === relationFieldId &&
-        // #286: first/last resolves at read time (attachPickOneRollup) and is
-        // deliberately NOT materialized — its value can be a chip or any field
-        // type, not the single numeric column computed_values is cast through.
-        // Excluded here rather than downstream so the null-filling loop below
-        // never overwrites anything for it.
-        !isPickOneOp(d.config['op']),
+    const onThisRelation = defs.filter(
+      (d) => d.type === 'rollup' && d.config['relation_field_id'] === relationFieldId,
     );
-    if (rollupDefs.length === 0) return;
+    const rollupDefs = onThisRelation.filter((d) => !isPickOneOp(d.config['op']));
+    /*
+     * #300: first/last rollups ARE materialized now. #286 shipped them read-time
+     * only, which is why they could not be sorted or filtered — computed_values
+     * was read through one numeric cast, and a pick-one value can be text, a
+     * date, or a record chip.
+     *
+     * They travel the same invalidation path as the numeric ones (this method),
+     * so a materialized winner cannot go stale: whatever change made the winner
+     * change — an edit to a linked record, or a link added/removed — is exactly
+     * what calls in here. What is stored is a SCALAR sort key, not the rich
+     * value; the read path still returns the chip.
+     */
+    const pickOneDefs = onThisRelation.filter((d) => isPickOneOp(d.config['op']));
+    if (rollupDefs.length === 0 && pickOneDefs.length === 0) return;
 
     const CHUNK = 500;
     for (let i = 0; i < recordIds.length; i += CHUNK) {
@@ -896,6 +902,16 @@ export class RecordsService {
         for (const recordId of chunk) {
           const patch = patchByRecord.get(recordId) ?? {};
           patch[def.id] = values.has(recordId) ? values.get(recordId) : def.config['op'] === 'count' ? 0 : null;
+          patchByRecord.set(recordId, patch);
+        }
+      }
+      for (const def of pickOneDefs) {
+        const values = await this.computePickOneKeysForChunk(def, defs, chunk);
+        for (const recordId of chunk) {
+          const patch = patchByRecord.get(recordId) ?? {};
+          // No winner is null — never 0. A pick-one has no "count" reading, and
+          // 0 would sort as a real value below every genuine one.
+          patch[def.id] = values.get(recordId) ?? null;
           patchByRecord.set(recordId, patch);
         }
       }
@@ -1003,6 +1019,101 @@ export class RecordsService {
   }
 
   /**
+   * #300 — the pick-one winner's SORT KEY for a chunk of parent records.
+   *
+   * The write-side twin of attachPickOneRollup. It resolves the winner by the
+   * same rules — same pickOneRow, same rollupFieldValue, same option labels,
+   * same optional filter — because two implementations of "which linked record
+   * wins" would eventually disagree, and a sort that disagrees with the value
+   * printed in the cell is worse than no sort at all.
+   *
+   * It differs in exactly one respect: the read path already has each parent's
+   * relation chips in hand, while this runs before any projection, so the links
+   * are read from `record_links` directly. One query for the whole chunk.
+   */
+  private async computePickOneKeysForChunk(
+    def: FieldDef,
+    defs: FieldDef[],
+    recordIds: string[],
+  ): Promise<Map<string, string | number | boolean | null>> {
+    const result = new Map<string, string | number | boolean | null>();
+    const op = def.config['op'];
+    if (!isPickOneOp(op)) return result;
+    const relationDef = defs.find((d) => d.id === def.config['relation_field_id']);
+    if (!relationDef || relationDef.type !== 'relation') return result; // dangling
+    const orderByApiName = def.config['order_by_field_api_name'] as string | undefined | null;
+    if (!orderByApiName) return result; // config invariant, enforced at field-create time
+    const targetApiName = def.config['target_field_api_name'] as string | undefined | null;
+    const filterNode = activeFilter(def.config['filter'] as FilterNode | undefined);
+
+    const side = relationDef.config['side'] as 'a' | 'b';
+    const relation = await this.db.query.relations.findFirst({
+      where: eq(relations.id, relationDef.config['relation_id'] as string),
+    });
+    if (!relation) return result;
+    const targetDbId = side === 'a' ? relation.databaseBId : relation.databaseAId;
+    const storedDefs = await this.fieldDefs(targetDbId);
+    // #351 overlay, same as the read path — ordering by the public #id is the
+    // headline case and `number` has no stored fields row.
+    const targetDefs = [...storedDefs, ...systemFieldDefsFor(storedDefs.map((d) => d.api_name))];
+    const orderByDef = targetDefs.find((d) => d.api_name === orderByApiName);
+    if (!orderByDef) return result; // ordering field deleted — no defensible winner
+    const targetDef = targetApiName ? targetDefs.find((d) => d.api_name === targetApiName) : undefined;
+    if (targetApiName && !targetDef) return result;
+
+    const labelledDefs = [orderByDef, targetDef].filter(
+      (d): d is FieldDef => !!d && ['select', 'workflow', 'multi_select'].includes(d.type),
+    );
+    const optionLabels = new Map<string, string>();
+    if (labelledDefs.length > 0) {
+      const options = await this.db.query.selectOptions.findMany({
+        where: inArray(selectOptions.fieldId, labelledDefs.map((d) => d.id)),
+      });
+      for (const option of options) optionLabels.set(option.id, option.label);
+    }
+
+    const myCol = side === 'a' ? recordLinks.fromRecordId : recordLinks.toRecordId;
+    const otherCol = side === 'a' ? recordLinks.toRecordId : recordLinks.fromRecordId;
+    const links = await this.db
+      .select({ mine: myCol, other: otherCol })
+      .from(recordLinks)
+      .where(and(eq(recordLinks.relationId, relation.id), inArray(myCol, recordIds)));
+    if (links.length === 0) return result;
+
+    const conditions = [inArray(records.id, [...new Set(links.map((l) => l.other))]), isNull(records.deletedAt)];
+    if (filterNode) {
+      const ctx: CompilerContext = {
+        defs: new Map(targetDefs.map((d) => [d.api_name, d])),
+        currentUserId: '', // rollup filters may not reference "me" (validated at field-create time)
+      };
+      conditions.push(compileFilter(filterNode, ctx));
+    }
+    const targetRows = await this.db.query.records.findMany({ where: and(...conditions) });
+    const rowById = new Map(targetRows.map((row) => [row.id, row]));
+
+    const candidatesByParent = new Map<string, Array<(typeof targetRows)[number]>>();
+    for (const link of links) {
+      // A link whose row is missing here was filtered out or deleted — both mean
+      // "not a candidate", exactly as on the read path.
+      const row = rowById.get(link.other);
+      if (!row) continue;
+      const list = candidatesByParent.get(link.mine) ?? [];
+      list.push(row);
+      candidatesByParent.set(link.mine, list);
+    }
+
+    for (const [parentId, candidates] of candidatesByParent) {
+      const winner = pickOneRow(candidates, op, (row) => rollupFieldValue(row, orderByDef, optionLabels));
+      if (!winner) continue;
+      const value = targetDef
+        ? rollupFieldValue(winner, targetDef, optionLabels)
+        : { id: winner.id, title: winner.title, number: winner.number, database_id: targetDbId };
+      result.set(parentId, pickOneSortKey(value));
+    }
+    return result;
+  }
+
+  /**
    * MN-267: backfill for a newly-created rollup field across every existing
    * record on its database — mirrors materializeFormulaFieldForAllRecords'
    * reasoning exactly (without this, sorting by a brand-new rollup field
@@ -1013,7 +1124,6 @@ export class RecordsService {
     const defs = await this.fieldDefs(databaseId);
     const def = defs.find((d) => d.id === fieldId);
     if (!def || def.type !== 'rollup') return;
-    if (isPickOneOp(def.config['op'])) return; // #286: read-time only, nothing to backfill
     const relationFieldId = def.config['relation_field_id'] as string | undefined;
     if (!relationFieldId) return;
     const CHUNK = 500;
@@ -2465,14 +2575,10 @@ export class RecordsService {
       // `rollup` is no longer excluded here (see formulaDependsOnlyOnOwnRecord's
       // doc comment) — it has real invalidation plumbing now, same as a formula
       // referencing another formula.
-      // #286: same reason the filter compiler refuses it — a first/last rollup is
-      // computed on read and never materialized, so sorting by it would order the
-      // whole page by null and look like the sort was ignored.
-      if (def.type === 'rollup' && isPickOneOp(def.config['op'])) {
-        throw new UnprocessableEntityException(
-          `cannot sort by "${s.field}" — a "${String(def.config['op'])}" rollup is computed at read time and isn't stored, so it can't be sorted yet`,
-        );
-      }
+      // #300: first/last rollups are materialized and invalidated now, so the
+      // #286 refusal here is gone. The refusal was correct while the premise
+      // held — sorting by a value that was never stored orders the page by null
+      // and reads as a sort that was ignored.
       if (def.type === 'formula' && !formulaDependsOnlyOnOwnRecord(def, byApiName)) {
         throw new UnprocessableEntityException(
           `cannot sort by formula field "${s.field}" — it depends on a related record (through a lookup), which isn't materialized yet`,
