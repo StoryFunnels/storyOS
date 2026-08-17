@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import posthog from 'posthog-js';
 import {
@@ -9,6 +9,7 @@ import {
   BookOpen,
   Bot,
   BriefcaseBusiness,
+  Check,
   Code2,
   Headphones,
   PenTool,
@@ -78,6 +79,9 @@ function PackChoice({
   return (
     <button
       type="button"
+      // #333: aria-pressed, so the choice is announced as a selection rather
+      // than being carried entirely by a background tint.
+      aria-pressed={selected}
       className={cn(
         'flex items-start gap-3 rounded-[var(--radius-card)] border p-3 text-left',
         selected ? 'border-[var(--accent)] bg-accent-soft' : 'border-border-default hover:bg-hover',
@@ -85,8 +89,20 @@ function PackChoice({
       onClick={onClick}
     >
       <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted" />
-      <span className="min-w-0">
-        <span className="block text-[13px] font-medium text-ink">{label ?? pack.name}</span>
+      <span className="min-w-0 flex-1">
+        <span className="flex items-baseline justify-between gap-2">
+          <span className="text-[13px] font-medium text-ink">{label ?? pack.name}</span>
+          {/* #333: one pack is preselected. Without a label saying so, a user
+              who scrolls past may not register that a choice has been made on
+              their behalf — and a pack creates databases, automations and an
+              assistant. */}
+          {selected && (
+            <span className="inline-flex shrink-0 items-center gap-0.5 text-[11px] font-medium text-[var(--accent)]">
+              <Check className="h-3 w-3" />
+              Selected
+            </span>
+          )}
+        </span>
         <span className="line-clamp-2 block text-[12px] text-muted">{pack.summary}</span>
         <span className="mt-1 block text-[11px] text-faint">
           Includes databases, views, automations, plus a built-in assistant
@@ -108,7 +124,9 @@ export default function NewWorkspacePage() {
   const [clientName, setClientName] = useState('');
   const [browsing, setBrowsing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [nameError, setNameError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const nameRef = useRef<HTMLInputElement>(null);
 
   const workspaces = useQuery({
     queryKey: ['workspaces'],
@@ -157,6 +175,20 @@ export default function NewWorkspacePage() {
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    /*
+     * #333: the form is noValidate and this is our check, because the browser's
+     * `Please fill out this field.` bubble is system-styled and positioned
+     * wherever the browser likes — on this layout it landed across the "What are
+     * you working on?" heading. Every other error in the product is ours; that
+     * one advertised unstyled HTML on the first authenticated screen a new user
+     * sees. (Same family as #328, where sonner's defaults read as browser chrome.)
+     */
+    if (!name.trim()) {
+      setNameError('Give your workspace a name.');
+      nameRef.current?.focus();
+      return;
+    }
+    setNameError(null);
     setBusy(true);
     setError(null);
     const { data, error: apiError } = await api.POST('/api/v1/workspaces', {
@@ -214,33 +246,27 @@ export default function NewWorkspacePage() {
 
   return (
     <AuthCard title="Create your workspace">
-      <form onSubmit={onSubmit} className="flex flex-col gap-4">
-        {(workspaces.data?.length ?? 0) > 0 && (
-          <div className="rounded-[var(--radius-control)] border border-border-default bg-card p-3 text-[12px] text-muted">
-            Need another workspace? Multiple workspaces are available on Enterprise.{' '}
-            <a
-              href={`mailto:hello@storyos.dev?subject=${encodeURIComponent('StoryOS Enterprise — multiple workspaces')}`}
-              className="font-medium text-ink underline underline-offset-2"
-              onClick={() =>
-                posthog.capture('enterprise_contact_clicked', { source: 'new_workspace' })
-              }
-            >
-              Contact us
-            </a>
-            .
-          </div>
-        )}
-
+      <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="name">Workspace name</Label>
           <Input
             id="name"
-            required
+            ref={nameRef}
             autoFocus
+            aria-invalid={nameError ? true : undefined}
+            aria-describedby={nameError ? 'name-error' : undefined}
             placeholder="e.g. JCM Agency"
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => {
+              setName(e.target.value);
+              if (nameError) setNameError(null); // clear as soon as they start fixing it
+            }}
           />
+          {nameError && (
+            <p id="name-error" className="text-[12px] text-error">
+              {nameError}
+            </p>
+          )}
         </div>
 
         <div className="flex flex-col gap-1.5">
@@ -248,7 +274,11 @@ export default function NewWorkspacePage() {
           <p className="text-[11px] text-faint">
             Pick a complete Business Pack now, or install any other pack later.
           </p>
-          <div className="flex max-h-[48vh] flex-col gap-1.5 overflow-y-auto pr-1">
+          {/* #333: 48vh cut the fourth card mid-height on a laptop, which reads
+              as a rendering bug rather than as "scroll for more". A shorter box
+              lands the cut BETWEEN cards far more often, and the list scrolls
+              either way. */}
+          <div className="flex max-h-[38vh] flex-col gap-1.5 overflow-y-auto pr-1">
             {registry.isError ? (
               <div className="flex flex-col items-start gap-2 rounded-[var(--radius-card)] border border-border-default bg-card p-4 text-[13px] text-error">
                 <span>{apiErrorMessage(registry.error, 'Could not load packs')}</span>
@@ -351,12 +381,39 @@ export default function NewWorkspacePage() {
         )}
 
         {error && <p className="text-[13px] text-error">{error}</p>}
-        <Button
-          type="submit"
-          disabled={busy || registry.isLoading || (registry.isError && choice.startsWith('pack:'))}
-        >
-          {busy ? 'Setting things up…' : 'Create workspace'}
-        </Button>
+        {/* #333: the primary action used to sit below four dense pack cards and
+            a "browse all" link, so on a laptop viewport it needed a hunt. Pinned
+            to the bottom of the card instead — the pack list above already
+            scrolls in its own container, so nothing is hidden behind it. */}
+        <div className="sticky bottom-0 -mx-1 bg-card px-1 pb-1 pt-2">
+          <Button
+            type="submit"
+            className="w-full"
+            disabled={busy || registry.isLoading || (registry.isError && choice.startsWith('pack:'))}
+          >
+            {busy ? 'Setting things up…' : 'Create workspace'}
+          </Button>
+        </div>
+
+        {/* #333: this used to be the FIRST thing on the page, above the name
+            field — opening a first-run screen with a limitation. It only renders
+            for someone who already has a workspace, so it answers a question
+            that arises AFTER the action, and now sits after it. */}
+        {(workspaces.data?.length ?? 0) > 0 && (
+          <p className="text-[12px] text-muted">
+            Need another workspace? Multiple workspaces are available on Enterprise.{' '}
+            <a
+              href={`mailto:hello@storyos.dev?subject=${encodeURIComponent('StoryOS Enterprise — multiple workspaces')}`}
+              className="font-medium text-ink underline underline-offset-2"
+              onClick={() =>
+                posthog.capture('enterprise_contact_clicked', { source: 'new_workspace' })
+              }
+            >
+              Contact us
+            </a>
+            .
+          </p>
+        )}
 
         <div className="flex items-start gap-2 rounded-[var(--radius-control)] bg-hover p-3">
           <Bot className="mt-0.5 h-4 w-4 shrink-0 text-muted" />
