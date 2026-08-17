@@ -76,7 +76,7 @@ API says so explicitly rather than returning an empty page.
 | `add_days(d, n)` | date | Shift a date | `add_days({Start}, 7)` |
 | `year(d)` / `month(d)` | number | Date parts | `year({Due})` |
 | `switch(x, c1, r1, …, default)` | results' type | Compare `x` to each case, return the matching result | `switch({State}, "Done", 100, "Doing", 50, 0)` |
-| `contains(s, find)` | checkbox | Text contains text | `contains({Notes}, "urgent")` |
+| `contains(s, find)` | checkbox | Text contains text — or a link contains a record ([below](#is-a-record-linked-242)) | `contains({Notes}, "urgent")` |
 | `starts_with(s, p)` / `ends_with(s, p)` | checkbox | Prefix / suffix test | `ends_with({File}, ".pdf")` |
 | `left(s, n)` / `right(s, n)` | text | First / last N characters | `right({Phone}, 4)` |
 | `substring(s, start, len)` | text | Characters from a **1-based** start | `substring({Code}, 5, 3)` |
@@ -124,6 +124,22 @@ The rules, all enforced by the editor as you type:
   that quietly degrades as your data grows is worse than one that isn't offered.
 - An empty link gives `0` for `count` and **empty** for the rest — deliberately matching Rollup, so
   the two never disagree. ("No data" and "adds up to zero" are different answers.)
+
+### Is a record linked? (#242)
+
+`contains` also answers "is this record one of the linked ones", matched on the record's **#id**:
+
+```
+contains({Issues}, 42)                       is issue #42 linked to this record
+if(contains({Blockers}, 7), "⚠️", "")         and it composes like any true/false value
+```
+
+It matches on the **#id deliberately, never the name.** The workaround this replaces was joining
+the linked records' names into one string and searching it — which silently breaks the moment one
+name contains another ("Acme" inside "Acme Corp"). Passing text raises a save-time error rather
+than doing a comparison that usually works.
+
+An empty link is `false`, not an error. One hop only, like the aggregates.
 
 ### Formula or rollup?
 
