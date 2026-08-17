@@ -137,7 +137,14 @@ export function optionColor(
  * OPTION_COLORS from THIS file at module-init — importing it here would deadlock).
  * The icon inherits the chip's text colour via `currentColor`.
  */
-function OptionIcon({ icon }: { icon?: string | null }) {
+/**
+ * #215: exported so the surfaces that draw an option WITHOUT a full chip — board
+ * group headers, filter value chips, the mention state badge — render the icon
+ * through this one component instead of each re-deriving "how do I draw an icon
+ * ref". That re-derivation is the defect docs/architecture/field-surfaces.md
+ * exists to prevent, and it has shipped four times.
+ */
+export function OptionIcon({ icon }: { icon?: string | null }) {
   const setName = setIconName(icon);
   if (setName) {
     const Icon = ICON_BY_NAME[setName];

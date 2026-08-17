@@ -70,6 +70,7 @@ import type { FilterConnector, FilterGroup, FilterNode } from './filter-config';
 import { MAX_SORTS, directionLabel, isSortableFormula, nextSortField, reorderSorts } from './sort-config';
 import type { NullsPlacement } from './sort-config';
 import { SYSTEM_FIELD_OPS, SYSTEM_SORTABLE_TYPES, SYSTEM_USER_TYPES, withSystemFields } from './system-fields';
+import { OPTION_COLORS, OptionIcon } from '../table-view/cells';
 
 /** Op menu per field type — mirrors the API op×type matrix. */
 export const OPS_BY_TYPE: Record<string, Array<{ op: string; label: string; input: 'text' | 'number' | 'date' | 'options' | 'relative' | 'boolean' | 'records' | 'none' }>> = {
@@ -452,12 +453,31 @@ export const ME_OPTION = { id: 'me', label: 'Me (current user)' } as const;
  * the dynamic "Me" entry then the workspace members; everything else uses the field's
  * own select options. Shared by the value editor and `describeCondition` so a stored
  * `'me'` (or option id) renders the same label everywhere. */
+/**
+ * #215: carries each option's `icon` and `color` alongside its label, so a filter
+ * chip draws the option the way every other surface draws it. Previously this
+ * flattened to `{id, label}` and the filter was the one place an option lost its
+ * appearance — you'd pick "Blocked 🚫" from a board and see bare text in the
+ * filter that produced the same set.
+ *
+ * A member (user field) has no option row and therefore no icon/colour; those
+ * entries simply omit both.
+ */
+/** #215: an option's colour as a `currentColor` tint for its icon, so the icon
+ *  carries the same colour cue the chip's fill does. No colour (a member entry)
+ *  means inherit, which is what the surrounding text already uses. */
+function optionTint(color?: string): { color: string } | undefined {
+  if (!color) return undefined;
+  const hex = OPTION_COLORS[color];
+  return hex ? { color: hex } : undefined;
+}
+
 function optionSourceFor(
   field: Field,
   members: Array<{ id: string; name: string }>,
-): Array<{ id: string; label: string }> {
+): Array<{ id: string; label: string; icon?: string | null; color?: string }> {
   if (isUserField(field)) return [ME_OPTION, ...members.map((m) => ({ id: m.id, label: m.name }))];
-  return (field.options ?? []).map((o) => ({ id: o.id, label: o.label }));
+  return (field.options ?? []).map((o) => ({ id: o.id, label: o.label, icon: o.icon, color: o.color }));
 }
 
 function FilterValueEditor({
@@ -1552,7 +1572,7 @@ function OptionMultiPick({
   selected,
   onChange,
 }: {
-  options: Array<{ id: string; label: string }>;
+  options: Array<{ id: string; label: string; icon?: string | null; color?: string }>;
   selected: string[];
   onChange: (ids: string[]) => void;
 }) {
@@ -1573,6 +1593,11 @@ function OptionMultiPick({
           key={option.id}
           className="inline-flex items-center gap-1 rounded-[var(--radius-control)] border border-border-default bg-hover px-1.5 py-0.5 text-[12px] text-ink"
         >
+          {/* #215: through the shared OptionIcon, tinted with the option's own
+              colour — not a re-implementation of "how do I draw an icon ref". */}
+          <span className="flex items-center" style={optionTint(option.color)}>
+            <OptionIcon icon={option.icon} />
+          </span>
           <span className="max-w-32 truncate">{option.label}</span>
           <button
             type="button"
@@ -1614,6 +1639,9 @@ function OptionMultiPick({
                   checked={selected.includes(option.id)}
                   onChange={() => toggle(option.id)}
                 />
+                <span className="flex items-center" style={optionTint(option.color)}>
+                  <OptionIcon icon={option.icon} />
+                </span>
                 <span className="truncate">{option.label}</span>
               </label>
             ))}

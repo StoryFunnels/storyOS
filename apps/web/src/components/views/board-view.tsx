@@ -19,7 +19,7 @@ import { api } from '@/lib/api';
 import { recordHref } from '@/lib/records';
 import { cn } from '@/lib/utils';
 import { Avatar } from '@/components/ui/avatar';
-import { CellDisplay, OPTION_COLORS, fieldValue } from '../table-view/cells';
+import { CellDisplay, OPTION_COLORS, OptionIcon, fieldValue } from '../table-view/cells';
 import {
   bucketColumnsFor,
   bucketLabel,
@@ -123,7 +123,9 @@ export function BoardView({
 
   const columns = useMemo(() => {
     if (!groupField) return [];
-    const defs: Array<{ id: string; label: string; color: string }> =
+    // #215: `icon` is optional because only select/workflow columns have an
+    // option to take one from — a date bucket or a member column has none.
+    const defs: Array<{ id: string; label: string; color: string; icon?: string | null }> =
       // #307: a date axis has no schema to enumerate — columns come from the data,
       // chronologically. Emitting every period between min and max would explode
       // into empty columns the moment one record has a far-future date.
@@ -141,6 +143,10 @@ export function BoardView({
             id: o.id,
             label: o.label,
             color: OPTION_COLORS[o.color] ?? OPTION_COLORS.gray!,
+            // #215: carried so the group header can draw the option's icon. Only
+            // select/workflow columns have one — a date bucket or a member column
+            // has no option to take an icon from, hence undefined elsewhere.
+            icon: o.icon,
           }))
         : groupField.type === 'user'
           ? (memberQuery.data ?? []).map((m) => ({
@@ -395,7 +401,7 @@ function BoardColumn({
   onOpen,
   onAdd,
 }: {
-  column: { id: string; label: string; color: string; rows: RecordRow[] };
+  column: { id: string; label: string; color: string; icon?: string | null; rows: RecordRow[] };
   cardFields: Field[];
   size: CardSize;
   memberNames: Map<string, string>;
@@ -418,7 +424,17 @@ function BoardColumn({
     >
       <div className="flex items-center justify-between px-3 py-2">
         <span className="flex items-center gap-1.5 text-[12px] font-medium text-ink">
-          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: column.color }} />
+          {/* #215: the option's icon where it has one, the colour dot otherwise.
+              Not both — two markers for one option reads as two things. The icon
+              is tinted with the option's colour so the header still carries the
+              same colour cue the dot gave. */}
+          {column.icon ? (
+            <span className="flex items-center" style={{ color: column.color }}>
+              <OptionIcon icon={column.icon} />
+            </span>
+          ) : (
+            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: column.color }} />
+          )}
           {column.label}
           <span className="text-faint">{column.rows.length}</span>
         </span>
