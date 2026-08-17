@@ -262,11 +262,26 @@ export const FORMULA_FUNCTIONS: Record<string, FnSpec> = {
   },
 
   // -- text ----------------------------------------------------------------
+  /**
+   * #242 — two membership questions under one name, dispatched on the first
+   * argument (the same way `sum` dispatches, per #287's design note: one name,
+   * one meaning, no `contains_record` twin).
+   *
+   *   contains({Notes}, "urgent")   substring in text
+   *   contains({Issues}, 42)        record #42 is linked
+   *
+   * The record form matches on the linked record's **number** — its stable
+   * public id — never its name. The workaround this replaces was joining the
+   * linked names into a string and searching it, which silently breaks the
+   * moment one record's name contains another's ("Acme" inside "Acme Corp").
+   * Identity is the whole point of the request.
+   */
   contains: {
-    args: ['text', 'text'],
+    args: 'variadic-any',
     returns: 'checkbox',
-    doc: 'True when the first text contains the second (case-sensitive).',
+    doc: 'True when the text contains the substring — or when a link contains a record, by its #id.',
     example: 'contains({Notes}, "urgent")',
+    keywords: ['includes', 'member', 'membership', 'has', 'in'],
     impl: (s, find) => asStr(s).includes(asStr(find)),
   },
   starts_with: {
@@ -799,6 +814,33 @@ export function typecheck(node: FormulaNode, fields: FormulaFieldInfo[]): Formul
          * the user pick the implementation, which is our problem, not theirs.
          */
         const first = n.args[0];
+        /*
+         * #242 — contains() over a LINK: `contains({Issues}, 42)`. Checked
+         * before the aggregate branch and before the generic relation ban
+         * below, which is what otherwise rejects a bare relation argument.
+         */
+        if (n.name === 'contains' && first && first.kind === 'rel') {
+          if (first.field) {
+            throw new FormulaError(
+              'contains() over a link takes the link itself and a record #id — write contains({Relation}, 42)',
+            );
+          }
+          if (n.args.length !== 2) throw new FormulaError('contains() takes two arguments');
+          const idType = check(n.args[1]!);
+          // A name is exactly what this must NOT match on — that is the fragile
+          // workaround it replaces, so say so rather than comparing a title.
+          if (idType !== 'number' && idType !== 'null') {
+            throw new FormulaError(
+              `contains() over a link matches a record by its #id, so the second argument must be a number (got ${idType})`,
+            );
+          }
+          return 'checkbox';
+        }
+        // The text form keeps its arity check — widening `args` to variadic-any
+        // (so a link may be passed) removed the one the fixed signature gave.
+        if (n.name === 'contains' && n.args.length !== 2) {
+          throw new FormulaError('contains() takes two arguments');
+        }
         if (first && first.kind === 'rel' && RELATION_AGGREGATES.has(n.name)) {
           if (n.name === 'count') {
             if (first.field) {
@@ -943,6 +985,13 @@ export function evaluateFormula(
     case 'call': {
       const spec = FORMULA_FUNCTIONS[node.name]!;
       const subject = node.args[0];
+      // #242 — link membership, matched on the related record's stable #id.
+      if (node.name === 'contains' && subject && subject.kind === 'rel') {
+        const bags = related?.[subject.relation] ?? [];
+        const wanted = evaluateFormula(node.args[1]!, values, related);
+        if (wanted === null || wanted === undefined) return false;
+        return bags.some((bag) => bag['number'] === wanted);
+      }
       if (subject && subject.kind === 'rel' && RELATION_AGGREGATES.has(node.name)) {
         const bags = related?.[subject.relation] ?? [];
         const condition = node.args[1];

@@ -161,3 +161,59 @@ describe('an aggregate composes with the rest of the language (#298)', () => {
     expect(evaluateFormula(parseFormula('sum({Issues.Estimate})', FIELDS), {})).toBeNull();
   });
 });
+
+/**
+ * #242 — contains() as a membership test over a LINK.
+ *
+ * The workaround this replaces was joining the linked records' NAMES into one
+ * string and searching it, which breaks silently as soon as one name contains
+ * another ("Acme" inside "Acme Corp"). Matching on the stable #id is the
+ * substance of the request, not a detail.
+ */
+describe('contains() over a link (#242)', () => {
+  // Local bags carrying `number` — the shared BAGS above deliberately don't,
+  // and the aggregates that use them have no business knowing about #ids.
+  const NUMBERED: RelatedBags = {
+    issues: [
+      { number: 1, estimate: 3, state: 'Done', title: 'a' },
+      { number: 2, estimate: 5, state: 'Open', title: 'b' },
+    ],
+  };
+  const run = (src: string) => evaluateFormula(parseFormula(src, FIELDS), {}, NUMBERED);
+
+  it('is true when the record is linked, by its #id', () => {
+    // BAGS' issues carry number 1 and 2.
+    expect(run('contains({Issues}, 1)')).toBe(true);
+    expect(run('contains({Issues}, 2)')).toBe(true);
+  });
+
+  it('is false when it is not', () => {
+    expect(run('contains({Issues}, 99)')).toBe(false);
+  });
+
+  it('is false — not an error — when nothing is linked', () => {
+    expect(evaluateFormula(parseFormula('contains({Issues}, 1)', FIELDS), {})).toBe(false);
+  });
+
+  it('still does substring matching on text', () => {
+    expect(evaluateFormula(parseFormula('contains("hello world", "world")', FIELDS), {})).toBe(true);
+    expect(evaluateFormula(parseFormula('contains("hello", "world")', FIELDS), {})).toBe(false);
+  });
+
+  it('refuses to match a link on anything but an #id', () => {
+    // Matching on a name is precisely the fragile behaviour this replaces, so
+    // it is a save-time error rather than a comparison that usually works.
+    expect(() => typecheck(parseFormula('contains({Issues}, "b")', FIELDS), FIELDS)).toThrow(/#id/);
+  });
+
+  it('refuses a field path — the link itself is the collection', () => {
+    expect(() => typecheck(parseFormula('contains({Issues.State}, 1)', FIELDS), FIELDS)).toThrow(
+      /takes two arguments|cannot take a link|#id|contains\(\{Relation\}/,
+    );
+  });
+
+  it('typechecks as true/false, so it composes with the rest of the language', () => {
+    expect(typecheck(parseFormula('contains({Issues}, 1)', FIELDS), FIELDS)).toBe('checkbox');
+    expect(run('if(contains({Issues}, 1), "linked", "not")')).toBe('linked');
+  });
+});
