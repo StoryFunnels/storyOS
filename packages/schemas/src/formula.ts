@@ -48,6 +48,65 @@ export interface FormulaFieldInfo {
  */
 export const RELATION_AGGREGATES = new Set(['count', 'sum', 'avg', 'min', 'max']);
 
+/**
+ * #299 — relation-aggregate entries for a function browser, written against the
+ * user's OWN link fields.
+ *
+ * The static `example` on each spec (`sum({Issues.Estimate})`) is unusable as
+ * documentation: unless the reader happens to have a link called "Issues" with
+ * a number called "Estimate", it reads as someone else's formula and teaches
+ * nothing about their own data. #287's finding was that people concluded the
+ * capability did not exist — a placeholder example is how that happens.
+ *
+ * `sum`/`avg`/`min`/`max` are emitted only when the linked database actually
+ * has a NUMBER field to aggregate, because that is the only thing the
+ * typechecker accepts (see typecheck's RELATION_AGGREGATES branch). Offering
+ * `sum({Tags.Name})` would put an example in front of the user that errors the
+ * moment they click it. `count` needs no such field and is always offered.
+ *
+ * Returns [] when the database has no link fields at all — there is nothing
+ * truthful to show, and the caller renders its own empty state.
+ */
+export function relationAggregateExamples(
+  fields: FormulaFieldInfo[],
+): Array<{ name: string; example: string; doc: string }> {
+  const out: Array<{ name: string; example: string; doc: string }> = [];
+  for (const rel of fields) {
+    if (rel.formula_type !== 'relation') continue;
+    const link = rel.display_name;
+    out.push({
+      name: 'count',
+      example: `count({${link}})`,
+      doc: `How many ${link} are linked to this record.`,
+    });
+    const numeric = (rel.related ?? []).find((r) => r.formula_type === 'number');
+    if (!numeric) continue;
+    const path = `{${link}.${numeric.display_name}}`;
+    out.push({ name: 'sum', example: `sum(${path})`, doc: `Adds up ${numeric.display_name} across all linked ${link}.` });
+    out.push({ name: 'avg', example: `avg(${path})`, doc: `Average ${numeric.display_name} across all linked ${link}.` });
+    out.push({ name: 'min', example: `min(${path})`, doc: `Lowest ${numeric.display_name} among the linked ${link}.` });
+    out.push({ name: 'max', example: `max(${path})`, doc: `Highest ${numeric.display_name} among the linked ${link}.` });
+  }
+  return out;
+}
+
+/**
+ * #299 — does this expression reduce over a link? Drives the one-line Rollup
+ * note in the editor. Deliberately works on the AST rather than a regex over
+ * the source, so `count` appearing inside a string literal or a field name
+ * does not trigger it.
+ */
+export function usesRelationAggregate(node: FormulaNode): boolean {
+  if (node.kind === 'call') {
+    const subject = node.args[0];
+    if (RELATION_AGGREGATES.has(node.name) && subject && subject.kind === 'rel') return true;
+    return node.args.some((a) => usesRelationAggregate(a));
+  }
+  if (node.kind === 'binary') return usesRelationAggregate(node.left) || usesRelationAggregate(node.right);
+  if (node.kind === 'unary') return usesRelationAggregate(node.operand);
+  return false;
+}
+
 export class FormulaError extends Error {
   constructor(
     message: string,
@@ -64,6 +123,14 @@ interface FnSpec {
   returns: FormulaType | 'same-as-arg2' | 'same-as-arg3';
   doc: string;
   example: string;
+  /**
+   * #299 — the words a user searches for when they don't know the function's
+   * name. Search over `name`/`doc`/`example` alone fails the exact case that
+   * prompted #287: someone types "how many" or "total", finds nothing, and
+   * concludes the capability is missing. Only worth listing where the name is
+   * genuinely not the word people reach for.
+   */
+  keywords?: string[];
   impl: (...args: unknown[]) => unknown;
 }
 
@@ -129,8 +196,8 @@ export const FORMULA_FUNCTIONS: Record<string, FnSpec> = {
     },
   },
   abs: { args: ['number'], returns: 'number', doc: 'Absolute value.', example: 'abs({Delta})', impl: (n) => (asNum(n) === null ? null : Math.abs(asNum(n)!)) },
-  min: { args: 'variadic-number', returns: 'number', doc: 'Smallest argument.', example: 'min({A}, {B})', impl: (...vs) => { const nums = vs.map(asNum).filter((v): v is number => v !== null); return nums.length ? Math.min(...nums) : null; } },
-  max: { args: 'variadic-number', returns: 'number', doc: 'Largest argument.', example: 'max({A}, {B})', impl: (...vs) => { const nums = vs.map(asNum).filter((v): v is number => v !== null); return nums.length ? Math.max(...nums) : null; } },
+  min: { args: 'variadic-number', returns: 'number', doc: 'Smallest argument, or the smallest across a link.', example: 'min({A}, {B})', keywords: ['smallest', 'lowest', 'earliest', 'minimum', 'linked', 'related'], impl: (...vs) => { const nums = vs.map(asNum).filter((v): v is number => v !== null); return nums.length ? Math.min(...nums) : null; } },
+  max: { args: 'variadic-number', returns: 'number', doc: 'Largest argument, or the largest across a link.', example: 'max({A}, {B})', keywords: ['largest', 'highest', 'latest', 'maximum', 'biggest', 'linked', 'related'], impl: (...vs) => { const nums = vs.map(asNum).filter((v): v is number => v !== null); return nums.length ? Math.max(...nums) : null; } },
   now: { args: [], returns: 'date', doc: 'Current date-time.', example: 'now()', impl: () => new Date().toISOString() },
   today: { args: [], returns: 'date', doc: "Today's date.", example: 'today()', impl: () => new Date().toISOString().slice(0, 10) },
   days_between: {
@@ -291,6 +358,7 @@ export const FORMULA_FUNCTIONS: Record<string, FnSpec> = {
     returns: 'number',
     doc: 'Counts linked records. Optionally only those matching a condition.',
     example: 'count({Issues}, {Issues.State} = "Done")',
+    keywords: ['how many', 'number of', 'total', 'tally', 'linked', 'related'],
     impl: () => null,
   },
   avg: {
@@ -298,6 +366,7 @@ export const FORMULA_FUNCTIONS: Record<string, FnSpec> = {
     returns: 'number',
     doc: 'Average of the arguments, or of a linked field.',
     example: 'avg({Issues.Estimate})',
+    keywords: ['average', 'mean', 'linked', 'related'],
     impl: (...vs) => { const nums = vs.map(asNum).filter((v): v is number => v !== null); return nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : null; },
   },
   sum: {
@@ -305,6 +374,7 @@ export const FORMULA_FUNCTIONS: Record<string, FnSpec> = {
     returns: 'number',
     doc: 'Adds the arguments together, or adds up a field across a link.',
     example: 'sum({Issues.Estimate})',
+    keywords: ['total', 'add up', 'subtotal', 'linked', 'related'],
     impl: (...vs) => { const nums = vs.map(asNum).filter((v): v is number => v !== null); return nums.length ? nums.reduce((a, b) => a + b, 0) : null; },
   },
 

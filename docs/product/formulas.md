@@ -70,7 +70,7 @@ API says so explicitly rather than returning an empty page.
 | `format(x)` | text | Any value as text | `format({Estimate})` |
 | `round(n, places?)` | number | Round to N decimals | `round(10/3, 2)` |
 | `abs(n)` | number | Absolute value | `abs({Delta})` |
-| `min(…)` / `max(…)` | number | Smallest / largest | `max({A}, {B})` |
+| `min(…)` / `max(…)` | number | Smallest / largest — also across a link | `max({A}, {B})` |
 | `now()` / `today()` | date | Current moment / date | `today()` |
 | `days_between(a, b)` | number | Whole days a → b | `days_between(today(), {Due})` |
 | `add_days(d, n)` | date | Shift a date | `add_days({Start}, 7)` |
@@ -85,7 +85,9 @@ API says so explicitly rather than returning an empty page.
 | `ceil(n)` / `floor(n)` | number | Round up / down | `ceil({Hours})` |
 | `mod(a, b)` | number | Remainder | `mod({Count}, 2)` |
 | `sqrt(n)` / `pow(a, b)` | number | Square root / power | `pow({Base}, 2)` |
-| `sum(…)` | number | Add the arguments | `sum({Fees}, {Tax})` |
+| `sum(…)` | number | Add the arguments — or a field across a link | `sum({Fees}, {Tax})` |
+| `count(link, cond?)` | number | Count linked records ([across a link](#across-a-link-298)) | `count({Issues})` |
+| `avg(…)` | number | Average of the arguments, or across a link | `avg({Issues.Estimate})` |
 | `day(d)` / `weekday(d)` | number | Day of month / of week (1 = Mon) | `weekday({Due})` |
 | `hour(d)` / `minute(d)` | number | Time parts, UTC | `hour({Started})` |
 | `date_diff(a, b, unit)` | number | Whole `"days"`/`"weeks"`/`"months"`/`"years"` | `date_diff({Start}, today(), "months")` |
@@ -99,12 +101,51 @@ API says so explicitly rather than returning an empty page.
 `and`, `or` and `not` are **operators**, not functions — write `{Done} and {Approved}`, never
 `and({Done}, {Approved})`. They're listed alongside the functions in the editor's help panel.
 
-`sum()` adds its own arguments. To add up values across a **relation**, use a Rollup field and then
-reference the rollup.
+## Across a link (#298)
+
+`count`, `sum`, `avg`, `min` and `max` also reach through a **relation**, so you don't need a
+Rollup field just to total something up:
+
+```
+count({Issues})                              how many Issues are linked
+count({Issues}, {Issues.State} = "Done")     only the ones matching a condition
+sum({Issues.Estimate})                       add up a field across every linked record
+avg({Issues.Estimate})                       and the same for avg / min / max
+```
+
+The rules, all enforced by the editor as you type:
+
+- `count` takes the **link itself** — `count({Issues})`, never `count({Issues.State})`.
+- `sum`/`avg`/`min`/`max` take a **field through the link** — `sum({Issues.Estimate})` — and that
+  field must be a number.
+- The optional second argument is a condition evaluated **against each linked record**, so
+  `{Issues.State}` inside it means "that issue's state".
+- **One hop only.** `{A.B.C}` is not supported: every hop multiplies the rows read, and a feature
+  that quietly degrades as your data grows is worse than one that isn't offered.
+- An empty link gives `0` for `count` and **empty** for the rest — deliberately matching Rollup, so
+  the two never disagree. ("No data" and "adds up to zero" are different answers.)
+
+### Formula or rollup?
+
+Both compute the same number over the same records. The difference is where the number lives:
+
+| | Formula aggregate | Rollup field |
+|---|---|---|
+| Written | inline, in the formula editor | configured as its own field |
+| Computed | on read | materialized onto the record |
+| **Sort / filter a view by it** | no | **yes** |
+| Shows up as its own column | no | yes |
+
+Rule of thumb: reach for the formula when the number is part of a larger expression
+(`sum({Issues.Estimate}) > 40`), and for a **Rollup** when you want to sort or filter a view by it.
+Rollup is not the legacy option — see [rollups](#with-rollups-mn-064) for what only it can do
+(picking one related record, its own filter).
 
 ## Limits (v1)
 
-One database at a time (no `{Client.Owner}` traversal — use a Lookup field first, then reference
-the lookup; for aggregation use a Rollup field, then reference the rollup), no filtering or
-sorting views by formula values yet, 5-level formula chains, deleted referenced fields degrade
-the result to empty with a warning in the field editor.
+Field traversal is one hop and aggregate-only: `{Client.Owner}` as a plain value still needs a
+Lookup field, which you then reference. 5-level formula chains. Deleted referenced fields degrade
+the result to empty with a warning in the field editor. Views can be sorted by a formula that
+depends only on its own record; a formula that reaches across a link isn't materialized, so
+sorting or filtering by it is rejected explicitly rather than returning an empty page — use a
+Rollup for that.

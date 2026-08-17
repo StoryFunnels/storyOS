@@ -1,12 +1,21 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQueries, useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import { FORMULA_FUNCTIONS, FORMULA_OPERATORS, evaluateFormula, parseFormula, typecheck } from '@storyos/schemas';
+import {
+  FORMULA_FUNCTIONS,
+  FORMULA_OPERATORS,
+  evaluateFormula,
+  parseFormula,
+  relationAggregateExamples,
+  typecheck,
+  usesRelationAggregate,
+} from '@storyos/schemas';
+import type { FormulaFieldInfo } from '@storyos/schemas';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
-import type { Field } from './use-table-data';
+import type { DatabaseDetail, Field } from './use-table-data';
 
 const FORMULA_TYPE_OF: Record<string, 'text' | 'number' | 'checkbox' | 'date' | null> = {
   number: 'number', checkbox: 'checkbox', date: 'date', created_at: 'date', updated_at: 'date',
@@ -33,6 +42,60 @@ function fnArgHint(spec: { args: unknown; returns: string }): string {
   return `${takes} → ${friendlyType(spec.returns)}`;
 }
 
+/**
+ * #299 — the linked databases' fields, so `{Issues.Estimate}` resolves in the
+ * editor exactly as it does on the server.
+ *
+ * Without this the editor did not merely fail to SUGGEST the dotted form — it
+ * could not parse it. Relation fields were dropped from `infos` entirely (there
+ * is no relation entry in FORMULA_TYPE_OF), so a user who typed the syntax from
+ * the docs got `Unknown field "{Issues}"` from their own editor while the same
+ * formula validated server-side. That is the #287 failure mode over again.
+ *
+ * Mirrors FieldsService.formulaFieldInfos: one hop only, related relations
+ * skipped (a second hop is not supported), related formulas readable via their
+ * result_type. Keyed to match `useDatabase` so the fetches share its cache.
+ */
+function useRelationInfos(ws: string, fields: Field[], enabled: boolean): FormulaFieldInfo[] {
+  const links = fields.filter((f) => f.type === 'relation' && f.relation?.target_database_id);
+  const targetIds = [...new Set(links.map((f) => f.relation!.target_database_id))];
+  const results = useQueries({
+    queries: targetIds.map((id) => ({
+      queryKey: ['database', ws, id],
+      queryFn: async () => {
+        const { data, error } = await api.GET('/api/v1/workspaces/{ws}/databases/{db}', {
+          params: { path: { ws, db: id } },
+        });
+        if (error) throw error;
+        return data as unknown as DatabaseDetail;
+      },
+      enabled: enabled && Boolean(ws && id),
+      staleTime: 60_000,
+    })),
+  });
+  const fieldsByDb = new Map(targetIds.map((id, i) => [id, results[i]?.data?.fields ?? []]));
+
+  return links.map((link) => {
+    const related: FormulaFieldInfo[] = [];
+    for (const t of fieldsByDb.get(link.relation!.target_database_id) ?? []) {
+      if (t.type === 'relation') continue;
+      if (t.type === 'formula') {
+        const rt = t.config['result_type'] as string | undefined;
+        if (rt) related.push({ api_name: t.apiName, display_name: t.displayName, formula_type: rt as never });
+        continue;
+      }
+      const ft = FORMULA_TYPE_OF[t.type];
+      if (ft) related.push({ api_name: t.apiName, display_name: t.displayName, formula_type: ft });
+    }
+    return {
+      api_name: link.apiName,
+      display_name: link.displayName,
+      formula_type: 'relation' as const,
+      related,
+    };
+  });
+}
+
 export function FormulaEditor({
   ws,
   db,
@@ -53,7 +116,7 @@ export function FormulaEditor({
   format?: 'plain' | 'percent';
   onFormatChange?: (format: 'plain' | 'percent') => void;
 }) {
-  const infos = dbFields
+  const scalarInfos: FormulaFieldInfo[] = dbFields
     .map((f) => {
       if (f.type === 'formula') {
         const rt = f.config['result_type'] as string | undefined;
@@ -63,6 +126,10 @@ export function FormulaEditor({
       return ft ? { api_name: f.apiName, display_name: f.displayName, formula_type: ft } : null;
     })
     .filter((f): f is NonNullable<typeof f> => Boolean(f));
+  // #299: link fields carry the scope that makes `{Issues.Estimate}` resolvable.
+  const relationInfos = useRelationInfos(ws, dbFields, true);
+  const infos: FormulaFieldInfo[] = [...scalarInfos, ...relationInfos];
+  const aggregateExamples = relationAggregateExamples(relationInfos);
 
   const sample = useQuery({
     queryKey: ['formula-sample', ws, db],
@@ -80,13 +147,25 @@ export function FormulaEditor({
   // #190: surfaced so the percent toggle can appear only when the formula returns
   // a number (the only result the progress bar makes sense for).
   let numberResult = false;
+  // #299: drives the one-line Rollup note — shown only once the formula actually
+  // parses as an aggregate, so it never fires while the user is mid-keystroke.
+  let aggregating = false;
   if (expression.trim()) {
     try {
       const ast = parseFormula(expression, infos);
       const resultType = typecheck(ast, infos);
       numberResult = resultType === 'number';
+      aggregating = usesRelationAggregate(ast);
       let preview = '';
-      if (sample.data) {
+      /*
+       * #299: no preview for a relation aggregate. The sample row is fetched
+       * without its linked records, so evaluating one here would print `0`
+       * linked records (or a null sum) for a record that may well have twenty —
+       * a confidently wrong number is worse than none.
+       */
+      if (aggregating) {
+        preview = ' · preview needs the linked records — save the field to see real values';
+      } else if (sample.data) {
         const bag: Record<string, unknown> = { name: sample.data.title, ...sample.data.values };
         // Map select ids to labels so previews match server behavior.
         for (const f of dbFields) {
@@ -113,8 +192,20 @@ export function FormulaEditor({
   const [ac, setAc] = useState<{ items: Array<{ label: string; hint: string; apply: () => void }>; index: number } | null>(null);
   const funcEntries = Object.entries(FORMULA_FUNCTIONS);
 
-  function replaceRange(start: number, end: number, text: string) {
-    onChange(expression.slice(0, start) + text + expression.slice(end));
+  /*
+   * `source` is the value the offsets were measured against, NOT the `expression`
+   * prop. refreshSuggestions runs inside the textarea's onChange, so at the
+   * moment these closures are built `expression` is still the PREVIOUS render's
+   * value — splicing into it corrupts the formula.
+   *
+   * Incremental typing hid this: one new character means `slice(0, brace)` is
+   * identical in both strings and `slice(caret)` falls past the old end, so the
+   * result came out right by coincidence. It only shows when a keystroke
+   * replaces a selection — found by clicking through this editor for #299,
+   * where picking `Issues.Estimate` produced `coun{Issues.Estimate}s})`.
+   */
+  function replaceRange(source: string, start: number, end: number, text: string) {
+    onChange(source.slice(0, start) + text + source.slice(end));
     setAc(null);
     requestAnimationFrame(() => {
       const pos = start + text.length;
@@ -127,11 +218,48 @@ export function FormulaEditor({
     const before = value.slice(0, caret);
     const brace = before.lastIndexOf('{');
     if (brace >= 0 && !before.slice(brace).includes('}')) {
-      const partial = before.slice(brace + 1).toLowerCase();
+      const partial = before.slice(brace + 1);
+      /*
+       * #299: once the user has typed a dot, they are inside a link's scope —
+       * offer THAT database's fields. Previously `{` only ever listed
+       * own-record fields, so the dotted form was invisible even to someone
+       * who had already started typing it.
+       */
+      const dot = partial.indexOf('.');
+      if (dot >= 0) {
+        const linkName = partial.slice(0, dot).trim().toLowerCase();
+        const link = relationInfos.find((r) => r.display_name.toLowerCase() === linkName);
+        const rest = partial.slice(dot + 1).toLowerCase();
+        const items = (link?.related ?? [])
+          .filter((f) => f.display_name.toLowerCase().includes(rest))
+          .slice(0, 8)
+          .map((f) => ({
+            label: `${link!.display_name}.${f.display_name}`,
+            hint: String(f.formula_type),
+            apply: () => replaceRange(value, brace, caret, `{${link!.display_name}.${f.display_name}}`),
+          }));
+        setAc(items.length ? { items, index: 0 } : null);
+        return;
+      }
+      const lower = partial.toLowerCase();
       const items = infos
-        .filter((f) => f.display_name.toLowerCase().includes(partial))
+        .filter((f) => f.display_name.toLowerCase().includes(lower))
         .slice(0, 8)
-        .map((f) => ({ label: f.display_name, hint: String(f.formula_type), apply: () => replaceRange(brace, caret, `{${f.display_name}}`) }));
+        .map((f) =>
+          f.formula_type === 'relation'
+            ? {
+                label: `${f.display_name}.`,
+                // Naming the count() use is what makes the entry actionable — a
+                // bare link name in a formula picker reads like a dead end.
+                hint: 'link — add a field, or count() it',
+                apply: () => replaceRange(value, brace, caret, `{${f.display_name}.`),
+              }
+            : {
+                label: f.display_name,
+                hint: String(f.formula_type),
+                apply: () => replaceRange(value, brace, caret, `{${f.display_name}}`),
+              },
+        );
       setAc(items.length ? { items, index: 0 } : null);
       return;
     }
@@ -144,7 +272,7 @@ export function FormulaEditor({
       .map(([name, spec]) => ({
         label: name,
         hint: (spec as { doc?: string }).doc ?? '',
-        apply: () => replaceRange(start, caret, name === 'now' || name === 'today' ? `${name}()` : `${name}(`),
+        apply: () => replaceRange(value, start, caret, name === 'now' || name === 'today' ? `${name}()` : `${name}(`),
       }));
     setAc(items.length ? { items, index: 0 } : null);
   }
@@ -222,14 +350,20 @@ export function FormulaEditor({
               type="button"
               className="inline-flex items-center gap-1 rounded bg-hover px-1.5 py-0.5 text-[12px] text-ink hover:bg-active"
               onClick={() => {
-                // If the user just typed "{", complete it; otherwise insert a full {Field}.
-                onChange(expression.endsWith('{') ? `${expression}${f.display_name}}` : `${expression}{${f.display_name}}`);
+                // #299: a link is never a value on its own — inserting `{Link}`
+                // would hand the user an expression the typechecker rejects. Open
+                // its scope instead and let the autocomplete offer the fields.
+                const snippet = f.formula_type === 'relation' ? `{${f.display_name}.` : `{${f.display_name}}`;
+                // If the user just typed "{", complete it; otherwise insert the whole thing.
+                onChange(expression.endsWith('{') ? expression.slice(0, -1) + snippet : expression + snippet);
                 setPanel('none');
               }}
             >
               {f.display_name}
               {/* #204: type badge so the author knows what a field evaluates to. */}
-              <span className="rounded bg-card px-1 text-[10px] font-medium text-muted">{friendlyType(String(f.formula_type))}</span>
+              <span className="rounded bg-card px-1 text-[10px] font-medium text-muted">
+                {f.formula_type === 'relation' ? 'link' : friendlyType(String(f.formula_type))}
+              </span>
             </button>
           ))}
         </div>
@@ -247,11 +381,56 @@ export function FormulaEditor({
             className="mb-1 w-full rounded border border-border-default bg-card px-1.5 py-1 text-[12px] text-ink outline-none focus:border-border-strong"
           />
           <div className="max-h-40 overflow-y-auto">
+            {/* #299: the relation aggregates, written against the user's OWN link
+                fields. Listed FIRST and separately because the generic entries
+                below ("Adds the arguments together") give no hint that the same
+                function reaches across a link. */}
+            {(() => {
+              const q = funcQuery.trim().toLowerCase();
+              const matches = aggregateExamples.filter(
+                (a) =>
+                  !q ||
+                  a.name.includes(q) ||
+                  a.doc.toLowerCase().includes(q) ||
+                  a.example.toLowerCase().includes(q) ||
+                  (FORMULA_FUNCTIONS[a.name]?.keywords ?? []).some((k) => k.includes(q) || q.includes(k)),
+              );
+              if (matches.length === 0) return null;
+              return (
+                <>
+                  <p className="px-2 pb-0.5 text-[10px] font-medium uppercase tracking-wide text-faint">
+                    Across a link (your fields)
+                  </p>
+                  {matches.map((a) => (
+                    <button
+                      key={a.example}
+                      type="button"
+                      className="flex w-full flex-col gap-0.5 rounded px-2 py-1 text-left hover:bg-hover"
+                      onClick={() => {
+                        insert(a.example);
+                        setPanel('none');
+                        setFuncQuery('');
+                      }}
+                    >
+                      <span className="font-mono text-[12px] text-ink">{a.example}</span>
+                      <span className="text-[11px] text-muted">{a.doc}</span>
+                    </button>
+                  ))}
+                  <p className="px-2 pb-1 pt-0.5 text-[10px] uppercase tracking-wide text-faint">All functions</p>
+                </>
+              );
+            })()}
             {(() => {
               const q = funcQuery.trim().toLowerCase();
               const matches = Object.entries(FORMULA_FUNCTIONS).filter(
                 ([name, spec]) =>
-                  !q || name.includes(q) || spec.doc.toLowerCase().includes(q) || spec.example.toLowerCase().includes(q),
+                  !q ||
+                  name.includes(q) ||
+                  spec.doc.toLowerCase().includes(q) ||
+                  spec.example.toLowerCase().includes(q) ||
+                  // #299: match the words people actually type — "how many",
+                  // "total", "average" — not just the function's own name.
+                  (spec.keywords ?? []).some((k) => k.includes(q) || q.includes(k)),
               );
               // Only claim nothing matched when the operators below miss too —
               // "No functions match" printed directly above a list of matching
@@ -259,8 +438,19 @@ export function FormulaEditor({
               const opMatch = FORMULA_OPERATORS.some(
                 (o) => o.op.includes(q) || o.doc.toLowerCase().includes(q) || o.example.toLowerCase().includes(q),
               );
+              // #299: the aggregates render in their own section above, so they
+              // count as a match too — otherwise searching "how many" printed
+              // "No functions match" directly beneath the answer.
+              const aggMatch = aggregateExamples.some(
+                (a) =>
+                  a.name.includes(q) ||
+                  a.doc.toLowerCase().includes(q) ||
+                  (FORMULA_FUNCTIONS[a.name]?.keywords ?? []).some((k) => k.includes(q) || q.includes(k)),
+              );
               if (matches.length === 0) {
-                return opMatch ? null : <p className="px-2 py-1 text-[12px] text-faint">No functions match “{funcQuery}”.</p>;
+                return opMatch || aggMatch ? null : (
+                  <p className="px-2 py-1 text-[12px] text-faint">No functions match “{funcQuery}”.</p>
+                );
               }
               return matches.map(([name, spec]) => (
                 <button
@@ -324,6 +514,19 @@ export function FormulaEditor({
       <p className={cn('text-[12px]', feedback.kind === 'error' ? 'text-error' : 'text-muted')}>
         {feedback.text || 'Reference fields as {Field Name}. Use the buttons above to insert fields and functions.'}
       </p>
+      {/* #299: a formula aggregate and a Rollup field compute the same number over
+          the same data, but only the Rollup is materialized — so only the Rollup
+          can be sorted and filtered (#324). Users hit that wall AFTER building
+          the formula and reasonably read it as a bug, so say it here, once, while
+          the choice is still cheap. Rollup is not deprecated and this is not a
+          warning: it is the one tradeoff between two valid options. */}
+      {aggregating && (
+        <p className="rounded-[var(--radius-card)] border border-border-default bg-hover px-2 py-1.5 text-[12px] text-muted">
+          This counts across a link. A <span className="font-medium text-ink">Rollup</span> field computes the same
+          thing and can also be sorted and filtered — a formula stays inline and updates as you type. Both are fine;
+          pick Rollup if you need to sort or filter by this number.
+        </p>
+      )}
       {/* #190: only meaningful for a numeric result — a percent formula renders as
           a value + progress bar wherever the field is shown. */}
       {onFormatChange && numberResult && (
