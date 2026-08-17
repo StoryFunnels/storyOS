@@ -148,10 +148,15 @@ export class FieldsService {
         eq(fields.type, 'workflow'),
         isNull(fields.deletedAt),
       ),
-      columns: { id: true },
+      // #337: the NAME too — the old message said only "already has a Workflow
+      // field", leaving the caller to go hunting for which one. An agent over
+      // MCP has no UI to look at, so it either guessed or gave up.
+      columns: { id: true, displayName: true },
     });
     if (existing && existing.id !== excludeFieldId) {
-      throw new ConflictException('This database already has a Workflow field');
+      throw new ConflictException(
+        `This database already has a Workflow field ("${existing.displayName}"). A database has at most one — edit that field's options, or use a plain select for a different list of choices.`,
+      );
     }
   }
 

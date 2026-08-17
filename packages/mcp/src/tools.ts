@@ -1209,8 +1209,17 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     }),
   );
 
+  /*
+   * #337 — `workflow` belongs here. Its absence meant an agent building a
+   * database over MCP could not give it a canonical status field: the single
+   * most likely field a tracker needs, and the one the product treats specially
+   * (one per database, rendered by the mention badge, preferred for board
+   * grouping). Every MCP-built database was therefore born with exactly the
+   * `select`-instead-of-workflow debt #218 exists to pay off, and nobody found
+   * out until a board would not group properly.
+   */
   const FIELD_TYPES = [
-    'text', 'rich_text', 'number', 'checkbox', 'date', 'select', 'multi_select',
+    'text', 'rich_text', 'number', 'checkbox', 'date', 'select', 'multi_select', 'workflow',
     'url', 'email', 'color', 'user', 'lookup', 'rollup', 'button', 'formula',
   ] as const;
   /**
@@ -1236,13 +1245,15 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Add field',
       description:
-        'Add a field to a database. For select/multi_select pass options as labels. lookup/rollup/formula need config. Rollup config: {relation_field_id, op}, where op is count|sum|avg|min|max (aggregate a number field via target_field_api_name) or first|last (#286 — order the linked records by order_by_field_api_name and return that record\'s target_field_api_name, or omit it for a link to the record itself). Optional filter narrows the linked records first. (Relations link two databases — not added here yet.) Returns the field.',
+        'Add a field to a database. For select/multi_select/workflow pass options as labels. Use `workflow` (not `select`) for the ' +
+        'lifecycle status a database is tracked by \u2014 it is the canonical status field: at most ONE per database, and board grouping, ' +
+        'the mention badge and My Work all key off it. A plain `select` is for any other list of choices. lookup/rollup/formula need config. Rollup config: {relation_field_id, op}, where op is count|sum|avg|min|max (aggregate a number field via target_field_api_name) or first|last (#286 — order the linked records by order_by_field_api_name and return that record\'s target_field_api_name, or omit it for a link to the record itself). Optional filter narrows the linked records first. (Relations link two databases — not added here yet.) Returns the field.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
         name: z.string().describe('Field name, e.g. "Status".'),
         type: z.enum(FIELD_TYPES),
-        options: z.array(optionShape).optional().describe('select/multi_select choices, as labels or {label,color}.'),
+        options: z.array(optionShape).optional().describe('select/multi_select/workflow choices, as labels or {label,color,icon}.'),
         config: z.record(z.string(), z.any()).optional().describe('Advanced per-type config (lookup/rollup/formula).'),
       },
     },

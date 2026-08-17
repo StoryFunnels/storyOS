@@ -393,6 +393,10 @@ describe('workflow / status field — one per database (#172)', () => {
     const second = await addField({ display_name: 'Phase', type: 'workflow', options: [{ label: 'A' }] });
     expect(second.statusCode).toBe(409);
     expect(second.json().error.message).toMatch(/already has a Workflow field/i);
+    // #337: it must NAME the existing one. "already has a Workflow field" alone
+    // left the caller hunting for which — and an agent over MCP has no UI to
+    // look at, so it either guessed or gave up.
+    expect(second.json().error.message).toMatch(/Stage/);
   });
 
   it('blocks change-type INTO workflow when one already exists (409)', async () => {
@@ -405,6 +409,7 @@ describe('workflow / status field — one per database (#172)', () => {
     });
     expect(res.statusCode, res.body).toBe(409);
     expect(res.json().error.message).toMatch(/already has a Workflow field/i);
+    expect(res.json().error.message).toMatch(/Stage/); // #337: names it here too
   });
 
   it('allows select → workflow on a database without one, preserving the option id', async () => {
