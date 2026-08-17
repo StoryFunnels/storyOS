@@ -83,7 +83,7 @@ interface FieldDef {
   displayName: string;
   type: string;
   isSystem?: boolean;
-  options?: Array<{ id: string; label: string; color?: string }>;
+  options?: Array<{ id: string; label: string; color?: string; icon?: string | null }>;
   relation?: { target_database_id: string; target_database_name: string | null; cardinality: string; side: string };
 }
 interface DatabaseDetail {
@@ -171,7 +171,14 @@ function describeFields(db: DatabaseDetail) {
     .filter((f) => !f.isSystem && !SYSTEM_FIELD_BY_API_NAME.has(f.apiName))
     .map((f) => {
       const out: Record<string, unknown> = { api_name: f.apiName, name: f.displayName, type: f.type };
-      if (f.options?.length) out.options = f.options.map((o) => ({ label: o.label, color: o.color }));
+      // #216: `icon` is returned so what an agent reads is what it can write
+      // back. Omitted when absent, keeping the common no-icon case terse.
+      if (f.options?.length)
+        out.options = f.options.map((o) => ({
+          label: o.label,
+          color: o.color,
+          ...(o.icon ? { icon: o.icon } : {}),
+        }));
       if (f.relation) out.links_to = f.relation.target_database_name ?? f.relation.target_database_id;
       return out;
     });
@@ -1206,8 +1213,22 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'text', 'rich_text', 'number', 'checkbox', 'date', 'select', 'multi_select',
     'url', 'email', 'color', 'user', 'lookup', 'rollup', 'button', 'formula',
   ] as const;
-  const optionShape = z.union([z.string(), z.object({ label: z.string(), color: z.string().optional() })]);
-  const normOptions = (o?: Array<string | { label: string; color?: string }>) =>
+  /**
+   * #216 — an option may carry a curated `icon` ref (`set:<name>` / `brand:<slug>`),
+   * the same field the web option editor writes and every option surface draws.
+   * Without it here, an agent building a database from scratch could set colours
+   * but not icons, so an MCP-built workspace was visibly poorer than a
+   * hand-built one — and it could not round-trip what describe_database showed it.
+   */
+  const optionShape = z.union([
+    z.string(),
+    z.object({
+      label: z.string(),
+      color: z.string().optional(),
+      icon: z.string().max(120).optional().describe('Curated icon ref: "set:<name>" or "brand:<slug>" (see list_icon_set).'),
+    }),
+  ]);
+  const normOptions = (o?: Array<string | { label: string; color?: string; icon?: string }>) =>
     o?.map((x) => (typeof x === 'string' ? { label: x } : x));
 
   reg(
@@ -1225,7 +1246,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         config: z.record(z.string(), z.any()).optional().describe('Advanced per-type config (lookup/rollup/formula).'),
       },
     },
-    handle<{ workspace: string; database: string; name: string; type: string; options?: Array<string | { label: string; color?: string }>; config?: Record<string, unknown> }>(
+    handle<{ workspace: string; database: string; name: string; type: string; options?: Array<string | { label: string; color?: string; icon?: string }>; config?: Record<string, unknown> }>(
       async ({ workspace, database, name, type, options, config }) => {
         const ws = await resolveWorkspace(client, workspace);
         const db = await resolveDatabase(client, ws.id, database);
@@ -1253,7 +1274,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         add_options: z.array(optionShape).optional().describe('New choices to add to a select/multi_select field.'),
       },
     },
-    handle<{ workspace: string; database: string; field: string; rename_to?: string; add_options?: Array<string | { label: string; color?: string }> }>(
+    handle<{ workspace: string; database: string; field: string; rename_to?: string; add_options?: Array<string | { label: string; color?: string; icon?: string }> }>(
       async ({ workspace, database, field, rename_to, add_options }) => {
         const ws = await resolveWorkspace(client, workspace);
         const db = await resolveDatabase(client, ws.id, database);

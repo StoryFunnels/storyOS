@@ -1153,3 +1153,96 @@ describe('write params accept JSON strings (#334)', () => {
     expect(record.url).toBe(`${TEST_WEB_URL}/w/ws-uuid-1/d/db-uuid-1/r/ship-it-43`);
   });
 });
+
+/**
+ * #216 — option icons over MCP. An agent could set an option's COLOUR but not
+ * its icon, so a workspace built through the MCP was visibly poorer than a
+ * hand-built one — and describe_database showed an icon the agent had no way to
+ * write back.
+ *
+ * Own harness (same shape as #354's above) because the shared fake client's
+ * database fixture carries no fields at all.
+ */
+describe('option icons round-trip through the MCP (#216)', () => {
+  const dbDetail = {
+    id: 'db-1',
+    name: 'Issues',
+    qualifiedSlug: 'eng/issues',
+    my_access: 'admin',
+    fields: [
+      { id: 'f1', apiName: 'name', displayName: 'Name', type: 'title' },
+      {
+        id: 'f2',
+        apiName: 'priority',
+        displayName: 'Priority',
+        type: 'select',
+        // One option with an icon and one without, so both the present and the
+        // absent case are covered.
+        options: [
+          { id: 'o1', label: 'Urgent', color: 'red', icon: 'set:flame' },
+          { id: 'o2', label: 'High', color: 'orange' },
+        ],
+      },
+    ],
+    views: [],
+  };
+
+  const written: unknown[] = [];
+
+  function makeCtx(): Ctx {
+    const client = {
+      GET: async (path: string) => {
+        if (path === '/api/v1/workspaces') return { data: [{ id: 'ws-1', name: 'Eng' }] };
+        if (path === '/api/v1/workspaces/{ws}/databases') return { data: [dbDetail] };
+        if (path === '/api/v1/workspaces/{ws}/databases/{db}') return { data: dbDetail };
+        throw new Error(`unexpected GET ${path}`);
+      },
+      POST: async (path: string, opts?: { body?: unknown }) => {
+        written.push(opts?.body);
+        return { data: { id: 'f3', apiName: 'severity', displayName: 'Severity', type: 'select' } };
+      },
+    };
+    return { client: client as never, baseUrl: 'http://test', token: 'tok' };
+  }
+
+  function handlersFor() {
+    const handlers = new Map<string, (a: unknown) => Promise<{ content: Array<{ text: string }>; isError?: boolean }>>();
+    registerTools({ registerTool: (n: string, _c: unknown, h: never) => handlers.set(n, h as never) } as never, makeCtx());
+    return handlers;
+  }
+
+  it('describe_database returns an option icon, and omits the key when there is none', async () => {
+    const res = await handlersFor().get('describe_database')!({ workspace: 'Eng', database: 'Issues' });
+    expect(res.isError).toBeFalsy();
+    const out = JSON.parse(res.content[0]!.text) as {
+      fields: Array<{ api_name: string; options?: Array<Record<string, unknown>> }>;
+    };
+
+    const priority = out.fields.find((f) => f.api_name === 'priority')!;
+    const urgent = priority.options!.find((o) => o.label === 'Urgent')!;
+    const high = priority.options!.find((o) => o.label === 'High')!;
+
+    expect(urgent.icon).toBe('set:flame');
+    expect(urgent.color).toBe('red');
+    // Absent rather than null: the common no-icon case stays terse, and an agent
+    // copying this object straight back does not send `icon: null` and clear one.
+    expect('icon' in high).toBe(false);
+  });
+
+  it('add_field sends an option icon through to the API', async () => {
+    written.length = 0;
+    const res = await handlersFor().get('add_field')!({
+      workspace: 'Eng',
+      database: 'Issues',
+      name: 'Severity',
+      type: 'select',
+      // A bare string still works alongside the object form — the icon is
+      // additive, not a new required shape.
+      options: [{ label: 'Sev1', color: 'red', icon: 'set:flame' }, 'Sev2'],
+    });
+    expect(res.isError).toBeFalsy();
+    const body = written[0] as { options: Array<Record<string, unknown>> };
+    expect(body.options[0]).toEqual({ label: 'Sev1', color: 'red', icon: 'set:flame' });
+    expect(body.options[1]).toEqual({ label: 'Sev2' });
+  });
+});
