@@ -42,6 +42,27 @@ export class RecordVersionsController {
     return this.records.listVersions(recordId, query.limit, query.cursor);
   }
 
+  /**
+   * #31 (C2) — the field-level timeline. Deliberately a sibling route rather
+   * than a shape change to GET /versions: that response is already consumed,
+   * and these answer different questions (snapshots for restore vs per-field
+   * events for reading).
+   */
+  @Get('changes')
+  @ApiOperation({ summary: 'Per-field change history, newest first (cursor)' })
+  async changes(
+    @Req() req: WorkspaceRequest,
+    @Param('db') databaseId: string,
+    @Param('rec') recordId: string,
+    @Query() query: VersionsQueryDto,
+  ) {
+    await this.databases.assertAccess(req.membership, databaseId, 'viewer');
+    // Same existence check the version list does — a 404 for an unreadable
+    // record must not depend on whether it happens to have history.
+    await this.records.getRow(databaseId, recordId);
+    return this.records.listFieldChanges(databaseId, recordId, query.limit, query.cursor);
+  }
+
   @Post(':version/restore')
   @ApiOperation({ summary: 'Restore the record to a previously captured version' })
   async restore(

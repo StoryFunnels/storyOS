@@ -23,6 +23,14 @@ import {
 
 export * from './auth-schema';
 
+/**
+ * #31 (version history C2) — WHO caused a change, as a badge on every captured
+ * event. An enum rather than free text so the timeline UI and the audit-log
+ * filters stay cheap, and `human` is the default so existing session writes
+ * stay correct without touching every call site.
+ */
+export const changeSource = pgEnum('change_source', ['human', 'agent', 'automation', 'mcp']);
+
 export const membershipRole = pgEnum('membership_role', ['admin', 'member', 'guest']);
 export const membershipStatus = pgEnum('membership_status', ['pending', 'active']);
 
@@ -831,6 +839,60 @@ export const recordVersions = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('record_versions_record_created_idx').on(t.recordId, t.createdAt)],
+);
+
+/**
+ * #31 (version history C2) — one row per CHANGED FIELD per write.
+ *
+ * Field granularity is the product: MN-231's `record_versions` already stores
+ * whole-record snapshots, which answer "what did this look like then" but not
+ * "who changed the status, and from what". `update()` already computes a
+ * `{ [fieldId]: { from, to } }` diff, so this fans that out rather than
+ * recomputing anything.
+ *
+ * Deliberate shapes, per docs/architecture/version-history.md:
+ *
+ * - `fieldId` is NULLABLE and null means the promoted `title` column, matching
+ *   how record-diff.ts already denotes it. It is NOT a foreign key with cascade
+ *   delete: deleting a field must not erase the history of what it used to
+ *   hold, or "who emptied this" disappears exactly when it is asked.
+ * - `actorUserId` is plain text, not an FK — same as activity_events and
+ *   record_versions. A removed member keeps historical authorship (auth.md),
+ *   and a tombstoned id is more useful than a null.
+ * - Relations are NOT captured here. They live in `record_links`, not in
+ *   `values` (ADR-0002), so a link change is not a values diff; relation
+ *   history stays with activity_events for v1.
+ */
+export const recordFieldChanges = pgTable(
+  'record_field_changes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    databaseId: uuid('database_id')
+      .notNull()
+      .references(() => databases.id, { onDelete: 'cascade' }),
+    recordId: uuid('record_id')
+      .notNull()
+      .references(() => records.id, { onDelete: 'cascade' }),
+    /** null ⇒ the promoted `title` column (matches record-diff.ts). */
+    fieldId: uuid('field_id'),
+    actorUserId: text('actor_user_id'),
+    source: changeSource('source').notNull().default('human'),
+    /** null for a create, or for a field that had no previous value. */
+    oldValue: jsonb('old_value'),
+    newValue: jsonb('new_value'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // Per-record timeline, newest first — the cursor the history UI pages on.
+    index('record_field_changes_record_created_idx').on(t.recordId, t.createdAt),
+    // "Changes to this field", and the lookup per-field revert needs.
+    index('record_field_changes_db_field_created_idx').on(t.databaseId, t.fieldId, t.createdAt),
+    // Retention pruning walks this one, per plan window.
+    index('record_field_changes_ws_created_idx').on(t.workspaceId, t.createdAt),
+  ],
 );
 
 export const invites = pgTable('invites', {

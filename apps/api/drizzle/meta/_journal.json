@@ -512,6 +512,13 @@
       "when": 1786761369579,
       "tag": "0072_first_jackpot",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1786925396968,
+      "tag": "0073_classy_colossus",
+      "breakpoints": true
     }
   ]
 }

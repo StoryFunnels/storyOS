@@ -18,6 +18,11 @@ import type { PlanId } from './plans';
 export interface PlanLimits {
   automationRunsPerMonth: number;
   includedSeats: number;
+  /**
+   * #31 — days of record/document history retained. `0` = the feature is off
+   * and nothing is captured at all; `Infinity` = self-hosted, never pruned.
+   */
+  historyRetentionDays: number;
 }
 
 export interface WorkspaceUsage {
@@ -26,7 +31,7 @@ export interface WorkspaceUsage {
 }
 
 /** Self-host / billing-disabled: full capability, no metering (MN-168). */
-const UNLIMITED: PlanLimits = { automationRunsPerMonth: Infinity, includedSeats: Infinity };
+const UNLIMITED: PlanLimits = { automationRunsPerMonth: Infinity, includedSeats: Infinity, historyRetentionDays: Infinity };
 
 const AUTOMATION_RUN_METRIC = 'automation_runs';
 
@@ -107,6 +112,7 @@ export class EntitlementsService {
     return {
       automationRunsPerMonth: override?.automationRunsPerMonth ?? plan.automationRuns,
       includedSeats: override?.includedSeats ?? plan.includedSeats,
+      historyRetentionDays: plan.historyRetentionDays,
     };
   }
 

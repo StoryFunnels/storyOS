@@ -22,6 +22,21 @@ export interface PlanDef {
   automationRuns: number;
   /** Stripe lookup_key for the base price — stable across test/live re-seeds. */
   lookupKey?: string;
+  /**
+   * #31 — how many days of record/document HISTORY this plan keeps.
+   *
+   * `0` means the feature is OFF, and that is capture-off, not
+   * capture-then-prune: writing rows nobody can ever read is pure write
+   * amplification plus pruning load for no product value (ADR, "Retention").
+   *
+   * Note this gates HISTORY/RESTORE only. The `activity_events` trail is a
+   * separate feature and stays on for Free, so a Free workspace still sees
+   * WHAT changed — it just cannot time-travel.
+   *
+   * Self-hosted (`!stripe.enabled`) is unlimited and short-circuits before
+   * this is consulted.
+   */
+  historyRetentionDays: number;
 }
 
 /** $12/member/mo, applied beyond includedSeats on Pro and Business alike. */
@@ -100,13 +115,14 @@ export const STORYOS_AI_RUN_PLACEHOLDER_COST_CENTS = 1;
 export const MANAGED_AI_PROPOSE_PLACEHOLDER_COST_CENTS = 1;
 
 export const PLANS: Record<PlanId, PlanDef> = {
-  free: { id: 'free', name: 'Free', priceUsd: 0, includedSeats: 2, automationRuns: 100 },
+  free: { id: 'free', name: 'Free', priceUsd: 0, includedSeats: 2, automationRuns: 100, historyRetentionDays: 0 },
   pro: {
     id: 'pro',
     name: 'Pro',
     priceUsd: 29,
     includedSeats: 3,
     automationRuns: 1_000,
+    historyRetentionDays: 1,
     lookupKey: 'storyos_pro_v1',
   },
   business: {
@@ -115,6 +131,7 @@ export const PLANS: Record<PlanId, PlanDef> = {
     priceUsd: 99,
     includedSeats: 5,
     automationRuns: 10_000,
+    historyRetentionDays: 7,
     lookupKey: 'storyos_business_v1',
   },
   enterprise: {
@@ -131,6 +148,7 @@ export const PLANS: Record<PlanId, PlanDef> = {
      */
     includedSeats: Number.POSITIVE_INFINITY,
     automationRuns: Number.POSITIVE_INFINITY,
+    historyRetentionDays: 30,
   },
 };
 
