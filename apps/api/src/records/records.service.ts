@@ -413,6 +413,74 @@ export class RecordsService {
    * Returns recordId → { relationApiName → related bags }, ready to hand to
    * `evaluateFormula`.
    */
+  /**
+   * #300 — the link sets for a batch of records, shaped exactly like the
+   * relation chips a projected record carries.
+   *
+   * loadRelatedBags() reads its input off `record.values[relationApiName]`,
+   * which only exists after projection. Materialization runs before any
+   * projection, so this reads the same edges straight from `record_links` and
+   * hands loadRelatedBags the shape it already understands — rather than a
+   * second bag-loading implementation that would drift from the read path's
+   * select-label and soft-delete rules.
+   *
+   * One query per relation for the whole batch, matching loadRelatedBags' own
+   * "never one query per record" property.
+   */
+  private async relationChipsFromLinks(
+    defs: FieldDef[],
+    relationApiNames: Set<string>,
+    recordIds: string[],
+  ): Promise<ProjectedRecord[]> {
+    const byId = new Map<string, Record<string, unknown>>();
+    for (const id of recordIds) byId.set(id, {});
+    for (const apiName of relationApiNames) {
+      const relationDef = defs.find((d) => d.api_name === apiName && d.type === 'relation');
+      if (!relationDef) continue;
+      const relationId = relationDef.config['relation_id'] as string | undefined;
+      if (!relationId) continue;
+      const side = relationDef.config['side'] as 'a' | 'b';
+      const myCol = side === 'a' ? recordLinks.fromRecordId : recordLinks.toRecordId;
+      const otherCol = side === 'a' ? recordLinks.toRecordId : recordLinks.fromRecordId;
+      const links = await this.db
+        .select({ mine: myCol, other: otherCol })
+        .from(recordLinks)
+        .where(and(eq(recordLinks.relationId, relationId), inArray(myCol, recordIds)));
+      for (const link of links) {
+        const values = byId.get(link.mine);
+        if (!values) continue;
+        const chips = (values[apiName] as Array<{ id: string }> | undefined) ?? [];
+        chips.push({ id: link.other });
+        values[apiName] = chips;
+      }
+    }
+    return [...byId.entries()].map(([id, values]) => ({ id, values }) as unknown as ProjectedRecord);
+  }
+
+  /**
+   * #300 — the relation api_names a set of formula defs aggregates over, walked
+   * through intermediate formulas so `{Total} * 2` (where Total is itself
+   * `sum({Issues.Estimate})`) is recognised as needing the same related data.
+   */
+  private relationRefsOf(formulaDefs: FieldDef[], byApiName: Map<string, FieldDef>): Set<string> {
+    const out = new Set<string>();
+    const seen = new Set<string>();
+    const walk = (ast: FormulaNode | undefined) => {
+      if (!ast) return;
+      for (const apiName of formulaRefs(ast)) {
+        const target = byApiName.get(apiName);
+        if (!target) continue;
+        if (target.type === 'relation') out.add(apiName);
+        if (target.type === 'formula' && !seen.has(apiName)) {
+          seen.add(apiName);
+          walk(target.config['ast'] as FormulaNode | undefined);
+        }
+      }
+    };
+    for (const def of formulaDefs) walk(def.config['ast'] as FormulaNode | undefined);
+    return out;
+  }
+
   private async loadRelatedBags(
     projected: ProjectedRecord[],
     defs: FieldDef[],
@@ -598,6 +666,25 @@ export class RecordsService {
 
     const ordered = orderFormulasByDependency(formulaDefs);
 
+    /*
+     * #300: the related records a relation aggregate reduces over. Loaded ONCE
+     * for the whole batch, through the same loader the read path uses, so a
+     * materialized `count({Issues})` and the value printed in the cell are
+     * computed from identical data.
+     *
+     * This is what makes materializing a cross-record formula defensible at all.
+     * #298 deliberately refused to: a value frozen at this record's own write
+     * time is stale the moment a linked record changes. It is safe now for the
+     * same reason a rollup's is — invalidateRollupsForChange recomputes it when
+     * the related record or the link set changes.
+     */
+    const relationApiNames = this.relationRefsOf(formulaDefs, byApiName);
+    let relatedByRecord = new Map<string, Record<string, Array<Record<string, unknown>>>>();
+    if (relationApiNames.size > 0) {
+      const chips = await this.relationChipsFromLinks(defs, relationApiNames, rows.map((r) => r.id));
+      relatedByRecord = await this.loadRelatedBags(chips, defs, relationApiNames);
+    }
+
     await this.db.transaction(async (tx) => {
       for (const row of rows) {
         const stored = row.values as Record<string, unknown>;
@@ -625,7 +712,11 @@ export class RecordsService {
         const patch: Record<string, unknown> = {};
         for (const def of ordered) {
           try {
-            const result = evaluateFormula(def.config['ast'] as FormulaNode, bag);
+            const result = evaluateFormula(
+              def.config['ast'] as FormulaNode,
+              bag,
+              relatedByRecord.get(row.id),
+            );
             patch[def.id] = result ?? null;
             bag[def.api_name] = result ?? null;
           } catch {
@@ -912,7 +1003,15 @@ export class RecordsService {
      * value; the read path still returns the chip.
      */
     const pickOneDefs = onThisRelation.filter((d) => isPickOneOp(d.config['op']));
-    if (rollupDefs.length === 0 && pickOneDefs.length === 0) return;
+    /*
+     * #300: this is also the link-change entry point for formula relation
+     * aggregates, which need no rollup field to exist at all. Returning early on
+     * "no rollups" left a database whose only cross-record field is a formula
+     * with nothing recomputing it when a link was added or removed — the exact
+     * staleness this ticket removes.
+     */
+    const hasFormulas = defs.some((d) => d.type === 'formula' && (d.config['ast'] as unknown));
+    if (rollupDefs.length === 0 && pickOneDefs.length === 0 && !hasFormulas) return;
 
     const CHUNK = 500;
     for (let i = 0; i < recordIds.length; i += CHUNK) {
@@ -1249,7 +1348,30 @@ export class RecordsService {
         const titleAffected =
           !!otherTitleDef &&
           this.titleAffectedByRelatedChange(otherTitleDef, otherDefs, reverseFieldId, changedApiNames, relevantRollups);
-        if (relevantRollups.length === 0 && !titleAffected) continue;
+        /*
+         * #300: a formula relation aggregate on the OTHER side reads this
+         * record through the reverse field, so a change here can move it just
+         * as it moves a rollup. Without this the materialized sort key would
+         * only refresh the next time that record happened to be written — which
+         * is precisely the staleness #298 refused to accept.
+         *
+         * Deliberately coarse: any formula aggregating over this relation is
+         * recomputed, without checking WHICH related field the formula reads.
+         * A rollup names one target field so it can be precise; a formula can
+         * read several fields plus a condition over several more, and a filter
+         * that under-matches leaves a wrong number on screen — the failure this
+         * whole ticket exists to prevent. Over-recomputing is bounded by the
+         * same chunked fan-out and costs a query.
+         */
+        const formulaAggregateAffected = otherDefs.some(
+          (d) =>
+            d.type === 'formula' &&
+            (d.config['ast'] as unknown) &&
+            [...this.relationRefsOf([d], new Map(otherDefs.map((x) => [x.api_name, x])))].some(
+              (apiName) => otherDefs.find((x) => x.api_name === apiName)?.id === reverseFieldId,
+            ),
+        );
+        if (relevantRollups.length === 0 && !titleAffected && !formulaAggregateAffected) continue;
 
         const myCol = mySide === 'a' ? recordLinks.fromRecordId : recordLinks.toRecordId;
         const otherCol = mySide === 'a' ? recordLinks.toRecordId : recordLinks.fromRecordId;
@@ -1261,6 +1383,12 @@ export class RecordsService {
         if (otherIds.length === 0) continue;
         if (relevantRollups.length > 0) await this.recomputeRollupsForRelationField(otherDbId, reverseFieldId, otherIds);
         if (titleAffected) await this.recomputeTitlesForRecords(otherDbId, otherIds);
+        // #300: recomputeRollupsForRelationField re-materializes formulas as its
+        // last step, so this only needs to run when it did NOT run at all.
+        if (formulaAggregateAffected && relevantRollups.length === 0) {
+          const freshRows = await this.db.query.records.findMany({ where: inArray(records.id, otherIds) });
+          await this.materializeFormulas(otherDefs, freshRows).catch(() => undefined);
+        }
       }
     }
 
@@ -2860,17 +2988,18 @@ function formulaDependsOnlyOnOwnRecord(def: FieldDef, byApiName: Map<string, Fie
       if (!target) continue; // dangling ref resolves to null at eval time — not a cross-record concern
       if (target.type === 'lookup') return false;
       /*
-       * #298 — a relation ref means the formula aggregates ACROSS records
-       * (`count({Issues})`), so it is cross-record by definition and must not be
-       * frozen at this record's own write time.
+       * #300 — a relation ref (`count({Issues})`) is no longer excluded.
        *
-       * NOT rollup: MN-267 deliberately made rollups (and formulas over them)
-       * materialized and sortable, because RollupInvalidationSubscriber
-       * recomputes them when a related record or link set changes. A relation
-       * aggregate has no such invalidation yet — that is exactly what #300 is
-       * for — so until it does, it stays out.
+       * #298 kept it out for the right reason: a cross-record value frozen at
+       * this record's own write time is stale the moment a linked record
+       * changes. What changed is not the reasoning but the plumbing —
+       * invalidateRollupsForChange now recomputes these on exactly the events
+       * that can move them, the same guarantee that earned rollups (MN-267)
+       * their place here.
+       *
+       * A LOOKUP is still excluded above: lookups are resolved purely at read
+       * time and nothing recomputes a materialized copy of one.
        */
-      if (target.type === 'relation') return false;
       if (target.type === 'formula') {
         const targetAst = target.config['ast'] as FormulaNode | undefined;
         if (targetAst && !walk(targetAst)) return false;

@@ -42,8 +42,8 @@ A rollup can also **pick one** related record instead of aggregating them all (#
 *Latest* or *Earliest*, the field to order by, and the field to show. "Last Ticket" = order the
 linked Issues by `Number`, show their `Name`; leave the shown field empty and the rollup becomes a
 clickable link to that record. The optional rollup filter applies first, so "latest Invoice that is
-still unpaid" works. Because these resolve on read, they can't be sorted or filtered by yet — the
-API says so explicitly rather than returning an empty page.
+still unpaid" works. These are sortable and filterable like any other rollup (#300) — the value is
+stored and refreshed whenever the winning record or the link set changes.
 
 ## Language
 
@@ -148,20 +148,22 @@ Both compute the same number over the same records. The difference is where the 
 | | Formula aggregate | Rollup field |
 |---|---|---|
 | Written | inline, in the formula editor | configured as its own field |
-| Computed | on read | materialized onto the record |
-| **Sort / filter a view by it** | no | **yes** |
+| Sort / filter a view by it | yes | yes |
 | Shows up as its own column | no | yes |
+| Its own filter over the linked records | as a second argument to `count` | a filter in the field config |
+| Pick ONE related record (latest / earliest) | no | yes |
 
-Rule of thumb: reach for the formula when the number is part of a larger expression
-(`sum({Issues.Estimate}) > 40`), and for a **Rollup** when you want to sort or filter a view by it.
-Rollup is not the legacy option — see [rollups](#with-rollups-mn-064) for what only it can do
-(picking one related record, its own filter).
+Both are materialized and both refresh when a linked record or a link changes (#300), so
+sorting and filtering work either way. Reach for the **formula** when the number is part of a
+larger expression (`sum({Issues.Estimate}) > 40`) or you just want it inline; reach for a
+**Rollup** when you want it as its own column, or when you want the one thing only it does —
+picking a single related record. See [rollups](#with-rollups-mn-064).
 
 ## Limits (v1)
 
 Field traversal is one hop and aggregate-only: `{Client.Owner}` as a plain value still needs a
 Lookup field, which you then reference. 5-level formula chains. Deleted referenced fields degrade
-the result to empty with a warning in the field editor. Views can be sorted by a formula that
-depends only on its own record; a formula that reaches across a link isn't materialized, so
-sorting or filtering by it is rejected explicitly rather than returning an empty page — use a
-Rollup for that.
+the result to empty with a warning in the field editor. Views can be sorted and filtered by a formula that
+depends only on its own record OR that aggregates across a link (#300). A formula reaching a
+**Lookup** still can't be sorted or filtered — nothing recomputes a stored copy of a lookup — and
+the API says so explicitly rather than returning an empty page.
