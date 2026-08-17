@@ -136,6 +136,35 @@ If you touched API surface: `pnpm sdk:generate` and commit the drift.
 If you touched `packages/mcp` or its deps: the Docker image must still build
 (`docker build -f docker/mcp.Dockerfile .`) — CI checks this too.
 
+## Closing a ticket — docs and website are part of "done"
+
+**Shipping code is not finishing a ticket.** ~200 issues shipped before anyone
+noticed the website still described the old product and no blog post had been
+written. Treat these as part of the definition of done:
+
+- Dev work lives in `storyos/issues`.
+- Documentation work lives in **`storyos/docs_tasks`** (NOT `storyos/docs`,
+  which is a content LIBRARY of documents, not a tracker).
+- Marketing-site work lives in **`storyos/website_tasks`**.
+
+Both companion databases carry a `Source Issue` relation back to the issue, so
+every one traces to the change that caused it.
+
+**When you move an issue to Done**, make sure a Docs Task and a Website Task
+exist for it and are linked. A StoryOS automation on the Issues database is
+meant to create them; if it has not fired, create them by hand rather than
+skipping — the automation is a convenience, the rule is the requirement.
+
+**Closing a companion as "Not Needed" is a legitimate, one-click answer** and
+often the right one — an internal refactor changes nothing a reader or visitor
+would see. The point is that somebody DECIDED, not that every change generates
+two more pieces of work. A backlog full of ignored companions is worse than
+none.
+
+**The website repo is `storyos-website`, a SEPARATE checkout** from this
+monorepo (`/Users/ievgen/Documents/storyos-website`). Do not go looking for
+`pricing.astro` in `apps/web`.
+
 ## Merging
 
 Open the PR, wait for green, then `gh pr merge --squash --auto` — the merge

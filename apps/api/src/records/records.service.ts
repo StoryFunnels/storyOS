@@ -11,12 +11,13 @@ import type { FormulaNode } from '@storyos/schemas';
 import type { FieldDef, FilterNode } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { activityEvents, databases, documents, fields, memberships, recordLinks, recordVersions, recordWatchers, records, relations, selectOptions, user } from '../db/schema';
+import { activityEvents, databases, documents, fields, memberships, recordFieldChanges, recordLinks, recordVersions, recordWatchers, records, relations, selectOptions, user } from '../db/schema';
 import type { QueryRecordsInput } from '@storyos/schemas';
 import { compileFilter, cursorCondition, filterReferencedFields, sortExpr } from './query-compiler';
 import type { CompilerContext, SortSpec } from './query-compiler';
 import { keyBetween, keysAfter } from './rank';
 import { diffSnapshots } from './record-diff';
+import { EntitlementsService } from '../billing/entitlements.service';
 import { summarizeChanges } from './record-change-summary';
 import { isPickOneOp, pickOneRow, rollupFieldValue } from './rollup-pick-one';
 import type { PickOneOp } from './rollup-pick-one';
@@ -74,7 +75,27 @@ export class RecordsService {
     private readonly domainEvents: DomainEventsService,
     private readonly mentions: MentionsService,
     private readonly abuseFlags: AbuseFlagsService,
+    private readonly entitlements: EntitlementsService,
   ) {}
+
+  /**
+   * #31 — days of history this workspace keeps. `0` means the feature is OFF
+   * and nothing is captured; see docs/architecture/version-history.md.
+   *
+   * Cached per workspace for the life of the request-ish: this is consulted on
+   * every record write, and a plan does not change mid-write. A stale read is
+   * harmless in both directions — a just-upgraded workspace starts capturing a
+   * moment later, a just-downgraded one captures a few rows the prune removes.
+   */
+  private historyWindowCache = new Map<string, { days: number; at: number }>();
+
+  private async historyRetentionDays(workspaceId: string): Promise<number> {
+    const cached = this.historyWindowCache.get(workspaceId);
+    if (cached && Date.now() - cached.at < 30_000) return cached.days;
+    const { historyRetentionDays: days } = await this.entitlements.getLimits(workspaceId);
+    this.historyWindowCache.set(workspaceId, { days, at: Date.now() });
+    return days;
+  }
 
   /** Live field definitions + valid option ids, in validator shape. */
   async fieldDefs(databaseId: string): Promise<FieldDef[]> {
@@ -1805,6 +1826,9 @@ export class RecordsService {
     );
     // MN-080: resolved before the transaction — a bad target must not half-apply.
     const linkPlans = validated.links ? await this.planLinks(defs, validated.links) : [];
+    // #31: resolved OUTSIDE the transaction — a plan lookup must not hold a row
+    // lock, and it cannot change mid-write. 0 ⇒ Free ⇒ capture nothing.
+    const historyDays = await this.historyRetentionDays(workspaceId);
 
     const before = row.values as Record<string, unknown>;
     const merged: Record<string, unknown> = { ...before };
@@ -1873,6 +1897,42 @@ export class RecordsService {
           title: row.title,
           values: before,
         });
+        /*
+         * #31 (C2) — fan the SAME diff out to one row per changed field.
+         *
+         * record_versions above answers "what did this record look like then".
+         * This answers "who changed the status, and from what" — the question
+         * the history UI is actually built around. Same transaction, so a
+         * captured change always corresponds to a write that landed.
+         *
+         * `historyDays === 0` is Free: capture NOTHING rather than
+         * capture-then-prune. The window is zero, so those rows could never be
+         * read by anyone — pure write amplification plus pruning load
+         * (docs/architecture/version-history.md, "Retention").
+         */
+        if (historyDays > 0) {
+          const rows = Object.entries(diff).map(([key, change]) => ({
+            workspaceId,
+            databaseId,
+            recordId,
+            // record-diff.ts denotes the promoted title column with the literal
+            // "title"; the table stores that as a null field_id.
+            fieldId: key === 'title' ? null : key,
+            actorUserId: actorId,
+            /*
+             * Explicitly JSON-encoded so a bare scalar can't be re-parsed as
+             * JSON source text on its way into jsonb. What is stored here is
+             * exactly what the WRITE stored — note the record READ path coerces
+             * some values (a text field holding 3 reads back as "3"), so the
+             * timeline and the record can render the same change differently.
+             * That is a presentation gap for the history UI to close (#335),
+             * not a reason to make capture lie about what was written.
+             */
+            oldValue: sql`${JSON.stringify((change as { from: unknown }).from ?? null)}::jsonb`,
+            newValue: sql`${JSON.stringify((change as { to: unknown }).to ?? null)}::jsonb`,
+          }));
+          if (rows.length > 0) await tx.insert(recordFieldChanges).values(rows);
+        }
       }
       // Naming a relation in an update sets it to exactly these targets.
       if (linkPlans.length) {
@@ -2113,6 +2173,59 @@ export class RecordsService {
         title: v.title,
         actor_id: v.actorId,
         created_at: v.createdAt,
+      })),
+      next_cursor:
+        hasMore && page.length > 0
+          ? Buffer.from(page[page.length - 1]!.createdAt.toISOString()).toString('base64url')
+          : null,
+      has_more: hasMore,
+    };
+  }
+
+  /**
+   * #31 (C2) — the per-record FIELD timeline: who changed what, from what, when.
+   *
+   * Sibling to listVersions() and deliberately separate: that one answers "what
+   * did this record look like then" (whole snapshots, for restore); this one
+   * answers "who changed the status, and from what" (per-field events, for
+   * reading). Same cursor scheme so the two paginate identically.
+   *
+   * Field ids are resolved to display names here rather than in the UI, so a
+   * DELETED field still renders as something a human can read instead of a bare
+   * uuid — the history of a field outliving the field is the whole point.
+   */
+  async listFieldChanges(databaseId: string, recordId: string, limit: number, cursor?: string) {
+    const conditions = [eq(recordFieldChanges.recordId, recordId)];
+    if (cursor) {
+      const created = new Date(Buffer.from(cursor, 'base64url').toString());
+      if (!Number.isNaN(created.getTime())) conditions.push(lt(recordFieldChanges.createdAt, created));
+    }
+    const rows = await this.db.query.recordFieldChanges.findMany({
+      where: and(...conditions),
+      orderBy: [desc(recordFieldChanges.createdAt)],
+      limit: limit + 1,
+    });
+    const page = rows.slice(0, limit);
+    const hasMore = rows.length > limit;
+
+    // Include soft-deleted fields: a change to a field someone later removed is
+    // still real history, and rendering it as a uuid would be useless.
+    const fieldRows = await this.db.query.fields.findMany({
+      where: eq(fields.databaseId, databaseId),
+    });
+    const nameById = new Map(fieldRows.map((f) => [f.id, f.displayName]));
+
+    return {
+      data: page.map((c) => ({
+        id: c.id,
+        field_id: c.fieldId,
+        // null field_id is the promoted title column (record-diff.ts's "title").
+        field_name: c.fieldId ? nameById.get(c.fieldId) ?? '(deleted field)' : 'Name',
+        actor_id: c.actorUserId,
+        source: c.source,
+        old_value: c.oldValue,
+        new_value: c.newValue,
+        created_at: c.createdAt,
       })),
       next_cursor:
         hasMore && page.length > 0

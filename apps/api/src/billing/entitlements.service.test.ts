@@ -107,7 +107,7 @@ describe('EntitlementsService.getLimits', () => {
 
     const limits = await svc.getLimits('ws1');
 
-    expect(limits).toEqual({ automationRunsPerMonth: 1000, includedSeats: 3 });
+    expect(limits).toEqual({ automationRunsPerMonth: 1000, includedSeats: 3, historyRetentionDays: 1 });
   });
 
   it('returns unlimited without touching billing when Stripe is disabled (self-host)', async () => {
@@ -144,7 +144,7 @@ describe('EntitlementsService.getLimits — MN-196 entitlement overrides', () =>
 
     const limits = await svc.getLimits('ws1');
 
-    expect(limits).toEqual({ automationRunsPerMonth: 1000, includedSeats: 3 });
+    expect(limits).toEqual({ automationRunsPerMonth: 1000, includedSeats: 3, historyRetentionDays: 1 });
   });
 
   it('a future expiry still applies', async () => {
@@ -160,7 +160,8 @@ describe('EntitlementsService.getLimits — MN-196 entitlement overrides', () =>
     const { db } = makeDb({ override: undefined });
     const svc = new EntitlementsService(db, stripeStub(true), billingStub('free'), accessStub([]));
 
-    expect(await svc.getLimits('ws1')).toEqual({ automationRunsPerMonth: 100, includedSeats: 2 });
+    // #31: Free is 0 — the feature is OFF, so nothing is captured at all.
+    expect(await svc.getLimits('ws1')).toEqual({ automationRunsPerMonth: 100, includedSeats: 2, historyRetentionDays: 0 });
   });
 
   it('fixes the Enterprise zero-seat placeholder — unlimited by default until overridden', async () => {

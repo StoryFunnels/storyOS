@@ -110,6 +110,10 @@ function makeService(db: Db) {
     { emit: vi.fn() } as never,
     { syncRecordMentions: vi.fn() } as never,
     { recordWrites: vi.fn() } as never,
+    // #31: these unit tests exercise paths that never reach history capture;
+    // an unlimited window keeps them honest either way (a 0 would silently
+    // disable capture and make a future capture test pass for the wrong reason).
+    { getLimits: vi.fn().mockResolvedValue({ historyRetentionDays: Infinity }) } as never,
   );
 }
 
