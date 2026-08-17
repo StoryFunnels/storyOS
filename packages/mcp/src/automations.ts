@@ -94,8 +94,12 @@ export interface TriggerInput {
   type: string;
   field?: string;
   field_id?: string;
+  /** #334: what list_automations/get_automation PRINT back — accepted so a rule
+   *  read out of the MCP can be passed straight back in without editing. */
+  field_name?: string;
   relation_field?: string;
   relation_field_id?: string;
+  relation_field_name?: string;
   /** #270/#297: fire only when records are LINKED, or only when UNLINKED. */
   direction?: string;
   every?: string;
@@ -118,6 +122,17 @@ const TRIGGER_TYPES = new Set([
  * get_automation round-trips). Structured errors on an unknown type or a
  * record_linked with no relation field.
  */
+/**
+ * #334 — first usable reference among the aliases. `??` alone is not enough:
+ * get_automation echoes `field_name: null` when a rule watches every field, and
+ * a null threaded into findField() would throw `No watched field matches "null"`
+ * on a rule that is perfectly valid.
+ */
+function firstRef(...refs: Array<string | undefined | null>): string | undefined {
+  for (const r of refs) if (typeof r === 'string' && r.trim() !== '') return r;
+  return undefined;
+}
+
 export function buildAutomationTrigger(input: TriggerInput, detail: AutoDetail): Record<string, unknown> {
   if (!input || typeof input !== 'object' || typeof input.type !== 'string') {
     throw new Error('trigger must be an object with a "type".');
@@ -129,13 +144,16 @@ export function buildAutomationTrigger(input: TriggerInput, detail: AutoDetail):
     case 'record_created':
       return { type: 'record_created' };
     case 'record_updated': {
-      const ref = input.field ?? input.field_id;
+      // #334: field_name last — it is the human label this tool ECHOES, so a
+      // caller round-tripping a rule sends it back and used to be ignored,
+      // silently widening the rule to fire on every field change.
+      const ref = firstRef(input.field, input.field_id, input.field_name);
       // Optional: an unqualified record_updated fires on ANY field change.
       if (ref === undefined) return { type: 'record_updated' };
       return { type: 'record_updated', field_id: findField(detail.fields, ref, { kind: 'watched' }).id };
     }
     case 'record_linked': {
-      const ref = input.relation_field ?? input.relation_field_id;
+      const ref = firstRef(input.relation_field, input.relation_field_id, input.relation_field_name);
       if (ref === undefined) throw new Error('record_linked trigger needs a "relation_field".');
       const t: Record<string, unknown> = {
         type: 'record_linked',

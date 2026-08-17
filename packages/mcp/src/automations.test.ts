@@ -502,3 +502,107 @@ describe('automation tool scope gating (#334)', () => {
     for (const n of names) expect(reg.has(n)).toBe(true);
   });
 });
+
+/**
+ * #334 — the params arrive JSON-ENCODED from clients that serialise object
+ * arguments. Every create_automation call from such a client died on
+ * `trigger must be an object with a "type"`, which blamed a trigger that was
+ * correct. query_records worked from the same client (mapFilterValues already
+ * parsed strings), so the failure read like caller error rather than a gap.
+ */
+describe('structured params accept JSON strings (#334)', () => {
+  const args = (over: Record<string, unknown>) => ({
+    workspace: 'Eng',
+    database: 'eng/issues',
+    name: 'Close done',
+    trigger: { type: 'record_updated', field: 'State' },
+    actions: [{ type: 'set_values', values: { State: 'Done' } }],
+    ...over,
+  });
+
+  it('behaves identically whether trigger/actions/condition are objects or JSON strings', async () => {
+    const asObjects: Row[] = [];
+    const a = fakeServer();
+    registerTools(a.server, makeCtx(asObjects));
+    await call(a.handlers, 'create_automation', args({ condition: { field: 'state', op: 'eq', value: 'To Do' } }));
+
+    const asStrings: Row[] = [];
+    const b = fakeServer();
+    registerTools(b.server, makeCtx(asStrings));
+    const { res } = await call(
+      b.handlers,
+      'create_automation',
+      args({
+        trigger: JSON.stringify({ type: 'record_updated', field: 'State' }),
+        actions: JSON.stringify([{ type: 'set_values', values: { State: 'Done' } }]),
+        condition: JSON.stringify({ field: 'state', op: 'eq', value: 'To Do' }),
+      }),
+    );
+
+    expect(res.isError).toBeFalsy();
+    expect(asStrings[0]!.trigger).toEqual(asObjects[0]!.trigger);
+    expect(asStrings[0]!.actions).toEqual(asObjects[0]!.actions);
+    expect(asStrings[0]!.condition).toEqual(asObjects[0]!.condition);
+  });
+
+  it('names the real problem when a string is not valid JSON', async () => {
+    const { server, handlers } = fakeServer();
+    registerTools(server, makeCtx([]));
+    const { res } = await call(handlers, 'create_automation', args({ trigger: '{type: record_updated' }));
+    expect(res.isError).toBe(true);
+    // The old message accused the trigger of being the wrong SHAPE, which sent
+    // the caller off rewriting a correct trigger.
+    expect(res.content[0]!.text).toMatch(/isn't valid JSON/);
+    expect(res.content[0]!.text).not.toMatch(/must be an object with a "type"/);
+  });
+
+  it('update_automation takes the same strings', async () => {
+    const store: Row[] = [];
+    const { server, handlers } = fakeServer();
+    registerTools(server, makeCtx(store));
+    await call(handlers, 'create_automation', args({}));
+    const { res } = await call(handlers, 'update_automation', {
+      workspace: 'Eng',
+      database: 'eng/issues',
+      automation: store[0]!.id,
+      trigger: JSON.stringify({ type: 'record_created' }),
+    });
+    expect(res.isError).toBeFalsy();
+    expect(store[0]!.trigger).toEqual({ type: 'record_created' });
+  });
+});
+
+/**
+ * #334 — a rule read back from list_automations/get_automation must be passable
+ * straight into update_automation. It echoes `field_name`, which the builder
+ * ignored: the rule silently widened from "when State changes" to "when
+ * ANYTHING changes" — a success receipt for a rule that now fires far more often.
+ */
+describe('a read-back trigger round-trips (#334)', () => {
+  it('accepts field_name, the name this tool itself prints', () => {
+    expect(buildAutomationTrigger({ type: 'record_updated', field_name: 'State' }, detail)).toEqual({
+      type: 'record_updated',
+      field_id: STATE,
+    });
+  });
+
+  it('accepts relation_field_name too', () => {
+    expect(buildAutomationTrigger({ type: 'record_linked', relation_field_name: 'Project' }, detail)).toEqual({
+      type: 'record_linked',
+      relation_field_id: REL,
+    });
+  });
+
+  it('treats an echoed null field_name as "watch every field", not as a bad reference', () => {
+    // get_automation prints field_name: null for an unqualified record_updated.
+    expect(buildAutomationTrigger({ type: 'record_updated', field_name: null } as never, detail)).toEqual({
+      type: 'record_updated',
+    });
+  });
+
+  it('prefers an explicit field over the echoed name when both are present', () => {
+    expect(
+      buildAutomationTrigger({ type: 'record_updated', field: 'Owner', field_name: 'State' }, detail),
+    ).toEqual({ type: 'record_updated', field_id: OWNER });
+  });
+});
