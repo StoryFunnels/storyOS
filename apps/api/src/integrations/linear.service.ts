@@ -198,7 +198,7 @@ export class LinearService {
 
   /** Create the Labels database + a many-to-many Issues↔Labels relation. Returns both. */
   private async createLabelsPack(membership: Membership, spaceId: string, issuesDbId: string) {
-    const labelsDb = await this.databasesService.create(membership, { space_id: spaceId, name: 'Labels', icon: '🏷️' });
+    const labelsDb = await this.databasesService.create(membership, { space_id: spaceId, name: 'Labels', icon: 'set:tag' });
     for (const f of [
       { display_name: 'Color', type: 'text' as const, config: {} },
       { display_name: 'Linear ID', type: 'text' as const, config: {} },
@@ -251,7 +251,8 @@ export class LinearService {
         return { issuesDb, projectsDb, sprintsDb, labelsDb: labelsDb!, labelsFieldId };
       }
     }
-    space = space ?? (await this.spaces.create(membership.workspaceId, { name: spaceName, icon: '📐' }));
+    space = space ?? // #221: curated ref rather than an emoji (#251).
+      (await this.spaces.create(membership.workspaceId, { name: spaceName, icon: 'brand:linear' }));
 
     const projectsDb = await this.databasesService.create(membership, {
       space_id: space.id, name: 'Projects', icon: '🎯',
@@ -274,7 +275,7 @@ export class LinearService {
     ]) await this.fields.create(sprintsDb.id, f);
 
     const issuesDb = await this.databasesService.create(membership, {
-      space_id: space.id, name: 'Issues', icon: '🐛',
+      space_id: space.id, name: 'Issues', icon: 'set:bug',
     });
     for (const f of [
       { display_name: 'State', type: 'select' as const, config: {}, options: [

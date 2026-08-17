@@ -350,16 +350,19 @@ export class GithubService {
       return { issuesDb, pullsDb, created: false };
     }
 
-    const space = await this.spaces.create(membership.workspaceId, { name: 'GitHub', icon: '🐙' });
+    // #221: curated refs, not emoji — #251 retired emoji in favour of
+    // `brand:<slug>` / `set:<name>`. EntityIcon still tolerates a legacy emoji on
+    // an existing row, but a new write should never add one.
+    const space = await this.spaces.create(membership.workspaceId, { name: 'GitHub', icon: 'brand:github' });
     issuesDb = (await this.databasesService.create(membership, {
       space_id: space.id,
       name: 'GitHub Issues',
-      icon: '🐛',
+      icon: 'set:bug',
     })) as typeof issuesDb;
     pullsDb = (await this.databasesService.create(membership, {
       space_id: space.id,
       name: 'GitHub Pull Requests',
-      icon: '🔀',
+      icon: 'set:git-pull-request',
     })) as typeof pullsDb;
 
     const issueFields: Array<Parameters<FieldsService['create']>[1]> = [

@@ -15,7 +15,11 @@ Map each source value to the matching maintained field.`,
     {
       key: 'youtube_videos',
       name: 'YouTube Videos',
-      icon: 'film',
+      // #221: `set:` prefix. A bare name is not a recognised ref, so EntityIcon
+      // fell through to its legacy-emoji branch and rendered the literal TEXT
+      // "film" clipped into a 4-unit box — which is what the founder saw as
+      // "the YouTube database doesn't have an icon".
+      icon: 'set:film',
       fields: [
         { key: 'video_id', display_name: 'Video ID', type: 'text' },
         { key: 'youtube_title', display_name: 'YouTube Title', type: 'text' },
@@ -58,7 +62,7 @@ The maintained fields match the source mapping one-for-one.`,
     {
       key: 'youtube_comments',
       name: 'YouTube Comments',
-      icon: 'message-square',
+      icon: 'set:message-square',
       fields: [
         { key: 'comment_id', display_name: 'Comment ID', type: 'text' },
         { key: 'video_id', display_name: 'Video ID', type: 'text' },
@@ -103,7 +107,7 @@ Provide video ids directly or pair it with a YouTube videos source.`,
     {
       key: 'youtube_metrics',
       name: 'YouTube Metrics',
-      icon: 'chart-line',
+      icon: 'set:chart-line',
       fields: [
         { key: 'snapshot_id', display_name: 'Snapshot ID', type: 'text' },
         { key: 'video_id', display_name: 'Video ID', type: 'text' },

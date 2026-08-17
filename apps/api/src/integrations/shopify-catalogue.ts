@@ -74,7 +74,9 @@ export const SHOPIFY_CATALOGUE: CatalogueDatabaseDef[] = [
   {
     role: 'products',
     name: 'Products',
-    icon: 'shopping-bag',
+    // #221: same bare-name bug as the YouTube templates — an unprefixed name is
+    // not a recognised ref, so it rendered as literal clipped text.
+    icon: 'set:package',
     fields: [
       { external_key: 'product_id', display_name: 'Product ID', type: 'text', is_key: true },
       { external_key: 'title', display_name: 'Name', type: 'text', to_name: true },
@@ -93,7 +95,7 @@ export const SHOPIFY_CATALOGUE: CatalogueDatabaseDef[] = [
   {
     role: 'variants',
     name: 'Variants',
-    icon: 'tag',
+    icon: 'set:tag',
     fields: [
       { external_key: 'variant_id', display_name: 'Variant ID', type: 'text', is_key: true },
       // The parent product's immutable GID — the foreign key the product↔variant
@@ -110,7 +112,7 @@ export const SHOPIFY_CATALOGUE: CatalogueDatabaseDef[] = [
   {
     role: 'collections',
     name: 'Collections',
-    icon: 'folder',
+    icon: 'set:files',
     fields: [
       { external_key: 'collection_id', display_name: 'Collection ID', type: 'text', is_key: true },
       { external_key: 'title', display_name: 'Name', type: 'text', to_name: true },

@@ -104,6 +104,7 @@ export async function listChannels(
 
 export const youtubeVideosProvider: SourceProviderDescriptor = {
   id: 'youtube.videos',
+  icon: 'brand:youtube',
   label: 'YouTube — videos',
   connectionProvider: 'google',
   configSchema: channelConfigSchema,
@@ -163,6 +164,7 @@ export const youtubeVideosProvider: SourceProviderDescriptor = {
 
 export const youtubeCommentsProvider: SourceProviderDescriptor = {
   id: 'youtube.comments',
+  icon: 'brand:youtube',
   label: 'YouTube — comments',
   connectionProvider: 'google',
   configSchema: channelConfigSchema,
@@ -251,6 +253,7 @@ const metricsConfigSchema = z.object({
 
 export const youtubeMetricsProvider: SourceProviderDescriptor = {
   id: 'youtube.metrics',
+  icon: 'brand:youtube',
   label: 'YouTube — daily metrics',
   connectionProvider: 'google',
   configSchema: metricsConfigSchema,

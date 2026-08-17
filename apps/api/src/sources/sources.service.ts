@@ -82,6 +82,8 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
         label: p.label,
         connection_provider: p.connectionProvider,
         description: p.description ?? null,
+        // #221: so a caller creating a database for this source can brand it.
+        icon: p.icon ?? null,
         supports_discover: Boolean(p.discover),
         config_schema: zodShapeToFormSpec(p.configSchema),
       })),

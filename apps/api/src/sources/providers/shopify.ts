@@ -240,6 +240,7 @@ function shopDomainOf(ctx: SourceSyncContext): string {
 
 export const shopifyProductsProvider: SourceProviderDescriptor = {
   id: 'shopify.products',
+  icon: 'brand:shopify',
   label: 'Shopify — products',
   connectionProvider: 'shopify',
   configSchema: catalogueConfigSchema,
@@ -258,6 +259,7 @@ export const shopifyProductsProvider: SourceProviderDescriptor = {
 
 export const shopifyVariantsProvider: SourceProviderDescriptor = {
   id: 'shopify.variants',
+  icon: 'brand:shopify',
   label: 'Shopify — variants',
   connectionProvider: 'shopify',
   configSchema: catalogueConfigSchema,
@@ -276,6 +278,7 @@ export const shopifyVariantsProvider: SourceProviderDescriptor = {
 
 export const shopifyCollectionsProvider: SourceProviderDescriptor = {
   id: 'shopify.collections',
+  icon: 'brand:shopify',
   label: 'Shopify — collections',
   connectionProvider: 'shopify',
   configSchema: catalogueConfigSchema,
