@@ -1246,3 +1246,51 @@ describe('option icons round-trip through the MCP (#216)', () => {
     expect(body.options[1]).toEqual({ label: 'Sev2' });
   });
 });
+
+/**
+ * #337 — `workflow` is creatable over MCP.
+ *
+ * Asserted against the tool's INPUT SCHEMA, because the schema is what was
+ * broken: `type` was a `z.enum` that simply did not list `workflow`, so the
+ * call was rejected before any handler ran. (callTool bypasses zod, so driving
+ * the handler would prove nothing about the enum — and the fake client has no
+ * POST-fields route either.)
+ *
+ * Its absence meant an agent building a database could only ever give it a plain
+ * `select` for status, silently creating the debt #218 exists to pay off.
+ * `workflow` is the canonical status field: board grouping, the mention badge
+ * and My Work all key off it.
+ */
+describe('add_field accepts type: workflow (#337)', () => {
+  type Parsable = { safeParse: (v: unknown) => { success: boolean } };
+  function fieldOf(tool: string, key: string): Parsable {
+    const configs = new Map<string, { inputSchema?: Record<string, never> }>();
+    const fakeServer = {
+      registerTool: (name: string, config: { inputSchema?: Record<string, never> }) => {
+        configs.set(name, config);
+      },
+    } as unknown as McpServer;
+    registerTools(fakeServer, { client: buildFakeClient(), baseUrl: '', token: '' } as never, {
+      scope: 'admin',
+      allowRunButton: true,
+    });
+    const schema = configs.get(tool)?.inputSchema as Record<string, Parsable> | undefined;
+    if (!schema?.[key]) throw new Error(`${tool} has no input field "${key}"`);
+    return schema[key];
+  }
+
+  it('lists workflow among the field types', () => {
+    const type = fieldOf('add_field', 'type');
+    expect(type.safeParse('workflow').success).toBe(true);
+    // The types it always accepted, so a widening can't be a silent loosening.
+    expect(type.safeParse('select').success).toBe(true);
+    expect(type.safeParse('formula').success).toBe(true);
+    expect(type.safeParse('not-a-type').success).toBe(false);
+  });
+
+  it('change_field_type can target workflow too', () => {
+    // select → workflow is an allowed conversion server-side (fields.service
+    // ALLOWED map), so the MCP must be able to name the destination.
+    expect(fieldOf('change_field_type', 'new_type').safeParse('workflow').success).toBe(true);
+  });
+});
