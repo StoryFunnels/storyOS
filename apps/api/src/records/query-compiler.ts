@@ -78,11 +78,32 @@ function fieldExpr(def: FieldDef): SQL {
   // sum, avg, min, max) is numeric, so unlike formula there's no result_type
   // branch needed. Materialized by RecordsService.recomputeRollupsForRelationField,
   // invalidated on the related record's/relation's change (RollupInvalidationSubscriber).
+  // #300: a first/last rollup returns whatever the SHOWN field holds — text, a
+  // date, a number, or the winning record's title when it resolves to a chip —
+  // so unlike count/sum/avg/min/max it cannot share the numeric cast. The type
+  // is recorded on the field's config at create time (pickOneValueType),
+  // mirroring formula's result_type. Absent (a field created before #300) it
+  // reads as text, which is the safe default: every value serializes to text,
+  // and text ordering is wrong only for numbers, which is still strictly better
+  // than the 422 these fields used to return.
+  if (def.type === 'rollup' && isPickOneOp(def.config['op'])) {
+    const valueType = def.config['value_type'];
+    if (valueType === 'number') return sql`((${records.computedValues}->>${def.id})::numeric)`;
+    if (valueType === 'checkbox') return sql`((${records.computedValues}->>${def.id})::boolean)`;
+    return sql`(${records.computedValues}->>${def.id})`;
+  }
   if (def.type === 'rollup') return sql`((${records.computedValues}->>${def.id})::numeric)`;
   return sql`(${records.values}->>${def.id})`;
 }
 
 function presentExpr(def: FieldDef): SQL {
+  // #300: rollup and formula values live in computed_values, never in `values` —
+  // asking `values ? id` for them answered "empty" for every row, which made
+  // is_empty match everything and not_empty match nothing. Only reachable now
+  // that pick-one rollups are filterable at all.
+  if (def.type === 'rollup' || def.type === 'formula') {
+    return sql`(${records.computedValues} ? ${def.id} AND ${records.computedValues}->${def.id} <> 'null'::jsonb)`;
+  }
   if (def.type === 'id') return sql`(${records.number} IS NOT NULL)`;
   if (def.type === 'title') return sql`(${records.title} <> '')`;
   if (def.type === 'created_at' || def.type === 'updated_at') return sql`TRUE`;
@@ -109,15 +130,6 @@ function compileCondition(fieldName: string, op: FilterOp, value: unknown, ctx: 
   if (systemSpec && !systemSpec.filter_ops.includes(op)) {
     throw err(
       `op "${op}" not valid for system field "${def.api_name}" (allowed: ${systemSpec.filter_ops.join(', ')})`,
-    );
-  }
-
-  // #286: a first/last rollup is read-time only — it has nothing in
-  // computed_values, so filtering it would compare every row against null and
-  // silently match NOTHING. Say so instead of returning a confidently empty page.
-  if (def.type === 'rollup' && isPickOneOp(def.config['op'])) {
-    throw err(
-      `cannot filter by "${def.api_name}" — a "${String(def.config['op'])}" rollup is computed at read time and isn't stored, so it can't be filtered yet`,
     );
   }
 
@@ -158,6 +170,29 @@ function compileCondition(fieldName: string, op: FilterOp, value: unknown, ctx: 
       return compileIdSet(def, op, value, ctx, 'scalar');
     case 'user':
       return compileIdSet(def, op, value, ctx, def.config['multi'] === true ? 'array' : 'scalar');
+    /*
+     * #300: rollups are filterable now. Every rollup value is materialized into
+     * computed_values — the numeric ops always were (MN-267), and pick-one is as
+     * of this change — so there is a real stored column to compare against. It
+     * simply had no case here and fell to the default below, which is why
+     * "filter by Open Issues" answered "not supported" for a field the same
+     * query could already SORT by.
+     *
+     * Dispatched on how the value is stored, not on the field type: fieldExpr
+     * casts a pick-one by its config's value_type, and the comparator has to
+     * agree with the cast or Postgres compares a numeric against a string.
+     */
+    case 'rollup': {
+      const valueType = isPickOneOp(def.config['op']) ? def.config['value_type'] : 'number';
+      if (valueType === 'number') return compileNumber(def, op, value);
+      if (valueType === 'checkbox') {
+        if (op !== 'eq' && op !== 'neq') throw err(`op "${op}" not valid for checkbox`);
+        if (typeof value !== 'boolean') throw err('checkbox filters expect a boolean value');
+        return op === 'eq' ? sql`${fieldExpr(def)} = ${value}` : sql`${fieldExpr(def)} IS DISTINCT FROM ${value}`;
+      }
+      if (valueType === 'date') return compileDate(def, op, value);
+      return compileTextish(def, op, value);
+    }
     default:
       throw err(`filters on "${def.type}" fields are not supported`);
   }

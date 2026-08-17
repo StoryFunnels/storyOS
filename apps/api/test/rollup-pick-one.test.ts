@@ -250,14 +250,119 @@ describe('first/last rollup resolution (#286)', () => {
     expect(after.values.latest_open_ticket).toBe('After rename');
   });
 
-  it('refuses to sort or filter by a first/last rollup instead of silently matching nothing', async () => {
-    const sorted = await inject('POST', `/workspaces/${wsId}/databases/${clientsDb}/records/query`, {
-      sorts: [{ field: 'last_ticket', direction: 'desc' }],
+
+/**
+ * #300: the recompute cascade is fire-and-forget by design (bounded fan-out,
+ * never awaited by the write that triggered it — RollupInvalidationSubscriber),
+ * so a materialized sort key lands shortly AFTER the write returns. Poll rather
+ * than asserting immediately; asserting straight away tests the scheduler, not
+ * the behaviour, and fails intermittently on a loaded machine.
+ */
+async function pollQuery(payload: Record<string, unknown>, until: (rows: Array<Record<string, any>>) => boolean) {
+  let rows: Array<Record<string, any>> = [];
+  for (let i = 0; i < 40; i++) {
+    const res = await inject('POST', `/workspaces/${wsId}/databases/${clientsDb}/records/query`, payload);
+    expect(res.statusCode, res.body).toBeLessThan(300);
+    rows = JSON.parse(res.body).data;
+    if (until(rows)) return rows;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  return rows; // let the assertion below fail with a readable diff
+}
+
+  /*
+   * #300 — these used to 422. The refusal was right while the premise held:
+   * nothing was stored, so sorting would have ordered the page by null and read
+   * as a sort that was ignored. Now a pick-one is materialized and invalidated
+   * like any other rollup, so it sorts and filters — and these assert the
+   * resulting ORDER and matched SET, not merely a 200, because a sort that
+   * returns the right status and the wrong order is the failure worth catching.
+   */
+  describe('sorting and filtering by a first/last rollup (#300)', () => {
+    it('sorts by the winner, in the right order', async () => {
+      const acme = await client('Sortable Acme');
+      const zeta = await client('Sortable Zeta');
+      await ticket(acme.id, { name: 'Alpha issue', opened: '2026-05-01', status: statusOptionId['Open'] });
+      await ticket(zeta.id, { name: 'Omega issue', opened: '2026-05-02', status: statusOptionId['Open'] });
+
+      const ascRows = await pollQuery(
+        {
+          sorts: [{ field: 'latest_open_ticket', direction: 'asc' }],
+          filter: { and: [{ field: 'latest_open_ticket', op: 'not_empty' }] },
+        },
+        (rows) => {
+          const names = rows.map((r) => r.values.latest_open_ticket);
+          return names.includes('Alpha issue') && names.includes('Omega issue');
+        },
+      );
+      const ascNames = ascRows.map((r) => r.values.latest_open_ticket as string);
+      expect(ascNames).toContain('Alpha issue');
+      expect(ascNames).toContain('Omega issue');
+      // The ORDER, not merely a 200 — a sort that returns the right status and
+      // the wrong order is the failure worth catching.
+      expect(ascNames).toEqual([...ascNames].sort());
+      expect(ascNames.indexOf('Alpha issue')).toBeLessThan(ascNames.indexOf('Omega issue'));
+
+      const descRows = await pollQuery(
+        {
+          sorts: [{ field: 'latest_open_ticket', direction: 'desc' }],
+          filter: { and: [{ field: 'latest_open_ticket', op: 'not_empty' }] },
+        },
+        (rows) => rows.length === ascNames.length,
+      );
+      expect(descRows.map((r) => r.values.latest_open_ticket)).toEqual([...ascNames].reverse());
     });
-    expect(sorted.statusCode).toBe(422);
-    const filtered = await inject('POST', `/workspaces/${wsId}/databases/${clientsDb}/records/query`, {
-      filter: { and: [{ field: 'last_ticket', op: 'eq', value: 'VPN down' }] },
+
+    it('filters by the winner, matching the record whose winner it is', async () => {
+      const rows = await pollQuery(
+        { filter: { and: [{ field: 'latest_open_ticket', op: 'eq', value: 'Alpha issue' }] } },
+        (r) => r.length === 1,
+      );
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.title).toBe('Sortable Acme');
     });
-    expect(filtered.statusCode).toBe(422);
+
+    it('refreshes the stored sort key when the winning record changes', async () => {
+      const wayne = await client('Sortable Wayne');
+      const only = await ticket(wayne.id, { name: 'Aaa first', opened: '2026-04-01', status: statusOptionId['Open'] });
+
+      await pollQuery(
+        { filter: { and: [{ field: 'latest_open_ticket', op: 'eq', value: 'Aaa first' }] } },
+        (r) => r.length === 1,
+      );
+
+      const patch = await inject('PATCH', `/workspaces/${wsId}/databases/${ticketsDb}/records/${only.id}`, {
+        values: { name: 'Zzz renamed' },
+      });
+      expect(patch.statusCode, patch.body).toBeLessThan(300);
+
+      // The materialized key must track an edit to the winning record. This is
+      // exactly what #286 could not promise, and the reason it refused to store
+      // the value at all — the invalidation path is what earns it.
+      const rows = await pollQuery(
+        { filter: { and: [{ field: 'latest_open_ticket', op: 'eq', value: 'Zzz renamed' }] } },
+        (r) => r.length === 1,
+      );
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.title).toBe('Sortable Wayne');
+
+      const stale = await pollQuery(
+        { filter: { and: [{ field: 'latest_open_ticket', op: 'eq', value: 'Aaa first' }] } },
+        (r) => r.length === 0,
+      );
+      expect(stale).toHaveLength(0);
+    });
+
+    it('records with no linked records are empty, not zero', async () => {
+      const lonely = await client('Sortable Lonely');
+      const res = await inject('POST', `/workspaces/${wsId}/databases/${clientsDb}/records/query`, {
+        filter: { and: [{ field: 'latest_open_ticket', op: 'is_empty' }] },
+      });
+      expect(res.statusCode, res.body).toBeLessThan(300);
+      const ids = JSON.parse(res.body).data.map((r: { id: string }) => r.id);
+      // A pick-one has no "count" reading, so an unlinked record must be EMPTY.
+      // Storing 0 would sort it below every real value and match numeric filters.
+      expect(ids).toContain(lonely.id);
+    });
   });
 });

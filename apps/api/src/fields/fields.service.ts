@@ -16,7 +16,7 @@ import { slugify } from '../databases/databases.service';
 import { presentFieldConfig, restoreFieldConfig } from '../common/webhook-headers';
 import { RecordsService } from '../records/records.service';
 import { compileFilter } from '../records/query-compiler';
-import { isPickOneOp } from '../records/rollup-pick-one';
+import { isPickOneOp, pickOneValueType } from '../records/rollup-pick-one';
 import type { CompilerContext } from '../records/query-compiler';
 
 type Field = typeof fields.$inferSelect;
@@ -482,11 +482,23 @@ export class FieldsService {
       }
       // Omitted target = "return a link to the record itself", which the founder
       // asked for explicitly; so unlike the aggregates it is NOT an error.
-      if (targetApiName && !(await this.rollupFieldType(targetDbId, targetApiName))) {
+      const targetType = targetApiName ? await this.rollupFieldType(targetDbId, targetApiName) : null;
+      if (targetApiName && !targetType) {
         throw new UnprocessableEntityException('target_field_api_name does not exist on the related database');
       }
       const filterNode = config['filter'] as FilterNode | undefined;
       if (filterNode) await this.assertRollupFilter(targetDbId, filterNode);
+      /*
+       * #300: record how the materialized sort key COMPARES, so query-compiler
+       * can cast it. Derived here rather than at query time because the query
+       * compiler has only this database's field defs — resolving the related
+       * database's target field on every sort would be a round trip per query,
+       * for a value that only changes when this config does.
+       *
+       * Written on validate (which runs for both create and update), so
+       * changing the shown field re-derives it instead of leaving a stale cast.
+       */
+      config['value_type'] = pickOneValueType(targetType);
       return;
     }
 
@@ -629,6 +641,7 @@ export class FieldsService {
     // changed) so existing rows aren't left on their old names.
     let backfillTitles = false;
     let recompiledFormula = false;
+    let rollupConfigChanged = false;
     let nextConfig: object | undefined;
     if (field.type === 'title' && patch.config !== undefined) {
       nextConfig = await this.compileTitleConfig(databaseId, field, patch.config);
@@ -656,6 +669,27 @@ export class FieldsService {
       // a percent toggle (#190's `format`) would be dropped on every save.
       nextConfig = { ...merged, ...(await this.compileFormulaConfig(databaseId, merged, field.apiName)) };
       recompiledFormula = String(merged.expression) !== String(stored['expression'] ?? '');
+    } else if (field.type === 'rollup' && patch.config !== undefined) {
+      /*
+       * #300: a rollup's config was never re-validated on update — only on
+       * create. That was survivable while every rollup was numeric, but a
+       * first/last rollup now carries a derived `value_type` telling the query
+       * compiler how to CAST its stored sort key. Re-pointing the shown field
+       * from a number to text through this path would have left the old cast in
+       * place, so sorting would either error or silently order by garbage.
+       *
+       * assertRollupConfig re-derives value_type as part of validating, so this
+       * both closes the staleness and gives rollup updates the same 422s create
+       * already gives (a target field that doesn't exist stops being a
+       * write-anything-you-like patch).
+       */
+      const restored = restoreFieldConfig(patch.config, field.config);
+      const merged = { ...(field.config as Record<string, unknown>), ...restored };
+      await this.assertRollupConfig(databaseId, merged);
+      nextConfig = merged;
+      // The stored sort key was computed under the OLD config — recompute it,
+      // for the same reason a recompiled formula is re-materialized below.
+      rollupConfigChanged = JSON.stringify(merged) !== JSON.stringify(field.config);
     } else {
       const restored = patch.config ? restoreFieldConfig(patch.config, field.config) : undefined;
       nextConfig = restored ? { ...(field.config as object), ...restored } : undefined;
@@ -682,6 +716,10 @@ export class FieldsService {
       await this.recordsService
         .materializeFormulaFieldForAllRecords(databaseId, fieldId)
         .catch(() => undefined);
+    }
+    // #300: same reasoning for a rollup whose config actually changed.
+    if (rollupConfigChanged) {
+      await this.recordsService.recomputeRollupFieldForAllRecords(databaseId, fieldId).catch(() => undefined);
     }
     return this.withOptions(this.db, updated!);
   }
