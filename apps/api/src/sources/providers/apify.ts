@@ -157,6 +157,9 @@ function shapeItem(item: Record<string, unknown>, includeRaw: boolean): Record<s
 
 export const apifyActorProvider: SourceProviderDescriptor = {
   id: 'apify.actor',
+  // No Apify brand mark in the curated set; `set:zap` reads as "runs an actor"
+  // and an unresolvable brand ref would render as nothing at all.
+  icon: 'set:zap',
   label: 'Apify — run any actor',
   connectionProvider: 'apify',
   configSchema: apifyActorConfigSchema,

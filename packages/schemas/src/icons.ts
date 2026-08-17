@@ -124,6 +124,9 @@ export const ICON_SET_META: IconMeta[] = [
   { name: 'cog', categories: ['objects'], keywords: 'gear settings' },
   { name: 'hammer', categories: ['objects'], keywords: 'build hammer' },
   { name: 'bug', categories: ['objects', 'status'], keywords: 'bug issue defect' },
+  // #221: the GitHub integration seeds a "Pull Requests" database and the set had
+  // nothing for it, so it fell back to an emoji (🔀) that #251 retired.
+  { name: 'git-pull-request', categories: ['objects'], keywords: 'pull request pr merge branch code review git' },
   { name: 'flask-conical', categories: ['objects'], keywords: 'experiment test lab' },
   { name: 'test-tube', categories: ['objects'], keywords: 'test experiment' },
   { name: 'link', categories: ['objects'], keywords: 'link relation url chain' },

@@ -62,6 +62,17 @@ export interface SourceProviderDescriptor {
    * are hidden from listProviders() and rejected on create, so a user can never
    * select a source that would always fail at sync. Defaults to enabled. */
   enabled?(): boolean;
+  /**
+   * #221 — a curated `set:<name>` / `brand:<slug>` ref for this provider, surfaced
+   * by listProviders() so a UI creating a database FOR this source can apply it
+   * instead of leaving the row blank.
+   *
+   * Advisory, not enforced: the databases a source binds to are created upstream
+   * (the YouTube flow applies a TEMPLATE, which carries its own icon), so this is
+   * for the surfaces that build a database ad-hoc. It exists because a provider
+   * knowing its own mark is strictly better than each caller hard-coding one.
+   */
+  icon?: string;
   configSchema: ZodObject<ZodRawShape>;
   /** Shown as-is under the provider picker in the "Sync from…" dialog — MN-262's
    * responsibility framing ("Actors run under YOUR Apify account…") is this,
