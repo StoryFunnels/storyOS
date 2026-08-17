@@ -182,6 +182,31 @@ function compileCondition(fieldName: string, op: FilterOp, value: unknown, ctx: 
      * casts a pick-one by its config's value_type, and the comparator has to
      * agree with the cast or Postgres compares a numeric against a string.
      */
+    /*
+     * #300: a formula is filterable on the same terms it is sortable — its value
+     * is materialized into computed_values. It had no case here either, so
+     * "filter by Days Left" answered "not supported" for a column the same query
+     * could sort by.
+     *
+     * A formula reaching a LOOKUP is still not materialized (nothing recomputes
+     * a stored copy of one), and RecordsService rejects sorting by it. Filtering
+     * it would match nothing at all, so it is left to the default refusal below
+     * rather than silently returning an empty page.
+     */
+    case 'formula': {
+      const resultType = def.config['result_type'];
+      // An uncompiled formula has no stored value to compare — refuse it by the
+      // same message as any other unsupported field rather than matching nothing.
+      if (!def.config['ast']) throw err(`filters on "${def.type}" fields are not supported`);
+      if (resultType === 'number') return compileNumber(def, op, value);
+      if (resultType === 'checkbox') {
+        if (op !== 'eq' && op !== 'neq') throw err(`op "${op}" not valid for checkbox`);
+        if (typeof value !== 'boolean') throw err('checkbox filters expect a boolean value');
+        return op === 'eq' ? sql`${fieldExpr(def)} = ${value}` : sql`${fieldExpr(def)} IS DISTINCT FROM ${value}`;
+      }
+      if (resultType === 'date') return compileDate(def, op, value);
+      return compileTextish(def, op, value);
+    }
     case 'rollup': {
       const valueType = isPickOneOp(def.config['op']) ? def.config['value_type'] : 'number';
       if (valueType === 'number') return compileNumber(def, op, value);
