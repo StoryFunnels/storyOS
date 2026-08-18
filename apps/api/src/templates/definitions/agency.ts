@@ -27,7 +27,7 @@ export const clientWork: TemplateDef = {
   databases: [
     {
       key: 'clients',
-      name: 'Clients', icon: '🤝',
+      name: 'Clients', icon: 'set:handshake',
       fields: [
         { key: 'status', display_name: 'Status', type: 'select', options: [
           { label: 'Lead', color: 'gray' }, { label: 'Onboarding', color: 'blue' },
@@ -57,7 +57,7 @@ export const clientWork: TemplateDef = {
     },
     {
       key: 'contacts',
-      name: 'Contacts', icon: '👥',
+      name: 'Contacts', icon: 'set:users',
       fields: [
         { key: 'role', display_name: 'Role', type: 'text' },
         { key: 'email', display_name: 'Email', type: 'email' },
@@ -70,7 +70,7 @@ export const clientWork: TemplateDef = {
     },
     {
       key: 'projects',
-      name: 'Projects', icon: '🗺️',
+      name: 'Projects', icon: 'set:map',
       fields: [
         { key: 'status', display_name: 'Status', type: 'select', options: [
           { label: 'Scoping', color: 'gray' }, { label: 'Planning', color: 'blue' },
@@ -99,7 +99,7 @@ export const clientWork: TemplateDef = {
     }),
     {
       key: 'invoices',
-      name: 'Invoices', icon: '🧾',
+      name: 'Invoices', icon: 'set:receipt',
       fields: [
         { key: 'status', display_name: 'Status', type: 'select', options: [
           { label: 'Draft', color: 'gray' }, { label: 'Sent', color: 'blue' },
@@ -186,7 +186,7 @@ This is the space you SHARE with a client (invite them as a guest with **editor*
     }),
     {
       key: 'deliverables',
-      name: 'Deliverables', icon: '📦',
+      name: 'Deliverables', icon: 'set:package',
       fields: [
         { key: 'status', display_name: 'Status', type: 'select', options: [
           { label: 'Draft', color: 'gray' }, { label: 'In Review', color: 'gold' },
@@ -203,7 +203,7 @@ This is the space you SHARE with a client (invite them as a guest with **editor*
     },
     {
       key: 'meetings',
-      name: 'Meetings', icon: '☕',
+      name: 'Meetings', icon: 'set:coffee',
       fields: [
         { key: 'date', display_name: 'Date', type: 'date', config: { include_time: true } },
         { key: 'type', display_name: 'Type', type: 'select', options: [
@@ -215,7 +215,7 @@ This is the space you SHARE with a client (invite them as a guest with **editor*
     },
     {
       key: 'requests',
-      name: 'Requests', icon: '💬',
+      name: 'Requests', icon: 'set:message-square',
       fields: [
         { key: 'status', display_name: 'Status', type: 'select', options: [
           { label: 'New', color: 'blue' }, { label: 'Accepted', color: 'green' },
@@ -263,7 +263,7 @@ A light pipeline: **Leads** move through stages; **Proposals** track what you se
   databases: [
     {
       key: 'leads',
-      name: 'Leads', icon: '🧲',
+      name: 'Leads', icon: 'set:user-plus',
       fields: [
         { key: 'stage', display_name: 'Stage', type: 'select', options: [
           { label: 'New', color: 'gray' }, { label: 'Contacted', color: 'blue' },
@@ -292,7 +292,7 @@ A light pipeline: **Leads** move through stages; **Proposals** track what you se
     },
     {
       key: 'proposals',
-      name: 'Proposals', icon: '🧾',
+      name: 'Proposals', icon: 'set:receipt',
       fields: [
         { key: 'status', display_name: 'Status', type: 'select', options: [
           { label: 'Draft', color: 'gray' }, { label: 'Internal Review', color: 'purple' },
@@ -346,7 +346,7 @@ export const socialCalendar: TemplateDef = {
   databases: [
     {
       key: 'posts',
-      name: 'Posts', icon: '📅',
+      name: 'Posts', icon: 'set:calendar-days',
       fields: [
         { key: 'status', display_name: 'Status', type: 'select', options: [
           { label: 'Idea', color: 'gray' }, { label: 'Drafted', color: 'blue' },
@@ -369,7 +369,7 @@ export const socialCalendar: TemplateDef = {
     },
     {
       key: 'moments',
-      name: 'Moments', icon: '📌',
+      name: 'Moments', icon: 'set:pin',
       fields: [
         { key: 'date', display_name: 'Date', type: 'date' },
         { key: 'kind', display_name: 'Kind', type: 'select', options: [
@@ -381,7 +381,7 @@ export const socialCalendar: TemplateDef = {
     },
     {
       key: 'platforms',
-      name: 'Platforms', icon: '📣',
+      name: 'Platforms', icon: 'set:megaphone',
       fields: [
         { key: 'handle', display_name: 'Profile URL', type: 'url' },
         { key: 'specs', display_name: 'Specs & Limits', type: 'rich_text' },
@@ -425,7 +425,7 @@ Update the numbers monthly; the **Live Funnels** view sorted by revenue is the p
   databases: [
     {
       key: 'funnels',
-      name: 'Funnels', icon: '🌊',
+      name: 'Funnels', icon: 'set:waves',
       fields: [
         { key: 'status', display_name: 'Status', type: 'select', options: [
           { label: 'Idea', color: 'gray' }, { label: 'Building', color: 'gold' },
@@ -488,7 +488,7 @@ export const contentPipeline: TemplateDef = {
   databases: [
     {
       key: 'articles',
-      name: 'Articles', icon: '📰',
+      name: 'Articles', icon: 'set:newspaper',
       fields: [
         { key: 'stage', display_name: 'Stage', type: 'select', options: [
           { label: 'Idea', color: 'gray' }, { label: 'Brief', color: 'blue' },
@@ -518,7 +518,7 @@ export const contentPipeline: TemplateDef = {
     },
     {
       key: 'topics',
-      name: 'Topics', icon: '🧠',
+      name: 'Topics', icon: 'set:book-open',
       fields: [
         { key: 'priority', display_name: 'Priority', type: 'select', options: [
           { label: 'Now', color: 'red' }, { label: 'Next', color: 'gold' }, { label: 'Later', color: 'gray' },
@@ -529,7 +529,7 @@ export const contentPipeline: TemplateDef = {
     },
     {
       key: 'campaigns',
-      name: 'Campaigns', icon: '📣',
+      name: 'Campaigns', icon: 'set:megaphone',
       fields: [
         { key: 'status', display_name: 'Status', type: 'select', options: [
           { label: 'Planned', color: 'blue' }, { label: 'Running', color: 'gold' }, { label: 'Done', color: 'green' },

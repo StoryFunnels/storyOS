@@ -25,7 +25,7 @@ export const orgChart: TemplateDef = {
   databases: [
     {
       key: 'teams',
-      name: 'Teams', icon: '🏢',
+      name: 'Teams', icon: 'set:building2',
       fields: [
         { key: 'department', display_name: 'Department', type: 'select', options: [
           { label: 'Delivery', color: 'blue' }, { label: 'Marketing', color: 'pink' }, { label: 'Sales', color: 'gold' },
@@ -36,7 +36,7 @@ export const orgChart: TemplateDef = {
     },
     {
       key: 'members',
-      name: 'Team Members', icon: '👤',
+      name: 'Team Members', icon: 'set:user',
       fields: [
         { key: 'role', display_name: 'Role', type: 'text' },
         { key: 'location', display_name: 'Location', type: 'text' },
@@ -85,7 +85,7 @@ export const timeOff: TemplateDef = {
   databases: [
     {
       key: 'members',
-      name: 'Team Members', icon: '👤',
+      name: 'Team Members', icon: 'set:user',
       fields: [
         { key: 'allocation', display_name: 'Annual Allocation (days)', type: 'number' },
         { key: 'country', display_name: 'Country', type: 'text' },
@@ -94,7 +94,7 @@ export const timeOff: TemplateDef = {
     },
     {
       key: 'timeoff',
-      name: 'Time Off', icon: '🌴',
+      name: 'Time Off', icon: 'set:sun',
       fields: [
         { key: 'kind', display_name: 'Kind', type: 'select', options: [
           { label: 'Vacation', color: 'green' }, { label: 'Sick', color: 'red' },
@@ -109,7 +109,7 @@ export const timeOff: TemplateDef = {
     },
     {
       key: 'holidays',
-      name: 'Public Holidays', icon: '📅',
+      name: 'Public Holidays', icon: 'set:calendar-days',
       fields: [
         { key: 'date', display_name: 'Date', type: 'date' },
         { key: 'country', display_name: 'Country', type: 'text' },

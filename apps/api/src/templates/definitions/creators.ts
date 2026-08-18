@@ -20,7 +20,7 @@ After each session: log notes, set the client's action items, schedule the next 
   databases: [
     {
       key: 'clients',
-      name: 'Clients', icon: '🤝',
+      name: 'Clients', icon: 'set:handshake',
       fields: [
         { key: 'status', display_name: 'Status', type: 'select', options: [
           { label: 'Discovery', color: 'gray' }, { label: 'Proposal', color: 'blue' },
@@ -42,7 +42,7 @@ After each session: log notes, set the client's action items, schedule the next 
     },
     {
       key: 'programs',
-      name: 'Programs', icon: '🎓',
+      name: 'Programs', icon: 'set:book-open',
       fields: [
         { key: 'type', display_name: 'Type', type: 'select', options: [
           { label: '1:1' }, { label: 'Group' }, { label: 'Cohort' }, { label: 'Course' }, { label: 'Retreat' },
@@ -58,7 +58,7 @@ After each session: log notes, set the client's action items, schedule the next 
     },
     {
       key: 'sessions',
-      name: 'Sessions', icon: '🗣️',
+      name: 'Sessions', icon: 'set:mic',
       fields: [
         { key: 'date', display_name: 'Date', type: 'date', config: { include_time: true } },
         { key: 'status', display_name: 'Status', type: 'select', options: [
@@ -119,7 +119,7 @@ export const consulting: TemplateDef = {
   databases: [
     {
       key: 'clients',
-      name: 'Clients', icon: '🤝',
+      name: 'Clients', icon: 'set:handshake',
       fields: [
         { key: 'status', display_name: 'Status', type: 'select', options: [
           { label: 'Prospect', color: 'gray' }, { label: 'Active', color: 'green' },
@@ -135,7 +135,7 @@ export const consulting: TemplateDef = {
     },
     {
       key: 'proposals',
-      name: 'Proposals', icon: '🧾',
+      name: 'Proposals', icon: 'set:receipt',
       fields: [
         { key: 'stage', display_name: 'Stage', type: 'select', options: [
           { label: 'Draft', color: 'gray' }, { label: 'Sent', color: 'gold' },
@@ -156,7 +156,7 @@ export const consulting: TemplateDef = {
     },
     {
       key: 'engagements',
-      name: 'Engagements', icon: '💼',
+      name: 'Engagements', icon: 'set:briefcase',
       fields: [
         { key: 'status', display_name: 'Status', type: 'select', options: [
           { label: 'Kickoff', color: 'blue' }, { label: 'Active', color: 'green' },
@@ -236,7 +236,7 @@ Write in the chapter's rich text; move it across the board; park every source in
     },
     {
       key: 'chapters',
-      name: 'Chapters', icon: '📖',
+      name: 'Chapters', icon: 'set:book',
       fields: [
         { key: 'status', display_name: 'Status', type: 'select', options: [
           { label: 'Outline', color: 'gray' }, { label: 'Draft', color: 'gold' },
@@ -249,7 +249,7 @@ Write in the chapter's rich text; move it across the board; park every source in
     },
     {
       key: 'research',
-      name: 'Research Notes', icon: '🧠',
+      name: 'Research Notes', icon: 'set:book-open',
       fields: [
         { key: 'type', display_name: 'Type', type: 'select', options: [
           { label: 'Interview' }, { label: 'Article' }, { label: 'Book' }, { label: 'Idea' }, { label: 'Quote' },
@@ -267,7 +267,7 @@ Write in the chapter's rich text; move it across the board; park every source in
     }),
     {
       key: 'appearances',
-      name: 'Appearances', icon: '🎙️',
+      name: 'Appearances', icon: 'set:mic',
       fields: [
         { key: 'status', display_name: 'Status', type: 'select', options: [
           { label: 'Wishlist', color: 'gray' }, { label: 'Pitched', color: 'blue' },
