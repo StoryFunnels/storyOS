@@ -142,6 +142,9 @@ function EditorInner({
       <div className="min-h-40 rounded-[var(--radius-card)] border border-border-default bg-card py-3 [&_.bn-editor]:bg-transparent">
         <MentionScope ws={ws}>
           <BlockNoteView
+            /* #338: BlockNote mounts its own "/" menu unless this is off, and it
+               wins over the reordered one in MentionSuggestionMenus. */
+            slashMenu={false}
             editor={editor}
             editable={!readOnly && !conflict}
             theme={theme}
