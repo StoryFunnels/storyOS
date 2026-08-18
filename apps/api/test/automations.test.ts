@@ -574,6 +574,64 @@ describe('MN-168 — entitlements wiring for the automations engine', () => {
     await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${unlinkRule.id}`, { enabled: false });
   });
 
+  it('interpolates tokens into NON-name fields of a create_record action (#339)', async () => {
+    // The gap this pins: create_record templated `values.name` and nothing else,
+    // so a text field asking for {changesSummary} stored those literal
+    // characters — while the run still reported status ok. Only opening the
+    // created record revealed it, which is why this asserts on a non-name field.
+    const space = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
+    const targetDb = (await inject('POST', `/workspaces/${wsId}/databases`, {
+      space_id: space,
+      name: 'Followups 339',
+    })).json();
+    const noteField = (await inject('POST', `/workspaces/${wsId}/databases/${targetDb.id}/fields`, {
+      display_name: 'Note',
+      type: 'text',
+    })).json();
+    expect(noteField.id, JSON.stringify(noteField)).toBeTruthy();
+
+    const rule = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/automations`, {
+      name: 'File a followup',
+      trigger: { type: 'record_updated', field_id: stateFieldId },
+      actions: [
+        {
+          type: 'create_record',
+          database_id: targetDb.id,
+          values: {
+            name: 'Followup for {Name}',
+            [noteField.apiName]: 'Ticket #{Number} — {changesSummary}',
+          },
+        },
+      ],
+    })).json();
+    expect(rule.id, JSON.stringify(rule)).toBeTruthy();
+
+    const rec = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records`, {
+      values: { name: 'Interpolate me', [stateApi]: urgentId },
+    })).json();
+    await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/records/${rec.id}`, {
+      values: { [stateApi]: doneId },
+    });
+    await engine.settle(rec.id);
+    await wait(50);
+
+    const created = (await inject('POST', `/workspaces/${wsId}/databases/${targetDb.id}/records/query`, {})).json();
+    const row = created.data.find((r: { title: string }) => r.title.includes('Interpolate me'));
+    expect(row, JSON.stringify(created.data)).toBeTruthy();
+
+    const note = row.values[noteField.apiName] as string;
+    // The literal token text is the bug; its absence is the fix.
+    expect(note).not.toContain('{changesSummary}');
+    expect(note).not.toContain('{Number}');
+    expect(note).toContain('State');
+    expect(note).toContain('Done');
+    // #339 bug 2: {Number} is a system COLUMN, not a values key — it used to
+    // render an em dash.
+    expect(note).toContain(`#${rec.number}`);
+
+    await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}`, { enabled: false });
+  });
+
   it('{changesSummary} renders what actually changed, with select labels (#273)', async () => {
     const rule = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/automations`, {
       name: 'Report the change',
