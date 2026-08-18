@@ -29,7 +29,7 @@ export const clientWork: TemplateDef = {
       key: 'clients',
       name: 'Clients', icon: 'set:handshake',
       fields: [
-        { key: 'status', display_name: 'Status', type: 'select', options: [
+        { key: 'status', display_name: 'Status', type: 'workflow', options: [
           { label: 'Lead', color: 'gray' }, { label: 'Onboarding', color: 'blue' },
           { label: 'Active', color: 'green' }, { label: 'Paused', color: 'gold' },
           { label: 'Churned', color: 'brown' },
@@ -72,7 +72,7 @@ export const clientWork: TemplateDef = {
       key: 'projects',
       name: 'Projects', icon: 'set:map',
       fields: [
-        { key: 'status', display_name: 'Status', type: 'select', options: [
+        { key: 'status', display_name: 'Status', type: 'workflow', options: [
           { label: 'Scoping', color: 'gray' }, { label: 'Planning', color: 'blue' },
           { label: 'Active', color: 'green' }, { label: 'On Hold', color: 'gold' },
           { label: 'Delivered', color: 'teal' }, { label: 'Closed', color: 'brown' },
@@ -101,7 +101,7 @@ export const clientWork: TemplateDef = {
       key: 'invoices',
       name: 'Invoices', icon: 'set:receipt',
       fields: [
-        { key: 'status', display_name: 'Status', type: 'select', options: [
+        { key: 'status', display_name: 'Status', type: 'workflow', options: [
           { label: 'Draft', color: 'gray' }, { label: 'Sent', color: 'blue' },
           { label: 'Paid', color: 'green' }, { label: 'Overdue', color: 'red' },
           { label: 'Void', color: 'brown' },
@@ -188,7 +188,7 @@ This is the space you SHARE with a client (invite them as a guest with **editor*
       key: 'deliverables',
       name: 'Deliverables', icon: 'set:package',
       fields: [
-        { key: 'status', display_name: 'Status', type: 'select', options: [
+        { key: 'status', display_name: 'Status', type: 'workflow', options: [
           { label: 'Draft', color: 'gray' }, { label: 'In Review', color: 'gold' },
           { label: 'Approved', color: 'green' }, { label: 'Delivered', color: 'teal' },
         ]},
@@ -217,7 +217,7 @@ This is the space you SHARE with a client (invite them as a guest with **editor*
       key: 'requests',
       name: 'Requests', icon: 'set:message-square',
       fields: [
-        { key: 'status', display_name: 'Status', type: 'select', options: [
+        { key: 'status', display_name: 'Status', type: 'workflow', options: [
           { label: 'New', color: 'blue' }, { label: 'Accepted', color: 'green' },
           { label: 'Declined', color: 'brown' }, { label: 'Done', color: 'teal' },
         ]},
@@ -265,7 +265,7 @@ A light pipeline: **Leads** move through stages; **Proposals** track what you se
       key: 'leads',
       name: 'Leads', icon: 'set:user-plus',
       fields: [
-        { key: 'stage', display_name: 'Stage', type: 'select', options: [
+        { key: 'stage', display_name: 'Stage', type: 'workflow', options: [
           { label: 'New', color: 'gray' }, { label: 'Contacted', color: 'blue' },
           { label: 'Call Booked', color: 'purple' }, { label: 'Proposal Sent', color: 'gold' },
           { label: 'Negotiating', color: 'orange' }, { label: 'Won', color: 'green' },
@@ -294,7 +294,7 @@ A light pipeline: **Leads** move through stages; **Proposals** track what you se
       key: 'proposals',
       name: 'Proposals', icon: 'set:receipt',
       fields: [
-        { key: 'status', display_name: 'Status', type: 'select', options: [
+        { key: 'status', display_name: 'Status', type: 'workflow', options: [
           { label: 'Draft', color: 'gray' }, { label: 'Internal Review', color: 'purple' },
           { label: 'Sent', color: 'gold' }, { label: 'Won', color: 'green' }, { label: 'Lost', color: 'brown' },
         ]},
@@ -348,7 +348,7 @@ export const socialCalendar: TemplateDef = {
       key: 'posts',
       name: 'Posts', icon: 'set:calendar-days',
       fields: [
-        { key: 'status', display_name: 'Status', type: 'select', options: [
+        { key: 'status', display_name: 'Status', type: 'workflow', options: [
           { label: 'Idea', color: 'gray' }, { label: 'Drafted', color: 'blue' },
           { label: 'Approved', color: 'purple' }, { label: 'Scheduled', color: 'gold' },
           { label: 'Published', color: 'green' },
@@ -427,7 +427,7 @@ Update the numbers monthly; the **Live Funnels** view sorted by revenue is the p
       key: 'funnels',
       name: 'Funnels', icon: 'set:waves',
       fields: [
-        { key: 'status', display_name: 'Status', type: 'select', options: [
+        { key: 'status', display_name: 'Status', type: 'workflow', options: [
           { label: 'Idea', color: 'gray' }, { label: 'Building', color: 'gold' },
           { label: 'Testing', color: 'purple' }, { label: 'Live', color: 'green' },
           { label: 'Paused', color: 'orange' }, { label: 'Archived', color: 'brown' },
@@ -490,7 +490,7 @@ export const contentPipeline: TemplateDef = {
       key: 'articles',
       name: 'Articles', icon: 'set:newspaper',
       fields: [
-        { key: 'stage', display_name: 'Stage', type: 'select', options: [
+        { key: 'stage', display_name: 'Stage', type: 'workflow', options: [
           { label: 'Idea', color: 'gray' }, { label: 'Brief', color: 'blue' },
           { label: 'Writing', color: 'gold' }, { label: 'Editing', color: 'purple' },
           { label: 'Design', color: 'pink' }, { label: 'Ready', color: 'teal' },
@@ -531,7 +531,7 @@ export const contentPipeline: TemplateDef = {
       key: 'campaigns',
       name: 'Campaigns', icon: 'set:megaphone',
       fields: [
-        { key: 'status', display_name: 'Status', type: 'select', options: [
+        { key: 'status', display_name: 'Status', type: 'workflow', options: [
           { label: 'Planned', color: 'blue' }, { label: 'Running', color: 'gold' }, { label: 'Done', color: 'green' },
         ]},
         { key: 'goal', display_name: 'Goal', type: 'text' },

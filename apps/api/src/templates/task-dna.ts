@@ -39,7 +39,7 @@ export const TASK_PRIORITIES = [
 
 export function taskDnaDatabase(opts: TaskDnaOptions): TemplateDatabaseDef {
   const fields: TemplateFieldDef[] = [
-    { key: 'state', display_name: 'State', type: 'select', options: TASK_STATES },
+    { key: 'state', display_name: 'State', type: 'workflow', options: TASK_STATES },
     { key: 'priority', display_name: 'Priority', type: 'select', options: TASK_PRIORITIES },
     {
       key: 'labels',

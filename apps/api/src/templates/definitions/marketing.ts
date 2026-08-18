@@ -38,7 +38,7 @@ Two databases carry the whole ritual: **Meetings** hold the notes, **Action Item
           { label: 'Project Status', color: 'blue' }, { label: 'Retro', color: 'purple' },
         ]},
         { key: 'date', display_name: 'Date', type: 'date', config: { include_time: true } },
-        { key: 'status', display_name: 'Status', type: 'select', options: [
+        { key: 'status', display_name: 'Status', type: 'workflow', options: [
           { label: 'Scheduled', color: 'gray' }, { label: 'Held', color: 'green' }, { label: 'Cancelled', color: 'brown' },
         ]},
         { key: 'attendees', display_name: 'Attendees', type: 'user', config: { multi: true } },
@@ -101,7 +101,7 @@ The classic approach uses nine databases; we compress to three without losing th
       name: 'Journeys', icon: 'set:compass',
       fields: [
         { key: 'persona', display_name: 'Persona', type: 'text' },
-        { key: 'status', display_name: 'Status', type: 'select', options: [
+        { key: 'status', display_name: 'Status', type: 'workflow', options: [
           { label: 'Mapping', color: 'gold' }, { label: 'Validated', color: 'green' }, { label: 'Stale', color: 'brown' },
         ]},
         { key: 'scope', display_name: 'Scope & Notes', type: 'rich_text' },
@@ -176,7 +176,7 @@ export const eventPlanning: TemplateDef = {
       fields: [
         { key: 'date', display_name: 'Date', type: 'date' },
         { key: 'venue', display_name: 'Venue', type: 'text' },
-        { key: 'status', display_name: 'Status', type: 'select', options: [
+        { key: 'status', display_name: 'Status', type: 'workflow', options: [
           { label: 'Planning', color: 'gold' }, { label: 'Confirmed', color: 'blue' }, { label: 'Done', color: 'green' }, { label: 'Cancelled', color: 'brown' },
         ]},
         { key: 'budget', display_name: 'Budget', type: 'number', config: { format: 'currency', currency_code: 'USD' } },
@@ -188,7 +188,7 @@ export const eventPlanning: TemplateDef = {
       key: 'tasks',
       name: 'Event Tasks', icon: 'set:square-check',
       fields: [
-        { key: 'state', display_name: 'State', type: 'select', options: [
+        { key: 'state', display_name: 'State', type: 'workflow', options: [
           { label: 'To Do', color: 'gray' }, { label: 'In Progress', color: 'gold' }, { label: 'Done', color: 'green' },
         ]},
         { key: 'owner', display_name: 'Owner', type: 'user' },
@@ -253,7 +253,7 @@ export const videoProduction: TemplateDef = {
       key: 'videos',
       name: 'Videos', icon: 'set:clapperboard',
       fields: [
-        { key: 'stage', display_name: 'Stage', type: 'select', options: [
+        { key: 'stage', display_name: 'Stage', type: 'workflow', options: [
           { label: 'Idea', color: 'gray' }, { label: 'Script', color: 'purple' }, { label: 'Shoot', color: 'gold' },
           { label: 'Edit', color: 'orange' }, { label: 'Review', color: 'blue' }, { label: 'Published', color: 'green' },
         ]},
@@ -272,7 +272,7 @@ export const videoProduction: TemplateDef = {
       key: 'tasks',
       name: 'Production Tasks', icon: 'set:square-check',
       fields: [
-        { key: 'state', display_name: 'State', type: 'select', options: [
+        { key: 'state', display_name: 'State', type: 'workflow', options: [
           { label: 'To Do', color: 'gray' }, { label: 'In Progress', color: 'gold' }, { label: 'Done', color: 'green' },
         ]},
         { key: 'owner', display_name: 'Owner', type: 'user' },
@@ -338,7 +338,7 @@ One pack replaces two separate templates (Campaign Brief + Product Marketing). *
       key: 'campaigns',
       name: 'Campaigns', icon: 'set:rocket',
       fields: [
-        { key: 'status', display_name: 'Status', type: 'select', options: [
+        { key: 'status', display_name: 'Status', type: 'workflow', options: [
           { label: 'Draft', color: 'gray' }, { label: 'Brief Approved', color: 'purple' }, { label: 'Live', color: 'green' }, { label: 'Wrapped', color: 'brown' },
         ]},
         { key: 'start', display_name: 'Start', type: 'date' },
@@ -373,7 +373,7 @@ One pack replaces two separate templates (Campaign Brief + Product Marketing). *
       key: 'tasks',
       name: 'Campaign Tasks', icon: 'set:square-check',
       fields: [
-        { key: 'state', display_name: 'State', type: 'select', options: [
+        { key: 'state', display_name: 'State', type: 'workflow', options: [
           { label: 'To Do', color: 'gray' }, { label: 'In Progress', color: 'gold' }, { label: 'Done', color: 'green' },
         ]},
         { key: 'owner', display_name: 'Owner', type: 'user' },
@@ -456,7 +456,7 @@ Four databases mirror how deals actually move: **Accounts** (companies) hold **C
       key: 'opportunities',
       name: 'Opportunities', icon: 'set:dollar-sign',
       fields: [
-        { key: 'stage', display_name: 'Stage', type: 'select', options: [
+        { key: 'stage', display_name: 'Stage', type: 'workflow', options: [
           { label: 'Prospect', color: 'gray' }, { label: 'Qualified', color: 'teal' }, { label: 'Proposal', color: 'blue' },
           { label: 'Negotiation', color: 'gold' }, { label: 'Won', color: 'green' }, { label: 'Lost', color: 'brown' },
         ]},

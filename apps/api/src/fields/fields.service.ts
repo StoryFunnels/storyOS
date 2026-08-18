@@ -39,7 +39,17 @@ const CONVERTIBLE: Record<string, CreatableFieldType[]> = {
 };
 
 /** #172: field types that carry coloured select_options (single- or multi-valued). */
-const OPTIONED_FIELD_TYPES = new Set(['select', 'multi_select', 'workflow']);
+export const OPTIONED_FIELD_TYPES = new Set(['select', 'multi_select', 'workflow']);
+/**
+ * #218 — optioned fields holding exactly ONE option id. `workflow` belongs here
+ * with `select`: it is a select that the product treats as canonical status.
+ * Exported because template installation had its own inlined `type === 'select'`
+ * checks, so converting a lifecycle field to `workflow` silently stopped its
+ * option LABELS resolving to ids and every affected template 422'd on install.
+ * A named predicate is the rule (see CLAUDE.md, field surfaces); a second
+ * hand-written list is how this broke.
+ */
+export const SINGLE_OPTION_FIELD_TYPES = new Set(['select', 'workflow']);
 
 /** Plain text of a BlockNote document (lossy rich_text → text). */
 function richTextToPlain(blocks: unknown): string {
