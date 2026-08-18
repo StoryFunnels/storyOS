@@ -192,6 +192,11 @@ export function CommentComposer({
       >
         <MentionScope ws={ws}>
           <BlockNoteView
+            /* #338: BlockNote mounts its own "/" menu unless this is off, and
+               it wins over ours — so the reordered menu in MentionSuggestionMenus
+               never rendered until this was set. Verified in the browser: group
+               order stayed BlockNote's default with Emoji last at 22 of 23. */
+            slashMenu={false}
             editor={editor}
             editable={!post.isPending}
             theme={theme}

@@ -8,7 +8,11 @@ import { BlockNoteSchema, defaultInlineContentSpecs } from '@blocknote/core';
 import type { BlockNoteEditor } from '@blocknote/core';
 import { SuggestionMenu as SuggestionMenuExtension } from '@blocknote/core/extensions';
 import type { SuggestionMenuProps } from '@blocknote/react';
-import { SuggestionMenuController, createReactInlineContentSpec } from '@blocknote/react';
+import {
+  SuggestionMenuController,
+  createReactInlineContentSpec,
+  getDefaultReactSlashMenuItems,
+} from '@blocknote/react';
 import { api } from '@/lib/api';
 import { atLeast } from '@/lib/access';
 import { cn } from '@/lib/utils';
@@ -750,6 +754,51 @@ export function MentionSuggestionMenus({
         getItems={getRecords}
         suggestionMenuComponent={RecordMenu}
         onItemClick={(item) => insertMention(editor, item.mention)}
+      />
+      {/*
+       * #338 — the "/" menu, reordered. BlockNote's default order buries Emoji
+       * in a trailing group, and with ~10 rows visible nobody scrolls a command
+       * menu that far to find it. Lifted to just under the basic blocks, where
+       * it is reachable without scrolling.
+       *
+       * The ITEMS are BlockNote's own (getDefaultReactSlashMenuItems) — only
+       * their order changes. Rebuilding the list by hand would mean maintaining
+       * a parallel copy that silently loses whatever the next BlockNote release
+       * adds, which is the same drift #267/#272/#303 keep re-teaching us.
+       */}
+      <SuggestionMenuController
+        triggerCharacter="/"
+        getItems={async (query) => {
+          const items = getDefaultReactSlashMenuItems(editor as never);
+          /*
+           * Ranked on the ITEM, not just its group. Two things the group name
+           * alone got wrong, both caught in the browser:
+           *   - Emoji's group is "Others", not "Emoji", so a group-name test
+           *     left it exactly where it started (last of 23).
+           *   - "Subheadings" contains "heading", so a substring test promoted
+           *     it to the top above Basic blocks.
+           */
+          const rank = (item: { title: string; group?: string }) => {
+            const g = (item.group ?? '').toLowerCase();
+            if (/emoji/i.test(item.title)) return 1; // was last; now above the fold
+            if (g === 'headings') return 0;
+            if (g.startsWith('basic')) return 2;
+            return 3;
+          };
+          // Stable within a group: only the GROUPS move, so the order inside
+          // each one stays exactly as BlockNote ships it.
+          const ordered = items
+            .map((item, index) => ({ item, index }))
+            .sort((a, b) => rank(a.item) - rank(b.item) || a.index - b.index)
+            .map(({ item }) => item);
+          if (!query) return ordered;
+          const q = query.toLowerCase();
+          return ordered.filter(
+            (item) =>
+              item.title.toLowerCase().includes(q) ||
+              item.aliases?.some((alias) => alias.toLowerCase().includes(q)),
+          );
+        }}
       />
     </>
   );

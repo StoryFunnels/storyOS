@@ -27,6 +27,11 @@
   --border-default: #e8e5df;
   --border-strong: #d9d4c8;
 
+  /* #338 — code surfaces. Cool slate-blue against the warm cream page, so code
+     reads as a distinct technical register without becoming a black slab. */
+  --bg-code: #f3f5fa;
+  --border-code: #e1e6f0;
+
   /* Brand & actions */
   --primary: #0f1729;
   --primary-hover: #1a2545;
@@ -86,6 +91,11 @@
   /* Borders */
   --border-default: #262d39;
   --border-strong: #38404e;
+
+  /* #338 — one step ABOVE the card, not below: a code block usually sits ON a
+     card, and going darker would merge it into the page behind. */
+  --bg-code: #1b2130;
+  --border-code: #2c3546;
 
   /* Brand & actions — keep the cream-on-navy CTA pairing legible on the darker canvas */
   --primary: #35427a;
@@ -163,4 +173,97 @@ body {
   100% {
     transform: translateX(400%);
   }
+}
+
+/*
+ * #338 — put the BlockNote editor on the app's type scale.
+ *
+ * @blocknote/core hard-codes `font-size: 16px` on the editor. StoryOS chrome is
+ * 12–13px, so a rich-text field rendered ~25% larger than everything around it
+ * — most visibly on the record page, where the DETAILS body sits directly
+ * beside a 12px properties panel and reads as a different product.
+ *
+ * Set on `.bn-editor` (the container) rather than per block type, so headings
+ * and list items keep BlockNote's own relative ratios and only the BASE moves.
+ * Overriding each block's size instead would flatten the document hierarchy —
+ * an h1 inside a field should still look like an h1.
+ *
+ * 14px, not 13px: this is prose to READ, not chrome to scan, and matching the
+ * properties panel exactly makes long text harder work than it should be. One
+ * step above the UI scale keeps it legible while still belonging to it.
+ */
+.bn-editor.bn-default-styles,
+.bn-editor .bn-default-styles {
+  /* Two classes on purpose: BlockNote sets the 16px on `.bn-default-styles`
+     (the same element that carries `.bn-editor`), so a single-class rule loses
+     the specificity tie regardless of source order. Verified in the browser —
+     the first attempt targeted `.bn-editor` alone and computed to 16px. */
+  font-size: 14px;
+}
+
+/*
+ * #338 — slash-menu density.
+ *
+ * BlockNote's default "/" menu gives each entry a large icon tile, a 16px
+ * title and a full-sentence subtitle, so a row is ~50px and only about ten
+ * fit on screen. Emoji — one of the things people most often reach for —
+ * sits below the fold, and nobody scrolls a command menu that far.
+ *
+ * Halving the row: the subtitle goes (the title already says "Numbered List";
+ * "List with ordered items" earns nothing at a glance), the icon tile shrinks
+ * to the app's control scale, and padding comes down to match our other
+ * popovers. Kept in CSS rather than a custom item renderer so BlockNote's
+ * keyboard navigation, filtering and grouping stay entirely its own.
+ */
+.bn-suggestion-menu .bn-mt-suggestion-menu-item-subtitle {
+  display: none;
+}
+.bn-suggestion-menu .bn-mt-suggestion-menu-item-title {
+  font-size: 13px;
+  line-height: 1.2;
+}
+.bn-suggestion-menu .bn-suggestion-menu-item {
+  /* `.bn-suggestion-menu-item`, verified in the DOM — the rows are mantine
+     Group roots, not Menu items, so a `mantine-Menu-item` guess matched
+     nothing. */
+  /* 6px lands a ~28px row: half the original ~50px, still comfortable to hit.
+     3px measured at 13px in the browser, which was too cramped to click. */
+  padding-block: 6px;
+  padding-inline: 8px;
+  min-height: 0;
+}
+.bn-suggestion-menu .bn-mt-suggestion-menu-item-section svg {
+  width: 16px;
+  height: 16px;
+}
+
+/*
+ * #338 — code blocks follow the theme.
+ *
+ * BlockNote hard-codes `color:#fff; background-color:#161616` on
+ * [data-content-type=codeBlock], so a code block was a near-black slab in the
+ * LIGHT theme and stayed identically black in dark — the one element that never
+ * changed with the rest of the app.
+ *
+ * Safe to put on a light surface because syntax highlighting is not enabled
+ * (no @blocknote/code-block package, no codeBlock config), so there are no
+ * shiki token colours baked for a dark background to clash with. If highlighting
+ * is ever turned on, its theme has to be chosen to pair with these tokens —
+ * that is the one thing this change constrains.
+ */
+[data-content-type='codeBlock'] {
+  background-color: var(--bg-code);
+  color: var(--text-primary);
+  border: 1px solid var(--border-code);
+}
+/* The language picker inherited the same hard-coded white. */
+[data-content-type='codeBlock'] > div > select {
+  color: var(--text-muted);
+}
+/* Inline `code` gets the same surface, at a weight that suits running text. */
+.bn-editor code {
+  background-color: var(--bg-code);
+  border: 1px solid var(--border-code);
+  border-radius: var(--radius-control);
+  padding: 0.05em 0.3em;
 }

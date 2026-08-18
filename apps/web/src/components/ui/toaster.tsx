@@ -28,6 +28,21 @@ export function StoryOSToaster() {
   return (
     <Toaster
       position="bottom-right"
+      /*
+       * #338 — REQUIRED for the per-type variables below to do anything.
+       *
+       * sonner gates every --success-* / --error-* / --warning-* / --info-*
+       * variable behind `[data-rich-colors='true']`, which only appears when
+       * this prop is set. #328 shipped all twelve of them without it, so they
+       * were dead code and every status toast silently fell back to the neutral
+       * card — a "success" that looked identical to a plain message. Only
+       * --normal-* was ever applying, which is why the SHAPE looked right and
+       * hid the fault.
+       *
+       * richColors alone would give sonner's own saturated palette; the
+       * variables below keep our quieter treatment on top of it.
+       */
+      richColors
       // The tokens already carry the theme; sonner's own light/dark switch
       // would fight them.
       theme="light"
