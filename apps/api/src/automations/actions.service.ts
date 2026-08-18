@@ -388,6 +388,32 @@ export class AutomationActionsService {
    * straight across a JSON template's own braces, so `{"task":"{Name}"}` matched
    * `{"task":"{Name}` as one token and mangled the body (MN-088).
    */
+  /**
+   * #339 — template tokens in EVERY string field of an action's `values`, not
+   * only `name`.
+   *
+   * `create_record` interpolated `values.name` and nothing else, so a field
+   * asking for `{changesSummary}` stored those eight literal characters — and
+   * the run still reported `status: ok`, so the only way to notice was to open
+   * the created record. Every other templated action (add_comment, notify,
+   * email, webhook) already interpolated, which is what made the gap read as
+   * "templating works" until you looked at the field you cared about.
+   *
+   * Only STRING values are touched: a select's option id, a number, a relation's
+   * id array must pass through untouched, and none of them can carry a token.
+   */
+  private interpolateValues(
+    values: Record<string, unknown>,
+    ctx: ActionContext,
+    displayToApi: Map<string, string>,
+  ): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(values)) {
+      out[key] = typeof value === 'string' ? this.interpolate(value, ctx, displayToApi) : value;
+    }
+    return out;
+  }
+
   private interpolate(
     template: string,
     ctx: ActionContext,
@@ -429,6 +455,17 @@ export class AutomationActionsService {
         return escape(ctx.record ? ctx.record.title : '—');
       }
       if (!ctx.record) return escape('—');
+      /*
+       * #339: the system columns. `number`/`id`/`created_at`/`updated_at` live on
+       * the record ROW, not in its `values` bag, so reading `values[apiName]`
+       * returned undefined and rendered an em dash — for `{Number}`, the most
+       * natural way to reference a ticket. Same class of gap rollupFieldValue
+       * had to close for #286 and systemFieldDefsFor for #351.
+       */
+      const lowerApi = apiName.toLowerCase();
+      if (lowerApi === 'number' || lowerApi === 'id') {
+        return escape(ctx.record.number === null || ctx.record.number === undefined ? '—' : String(ctx.record.number));
+      }
       const value = ctx.record.values[apiName];
       if (value === undefined || value === null) return escape('—');
       if (Array.isArray(value))
@@ -457,15 +494,15 @@ export class AutomationActionsService {
   ): { snapshot: AutomationAction; previewText: string } {
     switch (action.type) {
       case 'set_values': {
-        const values = this.resolveTokens(action.values, ctx);
+        // #339: same as create_record — every string value, not just `name`.
+        const values = this.interpolateValues(this.resolveTokens(action.values, ctx), ctx, displayToApi);
         return {
           snapshot: { ...action, values },
           previewText: `Set ${Object.keys(values).join(', ') || 'no fields'} on "${ctx.record?.title ?? 'this record'}"`,
         };
       }
       case 'create_record': {
-        const values = this.resolveTokens(action.values, ctx);
-        if (typeof values.name === 'string') values.name = this.interpolate(values.name, ctx, displayToApi);
+        const values = this.interpolateValues(this.resolveTokens(action.values, ctx), ctx, displayToApi);
         return {
           snapshot: { ...action, values },
           previewText: `Create a record${typeof values.name === 'string' ? ` "${values.name}"` : ''}`,
@@ -759,7 +796,8 @@ export class AutomationActionsService {
         // validate() already refused this action on a record-less (webhook)
         // context — ctx.record is guaranteed here.
         const record = ctx.record!;
-        const values = this.resolveTokens(action.values, ctx);
+        // #339: every string value (execute path).
+        const values = this.interpolateValues(this.resolveTokens(action.values, ctx), ctx, displayToApi);
         await this.recordsService.update(
           ctx.workspaceId,
           ctx.databaseId,
@@ -774,10 +812,11 @@ export class AutomationActionsService {
           summary: `Set ${Object.keys(values).join(', ')}`,
         });
       } else if (action.type === 'create_record') {
-        const values = this.resolveTokens(action.values, ctx);
-        if (typeof values.name === 'string') {
-          values.name = this.interpolate(values.name, ctx, displayToApi);
-        }
+        // #339: EVERY string value. This is the path that actually runs — the
+        // preview/snapshot branch above is a separate call site, and patching
+        // only one of them would have made the preview honest and the write
+        // still literal.
+        const values = this.interpolateValues(this.resolveTokens(action.values, ctx), ctx, displayToApi);
         const created = await this.recordsService.create(
           ctx.workspaceId,
           action.database_id,
@@ -810,8 +849,9 @@ export class AutomationActionsService {
         let createdCount = 0;
         for (let i = 0; i < count; i++) {
           const itemCtx: ActionContext = { ...ctx, itemIndex: i + 1 };
-          const values = this.resolveTokens(action.values, itemCtx);
-          if (typeof values.name === 'string') values.name = this.interpolate(values.name, itemCtx, displayToApi);
+          // #339: every string value, per item — so {index} and {changesSummary}
+          // reach the batch's other fields, not only its name.
+          const values = this.interpolateValues(this.resolveTokens(action.values, itemCtx), itemCtx, displayToApi);
           const created = await this.recordsService.create(
             ctx.workspaceId,
             action.database_id,
