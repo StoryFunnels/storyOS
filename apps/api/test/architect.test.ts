@@ -6,6 +6,7 @@ import { AgentsService } from '../src/agents/agents.service';
 import { ArchitectService } from '../src/agents/architect.service';
 import type { PlanProposer } from '../src/agents/architect-proposer';
 import { AgentTriggerSubscriber } from '../src/agents/trigger.subscriber';
+import { MembersProjectionSubscriber } from '../src/members/members-projection.subscriber';
 import type { AgentRuntime, ProposedAction } from '../src/agents/agent-runtime';
 import type { ArchitectPlan, ArchitectPlanDraft } from '@storyos/schemas';
 
@@ -19,6 +20,7 @@ import type { ArchitectPlan, ArchitectPlanDraft } from '@storyos/schemas';
 
 let app: NestFastifyApplication;
 let subscriber: AgentTriggerSubscriber;
+let membersProjection: MembersProjectionSubscriber;
 let admin: { token: string; email: string };
 let member: { token: string; email: string };
 
@@ -108,6 +110,7 @@ function plainText(blocks: unknown): string {
 beforeAll(async () => {
   app = await createTestApp();
   subscriber = app.get(AgentTriggerSubscriber);
+  membersProjection = app.get(MembersProjectionSubscriber);
   admin = await signUpUser(app, 'ArchitectAdmin');
   member = await signUpUser(app, 'ArchitectMember');
 });
@@ -182,6 +185,17 @@ describe('propose BUILDS NOTHING (#213 — the whole reason this is its own tick
   });
 
   it('creates no databases, no spaces, no records — not even the Agents pack', async () => {
+    /*
+     * Settle the #128 Members projection FIRST. It is fire-and-forget and
+     * provisions its own "Members" database, so on a slow machine it can land
+     * BETWEEN the before and after snapshots — and this test then reports
+     * "propose created a database" when propose did nothing at all.
+     *
+     * That is exactly how it failed in CI while passing locally (#218's run:
+     * expected length 0, got 1). Same guard records-query-rollup-sort.test.ts
+     * already uses for the same subscriber.
+     */
+    await membersProjection.settle(wsId);
     const dbsBefore = await listDatabases(wsId);
     const spacesBefore = (await as(admin.token, 'GET', `/workspaces/${wsId}/spaces`)).json();
 
@@ -575,6 +589,8 @@ describe('mode "your_own_ai" (#246) — never metered, never calls a model', () 
   });
 
   it('422s a malformed supplied draft instead of building anything', async () => {
+    // Same fire-and-forget hazard as the propose-only block above.
+    await membersProjection.settle(wsId);
     const dbsBefore = await listDatabases(wsId);
     const res = await as(admin.token, 'POST', `/workspaces/${wsId}/architect/propose`, {
       goal: 'x',
