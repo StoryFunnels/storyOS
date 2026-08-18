@@ -55,6 +55,45 @@ interface LinkedTriggerInfo {
 }
 
 const MAX_DEPTH = 2;
+/**
+ * #275 — the hard ceiling a CONVERGING chain may reach. The flat MAX_DEPTH stays
+ * exactly as it was for everything else; this only bounds the narrow exception
+ * below, so a chain that merely LOOKS convergent can still never run away.
+ *
+ * 25 is a working number, not a measured one: enough for a countdown over a
+ * sprint's worth of items, far below anything that degrades an instance.
+ */
+const CONVERGING_MAX_DEPTH = 25;
+
+/**
+ * #275 — is this step of a self-trigger chain converging?
+ *
+ * The signal is deliberately per-STEP rather than a remembered history: the
+ * event already carries what changed (`{from, to}`, #273), so a chain converges
+ * exactly when every one of its steps decreases — and each step can judge
+ * itself. That avoids threading chain state through the event bus, which would
+ * have meant touching every emit site for a guard whose whole job is to be
+ * conservative.
+ *
+ * Strictly decreasing, and only for NUMBERS. Equal is not converging (that is a
+ * chain that has stopped making progress but keeps firing); a non-numeric or
+ * absent change is not evidence of anything, so it falls back to the flat guard.
+ */
+export function isConvergingStep(
+  changedValues: Record<string, { from: unknown; to: unknown }> | undefined,
+  watchedFieldId: string | null | undefined,
+): boolean {
+  if (!changedValues) return false;
+  // An unqualified record_updated rule (no watched field) fires on ANY change,
+  // so there is no single number whose descent could mean convergence.
+  if (!watchedFieldId) return false;
+  const change = changedValues[watchedFieldId];
+  if (!change) return false;
+  const from = typeof change.from === 'number' ? change.from : null;
+  const to = typeof change.to === 'number' ? change.to : null;
+  if (from === null || to === null) return false;
+  return to < from;
+}
 /** create()/update() apply this whenever a rule's trigger is webhook_received. */
 const HOOK_SECRET_PREFIX = 'whin_';
 
@@ -607,17 +646,32 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         continue;
 
       if (event.depth >= MAX_DEPTH) {
-        await this.logRun(
-          rule.id,
-          event.workspaceId,
-          event.recordId,
-          'skipped',
-          `depth ${event.depth} — loop guard`,
-          null,
-          event.depth,
-          0,
-        );
-        continue;
+        /*
+         * #275 — a self-trigger whose watched NUMBER is strictly decreasing is
+         * converging, not looping, so it may continue up to CONVERGING_MAX_DEPTH.
+         * Everything else keeps the original flat MAX_DEPTH behaviour untouched.
+         */
+        const watchedFieldId = (trigger as { field_id?: string }).field_id ?? null;
+        const converging =
+          trigger.type === 'record_updated' && isConvergingStep(event.changedValues, watchedFieldId);
+        if (!converging || event.depth >= CONVERGING_MAX_DEPTH) {
+          const why = converging
+            ? `depth ${event.depth} — converging, but hit the absolute ceiling of ${CONVERGING_MAX_DEPTH}`
+            : `depth ${event.depth} — loop guard (rule "${rule.name}"${
+                watchedFieldId ? `, watching field ${watchedFieldId}` : ', watching any change'
+              }); a self-trigger continues past depth ${MAX_DEPTH} only while its watched number strictly decreases`;
+          await this.logRun(
+            rule.id,
+            event.workspaceId,
+            event.recordId,
+            'skipped',
+            why,
+            null,
+            event.depth,
+            0,
+          );
+          continue;
+        }
       }
       await this.runRule(
         rule.id,
