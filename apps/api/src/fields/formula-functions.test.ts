@@ -26,6 +26,10 @@ import {
 const FIELD_TYPES: Record<string, 'text' | 'number' | 'date' | 'checkbox'> = {
   Name: 'text', Nickname: 'text', State: 'text', Status: 'text', Code: 'text',
   Notes: 'text', Email: 'text', File: 'text', Phone: 'text', Raw: 'text',
+  // #241 — a delimited field, so split()/join()/at()/size() can carry a
+  // realistic example. Same reasoning as the relation below: the fixture grows
+  // with the language, rather than the help text avoiding the feature.
+  Tags: 'text',
   Slug: 'text', Imported: 'text',
   Estimate: 'number', A: 'number', B: 'number', Area: 'number', Base: 'number',
   Budget: 'number', Count: 'number', Delta: 'number', Fees: 'number',

@@ -82,6 +82,10 @@ stored and refreshed whenever the winning record or the link set changes.
 | `substring(s, start, len)` | text | Characters from a **1-based** start | `substring({Code}, 5, 3)` |
 | `find(s, search)` | number | Position (1-based), `0` when absent | `find({Email}, "@")` |
 | `split(s, sep, n)` | text | The Nth part after splitting | `split({Email}, "@", 2)` |
+| `split(s, sep)` | list | All the parts, as a list ([below](#splitting-text-into-parts-241)) | `split({Tags}, ",")` |
+| `join(list, sep)` | text | A list back into text | `join(split({Tags}, ","), " · ")` |
+| `at(list, n)` | text | The 1-based Nth item; empty when out of range | `at(split({Name}, ", "), 1)` |
+| `size(list)` | number | How many items a list has | `size(split({Tags}, ","))` |
 | `ceil(n)` / `floor(n)` | number | Round up / down | `ceil({Hours})` |
 | `mod(a, b)` | number | Remainder | `mod({Count}, 2)` |
 | `sqrt(n)` / `pow(a, b)` | number | Square root / power | `pow({Base}, 2)` |
@@ -158,6 +162,40 @@ sorting and filtering work either way. Reach for the **formula** when the number
 larger expression (`sum({Issues.Estimate}) > 40`) or you just want it inline; reach for a
 **Rollup** when you want it as its own column, or when you want the one thing only it does —
 picking a single related record. See [rollups](#with-rollups-mn-064).
+
+## Splitting text into parts (#241)
+
+`split` with **two** arguments gives you a list; `join`, `at` and `size` work on it:
+
+```
+at(split({Full Name}, ", "), 1)        "Ferrari, Enzo" → Ferrari
+at(split({Full Name}, ", "), 2)        → Enzo
+join(split({Tags}, ","), " · ")        a,b,c → a · b · c
+size(split({Tags}, ","))               → 3
+```
+
+The rules:
+
+- **Positions are 1-based**, matching `substring`, `find` and `split`'s own `n`.
+- **`at` out of range is empty, never an error** — same as every other read in the language.
+- **A separator that doesn't occur** gives a one-item list containing the whole string.
+- **Empty input gives an EMPTY list**, so `size` can say `0`. "No parts" and "one blank part" are
+  different answers.
+- **`split(s, sep, n)` — the three-argument form — is unchanged** and still returns the Nth part as
+  text.
+
+A formula may **use** a list but not **return** one:
+
+```
+split({Tags}, ",")                     error — wrap it in join(), or read a part with at()
+```
+
+That's deliberate. A stored list would have to answer how it sorts, what filtering it means and how
+a cell draws it — none of which the "split a Full Name into First and Last" case needs.
+
+**Not yet:** transforming every item at once (a `map`). That needs a way to write "for each item, do
+this", which is a language-level decision rather than another function — so it's its own ticket
+rather than something guessed at here.
 
 ## Limits (v1)
 
