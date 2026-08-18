@@ -4,7 +4,7 @@ import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { databases as databasesTable, records, workspaces } from '../db/schema';
 import { DatabasesService } from '../databases/databases.service';
-import { FieldsService } from '../fields/fields.service';
+import { FieldsService, OPTIONED_FIELD_TYPES, SINGLE_OPTION_FIELD_TYPES } from '../fields/fields.service';
 import { RecordsService } from '../records/records.service';
 import { RelationsService } from '../relations/relations.service';
 import { SpacesService } from '../workspaces/spaces.service';
@@ -164,7 +164,7 @@ export class TemplatesService {
         if (f.values) {
           const resolved = f.values.map((v) => {
             if (v === '@me') return 'me';
-            if (type === 'select' || type === 'multi_select') {
+            if (type && OPTIONED_FIELD_TYPES.has(type)) {
               return optionIds.get(`${ref}.${String(v)}`) ?? v;
             }
             return v;
@@ -237,7 +237,7 @@ export class TemplatesService {
             values[apiName] = actorId;
           } else if (type === 'multi_select' && Array.isArray(raw)) {
             values[apiName] = raw.map((label) => optionIds.get(`${ref}.${String(label)}`) ?? label);
-          } else if (type === 'select') {
+          } else if (type && SINGLE_OPTION_FIELD_TYPES.has(type)) {
             values[apiName] = optionIds.get(`${ref}.${String(raw)}`) ?? raw;
           } else {
             values[apiName] = raw;

@@ -13,6 +13,10 @@ export interface TemplateFieldDef {
     | 'checkbox'
     | 'date'
     | 'select'
+    /* #218 — the canonical status type. Its absence from this union is WHY no
+       template ever seeded one: a lifecycle "Status" could only be typed as a
+       plain select, which is the debt #218 exists to pay off. */
+    | 'workflow'
     | 'multi_select'
     | 'url'
     | 'email'

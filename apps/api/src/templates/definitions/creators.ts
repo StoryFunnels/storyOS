@@ -22,7 +22,7 @@ After each session: log notes, set the client's action items, schedule the next 
       key: 'clients',
       name: 'Clients', icon: '🤝',
       fields: [
-        { key: 'status', display_name: 'Status', type: 'select', options: [
+        { key: 'status', display_name: 'Status', type: 'workflow', options: [
           { label: 'Discovery', color: 'gray' }, { label: 'Proposal', color: 'blue' },
           { label: 'Active', color: 'green' }, { label: 'Paused', color: 'gold' },
           { label: 'Alumni', color: 'purple' },
@@ -47,7 +47,7 @@ After each session: log notes, set the client's action items, schedule the next 
         { key: 'type', display_name: 'Type', type: 'select', options: [
           { label: '1:1' }, { label: 'Group' }, { label: 'Cohort' }, { label: 'Course' }, { label: 'Retreat' },
         ]},
-        { key: 'status', display_name: 'Status', type: 'select', options: [
+        { key: 'status', display_name: 'Status', type: 'workflow', options: [
           { label: 'Active', color: 'green' }, { label: 'Enrolling', color: 'blue' }, { label: 'Archived', color: 'brown' },
         ]},
         { key: 'price', display_name: 'Price', type: 'number', config: { format: 'currency' } },
@@ -61,7 +61,7 @@ After each session: log notes, set the client's action items, schedule the next 
       name: 'Sessions', icon: '🗣️',
       fields: [
         { key: 'date', display_name: 'Date', type: 'date', config: { include_time: true } },
-        { key: 'status', display_name: 'Status', type: 'select', options: [
+        { key: 'status', display_name: 'Status', type: 'workflow', options: [
           { label: 'Scheduled', color: 'blue' }, { label: 'Done', color: 'green' },
           { label: 'No-show', color: 'red' }, { label: 'Rescheduled', color: 'gold' },
           { label: 'Canceled', color: 'brown' },
@@ -121,7 +121,7 @@ export const consulting: TemplateDef = {
       key: 'clients',
       name: 'Clients', icon: '🤝',
       fields: [
-        { key: 'status', display_name: 'Status', type: 'select', options: [
+        { key: 'status', display_name: 'Status', type: 'workflow', options: [
           { label: 'Prospect', color: 'gray' }, { label: 'Active', color: 'green' },
           { label: 'Past', color: 'brown' },
         ]},
@@ -137,7 +137,7 @@ export const consulting: TemplateDef = {
       key: 'proposals',
       name: 'Proposals', icon: '🧾',
       fields: [
-        { key: 'stage', display_name: 'Stage', type: 'select', options: [
+        { key: 'stage', display_name: 'Stage', type: 'workflow', options: [
           { label: 'Draft', color: 'gray' }, { label: 'Sent', color: 'gold' },
           { label: 'Negotiating', color: 'orange' }, { label: 'Won', color: 'green' },
           { label: 'Lost', color: 'brown' },
@@ -158,7 +158,7 @@ export const consulting: TemplateDef = {
       key: 'engagements',
       name: 'Engagements', icon: '💼',
       fields: [
-        { key: 'status', display_name: 'Status', type: 'select', options: [
+        { key: 'status', display_name: 'Status', type: 'workflow', options: [
           { label: 'Kickoff', color: 'blue' }, { label: 'Active', color: 'green' },
           { label: 'Wrapping', color: 'gold' }, { label: 'Done', color: 'teal' },
           { label: 'Renewed', color: 'purple' },
@@ -220,7 +220,7 @@ Write in the chapter's rich text; move it across the board; park every source in
       key: 'books',
       name: 'Books',
       fields: [
-        { key: 'status', display_name: 'Status', type: 'select', options: [
+        { key: 'status', display_name: 'Status', type: 'workflow', options: [
           { label: 'Idea', color: 'gray' }, { label: 'Proposal', color: 'blue' },
           { label: 'Writing', color: 'gold' }, { label: 'Editing', color: 'purple' },
           { label: 'Production', color: 'teal' }, { label: 'Published', color: 'green' },
@@ -238,7 +238,7 @@ Write in the chapter's rich text; move it across the board; park every source in
       key: 'chapters',
       name: 'Chapters', icon: '📖',
       fields: [
-        { key: 'status', display_name: 'Status', type: 'select', options: [
+        { key: 'status', display_name: 'Status', type: 'workflow', options: [
           { label: 'Outline', color: 'gray' }, { label: 'Draft', color: 'gold' },
           { label: 'Revised', color: 'purple' }, { label: 'Final', color: 'green' },
         ]},
@@ -255,7 +255,7 @@ Write in the chapter's rich text; move it across the board; park every source in
           { label: 'Interview' }, { label: 'Article' }, { label: 'Book' }, { label: 'Idea' }, { label: 'Quote' },
         ]},
         { key: 'source', display_name: 'Source', type: 'url' },
-        { key: 'status', display_name: 'Status', type: 'select', options: [
+        { key: 'status', display_name: 'Status', type: 'workflow', options: [
           { label: 'To read', color: 'blue' }, { label: 'Processed', color: 'green' },
         ]},
       ],
@@ -269,7 +269,7 @@ Write in the chapter's rich text; move it across the board; park every source in
       key: 'appearances',
       name: 'Appearances', icon: '🎙️',
       fields: [
-        { key: 'status', display_name: 'Status', type: 'select', options: [
+        { key: 'status', display_name: 'Status', type: 'workflow', options: [
           { label: 'Wishlist', color: 'gray' }, { label: 'Pitched', color: 'blue' },
           { label: 'Booked', color: 'gold' }, { label: 'Recorded', color: 'purple' },
           { label: 'Aired', color: 'green' },

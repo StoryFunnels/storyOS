@@ -27,7 +27,7 @@ The Calendar view is the planning surface; the table view is useful for bulk edi
         {
           key: 'status',
           display_name: 'Status',
-          type: 'select',
+          type: 'workflow',
           options: [
             { label: 'Planned', color: 'gray' },
             { label: 'Confirmed', color: 'blue' },

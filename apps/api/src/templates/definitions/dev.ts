@@ -45,7 +45,7 @@ The Linear model, self-hosted: **Issues** with full task DNA (Triage → Backlog
       key: 'sprints',
       name: 'Sprints', icon: '🏃',
       fields: [
-        { key: 'status', display_name: 'Status', type: 'select', options: [
+        { key: 'status', display_name: 'Status', type: 'workflow', options: [
           { label: 'Planned', color: 'gray' }, { label: 'Active', color: 'green' }, { label: 'Done', color: 'brown' },
         ]},
         { key: 'start', display_name: 'Start Date', type: 'date' },
@@ -58,7 +58,7 @@ The Linear model, self-hosted: **Issues** with full task DNA (Triage → Backlog
       key: 'releases',
       name: 'Releases', icon: '🚀',
       fields: [
-        { key: 'status', display_name: 'Status', type: 'select', options: [
+        { key: 'status', display_name: 'Status', type: 'workflow', options: [
           { label: 'Planned', color: 'gray' }, { label: 'In Progress', color: 'gold' }, { label: 'Released', color: 'green' },
         ]},
         { key: 'date', display_name: 'Date', type: 'date' },
@@ -72,7 +72,7 @@ The Linear model, self-hosted: **Issues** with full task DNA (Triage → Backlog
         { key: 'type', display_name: 'Type', type: 'select', options: [
           { label: 'Spec' }, { label: 'Decision (ADR)' }, { label: 'Runbook' }, { label: 'Idea' },
         ]},
-        { key: 'status', display_name: 'Status', type: 'select', options: [
+        { key: 'status', display_name: 'Status', type: 'workflow', options: [
           { label: 'Draft', color: 'gray' }, { label: 'Agreed', color: 'green' }, { label: 'Superseded', color: 'brown' },
         ]},
         { key: 'owner', display_name: 'Owner', type: 'user' },
@@ -122,7 +122,7 @@ Issues + Releases, zero ceremony. Triage catches ideas, the board runs the day, 
       key: 'releases',
       name: 'Releases', icon: '🚀',
       fields: [
-        { key: 'status', display_name: 'Status', type: 'select', options: [
+        { key: 'status', display_name: 'Status', type: 'workflow', options: [
           { label: 'Planned', color: 'gray' }, { label: 'In Progress', color: 'gold' }, { label: 'Released', color: 'green' },
         ]},
         { key: 'date', display_name: 'Date', type: 'date' },
