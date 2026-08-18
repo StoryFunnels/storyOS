@@ -91,6 +91,40 @@ describe('automations (MN-047)', () => {
     await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.json().id}`, { enabled: false });
   });
 
+  it('the loop-guard diagnostic names the rule and the rule it applies (#275)', async () => {
+    // The old message was just "depth N — loop guard", which told an author
+    // neither WHICH rule stopped nor what would have let it continue.
+    const detail = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}`)).json();
+    const notesField = detail.fields.find((f: { apiName: string }) => f.apiName === notesApi);
+    const rule = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/automations`, {
+      name: 'Diagnostic bait',
+      trigger: { type: 'record_updated', field_id: notesField.id },
+      actions: [{ type: 'set_values', values: { [notesApi]: '@now' } }],
+    })).json();
+
+    const rec = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records`, {
+      values: { name: 'Diagnostic target', [notesApi]: 'start' },
+    })).json();
+    await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/records/${rec.id}`, {
+      values: { [notesApi]: 'user edit' },
+    });
+    for (let i = 0; i < 10; i++) {
+      await engine.settle(rec.id);
+      await wait(30);
+    }
+
+    const runs = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}/runs`)).json();
+    const skipped = runs.data.filter((r: { status: string }) => r.status === 'skipped');
+    expect(skipped.length, JSON.stringify(runs.data)).toBeGreaterThanOrEqual(1);
+    expect(skipped[0].error).toContain('Diagnostic bait');
+    expect(skipped[0].error).toMatch(/strictly decreases/);
+    // A TEXT self-trigger can never converge, so it must still be halted.
+    const ok = runs.data.filter((r: { status: string }) => r.status === 'ok');
+    expect(ok.length).toBeLessThanOrEqual(3);
+
+    await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}`, { enabled: false });
+  });
+
   it('self-retriggering rules stop at the depth guard', async () => {
     // Rule pokes Notes whenever Notes changes → would loop forever without the guard.
     const rule = await inject('POST', `/workspaces/${wsId}/databases/${dbId}/automations`, {
