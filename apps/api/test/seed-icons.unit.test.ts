@@ -22,14 +22,19 @@ import { SOURCE_PROVIDER_REGISTRY } from '../src/sources/providers';
  * have been the same defect wearing a prefix. This test is what catches all
  * three cases.
  *
- * Legacy EMOJI are tolerated on purpose: #251 retired them from the picker but
- * the renderer still draws a stored one, and migrating the ~57 that remain in
- * the template definitions is #222's job, not this test's. What must never
- * appear again is a bare name or an unresolvable ref.
+ * #222 CLOSED THE EMOJI HOLE: the 54 emoji that remained in the template
+ * definitions are now curated refs, so this no longer tolerates emoji in a SEED.
+ * The renderer still draws a stored emoji (existing user data must not break),
+ * but nothing we ship may introduce one — that is the difference between
+ * tolerating history and adding to it.
  */
 function assertRenderable(icon: string | null | undefined, where: string) {
   if (icon === null || icon === undefined || icon === '') return; // no icon is legitimate
-  if (isEmojiShaped(icon)) return; // legacy, tolerated by the renderer — see #222
+  if (isEmojiShaped(icon)) {
+    throw new Error(
+      `${where}: icon "${icon}" is an emoji. #251 retired emoji from seeds in favour of "set:<name>" / "brand:<slug>"; EMOJI_ICON_MIGRATION maps most of them.`,
+    );
+  }
 
   // A prefixed-but-unresolvable ref renders as the fallback: no icon at all.
   if (isSetIconRef(icon)) {
@@ -89,10 +94,15 @@ describe('seeded icons are renderable refs (#221)', () => {
     expect(() => assertRenderable('brand:not-a-real-brand', 'x')).toThrow();
   });
 
-  it('accepts what the renderer resolves, including a legacy emoji', () => {
+  it('accepts curated refs and no icon at all', () => {
     expect(() => assertRenderable('set:film', 'x')).not.toThrow();
     expect(() => assertRenderable('brand:youtube', 'x')).not.toThrow();
-    expect(() => assertRenderable('🚀', 'x')).not.toThrow();
     expect(() => assertRenderable(null, 'x')).not.toThrow();
+  });
+
+  it('now REJECTS an emoji in a seed (#222)', () => {
+    // Tolerated while 54 of them were still in the template definitions; once
+    // those were migrated, tolerating it would just let the debt back in.
+    expect(() => assertRenderable('🚀', 'x')).toThrow(/retired emoji from seeds/);
   });
 });

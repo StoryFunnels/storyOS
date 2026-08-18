@@ -31,7 +31,7 @@ Two databases carry the whole ritual: **Meetings** hold the notes, **Action Item
   databases: [
     {
       key: 'meetings',
-      name: 'Meetings', icon: '🗓️',
+      name: 'Meetings', icon: 'set:calendar-clock',
       fields: [
         { key: 'type', display_name: 'Type', type: 'select', options: [
           { label: 'Daily', color: 'gray' }, { label: '1-on-1', color: 'teal' }, { label: 'Client', color: 'gold' },
@@ -47,7 +47,7 @@ Two databases carry the whole ritual: **Meetings** hold the notes, **Action Item
     },
     {
       key: 'actions',
-      name: 'Action Items', icon: '✅',
+      name: 'Action Items', icon: 'set:square-check',
       fields: [
         { key: 'done', display_name: 'Done', type: 'checkbox' },
         { key: 'owner', display_name: 'Owner', type: 'user' },
@@ -98,7 +98,7 @@ The classic approach uses nine databases; we compress to three without losing th
   databases: [
     {
       key: 'journeys',
-      name: 'Journeys', icon: '🧭',
+      name: 'Journeys', icon: 'set:compass',
       fields: [
         { key: 'persona', display_name: 'Persona', type: 'text' },
         { key: 'status', display_name: 'Status', type: 'select', options: [
@@ -109,7 +109,7 @@ The classic approach uses nine databases; we compress to three without losing th
     },
     {
       key: 'stages',
-      name: 'Stages', icon: '👣',
+      name: 'Stages', icon: 'set:milestone',
       fields: [
         { key: 'order', display_name: 'Order', type: 'number' },
         { key: 'description', display_name: 'Description', type: 'text', config: { multiline: true } },
@@ -117,7 +117,7 @@ The classic approach uses nine databases; we compress to three without losing th
     },
     {
       key: 'insights',
-      name: 'Insights', icon: '💡',
+      name: 'Insights', icon: 'set:sparkles',
       fields: [
         { key: 'kind', display_name: 'Kind', type: 'select', options: [
           { label: 'Goal', color: 'blue' }, { label: 'Action', color: 'teal' }, { label: 'Thought', color: 'purple' },
@@ -172,7 +172,7 @@ export const eventPlanning: TemplateDef = {
   databases: [
     {
       key: 'events',
-      name: 'Events', icon: '🎪',
+      name: 'Events', icon: 'set:flag',
       fields: [
         { key: 'date', display_name: 'Date', type: 'date' },
         { key: 'venue', display_name: 'Venue', type: 'text' },
@@ -186,7 +186,7 @@ export const eventPlanning: TemplateDef = {
     },
     {
       key: 'tasks',
-      name: 'Event Tasks', icon: '✅',
+      name: 'Event Tasks', icon: 'set:square-check',
       fields: [
         { key: 'state', display_name: 'State', type: 'select', options: [
           { label: 'To Do', color: 'gray' }, { label: 'In Progress', color: 'gold' }, { label: 'Done', color: 'green' },
@@ -197,7 +197,7 @@ export const eventPlanning: TemplateDef = {
     },
     {
       key: 'expenses',
-      name: 'Expenses', icon: '💳',
+      name: 'Expenses', icon: 'set:credit-card',
       fields: [
         { key: 'amount', display_name: 'Amount', type: 'number', config: { format: 'currency', currency_code: 'USD' } },
         { key: 'category', display_name: 'Category', type: 'select', options: [
@@ -251,7 +251,7 @@ export const videoProduction: TemplateDef = {
   databases: [
     {
       key: 'videos',
-      name: 'Videos', icon: '🎬',
+      name: 'Videos', icon: 'set:clapperboard',
       fields: [
         { key: 'stage', display_name: 'Stage', type: 'select', options: [
           { label: 'Idea', color: 'gray' }, { label: 'Script', color: 'purple' }, { label: 'Shoot', color: 'gold' },
@@ -270,7 +270,7 @@ export const videoProduction: TemplateDef = {
     },
     {
       key: 'tasks',
-      name: 'Production Tasks', icon: '✅',
+      name: 'Production Tasks', icon: 'set:square-check',
       fields: [
         { key: 'state', display_name: 'State', type: 'select', options: [
           { label: 'To Do', color: 'gray' }, { label: 'In Progress', color: 'gold' }, { label: 'Done', color: 'green' },
@@ -281,7 +281,7 @@ export const videoProduction: TemplateDef = {
     },
     {
       key: 'expenses',
-      name: 'Expenses', icon: '💳',
+      name: 'Expenses', icon: 'set:credit-card',
       fields: [
         { key: 'amount', display_name: 'Amount', type: 'number', config: { format: 'currency', currency_code: 'USD' } },
         { key: 'category', display_name: 'Category', type: 'select', options: [
@@ -336,7 +336,7 @@ One pack replaces two separate templates (Campaign Brief + Product Marketing). *
   databases: [
     {
       key: 'campaigns',
-      name: 'Campaigns', icon: '🚀',
+      name: 'Campaigns', icon: 'set:rocket',
       fields: [
         { key: 'status', display_name: 'Status', type: 'select', options: [
           { label: 'Draft', color: 'gray' }, { label: 'Brief Approved', color: 'purple' }, { label: 'Live', color: 'green' }, { label: 'Wrapped', color: 'brown' },
@@ -354,7 +354,7 @@ One pack replaces two separate templates (Campaign Brief + Product Marketing). *
     },
     {
       key: 'audiences',
-      name: 'Audiences', icon: '👥',
+      name: 'Audiences', icon: 'set:users',
       fields: [
         { key: 'size', display_name: 'Estimated Size', type: 'number' },
         { key: 'profile', display_name: 'Profile', type: 'rich_text' },
@@ -362,7 +362,7 @@ One pack replaces two separate templates (Campaign Brief + Product Marketing). *
     },
     {
       key: 'metrics',
-      name: 'Key Metrics', icon: '🎯',
+      name: 'Key Metrics', icon: 'set:target',
       fields: [
         { key: 'target', display_name: 'Target', type: 'number' },
         { key: 'actual', display_name: 'Actual', type: 'number' },
@@ -371,7 +371,7 @@ One pack replaces two separate templates (Campaign Brief + Product Marketing). *
     },
     {
       key: 'tasks',
-      name: 'Campaign Tasks', icon: '✅',
+      name: 'Campaign Tasks', icon: 'set:square-check',
       fields: [
         { key: 'state', display_name: 'State', type: 'select', options: [
           { label: 'To Do', color: 'gray' }, { label: 'In Progress', color: 'gold' }, { label: 'Done', color: 'green' },
@@ -428,7 +428,7 @@ Four databases mirror how deals actually move: **Accounts** (companies) hold **C
   databases: [
     {
       key: 'accounts',
-      name: 'Accounts', icon: '🏢',
+      name: 'Accounts', icon: 'set:building2',
       fields: [
         { key: 'industry', display_name: 'Industry', type: 'select', options: [
           { label: 'SaaS', color: 'blue' }, { label: 'E-commerce', color: 'gold' }, { label: 'Agency', color: 'pink' },
@@ -444,7 +444,7 @@ Four databases mirror how deals actually move: **Accounts** (companies) hold **C
     },
     {
       key: 'contacts',
-      name: 'Contacts', icon: '👤',
+      name: 'Contacts', icon: 'set:user',
       fields: [
         { key: 'email', display_name: 'Email', type: 'email' },
         { key: 'phone', display_name: 'Phone', type: 'text' },
@@ -454,7 +454,7 @@ Four databases mirror how deals actually move: **Accounts** (companies) hold **C
     },
     {
       key: 'opportunities',
-      name: 'Opportunities', icon: '💰',
+      name: 'Opportunities', icon: 'set:dollar-sign',
       fields: [
         { key: 'stage', display_name: 'Stage', type: 'select', options: [
           { label: 'Prospect', color: 'gray' }, { label: 'Qualified', color: 'teal' }, { label: 'Proposal', color: 'blue' },
@@ -468,7 +468,7 @@ Four databases mirror how deals actually move: **Accounts** (companies) hold **C
     },
     {
       key: 'tasks',
-      name: 'Sales Tasks', icon: '✅',
+      name: 'Sales Tasks', icon: 'set:square-check',
       fields: [
         { key: 'done', display_name: 'Done', type: 'checkbox' },
         { key: 'owner', display_name: 'Owner', type: 'user' },

@@ -19,7 +19,7 @@ The Calendar view is the planning surface; the table view is useful for bulk edi
     {
       key: 'calendar',
       name: 'Calendar',
-      icon: '🗓️',
+      icon: 'set:calendar-clock',
       fields: [
         { key: 'start', display_name: 'Start', type: 'date', config: { include_time: true } },
         { key: 'end', display_name: 'End', type: 'date', config: { include_time: true } },

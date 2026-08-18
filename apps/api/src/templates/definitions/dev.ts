@@ -43,7 +43,7 @@ The Linear model, self-hosted: **Issues** with full task DNA (Triage → Backlog
     issueDna(),
     {
       key: 'sprints',
-      name: 'Sprints', icon: '🏃',
+      name: 'Sprints', icon: 'set:timer',
       fields: [
         { key: 'status', display_name: 'Status', type: 'select', options: [
           { label: 'Planned', color: 'gray' }, { label: 'Active', color: 'green' }, { label: 'Done', color: 'brown' },
@@ -56,7 +56,7 @@ The Linear model, self-hosted: **Issues** with full task DNA (Triage → Backlog
     },
     {
       key: 'releases',
-      name: 'Releases', icon: '🚀',
+      name: 'Releases', icon: 'set:rocket',
       fields: [
         { key: 'status', display_name: 'Status', type: 'select', options: [
           { label: 'Planned', color: 'gray' }, { label: 'In Progress', color: 'gold' }, { label: 'Released', color: 'green' },
@@ -67,7 +67,7 @@ The Linear model, self-hosted: **Issues** with full task DNA (Triage → Backlog
     },
     {
       key: 'docs',
-      name: 'Product Docs', icon: '📚',
+      name: 'Product Docs', icon: 'set:book-open',
       fields: [
         { key: 'type', display_name: 'Type', type: 'select', options: [
           { label: 'Spec' }, { label: 'Decision (ADR)' }, { label: 'Runbook' }, { label: 'Idea' },
@@ -120,7 +120,7 @@ Issues + Releases, zero ceremony. Triage catches ideas, the board runs the day, 
     }),
     {
       key: 'releases',
-      name: 'Releases', icon: '🚀',
+      name: 'Releases', icon: 'set:rocket',
       fields: [
         { key: 'status', display_name: 'Status', type: 'select', options: [
           { label: 'Planned', color: 'gray' }, { label: 'In Progress', color: 'gold' }, { label: 'Released', color: 'green' },

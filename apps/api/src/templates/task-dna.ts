@@ -57,7 +57,11 @@ export function taskDnaDatabase(opts: TaskDnaOptions): TemplateDatabaseDef {
       : []),
     ...(opts.extraFields ?? []),
   ];
-  return { key: opts.key, name: opts.name, icon: opts.name === 'Issues' ? '🐛' : '✅', fields };
+  // #222: curated refs. This one is built in an EXPRESSION rather than written
+  // as a literal, so the emoji codemod's `icon: '…'` scan walked straight past
+  // it — the seed-icons guard is what caught it.
+  const icon = opts.name === 'Issues' ? 'set:bug' : 'set:square-check';
+  return { key: opts.key, name: opts.name, icon, fields };
 }
 
 /** Sub-tasks + blocked-by self-relations for a DNA database. */
