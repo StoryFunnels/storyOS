@@ -11,7 +11,14 @@
  * attempt to add it, compare it or print it is a save-time error rather than a
  * silent null at read time.
  */
-export type FormulaType = 'text' | 'number' | 'checkbox' | 'date' | 'null' | 'relation';
+/**
+ * #241 — `list` is an INTERMEDIATE type: an ordered list of text, produced by
+ * split() and consumed by join()/at()/size(). A formula may not RETURN one (see
+ * typecheck's top-level guard) — that would raise storage questions (how does a
+ * list sort? what does a filter on it mean?) this feature does not need to
+ * answer. `join(split(x, ","), " | ")` is the shape people actually want.
+ */
+export type FormulaType = 'text' | 'number' | 'checkbox' | 'date' | 'null' | 'relation' | 'list';
 
 export type FormulaNode =
   | { kind: 'lit'; value: string | number | boolean | null }
@@ -332,17 +339,59 @@ export const FORMULA_FUNCTIONS: Record<string, FnSpec> = {
     example: 'find({Email}, "@")',
     impl: (s, search) => asStr(s).indexOf(asStr(search)) + 1,
   },
+  /**
+   * #241 — two shapes, dispatched on ARITY so the original 3-arg form keeps
+   * working unchanged (formulas in the wild use it):
+   *   split(text, sep)      → a list, for join()/at()/size()
+   *   split(text, sep, n)   → the 1-based Nth part, as before
+   */
   split: {
-    args: ['text', 'text', 'number'],
+    args: 'variadic-any',
     returns: 'text',
-    doc: 'Splits on a separator and returns the 1-based part (empty when out of range).',
+    doc: 'split(text, sep) gives a list; split(text, sep, n) gives the 1-based Nth part.',
     example: 'split({Email}, "@", 2)',
+    keywords: ['separate', 'parts', 'delimiter', 'explode'],
     impl: (s, sep, index) => {
       const i = asNum(index);
       if (i === null) return '';
       return asStr(s).split(asStr(sep))[Math.trunc(i) - 1] ?? '';
     },
   },
+  /**
+   * #241 — list helpers. 1-BASED indexing, matching split()'s existing `n`,
+   * substring() and find(). The source request said "parts 0 and 1", but
+   * consistency inside StoryOS beats consistency with the tool it was reported
+   * against — one language cannot be both.
+   */
+  join: {
+    args: 'variadic-any',
+    returns: 'text',
+    doc: 'Joins a list back into text with a separator.',
+    example: 'join(split({Tags}, ","), " · ")',
+    keywords: ['implode', 'combine', 'concat list'],
+    impl: (list, sep) => (Array.isArray(list) ? list.map(asStr).join(asStr(sep)) : asStr(list)),
+  },
+  at: {
+    args: 'variadic-any',
+    returns: 'text',
+    doc: 'The 1-based Nth item of a list — empty when out of range, never an error.',
+    example: 'at(split({Name}, ", "), 1)',
+    keywords: ['index', 'nth', 'element', 'item'],
+    impl: (list, index) => {
+      const i = asNum(index);
+      if (i === null || !Array.isArray(list)) return '';
+      return asStr(list[Math.trunc(i) - 1] ?? '');
+    },
+  },
+  size: {
+    args: 'variadic-any',
+    returns: 'number',
+    doc: 'How many items a list has.',
+    example: 'size(split({Tags}, ","))',
+    keywords: ['length', 'count items', 'how many parts'],
+    impl: (list) => (Array.isArray(list) ? list.length : 0),
+  },
+
 
   // -- math ----------------------------------------------------------------
   ceil: { args: ['number'], returns: 'number', doc: 'Rounds up to a whole number.', example: 'ceil({Hours})', impl: (n) => { const v = asNum(n); return v === null ? null : Math.ceil(v); } },
@@ -836,6 +885,39 @@ export function typecheck(node: FormulaNode, fields: FormulaFieldInfo[]): Formul
           }
           return 'checkbox';
         }
+        /*
+         * #241 — the list functions. split() dispatches on ARITY: two args give
+         * a list, three keep the original "Nth part as text" behaviour that
+         * existing formulas rely on.
+         */
+        if (n.name === 'split') {
+          if (n.args.length !== 2 && n.args.length !== 3) {
+            throw new FormulaError('split() takes (text, separator) for a list, or (text, separator, n) for one part');
+          }
+          if (check(n.args[0]!) === 'list' || check(n.args[1]!) === 'list') {
+            throw new FormulaError('split() works on text, not a list');
+          }
+          return n.args.length === 2 ? 'list' : 'text';
+        }
+        if (n.name === 'join') {
+          if (n.args.length !== 2) throw new FormulaError('join() takes a list and a separator');
+          if (check(n.args[0]!) !== 'list') {
+            throw new FormulaError('join() needs a list — build one with split(text, separator)');
+          }
+          return 'text';
+        }
+        if (n.name === 'at') {
+          if (n.args.length !== 2) throw new FormulaError('at() takes a list and a 1-based position');
+          if (check(n.args[0]!) !== 'list') throw new FormulaError('at() needs a list — build one with split(text, separator)');
+          const posType = check(n.args[1]!);
+          if (posType !== 'number' && posType !== 'null') throw new FormulaError('at()\'s position must be a number');
+          return 'text';
+        }
+        if (n.name === 'size') {
+          if (n.args.length !== 1) throw new FormulaError('size() takes one list');
+          if (check(n.args[0]!) !== 'list') throw new FormulaError('size() needs a list — build one with split(text, separator)');
+          return 'number';
+        }
         // The text form keeps its arity check — widening `args` to variadic-any
         // (so a link may be passed) removed the one the fixed signature gave.
         if (n.name === 'contains' && n.args.length !== 2) {
@@ -864,6 +946,10 @@ export function typecheck(node: FormulaNode, fields: FormulaFieldInfo[]): Formul
           return n.name === 'count' ? 'number' : 'number';
         }
         const argTypes = n.args.map(check);
+        // #241: a list is only meaningful to join/at/size, handled above.
+        if (argTypes.includes('list')) {
+          throw new FormulaError(`${n.name}() cannot take a list — use join(), at() or size() first`);
+        }
         if (argTypes.includes('relation')) {
           throw new FormulaError(
             `${n.name}() cannot take a link field — only count(), sum(), avg(), min() and max() can`,
@@ -912,7 +998,17 @@ export function typecheck(node: FormulaNode, fields: FormulaFieldInfo[]): Formul
       }
     }
   }
-  return check(node);
+  /*
+   * #241 — a formula may USE a list but must not RETURN one. Storing one would
+   * force answers this feature doesn't need: how does a list sort, what does a
+   * filter on it mean, how does a cell render it. The error names the fix
+   * rather than just refusing.
+   */
+  const result = check(node);
+  if (result === 'list') {
+    throw new FormulaError('a formula must end in a value, not a list — wrap it in join(…, ", ") or read one part with at(…, 1)');
+  }
+  return result;
 }
 
 /* ---------- evaluator ---------- */
@@ -985,6 +1081,20 @@ export function evaluateFormula(
     case 'call': {
       const spec = FORMULA_FUNCTIONS[node.name]!;
       const subject = node.args[0];
+      /*
+       * #241 — split(text, sep) with TWO args yields a list. Handled here rather
+       * than in its impl because the impl signature is fixed-arity and the
+       * three-arg form must keep returning text unchanged.
+       */
+      if (node.name === 'split' && node.args.length === 2) {
+        const text = evaluateFormula(node.args[0]!, values, related);
+        const sep = evaluateFormula(node.args[1]!, values, related);
+        const str = asStr(text);
+        // Empty input is an EMPTY list, not [''] — "no parts" and "one blank
+        // part" are different answers, and size() must be able to say 0.
+        if (str === '') return [];
+        return str.split(asStr(sep));
+      }
       // #242 — link membership, matched on the related record's stable #id.
       if (node.name === 'contains' && subject && subject.kind === 'rel') {
         const bags = related?.[subject.relation] ?? [];

@@ -26,6 +26,9 @@ const FORMULA_TYPE_OF: Record<string, 'text' | 'number' | 'checkbox' | 'date' | 
 /** #204: friendly name for a formula value type. `null` in a spec means "any" (a
  * slot that accepts any type, e.g. if()'s then/else), never the literal null. */
 function friendlyType(t: string): string {
+  // #241: a `list` is intermediate — split() makes one, join()/at()/size()
+  // consume it — so it is labelled for what it is rather than shown raw.
+  if (t === 'list') return 'list of text';
   return t === 'checkbox' ? 'true/false' : t === 'null' ? 'any' : t;
 }
 
