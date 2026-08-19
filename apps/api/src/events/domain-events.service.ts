@@ -25,6 +25,18 @@ export interface DomainEvent {
   titleChanged?: boolean;
   relationFieldId?: string;
   /**
+   * #324 — this `record_linked` event exists ONLY so automations see the link.
+   * The derived-data cascade (rollups, cross-record names) already ran for the
+   * same user action off the accompanying `record_updated`, which carries the
+   * identical `linkedRelations`.
+   *
+   * Set when a relation is written INLINE on a record update. Without it,
+   * RollupInvalidationSubscriber — which consumes both event types — would run
+   * the whole fan-out twice for one edit. The flag is on the event rather than
+   * inferred by the subscriber because only the emitter knows the pair was sent.
+   */
+  derivedAlreadyHandled?: boolean;
+  /**
    * #270 — for a `record_linked` event, whether records were LINKED or UNLINKED
    * through `relationFieldId`. Lets a record_linked automation trigger fire on
    * only one direction. Undefined for a `replaceLinks` set-operation (mixed) and
