@@ -410,6 +410,42 @@ describe('MN-168 — entitlements wiring for the automations engine', () => {
     await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}`, { enabled: false });
   });
 
+  it('computes a number field from an expression (#342)', async () => {
+    // Automations could set a number to a CONSTANT or copy one verbatim, but
+    // never compute one: "{Remaining} - 1" was substituted to the text "4 - 1"
+    // and the write failed validation. So a counter or a countdown — the most
+    // ordinary rules there are — could not be written at all.
+    const counter = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/fields`, {
+      display_name: 'Times Contacted',
+      type: 'number',
+    })).json();
+    const trigger = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/fields`, {
+      display_name: 'Ping',
+      type: 'text',
+    })).json();
+
+    const rule = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/automations`, {
+      name: 'Increment on ping',
+      trigger: { type: 'record_updated', field_id: trigger.id },
+      actions: [{ type: 'set_values', values: { [counter.apiName]: '{Times Contacted} + 1' } }],
+    })).json();
+    expect(rule.id, JSON.stringify(rule)).toBeTruthy();
+
+    const rec = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records`, {
+      values: { name: 'Counts up', [counter.apiName]: 4 },
+    })).json();
+    await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/records/${rec.id}`, {
+      values: { [trigger.apiName]: 'ping' },
+    });
+    await engine.settle(rec.id);
+    await wait(80);
+
+    const read = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/records/${rec.id}`)).json();
+    expect(read.values[counter.apiName], JSON.stringify(read.values)).toBe(5);
+
+    await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}`, { enabled: false });
+  });
+
   it('ONE inline link does not run the same rule twice, and rollups stay right (#324)', async () => {
     // The hazard the fix had to avoid: the inline path already emits
     // record_updated carrying the same linkedRelations, and the rollup cascade
@@ -467,6 +503,40 @@ describe('MN-168 — entitlements wiring for the automations engine', () => {
     expect(read.values[rollup.apiName]).toBe(1);
 
     await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${linkRule.id}`, { enabled: false });
+  });
+
+  it('leaves a TEXT field literal — only numbers are computed (#342)', async () => {
+    // The regression this guards: text templating must keep doing exactly what
+    // it did, or every existing rule that writes text changes meaning.
+    const label = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/fields`, {
+      display_name: 'Label 342',
+      type: 'text',
+    })).json();
+    const trigger2 = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/fields`, {
+      display_name: 'Ping2',
+      type: 'text',
+    })).json();
+
+    const rule = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/automations`, {
+      name: 'Label it',
+      trigger: { type: 'record_updated', field_id: trigger2.id },
+      actions: [{ type: 'set_values', values: { [label.apiName]: '{Name} - 1' } }],
+    })).json();
+
+    const rec = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records`, {
+      values: { name: 'Widget' },
+    })).json();
+    await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/records/${rec.id}`, {
+      values: { [trigger2.apiName]: 'ping' },
+    });
+    await engine.settle(rec.id);
+    await wait(80);
+
+    const read = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/records/${rec.id}`)).json();
+    // Literal substitution, NOT arithmetic — "Widget - 1", not an error or a number.
+    expect(read.values[label.apiName]).toBe('Widget - 1');
+
+    await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}`, { enabled: false });
   });
 
   it('record_linked trigger exposes the specific linked record to actions via {linked.Field} (#244)', async () => {
