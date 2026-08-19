@@ -358,6 +358,117 @@ describe('MN-168 — entitlements wiring for the automations engine', () => {
     }
   });
 
+  it('fires record_linked when the relation is set INLINE on a record update (#324)', async () => {
+    // The reported inconsistency: the dedicated Links API fired the rule, but
+    // setting the same relation inline on a record update did not — and nothing
+    // on screen tells you which path a click took, so the rule looked flaky.
+    const spaceId = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
+    const partsId = (await inject('POST', `/workspaces/${wsId}/databases`, {
+      space_id: spaceId,
+      name: 'Parts 324',
+    })).json().id;
+    const rel = (await inject('POST', `/workspaces/${wsId}/relations`, {
+      database_a_id: dbId,
+      database_b_id: partsId,
+      cardinality: 'many_to_many',
+    })).json();
+    const hostField: string = rel.field_a.id;
+    const hostApi: string = rel.field_a.api_name ?? rel.field_a.apiName;
+
+    const rule = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/automations`, {
+      name: 'Inline link announcer',
+      trigger: { type: 'record_linked', relation_field_id: hostField, direction: 'link' },
+      actions: [{ type: 'add_comment', body_template: 'INLINE-LINKED: {linked.Title}' }],
+    })).json();
+    expect(rule.id, JSON.stringify(rule)).toBeTruthy();
+
+    const part = (await inject('POST', `/workspaces/${wsId}/databases/${partsId}/records`, {
+      values: { name: 'Widget' },
+    })).json();
+    const host = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records`, {
+      values: { name: 'Assembly' },
+    })).json();
+
+    // INLINE — the path that used to be silent.
+    const patch = await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/records/${host.id}`, {
+      values: { [hostApi]: [part.id] },
+    });
+    expect(patch.statusCode, patch.body).toBeLessThan(300);
+    await engine.settle(host.id);
+    await wait(80);
+
+    const comments = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/records/${host.id}/comments`)).json();
+    const texts = comments.data.map((c: { body: Array<{ text: string }> }) => c.body[0]?.text ?? '');
+    const linked = texts.filter((t: string) => t.startsWith('INLINE-LINKED:'));
+
+    // Fired at all — the fix.
+    expect(linked, JSON.stringify(texts)).toHaveLength(1);
+    // …and {linked.Title} resolved to the specific record, so direction and the
+    // linked-record payload survived the new path (#270/#244 still hold).
+    expect(linked[0]).toBe('INLINE-LINKED: Widget');
+
+    await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}`, { enabled: false });
+  });
+
+  it('ONE inline link does not run the same rule twice, and rollups stay right (#324)', async () => {
+    // The hazard the fix had to avoid: the inline path already emits
+    // record_updated carrying the same linkedRelations, and the rollup cascade
+    // consumes BOTH event types. A naive extra emit would double the fan-out.
+    const spaceId = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
+    const itemsId = (await inject('POST', `/workspaces/${wsId}/databases`, {
+      space_id: spaceId,
+      name: 'Items 324',
+    })).json().id;
+    const rel = (await inject('POST', `/workspaces/${wsId}/relations`, {
+      database_a_id: dbId,
+      database_b_id: itemsId,
+      cardinality: 'many_to_many',
+    })).json();
+    const hostField: string = rel.field_a.id;
+    const hostApi: string = rel.field_a.api_name ?? rel.field_a.apiName;
+
+    // A count rollup over the same relation — if the cascade ran twice this
+    // still reads 1, so the real double-work signal is the RUN COUNT below.
+    const rollup = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/fields`, {
+      display_name: 'Item Count',
+      type: 'rollup',
+      config: { relation_field_id: hostField, op: 'count' },
+    })).json();
+    expect(rollup.id, JSON.stringify(rollup)).toBeTruthy();
+
+    const linkRule = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/automations`, {
+      name: 'Count the runs',
+      trigger: { type: 'record_linked', relation_field_id: hostField, direction: 'link' },
+      actions: [{ type: 'add_comment', body_template: 'RUN' }],
+    })).json();
+
+    const item = (await inject('POST', `/workspaces/${wsId}/databases/${itemsId}/records`, {
+      values: { name: 'One item' },
+    })).json();
+    const host = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records`, {
+      values: { name: 'Counts once' },
+    })).json();
+
+    await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/records/${host.id}`, {
+      values: { [hostApi]: [item.id] },
+    });
+    await engine.settle(host.id);
+    await wait(120);
+
+    const comments = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/records/${host.id}/comments`)).json();
+    const runs = comments.data
+      .map((c: { body: Array<{ text: string }> }) => c.body[0]?.text ?? '')
+      .filter((t: string) => t === 'RUN');
+    // EXACTLY one. Two would mean one user action produced two runs of the same rule.
+    expect(runs, JSON.stringify(comments.data)).toHaveLength(1);
+
+    // And the rollup is correct — the cascade ran, just not twice.
+    const read = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/records/${host.id}`)).json();
+    expect(read.values[rollup.apiName]).toBe(1);
+
+    await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${linkRule.id}`, { enabled: false });
+  });
+
   it('record_linked trigger exposes the specific linked record to actions via {linked.Field} (#244)', async () => {
     // Two databases joined many-to-many: Tickets (host) ←→ Milestones. The rule
     // lives on the host but needs to read the MILESTONE it was just linked to —

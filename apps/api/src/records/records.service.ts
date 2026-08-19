@@ -2218,6 +2218,42 @@ export class RecordsService {
       linkedRelations: linkedRelations.length ? linkedRelations : undefined,
     });
 
+    /*
+     * #324 — a relation set INLINE on a record update now also fires
+     * `record_linked` rules, exactly as the dedicated Links API does.
+     *
+     * Before this, the same user action fired a rule or didn't depending on
+     * which path the UI happened to take, which is invisible from the screen —
+     * so "when a sub-task is attached, comment on the parent" looked flaky.
+     * Rollups already treated both paths identically, so automations diverging
+     * was an inconsistency rather than a design.
+     *
+     * One event PER relation, because `relationFieldId` is what the trigger
+     * filters on and what {linked.Field} resolves through. Marked
+     * derivedAlreadyHandled so the rollup cascade — which consumes both event
+     * types — does not run twice for one edit.
+     *
+     * Direction is always 'link' here: `linkedRelations` on this path carries
+     * the ids that ended up ATTACHED. An inline write that removes links is a
+     * set-operation with no single direction, which is exactly the case #270
+     * already leaves undefined.
+     */
+    for (const link of linkedRelations) {
+      if (link.otherRecordIds.length === 0) continue;
+      this.domainEvents.emit({
+        type: 'record_linked',
+        workspaceId,
+        databaseId,
+        recordId,
+        relationFieldId: link.fieldId,
+        linkDirection: 'link',
+        linkedRelations: [link],
+        actorId,
+        depth,
+        derivedAlreadyHandled: true,
+      });
+    }
+
     // #140: a rich_text field can carry @/# mentions — re-sync backlinks +
     // notifications when one changed. Fire-and-forget: never fails the write.
     if (defs.some((d) => d.type === 'rich_text' && d.id in diff)) {

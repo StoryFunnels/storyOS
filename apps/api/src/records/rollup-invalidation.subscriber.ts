@@ -48,6 +48,9 @@ export class RollupInvalidationSubscriber implements OnModuleInit {
     // changedFieldId nor a link edit, but still needs the cross-record-name
     // cascade for records that look up this record's title.
     if (!event.changedFieldIds?.length && !event.linkedRelations?.length && !event.titleChanged) return;
+    // #324: the automations-only twin of an inline link. Its record_updated
+    // sibling already drove this cascade for the same edit.
+    if (event.derivedAlreadyHandled) return;
     void this.recordsService
       .invalidateRollupsForChange({
         databaseId: event.databaseId,

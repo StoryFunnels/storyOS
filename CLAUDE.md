@@ -117,6 +117,16 @@ DATABASE_URL="postgres://$(whoami)@localhost:5432/storyos_test_local" \
   pnpm --filter @storyos/api test
 ```
 
+- **Rebuild `@storyos/schemas` after switching branches**, before running API
+  tests. `packages/schemas/dist` is shared across every branch and worktree, so
+  a dist built on another branch silently drives the tests you are running —
+  producing failures that belong to code you do not have checked out. Cost this
+  three times in one session:
+
+  ```sh
+  pnpm --filter @storyos/schemas build
+  ```
+
 - **Use a fresh database per full run.** Reusing one makes `test/auth.test.ts`
   fail with 422 (its fixed signup email already exists) — a false failure that
   looks like a regression. `dropdb`/`createdb` before diagnosing.
