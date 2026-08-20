@@ -21,6 +21,7 @@ import { cn } from '@/lib/utils';
 import type { FilterNode, ViewConfig } from './use-view-state';
 import { sortsBodyFromConfig } from './use-view-state';
 import { activeFilterNode, andFilterNodes } from './filter-config';
+import { ViewQueryError } from './query-error';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -153,6 +154,9 @@ export function CalendarView({
 
   const todayStr = fmtDate(today);
 
+  // #346 — a rejected query must never render as an empty view. Placed after every
+  // hook so the early return cannot change hook order.
+  if (records.isError) return <ViewQueryError error={records.error} onRetry={() => void records.refetch()} />;
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-2 border-b border-border-default px-4 py-2">

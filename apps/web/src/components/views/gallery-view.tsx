@@ -8,6 +8,7 @@ import { Card } from './board-view';
 import { EmptyState, databaseNoun } from './empty-state';
 import type { FilterNode, ViewConfig } from './use-view-state';
 import { queryBodyFromConfig } from './use-view-state';
+import { ViewQueryError } from './query-error';
 
 /** Gallery view (MN-090): records as a responsive grid of cards — a board with no
  * columns. Reuses the MN-089 card (title + chips + colored triangles). */
@@ -64,6 +65,9 @@ export function GalleryView({
 
   const min = config.card_size === 'large' ? 280 : config.card_size === 'small' ? 180 : 220;
 
+  // #346 — a rejected query must never render as an empty view. Placed after every
+  // hook so the early return cannot change hook order.
+  if (records.isError) return <ViewQueryError error={records.error} onRetry={() => void records.refetch()} />;
   return (
     <div className="h-full overflow-auto p-4">
       <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${min}px, 1fr))` }}>

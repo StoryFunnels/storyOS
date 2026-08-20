@@ -21,6 +21,7 @@ import {
   slippageDays,
   slippageLabel,
 } from './timeline-math';
+import { ViewQueryError } from './query-error';
 
 const DAY = 86_400_000;
 type Zoom = 'day' | 'week' | 'month' | 'quarter';
@@ -434,6 +435,9 @@ export function TimelineView({
     );
   }
 
+  // #346 — a rejected query must never render as an empty view. Placed after every
+  // hook so the early return cannot change hook order.
+  if (records.isError) return <ViewQueryError error={records.error} onRetry={() => void records.refetch()} />;
   return (
     <div className="flex h-full flex-col">
       {/* Controls: zoom, date-field selectors, today */}

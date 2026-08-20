@@ -18,6 +18,7 @@ import type { FilterNode, ViewConfig } from './use-view-state';
 import { queryBodyFromConfig } from './use-view-state';
 import { feedActionFields } from './feed-actions';
 import { EmptyState, databaseNoun } from './empty-state';
+import { ViewQueryError } from './query-error';
 
 /** Feed view (MN-093): a single-column stream of wide cards — title, a preview of
  * the record's first rich-text field, the card fields, and who/when. Built for
@@ -91,6 +92,9 @@ export function FeedView({
       />
     );
 
+  // #346 — a rejected query must never render as an empty view. Placed after every
+  // hook so the early return cannot change hook order.
+  if (records.isError) return <ViewQueryError error={records.error} onRetry={() => void records.refetch()} />;
   return (
     <div className="h-full overflow-auto">
       <div className="flex max-w-2xl flex-col gap-3 px-4 py-4">
