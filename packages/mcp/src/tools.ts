@@ -67,6 +67,56 @@ function text(value: unknown) {
 
 /** Wrap a handler so any error (incl. the API's typed 422) is returned to the model
  * as an isError result — validation-as-teacher, so it self-corrects in one turn. */
+/**
+ * #343 — reject an argument name the tool does not have, instead of dropping it.
+ *
+ * `inputSchema` is a plain zod SHAPE, and the SDK turns it into a `z.object()`,
+ * which STRIPS unknown keys by default. So a misspelled argument was silently
+ * discarded and the call still reported success. That is how this very ticket got
+ * filed with an empty title: `create_record` was called with a top-level `title`
+ * (the correct spelling is `values.name`), the key was dropped on the floor, and a
+ * nameless record came back as a 200.
+ *
+ * A wrong guess about an argument name is the single most likely mistake a model
+ * makes against an unfamiliar tool, and silence is the one response that guarantees
+ * it never learns. Naming the valid arguments turns a corrupt write into a retry.
+ *
+ * Wrapped here, in the one place every tool is registered, rather than per tool —
+ * the whole point is that no tool gets to be the lenient one.
+ */
+function rejectUnknownArgs(
+  name: string,
+  config: Record<string, unknown>,
+  handler: (args: never) => unknown,
+): (args: never) => unknown {
+  const shape = config['inputSchema'];
+  if (!shape || typeof shape !== 'object') return handler;
+  const allowed = new Set(Object.keys(shape as Record<string, unknown>));
+  return (args: never) => {
+    const given = args as unknown;
+    if (given && typeof given === 'object' && !Array.isArray(given)) {
+      // `_`-prefixed keys are MCP protocol metadata (e.g. `_meta`), never tool args.
+      const unknown = Object.keys(given as Record<string, unknown>).filter((k) => !k.startsWith('_') && !allowed.has(k));
+      if (unknown.length) {
+        const valid = [...allowed].join(', ') || '(none)';
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text:
+                `Error: ${name} has no argument named ${unknown.map((u) => `"${u}"`).join(', ')}. ` +
+                `Valid arguments: ${valid}. ` +
+                `Nothing was written — fix the name and call again.`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    }
+    return handler(args);
+  };
+}
+
 function handle<A>(fn: (args: A) => Promise<ReturnType<typeof text>>) {
   return async (args: A) => {
     try {
@@ -411,7 +461,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     const need = TOOL_SCOPE[name] ?? 'admin';
     if (SCOPE_RANK[effective.scope] < SCOPE_RANK[need]) return;
     if (RUN_BUTTON_TOOLS.has(name) && !effective.allowRunButton) return;
-    server.registerTool(name as string, config as never, handler as never);
+    server.registerTool(name as string, config as never, rejectUnknownArgs(name, config, handler) as never);
   };
   reg(
     'get_started',
@@ -639,7 +689,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
             }),
           );
       const detail = await getDetail(ws.id, db.id);
-      return text({ ...row, values: labelize(detail, row.values), url: recordUrl(ws.id, db.id, row) });
+      return text(serializeRecord(detail, ws.id, db.id, row));
     }),
   );
 
@@ -703,6 +753,37 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     return out;
   }
 
+  /**
+   * #343 — THE one record shape. Every tool that hands back a record goes through
+   * here, so a record looks the same however you touched it.
+   *
+   * They used to disagree in three ways, all of them the write path skipping some
+   * of what `get_record` did: `link_records`/`unlink_records` returned the raw row
+   * (select values as option UUIDs, rich_text as BlockNote block JSON, no `url`),
+   * and `create_record`/`update_record` labelized but returned the WRITE response,
+   * which carries no relation chips — so a record's `epic` vanished from the echo
+   * of an update that never touched it. Nothing was lost, but a response you cannot
+   * tell apart from data loss forces a re-read to find out, every time.
+   */
+  function serializeRecord(detail: DatabaseDetail, wsId: string, dbId: string, row: RecordRow) {
+    return { ...row, values: labelize(detail, row.values), url: recordUrl(wsId, dbId, row) };
+  }
+
+  /**
+   * Read a record back through the SAME GET `get_record` uses, then serialise it.
+   *
+   * Write endpoints do not hydrate relations, so a write tool that echoes its own
+   * response is structurally unable to match a read. Re-reading costs one request
+   * and makes that whole class of divergence impossible, rather than asking four
+   * call sites to remember to stay in step.
+   */
+  async function readRecord(detail: DatabaseDetail, wsId: string, dbId: string, recId: string) {
+    const row = await unwrap<RecordRow>(
+      client.GET('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}', { params: { path: { ws: wsId, db: dbId, rec: recId } } }),
+    );
+    return serializeRecord(detail, wsId, dbId, row);
+  }
+
   /** Non-system fields with no value in `values` — surfaced by create_record so agents
    * (and their humans) notice a skeletal record instead of silently under-filling it (#14). */
   function unsetFields(detail: DatabaseDetail, values: Record<string, unknown>): string[] {
@@ -761,11 +842,25 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           body: { values: mapWriteValues(detail, parseStructuredParam(values, 'values') as Record<string, unknown>) } as never,
         }),
       );
-      const record = { ...row, values: labelize(detail, row.values), url: recordUrl(ws.id, db.id, row) };
+      // Read back rather than echoing the write response — that is what carries the
+      // relation chips, so a record created WITH links shows them (#343).
+      const record = await readRecord(detail, ws.id, db.id, row.id);
       const unset = unsetFields(detail, values);
-      return text(
+      // A record with no title is a real outcome worth naming: it is unfindable by
+      // search and reads as blank in every list. Silence here is what let #343
+      // itself be filed nameless.
+      const untitled = !String(record.title ?? '').trim();
+      const notes = [
+        untitled
+          ? 'This record has NO TITLE — it will show as blank everywhere. The title is values.name; set it with update_record.'
+          : null,
         unset.length
-          ? { record, unset_fields: unset, note: `Left empty — if relevant to this record, fill them: ${unset.join(', ')}. Call describe_database to see each field.` }
+          ? `Left empty — if relevant to this record, fill them: ${unset.join(', ')}. Call describe_database to see each field.`
+          : null,
+      ].filter(Boolean);
+      return text(
+        notes.length
+          ? { record, ...(unset.length ? { unset_fields: unset } : {}), note: notes.join(' ') }
           : record,
       );
     }),
@@ -789,13 +884,15 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         const db = await resolveDatabase(client, ws.id, database);
         const detail = await getDetail(ws.id, db.id);
         const rec = await resolveRecordId(ws.id, db.id, record);
-        const row = await unwrap<RecordRow>(
+        await unwrap<RecordRow>(
           client.PATCH('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}', {
             params: { path: { ws: ws.id, db: db.id, rec } },
             body: { values: mapWriteValues(detail, parseStructuredParam(values, 'values') as Record<string, unknown>) } as never,
           }),
         );
-        return text({ ...row, values: labelize(detail, row.values), url: recordUrl(ws.id, db.id, row) });
+        // Read back: the PATCH response carries no relation chips, so echoing it
+        // dropped `epic`/`parent`/… from an update that never touched them (#343).
+        return text(await readRecord(detail, ws.id, db.id, rec));
       },
     ),
   );
@@ -941,10 +1038,9 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
                 body: { record_ids: targetIds } as never,
               }),
         );
-        const row = await unwrap<RecordRow>(
-          client.GET('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}', { params: { path: { ws: ws.id, db: db.id, rec } } }),
-        );
-        return text(row);
+        // Was `text(row)` — the RAW row: option UUIDs instead of labels, BlockNote
+        // JSON instead of prose, no `url`. Same serialiser as every other tool (#343).
+        return text(await readRecord(detail, ws.id, db.id, rec));
       },
     ),
   );
@@ -979,10 +1075,9 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
             body: { record_ids: targetIds } as never,
           }),
         );
-        const row = await unwrap<RecordRow>(
-          client.GET('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}', { params: { path: { ws: ws.id, db: db.id, rec } } }),
-        );
-        return text(row);
+        // Was `text(row)` — the RAW row: option UUIDs instead of labels, BlockNote
+        // JSON instead of prose, no `url`. Same serialiser as every other tool (#343).
+        return text(await readRecord(detail, ws.id, db.id, rec));
       },
     ),
   );
@@ -1589,14 +1684,24 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Create relation',
       description:
-        'Link two databases with a relation field on each side. one_to_many: each record in `database` links to ONE record in `related_database`, and each related record gets MANY back — e.g. database=Tasks, related_database=Projects means each task has one project and each project has many tasks. many_to_many: both sides link to many. Use the space/database form for names that exist in more than one space.',
+        'Link two databases with a relation field on each side. one_to_many: each record in `database` links to ONE record in `related_database`, and each related record gets MANY back — e.g. database=Tasks, related_database=Projects means each task has one project and each project has many tasks. many_to_many: both sides link to many. Use the space/database form for names that exist in more than one space. ' +
+        // #344: a self-relation IS supported, with names you choose, and you can
+        // have several of them — none of which this description said, so the
+        // Parent/Sub-items defaults read like a hard-wired special case.
+        'SELF-RELATION: pass the same database as `database` and `related_database` to link records to each OTHER — "Blocked by"/"Blocks", "Duplicates", a parent/child tree. Name both sides via field_name / reverse_field_name; they must differ, since both fields land on the same record. Unnamed, a one_to_many self-relation defaults to Parent / Sub-items and a many_to_many to Related / Related to — those are DEFAULTS, not a fixed hierarchy. A database can carry several self-relations at once (a Parent tree AND a Blocked by / Blocks pair).',
       inputSchema: {
         workspace: z.string(),
-        database: z.string().describe('The "many" side for one_to_many (e.g. tasks).'),
-        related_database: z.string().describe('The "one" / parent side (e.g. projects).'),
+        database: z.string().describe('The "many" side for one_to_many (e.g. tasks). Same as related_database for a self-relation.'),
+        related_database: z.string().describe('The "one" / parent side (e.g. projects). Same as database for a self-relation.'),
         type: z.enum(['one_to_many', 'many_to_many']).default('one_to_many'),
-        field_name: z.string().optional().describe('Relation field name on `database` (default: the related database name).'),
-        reverse_field_name: z.string().optional().describe('Inverse field name on `related_database` (default: this database name).'),
+        field_name: z
+          .string()
+          .optional()
+          .describe('Relation field name on `database` — e.g. "Blocked by". Default: the related database name, or Parent/Related for a self-relation.'),
+        reverse_field_name: z
+          .string()
+          .optional()
+          .describe('Inverse field name on `related_database` — e.g. "Blocks". Default: this database name, or Sub-items/Related to for a self-relation. Must differ from field_name on a self-relation.'),
       },
     },
     handle<{ workspace: string; database: string; related_database: string; type?: string; field_name?: string; reverse_field_name?: string }>(

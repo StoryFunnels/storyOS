@@ -1294,3 +1294,294 @@ describe('add_field accepts type: workflow (#337)', () => {
     expect(fieldOf('change_field_type', 'new_type').safeParse('workflow').success).toBe(true);
   });
 });
+
+/**
+ * #343 — every record-returning tool must hand back the SAME shape.
+ *
+ * The fake API below models the divergence that actually existed in production:
+ * the GET hydrates relation chips, and the write endpoints (POST/PATCH/links) do
+ * NOT. That asymmetry is real and is exactly what made `update_record` echo a
+ * record with its `epic` missing, indistinguishable from data loss. If a future
+ * refactor goes back to echoing the write response, these tests fail.
+ */
+describe('record tools return one consistent shape (#343)', () => {
+  const dbDetail = {
+    id: 'db-1',
+    name: 'Issues',
+    qualifiedSlug: 'eng/issues',
+    fields: [
+      { id: 'f-title', apiName: 'name', displayName: 'Name', type: 'title' },
+      {
+        id: 'f-state',
+        apiName: 'state',
+        displayName: 'State',
+        type: 'workflow',
+        options: [
+          { id: 'opt-todo', label: 'ToDo' },
+          { id: 'opt-done', label: 'Done' },
+        ],
+      },
+      { id: 'f-details', apiName: 'details', displayName: 'Details', type: 'rich_text' },
+      { id: 'f-epic', apiName: 'epic', displayName: 'Epic', type: 'relation', relation: { target_database_id: 'db-1' } },
+    ],
+  };
+
+  // What the GET returns: relations hydrated, but option ids and BlockNote blocks
+  // still raw — labelizing them is the serialiser's job.
+  const readRow = {
+    id: 'rec-1',
+    number: 7,
+    title: 'A record',
+    values: {
+      name: 'A record',
+      state: 'opt-done',
+      details: [{ type: 'paragraph', content: [{ type: 'text', text: 'hello', styles: {} }] }],
+      epic: [{ id: 'rec-9', title: 'Platform', number: 9 }],
+    },
+  };
+
+  // What POST/PATCH return: NO relation chips. This is the real asymmetry.
+  const writeRow = {
+    id: 'rec-1',
+    number: 7,
+    title: 'A record',
+    values: { name: 'A record', state: 'opt-done', details: readRow.values.details },
+  };
+
+  function makeCtx(overrides: { readRow?: unknown } = {}): Ctx {
+    const row = overrides.readRow ?? readRow;
+    const client = {
+      GET: async (path: string) => {
+        if (path === '/api/v1/workspaces') return { data: [{ id: 'ws-1', name: 'Eng' }] };
+        if (path === '/api/v1/workspaces/{ws}/databases') return { data: [dbDetail] };
+        if (path === '/api/v1/workspaces/{ws}/databases/{db}') return { data: dbDetail };
+        if (path === '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}') return { data: row };
+        // resolveRecordId turns a public number into a uuid before any write.
+        if (path === '/api/v1/workspaces/{ws}/databases/{db}/records/by-number/{number}') return { data: row };
+        throw new Error(`unexpected GET ${path}`);
+      },
+      POST: async (path: string) => {
+        if (path === '/api/v1/workspaces/{ws}/databases/{db}/records') return { data: writeRow };
+        if (path === '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/links/{field}') return { data: {} };
+        throw new Error(`unexpected POST ${path}`);
+      },
+      PATCH: async (path: string) => {
+        if (path === '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}') return { data: writeRow };
+        throw new Error(`unexpected PATCH ${path}`);
+      },
+      PUT: async () => ({ data: {} }),
+      DELETE: async () => ({ data: {} }),
+    };
+    return { client: client as never, baseUrl: 'http://test', token: 'tok' };
+  }
+
+  function makeFakeServer() {
+    const handlers = new Map<string, (args: unknown) => Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }>>();
+    return { server: { registerTool: (n: string, _c: unknown, h: never) => handlers.set(n, h as never) } as never, handlers };
+  }
+
+  async function call(tool: string, args: Record<string, unknown>, ctx: Ctx = makeCtx()) {
+    const { server, handlers } = makeFakeServer();
+    registerTools(server, ctx);
+    const result = await handlers.get(tool)!(args);
+    if (result.isError) throw new Error(result.content[0]!.text);
+    return JSON.parse(result.content[0]!.text);
+  }
+
+  const base = { workspace: 'Eng', database: 'Issues' };
+
+  it('get_record labelizes options, renders rich text, and includes url', async () => {
+    const out = await call('get_record', { ...base, record: '7' });
+    expect(out.values.state).toBe('Done');
+    expect(out.values.details).toContain('hello');
+    expect(out.url).toContain('/w/ws-1/d/db-1/r/');
+  });
+
+  it('update_record matches get_record FIELD FOR FIELD — including the relation', async () => {
+    const read = await call('get_record', { ...base, record: '7' });
+    const updated = await call('update_record', { ...base, record: '7', values: { state: 'Done' } });
+    // The whole point of the ticket: no key may differ between a read and a write.
+    expect(updated).toEqual(read);
+    // Spelled out, because this is the one that regressed: the PATCH response has
+    // no `epic`, so echoing it would drop the relation from a write that never
+    // touched it.
+    expect(updated.values.epic).toEqual([{ id: 'rec-9', title: 'Platform', number: 9 }]);
+  });
+
+  it('link_records matches get_record — not the raw row it used to return', async () => {
+    const read = await call('get_record', { ...base, record: '7' });
+    const linked = await call('link_records', { ...base, record: '7', relation_field: 'epic', targets: ['9'] });
+    expect(linked).toEqual(read);
+    // The three specific symptoms of returning the raw row.
+    expect(linked.values.state).toBe('Done'); // not 'opt-done'
+    expect(typeof linked.values.details).toBe('string'); // not BlockNote JSON
+    expect(linked.url).toBeTruthy(); // was absent entirely
+  });
+
+  it('unlink_records matches get_record too', async () => {
+    const read = await call('get_record', { ...base, record: '7' });
+    const unlinked = await call('unlink_records', { ...base, record: '7', relation_field: 'epic', targets: ['9'] });
+    expect(unlinked).toEqual(read);
+  });
+
+  it('create_record returns the READ-BACK record, so a created relation is visible', async () => {
+    const out = await call('create_record', { ...base, values: { name: 'A record', state: 'Done' } });
+    const record = out.record ?? out;
+    expect(record.values.epic).toEqual([{ id: 'rec-9', title: 'Platform', number: 9 }]);
+    expect(record.values.state).toBe('Done');
+    expect(record.url).toBeTruthy();
+  });
+
+  it('create_record SAYS SO when the new record has no title', async () => {
+    // This is how #343 itself came to exist: a nameless record returned as success.
+    const untitled = { ...readRow, title: '', values: { ...readRow.values, name: '' } };
+    const out = await call('create_record', { ...base, values: { state: 'Done' } }, makeCtx({ readRow: untitled }));
+    expect(out.note).toMatch(/NO TITLE/);
+    expect(out.note).toMatch(/values\.name/);
+  });
+
+  it('does NOT cry untitled when the record has one', async () => {
+    const out = await call('create_record', { ...base, values: { name: 'A record' } });
+    expect(out.note ?? '').not.toMatch(/NO TITLE/);
+  });
+});
+
+/**
+ * #343 defect 1 — the worst of the four, because it corrupted a write silently.
+ *
+ * `inputSchema` is a zod SHAPE and the SDK wraps it in a `z.object()`, which strips
+ * unknown keys. A misspelled argument therefore vanished and the call still
+ * succeeded. Note this was NEVER inconsistent between tools, as first suspected —
+ * every tool stripped silently; the one error that looked like strictness was
+ * really a MISSING REQUIRED argument being reported.
+ */
+describe('unknown tool arguments are rejected, not dropped (#343)', () => {
+  function makeFakeServer() {
+    const handlers = new Map<string, (args: unknown) => Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }>>();
+    return { server: { registerTool: (n: string, _c: unknown, h: never) => handlers.set(n, h as never) } as never, handlers };
+  }
+  function handlersFor(): Map<string, (args: unknown) => Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }>> {
+    const { server, handlers } = makeFakeServer();
+    const client = { GET: async () => ({ data: [] }), POST: async () => ({ data: {} }) };
+    registerTools(server, { client: client as never, baseUrl: 'http://test', token: 'tok' });
+    return handlers;
+  }
+
+  it('rejects the exact mistake that filed #343 nameless — a top-level `title`', async () => {
+    const res = await handlersFor().get('create_record')!({ workspace: 'Eng', database: 'Issues', title: 'Oops', values: {} });
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toContain('"title"');
+    // The message has to say what IS valid, or the model just guesses again.
+    expect(res.content[0]!.text).toContain('values');
+    // And it must promise nothing happened, so the model retries instead of
+    // hunting for a half-written record.
+    expect(res.content[0]!.text).toMatch(/Nothing was written/);
+  });
+
+  it('names the tool and every unknown argument it was given', async () => {
+    const res = await handlersFor().get('get_record')!({ workspace: 'Eng', database: 'Issues', record: '7', foo: 1, bar: 2 });
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toContain('get_record');
+    expect(res.content[0]!.text).toContain('"foo"');
+    expect(res.content[0]!.text).toContain('"bar"');
+  });
+
+  it('lets valid arguments through untouched', async () => {
+    // list_workspaces takes nothing; it must still run rather than trip the guard.
+    const res = await handlersFor().get('list_workspaces')!({});
+    expect(res.isError).toBeFalsy();
+  });
+
+  it('ignores MCP protocol metadata (_meta), which is not a tool argument', async () => {
+    const res = await handlersFor().get('list_workspaces')!({ _meta: { progressToken: 1 } });
+    expect(res.isError).toBeFalsy();
+  });
+});
+
+/**
+ * #344 — filed as "self-relations are forced to Parent/Sub-items, discarding the
+ * names the caller asked for". That diagnosis was WRONG, and the tests below pin
+ * the real behaviour so nobody re-files it.
+ *
+ * The call that produced the report passed `name` / `reverse_name`. Those are not
+ * arguments of this tool — it takes `field_name` / `reverse_field_name` — and the
+ * SDK silently stripped them (#343), leaving an unnamed request that correctly got
+ * the defaults. The API has always honoured custom self-relation names, and
+ * `apps/api/test/self-relation-naming.test.ts` has always proved it: it creates
+ * "Blocks" / "Blocked by" on a single database, and stacks four self-relations on
+ * that same database, all 201.
+ *
+ * So #344 needed no relations change at all. What it needed was #343's guard (the
+ * wrong names now raise) and a description that mentions self-relations exist.
+ */
+describe('create_relation self-relations (#344 — the misdiagnosis)', () => {
+  function harness() {
+    const calls: Array<Record<string, unknown>> = [];
+    const handlers = new Map<string, (args: unknown) => Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }>>();
+    const dbDetail = { id: 'db-1', name: 'Issues', qualifiedSlug: 'eng/issues', fields: [] };
+    const client = {
+      GET: async (path: string) => {
+        if (path === '/api/v1/workspaces') return { data: [{ id: 'ws-1', name: 'Eng' }] };
+        if (path === '/api/v1/workspaces/{ws}/databases') return { data: [dbDetail] };
+        if (path === '/api/v1/workspaces/{ws}/databases/{db}') return { data: dbDetail };
+        throw new Error(`unexpected GET ${path}`);
+      },
+      POST: async (_path: string, opts: { body: Record<string, unknown> }) => {
+        calls.push(opts.body);
+        return { data: { id: 'rel-1' } };
+      },
+    };
+    registerTools({ registerTool: (n: string, _c: unknown, h: never) => handlers.set(n, h as never) } as never, {
+      client: client as never,
+      baseUrl: 'http://test',
+      token: 'tok',
+    });
+    return { handlers, calls };
+  }
+
+  it('forwards field_name / reverse_field_name for a SELF-relation', async () => {
+    const { handlers, calls } = harness();
+    const res = await handlers.get('create_relation')!({
+      workspace: 'Eng',
+      database: 'Issues',
+      related_database: 'Issues',
+      type: 'many_to_many',
+      field_name: 'Blocked by',
+      reverse_field_name: 'Blocks',
+    });
+    expect(res.isError).toBeFalsy();
+    expect(calls[0]).toMatchObject({
+      database_a_id: 'db-1',
+      database_b_id: 'db-1',
+      cardinality: 'many_to_many',
+      field_a_name: 'Blocked by',
+      field_b_name: 'Blocks',
+    });
+  });
+
+  it('rejects the exact wrong argument names that caused #344, instead of dropping them', async () => {
+    const { handlers, calls } = harness();
+    const res = await handlers.get('create_relation')!({
+      workspace: 'Eng',
+      database: 'Issues',
+      related_database: 'Issues',
+      name: 'Blocked By',
+      reverse_name: 'Blocks',
+    });
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toContain('"name"');
+    expect(res.content[0]!.text).toContain('"reverse_name"');
+    // It must point at the right spelling, which is the whole cure here.
+    expect(res.content[0]!.text).toContain('field_name');
+    expect(res.content[0]!.text).toContain('reverse_field_name');
+    // And crucially: no relation was created under the wrong name.
+    expect(calls).toHaveLength(0);
+  });
+
+  it('still omits the name keys when the caller genuinely wants the defaults', async () => {
+    const { handlers, calls } = harness();
+    await handlers.get('create_relation')!({ workspace: 'Eng', database: 'Issues', related_database: 'Issues' });
+    expect(calls[0]).not.toHaveProperty('field_a_name');
+    expect(calls[0]).not.toHaveProperty('field_b_name');
+  });
+});
