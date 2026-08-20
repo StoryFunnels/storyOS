@@ -70,6 +70,31 @@ The load-bearing decisions:
 - **Promote/demote is reversible**; demoting does not recall notifications already
   sent.
 
+## Where a view lives (#349 / #347 / #304 / #306) — decided, don't re-litigate
+
+Ownership and placement are different questions. Full ADR:
+[docs/architecture/views-and-the-sidebar.md](docs/architecture/views-and-the-sidebar.md).
+The load-bearing decisions:
+
+- **A view keeps its owning database AND gets a place in the sidebar tree.**
+  The tree is `Space → Folder → ( Database | Document | View )` — the first two
+  leaf types already existed (`space_folders`, MN-096). **Do not add a fourth
+  container**; anything navigable becomes a leaf on this tree.
+- **A view has a database XOR a space**, enforced by a CHECK (the
+  `access_grants_scope_xor` precedent). Reject it in the controller too — a 500
+  from a constraint violation is not an API contract.
+- **A view's home falls out of its columns; there is no `placement` enum.**
+  `folderId` set → it lives in that folder. One home at a time, never two.
+- **Access: the space is the door, each source is the room.** Gate on the space,
+  then resolve every source against the **viewer** with `effectiveForDatabase`
+  (returns null — not `assertAccess`, which throws and would collapse the view).
+  Zero readable sources → say so; never a 404, never an empty grid.
+  **Only guests can have partial access**, so a test without a GUEST fixture
+  proves nothing.
+- **#291's privacy rule is unchanged** — only the "always has a database" half
+  was amended. A personal view in a folder is still personal.
+- **No user-mode toggle**, now or planned. Databases stay in the tree.
+
 ## Adding an integration (provider) — do it the tiered way
 
 Every connection provider must be cloud/self-managed-correct by construction.

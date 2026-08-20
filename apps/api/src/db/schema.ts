@@ -317,9 +317,18 @@ export const views = pgTable('views', {
   /**
    * #291 — a PERSONAL view: visible only to this user, including to admins.
    *
-   * NOT a space_id. A view belongs to its DATABASE and always has — a personal view
-   * is a private WINDOW onto shared data, not a private container. `createdBy`
-   * records authorship and is not a privacy signal; this column is.
+   * NOT a space_id. A personal view is a private WINDOW onto shared data, not a
+   * private container: deleting a record through one deletes it for everyone.
+   * `createdBy` records authorship and is not a privacy signal; this column is.
+   * A personal view placed in a sidebar folder is still personal.
+   *
+   * #349 AMENDED the ownership half of this note, and only that half. It used to
+   * read "a view belongs to its DATABASE and always has" — true of every view
+   * that shows a database's rows, but a dashboard has no single database. #347
+   * therefore makes `databaseId` nullable, adds `spaceId`/`folderId`, and guards
+   * them with a CHECK — database XOR space. Not yet applied: `databaseId` below
+   * is still notNull until #347 lands. The privacy rule above is unchanged.
+   * See docs/architecture/views-and-the-sidebar.md.
    *
    * null = an ordinary shared view (every view today).
    */
