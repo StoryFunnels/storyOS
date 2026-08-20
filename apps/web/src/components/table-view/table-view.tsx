@@ -32,6 +32,7 @@ import { databaseNoun, recordHref } from '@/lib/records';
 import { systemFieldId } from '@storyos/schemas';
 import { atLeast } from '@/lib/access';
 import { cn } from '@/lib/utils';
+import { ViewQueryError } from '../views/query-error';
 
 const ROW_HEIGHT = 32;
 const DEFAULT_WIDTH = 180;
@@ -567,6 +568,9 @@ export function TableView({
   const totalWidth =
     fields.reduce((sum, f) => sum + widthOf(f), 0) + 56 + (schemaEditable ? 110 : 0);
 
+  // #346 — a rejected query must never render as an empty view. Placed after every
+  // hook so the early return cannot change hook order.
+  if (records.isError) return <ViewQueryError error={records.error} onRetry={() => void records.refetch()} />;
   return (
     <div className="relative flex h-full flex-col">
       <div

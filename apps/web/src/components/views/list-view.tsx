@@ -13,6 +13,7 @@ import { EmptyState, databaseNoun } from './empty-state';
 import { canGroupListBy } from './groupable-fields';
 import type { FilterNode, ViewConfig } from './use-view-state';
 import { queryBodyFromConfig } from './use-view-state';
+import { ViewQueryError } from './query-error';
 
 const NO_VALUE = '__none__';
 
@@ -107,6 +108,9 @@ export function ListView({
       />
     );
 
+  // #346 — a rejected query must never render as an empty view. Placed after every
+  // hook so the early return cannot change hook order.
+  if (records.isError) return <ViewQueryError error={records.error} onRetry={() => void records.refetch()} />;
   return (
     <div className="h-full overflow-auto">
       <div className="max-w-5xl px-4 py-3">
