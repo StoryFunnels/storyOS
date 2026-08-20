@@ -20,25 +20,29 @@ import { connectTestDb } from './helpers/db';
  */
 let app: NestFastifyApplication;
 let db: ReturnType<typeof connectTestDb>;
+let token: string;
+let wsId: string;
 let spaceId: string;
 let databaseId: string;
+
+function api(method: string, url: string, payload?: unknown) {
+  return app.inject({
+    method: method as never,
+    url: `/api/v1${url}`,
+    headers: authed(token),
+    payload: payload as never,
+  });
+}
 
 beforeAll(async () => {
   app = await createTestApp();
   db = connectTestDb();
-  const admin = await signUpUser(app, 'Xor');
-  const inject = (method: string, url: string, payload?: unknown) =>
-    app.inject({
-      method: method as never,
-      url: `/api/v1${url}`,
-      headers: authed(admin.token),
-      payload: payload as never,
-    });
+  token = (await signUpUser(app, 'Xor')).token;
 
-  const wsId = (await inject('POST', '/workspaces', { name: 'Xor WS' })).json().id;
-  spaceId = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
+  wsId = (await api('POST', '/workspaces', { name: 'Xor WS' })).json().id;
+  spaceId = (await api('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
   databaseId = (
-    await inject('POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name: 'Tasks' })
+    await api('POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name: 'Tasks' })
   ).json().id;
 });
 
@@ -70,6 +74,27 @@ describe('views_owner_xor (#347)', () => {
 
   it('REJECTS both — two possible homes is the ambiguity the XOR exists to prevent', async () => {
     await expect(rawInsert(databaseId, spaceId)).rejects.toThrow(/views_owner_xor/);
+  });
+
+  it('a database-owned view placed in a FOLDER still satisfies it', async () => {
+    // folder_id is placement, not ownership — it must not disturb the XOR.
+    const folderId = (
+      await api('POST', `/workspaces/${wsId}/spaces/${spaceId}/folders`, { name: 'Reading' })
+    ).json().id;
+    const view = await api('POST', `/workspaces/${wsId}/databases/${databaseId}/views`, {
+      name: 'In a folder',
+      type: 'table',
+      folder_id: folderId,
+    });
+    expect(view.statusCode).toBe(201);
+    expect(view.json().folder_id ?? view.json().folderId).toBe(folderId);
+
+    const { rows } = await db.pool.query(
+      `SELECT database_id, space_id FROM views WHERE id = $1`,
+      [view.json().id],
+    );
+    expect(rows[0].database_id).toBe(databaseId);
+    expect(rows[0].space_id).toBeNull();
   });
 
   it('every view created by the ordinary path satisfies it', async () => {

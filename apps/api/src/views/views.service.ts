@@ -10,7 +10,7 @@ import type { ViewConfig, ViewType } from '@storyos/schemas';
 import { SYSTEM_FIELDS } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { fields, relations, views } from '../db/schema';
+import { databases, fields, relations, spaceFolders, views } from '../db/schema';
 
 type FieldRow = typeof fields.$inferSelect;
 
@@ -248,11 +248,39 @@ export class ViewsService {
     }
   }
 
+  /**
+   * #347 — a view may only be placed in a folder of ITS OWN space.
+   *
+   * Without this, a folder id from another space would put the view in a sidebar
+   * it does not belong to: the tree would render it under a space whose grants
+   * were never checked for it, and `space_folders.folderId` has no constraint
+   * that would catch it. `undefined` means "not being changed"; `null` means
+   * "move back under the database", and both are legitimate.
+   */
+  private async assertFolderInSameSpace(databaseId: string, folderId: string | null | undefined) {
+    if (folderId === undefined || folderId === null) return;
+    const database = await this.db.query.databases.findFirst({
+      where: eq(databases.id, databaseId),
+      columns: { spaceId: true },
+    });
+    const folder = await this.db.query.spaceFolders.findFirst({
+      where: eq(spaceFolders.id, folderId),
+      columns: { spaceId: true },
+    });
+    if (!folder) throw new NotFoundException('Folder not found');
+    if (!database || folder.spaceId !== database.spaceId) {
+      throw new UnprocessableEntityException(
+        "A view can only be placed in a folder of its own database's space.",
+      );
+    }
+  }
+
   async create(
     databaseId: string,
-    input: { name: string; type: ViewType; config: ViewConfig },
+    input: { name: string; type: ViewType; config: ViewConfig; folder_id?: string | null },
     createdBy: string,
   ) {
+    await this.assertFolderInSameSpace(databaseId, input.folder_id);
     // #181: default a Board's group-by to the database's workflow field when one
     // exists and the caller didn't pick one (validation then runs on the result).
     const live = await this.liveFields(databaseId);
@@ -266,6 +294,7 @@ export class ViewsService {
       .insert(views)
       .values({
         databaseId,
+        folderId: input.folder_id ?? null,
         name: input.name,
         type: input.type,
         config,
@@ -279,17 +308,26 @@ export class ViewsService {
   async update(
     databaseId: string,
     viewId: string,
-    patch: { name?: string; config?: ViewConfig; position?: number },
+    patch: { name?: string; config?: ViewConfig; position?: number; folder_id?: string | null },
   ) {
     const view = await this.db.query.views.findFirst({
       where: and(eq(views.id, viewId), eq(views.databaseId, databaseId)),
     });
     if (!view) throw new NotFoundException('View not found');
     if (patch.config) await this.validateConfig(databaseId, view.type, patch.config);
+    await this.assertFolderInSameSpace(databaseId, patch.folder_id);
 
     const [updated] = await this.db
       .update(views)
-      .set({ name: patch.name, config: patch.config, position: patch.position })
+      .set({
+        name: patch.name,
+        config: patch.config,
+        position: patch.position,
+        // #347: `undefined` leaves placement alone (drizzle skips it); an explicit
+        // `null` moves the view back under its database. The two must stay
+        // distinguishable, so this cannot collapse to `patch.folder_id ?? null`.
+        ...(patch.folder_id !== undefined ? { folderId: patch.folder_id } : {}),
+      })
       .where(eq(views.id, viewId))
       .returning();
     return updated!;
