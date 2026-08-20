@@ -302,39 +302,75 @@ export const selectOptions = pgTable('select_options', {
   ...timestamps,
 });
 
-export const views = pgTable('views', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  databaseId: uuid('database_id')
-    .notNull()
-    .references(() => databases.id, { onDelete: 'cascade' }),
-  name: text('name').notNull(),
-  type: viewType('type').notNull(),
-  config: jsonb('config').notNull().default({}),
-  position: integer('position').notNull().default(0),
-  /** The view a database opens with; at most one true per database (MN-241). */
-  isDefault: boolean('is_default').notNull().default(false),
-  createdBy: text('created_by'),
-  /**
-   * #291 — a PERSONAL view: visible only to this user, including to admins.
-   *
-   * NOT a space_id. A personal view is a private WINDOW onto shared data, not a
-   * private container: deleting a record through one deletes it for everyone.
-   * `createdBy` records authorship and is not a privacy signal; this column is.
-   * A personal view placed in a sidebar folder is still personal.
-   *
-   * #349 AMENDED the ownership half of this note, and only that half. It used to
-   * read "a view belongs to its DATABASE and always has" — true of every view
-   * that shows a database's rows, but a dashboard has no single database. #347
-   * therefore makes `databaseId` nullable, adds `spaceId`/`folderId`, and guards
-   * them with a CHECK — database XOR space. Not yet applied: `databaseId` below
-   * is still notNull until #347 lands. The privacy rule above is unchanged.
-   * See docs/architecture/views-and-the-sidebar.md.
-   *
-   * null = an ordinary shared view (every view today).
-   */
-  ownerUserId: text('owner_user_id'),
-  ...timestamps,
-});
+export const views = pgTable(
+  'views',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    /**
+     * #347 — nullable. A view that shows a database's rows owns one; a DASHBOARD
+     * composes queries and has none (#306), and neither does a multi-source view
+     * (#348). Every view that existed before #347 still has one — nothing moved.
+     */
+    databaseId: uuid('database_id').references(() => databases.id, { onDelete: 'cascade' }),
+    /**
+     * #347 — set ONLY when there is no database. Never denormalized: a
+     * database-owned view resolves its space by joining, so the two can't disagree.
+     * Guarded by `views_owner_xor` below.
+     */
+    spaceId: uuid('space_id').references(() => spaces.id, { onDelete: 'cascade' }),
+    /**
+     * #347 — optional sidebar folder, exactly mirroring `space_documents.folderId`
+     * (MN-096). This is PLACEMENT, not ownership: set = the view lives in that
+     * folder instead of nested under its database. null = nested under its
+     * database, or at the space root when there is no database.
+     */
+    folderId: uuid('folder_id').references(() => spaceFolders.id, { onDelete: 'set null' }),
+    name: text('name').notNull(),
+    type: viewType('type').notNull(),
+    config: jsonb('config').notNull().default({}),
+    position: integer('position').notNull().default(0),
+    /** The view a database opens with; at most one true per database (MN-241). */
+    isDefault: boolean('is_default').notNull().default(false),
+    createdBy: text('created_by'),
+    /**
+     * #291 — a PERSONAL view: visible only to this user, including to admins.
+     *
+     * NOT a space_id. A personal view is a private WINDOW onto shared data, not a
+     * private container: deleting a record through one deletes it for everyone.
+     * `createdBy` records authorship and is not a privacy signal; this column is.
+     * A personal view placed in a sidebar folder is still personal.
+     *
+     * #349 AMENDED the ownership half of this note, and only that half. It used to
+     * read "a view belongs to its DATABASE and always has" — true of every view
+     * that shows a database's rows, but a dashboard has no single database, hence
+     * the nullable `databaseId` above. The privacy rule is unchanged. A personal
+     * view does NOT get `spaceId` pointing at the personal space; that would be the
+     * private container `personal-space.md` §2 exists to avoid.
+     * See docs/architecture/views-and-the-sidebar.md.
+     *
+     * null = an ordinary shared view (every view today).
+     */
+    ownerUserId: text('owner_user_id'),
+    ...timestamps,
+  },
+  (t) => [
+    index('views_space_idx').on(t.spaceId),
+    index('views_folder_idx').on(t.folderId),
+    /**
+     * #347 — a view has a database XOR a space, never both and never neither.
+     *
+     * XOR rather than "at least one" deliberately: a view with both has two
+     * possible homes, so every read would need a tiebreak rule — and a tiebreak
+     * rule applied in five places gets applied inconsistently in the sixth.
+     *
+     * Same shape as `access_grants_scope_xor` (MN-125), which exists because a
+     * scope invariant the service "always checked" turned out not to hold. The
+     * controller rejects this too, with a message naming the rule; a 500 from a
+     * constraint violation is a backstop, not an API contract.
+     */
+    check('views_owner_xor', sql`(${t.databaseId} IS NULL) <> (${t.spaceId} IS NULL)`),
+  ],
+);
 
 export const records = pgTable(
   'records',
