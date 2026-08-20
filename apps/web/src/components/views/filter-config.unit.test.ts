@@ -125,6 +125,90 @@ describe('activeFilterNode — disabled clauses never reach the query', () => {
 });
 
 /**
+ * #345 — the founder cleared the option out of `Status is none of …` and every
+ * record vanished. The unfinished condition was still being sent; the compiler
+ * refuses it ("expects a non-empty array of ids"), and no view surfaces a query
+ * error, so the 422 looked exactly like an empty database. Only deleting the whole
+ * filter row brought the records back.
+ *
+ * The condition stays in the BUILDER either way — these assertions are only about
+ * what reaches /records/query.
+ */
+describe('activeFilterNode — unfinished clauses never reach the query (#345)', () => {
+  it('drops a has_none whose options were cleared — the exact reported bug', () => {
+    const group = buildFilterGroup('and', [cond({ field: 'status', op: 'has_none', value: [] })]);
+    expect(activeFilterNode(group)).toBeUndefined();
+  });
+
+  it('drops a condition whose value was never set at all', () => {
+    const group = buildFilterGroup('and', [cond({ op: 'has', value: undefined })]);
+    expect(activeFilterNode(group)).toBeUndefined();
+  });
+
+  it('drops a text condition emptied back to ""', () => {
+    const group = buildFilterGroup('and', [cond({ op: 'contains', value: '' })]);
+    expect(activeFilterNode(group)).toBeUndefined();
+  });
+
+  it('leaves the SIBLINGS of an unfinished condition working', () => {
+    const group = buildFilterGroup('and', [
+      cond({ field: 'status', op: 'has_none', value: [] }),
+      cond({ field: 'priority', value: 'high' }),
+    ]);
+    expect(activeFilterNode(group)).toEqual({ field: 'priority', op: 'eq', value: 'high' });
+  });
+
+  it('KEEPS is_empty / not_empty — they carry no value by design', () => {
+    const group = buildFilterGroup('or', [
+      cond({ field: 'due', op: 'is_empty', value: undefined }),
+      cond({ field: 'owner', op: 'not_empty', value: undefined }),
+    ]);
+    expect(activeFilterNode(group)).toEqual({
+      or: [
+        { field: 'due', op: 'is_empty', value: undefined },
+        { field: 'owner', op: 'not_empty', value: undefined },
+      ],
+    });
+  });
+
+  it('KEEPS falsy-but-real values — `Checkbox is false` and `Number = 0`', () => {
+    // A falsiness check here would silently delete both of these filters, which is
+    // the obvious wrong implementation of this fix.
+    const group = buildFilterGroup('and', [
+      cond({ field: 'archived', op: 'eq', value: false }),
+      cond({ field: 'count', op: 'eq', value: 0 }),
+    ]);
+    expect(activeFilterNode(group)).toEqual({
+      and: [
+        { field: 'archived', op: 'eq', value: false },
+        { field: 'count', op: 'eq', value: 0 },
+      ],
+    });
+  });
+
+  it('collapses a nested group whose only child was unfinished', () => {
+    const group = buildFilterGroup('and', [
+      cond({ field: 'priority', value: 'high' }),
+      { or: [cond({ field: 'status', op: 'has', value: [] })] },
+    ]);
+    expect(activeFilterNode(group)).toEqual({ field: 'priority', op: 'eq', value: 'high' });
+  });
+
+  it('prunes an unfinished condition nested inside a surviving group', () => {
+    const group = buildFilterGroup('and', [
+      cond({ field: 'priority', value: 'high' }),
+      { or: [cond({ field: 'status', op: 'has', value: [] }), cond({ field: 'a', value: 'x' })] },
+    ]);
+    expect(activeFilterNode(group)).toEqual({
+      and: [
+        { field: 'priority', op: 'eq', value: 'high' },
+        { field: 'a', op: 'eq', value: 'x' },
+      ],
+    });
+  });
+});
+
+/**
  * #259: andFilterNodes composes a shared view's active filter with a personal
  * override — the SAME top-level-AND-wrap collapsing rule activeFilterNode
  * itself uses (bare for exactly one survivor, {and:[...]} for 2+), so a

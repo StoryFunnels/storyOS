@@ -91,10 +91,42 @@ export const filterSchema = filterNodeSchema.superRefine((node, ctx) => {
 });
 
 /**
+ * The two ops that carry no value by design — every op menu declares them
+ * `input: 'none'`. Everything else means nothing until it has a value.
+ */
+const VALUELESS_OPS = new Set(['is_empty', 'not_empty']);
+
+/**
+ * #345 — a condition nobody finished writing: an op that needs a value, with no
+ * value in it. A view's persisted `filters` legitimately holds these, because the
+ * builder keeps a row on screen while the user is mid-edit.
+ *
+ * It must never reach the compiler, which rejects it outright (`compileIdSet`:
+ * "expects a non-empty array of ids"). Clearing the option out of `Status is none
+ * of …` produced exactly this, and since no view surfaces a query error, the 422
+ * rendered as an empty database — reported as every record vanishing.
+ *
+ * Emptiness is tested EXPLICITLY, never by falsiness: `Checkbox is false` and
+ * `{Number} = 0` are real filters carrying real values. Both are falsy; both must
+ * survive.
+ *
+ * Shared with the web builder's own prune walk (`views/filter-config.ts`) so the
+ * two cannot disagree about what "unfinished" means — they already had to be kept
+ * in step by hand, and this is the part that would silently drift.
+ */
+export function isIncompleteCondition(node: { op: string; value?: unknown }): boolean {
+  if (VALUELESS_OPS.has(node.op)) return false;
+  const { value } = node;
+  if (value === undefined || value === null || value === '') return true;
+  return Array.isArray(value) && value.length === 0;
+}
+
+/**
  * Prunes a filter tree down to what should actually run: disabled conditions
- * (MN-253 UI) drop out entirely, and UI-only fields (disabled/pinned/label/icon)
- * are stripped from the survivors. A view's persisted `filters` keeps everything;
- * this is what the query engine and CSV export should execute instead.
+ * (MN-253 UI) and unfinished ones (#345) drop out entirely, and UI-only fields
+ * (disabled/pinned/label/icon) are stripped from the survivors. A view's persisted
+ * `filters` keeps everything; this is what the query engine and CSV export should
+ * execute instead.
  */
 export function activeFilter(node: FilterNode | undefined): FilterNode | undefined {
   return node ? pruneFilterNode(node) : undefined;
@@ -112,6 +144,7 @@ function pruneFilterNode(node: FilterNode): FilterNode | undefined {
     return children.length === 1 ? children[0] : { or: children };
   }
   if (node.disabled) return undefined;
+  if (isIncompleteCondition(node)) return undefined;
   return { field: node.field, op: node.op, value: node.value };
 }
 

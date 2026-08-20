@@ -1,4 +1,5 @@
 import { arrayMove } from '@dnd-kit/sortable';
+import { isIncompleteCondition } from '@storyos/schemas';
 
 /**
  * The UI filter model (MN-253 flat And/Or, MN-258 nested groups): a tree of
@@ -87,8 +88,9 @@ export function reorderConditions<T>(items: T[], from: number, to: number): T[] 
 }
 
 /**
- * What the query actually runs: disabled clauses drop out (at any depth), UI-only
- * fields (disabled/pinned/label/icon) don't ride along to /records/query. Mirrors
+ * What the query actually runs: disabled clauses drop out (at any depth), so do
+ * UNFINISHED ones (#345 — see isIncompleteCondition), and UI-only fields
+ * (disabled/pinned/label/icon) don't ride along to /records/query. Mirrors
  * packages/schemas' `activeFilter`/`pruneFilterNode` walk, kept separately here
  * since the web's FilterCondition is intentionally looser (op: string, mid-edit
  * values) than the API's typed FilterNode. A group that prunes down to a single
@@ -125,6 +127,9 @@ function pruneNode(node: FilterNode): unknown {
     return children.length === 1 ? children[0] : { [connector]: children };
   }
   if (node.disabled) return undefined;
+  // Dropped from the QUERY only — the row stays in the builder, because the user
+  // is mid-edit and clearing a value must never delete their work.
+  if (isIncompleteCondition(node)) return undefined;
   return { field: node.field, op: node.op, value: node.value };
 }
 
