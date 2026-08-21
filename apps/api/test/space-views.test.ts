@@ -166,4 +166,75 @@ describe('GET /spaces/:space/views (#347)', () => {
     const payload = res.body;
     expect(payload, 'the owner id must never reach the sidebar payload').not.toContain(other);
   });
+
+  it('creates a DASHBOARD that lives in the space and owns no database (#306)', async () => {
+    const res = await as(admin.token, 'POST', `/workspaces/${wsId}/spaces/${space}/views`, {
+      name: 'Morning numbers',
+      type: 'dashboard',
+    });
+    expect(res.statusCode, res.body).toBe(201);
+
+    // The XOR from the other side: space set, database null. Read from postgres,
+    // not the response, because the response is the thing under test.
+    const { rows } = await db.pool.query(
+      `SELECT database_id, space_id, type FROM views WHERE id = $1`,
+      [res.json().id],
+    );
+    expect(rows[0].database_id).toBeNull();
+    expect(rows[0].space_id).toBe(space);
+    expect(rows[0].type).toBe('dashboard');
+  });
+
+  it('REFUSES a space-level table, and says why (#306)', async () => {
+    // Every other view type renders rows OF something. A table with no database
+    // is a view of nothing — accepting one creates a row no surface can draw.
+    const res = await as(admin.token, 'POST', `/workspaces/${wsId}/spaces/${space}/views`, {
+      name: 'Rows of what',
+      type: 'table',
+    });
+    expect(res.statusCode).toBe(422);
+    expect(res.body, 'the error must explain the rule, not just reject').toMatch(/needs one|dashboard/i);
+  });
+
+  it('the space-level dashboard appears in the space listing (#306)', async () => {
+    const res = await as(admin.token, 'GET', `/workspaces/${wsId}/spaces/${space}/views`);
+    const found = (JSON.parse(res.body).data as Record<string, unknown>[]).find(
+      (v) => v.name === 'Morning numbers',
+    )!;
+    expect(found, 'a space-owned view must list alongside database-owned ones').toBeTruthy();
+    expect(found.database_id).toBeNull();
+    expect(found.space_id).toBe(space);
+  });
+
+  it('resolves a database-less view through the view-first route (#306)', async () => {
+    const created = await as(admin.token, 'POST', `/workspaces/${wsId}/spaces/${space}/views`, {
+      name: 'Routed dashboard',
+      type: 'dashboard',
+    });
+    const res = await as(admin.token, 'GET', `/workspaces/${wsId}/views/${created.json().id}`);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().database_id).toBeNull();
+    expect(res.json().name).toBe('Routed dashboard');
+  });
+
+  it('the same route ALSO resolves a database-owned view — one route, both kinds', async () => {
+    const list = await as(admin.token, 'GET', `/workspaces/${wsId}/spaces/${space}/views`);
+    const dbOwned = (JSON.parse(list.body).data as Record<string, unknown>[]).find(
+      (v) => v.name === 'Tasks board',
+    )!;
+    const res = await as(admin.token, 'GET', `/workspaces/${wsId}/views/${dbOwned.id}`);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().database_id).toBe(tasksDb);
+  });
+
+  it('a GUEST cannot read a space-level dashboard through the view-first route', async () => {
+    // The view-first route is a NEW way in. It must apply the same door, or it
+    // becomes the bypass — a guest granted one database is not a space member.
+    const created = await as(admin.token, 'POST', `/workspaces/${wsId}/spaces/${otherSpace}/views`, {
+      name: 'Elsewhere dashboard',
+      type: 'dashboard',
+    });
+    const res = await as(guest.token, 'GET', `/workspaces/${wsId}/views/${created.json().id}`);
+    expect(res.statusCode, 'the view-first route must not bypass the space door').toBe(404);
+  });
 });

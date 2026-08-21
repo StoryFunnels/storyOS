@@ -226,6 +226,10 @@ export function useRecordsInfinite(ws: string, db: string, queryBody?: Record<st
       return data as unknown as RecordsPage;
     },
     getNextPageParam: (last) => last.next_cursor ?? undefined,
+    // #306 — a space-level dashboard has no database until a tile names one, so
+    // `db` can legitimately be empty. useDatabase already guards this way; this
+    // one did not, and an empty id would POST to /databases//records/query.
+    enabled: Boolean(ws && db),
   });
 }
 

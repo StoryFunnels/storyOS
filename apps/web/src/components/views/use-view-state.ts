@@ -278,8 +278,19 @@ export function useViewMutations(ws: string, db: string) {
  * to keep the wire payload minimal.
  */
 export function sortsBodyFromConfig(config: ViewConfig): Record<string, unknown> {
-  if (config.sorts.length === 0) return {};
-  return config.sorts_nulls === 'first' ? { sorts: config.sorts, nulls: 'first' } : { sorts: config.sorts };
+  /**
+   * `sorts` is typed non-optional because the zod schema DEFAULTS it — but the
+   * type is a promise about parsed config, and a config read straight off the
+   * API (or a freshly created view, whose config is literally `{}`) has not been
+   * through that default. #306 hit exactly this: a space-level dashboard crashed
+   * the whole page on `config.sorts.length`.
+   *
+   * Read defensively rather than trusting the type. Same posture as
+   * cleanViewConfig, which treats every stored config as possibly partial.
+   */
+  const sorts = config.sorts ?? [];
+  if (sorts.length === 0) return {};
+  return config.sorts_nulls === 'first' ? { sorts, nulls: 'first' } : { sorts };
 }
 
 /**

@@ -53,20 +53,24 @@ const SELECT_CLASS =
 export function DashboardView({
   ws,
   db,
+  spaceId,
   config,
   readOnly,
   personalFilter,
   onPatch,
 }: {
   ws: string;
-  db: string;
+  /** #306 — absent for a SPACE-level dashboard, which owns no database. */
+  db?: string;
+  /** #306 — set instead of `db` for a space-level dashboard, to scope the picker. */
+  spaceId?: string;
   config: ViewConfig;
   readOnly: boolean;
   /** #259 — narrows this view's results for the current viewer only. */
   personalFilter?: FilterNode;
   onPatch: (updates: Partial<ViewConfig>) => void;
 }) {
-  const database = useDatabase(ws, db);
+  const database = useDatabase(ws, db ?? '');
   // #304 — the tile filter builder needs the roster for person-field conditions.
   const members = useMembers(ws, !readOnly);
   const memberList = useMemo(
@@ -74,7 +78,7 @@ export function DashboardView({
     [members.data],
   );
   const queryBody = useMemo(() => queryBodyFromConfig(config, personalFilter), [config, personalFilter]);
-  const records = useRecordsInfinite(ws, db, queryBody);
+  const records = useRecordsInfinite(ws, db ?? '', queryBody);
 
   // Aggregate over the whole (filtered) dataset, not just the first page —
   // keep paging until exhausted so count/sum/… are correct. #records is
@@ -101,14 +105,22 @@ export function DashboardView({
    */
   const allDatabases = useDatabases(ws).data ?? [];
   const sourceOptions = useMemo(() => {
-    const spaceId = allDatabases.find((d) => d.id === db)?.spaceId;
-    const inSpace = spaceId ? allDatabases.filter((d) => d.spaceId === spaceId) : allDatabases;
-    // The view's own database first and always present, even if the list is
-    // still loading — a picker whose current value is missing renders blank and
-    // looks like the tile lost its source.
+    // #306 — the space comes from the view's own database when it has one, and
+    // from the prop when it does not (a space-level dashboard).
+    const space = spaceId ?? allDatabases.find((d) => d.id === db)?.spaceId;
+    const inSpace = space ? allDatabases.filter((d) => d.spaceId === space) : allDatabases;
     const rest = inSpace.filter((d) => d.id !== db);
-    return [{ id: db, name: database.data?.name ?? 'This database' }, ...rest.map((d) => ({ id: d.id, name: d.name }))];
-  }, [allDatabases, db, database.data?.name]);
+    // #306 — a space-level dashboard has no "this database" to lead with, so the
+    // list opens on an explicit unconfigured choice rather than defaulting the
+    // tile to whichever database happens to sort first.
+    const head = db
+      ? // The view's own database first and always present, even while the list
+        // loads — a picker whose current value is missing renders blank and looks
+        // like the tile lost its source.
+        [{ id: db, name: database.data?.name ?? 'This database' }]
+      : [{ id: '', name: 'Pick a database…' }];
+    return [...head, ...rest.map((d) => ({ id: d.id, name: d.name }))];
+  }, [allDatabases, db, spaceId, database.data?.name]);
   const sourceName = (id: string) => sourceOptions.find((o) => o.id === id)?.name ?? 'the previous database';
   const fieldName = useMemo(() => new Map(fields.map((f) => [f.apiName, f.displayName])), [fields]);
 
@@ -198,10 +210,11 @@ export function DashboardView({
                       same reason). */}
                   <select
                     aria-label="Tile source database"
-                    value={tile.database_id ?? db}
+                    value={tile.database_id ?? db ?? ''}
                     onChange={(e) => {
-                      const next = e.target.value === db ? undefined : e.target.value;
-                      if ((tile.database_id ?? db) === (next ?? db)) return;
+                      const picked = e.target.value;
+                      const next = picked === '' || picked === db ? undefined : picked;
+                      if ((tile.database_id ?? db ?? '') === (next ?? db ?? '')) return;
                       // The filter references the OLD database's fields by
                       // api_name. Keeping it would query the new database with
                       // columns it does not have — a tile that looks configured and
@@ -211,7 +224,7 @@ export function DashboardView({
                       const hadFilter = tile.filter != null;
                       updateTile(tile.id, { database_id: next, filter: undefined, field_api_name: undefined });
                       if (hadFilter) {
-                        toast.info(`Filter cleared — it referred to ${sourceName(tile.database_id ?? db)}'s fields.`);
+                        toast.info(`Filter cleared — it referred to ${sourceName(tile.database_id ?? db ?? '')}'s fields.`);
                       }
                     }}
                     className={SELECT_CLASS}
@@ -231,7 +244,7 @@ export function DashboardView({
                       builder needs that database's field list, and handing it the
                       wrong one produces conditions the query cannot honour. A
                       cross-database tile filters by choosing its source for now. */}
-                  {(tile.database_id ?? db) === db && (
+                  {db != null && (tile.database_id ?? db) === db && (
                     <FiltersSection
                       ws={ws}
                       db={db}
@@ -349,7 +362,8 @@ function TileValue({
   tile,
 }: {
   ws: string;
-  db: string;
+  /** #306 — absent on a space-level dashboard; the tile must name its own. */
+  db?: string;
   config: ViewConfig;
   personalFilter?: FilterNode;
   tile: DashboardTile;
@@ -360,6 +374,12 @@ function TileValue({
    */
   const sourceDb = tile.database_id ?? db;
   const crossDatabase = sourceDb !== db;
+  /**
+   * #306 — no view database AND no tile database. That is UNCONFIGURED, not
+   * broken: #305's rule. The tile keeps its place and asks to be pointed
+   * somewhere, and cleanViewConfig must never garbage-collect it.
+   */
+  const unconfigured = !sourceDb;
 
   /**
    * A CROSS-DATABASE tile must not inherit the view's scope.
@@ -384,7 +404,8 @@ function TileValue({
         : queryBodyFromConfig(config, scoped as FilterNode | undefined),
     [crossDatabase, config, scoped],
   );
-  const records = useRecordsInfinite(ws, sourceDb, queryBody);
+  // `enabled` inside the hook keeps an unconfigured tile from querying at all.
+  const records = useRecordsInfinite(ws, sourceDb ?? '', queryBody);
   const { hasNextPage, isFetchingNextPage, fetchNextPage } = records;
   // Aggregate over the whole matching set, not just page 1.
   useEffect(() => {
@@ -393,6 +414,9 @@ function TileValue({
 
   const rows = useMemo(() => (records.data?.pages ?? []).flatMap((p) => p.data), [records.data]);
   const loading = records.isLoading || hasNextPage || isFetchingNextPage;
+  if (unconfigured) {
+    return <span className="text-[13px] font-normal text-muted">Pick a database</span>;
+  }
   if (loading) return <span className="text-muted">…</span>;
   /**
    * #304 — the query is grant-scoped server-side, so a source the VIEWER cannot

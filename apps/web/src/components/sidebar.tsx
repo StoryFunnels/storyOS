@@ -8,7 +8,7 @@ import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { computeReorder } from '@/lib/reorder';
-import { Activity, Cable, Check, ChevronRight, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, GitPullRequest, GripVertical, Home, Inbox, KeyRound, LayoutTemplate, MoreHorizontal, Package, Plug, Plus, Search, Settings, Star, UserRound, Webhook, X } from 'lucide-react';
+import { Activity, Cable, Check, ChevronRight, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, LayoutDashboard, GitPullRequest, GripVertical, Home, Inbox, KeyRound, LayoutTemplate, MoreHorizontal, Package, Plug, Plus, Search, Settings, Star, UserRound, Webhook, X } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -536,9 +536,44 @@ function SpaceSection({
     onError: () => toast.error('Could not move view'),
   });
   /** Placement is per-view; the database is only needed to address the route. */
+  const moveSpaceViewToFolder = useMutation({
+    mutationFn: async (v: { id: string; folderId: string | null }) => {
+      const { error } = await api.PATCH('/api/v1/workspaces/{ws}/views/{view}', {
+        params: { path: { ws, view: v.id } },
+        body: { folder_id: v.folderId } as never,
+      } as never);
+      if (error) throw error;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['space-views', ws, space.id] }),
+    onError: () => toast.error('Could not move view'),
+  });
+
+  // #306 — a dashboard that lives in the SPACE, owning no database.
+  const createSpaceDashboard = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await api.POST('/api/v1/workspaces/{ws}/spaces/{space}/views', {
+        params: { path: { ws, space: space.id } },
+        body: { name: 'Dashboard', type: 'dashboard' } as never,
+      } as never);
+      if (error) throw error;
+      return data as unknown as { id: string };
+    },
+    onSuccess: (v) => {
+      void qc.invalidateQueries({ queryKey: ['space-views', ws, space.id] });
+      router.push(`/w/${ws}/v/${v.id}`);
+    },
+    onError: () => toast.error('Could not create dashboard'),
+  });
+
   const onMoveView = (viewId: string, folderId: string | null) => {
     const view = spaceViews.find((v) => v.id === viewId);
-    if (!view?.database_id) return;
+    if (!view) return;
+    // #306 — a space-level view has no database to route the PATCH through, so
+    // it uses the view-first endpoint. Both end in the same folder_id write.
+    if (!view.database_id) {
+      moveSpaceViewToFolder.mutate({ id: viewId, folderId });
+      return;
+    }
     moveViewToFolder.mutate({ id: viewId, databaseId: view.database_id, folderId });
   };
 
@@ -638,6 +673,12 @@ function SpaceSection({
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => createDoc.mutate()}>
                   <FileText className="mr-2 h-3.5 w-3.5" /> New document
+                </DropdownMenuItem>
+                {/* #306 — a dashboard is the one view type that belongs to the
+                    SPACE rather than a database: it composes queries instead of
+                    rendering rows of one table. */}
+                <DropdownMenuItem onSelect={() => createSpaceDashboard.mutate()}>
+                  <LayoutDashboard className="mr-2 h-3.5 w-3.5" /> New dashboard
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onSelect={() => {
@@ -772,6 +813,23 @@ function SpaceSection({
               </DndContext>
             );
           })()}
+          {/* #306 — views that belong to the SPACE, not to any database: a
+              space-level dashboard. They match no database row above, so
+              without this they simply would not render. Foldered ones are
+              already drawn by FolderSection. */}
+          {spaceViews
+            .filter((v) => !v.database_id && !v.folder_id)
+            .map((v) => (
+              <SidebarViewRow
+                key={v.id}
+                ws={ws}
+                view={v}
+                active={pathname === `/w/${ws}/v/${v.id}`}
+                folders={folders}
+                onMove={onMoveView}
+                canEdit={canEdit}
+              />
+            ))}
           {(docs.data ?? []).map((d) => (
             // #219: mirror DatabaseRow so documents and databases share ONE left
             // edge and the same active/hover treatment. Previously the doc row had
