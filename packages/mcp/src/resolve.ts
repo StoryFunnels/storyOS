@@ -137,3 +137,36 @@ export async function resolveDatabase(client: Client, workspaceId: string, ref: 
   }
   throw new Error(`No database matches "${ref}" in this workspace. Available: ${list.map(qualify).join(', ') || '(none)'}.`);
 }
+
+/**
+ * #347 — resolve a sidebar folder by id or name, within ONE space.
+ *
+ * Folder names are only unique-ish per space, so this refuses an ambiguous
+ * match rather than picking the first (MN-153's rule, applied here too): a view
+ * silently landing in the wrong folder is the kind of quiet wrong-place bug
+ * nobody reports, they just re-file it by hand forever.
+ */
+export async function resolveFolder(
+  client: Client,
+  workspaceId: string,
+  spaceId: string,
+  ref: string,
+): Promise<string> {
+  const res = await client.GET('/api/v1/workspaces/{ws}/spaces/{space}/folders', {
+    params: { path: { ws: workspaceId, space: spaceId } },
+  } as never);
+  const list = ((res as { data?: { data?: Array<{ id: string; name: string }> } }).data?.data ?? []);
+  const lower = ref.trim().toLowerCase();
+
+  const byId = list.find((f) => f.id === ref);
+  if (byId) return byId.id;
+
+  const exact = list.filter((f) => f.name.toLowerCase() === lower);
+  if (exact.length === 1) return exact[0]!.id;
+  if (exact.length > 1) {
+    throw new Error(`"${ref}" matches ${exact.length} folders in this space. Pass the folder id instead.`);
+  }
+  throw new Error(
+    `No folder matches "${ref}" in this space. Available: ${list.map((f) => f.name).join(', ') || '(none)'}.`,
+  );
+}
