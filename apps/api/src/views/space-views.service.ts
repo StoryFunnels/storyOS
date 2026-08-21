@@ -1,8 +1,14 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { and, asc, eq, inArray, or } from 'drizzle-orm';
+import {
+  ForbiddenException,
+  Inject,
+  Injectable,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
+import { and, asc, desc, eq, inArray, or } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { databases, spaces, views } from '../db/schema';
+import { databases, spaceFolders, spaces, views } from '../db/schema';
 import { AccessService } from '../access/access.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 
@@ -99,5 +105,120 @@ export class SpaceViewsService {
         /** #291 — the sidebar badges a personal view; it never exposes whose. */
         personal: v.ownerUserId !== null,
       }));
+  }
+
+  /**
+   * #306 — the same door as `listForSpace`, factored out so create/get/move
+   * cannot drift from list. Returns the space row once the viewer is cleared.
+   */
+  private async assertVisibleSpace(membership: Membership, spaceId: string) {
+    const space = await this.db.query.spaces.findFirst({
+      where: and(eq(spaces.id, spaceId), eq(spaces.workspaceId, membership.workspaceId)),
+      columns: { id: true, personal: true, ownerUserId: true },
+    });
+    if (!space) throw new NotFoundException('Space not found');
+    if (!this.access.canSeePersonal(membership, space)) throw new NotFoundException('Space not found');
+    const visible = await this.access.visibleSpaceIds(membership);
+    if (visible !== null && !visible.has(spaceId)) throw new NotFoundException('Space not found');
+    return space;
+  }
+
+  /**
+   * #306 — create a view that lives in a SPACE and owns no database.
+   *
+   * Only a dashboard, in v1. Every other view type renders rows OF something, so
+   * a table or board with no database is a view of nothing — accepting one would
+   * create rows that no surface can draw. A dashboard composes independent
+   * queries, which is exactly why it never fitted inside one database (#304).
+   */
+  async createForSpace(
+    membership: Membership,
+    spaceId: string,
+    input: { name: string; type: string; folder_id?: string | null },
+    createdBy: string,
+  ) {
+    await this.assertVisibleSpace(membership, spaceId);
+    // Space-level views are content, not schema — same rank views need elsewhere.
+    await this.access.assertSpace(membership, spaceId, 'editor').catch(() => {
+      throw new ForbiddenException('You need edit access to this space.');
+    });
+    if (input.type !== 'dashboard') {
+      throw new UnprocessableEntityException(
+        `A space-level view must be a dashboard. "${input.type}" renders rows of a database, so it needs one — create it on the database instead.`,
+      );
+    }
+    if (input.folder_id) await this.assertFolderInSpace(spaceId, input.folder_id);
+
+    const [last] = await this.db
+      .select({ position: views.position })
+      .from(views)
+      .where(eq(views.spaceId, spaceId))
+      .orderBy(desc(views.position))
+      .limit(1);
+
+    const [row] = await this.db
+      .insert(views)
+      .values({
+        // databaseId deliberately absent — views_owner_xor enforces exactly one,
+        // and this is the space side of it.
+        spaceId,
+        folderId: input.folder_id ?? null,
+        name: input.name,
+        type: 'dashboard',
+        config: {},
+        position: (last?.position ?? -1) + 1,
+        createdBy,
+      })
+      .returning();
+    return row!;
+  }
+
+  /** #306 — a folder must belong to the space the view lives in. */
+  private async assertFolderInSpace(spaceId: string, folderId: string) {
+    const folder = await this.db.query.spaceFolders.findFirst({
+      where: eq(spaceFolders.id, folderId),
+      columns: { spaceId: true },
+    });
+    if (!folder) throw new NotFoundException('Folder not found');
+    if (folder.spaceId !== spaceId) {
+      throw new UnprocessableEntityException('That folder belongs to a different space.');
+    }
+  }
+
+  /**
+   * #306 — read one view by id, for the view-first route a database-less view
+   * needs. A view WITH a database keeps its existing /databases/:db path; this
+   * resolves either, so one route can serve both and no URL had to change.
+   */
+  async getById(membership: Membership, viewId: string) {
+    const view = await this.db.query.views.findFirst({ where: eq(views.id, viewId) });
+    if (!view) throw new NotFoundException('View not found');
+    // #291 — another member's personal view is not merely hidden from lists.
+    if (view.ownerUserId && view.ownerUserId !== membership.userId) {
+      throw new NotFoundException('View not found');
+    }
+    if (view.spaceId) {
+      await this.assertVisibleSpace(membership, view.spaceId);
+    } else if (view.databaseId) {
+      const database = await this.db.query.databases.findFirst({
+        where: and(eq(databases.id, view.databaseId), eq(databases.workspaceId, membership.workspaceId)),
+        columns: { id: true, spaceId: true },
+      });
+      if (!database) throw new NotFoundException('View not found');
+      if (!(await this.access.effectiveForDatabase(membership, database))) {
+        throw new NotFoundException('View not found');
+      }
+    }
+    return {
+      id: view.id,
+      name: view.name,
+      type: view.type,
+      config: view.config,
+      database_id: view.databaseId,
+      space_id: view.spaceId,
+      folder_id: view.folderId,
+      is_default: view.isDefault,
+      personal: view.ownerUserId !== null,
+    };
   }
 }

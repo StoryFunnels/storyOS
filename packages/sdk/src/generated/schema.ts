@@ -1196,6 +1196,24 @@ export interface paths {
         /** Views navigable in a space, for the sidebar tree (#347) */
         get: operations["SpaceViewsController_list"];
         put?: never;
+        /** Create a space-level view — dashboards only (#306) */
+        post: operations["SpaceViewsController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/views/{view}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One view by id, with or without a database (#306) */
+        get: operations["SpaceViewsController_get"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -4079,6 +4097,12 @@ export interface components {
         SetPersonalFilterDto: {
             filter: components["schemas"]["SetPersonalFilterDto__schema0"];
         };
+        CreateSpaceViewDto: {
+            name: string;
+            type: string;
+            /** Format: uuid */
+            folder_id?: string | null;
+        };
         PreferencesPatchDto: {
             notifications?: {
                 assigned?: boolean;
@@ -6809,6 +6833,48 @@ export interface operations {
             header?: never;
             path: {
                 space: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SpaceViewsController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                space: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSpaceViewDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SpaceViewsController_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                view: string;
             };
             cookie?: never;
         };
