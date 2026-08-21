@@ -11,6 +11,7 @@ import { api } from '@/lib/api';
 import { uploadEditorImage } from '@/lib/editor-upload';
 import { useTheme } from '@/lib/theme';
 import { MarkdownActions } from '@/components/entity/markdown-actions';
+import { PrintAction } from '@/components/entity/print-action';
 import {
   MentionScope,
   MentionSuggestionMenus,
@@ -85,7 +86,13 @@ function DocEditor({
 
   return (
     <div className="mx-auto max-w-3xl px-8 py-8">
-      <div className="mb-4 flex items-start gap-2">
+      {/* #262 — the title lives in an <input>, and an input's VALUE is not
+          printed reliably across engines (WebKit drops it entirely). Mirrored
+          into a print-only heading so a printed document is not untitled. */}
+      <h1 data-print="title" className="hidden">
+        {title || 'Untitled'}
+      </h1>
+      <div className="mb-4 flex items-start gap-2" data-print="hide">
         <input
           className="w-full bg-transparent text-3xl font-bold text-ink outline-none placeholder:text-faint"
           placeholder="Untitled"
@@ -97,6 +104,7 @@ function DocEditor({
         />
         <span className="mt-2 shrink-0">
           <MarkdownActions editor={editor} filename={title || 'document'} />
+          <PrintAction />
         </span>
       </div>
       <MentionScope ws={ws}>
