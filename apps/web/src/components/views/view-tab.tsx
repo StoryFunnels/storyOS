@@ -31,7 +31,12 @@ import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import type { ViewSummary, useViewMutations } from './use-view-state';
 
-const VIEW_ICON = {
+/**
+ * #347 — exported so the SIDEBAR draws a view with the same icon its tab does.
+ * A second map here is how the two drift; field-surfaces doctrine, applied to
+ * views rather than fields.
+ */
+export const VIEW_ICON = {
   board: Kanban,
   calendar: CalendarDays,
   gallery: LayoutGrid,

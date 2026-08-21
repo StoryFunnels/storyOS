@@ -14,7 +14,7 @@ import { SYSTEM_FIELDS, SYSTEM_FIELD_BY_API_NAME } from '@storyos/schemas/system
 // Type-only — erased at compile time, so unlike a value import this does NOT pull
 // the zod-bearing barrel into the bundle (see note above).
 import type { FilterOp } from '@storyos/schemas';
-import { listDatabases, listSkills, listWorkspaces, resolveDatabase, resolveSkill, resolveWorkspace } from './resolve.js';
+import { listDatabases, listSkills, listWorkspaces, resolveDatabase, resolveFolder, resolveSkill, resolveWorkspace } from './resolve.js';
 import { databaseUrl, recordUrl, viewUrl } from './links.js';
 import {
   annotateActions,
@@ -1527,17 +1527,19 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         form_access: z.enum(['members', 'link', 'public']).optional().describe('form: who can open/submit it — members (signed-in only, default), link (anyone with the generated link), or public. link/public auto-generate a shareable token, returned in the result as config.form.public_token (the public URL is <web app>/f/<public_token>).'),
         form_success_message: z.string().max(500).optional().describe('form: message shown after a successful submit.'),
         form_redirect_url: z.string().url().max(500).optional().describe('form: redirect here instead of showing success_message.'),
+        folder: z.string().optional().describe('#347 — put the view in this sidebar FOLDER (name or id) instead of nesting it under its database. Placement only: the view still belongs to its database. Omit to nest it under the database, which is the default.'),
       },
     },
-    handle<{ workspace: string; database: string; name: string; type: string } & ViewOpts>(
-      async ({ workspace, database, name, type, ...rest }) => {
+    handle<{ workspace: string; database: string; name: string; type: string; folder?: string } & ViewOpts>(
+      async ({ workspace, database, name, type, folder, ...rest }) => {
         const ws = await resolveWorkspace(client, workspace);
         const db = await resolveDatabase(client, ws.id, database);
         const detail = await getDetail(ws.id, db.id);
+        const folderId = folder && db.spaceId ? await resolveFolder(client, ws.id, db.spaceId, folder) : undefined;
         const view = await unwrap<unknown>(
           client.POST('/api/v1/workspaces/{ws}/databases/{db}/views', {
             params: { path: { ws: ws.id, db: db.id } },
-            body: { name, type, config: buildViewConfig(detail, type, rest) } as never,
+            body: { name, type, config: buildViewConfig(detail, type, rest), ...(folderId ? { folder_id: folderId } : {}) } as never,
           }),
         );
         return text(view);
@@ -1570,16 +1572,26 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         form_access: z.enum(['members', 'link', 'public']).optional(),
         form_success_message: z.string().max(500).optional(),
         form_redirect_url: z.string().url().max(500).optional(),
+        folder: z.string().optional().describe('#347 — move the view into this sidebar FOLDER (name or id). Pass null to move it back under its database. Placement only; the view still belongs to its database.'),
+        unfile: z.boolean().optional().describe('#347 — move the view back out of its folder, to nest under its database again. Use this rather than folder:null, which MCP cannot express.'),
       },
     },
-    handle<{ workspace: string; database: string; view: string; rename_to?: string } & ViewOpts>(
-      async ({ workspace, database, view, rename_to, ...rest }) => {
+    handle<{ workspace: string; database: string; view: string; rename_to?: string; folder?: string; unfile?: boolean } & ViewOpts>(
+      async ({ workspace, database, view, rename_to, folder, unfile, ...rest }) => {
         const ws = await resolveWorkspace(client, workspace);
         const db = await resolveDatabase(client, ws.id, database);
         const detail = await getDetail(ws.id, db.id);
         const v = resolveView(detail, view);
         const patch: Record<string, unknown> = {};
         if (rename_to) patch.name = rename_to;
+        // #347 — placement. `undefined` leaves it alone; an explicit null moves the
+        // view back under its database. Those are different operations, and the two
+        // must stay distinguishable here exactly as they are in the API.
+        if (unfile) patch.folder_id = null;
+        else if (folder) {
+          if (!db.spaceId) throw new Error('Cannot resolve a folder: this database has no space.');
+          patch.folder_id = await resolveFolder(client, ws.id, db.spaceId, folder);
+        }
         // #191: `filters` and `sorts` were MISSING here, so `update_view` with only
         // a filter never rebuilt the config → patch stayed `{}` → the service did a
         // Drizzle `.set()` with all-undefined → "no values to set" → 500. They're

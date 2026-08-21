@@ -33,11 +33,37 @@ the tree.
 
 **Decision.** Views become the third leaf type in the existing sidebar tree.
 
-**Why this is small.** The skeleton was already built. `space_folders` exists
-(MN-096), and both `databases.folderId` and `space_documents.folderId` are
-nullable FKs into it, so mixed leaf types in one folder already render. Views
-were the only navigable thing with no way into the tree — they appear nowhere in
-`apps/web/src/components/sidebar.tsx`.
+**How much of this already exists — corrected 2026-08-21.** An earlier revision
+of this ADR claimed "mixed leaf types in one folder already render". **That was
+wrong**, and the correction matters because it changes what #347 costs.
+
+What is actually true:
+
+| Piece | State |
+|---|---|
+| `space_folders` table (MN-096) | Exists, used |
+| `databases.folderId` | Exists, returned, rendered, draggable |
+| `space_documents.folderId` | **Column exists — never returned by the API, never rendered** |
+| views in the tree | Nothing at all |
+
+`FolderSection` in `apps/web/src/components/sidebar.tsx` takes a `databases`
+prop and only that. `SpaceDocumentsService.list` returns
+`{ id, space_id, title, icon }` — no `folder_id`. So documents are a leaf type
+that was given the column and never wired up, and **folders today hold databases
+only.**
+
+Two consequences:
+
+- The tree is **not** yet multi-type. Adding views makes it multi-type for the
+  first time, so `FolderSection` has to generalise rather than take one more prop.
+- **There is no document drag handler to reuse.** The pattern to follow is the
+  DATABASE one (`moveToFolder` → `updateDatabase({folder_id})` plus the dnd-kit
+  `onDatabaseDragEnd`). Any instruction to "reuse the document handler" is
+  pointing at something that does not exist.
+
+Documents being half-wired is its own small gap — worth finishing while
+`FolderSection` is being generalised, since it is then nearly free — but it is
+not a prerequisite for views.
 
 **Therefore: do not introduce a fourth container.** Anything that wants a home in
 the sidebar becomes a leaf type on this tree. A "dashboard container", a "board
@@ -125,8 +151,8 @@ database — permissible because it composes queries rather than containing data
 
 **Decision.** Two gates, in order:
 
-1. **The space.** Can the viewer see the space the view sits in? No → 404
-   (`assertSpace`, `notOthersPersonal`). This is the door.
+1. **The space.** Can the viewer see the space the view sits in *at all*? No →
+   404. This is the door.
 2. **Each source database.** Resolve every source against the **viewer** with
    `AccessService.effectiveForDatabase`, and drop the sources that return null.
 
@@ -138,6 +164,30 @@ exist is the confusing answer, and an empty grid is a lie.
 **Use `effectiveForDatabase` (returns null), not `DatabasesService.assertAccess`
 (throws).** Per-source filtering needs a value it can branch on; a throw collapses
 the whole view when one source is unreadable.
+
+### The door is `visibleSpaceIds`, NOT `assertSpace` — corrected 2026-08-21
+
+An earlier revision of this section said `assertSpace`. **That is wrong, and it
+404s a space the user is actively looking at.** Found by test while building
+#347's endpoint.
+
+`assertSpace` → `effectiveForSpace` matches only **space-scoped** grants. But
+`visibleSpaceIds` adds the **parent space of every database-scoped grant** — so a
+guest granted one database sees that space in their sidebar, clicks it, and
+`assertSpace` denies a space the product just showed them. The two functions
+disagree about what "can see this space" means, and the sidebar follows
+`visibleSpaceIds`.
+
+So the door is:
+
+1. Space exists in this workspace, else 404.
+2. `canSeePersonal` — #291, no admin bypass — else 404.
+3. `visibleSpaceIds(membership)`: `null` means full access (admin/member); a Set
+   must contain this space, else 404.
+
+Then the per-database filter decides what is actually in it. Note that step 3
+alone is *not* sufficient — it is exactly the space-only shortcut this section
+warns about — which is why the per-source check is not optional.
 
 ### The fact that makes this cheap
 
@@ -221,4 +271,9 @@ first thing that needs it — so no dead routes ship in between.
 - [ ] `notOthersPersonalView` applied wherever views are listed.
 - [ ] `describe_database` still lists a database's views after one is moved into
       a folder.
-- [ ] The drag handler is the document one, reused — not a second implementation.
+- [ ] `FolderSection` is GENERALISED over leaf types — not given a second prop
+      per type. It takes `databases` only today; views make it multi-type for the
+      first time (see §2), and one more prop is how seven of them accumulate.
+- [ ] Placement reuses the DATABASE drag pattern (`moveToFolder` →
+      `updateDatabase({folder_id})` + `onDatabaseDragEnd`). There is no document
+      drag handler to copy.
