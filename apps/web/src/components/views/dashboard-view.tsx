@@ -3,6 +3,8 @@
 import { useEffect, useMemo } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { useDatabase, useMembers, useRecordsInfinite } from '../table-view/use-table-data';
+import { useDatabases } from '@/lib/queries';
+import { toast } from 'sonner';
 import type { FilterNode, ViewConfig, FilterGroup } from './use-view-state';
 import { andFilterNodes, queryBodyFromConfig } from './use-view-state';
 import { FiltersSection } from './view-toolbar';
@@ -26,6 +28,11 @@ export interface DashboardTile {
   field_api_name?: string;
   /** #304 — this tile's own scope, ANDed with the view's filter. */
   filter?: FilterNode;
+  /**
+   * #304 — the database this tile measures. Omitted = the view's own database,
+   * so every dashboard saved before this renders identically with no migration.
+   */
+  database_id?: string;
 }
 
 const SELECT_CLASS =
@@ -84,6 +91,25 @@ export function DashboardView({
   const fields = database.data?.fields ?? [];
   // Phase 1: numeric ops target plain number fields (formula/rollup targets later).
   const numberFields = useMemo(() => fields.filter((f) => f.type === 'number'), [fields]);
+
+  /**
+   * #304 — databases a tile may point at: the ones in THIS dashboard's space that
+   * the EDITOR can see. `useDatabases` is already grant-scoped, so an editor is
+   * never offered a source they cannot read — the picker cannot be the thing that
+   * builds a leak. Space-scoped in v1 for the same reason #306 defers
+   * workspace-root dashboards.
+   */
+  const allDatabases = useDatabases(ws).data ?? [];
+  const sourceOptions = useMemo(() => {
+    const spaceId = allDatabases.find((d) => d.id === db)?.spaceId;
+    const inSpace = spaceId ? allDatabases.filter((d) => d.spaceId === spaceId) : allDatabases;
+    // The view's own database first and always present, even if the list is
+    // still loading — a picker whose current value is missing renders blank and
+    // looks like the tile lost its source.
+    const rest = inSpace.filter((d) => d.id !== db);
+    return [{ id: db, name: database.data?.name ?? 'This database' }, ...rest.map((d) => ({ id: d.id, name: d.name }))];
+  }, [allDatabases, db, database.data?.name]);
+  const sourceName = (id: string) => sourceOptions.find((o) => o.id === id)?.name ?? 'the previous database';
   const fieldName = useMemo(() => new Map(fields.map((f) => [f.apiName, f.displayName])), [fields]);
 
   function patchTiles(next: DashboardTile[]) {
@@ -166,18 +192,55 @@ export function DashboardView({
                     onChange={(e) => updateTile(tile.id, { label: e.target.value })}
                     className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink placeholder:text-faint"
                   />
+                  {/* #304 — what this tile measures. Scoped to the dashboard's own
+                      SPACE in v1: offering a picker wider than the access story is
+                      how the leak gets built (#306 defers workspace-root for the
+                      same reason). */}
+                  <select
+                    aria-label="Tile source database"
+                    value={tile.database_id ?? db}
+                    onChange={(e) => {
+                      const next = e.target.value === db ? undefined : e.target.value;
+                      if ((tile.database_id ?? db) === (next ?? db)) return;
+                      // The filter references the OLD database's fields by
+                      // api_name. Keeping it would query the new database with
+                      // columns it does not have — a tile that looks configured and
+                      // measures nothing, which is the exact failure this ticket
+                      // exists to end. Clearing it silently would lose the user's
+                      // work with no warning, so: clear, and say so.
+                      const hadFilter = tile.filter != null;
+                      updateTile(tile.id, { database_id: next, filter: undefined, field_api_name: undefined });
+                      if (hadFilter) {
+                        toast.info(`Filter cleared — it referred to ${sourceName(tile.database_id ?? db)}'s fields.`);
+                      }
+                    }}
+                    className={SELECT_CLASS}
+                  >
+                    {sourceOptions.map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.name}
+                      </option>
+                    ))}
+                  </select>
                   {/* #304 — this tile's own scope. The SAME builder the view toolbar
                       uses (one filter spec, one UI), so a tile can measure a slice
                       instead of every tile repeating the view's total. No viewId is
-                      passed: Personal scope is a per-VIEW override, not a per-tile one. */}
-                  <FiltersSection
-                    ws={ws}
-                    db={db}
-                    fields={fields}
-                    members={memberList}
-                    filters={tile.filter as FilterGroup | undefined}
-                    onChange={(filter) => updateTile(tile.id, { filter: filter as FilterNode | undefined })}
-                  />
+                      passed: Personal scope is a per-VIEW override, not a per-tile one.
+
+                      Only offered for a tile on the view's OWN database: this
+                      builder needs that database's field list, and handing it the
+                      wrong one produces conditions the query cannot honour. A
+                      cross-database tile filters by choosing its source for now. */}
+                  {(tile.database_id ?? db) === db && (
+                    <FiltersSection
+                      ws={ws}
+                      db={db}
+                      fields={fields}
+                      members={memberList}
+                      filters={tile.filter as FilterGroup | undefined}
+                      onChange={(filter) => updateTile(tile.id, { filter: filter as FilterNode | undefined })}
+                    />
+                  )}
                   <div className="flex gap-1.5">
                     <select
                       aria-label="Aggregation"
@@ -291,15 +354,37 @@ function TileValue({
   personalFilter?: FilterNode;
   tile: DashboardTile;
 }) {
+  /**
+   * #304 — which database this tile measures. Falls back to the view's, which is
+   * how every dashboard saved before this keeps working with no config migration.
+   */
+  const sourceDb = tile.database_id ?? db;
+  const crossDatabase = sourceDb !== db;
+
+  /**
+   * A CROSS-DATABASE tile must not inherit the view's scope.
+   *
+   * The view's filter, sorts and the viewer's personal override all reference the
+   * VIEW database's fields by api_name. Applying them to another database asks it
+   * about columns it does not have — at best an error, at worst a silent mismatch
+   * where an api_name happens to exist on both and means something different.
+   * That second case is the dangerous one: a tile that looks configured and
+   * measures the wrong thing.
+   *
+   * So a cross-database tile is scoped by its OWN filter and nothing else.
+   */
   const scoped = useMemo(
-    () => andFilterNodes(personalFilter, tile.filter),
-    [personalFilter, tile.filter],
+    () => (crossDatabase ? tile.filter : andFilterNodes(personalFilter, tile.filter)),
+    [crossDatabase, personalFilter, tile.filter],
   );
   const queryBody = useMemo(
-    () => queryBodyFromConfig(config, scoped as FilterNode | undefined),
-    [config, scoped],
+    () =>
+      crossDatabase
+        ? { filters: scoped as FilterNode | undefined }
+        : queryBodyFromConfig(config, scoped as FilterNode | undefined),
+    [crossDatabase, config, scoped],
   );
-  const records = useRecordsInfinite(ws, db, queryBody);
+  const records = useRecordsInfinite(ws, sourceDb, queryBody);
   const { hasNextPage, isFetchingNextPage, fetchNextPage } = records;
   // Aggregate over the whole matching set, not just page 1.
   useEffect(() => {
@@ -309,5 +394,18 @@ function TileValue({
   const rows = useMemo(() => (records.data?.pages ?? []).flatMap((p) => p.data), [records.data]);
   const loading = records.isLoading || hasNextPage || isFetchingNextPage;
   if (loading) return <span className="text-muted">…</span>;
+  /**
+   * #304 — the query is grant-scoped server-side, so a source the VIEWER cannot
+   * read fails rather than returning rows. Say so. Rendering 0 here would be a
+   * lie: "no access" and "adds up to zero" are different answers, and a tile
+   * quietly reading 0 is indistinguishable from an empty database.
+   */
+  if (records.isError) {
+    return (
+      <span className="text-[13px] font-normal text-muted" title="You don't have access to this tile's database">
+        No access
+      </span>
+    );
+  }
   return <>{formatTileValue(computeTileValue(tile.op, tile.field_api_name, rows))}</>;
 }

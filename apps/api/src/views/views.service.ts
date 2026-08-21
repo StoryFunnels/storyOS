@@ -113,13 +113,20 @@ export function cleanViewConfig(
     // garbage-collected on the very next read — the card "deleted itself".
     // "Unconfigured" and "dangling" are different states; only the latter is junk.
     dashboard_tiles: (config.dashboard_tiles ?? [])
-      .filter((t) => t.field_api_name == null || liveApiNames.has(t.field_api_name))
-      // #304: a tile's own filter gets the same pruning the view's filter gets —
-      // a condition on a deleted field is dropped rather than left to fail at query
+      // #304: a tile that names its OWN source database is measured against THAT
+      // database's fields, and this function only knows the view's. Pruning it
+      // here would delete a perfectly valid cross-database tile the moment its
+      // field name happened not to exist on the view's database — the #305 defect
+      // wearing a different hat. Such a tile is passed through untouched; its own
+      // database's schema is the only thing entitled to invalidate it.
+      .filter((t) => t.database_id != null || t.field_api_name == null || liveApiNames.has(t.field_api_name))
+      // A tile's own filter gets the same pruning the view's filter gets — a
+      // condition on a deleted field is dropped rather than left to fail at query
       // time. The TILE itself survives (it is still configured); only the dead
-      // condition goes, exactly as cleanFilterNode does for the view.
+      // condition goes, exactly as cleanFilterNode does for the view. Same
+      // cross-database exemption applies.
       .map((t) =>
-        t.filter
+        t.filter && t.database_id == null
           ? { ...t, filter: cleanFilterNode(t.filter, liveApiNames) as typeof t.filter }
           : t,
       ),

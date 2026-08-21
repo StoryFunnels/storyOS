@@ -3882,6 +3882,8 @@ export interface components {
                     op: "count" | "sum" | "avg" | "min" | "max";
                     field_api_name?: string;
                     filter?: components["schemas"]["CreateViewDto__schema0"];
+                    /** Format: uuid */
+                    database_id?: string;
                 }[];
                 /** @default [] */
                 dashboard_widgets: {
@@ -4000,6 +4002,8 @@ export interface components {
                     op: "count" | "sum" | "avg" | "min" | "max";
                     field_api_name?: string;
                     filter?: components["schemas"]["UpdateViewDto__schema0"];
+                    /** Format: uuid */
+                    database_id?: string;
                 }[];
                 /** @default [] */
                 dashboard_widgets: {

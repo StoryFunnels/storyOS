@@ -27,6 +27,14 @@ export const dashboardTileSchema = z.object({
    * Same filter AST as views / /records/query / rollups — never a second language.
    */
   filter: filterSchema.optional(),
+  /**
+   * #304 — the database this tile measures. Omitted = the view's own database,
+   * which is how every dashboard saved before this keeps working with no config
+   * migration. A #306 space-level dashboard has no view database, so a tile there
+   * with no `database_id` is UNCONFIGURED (render the picker) — not invalid, and
+   * never garbage-collected (#305's rule).
+   */
+  database_id: z.uuid().optional(),
 });
 export type DashboardTile = z.infer<typeof dashboardTileSchema>;
 
