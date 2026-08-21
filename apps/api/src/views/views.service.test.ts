@@ -182,6 +182,49 @@ describe('cleanViewConfig — dashboard metric tiles (MN-225 / #168)', () => {
     expect(result![0]!.filter).toBeUndefined();
   });
 
+  // #304 — a tile that names its OWN source database is measured against THAT
+  // database's fields, and this function only ever knows the VIEW's. Pruning such
+  // a tile here would delete a perfectly valid cross-database tile the moment its
+  // field name happened not to exist on the view's database: #305's defect wearing
+  // a different hat, and the one this change nearly shipped.
+  it('KEEPS a cross-database tile whose field is unknown to the VIEW database (#304)', () => {
+    const result = tiles([
+      {
+        id: '88888888-8888-8888-8888-888888888888',
+        label: 'Revenue elsewhere',
+        op: 'sum',
+        field_api_name: 'ghost', // not live HERE — but this tile measures another database
+        database_id: '99999999-9999-9999-9999-999999999999',
+      } as never,
+    ]);
+    expect(result, 'a cross-database tile must survive the view database schema').toHaveLength(1);
+    expect(result![0]!.field_api_name).toBe('ghost');
+  });
+
+  it('does NOT prune a cross-database tile\'s filter against the view\'s fields (#304)', () => {
+    const result = tiles([
+      {
+        id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+        label: '',
+        op: 'count',
+        filter: { and: [{ field: 'ghost', op: 'eq', value: 1 }] },
+        database_id: '99999999-9999-9999-9999-999999999999',
+      } as never,
+    ]);
+    expect(result).toHaveLength(1);
+    // Untouched: 'ghost' may well be a live field on the OTHER database.
+    expect(result![0]!.filter).toEqual({ and: [{ field: 'ghost', op: 'eq', value: 1 }] });
+  });
+
+  // The exemption must be narrow. A tile with NO database_id is still the view's
+  // own, and still gets pruned — otherwise #305's fix silently stops applying.
+  it('still prunes a tile with no database_id — the exemption is narrow (#304)', () => {
+    const result = tiles([
+      { id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', label: '', op: 'avg', field_api_name: 'ghost' } as never,
+    ]);
+    expect(result).toHaveLength(0);
+  });
+
   it('defaults to an empty array when tiles are absent', () => {
     expect(tiles(undefined as unknown as ViewConfig['dashboard_tiles'])).toEqual([]);
   });
