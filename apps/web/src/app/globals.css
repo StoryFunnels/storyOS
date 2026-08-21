@@ -267,3 +267,143 @@ body {
   border-radius: var(--radius-control);
   padding: 0.05em 0.3em;
 }
+
+/* ============================================================================
+ * #262 — Print / Save-as-PDF.
+ *
+ * There was NO print CSS in this codebase at all, which is the whole complaint:
+ * "Printing a document does not lead to usable pdfs, text is simply cut through
+ * if it hits the margins." Screen layout is a fixed-height flex shell with an
+ * `overflow-hidden` root and a scrolling pane — print that and you get one page
+ * of whatever happened to be scrolled into view, with the rest cropped.
+ *
+ * This is the cheap first step the ticket asks for. It fixes browser
+ * Print-to-PDF; a server-rendered PDF is still open.
+ * ========================================================================= */
+@media print {
+  @page {
+    /* Generous enough that descenders and table borders are never shaved. */
+    margin: 18mm 16mm;
+  }
+
+  /* The scroll prison. `h-screen` + `overflow-hidden` on the shell is what
+     crops everything past the first page; height must become content-driven. */
+  html,
+  body {
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+  body * {
+    /* Print in ink, not in the dark-theme palette — a dark surface either eats
+       toner or renders as a black page depending on the driver. */
+    color: #111 !important;
+    background-color: transparent !important;
+    box-shadow: none !important;
+  }
+
+  /* App chrome. Anything marked no-print, plus the structural offenders: the
+     sidebar, sticky toolbars, and every control. A print stylesheet that leaves
+     buttons in produces a PDF with dead grey rectangles in it. */
+  [data-print='hide'],
+  nav,
+  aside,
+  button,
+  select,
+  [role='toolbar'],
+  [role='menu'],
+  [role='dialog'] {
+    display: none !important;
+  }
+
+  /* Undo the flex shell so the document is the page. */
+  [data-print='root'],
+  main {
+    display: block !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+  }
+
+  /* The title is an <input> on screen. Inputs do not print their value in every
+     engine, so it is mirrored into a print-only heading (see the doc page). */
+  input {
+    display: none !important;
+  }
+  [data-print='title'] {
+    display: block !important;
+    font-size: 22pt;
+    font-weight: 700;
+    margin: 0 0 12pt;
+  }
+
+  /* --- The actual cropping fix ---------------------------------------------
+     Long words, URLs, code and wide tables are what "cut through the margins".
+     Nothing may rely on horizontal scroll, because paper has none. */
+  * {
+    overflow: visible !important;
+  }
+  pre,
+  code,
+  .bn-editor code,
+  [data-content-type='codeBlock'] {
+    white-space: pre-wrap !important;
+    word-break: break-word !important;
+    overflow-wrap: anywhere !important;
+    border: 1px solid #ccc !important;
+    background: #f7f7f7 !important;
+  }
+  p,
+  li,
+  td,
+  th,
+  h1,
+  h2,
+  h3,
+  h4 {
+    overflow-wrap: anywhere;
+  }
+  table {
+    width: 100% !important;
+    table-layout: fixed !important;
+    border-collapse: collapse !important;
+  }
+  td,
+  th {
+    border: 1px solid #ccc !important;
+    padding: 4pt 6pt !important;
+    vertical-align: top;
+  }
+  img {
+    max-width: 100% !important;
+    height: auto !important;
+  }
+
+  /* --- Pagination ----------------------------------------------------------
+     A heading stranded at the foot of a page, or a table row split down the
+     middle, is the other half of "unusable". */
+  h1,
+  h2,
+  h3,
+  h4 {
+    break-after: avoid-page;
+    break-inside: avoid;
+  }
+  tr,
+  img,
+  pre,
+  blockquote,
+  [data-content-type='codeBlock'] {
+    break-inside: avoid;
+  }
+  p,
+  li {
+    /* Never leave one line of a paragraph alone on a page. */
+    orphans: 3;
+    widows: 3;
+  }
+}
