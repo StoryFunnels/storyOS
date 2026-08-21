@@ -55,16 +55,13 @@ export function SidebarViewRow({
   const Icon = VIEW_ICON[view.type as keyof typeof VIEW_ICON] ?? Table2;
 
   /**
-   * #347 ships NO url change: a database-owned view stays reachable at
-   * `/w/:ws/d/:db?view=`. A view with no database needs a view-first route and
-   * that arrives with #306, so until then it is rendered without a link rather
-   * than pointing at a route that does not exist.
+   * A database-owned view stays reachable at `/w/:ws/d/:db?view=` — #347 changed
+   * no URLs. A view with no database is addressed by the view-first route #306
+   * added, which is the only URL this initiative introduced.
    */
   const href = view.database_id
     ? `/w/${ws}/d/${view.database_id}?view=${view.id}`
-    : // #306 — a view with no database now HAS a route. Until that landed this
-      // rendered unlinked rather than pointing at a 404.
-      `/w/${ws}/v/${view.id}`;
+    : `/w/${ws}/v/${view.id}`;
 
   const label = (
     <>
