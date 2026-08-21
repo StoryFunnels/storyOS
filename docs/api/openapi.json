@@ -3188,6 +3188,43 @@
         "tags": [
           "views"
         ]
+      },
+      "patch": {
+        "operationId": "SpaceViewsController_update",
+        "parameters": [
+          {
+            "name": "view",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSpaceViewDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update a view by id — name / config / placement (#306)",
+        "tags": [
+          "views"
+        ]
       }
     },
     "/api/v1/users/me/avatar": {
@@ -10157,6 +10194,23 @@
           "name",
           "type"
         ]
+      },
+      "UpdateSpaceViewDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "config": {},
+          "folder_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+            "nullable": true
+          }
+        }
       },
       "PreferencesPatchDto": {
         "type": "object",

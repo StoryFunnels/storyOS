@@ -1218,7 +1218,8 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /** Update a view by id — name / config / placement (#306) */
+        patch: operations["SpaceViewsController_update"];
         trace?: never;
     };
     "/api/v1/users/me/avatar": {
@@ -4103,6 +4104,12 @@ export interface components {
             /** Format: uuid */
             folder_id?: string | null;
         };
+        UpdateSpaceViewDto: {
+            name?: string;
+            config?: unknown;
+            /** Format: uuid */
+            folder_id?: string | null;
+        };
         PreferencesPatchDto: {
             notifications?: {
                 assigned?: boolean;
@@ -6879,6 +6886,29 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SpaceViewsController_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                view: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateSpaceViewDto"];
+            };
+        };
         responses: {
             200: {
                 headers: {

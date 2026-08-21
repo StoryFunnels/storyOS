@@ -60,7 +60,11 @@ export function SidebarViewRow({
    * that arrives with #306, so until then it is rendered without a link rather
    * than pointing at a route that does not exist.
    */
-  const href = view.database_id ? `/w/${ws}/d/${view.database_id}?view=${view.id}` : null;
+  const href = view.database_id
+    ? `/w/${ws}/d/${view.database_id}?view=${view.id}`
+    : // #306 — a view with no database now HAS a route. Until that landed this
+      // rendered unlinked rather than pointing at a 404.
+      `/w/${ws}/v/${view.id}`;
 
   const label = (
     <>

@@ -221,4 +221,55 @@ export class SpaceViewsService {
       personal: view.ownerUserId !== null,
     };
   }
+
+  /**
+   * #306 — update a view addressed WITHOUT its database.
+   *
+   * The database-scoped PATCH stays the canonical one for a view that has a
+   * database; this exists because a space-level dashboard has no `:db` to route
+   * through. It deliberately handles only name / config / placement — the
+   * database-scoped endpoint owns config VALIDATION against live fields, which
+   * is meaningless for a view with no database.
+   */
+  async updateById(
+    membership: Membership,
+    viewId: string,
+    patch: { name?: string; config?: unknown; folder_id?: string | null },
+  ) {
+    const view = await this.db.query.views.findFirst({ where: eq(views.id, viewId) });
+    if (!view) throw new NotFoundException('View not found');
+    if (view.ownerUserId && view.ownerUserId !== membership.userId) {
+      throw new NotFoundException('View not found');
+    }
+
+    // Same door as everything else, resolved from whichever side this view has.
+    let spaceId = view.spaceId;
+    if (!spaceId && view.databaseId) {
+      const database = await this.db.query.databases.findFirst({
+        where: and(eq(databases.id, view.databaseId), eq(databases.workspaceId, membership.workspaceId)),
+        columns: { spaceId: true },
+      });
+      if (!database) throw new NotFoundException('View not found');
+      spaceId = database.spaceId;
+    }
+    if (!spaceId) throw new NotFoundException('View not found');
+    await this.assertVisibleSpace(membership, spaceId);
+    await this.access.assertSpace(membership, spaceId, 'editor').catch(() => {
+      throw new ForbiddenException('You need edit access to this space.');
+    });
+    if (patch.folder_id) await this.assertFolderInSpace(spaceId, patch.folder_id);
+
+    const [updated] = await this.db
+      .update(views)
+      .set({
+        name: patch.name,
+        config: patch.config as never,
+        // `undefined` leaves placement alone; explicit null unfiles it. Same
+        // distinction the database-scoped endpoint keeps.
+        ...(patch.folder_id !== undefined ? { folderId: patch.folder_id } : {}),
+      })
+      .where(eq(views.id, viewId))
+      .returning();
+    return updated!;
+  }
 }

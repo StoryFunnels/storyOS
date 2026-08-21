@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
@@ -18,6 +18,13 @@ const createSpaceViewSchema = z.object({
   folder_id: z.string().uuid().nullable().optional(),
 });
 class CreateSpaceViewDto extends createZodDto(createSpaceViewSchema) {}
+
+const updateSpaceViewSchema = z.object({
+  name: z.string().trim().min(1).max(100).optional(),
+  config: z.any().optional(),
+  folder_id: z.string().uuid().nullable().optional(),
+});
+class UpdateSpaceViewDto extends createZodDto(updateSpaceViewSchema) {}
 
 @ApiTags('views')
 @ApiBearerAuth()
@@ -57,5 +64,16 @@ export class SpaceViewsController {
   @ApiOperation({ summary: 'One view by id, with or without a database (#306)' })
   async get(@Req() req: WorkspaceRequest, @Param('view') view: string) {
     return this.spaceViews.getById(req.membership, view);
+  }
+
+  /** #306 — update a view addressed without its database (a space dashboard). */
+  @Patch('views/:view')
+  @ApiOperation({ summary: 'Update a view by id — name / config / placement (#306)' })
+  async update(
+    @Req() req: WorkspaceRequest,
+    @Param('view') view: string,
+    @Body() body: UpdateSpaceViewDto,
+  ) {
+    return this.spaceViews.updateById(req.membership, view, body);
   }
 }
