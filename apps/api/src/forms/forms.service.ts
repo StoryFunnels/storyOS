@@ -77,6 +77,11 @@ export class FormsService {
     if (form.access !== 'link' && form.access !== 'public') {
       throw new NotFoundException('Form not found'); // members-only is not public
     }
+    // #347: a view's databaseId is nullable now (a dashboard composes queries and
+    // owns no database). A FORM writes records into one, so a form view without a
+    // database is not a form — same not-found answer as an unpublished one, rather
+    // than leaking that the token resolved to something.
+    if (!view.databaseId) throw new NotFoundException('Form not found');
     const database = await this.db.query.databases.findFirst({
       where: eq(databases.id, view.databaseId),
     });

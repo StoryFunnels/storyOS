@@ -3919,6 +3919,8 @@ export interface components {
                     [key: string]: number;
                 };
             };
+            /** Format: uuid */
+            folder_id?: string | null;
         };
         UpdateViewDto__schema0: {
             field: string;
@@ -4036,6 +4038,8 @@ export interface components {
                 };
             };
             position?: number;
+            /** Format: uuid */
+            folder_id?: string | null;
         };
         SetPersonalFilterDto__schema0: {
             field: string;

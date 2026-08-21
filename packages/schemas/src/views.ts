@@ -160,14 +160,28 @@ export const viewConfigSchema = z.object({
 });
 export type ViewConfig = z.infer<typeof viewConfigSchema>;
 
+/**
+ * #347 — sidebar PLACEMENT, not ownership. A view still belongs to its database;
+ * this only says where it appears in the tree. null = nested under its database
+ * (the default, and where every view sits today). Set = it lives in that folder
+ * instead — one home at a time, never two.
+ *
+ * There is deliberately no `space_id` here. A view with no database is created
+ * through a different route that does not exist yet (#306); accepting a field
+ * the endpoint cannot honour is worse than not offering it.
+ */
+const folderIdSchema = z.string().uuid().nullable().optional();
+
 export const createViewSchema = z.object({
   name: z.string().trim().min(1).max(100),
   type: viewTypeSchema,
   config: viewConfigSchema.default({ sorts: [], hidden_field_ids: [], card_field_ids: [], dashboard_tiles: [], dashboard_widgets: [], column_widths: {} }),
+  folder_id: folderIdSchema,
 });
 
 export const updateViewSchema = z.object({
   name: z.string().trim().min(1).max(100).optional(),
   config: viewConfigSchema.optional(),
   position: z.number().int().optional(),
+  folder_id: folderIdSchema,
 });
