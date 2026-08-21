@@ -273,6 +273,58 @@ function describeFields(db: DatabaseDetail) {
  * A string that isn't valid JSON is a real caller mistake, and the error says
  * exactly that rather than mislabelling it as a shape problem.
  */
+/**
+ * Accept a JSON STRING wherever a tool declares a structured (or boolean, or
+ * numeric) argument.
+ *
+ * `parseStructuredParam` above already existed for this, and it was dead code
+ * for the params that needed it most: the zod `inputSchema` rejects a
+ * stringified value BEFORE the handler runs, so `values`, `targets`, `replace`
+ * and friends failed validation and the handler's tolerance was never reached.
+ *
+ * This is a real client problem, not a hypothetical one. Some MCP clients
+ * serialise every argument as a string — a session hit exactly that and could
+ * READ fine (all-string params) while every WRITE failed, which reads like a
+ * broken server rather than a serialisation quirk.
+ *
+ * Type-agnostic on purpose: rather than introspecting zod internals (which shift
+ * between major versions), it only intervenes when the value does NOT already
+ * satisfy the schema. A `z.string()` param is untouched because a string always
+ * validates; a `z.array()` given `'["a"]'` gets one JSON.parse attempt. A string
+ * that is not valid JSON falls through to the ORIGINAL validation error, so a
+ * genuine caller mistake still reads as a shape problem rather than a parse one.
+ */
+export function coerceStringified<T extends z.ZodTypeAny>(schema: T): z.ZodTypeAny {
+  return z.preprocess((value) => {
+    if (typeof value !== 'string') return value;
+    if (schema.safeParse(value).success) return value; // already valid — leave it alone
+    const trimmed = value.trim();
+    if (trimmed === 'true') return true;
+    if (trimmed === 'false') return false;
+    if (trimmed !== '' && Number.isFinite(Number(trimmed)) && schema.safeParse(Number(trimmed)).success) {
+      return Number(trimmed);
+    }
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      return value; // let the schema produce its own error
+    }
+  }, schema);
+}
+
+/** Apply the coercion to every declared param of one tool's inputSchema. */
+export function coerceInputSchema(inputSchema: unknown): unknown {
+  if (!inputSchema || typeof inputSchema !== 'object') return inputSchema;
+  const out: Record<string, unknown> = {};
+  for (const [key, schema] of Object.entries(inputSchema as Record<string, unknown>)) {
+    out[key] =
+      schema && typeof (schema as { safeParse?: unknown }).safeParse === 'function'
+        ? coerceStringified(schema as z.ZodTypeAny)
+        : schema;
+  }
+  return out;
+}
+
 export function parseStructuredParam(value: unknown, label: string): unknown {
   if (typeof value !== 'string') return value;
   try {
@@ -461,7 +513,12 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     const need = TOOL_SCOPE[name] ?? 'admin';
     if (SCOPE_RANK[effective.scope] < SCOPE_RANK[need]) return;
     if (RUN_BUTTON_TOOLS.has(name) && !effective.allowRunButton) return;
-    server.registerTool(name as string, config as never, rejectUnknownArgs(name, config, handler) as never);
+    // Wired in HERE, the one place every tool is registered, for the same reason
+    // rejectUnknownArgs is: no tool gets to be the strict one, and a client that
+    // stringifies arguments works uniformly instead of on whichever tools
+    // happened to declare only strings.
+    const coerced = { ...config, inputSchema: coerceInputSchema(config.inputSchema) };
+    server.registerTool(name as string, coerced as never, rejectUnknownArgs(name, coerced, handler) as never);
   };
   reg(
     'get_started',

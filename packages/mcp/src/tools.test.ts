@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { brandIconSlug, setIconName } from '@storyos/schemas/icons';
 import { filterOpSchema, queryRecordsSchema } from '@storyos/schemas';
-import { buildIconCatalog, FILTER_GUIDE, ICON_PARAM_DESCRIPTION, mapFilterValues, OPS_BY_FIELD_TYPE, registerTools } from './tools.js';
+import { buildIconCatalog, coerceStringified, coerceInputSchema, FILTER_GUIDE, ICON_PARAM_DESCRIPTION, mapFilterValues, OPS_BY_FIELD_TYPE, registerTools } from './tools.js';
+import { z } from 'zod';
 import type { Ctx } from './client.js';
 
 // Minimal DatabaseDetail with a select and a person field.
@@ -1583,5 +1584,66 @@ describe('create_relation self-relations (#344 — the misdiagnosis)', () => {
     await handlers.get('create_relation')!({ workspace: 'Eng', database: 'Issues', related_database: 'Issues' });
     expect(calls[0]).not.toHaveProperty('field_a_name');
     expect(calls[0]).not.toHaveProperty('field_b_name');
+  });
+});
+
+/**
+ * A client that serialises EVERY argument as a string must still be able to
+ * write. This was found the hard way: reads worked (their params are all
+ * strings) while every write failed validation, which reads like a broken server
+ * rather than a serialisation quirk. `parseStructuredParam` already existed for
+ * this and never ran, because the zod inputSchema rejected first.
+ */
+describe('stringified arguments are coerced at the schema boundary', () => {
+  it('parses a stringified RECORD — the update_record `values` case', () => {
+    const schema = coerceStringified(z.record(z.string(), z.any()));
+    expect(schema.parse('{"state":"Triage"}')).toEqual({ state: 'Triage' });
+  });
+
+  it('parses a stringified ARRAY — the link_records `targets` case', () => {
+    const schema = coerceStringified(z.array(z.string()));
+    expect(schema.parse('["4"]')).toEqual(['4']);
+  });
+
+  it('parses a stringified BOOLEAN — the link_records `replace` case', () => {
+    const schema = coerceStringified(z.boolean());
+    expect(schema.parse('true')).toBe(true);
+    expect(schema.parse('false')).toBe(false);
+  });
+
+  it('parses a stringified NUMBER', () => {
+    expect(coerceStringified(z.number()).parse('25')).toBe(25);
+  });
+
+  it('leaves a genuine string ALONE, quotes/braces and all', () => {
+    // The important negative: a string param must never be JSON-parsed, or a
+    // record named `{"a":1}` or `true` would silently change type.
+    const schema = coerceStringified(z.string());
+    expect(schema.parse('{"a":1}')).toBe('{"a":1}');
+    expect(schema.parse('true')).toBe('true');
+    expect(schema.parse('25')).toBe('25');
+  });
+
+  it('an unparseable string still fails with the SCHEMA error, not a parse error', () => {
+    // A real caller mistake must keep reading as a shape problem.
+    const schema = coerceStringified(z.array(z.string()));
+    const result = schema.safeParse('not json at all');
+    expect(result.success).toBe(false);
+  });
+
+  it('coerceInputSchema wraps every declared param and passes non-zod entries through', () => {
+    const wrapped = coerceInputSchema({
+      workspace: z.string(),
+      targets: z.array(z.string()),
+      notASchema: 'literal',
+    }) as Record<string, { parse?: (v: unknown) => unknown }>;
+    expect(wrapped.workspace!.parse!('JCM Agency')).toBe('JCM Agency');
+    expect(wrapped.targets!.parse!('["4"]')).toEqual(['4']);
+    expect(wrapped.notASchema).toBe('literal');
+  });
+
+  it('handles an absent or non-object inputSchema without throwing', () => {
+    expect(coerceInputSchema(undefined)).toBeUndefined();
+    expect(coerceInputSchema(null)).toBeNull();
   });
 });
