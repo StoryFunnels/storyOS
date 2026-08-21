@@ -85,8 +85,11 @@ The load-bearing decisions:
   from a constraint violation is not an API contract.
 - **A view's home falls out of its columns; there is no `placement` enum.**
   `folderId` set → it lives in that folder. One home at a time, never two.
-- **Access: the space is the door, each source is the room.** Gate on the space,
-  then resolve every source against the **viewer** with `effectiveForDatabase`
+- **Access: the space is the door, each source is the room.** The door is
+  `visibleSpaceIds` + `canSeePersonal`, **never `assertSpace`** — a guest with a
+  database-scoped grant sees the space in their sidebar but fails `assertSpace`,
+  so that combination 404s a space the product just showed them. Then resolve
+  every source against the **viewer** with `effectiveForDatabase`
   (returns null — not `assertAccess`, which throws and would collapse the view).
   Zero readable sources → say so; never a 404, never an empty grid.
   **Only guests can have partial access**, so a test without a GUEST fixture
