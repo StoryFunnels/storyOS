@@ -1,9 +1,13 @@
 import { Inject, Injectable, UnprocessableEntityException } from '@nestjs/common';
 import { and, eq, isNull } from 'drizzle-orm';
-import type { AutomationAction } from '@storyos/schemas';
+import type { AutomationAction, FormulaFieldInfo } from '@storyos/schemas';
+// #342 — automations compute numbers through the SAME engine as formula fields,
+// rather than a second expression language with its own quirks.
+import { evaluateFormula, parseFormula } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { connections, databases, fields, memberships, records, relations, user } from '../db/schema';
+import { FieldsService } from '../fields/fields.service';
 import { compileFilter } from '../records/query-compiler';
 import type { FilterNode } from '@storyos/schemas';
 import { CommentsService } from '../comments/comments.service';
@@ -406,12 +410,105 @@ export class AutomationActionsService {
     values: Record<string, unknown>,
     ctx: ActionContext,
     displayToApi: Map<string, string>,
+    /**
+     * #342 — api_names of NUMBER fields on the TARGET database. Their templates
+     * are evaluated as formulas rather than substituted as text, so
+     * "{Remaining} - 1" computes instead of producing the string "4 - 1".
+     */
+    numeric?: { fields: ReadonlySet<string>; infos: FormulaFieldInfo[] },
   ): Record<string, unknown> {
     const out: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(values)) {
-      out[key] = typeof value === 'string' ? this.interpolate(value, ctx, displayToApi) : value;
+      if (typeof value !== 'string') {
+        out[key] = value;
+        continue;
+      }
+      if (numeric?.fields.has(key)) {
+        out[key] = this.evaluateNumeric(value, ctx, key, numeric.infos);
+        continue;
+      }
+      out[key] = this.interpolate(value, ctx, displayToApi);
     }
     return out;
+  }
+
+  /**
+   * #342 — a number field's templated value, computed.
+   *
+   * Automations could set a number to a constant or copy another field
+   * verbatim, but never COMPUTE one: "{Remaining} - 1" was substituted to the
+   * text "4 - 1" and the write failed validation. So a counter, a countdown,
+   * "add 1 to Times Contacted" — the most ordinary rules there are — could not
+   * be written at all.
+   *
+   * Reuses the formula engine rather than inventing a second expression
+   * language: same parser, same operators, same empty-propagation rules the
+   * user already knows from formula fields.
+   *
+   * Only NUMBER targets take this path. A text field keeps literal
+   * substitution, so "{Name} - 1" still writes what it always wrote.
+   */
+  /**
+   * #342 — the number fields of a target database, plus the formula-field info
+   * needed to resolve `{Display Name}` inside an expression.
+   *
+   * The INFOS come from the SOURCE database (the triggering record is what an
+   * expression reads), while the number-field set comes from the TARGET — for a
+   * create_record those are different databases, and conflating them would
+   * either miss the target's number fields or resolve names against the wrong
+   * schema.
+   */
+  private async numericContext(
+    sourceDatabaseId: string,
+    targetDatabaseId: string,
+  ): Promise<{ fields: ReadonlySet<string>; infos: FormulaFieldInfo[] }> {
+    const [targetFields, sourceFields] = await Promise.all([
+      this.db.query.fields.findMany({
+        where: and(eq(fields.databaseId, targetDatabaseId), isNull(fields.deletedAt)),
+      }),
+      sourceDatabaseId === targetDatabaseId
+        ? Promise.resolve(null)
+        : this.db.query.fields.findMany({
+            where: and(eq(fields.databaseId, sourceDatabaseId), isNull(fields.deletedAt)),
+          }),
+    ]);
+    const source = sourceFields ?? targetFields;
+    const infos: FormulaFieldInfo[] = [];
+    for (const f of source) {
+      const formulaType = FieldsService.formulaTypeOf(f.type);
+      if (formulaType) infos.push({ api_name: f.apiName, display_name: f.displayName, formula_type: formulaType });
+    }
+    return {
+      fields: new Set(targetFields.filter((f) => f.type === 'number').map((f) => f.apiName)),
+      infos,
+    };
+  }
+
+  private evaluateNumeric(
+    template: string,
+    ctx: ActionContext,
+    fieldApiName: string,
+    infos: FormulaFieldInfo[],
+  ): number | null {
+    if (!template.trim()) return null;
+    try {
+      const ast = parseFormula(template, infos);
+      const bag: Record<string, unknown> = { ...(ctx.record?.values ?? {}) };
+      if (ctx.record) {
+        bag['name'] = ctx.record.title;
+        bag['number'] = ctx.record.number ?? null;
+        bag['id'] = ctx.record.number ?? null;
+      }
+      const result = evaluateFormula(ast, bag);
+      return typeof result === 'number' && Number.isFinite(result) ? result : null;
+    } catch (error) {
+      // Naming the field matters: the run log otherwise says only "validation
+      // failed", and the author has to guess which of several values was wrong.
+      throw new Error(
+        `"${fieldApiName}" expects a number and its value could not be computed: ${(error as Error).message}`,
+        { cause: error },
+      );
+    }
   }
 
   private interpolate(
@@ -796,8 +893,13 @@ export class AutomationActionsService {
         // validate() already refused this action on a record-less (webhook)
         // context — ctx.record is guaranteed here.
         const record = ctx.record!;
-        // #339: every string value (execute path).
-        const values = this.interpolateValues(this.resolveTokens(action.values, ctx), ctx, displayToApi);
+        // #339: every string value. #342: number targets are COMPUTED.
+        const values = this.interpolateValues(
+          this.resolveTokens(action.values, ctx),
+          ctx,
+          displayToApi,
+          await this.numericContext(ctx.databaseId, ctx.databaseId),
+        );
         await this.recordsService.update(
           ctx.workspaceId,
           ctx.databaseId,
@@ -815,8 +917,13 @@ export class AutomationActionsService {
         // #339: EVERY string value. This is the path that actually runs — the
         // preview/snapshot branch above is a separate call site, and patching
         // only one of them would have made the preview honest and the write
-        // still literal.
-        const values = this.interpolateValues(this.resolveTokens(action.values, ctx), ctx, displayToApi);
+        // still literal. #342: number targets are COMPUTED, not substituted.
+        const values = this.interpolateValues(
+          this.resolveTokens(action.values, ctx),
+          ctx,
+          displayToApi,
+          await this.numericContext(ctx.databaseId, action.database_id),
+        );
         const created = await this.recordsService.create(
           ctx.workspaceId,
           action.database_id,
