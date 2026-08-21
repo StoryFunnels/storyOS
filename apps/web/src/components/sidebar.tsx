@@ -1,8 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useParams, usePathname, useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { Fragment, useEffect, useState } from 'react';
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
@@ -35,6 +35,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { SidebarViewRow, type SidebarView } from '@/components/sidebar-view-row';
 
 interface Favorite {
   target_type: 'record' | 'database';
@@ -414,6 +415,9 @@ function SpaceSection({
 }) {
   const pathname = usePathname();
   const router = useRouter();
+  // #347 — which view is open, so the nested row highlights the ACTIVE view
+  // rather than every view of the open database.
+  const currentViewId = useSearchParams().get('view');
   const mutations = useSidebarMutations(ws);
   const { hide } = useHidden(ws);
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: space.id });
@@ -505,6 +509,38 @@ function SpaceSection({
   });
   const moveToFolder = (dbId: string, folderId: string | null) =>
     mutations.updateDatabase.mutate({ id: dbId, folder_id: folderId });
+
+  // #347 — views in this space, for the tree. ONE call per space: before this
+  // endpoint existed, views were reachable only per database, so rendering them
+  // meant a request per database.
+  const viewsQuery = useQuery({
+    queryKey: ['space-views', ws, space.id],
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/spaces/{space}/views', {
+        params: { path: { ws, space: space.id } },
+      } as never);
+      if (error) throw error;
+      return (data as unknown as { data: SidebarView[] }).data;
+    },
+  });
+  const spaceViews = viewsQuery.data ?? [];
+  const moveViewToFolder = useMutation({
+    mutationFn: async (v: { id: string; databaseId: string; folderId: string | null }) => {
+      const { error } = await api.PATCH('/api/v1/workspaces/{ws}/databases/{db}/views/{view}', {
+        params: { path: { ws, db: v.databaseId, view: v.id } },
+        body: { folder_id: v.folderId } as never,
+      } as never);
+      if (error) throw error;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['space-views', ws, space.id] }),
+    onError: () => toast.error('Could not move view'),
+  });
+  /** Placement is per-view; the database is only needed to address the route. */
+  const onMoveView = (viewId: string, folderId: string | null) => {
+    const view = spaceViews.find((v) => v.id === viewId);
+    if (!view?.database_id) return;
+    moveViewToFolder.mutate({ id: viewId, databaseId: view.database_id, folderId });
+  };
 
   // Document rename/delete (MN-26): the API already supports PATCH/DELETE; expose it.
   const renameDoc = useMutation({
@@ -682,8 +718,10 @@ function SpaceSection({
               ws={ws}
               folder={folder}
               databases={databases.filter((d) => d.folderId === folder.id)}
+              views={spaceViews.filter((v) => v.folder_id === folder.id)}
               folders={folders}
               onMove={moveToFolder}
+              onMoveView={onMoveView}
               onReorder={onDatabaseDragEnd}
               pathname={pathname}
               canEdit={canEdit}
@@ -700,17 +738,35 @@ function SpaceSection({
               >
                 <SortableContext items={rootDbs.map((d) => d.id)} strategy={verticalListSortingStrategy}>
                   {rootDbs.map((db) => (
-                    <DatabaseRow
-                      key={db.id}
-                      ws={ws}
-                      db={db}
-                      active={pathname.startsWith(`/w/${ws}/d/${db.id}`)}
-                      canEdit={canEdit}
-                      isAdmin={isAdmin}
-                      folders={folders}
-                      onMove={moveToFolder}
-                      reorderable={canEdit}
-                    />
+                    <Fragment key={db.id}>
+                      <DatabaseRow
+                        ws={ws}
+                        db={db}
+                        active={pathname.startsWith(`/w/${ws}/d/${db.id}`)}
+                        canEdit={canEdit}
+                        isAdmin={isAdmin}
+                        folders={folders}
+                        onMove={moveToFolder}
+                        reorderable={canEdit}
+                      />
+                      {/* #347 — a database's own views nest beneath it. Only the
+                          ones with no folder: a view moved into a folder lives
+                          THERE instead, never in both places. */}
+                      {spaceViews
+                        .filter((v) => v.database_id === db.id && !v.folder_id)
+                        .map((v) => (
+                          <div key={v.id} className="ml-4 border-l border-border-default pl-1">
+                            <SidebarViewRow
+                              ws={ws}
+                              view={v}
+                              active={pathname.startsWith(`/w/${ws}/d/${db.id}`) && currentViewId === v.id}
+                              folders={folders}
+                              onMove={onMoveView}
+                              canEdit={canEdit}
+                            />
+                          </div>
+                        ))}
+                    </Fragment>
                   ))}
                 </SortableContext>
               </DndContext>
@@ -839,8 +895,10 @@ function FolderSection({
   ws,
   folder,
   databases,
+  views,
   folders,
   onMove,
+  onMoveView,
   onReorder,
   pathname,
   canEdit,
@@ -849,8 +907,11 @@ function FolderSection({
   ws: string;
   folder: FolderInfo;
   databases: DatabaseSummary[];
+  /** #347 — a folder holds databases AND views. It held only databases before. */
+  views: SidebarView[];
   folders: FolderInfo[];
   onMove: (dbId: string, folderId: string | null) => void;
+  onMoveView: (viewId: string, folderId: string | null) => void;
   onReorder: (list: DatabaseSummary[]) => (event: DragEndEvent) => void;
   pathname: string;
   canEdit: boolean;
@@ -878,11 +939,15 @@ function FolderSection({
         <ChevronRight className={cn('h-3 w-3 shrink-0 text-faint transition-transform', !collapsed && 'rotate-90')} />
         <EntityIcon icon={folder.icon} color={null} fallback={<FolderIcon className="h-3.5 w-3.5 shrink-0 text-muted" />} className="text-[13px]" />
         <span className="truncate">{folder.name}</span>
-        {databases.length > 0 && <span className="ml-auto text-[11px] text-faint">{databases.length}</span>}
+        {databases.length + views.length > 0 && (
+          <span className="ml-auto text-[11px] text-faint">{databases.length + views.length}</span>
+        )}
       </button>
       {!collapsed && (
         <div className="ml-3 border-l border-border-default pl-1">
-          {databases.length === 0 && <p className="px-2 py-1 text-[12px] text-faint">Empty</p>}
+          {databases.length + views.length === 0 && (
+            <p className="px-2 py-1 text-[12px] text-faint">Empty</p>
+          )}
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onReorder(databases)}>
             <SortableContext items={databases.map((d) => d.id)} strategy={verticalListSortingStrategy}>
               {databases.map((db) => (
@@ -900,6 +965,17 @@ function FolderSection({
               ))}
             </SortableContext>
           </DndContext>
+          {views.map((v) => (
+            <SidebarViewRow
+              key={v.id}
+              ws={ws}
+              view={v}
+              active={pathname.startsWith(`/w/${ws}/d/${v.database_id}`)}
+              folders={folders}
+              onMove={onMoveView}
+              canEdit={canEdit}
+            />
+          ))}
         </div>
       )}
     </div>
