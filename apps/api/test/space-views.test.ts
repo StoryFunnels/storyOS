@@ -237,4 +237,99 @@ describe('GET /spaces/:space/views (#347)', () => {
     const res = await as(guest.token, 'GET', `/workspaces/${wsId}/views/${created.json().id}`);
     expect(res.statusCode, 'the view-first route must not bypass the space door').toBe(404);
   });
+
+  it('MOVES a database-level dashboard into its space, backfilling tile sources (#306)', async () => {
+    // A tile with NO database_id is implicitly measuring the view's database.
+    // Clear database_id without backfilling first and that fallback resolves to
+    // nothing — every such tile silently becomes unconfigured. This is the whole
+    // reason the move is its own endpoint rather than a PATCH.
+    const created = await as(admin.token, 'POST', `/workspaces/${wsId}/databases/${tasksDb}/views`, {
+      name: 'Tasks metrics',
+      type: 'dashboard',
+      config: {
+        dashboard_tiles: [
+          { id: '10000000-0000-4000-8000-000000000001', label: 'All', op: 'count' },
+          {
+            id: '10000000-0000-4000-8000-000000000002',
+            label: 'Elsewhere',
+            op: 'count',
+            database_id: secretsDb,
+          },
+        ],
+      },
+    });
+    expect(created.statusCode, created.body).toBe(201);
+
+    const res = await as(admin.token, 'POST', `/workspaces/${wsId}/views/${created.json().id}/move-to-space`);
+    expect(res.statusCode, res.body).toBeLessThan(300);
+
+    const { rows } = await db.pool.query(`SELECT database_id, space_id, config FROM views WHERE id = $1`, [
+      created.json().id,
+    ]);
+    expect(rows[0].database_id, 'the container moved').toBeNull();
+    expect(rows[0].space_id).toBe(space);
+
+    const tiles = rows[0].config.dashboard_tiles as Array<{ id: string; database_id?: string }>;
+    // NO tile may be left sourceless — that is the failure this endpoint exists
+    // to prevent, and asserting only on the move would not catch it.
+    expect(tiles.every((t) => t.database_id)).toBe(true);
+    // The implicit one was filled from the OLD owning database…
+    expect(tiles.find((t) => t.id.endsWith('001'))!.database_id).toBe(tasksDb);
+    // …and one that already pointed elsewhere was left exactly as it was.
+    expect(tiles.find((t) => t.id.endsWith('002'))!.database_id).toBe(secretsDb);
+  });
+
+  it('the moved dashboard is reachable on the view-first route and still lists in the space', async () => {
+    const list = await as(admin.token, 'GET', `/workspaces/${wsId}/spaces/${space}/views`);
+    const moved = (JSON.parse(list.body).data as Record<string, unknown>[]).find(
+      (v) => v.name === 'Tasks metrics',
+    )!;
+    expect(moved.database_id).toBeNull();
+    const res = await as(admin.token, 'GET', `/workspaces/${wsId}/views/${moved.id}`);
+    expect(res.statusCode).toBe(200);
+  });
+
+  it('REFUSES to move a dashboard that has widgets, and says why (#306)', async () => {
+    // A widget has no database_id — #304 deliberately did not add a field that
+    // would be accepted and then ignored — so there is nothing to back-fill them
+    // with. Moving anyway would produce a half-broken dashboard.
+    const created = await as(admin.token, 'POST', `/workspaces/${wsId}/databases/${tasksDb}/views`, {
+      name: 'Has widgets',
+      type: 'dashboard',
+      config: {
+        dashboard_widgets: [
+          { id: '20000000-0000-4000-8000-000000000001', type: 'bar', title: 'By state', measure: { op: 'count' } },
+        ],
+      },
+    });
+    expect(created.statusCode, created.body).toBe(201);
+
+    const res = await as(admin.token, 'POST', `/workspaces/${wsId}/views/${created.json().id}/move-to-space`);
+    expect(res.statusCode).toBe(422);
+    expect(res.body).toMatch(/widget/i);
+
+    // And it really did not move — a refusal that half-applied would be worse
+    // than the thing being prevented.
+    const { rows } = await db.pool.query(`SELECT database_id FROM views WHERE id = $1`, [created.json().id]);
+    expect(rows[0].database_id).toBe(tasksDb);
+  });
+
+  it('REFUSES to move a non-dashboard view (#306)', async () => {
+    const list = await as(admin.token, 'GET', `/workspaces/${wsId}/spaces/${space}/views`);
+    const table = (JSON.parse(list.body).data as Record<string, unknown>[]).find(
+      (v) => v.name === 'Tasks board',
+    )!;
+    const res = await as(admin.token, 'POST', `/workspaces/${wsId}/views/${table.id}/move-to-space`);
+    expect(res.statusCode).toBe(422);
+    expect(res.body).toMatch(/dashboard/i);
+  });
+
+  it('REFUSES to move a view that already lives in a space', async () => {
+    const created = await as(admin.token, 'POST', `/workspaces/${wsId}/spaces/${space}/views`, {
+      name: 'Already home',
+      type: 'dashboard',
+    });
+    const res = await as(admin.token, 'POST', `/workspaces/${wsId}/views/${created.json().id}/move-to-space`);
+    expect(res.statusCode).toBe(422);
+  });
 });
