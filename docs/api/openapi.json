@@ -3227,6 +3227,35 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/views/{view}/move-to-space": {
+      "post": {
+        "operationId": "SpaceViewsController_moveToSpace",
+        "parameters": [
+          {
+            "name": "view",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Move a database-level dashboard into its space (#306)",
+        "tags": [
+          "views"
+        ]
+      }
+    },
     "/api/v1/users/me/avatar": {
       "post": {
         "operationId": "UsersController_upload",

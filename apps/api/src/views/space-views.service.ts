@@ -272,4 +272,78 @@ export class SpaceViewsService {
       .returning();
     return updated!;
   }
+
+  /**
+   * #306 — move an existing DATABASE-level dashboard into its space.
+   *
+   * The load-bearing step is the ORDER. Every tile that has not named its own
+   * source is implicitly measuring the view's database; clear `database_id`
+   * first and that fallback resolves to nothing, so every such tile silently
+   * becomes unconfigured. The backfill therefore happens in the SAME
+   * transaction, before the column is cleared, and is written from the old
+   * owning database.
+   *
+   * Refused when the dashboard has chart/table WIDGETS. Widgets have no
+   * `database_id` — #304 deliberately did not add one rather than ship a field
+   * that is accepted and then ignored — so there is nothing to back-fill them
+   * with, and moving the container would leave them pointing at a database the
+   * view no longer has. Better to refuse and say so than to move a dashboard
+   * that comes out half-broken.
+   */
+  async moveToSpace(membership: Membership, viewId: string) {
+    const view = await this.db.query.views.findFirst({ where: eq(views.id, viewId) });
+    if (!view) throw new NotFoundException('View not found');
+    if (view.ownerUserId && view.ownerUserId !== membership.userId) {
+      throw new NotFoundException('View not found');
+    }
+    if (!view.databaseId) {
+      throw new UnprocessableEntityException('This view already lives in a space.');
+    }
+    if (view.type !== 'dashboard') {
+      throw new UnprocessableEntityException(
+        `Only a dashboard can live in a space. A ${view.type} renders rows of a database, so it has to stay on one.`,
+      );
+    }
+
+    const database = await this.db.query.databases.findFirst({
+      where: and(eq(databases.id, view.databaseId), eq(databases.workspaceId, membership.workspaceId)),
+      columns: { id: true, spaceId: true, name: true },
+    });
+    if (!database) throw new NotFoundException('View not found');
+    await this.assertVisibleSpace(membership, database.spaceId);
+    await this.access.assertSpace(membership, database.spaceId, 'editor').catch(() => {
+      throw new ForbiddenException('You need edit access to this space.');
+    });
+
+    const config = (view.config ?? {}) as {
+      dashboard_tiles?: Array<Record<string, unknown>>;
+      dashboard_widgets?: Array<unknown>;
+    };
+    const widgets = config.dashboard_widgets ?? [];
+    if (widgets.length > 0) {
+      throw new UnprocessableEntityException(
+        `This dashboard has ${widgets.length} chart/table widget(s), and a widget cannot yet name its own source database. Moving it to the space would leave them measuring nothing. Remove them, or wait for per-widget sources.`,
+      );
+    }
+
+    const sourceDatabaseId = view.databaseId;
+    const tiles = (config.dashboard_tiles ?? []).map((tile) =>
+      // Only fill the ones relying on the fallback. A tile that already names a
+      // source keeps it — including one deliberately pointing elsewhere.
+      tile.database_id == null ? { ...tile, database_id: sourceDatabaseId } : tile,
+    );
+
+    const [updated] = await this.db
+      .update(views)
+      .set({
+        config: { ...config, dashboard_tiles: tiles } as never,
+        spaceId: database.spaceId,
+        // Cleared in the SAME statement as the backfill above, so there is no
+        // instant at which a tile's fallback resolves to nothing.
+        databaseId: null,
+      })
+      .where(eq(views.id, viewId))
+      .returning();
+    return updated!;
+  }
 }

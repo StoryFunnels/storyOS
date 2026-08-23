@@ -66,6 +66,18 @@ export class SpaceViewsController {
     return this.spaceViews.getById(req.membership, view);
   }
 
+  /**
+   * #306 — move a database-level dashboard into its space. Separate from PATCH
+   * because it is a MIGRATION, not a field edit: it rewrites tile config and
+   * clears database_id together, and a caller must not be able to do half of it
+   * by PATCHing database_id directly.
+   */
+  @Post('views/:view/move-to-space')
+  @ApiOperation({ summary: 'Move a database-level dashboard into its space (#306)' })
+  async moveToSpace(@Req() req: WorkspaceRequest, @Param('view') view: string) {
+    return this.spaceViews.moveToSpace(req.membership, view);
+  }
+
   /** #306 — update a view addressed without its database (a space dashboard). */
   @Patch('views/:view')
   @ApiOperation({ summary: 'Update a view by id — name / config / placement (#306)' })
