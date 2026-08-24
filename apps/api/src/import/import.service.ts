@@ -172,10 +172,28 @@ export class ImportService {
            * the founder was importing (22 new fields), printed "148 of 148 will
            * import", and the commit then failed on the first bad url.
            */
-          const def: FieldDef =
-            to.kind === 'new'
+          /**
+           * Select-like columns are NOT validated here, because the commit does
+           * not validate them here either — it resolves them through a label→id
+           * map before `coerceScalar` is ever reached. Running them through the
+           * validator makes the dry run disagree with the commit, which is the
+           * same defect as #374 pointing the other way.
+           *
+           * For a NEW select the values are valid by construction anyway: its
+           * options are created FROM the distinct values in this very column.
+           * For an EXISTING one a value may genuinely not match an option — the
+           * commit warns about that correctly, and teaching the dry run to
+           * predict it needs the label maps loaded here. Left for #374's
+           * remaining preview work rather than guessed at.
+           *
+           * Caught in the browser: a 4-row file reported 16 false warnings.
+           */
+          const selectish = ['select', 'multi_select', 'workflow'].includes(type);
+          const def: FieldDef | undefined = selectish
+            ? undefined
+            : to.kind === 'new'
               ? { id: '', api_name: column, type: to.type, config: {} }
-              : defOf(to.field_id)!;
+              : defOf(to.field_id);
           const coerced = coerceScalar(type, raw, def);
           if (coerced === undefined) {
             report.addWarning({ row: rowIndex + 2, column, message: `"${raw.slice(0, 30)}" is not a valid ${type}` });

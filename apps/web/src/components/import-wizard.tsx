@@ -7,6 +7,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { IMPORTABLE_FIELD_TYPES } from '@storyos/schemas';
 import { API_URL } from '@/lib/api';
+import { matchExistingField } from '@/components/import-column-match';
 import { useDatabase } from '@/components/table-view/use-table-data';
 import { Button } from '@/components/ui/button';
 import { DialogContent } from '@/components/ui/dialog';
@@ -113,6 +114,12 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
    * conversations. It disappears exactly when you go looking for it again.
    */
   const [failure, setFailure] = useState<ImportError | null>(null);
+  /**
+   * #379 — which columns were matched FOR the user. A silent pre-selection is
+   * its own hazard: the whole point of this step is that they check it, so an
+   * automatic choice has to be visible to be reviewable.
+   */
+  const [autoMatched, setAutoMatched] = useState<Set<string>>(new Set());
 
   const existingFields = (database.data?.fields ?? []).filter(
     (f) => !f.isSystem && !['title', 'lookup', 'button', 'created_at', 'updated_at', 'created_by'].includes(f.type),
@@ -137,10 +144,27 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
       setInferred(boot.inferred);
       setSampleRows(boot.sample_rows ?? []);
       const initial = new Map<string, Destination>();
+      const matched = new Set<string>();
       boot.inferred.forEach((c: Inferred, i: number) => {
-        initial.set(c.column, i === 0 ? { kind: 'title' } : { kind: 'new', display_name: c.column, type: c.type });
+        if (i === 0) {
+          initial.set(c.column, { kind: 'title' });
+          return;
+        }
+        /**
+         * #379 — prefer a field that already exists. Defaulting everything to
+         * "new" meant importing into a database you had already set up proposed
+         * duplicating its entire schema.
+         */
+        const hit = matchExistingField(c.column, existingFields);
+        if (hit) {
+          initial.set(c.column, { kind: 'existing', field_id: hit.id });
+          matched.add(c.column);
+          return;
+        }
+        initial.set(c.column, { kind: 'new', display_name: c.column, type: c.type });
       });
       setMapping(initial);
+      setAutoMatched(matched);
     } catch (error) {
       const err = error instanceof ImportError ? error : new ImportError((error as Error).message);
       setFailure(err);
@@ -248,11 +272,15 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
               as a rendering bug, a clean edge reads as "scroll me". #333 learned
               this on the pack list and it was unlearned one screen over.
 
-              Each row is a fixed 52px, so the container is an exact multiple of
-              it — 8 rows. A vh-based height cannot guarantee that, which is
-              precisely how the mid-row cut happened.
+              Each row is a fixed 52px and the container shows exactly 8 of them.
+
+              418, not 416: Tailwind's max-h sets the BORDER box, and this element
+              has a 1px border top and bottom. At 416 the content box is 414 —
+              7.96 rows — so the clip landed 2px into the eighth row. Measured in
+              the browser, not reasoned about; the first attempt here got it
+              wrong in precisely the way this fix exists to prevent.
             */}
-            <div className="max-h-[416px] overflow-y-auto overscroll-contain rounded-[var(--radius-card)] border border-border-default">
+            <div className="max-h-[418px] overflow-y-auto overscroll-contain rounded-[var(--radius-card)] border border-border-default">
               {inferred.map((c) => {
                 const to = mapping.get(c.column) ?? { kind: 'skip' as const };
                 const sample = sampleRows.map((r) => r[inferred.indexOf(c)]).filter(Boolean).slice(0, 2).join(', ');
@@ -276,7 +304,13 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
                   >
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-[13px] font-medium text-ink">{c.column}</p>
-                      <p className="truncate text-[11px] text-faint">{sample}</p>
+                      <p className="truncate text-[11px] text-faint">
+                        {/* #379 — say when the choice was made automatically. */}
+                        {autoMatched.has(c.column) && to.kind === 'existing' ? (
+                          <span className="text-accent">matched to an existing field · </span>
+                        ) : null}
+                        {sample}
+                      </p>
                     </div>
                     <select
                       className="h-8 w-56 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
