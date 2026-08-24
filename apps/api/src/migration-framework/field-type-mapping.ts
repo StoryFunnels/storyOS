@@ -1,3 +1,4 @@
+import { markdownToBlocks } from '@storyos/schemas/markdown';
 import {
   coerceFieldValue,
   IMPORTABLE_FIELD_TYPES,
@@ -45,8 +46,34 @@ export function inferFieldType(sample: string[]): InferredType {
  * Deliberately narrow. This is where being generous is safe, because whatever it
  * produces still has to satisfy the real validator below.
  */
-function fromSpreadsheetText(type: string, value: string): unknown {
+function fromSpreadsheetText(type: string, value: string, field?: FieldDef): unknown {
   switch (type) {
+    case 'rich_text': {
+      /**
+       * #375 made rich_text importable and #371 started validating every cell
+       * against the REAL validator — which wants an array of BlockNote blocks,
+       * not a string. So every prose column failed and was dropped: a 148-row
+       * file reported 736 warnings, all "is not a valid rich_text".
+       *
+       * `markdownToBlocks` already exists and the MCP already does exactly this
+       * for rich_text fields. Reuse it rather than hand-rolling a second block
+       * shape — a CSV cell with line breaks or markdown becomes real paragraphs.
+       */
+      return markdownToBlocks(value);
+    }
+    case 'user': {
+      // A MULTI user field wants an array; a CSV cell is one string. Same class
+      // of bug as rich_text above, in a type nobody has reported yet because
+      // #375 only just made it importable.
+      //
+      // A SINGLE user field is left as a string on purpose: RecordsService
+      // resolves an id, email or name before validating, so passing the raw
+      // value through is what lets "ada@example.com" work at all.
+      if (field?.config?.['multi'] === true) {
+        return value.split(/[,;]/).map((p) => p.trim()).filter(Boolean);
+      }
+      return value;
+    }
     case 'number': {
       // Returns undefined, not the raw string, when it cannot be a number. This
       // is load-bearing WITHOUT a FieldDef — a caller inferring a type for a
@@ -98,7 +125,7 @@ export function coerceScalar(type: string, raw: string, field?: FieldDef): unkno
   const value = raw.trim();
   if (!value) return undefined;
 
-  const shaped = fromSpreadsheetText(type, value);
+  const shaped = fromSpreadsheetText(type, value, field);
   // Unshapeable by the spreadsheet rules alone — already a warning, whether or
   // not a field is available to validate against.
   if (shaped === undefined) return undefined;
