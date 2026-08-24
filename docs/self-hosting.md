@@ -78,6 +78,32 @@ Leaving `MCP_OAUTH` unset (the default) keeps the endpoint PAT-only, which is th
 right choice for most self-hosted setups: mint a PAT under **Settings → API** and paste
 it into the connector.
 
+### Writes started failing after a deploy? Reconnect the client
+
+An MCP client negotiates its tool schemas **once, when it connects**. Deploy a server
+whose tool arguments have changed and an already-connected session keeps sending the
+old shape, so its writes are rejected while its **reads keep working** — reads take
+plain strings, and nothing about their shape changed. That asymmetry makes it look
+like a data problem rather than a version problem
+([#365](https://github.com/StoryFunnels/storyOS/issues/365)).
+
+The server tolerates the common case — an argument that arrives JSON-**stringified**
+is parsed rather than refused — so most schema changes no longer break live clients.
+Tolerance cannot cover a **removed** argument or one whose **meaning** changed, because
+there is nothing to coerce toward.
+
+So when tool arguments are rejected on their **shape**:
+
+- **Reconnect the client** (remove and re-add the connector, or restart the session).
+  Do not retry different argument shapes — the server would refuse all of them.
+- **Check the version.** The MCP server advertises `serverInfo.version` as
+  `<package>+tools.<N>`, where `N` is the tool-argument schema version, and
+  `get_started` prints the same value. If the `N` your client negotiated is lower than
+  the one the server reports, the client is behind.
+
+`N` is bumped only when a tool's argument shape changes — a new argument, a removed
+one, a changed type, or a changed meaning — never for wording or for a brand-new tool.
+
 ## Connections (MN-252)
 
 **Connections** (per-workspace, under **Settings → Connections**) is a registry of external-provider

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Ctx, EffectiveScope, ToolScope } from './client.js';
 import { unwrap, uploadAttachment } from './client.js';
+import { SCHEMA_VERSION_NOTICE } from './schema-version.js';
 // Subpath, not the barrel: markdown/icons are zod-free, and pulling the whole
 // schemas index into this ESM bundle inlines a CJS require('zod') that throws
 // at boot.
@@ -550,6 +551,13 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         'Links: get_record / query_records / create_record / update_record all include a `url` — a clickable web-app link for that record, ready to hand to a user. Scheme: {web origin}/w/{workspace_id}/d/{database_id}/r/{title-slug}-{number} (falls back to the record uuid when it has no public number yet). workspace_id/database_id are the ids from list_workspaces/list_databases — never the human name/slug you passed in. Use get_links to resolve a database or view link, or a batch of record links, without a round-trip per record.',
         '',
         `SCOPE: ${scopeExclusions(effective)}`,
+        '',
+        // #365 — stated HERE because this is the tool an agent is told to call
+        // first, so the reconnect rule is in front of whoever is about to write.
+        // It was already in #343's PR description and the docs sweep, and that
+        // did not help: knowing it in advance is not the same as reading it at
+        // the moment writes start failing.
+        SCHEMA_VERSION_NOTICE,
         '',
         FILTER_GUIDE,
       ].join('\n');

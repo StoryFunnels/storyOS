@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { fetchEffectiveScope, makeClient, type Ctx } from './client.js';
 import { registerTools } from './tools.js';
 import { registerSkillPrimitives } from './skill-mcp.js';
+import { MCP_SERVER_VERSION } from './schema-version.js';
 
 /**
  * Build the StoryOS MCP server (MN-076). Transport-agnostic on purpose: index.ts
@@ -14,7 +15,11 @@ import { registerSkillPrimitives } from './skill-mcp.js';
  * a fresh server per request, so each connection reflects its own token's ceiling.
  */
 export async function buildServer(ctx: Ctx = makeClient()): Promise<McpServer> {
-  const server = new McpServer({ name: 'storyos', version: '0.1.0' });
+  // #365 — the version carries the TOOL-ARGUMENT SCHEMA version, not just the
+  // package's. A client negotiates tool schemas once at connect, so after a
+  // deploy that changes an argument shape it is silently behind; this is the
+  // value it can compare to notice. See schema-version.ts for when to bump.
+  const server = new McpServer({ name: 'storyos', version: MCP_SERVER_VERSION });
   const effective = await fetchEffectiveScope(ctx);
   registerTools(server, ctx, effective);
   // #41: skills as native MCP resources/prompts, on top of list_skills/run_skill
