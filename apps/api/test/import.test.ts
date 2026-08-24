@@ -694,3 +694,65 @@ describe('CSV import: match rows by a key to update or skip (#378)', () => {
     expect(JSON.stringify(res.json().warnings)).toMatch(/more than one record/);
   });
 });
+
+/**
+ * Founder report, 2026-08-25: "nothing imports as rich text" — a 148-row file
+ * produced 736 warnings, every one "is not a valid rich_text", while the header
+ * still claimed "148 of 148 rows will import".
+ *
+ * Caused by two of my own changes interacting: #375 made rich_text importable,
+ * and #371 started validating every cell through the REAL validator, which wants
+ * an array of BlockNote blocks rather than a string. Every prose column was
+ * therefore dropped. The rows landed, so it looked like it worked.
+ */
+describe('CSV import: prose imports as rich text (#375 regression)', () => {
+  let dbId: string;
+
+  beforeAll(async () => {
+    const spaceId = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
+    dbId = (await inject('POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name: 'Rich 375' })).json().id;
+  });
+
+  const CSV = [
+    'Name;one_liner;notes',
+    'Perseus;Passive RF drone detection (Sc);batch0 (pre-Apify manual pass)',
+    'Vector;15-inch guided micro-missile p;444KB — developed marketing si',
+  ].join('\n');
+  const mapping = JSON.stringify([
+    { column: 'Name', to: { kind: 'title' } },
+    { column: 'one_liner', to: { kind: 'new', display_name: 'One Liner', type: 'rich_text' } },
+    { column: 'notes', to: { kind: 'new', display_name: 'Notes', type: 'rich_text' } },
+  ]);
+
+  it('the DRY RUN reports NO warnings for prose', async () => {
+    const body = multipart({ mapping, dry_run: 'true' }, CSV);
+    const res = await app.inject({
+      method: 'POST', url: `/api/v1/workspaces/${wsId}/databases/${dbId}/import`,
+      headers: { ...authed(admin.token), ...body.headers }, payload: body.payload,
+    });
+    if (res.statusCode >= 300) throw new Error(res.body);
+    expect(res.json().will_create).toBe(2);
+    // THE assertion. This was 4 warnings on 2 rows × 2 prose columns.
+    expect(res.json().warnings_total, JSON.stringify(res.json().warnings)).toBe(0);
+  });
+
+  it('stores real rich-text BLOCKS, not a dropped cell', async () => {
+    const body = multipart({ mapping, dry_run: 'false' }, CSV);
+    const res = await app.inject({
+      method: 'POST', url: `/api/v1/workspaces/${wsId}/databases/${dbId}/import`,
+      headers: { ...authed(admin.token), ...body.headers }, payload: body.payload,
+    });
+    if (res.statusCode >= 300) throw new Error(res.body);
+    expect(res.json().created).toBe(2);
+    expect(res.json().warnings_total).toBe(0);
+
+    const rows = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records/query`, { limit: 10 })).json().data;
+    const perseus = (rows as Array<{ title: string; values: Record<string, unknown> }>).find((r) => r.title === 'Perseus')!;
+    const values = Object.values(perseus.values);
+    // Not merely present — the right SHAPE, and carrying the original text.
+    const blocks = values.find((v) => Array.isArray(v) && (v as unknown[]).length > 0) as Array<{ type: string }>;
+    expect(blocks, 'the cell must not have been dropped').toBeTruthy();
+    expect(blocks[0]!.type).toBe('paragraph');
+    expect(JSON.stringify(blocks)).toContain('Passive RF drone detection');
+  });
+});
