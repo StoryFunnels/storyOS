@@ -2,7 +2,7 @@ import { Inject, Injectable, UnprocessableEntityException } from '@nestjs/common
 import { and, eq, isNull } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { fields, records, selectOptions } from '../db/schema';
+import { databases, fields, records, selectOptions } from '../db/schema';
 import { FieldsService } from '../fields/fields.service';
 import { RecordsService } from '../records/records.service';
 import { RelationsService } from '../relations/relations.service';
@@ -11,7 +11,13 @@ import { ChunkedApplyService } from '../migration-framework/chunked-apply.servic
 import { DryRunBuilder } from '../migration-framework/dry-run';
 import { coerceScalar, inferFieldType } from '../migration-framework/field-type-mapping';
 import type { FieldDef } from '@storyos/schemas';
-import { buildTitleIndex, resolveTargetsByTitle, splitTargets } from '../migration-framework/relation-resolver';
+import {
+  buildMatchIndex,
+  buildTitleIndex,
+  isMatchableKeyType,
+  resolveTargets,
+  splitTargets,
+} from '../migration-framework/relation-resolver';
 import { RelationLinkerService } from '../migration-framework/relation-linker.service';
 import { buildLabelIndex } from '../migration-framework/select-options';
 import { CsvSourceAdapter } from './csv-source-adapter';
@@ -22,7 +28,20 @@ export interface ColumnMapping {
     | { kind: 'title' }
     | { kind: 'existing'; field_id: string }
     | { kind: 'new'; display_name: string; type: string }
-    | { kind: 'relation'; field_id: string }
+    /**
+     * #377 — a relation column. Either maps to an EXISTING relation field
+     * (`field_id`), or names a TARGET DATABASE and creates the relation
+     * (`target_database_id`). A brand-new database has no relation fields, so
+     * the option simply was not rendered — which is what the founder hit
+     * importing into a fresh Leads table, and why the natural attempt (import
+     * both CSVs) silently produced two unconnected tables.
+     *
+     * `match_field_id` chooses WHICH field on the target is matched. Omitted =
+     * the title, the previous and only behaviour. The founder's CSV carries both
+     * `company_id` (stable) and `company_name` (a display name), and only the
+     * fragile one was usable.
+     */
+    | { kind: 'relation'; field_id?: string; target_database_id?: string; field_name?: string; match_field_id?: string }
     | { kind: 'skip' };
 }
 
@@ -115,35 +134,131 @@ export class ImportService {
     };
     const newFields: Array<{ column: string; display_name: string; type: string }> = [];
     for (const m of mapping) {
-      if (m.to.kind === 'existing' || m.to.kind === 'relation') {
-        const field = fieldById.get(m.to.field_id);
-        if (!field) throw new UnprocessableEntityException(`Unknown field for column "${m.column}"`);
-        if (m.to.kind === 'relation' && field.type !== 'relation') {
-          throw new UnprocessableEntityException(`Column "${m.column}" maps to a non-relation field`);
+      if (m.to.kind === 'existing') {
+        if (!fieldById.get(m.to.field_id)) {
+          throw new UnprocessableEntityException(`Unknown field for column "${m.column}"`);
+        }
+      }
+      if (m.to.kind === 'relation') {
+        // #377 — one of the two, not both, not neither.
+        if (!m.to.field_id && !m.to.target_database_id) {
+          throw new UnprocessableEntityException(
+            `Column "${m.column}" maps to a relation but names neither an existing relation field nor a target database.`,
+          );
+        }
+        if (m.to.field_id) {
+          const field = fieldById.get(m.to.field_id);
+          if (!field) throw new UnprocessableEntityException(`Unknown field for column "${m.column}"`);
+          if (field.type !== 'relation') {
+            throw new UnprocessableEntityException(`Column "${m.column}" maps to a non-relation field`);
+          }
         }
       }
       if (m.to.kind === 'new') newFields.push({ column: m.column, ...m.to });
     }
 
-    // Relation title → id indexes (one per relation column) — the framework's
-    // "resolve by target title" trick (buildTitleIndex/resolveTargetsByTitle).
-    const relationMaps = new Map<string, Map<string, string | null>>();
+    /**
+     * #377 — one plan per relation COLUMN, not per field id.
+     *
+     * Keyed by column because a relation the import CREATES has no field id
+     * until commit, and the dry run has to resolve links before anything is
+     * created. Carries the match index and the label the warnings use, so
+     * "no record with company_id X" reads correctly instead of the misleading
+     * "no record titled X".
+     */
+    interface RelationPlan {
+      targetDbId: string;
+      /** Existing relation field, if the column maps to one. */
+      fieldId?: string;
+      /** Name for a relation this import will create. */
+      fieldName?: string;
+      matchLabel: string;
+      index: Map<string, string | null>;
+    }
+    const relationPlans = new Map<string, RelationPlan>();
     for (const m of mapping) {
       if (m.to.kind !== 'relation') continue;
-      const field = fieldById.get(m.to.field_id)!;
-      const relConfig = field.config as { relation_id: string; side: 'a' | 'b' };
-      const relation = await this.relationsService.getById(relConfig.relation_id);
-      const targetDbId = relConfig.side === 'a' ? relation.databaseBId : relation.databaseAId;
-      const targets = await this.db.query.records.findMany({
-        where: and(eq(records.databaseId, targetDbId), isNull(records.deletedAt)),
-        columns: { id: true, title: true },
+
+      let targetDbId: string;
+      if (m.to.field_id) {
+        const field = fieldById.get(m.to.field_id)!;
+        const relConfig = field.config as { relation_id: string; side: 'a' | 'b' };
+        const relation = await this.relationsService.getById(relConfig.relation_id);
+        targetDbId = relConfig.side === 'a' ? relation.databaseBId : relation.databaseAId;
+      } else {
+        targetDbId = m.to.target_database_id!;
+        const target = await this.db.query.databases.findFirst({
+          where: and(eq(databases.id, targetDbId), eq(databases.workspaceId, membership.workspaceId)),
+          columns: { id: true },
+        });
+        if (!target) {
+          throw new UnprocessableEntityException(`Column "${m.column}" names a target database that does not exist.`);
+        }
+      }
+
+      // Which field on the target is matched. Omitted = the title.
+      let matchLabel = 'titled';
+      let index: Map<string, string | null>;
+      if (m.to.match_field_id) {
+        const keyField = await this.db.query.fields.findFirst({
+          where: and(eq(fields.id, m.to.match_field_id), eq(fields.databaseId, targetDbId), isNull(fields.deletedAt)),
+        });
+        if (!keyField) {
+          throw new UnprocessableEntityException(
+            `Column "${m.column}" matches on a field that is not on the target database.`,
+          );
+        }
+        // Only fields that can IDENTIFY a record. Matching on a checkbox would
+        // make every row ambiguous.
+        if (!isMatchableKeyType(keyField.type)) {
+          throw new UnprocessableEntityException(
+            `Column "${m.column}" cannot match on a ${keyField.type} field — use a text, number, email, url or id field, or the record title.`,
+          );
+        }
+        matchLabel = `with ${keyField.apiName}`;
+        if (keyField.type === 'title') {
+          const targets = await this.db.query.records.findMany({
+            where: and(eq(records.databaseId, targetDbId), isNull(records.deletedAt)),
+            columns: { id: true, title: true },
+          });
+          index = buildTitleIndex(targets);
+        } else {
+          const targets = await this.db.query.records.findMany({
+            where: and(eq(records.databaseId, targetDbId), isNull(records.deletedAt)),
+            columns: { id: true, values: true },
+          });
+          index = buildMatchIndex(
+            targets.map((t) => ({ id: t.id, key: (t.values as Record<string, unknown>)?.[keyField.id] })),
+          );
+        }
+      } else {
+        const targets = await this.db.query.records.findMany({
+          where: and(eq(records.databaseId, targetDbId), isNull(records.deletedAt)),
+          columns: { id: true, title: true },
+        });
+        index = buildTitleIndex(targets);
+      }
+
+      relationPlans.set(m.column, {
+        targetDbId,
+        fieldId: m.to.field_id,
+        fieldName: m.to.field_name,
+        matchLabel,
+        index,
       });
-      relationMaps.set(m.to.field_id, buildTitleIndex(targets));
     }
 
     if (dryRun) {
       const report = new DryRunBuilder();
       report.newFields = newFields;
+      // #374/#377 — relation preview counts.
+      let linksToMake = 0;
+      let unmatchedCells = 0;
+      // Relations this import would CREATE — previously impossible, so the
+      // preview never had to mention them.
+      const newRelations = [...relationPlans.entries()]
+        .filter(([, plan]) => !plan.fieldId)
+        .map(([column, plan]) => ({ column, field_name: plan.fieldName ?? column, target_database_id: plan.targetDbId }));
       rows.forEach((row, rowIndex) => {
         const titleIdx = headers.indexOf(titleColumns[0]!.column);
         const title = (row[titleIdx] ?? '').trim();
@@ -159,8 +274,14 @@ export class ImportService {
           const raw = (row[i] ?? '').trim();
           if (!raw) return;
           if (to.kind === 'relation') {
-            const { warnings } = resolveTargetsByTitle(relationMaps.get(to.field_id)!, raw);
+            const plan = relationPlans.get(column)!;
+            const { hits, warnings } = resolveTargets(plan.index, raw, plan.matchLabel);
             for (const message of warnings) report.addWarning({ row: rowIndex + 2, column, message });
+            // #374/#377 — the dry run must say how many links will be made and
+            // how many cells matched nothing. Those numbers are the entire
+            // reason to run a check before importing relations.
+            linksToMake += hits.length;
+            unmatchedCells += warnings.length;
             preview[column] = raw;
             return;
           }
@@ -215,6 +336,15 @@ export class ImportService {
         warnings: built.warnings,
         warnings_total: built.warnings_total,
         sample: built.sample,
+        /**
+         * #374 — a check step that cannot describe what it is about to do is
+         * just a delay. These are the numbers the founder needed and did not
+         * have: how many links will actually be built, and how many cells name
+         * something that does not exist.
+         */
+        links_to_make: linksToMake,
+        unmatched_relation_cells: unmatchedCells,
+        new_relations: newRelations,
       };
     }
 
@@ -252,6 +382,13 @@ export class ImportService {
      * that case is reported rather than swallowed.
      */
     const createdFieldIds: string[] = [];
+    /**
+     * #377 — the relation field each relation column writes through, resolved at
+     * commit. An EXISTING relation contributes its own field id; one the import
+     * CREATES contributes the id of the field it just made.
+     */
+    const relationFieldIdByColumn = new Map<string, string>();
+    const createdRelationIds: string[] = [];
 
     /** #372 — undo everything this run wrote. Records first, then fields: the
      * inverse of the order they were created, and a field with values still on
@@ -270,6 +407,16 @@ export class ImportService {
           await this.fieldsService.remove(databaseId, fieldId);
         } catch {
           failures.push(`field ${fieldId}`);
+        }
+      }
+      // #377 — relations created by this run are its writes too, and a relation
+      // adds a field to the OTHER database as well, so leaving one behind
+      // pollutes a database the user was not even importing into.
+      for (const relationId of createdRelationIds) {
+        try {
+          await this.relationsService.remove(membership.workspaceId, relationId);
+        } catch {
+          failures.push(`relation ${relationId}`);
         }
       }
       return failures;
@@ -344,6 +491,32 @@ export class ImportService {
         }
       }
     }
+    /**
+     * #377 — create the relation for any column that named a target database
+     * instead of an existing relation field.
+     *
+     * many_to_many because a CSV cell can name several targets (MN-075 writes
+     * them comma-separated, and import reads them back the same way). Choosing
+     * one_to_many here would silently drop every target but the first on any
+     * multi-target cell.
+     *
+     * Inside the same try as the fields, so #372's rollback covers these too.
+     */
+    for (const [column, plan] of relationPlans) {
+      if (plan.fieldId) {
+        relationFieldIdByColumn.set(column, plan.fieldId);
+        continue;
+      }
+      const created = await this.relationsService.create(membership, {
+        database_a_id: databaseId,
+        database_b_id: plan.targetDbId,
+        cardinality: 'many_to_many',
+        field_a_name: plan.fieldName ?? column,
+      });
+      createdRelationIds.push(created.id);
+      relationFieldIdByColumn.set(column, created.field_a.id);
+    }
+
     const titleIdx = headers.indexOf(titleColumns[0]!.column);
     const pendingLinks: Array<{ recordIndex: number; fieldId: string; targetId: string }> = [];
     const payloads: Array<Record<string, unknown>> = [];
@@ -362,9 +535,12 @@ export class ImportService {
         if (to.kind === 'relation') {
           // A cell can name several targets — that's how export writes a
           // many-to-many, so import must read it back the same way (MN-075).
-          const { hits, warnings: misses } = resolveTargetsByTitle(relationMaps.get(to.field_id)!, raw);
+          const plan = relationPlans.get(column)!;
+          const fieldId = relationFieldIdByColumn.get(column);
+          if (!fieldId) return;
+          const { hits, warnings: misses } = resolveTargets(plan.index, raw, plan.matchLabel);
           for (const message of misses) warnings.push({ row: rowIndex + 2, column, message });
-          for (const targetId of hits) pendingLinks.push({ recordIndex: payloads.length, fieldId: to.field_id, targetId });
+          for (const targetId of hits) pendingLinks.push({ recordIndex: payloads.length, fieldId, targetId });
           return;
         }
         const meta = columnField.get(column);

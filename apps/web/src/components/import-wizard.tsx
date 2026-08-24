@@ -9,6 +9,7 @@ import { IMPORTABLE_FIELD_TYPES } from '@storyos/schemas';
 import { API_URL } from '@/lib/api';
 import { matchExistingField } from '@/components/import-column-match';
 import { useDatabase } from '@/components/table-view/use-table-data';
+import { useDatabases } from '@/lib/queries';
 import { Button } from '@/components/ui/button';
 import { DialogContent } from '@/components/ui/dialog';
 
@@ -20,7 +21,7 @@ type Destination =
   | { kind: 'title' }
   | { kind: 'existing'; field_id: string }
   | { kind: 'new'; display_name: string; type: string }
-  | { kind: 'relation'; field_id: string }
+  | { kind: 'relation'; field_id?: string; target_database_id?: string; field_name?: string; match_field_id?: string }
   | { kind: 'skip' };
 
 interface DryRun {
@@ -96,6 +97,53 @@ async function post(ws: string, db: string, file: File, mapping: unknown, dryRun
   return body;
 }
 
+/** #377 — field types that can identify a record, mirroring MATCHABLE_KEY_TYPES
+ *  on the server. The server rejects anything else with a reason; offering a
+ *  wider list here would just move the failure later. */
+const MATCHABLE = new Set(['title', 'text', 'number', 'email', 'url', 'id']);
+
+/**
+ * #377 — WHICH field on the target is matched.
+ *
+ * Its own component so the target database's fields can be fetched with a hook.
+ * The founder's CSV carries both `company_id` (stable) and `company_name` (a
+ * display name); before this only the title was usable, and titles duplicate,
+ * get renamed, and substring-collide.
+ */
+function RelationMatchPicker({
+  ws,
+  targetDatabaseId,
+  value,
+  onChange,
+}: {
+  ws: string;
+  targetDatabaseId: string;
+  value?: string;
+  onChange: (matchFieldId?: string) => void;
+}) {
+  const target = useDatabase(ws, targetDatabaseId);
+  const candidates = (target.data?.fields ?? []).filter((f) => MATCHABLE.has(f.type));
+  return (
+    <select
+      aria-label="Match on which field"
+      className="h-8 w-40 shrink-0 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+      value={value ?? ''}
+      onChange={(e) => onChange(e.target.value || undefined)}
+    >
+      {/* The title stays the default: it is the previous behaviour and still the
+          right guess for a human-written CSV. */}
+      <option value="">match on title</option>
+      {candidates
+        .filter((f) => f.type !== 'title')
+        .map((f) => (
+          <option key={f.id} value={f.id}>
+            match on {f.displayName}
+          </option>
+        ))}
+    </select>
+  );
+}
+
 /** CSV import wizard (MN-052): upload → map → dry-run → import → summary. */
 export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDone: () => void }) {
   const router = useRouter();
@@ -132,6 +180,11 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
    * shape of failure this ticket exists to remove. Filtered out rather than
    * offered-and-rejected.
    */
+  /**
+   * #377 — databases a column can be linked TO. `useDatabases` is grant-scoped,
+   * so a user is never offered a target they cannot read.
+   */
+  const otherDatabases = (useDatabases(ws).data ?? []).filter((d) => d.id !== db);
   const hasWorkflow = (database.data?.fields ?? []).some((f) => f.type === 'workflow');
   const offerableTypes = NEW_TYPES.filter((t) => t !== 'workflow' || !hasWorkflow);
 
@@ -288,7 +341,10 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
                   to.kind === 'title' ? 'title'
                   : to.kind === 'skip' ? 'skip'
                   : to.kind === 'existing' ? `existing:${to.field_id}`
-                  : to.kind === 'relation' ? `relation:${to.field_id}`
+                  : to.kind === 'relation'
+                    ? to.field_id
+                      ? `relation:${to.field_id}`
+                      : `newrelation:${to.target_database_id}`
                   : `new:${to.type}`;
                 return (
                   <div
@@ -331,6 +387,22 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
                         }}
                       />
                     )}
+                    {/* #377 — only for a relation, and only once a target is
+                        known: an existing relation field's target comes from its
+                        config, which the wizard does not have, so the picker is
+                        offered for the create-a-relation case where it does. */}
+                    {to.kind === 'relation' && to.target_database_id && (
+                      <RelationMatchPicker
+                        ws={ws}
+                        targetDatabaseId={to.target_database_id}
+                        value={to.match_field_id}
+                        onChange={(matchFieldId) => {
+                          const next = new Map(mapping);
+                          next.set(c.column, { ...to, match_field_id: matchFieldId });
+                          setMapping(next);
+                        }}
+                      />
+                    )}
                     <select
                       className="h-8 w-56 shrink-0 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
                       value={encoded}
@@ -341,6 +413,12 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
                         else if (v === 'skip') next.set(c.column, { kind: 'skip' });
                         else if (v.startsWith('existing:')) next.set(c.column, { kind: 'existing', field_id: v.slice(9) });
                         else if (v.startsWith('relation:')) next.set(c.column, { kind: 'relation', field_id: v.slice(9) });
+                        else if (v.startsWith('newrelation:'))
+                          next.set(c.column, {
+                            kind: 'relation',
+                            target_database_id: v.slice(12),
+                            field_name: c.column,
+                          });
                         else if (v.startsWith('new:')) next.set(c.column, { kind: 'new', display_name: c.column, type: v.slice(4) });
                         setMapping(next);
                       }}
@@ -363,10 +441,24 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
                         </optgroup>
                       )}
                       {relationFields.length > 0 && (
-                        <optgroup label="Link by title via relation">
+                        <optgroup label="Link via an existing relation">
                           {relationFields.map((f) => (
                             <option key={f.id} value={`relation:${f.id}`}>
                               🔗 {f.displayName}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                      {/* #377 — link to a DATABASE, creating the relation. The
+                          option used to render only when a relation field already
+                          existed, so a brand-new database offered nothing at all
+                          and importing two CSVs silently produced two
+                          unconnected tables. */}
+                      {otherDatabases.length > 0 && (
+                        <optgroup label="Link to a database (creates the relation)">
+                          {otherDatabases.map((d) => (
+                            <option key={d.id} value={`newrelation:${d.id}`}>
+                              🔗 ＋ {d.name}
                             </option>
                           ))}
                         </optgroup>

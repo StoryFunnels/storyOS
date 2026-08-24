@@ -404,3 +404,138 @@ describe('CSV import: a failed import leaves nothing behind (#372)', () => {
     expect(res.json().created).toBe(1);
   });
 });
+
+/**
+ * #377 — relations could effectively not be imported. You could not CREATE one
+ * (the optgroup rendered only when a relation field already existed, so a fresh
+ * database offered nothing), and where it did appear it matched the target's
+ * TITLE only.
+ *
+ * The founder's CSV is why the title is the wrong key: it carries both
+ * `company_id` = "perseusdefense" (stable) and `company_name` = "Perseus
+ * Defense" (a display name). Only the fragile one was usable. Titles duplicate,
+ * get renamed, and substring-collide — the trap formulas.md already documents
+ * for `contains`, where "Acme" inside "Acme Corp" matched the wrong record.
+ */
+describe('CSV import: build a relation and match on a chosen field (#377)', () => {
+  let companiesDb: string;
+  let peopleDb: string;
+
+  beforeAll(async () => {
+    const spaceId = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
+    companiesDb = (await inject('POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name: 'Co 377' })).json().id;
+    peopleDb = (await inject('POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name: 'People 377' })).json().id;
+
+    // Companies, keyed by a STABLE id column — the normalised-export shape.
+    const body = multipart(
+      {
+        mapping: JSON.stringify([
+          { column: 'company_name', to: { kind: 'title' } },
+          { column: 'company_id', to: { kind: 'new', display_name: 'Company Id', type: 'text' } },
+        ]),
+        dry_run: 'false',
+      },
+      'company_name;company_id\nPerseus Defense;perseusdefense\nAcme;acme\nAcme Corp;acmecorp',
+    );
+    const res = await app.inject({
+      method: 'POST', url: `/api/v1/workspaces/${wsId}/databases/${companiesDb}/import`,
+      headers: { ...authed(admin.token), ...body.headers }, payload: body.payload,
+    });
+    if (res.statusCode >= 300) throw new Error(`companies import failed: ${res.body}`);
+  });
+
+  const companyIdField = async () => {
+    const detail = (await inject('GET', `/workspaces/${wsId}/databases/${companiesDb}`)).json();
+    return (detail.fields as Array<{ id: string; displayName: string }>).find((f) => f.displayName === 'Company Id')!.id;
+  };
+
+  it('creates the relation during import and links by a STABLE id, not the title', async () => {
+    const keyFieldId = await companyIdField();
+    const mapping = JSON.stringify([
+      { column: 'name', to: { kind: 'title' } },
+      {
+        column: 'company_id',
+        to: {
+          kind: 'relation',
+          target_database_id: companiesDb,
+          field_name: 'Company',
+          match_field_id: keyFieldId,
+        },
+      },
+    ]);
+    const csv = 'name;company_id\nAlice;perseusdefense\nBob;acme\nCarol;does-not-exist';
+
+    // The dry run must SAY how many links it will make and how many cells match
+    // nothing — the numbers that are the whole reason to run a check.
+    const dry = multipart({ mapping, dry_run: 'true' }, csv);
+    const dryRes = await app.inject({
+      method: 'POST', url: `/api/v1/workspaces/${wsId}/databases/${peopleDb}/import`,
+      headers: { ...authed(admin.token), ...dry.headers }, payload: dry.payload,
+    });
+    if (dryRes.statusCode >= 300) throw new Error(`dry run failed: ${dryRes.body}`);
+    expect(dryRes.json().links_to_make).toBe(2);
+    expect(dryRes.json().unmatched_relation_cells).toBe(1);
+    expect(dryRes.json().new_relations).toHaveLength(1);
+
+    const body = multipart({ mapping, dry_run: 'false' }, csv);
+    const res = await app.inject({
+      method: 'POST', url: `/api/v1/workspaces/${wsId}/databases/${peopleDb}/import`,
+      headers: { ...authed(admin.token), ...body.headers }, payload: body.payload,
+    });
+    if (res.statusCode >= 300) throw new Error(`people import failed: ${res.body}`);
+    // Carol's unmatched cell is a WARNING — her row still imports. A broken link
+    // must never fail the import.
+    expect(res.json().created).toBe(3);
+    expect(JSON.stringify(res.json().warnings)).toMatch(/does-not-exist/);
+
+    // The relation was CREATED — previously impossible.
+    const detail = (await inject('GET', `/workspaces/${wsId}/databases/${peopleDb}`)).json();
+    const rel = (detail.fields as Array<{ displayName: string; type: string }>).find((f) => f.displayName === 'Company');
+    expect(rel?.type).toBe('relation');
+
+    // And the links landed on the right records, matched by id not title.
+    const rows = (await inject('POST', `/workspaces/${wsId}/databases/${peopleDb}/records/query`, { limit: 50 })).json().data;
+    const alice = (rows as Array<{ title: string; values: Record<string, unknown> }>).find((r) => r.title === 'Alice')!;
+    const linked = alice.values[Object.keys(alice.values).find((k) => Array.isArray(alice.values[k])) ?? ''] as unknown[];
+    expect(linked?.length, 'Alice should be linked to Perseus Defense').toBe(1);
+  });
+
+  it('reports an ambiguous key per row instead of silently picking one', async () => {
+    // Matching on the TITLE is what makes this happen: "Acme" and "Acme Corp"
+    // are distinct titles, but a duplicated title is the common real case, so
+    // build one deliberately and match on it.
+    await inject('POST', `/workspaces/${wsId}/databases/${companiesDb}/records`, { values: { name: 'Duplicate Co' } });
+    await inject('POST', `/workspaces/${wsId}/databases/${companiesDb}/records`, { values: { name: 'Duplicate Co' } });
+
+    const mapping = JSON.stringify([
+      { column: 'name', to: { kind: 'title' } },
+      { column: 'company', to: { kind: 'relation', target_database_id: companiesDb, field_name: 'Company By Title' } },
+    ]);
+    const body = multipart({ mapping, dry_run: 'true' }, 'name;company\nDave;Duplicate Co');
+    const res = await app.inject({
+      method: 'POST', url: `/api/v1/workspaces/${wsId}/databases/${peopleDb}/import`,
+      headers: { ...authed(admin.token), ...body.headers }, payload: body.payload,
+    });
+    if (res.statusCode >= 300) throw new Error(res.body);
+    expect(JSON.stringify(res.json().warnings)).toMatch(/more than one record/);
+    expect(res.json().links_to_make, 'an ambiguous cell links nothing').toBe(0);
+  });
+
+  it('refuses to match on a field that cannot identify a record', async () => {
+    const detail = (await inject('GET', `/workspaces/${wsId}/databases/${companiesDb}`)).json();
+    // created_at is a system field and not a sane key.
+    const bad = (detail.fields as Array<{ id: string; type: string }>).find((f) => f.type === 'created_at');
+    if (!bad) return; // nothing to assert against on this schema
+    const mapping = JSON.stringify([
+      { column: 'name', to: { kind: 'title' } },
+      { column: 'company_id', to: { kind: 'relation', target_database_id: companiesDb, match_field_id: bad.id } },
+    ]);
+    const body = multipart({ mapping, dry_run: 'true' }, 'name;company_id\nEve;x');
+    const res = await app.inject({
+      method: 'POST', url: `/api/v1/workspaces/${wsId}/databases/${peopleDb}/import`,
+      headers: { ...authed(admin.token), ...body.headers }, payload: body.payload,
+    });
+    expect(res.statusCode).toBe(422);
+    expect(res.body).toMatch(/cannot match on/i);
+  });
+});
