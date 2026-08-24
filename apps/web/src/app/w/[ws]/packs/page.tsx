@@ -6,16 +6,13 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
-  Bot,
   CheckCircle2,
-  Database,
   Loader2,
   Package,
   Search,
   Sparkles,
   Trash2,
   Upload,
-  Workflow,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -23,6 +20,7 @@ import { useWorkspace } from '@/lib/queries';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { PackVisual, registryVertical } from '@/components/pack-visual';
 
 /**
  * Business Packs — gallery + one-click install (MN-219 / #161), the
@@ -138,57 +136,7 @@ const PACK_FILTERS = [
   { value: 'other', label: 'Other' },
 ] as const;
 
-function registryVertical(slug: string): string {
-  if (slug === 'agency-os' || slug === 'client-portal' || slug === 'consulting-os') return 'agency';
-  if (slug === 'content-engine') return 'marketing';
-  if (slug === 'dev-project-os') return 'engineering';
-  if (slug === 'support-inbox') return 'support';
-  if (slug === 'coaching-os') return 'ops';
-  return 'other';
-}
 
-function PackVisual({ pack }: { pack: RegistryCard }) {
-  const vertical = registryVertical(pack.slug);
-  const accent =
-    vertical === 'agency'
-      ? 'from-amber-100 to-orange-50'
-      : vertical === 'marketing'
-        ? 'from-pink-100 to-violet-50'
-        : vertical === 'engineering'
-          ? 'from-blue-100 to-cyan-50'
-          : vertical === 'support'
-            ? 'from-emerald-100 to-teal-50'
-            : 'from-stone-100 to-slate-50';
-  return (
-    <div
-      className={`relative h-28 overflow-hidden rounded-[var(--radius-control)] border border-border-default bg-gradient-to-br ${accent} p-3`}
-      aria-label={`${pack.name} contains ${pack.preview.databases} databases, ${pack.preview.views} views, ${pack.preview.automations} automations, and ${pack.preview.agents} agents`}
-    >
-      <div className="absolute -right-5 -top-6 h-20 w-20 rounded-full border border-white/70 bg-white/35" />
-      <div className="relative grid h-full grid-cols-2 gap-2">
-        <div className="rounded border border-white/80 bg-white/75 p-2 shadow-sm">
-          <Database className="h-3.5 w-3.5 text-ink" />
-          <p className="mt-2 text-[16px] font-semibold text-ink">{pack.preview.databases}</p>
-          <p className="text-[10px] text-muted">databases</p>
-        </div>
-        <div className="flex flex-col gap-2">
-          <div className="flex flex-1 items-center gap-2 rounded border border-white/80 bg-white/70 px-2 shadow-sm">
-            <Workflow className="h-3.5 w-3.5 text-ink" />
-            <span className="text-[10px] text-muted">
-              {pack.preview.automations} automation{pack.preview.automations === 1 ? '' : 's'}
-            </span>
-          </div>
-          <div className="flex flex-1 items-center gap-2 rounded border border-white/80 bg-white/70 px-2 shadow-sm">
-            <Bot className="h-3.5 w-3.5 text-ink" />
-            <span className="text-[10px] text-muted">
-              {pack.preview.agents} agent{pack.preview.agents === 1 ? '' : 's'}
-            </span>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function useRegistry() {
   return useQuery({
