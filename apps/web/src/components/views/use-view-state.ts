@@ -48,8 +48,22 @@ export interface ViewConfig {
     success_message?: string;
     redirect_url?: string;
   };
-  /** Dashboard (MN-225 / #168) — metric tiles; scoped by this view's filter/sorts. */
-  dashboard_tiles?: Array<{ id: string; label: string; op: 'count' | 'sum' | 'avg' | 'min' | 'max'; field_api_name?: string }>;
+  /**
+   * Dashboard (MN-225 / #168) — metric tiles.
+   *
+   * `filter` / `database_id` were added to the SCHEMA by #304 but never mirrored
+   * here, so this local type has been quietly narrower than the real config; the
+   * call sites cast, which is why nothing failed to compile. Added by #367 along
+   * with the widget half rather than left as a second copy that drifts again.
+   */
+  dashboard_tiles?: Array<{
+    id: string;
+    label: string;
+    op: 'count' | 'sum' | 'avg' | 'min' | 'max';
+    field_api_name?: string;
+    filter?: FilterNode;
+    database_id?: string;
+  }>;
   /** Dashboard (MN-225 / #168, Phase 2) — chart / grouped-table widgets. */
   dashboard_widgets?: Array<{
     id: string;
@@ -57,6 +71,9 @@ export interface ViewConfig {
     title: string;
     group_by_field_api_name?: string;
     measure: { op: 'count' | 'sum' | 'avg' | 'min' | 'max'; field_api_name?: string };
+    /** #367 — this widget's own scope and source, mirroring a tile's. */
+    filter?: FilterNode;
+    database_id?: string;
   }>;
   column_widths: Record<string, number>;
 }

@@ -46,9 +46,14 @@ export type DashboardTile = z.infer<typeof dashboardTileSchema>;
  * aggregating each group with `measure` (count, or sum/avg/min/max of a number
  * field). The series is rendered as a bar/line/pie chart or a grouped table.
  * Records are pulled through the SAME grant-scoped `/records/query` path as
- * metric tiles, so a widget only ever aggregates records the viewer can access
- * and the view's own filter scopes every widget. Fields are referenced by
- * api_name (same as tiles/filters/sorts); grouping is computed client-side.
+ * metric tiles, so a widget only ever aggregates records the viewer can access.
+ * Fields are referenced by api_name (same as tiles/filters/sorts); grouping is
+ * computed client-side.
+ *
+ * #367 — a widget names its own `database_id` and `filter`, exactly as a tile has
+ * since #304. A widget on the view's own database is scoped by the view's filter;
+ * a CROSS-DATABASE one is scoped by its own filter alone, because the view's
+ * filter names the view database's fields.
  */
 export const dashboardWidgetSchema = z.object({
   id: z.uuid(),
@@ -64,6 +69,23 @@ export const dashboardWidgetSchema = z.object({
       field_api_name: z.string().trim().min(1).max(100).optional(),
     })
     .default({ op: 'count' }),
+  /**
+   * #367 — this widget's OWN scope, ANDed with the view's filter. Same filter AST
+   * as views / /records/query / rollups / tiles — never a second language.
+   */
+  filter: filterSchema.optional(),
+  /**
+   * #367 — the database this widget measures. Omitted = the view's own database,
+   * which is how every dashboard saved before this keeps working with no config
+   * migration. A #306 space-level dashboard has no view database, so a widget
+   * there with no `database_id` is UNCONFIGURED (render the picker) — not
+   * invalid, and never garbage-collected (#305's rule).
+   *
+   * #304 gave TILES these two fields and deliberately withheld them from widgets,
+   * because a declared-then-ignored field is worse than a missing one. They are
+   * added here together with the render path that honours them.
+   */
+  database_id: z.uuid().optional(),
 });
 export type DashboardWidget = z.infer<typeof dashboardWidgetSchema>;
 

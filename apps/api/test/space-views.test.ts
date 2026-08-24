@@ -289,29 +289,73 @@ describe('GET /spaces/:space/views (#347)', () => {
     expect(res.statusCode).toBe(200);
   });
 
-  it('REFUSES to move a dashboard that has widgets, and says why (#306)', async () => {
-    // A widget has no database_id — #304 deliberately did not add a field that
-    // would be accepted and then ignored — so there is nothing to back-fill them
-    // with. Moving anyway would produce a half-broken dashboard.
+  /**
+   * #367 — the acceptance criterion is that a widget whose source the VIEWER
+   * cannot read shows an explicit no-access state, "never an empty chart, never
+   * zeroes". The client half is a render branch on `records.isError`; THIS is the
+   * half that makes that branch reachable — the query must FAIL for a forbidden
+   * source rather than succeed with an empty page.
+   *
+   * That distinction is the whole point. If /records/query answered `{data: []}`
+   * here, every chart over a forbidden database would render a truthful-looking
+   * empty chart and every metric tile would read 0 — a permissions failure
+   * reported as a fact about the data.
+   *
+   * Proven with a GUEST: only guests can hold partial access (ADR-0009), so an
+   * admin or member fixture would prove nothing — they are resolved as admin
+   * before grants are ever consulted.
+   */
+  it('a GUEST querying a widget source they cannot read is REFUSED, not handed zero rows (#367)', async () => {
+    // Control: the one database this guest WAS granted answers normally.
+    const allowed = await as(guest.token, 'POST', `/workspaces/${wsId}/databases/${tasksDb}/records/query`, {});
+    expect(allowed.statusCode, allowed.body).toBeLessThan(300);
+
+    // The database they were NOT granted must not answer at all.
+    const denied = await as(guest.token, 'POST', `/workspaces/${wsId}/databases/${secretsDb}/records/query`, {});
+    expect(denied.statusCode, 'a forbidden source must ERROR, not return an empty page').toBeGreaterThanOrEqual(400);
+  });
+
+  it('MOVES a dashboard that has widgets, backfilling widget sources too (#367)', async () => {
+    // #306 REFUSED this with a 422: a widget had no `database_id` (#304 gave that
+    // field to tiles only, deliberately, rather than accept-and-ignore it), so
+    // clearing the view's database left every chart measuring nothing. #367 gave
+    // widgets the field, so the refusal is gone and they backfill by the same
+    // rule tiles do.
     const created = await as(admin.token, 'POST', `/workspaces/${wsId}/databases/${tasksDb}/views`, {
       name: 'Has widgets',
       type: 'dashboard',
       config: {
         dashboard_widgets: [
           { id: '20000000-0000-4000-8000-000000000001', type: 'bar', title: 'By state', measure: { op: 'count' } },
+          {
+            id: '20000000-0000-4000-8000-000000000002',
+            type: 'pie',
+            title: 'Elsewhere',
+            measure: { op: 'count' },
+            database_id: secretsDb,
+          },
         ],
       },
     });
     expect(created.statusCode, created.body).toBe(201);
 
     const res = await as(admin.token, 'POST', `/workspaces/${wsId}/views/${created.json().id}/move-to-space`);
-    expect(res.statusCode).toBe(422);
-    expect(res.body).toMatch(/widget/i);
+    expect(res.statusCode, res.body).toBeLessThan(300);
 
-    // And it really did not move — a refusal that half-applied would be worse
-    // than the thing being prevented.
-    const { rows } = await db.pool.query(`SELECT database_id FROM views WHERE id = $1`, [created.json().id]);
-    expect(rows[0].database_id).toBe(tasksDb);
+    const { rows } = await db.pool.query(`SELECT database_id, space_id, config FROM views WHERE id = $1`, [
+      created.json().id,
+    ]);
+    expect(rows[0].database_id, 'the container moved').toBeNull();
+    expect(rows[0].space_id).toBe(space);
+
+    const widgets = rows[0].config.dashboard_widgets as Array<{ id: string; database_id?: string }>;
+    // NO widget may be left sourceless — the exact condition #306's refusal was
+    // protecting against. Asserting only on the move would not catch it.
+    expect(widgets.every((w) => w.database_id)).toBe(true);
+    // The implicit one was filled from the OLD owning database…
+    expect(widgets.find((w) => w.id.endsWith('001'))!.database_id).toBe(tasksDb);
+    // …and one already pointing elsewhere was left exactly as it was.
+    expect(widgets.find((w) => w.id.endsWith('002'))!.database_id).toBe(secretsDb);
   });
 
   it('REFUSES to move a non-dashboard view (#306)', async () => {
