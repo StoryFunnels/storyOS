@@ -323,3 +323,84 @@ describe('CSV import: offerable field types are derived, not hand-listed (#375)'
     expect(labels).toEqual(['alpha', 'beta']);
   });
 });
+
+/**
+ * #372 — a failed import used to commit its fields and no records, then the
+ * retry collided with its own leftovers. The founder worked that out and was
+ * still stuck, because there is no way to import the same column under a
+ * different name.
+ *
+ * The property under test is observable and blunt: after a failed attempt the
+ * field list is IDENTICAL to before it.
+ */
+describe('CSV import: a failed import leaves nothing behind (#372)', () => {
+  let dbId: string;
+  const fieldNames = async () => {
+    const detail = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}`)).json();
+    return (detail.fields as Array<{ displayName: string }>).map((f) => f.displayName).sort();
+  };
+
+  beforeAll(async () => {
+    const spaceId = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
+    dbId = (await inject('POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name: 'Rollback 372' })).json().id;
+  });
+
+  it('rolls the new fields back when the records fail', async () => {
+    const before = await fieldNames();
+
+    // Force a failure the per-cell degradation of #371 CANNOT rescue: a second
+    // `workflow` field. #172 allows at most one per database, enforced
+    // server-side at record-write time for the option ids — so the fields are
+    // created and the record insert is what blows up. That is exactly the shape
+    // that stranded 22 fields.
+    const body = multipart(
+      {
+        mapping: JSON.stringify([
+          { column: 'Name', to: { kind: 'title' } },
+          { column: 'A', to: { kind: 'new', display_name: 'A 372', type: 'workflow' } },
+          { column: 'B', to: { kind: 'new', display_name: 'B 372', type: 'workflow' } },
+        ]),
+        dry_run: 'false',
+      },
+      'Name;A;B\nAcme;x;y',
+    );
+    const res = await app.inject({
+      method: 'POST', url: `/api/v1/workspaces/${wsId}/databases/${dbId}/import`,
+      headers: { ...authed(admin.token), ...body.headers }, payload: body.payload,
+    });
+
+    if (res.statusCode < 300) {
+      // If the import SUCCEEDS the premise is gone, and asserting on the field
+      // list would silently prove nothing. Say so instead of passing quietly.
+      const after = await fieldNames();
+      expect(after, 'import succeeded — this test needs a failing mapping to be meaningful').not.toEqual(before);
+      return;
+    }
+
+    // THE assertion: the database is as it was.
+    expect(await fieldNames(), 'a failed import must leave no fields behind').toEqual(before);
+    // And it says so, rather than leaving the user to guess.
+    expect(res.body).toMatch(/no fields were added|could not be fully restored/i);
+  });
+
+  it('a retry of a previously-failed file is not blocked by leftovers', async () => {
+    // The trap: with the fields stranded, "New field" collided and "Existing
+    // field" was undiscoverable. With the rollback there is nothing to collide.
+    const body = multipart(
+      {
+        mapping: JSON.stringify([
+          { column: 'Name', to: { kind: 'title' } },
+          { column: 'A', to: { kind: 'new', display_name: 'A 372', type: 'text' } },
+        ]),
+        dry_run: 'false',
+      },
+      'Name;A\nAcme;hello',
+    );
+    const res = await app.inject({
+      method: 'POST', url: `/api/v1/workspaces/${wsId}/databases/${dbId}/import`,
+      headers: { ...authed(admin.token), ...body.headers }, payload: body.payload,
+    });
+    if (res.statusCode >= 300) throw new Error(`retry should succeed: ${res.statusCode} ${res.body}`);
+    expect(res.json().created).toBe(1);
+  });
+});

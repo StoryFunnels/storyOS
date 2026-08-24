@@ -312,8 +312,27 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
                         {sample}
                       </p>
                     </div>
+                    {/* #372 — a CSV header is rarely the field name you want.
+                        `hq_metro`, `one_liner`, `ukraine_signal` are machine
+                        names, and the mapping step is the natural moment to fix
+                        them. The API already accepted `display_name`; only the UI
+                        never let you change it, which is also why a retry after a
+                        failed run had no way to import the same column under a
+                        different name. */}
+                    {to.kind === 'new' && (
+                      <input
+                        aria-label={`Name for the new field from "${c.column}"`}
+                        className="h-8 w-40 shrink-0 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                        value={to.display_name}
+                        onChange={(e) => {
+                          const next = new Map(mapping);
+                          next.set(c.column, { ...to, display_name: e.target.value });
+                          setMapping(next);
+                        }}
+                      />
+                    )}
                     <select
-                      className="h-8 w-56 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                      className="h-8 w-56 shrink-0 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
                       value={encoded}
                       onChange={(e) => {
                         const v = e.target.value;

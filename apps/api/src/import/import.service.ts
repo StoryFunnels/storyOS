@@ -4,6 +4,7 @@ import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { fields, records, selectOptions } from '../db/schema';
 import { FieldsService } from '../fields/fields.service';
+import { RecordsService } from '../records/records.service';
 import { RelationsService } from '../relations/relations.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { ChunkedApplyService } from '../migration-framework/chunked-apply.service';
@@ -48,6 +49,8 @@ export class ImportService {
     private readonly relationsService: RelationsService,
     private readonly chunkedApply: ChunkedApplyService,
     private readonly relationLinker: RelationLinkerService,
+    // #372 — needed to UNDO the records a failed run created.
+    private readonly records: RecordsService,
   ) {}
 
   parseCsv(buffer: Buffer): { headers: string[]; rows: string[][] } {
@@ -232,6 +235,46 @@ export class ImportService {
     // Commit: create new fields, then records in chunks, then links.
     const warnings: Warning[] = [];
     /**
+     * #372 — every field THIS run created, so a failure can undo them.
+     *
+     * Schema mutation and record insertion are not one transaction: fields are
+     * created through FieldsService (its own transaction each) and records in
+     * chunks through RecordsService, deliberately, so a large import does not
+     * hold one transaction open across the whole file. The consequence was that
+     * a failed run committed 22 fields and zero records, and the retry then
+     * collided with its own leftovers — a trap the user could not get out of
+     * from inside the product.
+     *
+     * This is COMPENSATION, not atomicity: the writes happen and are then undone.
+     * It gives the property the user actually needs — a failed import leaves the
+     * database as it was — without restructuring transaction ownership across
+     * two services. The honest caveat is that compensation can itself fail, so
+     * that case is reported rather than swallowed.
+     */
+    const createdFieldIds: string[] = [];
+
+    /** #372 — undo everything this run wrote. Records first, then fields: the
+     * inverse of the order they were created, and a field with values still on
+     * it is harder to remove. Returns what it could NOT undo. */
+    const rollback = async (recordIds: string[]): Promise<string[]> => {
+      const failures: string[] = [];
+      if (recordIds.length > 0) {
+        try {
+          await this.records.batchDelete(membership.workspaceId, databaseId, recordIds, actorId ?? '');
+        } catch {
+          failures.push(`${recordIds.length} record(s)`);
+        }
+      }
+      for (const fieldId of createdFieldIds) {
+        try {
+          await this.fieldsService.remove(databaseId, fieldId);
+        } catch {
+          failures.push(`field ${fieldId}`);
+        }
+      }
+      return failures;
+    };
+    /**
      * #371 — carries the FieldDef, not just its type. A NEW field does not exist
      * in `live` (read before the fields are created), so reconstructing a def
      * from `fieldById` would return undefined for exactly the case that caused
@@ -240,6 +283,15 @@ export class ImportService {
      */
     const columnField = new Map<string, { apiName: string; type: string; id: string; def: FieldDef }>();
     const selectLabelMaps = new Map<string, Map<string, string>>();
+    /**
+     * The try begins HERE, before the fields are created — not just around the
+     * record insert. A failure part-way through CREATING the fields strands the
+     * earlier ones, which is the same defect one step sooner. (Found by test: a
+     * second `workflow` field is rejected at creation time, and the first was
+     * left behind.)
+     */
+    let createdIds: string[] = [];
+    try {
     for (const m of mapping) {
       if (m.to.kind === 'existing') {
         const f = fieldById.get(m.to.field_id)!;
@@ -279,6 +331,7 @@ export class ImportService {
           config: {},
           options,
         })) as { id: string; apiName: string; type: string; options?: Array<{ id: string; label: string }> };
+        createdFieldIds.push(created.id);
         columnField.set(m.column, {
           apiName: created.apiName,
           type: m.to.type,
@@ -347,19 +400,35 @@ export class ImportService {
       payloads.push(values);
     });
 
-    const createdIds = await this.chunkedApply.createChunked(membership.workspaceId, databaseId, payloads, actorId);
-    for (const link of pendingLinks) {
-      const recordId = createdIds[link.recordIndex];
-      if (!recordId) continue;
-      const failure = await this.relationLinker.link(
-        membership.workspaceId,
-        databaseId,
-        recordId,
-        link.fieldId,
-        [link.targetId],
-        actorId,
-      );
-      if (failure) warnings.push({ row: 0, column: '', message: failure });
+      createdIds = await this.chunkedApply.createChunked(membership.workspaceId, databaseId, payloads, actorId);
+      for (const link of pendingLinks) {
+        const recordId = createdIds[link.recordIndex];
+        if (!recordId) continue;
+        const failure = await this.relationLinker.link(
+          membership.workspaceId,
+          databaseId,
+          recordId,
+          link.fieldId,
+          [link.targetId],
+          actorId,
+        );
+        if (failure) warnings.push({ row: 0, column: '', message: failure });
+      }
+    } catch (error) {
+      const undoFailures = await rollback(createdIds);
+      const because = error instanceof Error ? error.message : 'the import failed';
+      // Compensation can itself fail. Saying so is the difference between a
+      // recoverable situation and a mystery: if the rollback did not complete,
+      // the user needs to know the database is NOT as it was.
+      const suffix =
+        undoFailures.length > 0
+          ? ` The database could not be fully restored — left behind: ${undoFailures.join(', ')}. Remove them by hand before retrying.`
+          : ' Nothing was imported and no fields were added, so you can fix the file and try again.';
+      throw new UnprocessableEntityException({
+        message: `${because}${suffix}`,
+        // Preserve the original specifics (#373 renders these).
+        details: (error as { response?: { details?: unknown } })?.response?.details ?? undefined,
+      });
     }
 
     return {
