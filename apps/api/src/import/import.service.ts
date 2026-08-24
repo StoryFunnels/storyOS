@@ -9,6 +9,7 @@ import type { Membership } from '../workspaces/workspace-access.guard';
 import { ChunkedApplyService } from '../migration-framework/chunked-apply.service';
 import { DryRunBuilder } from '../migration-framework/dry-run';
 import { coerceScalar, inferFieldType } from '../migration-framework/field-type-mapping';
+import type { FieldDef } from '@storyos/schemas';
 import { buildTitleIndex, resolveTargetsByTitle, splitTargets } from '../migration-framework/relation-resolver';
 import { RelationLinkerService } from '../migration-framework/relation-linker.service';
 import { buildLabelIndex } from '../migration-framework/select-options';
@@ -90,6 +91,25 @@ export class ImportService {
       where: and(eq(fields.databaseId, databaseId), isNull(fields.deletedAt)),
     });
     const fieldById = new Map(live.map((f) => [f.id, f]));
+    /**
+     * #371 — the FieldDef `coerceScalar` validates against. Passing it is what
+     * makes a bad url/email cell a WARNING instead of an exception that kills the
+     * whole batch: without a def there is nothing authoritative to check, so the
+     * value would sail through to the record write exactly as it used to.
+     *
+     * A NEW field has no row yet, so there is nothing to build one from — those
+     * are checked at the commit, once the field exists.
+     */
+    const defOf = (fieldId: string): FieldDef | undefined => {
+      const f = fieldById.get(fieldId);
+      if (!f) return undefined;
+      return {
+        id: f.id,
+        api_name: f.apiName,
+        type: f.type,
+        config: (f.config ?? {}) as Record<string, unknown>,
+      };
+    };
     const newFields: Array<{ column: string; display_name: string; type: string }> = [];
     for (const m of mapping) {
       if (m.to.kind === 'existing' || m.to.kind === 'relation') {
@@ -142,7 +162,21 @@ export class ImportService {
             return;
           }
           const type = to.kind === 'new' ? to.type : fieldById.get(to.field_id)!.type;
-          const coerced = coerceScalar(type, raw);
+          /**
+           * #374 — the dry run must validate what the COMMIT validates, or the
+           * count it prints is a guess. A NEW field has no row yet, so its def is
+           * synthesised from what the field WILL be created as: `create` is
+           * called with `config: {}`, so this matches the real thing.
+           *
+           * Without this the dry run skipped validation for exactly the columns
+           * the founder was importing (22 new fields), printed "148 of 148 will
+           * import", and the commit then failed on the first bad url.
+           */
+          const def: FieldDef =
+            to.kind === 'new'
+              ? { id: '', api_name: column, type: to.type, config: {} }
+              : defOf(to.field_id)!;
+          const coerced = coerceScalar(type, raw, def);
           if (coerced === undefined) {
             report.addWarning({ row: rowIndex + 2, column, message: `"${raw.slice(0, 30)}" is not a valid ${type}` });
           } else {
@@ -163,14 +197,40 @@ export class ImportService {
       };
     }
 
+    /**
+     * #375 — a multi-select cell is a delimited list. "a, b; c" must become three
+     * options, not one option literally named "a, b; c" — which is what happened
+     * when the value went through the single-value path.
+     *
+     * Comma and semicolon both, because a CSV that uses ';' as its own delimiter
+     * (as StoryOS export does) tends to use ',' inside cells, and vice versa.
+     */
+    const splitMulti = (raw: string) =>
+      raw
+        .split(/[,;]/)
+        .map((part) => part.trim())
+        .filter(Boolean);
+
     // Commit: create new fields, then records in chunks, then links.
     const warnings: Warning[] = [];
-    const columnField = new Map<string, { apiName: string; type: string; id: string }>();
+    /**
+     * #371 — carries the FieldDef, not just its type. A NEW field does not exist
+     * in `live` (read before the fields are created), so reconstructing a def
+     * from `fieldById` would return undefined for exactly the case that caused
+     * this bug: the founder's import created 22 new fields, and an unvalidated
+     * url cell among them killed all 148 rows.
+     */
+    const columnField = new Map<string, { apiName: string; type: string; id: string; def: FieldDef }>();
     const selectLabelMaps = new Map<string, Map<string, string>>();
     for (const m of mapping) {
       if (m.to.kind === 'existing') {
         const f = fieldById.get(m.to.field_id)!;
-        columnField.set(m.column, { apiName: f.apiName, type: f.type, id: f.id });
+        columnField.set(m.column, {
+          apiName: f.apiName,
+          type: f.type,
+          id: f.id,
+          def: { id: f.id, api_name: f.apiName, type: f.type, config: (f.config ?? {}) as Record<string, unknown> },
+        });
         // An EXISTING select needs its label→option map too. Without this the
         // lookup below always missed, so every value imported into an existing
         // select was silently dropped as "not a known option" — which also broke
@@ -184,19 +244,30 @@ export class ImportService {
       } else if (m.to.kind === 'new') {
         // New select columns: options = distinct values (≤100), imported by label.
         const columnIndex = headers.indexOf(m.column);
-        const options =
-          m.to.type === 'select'
-            ? [...new Set(rows.map((r) => (r[columnIndex] ?? '').trim()).filter(Boolean))]
-                .slice(0, 100)
-                .map((label) => ({ label }))
-            : undefined;
+        const rawCells = rows.map((r) => (r[columnIndex] ?? '').trim()).filter(Boolean);
+        // #375 — multi_select and workflow need options too. multi_select's come
+        // from SPLITTING each cell, or every distinct combination becomes its own
+        // option ("a, b" and "a, c" as two unrelated values).
+        const optionLabels =
+          m.to.type === 'multi_select'
+            ? [...new Set(rawCells.flatMap(splitMulti))]
+            : m.to.type === 'select' || m.to.type === 'workflow'
+              ? [...new Set(rawCells)]
+              : undefined;
+        const options = optionLabels?.slice(0, 100).map((label) => ({ label }));
         const created = (await this.fieldsService.create(databaseId, {
           display_name: m.to.display_name,
           type: m.to.type as never,
           config: {},
           options,
         })) as { id: string; apiName: string; type: string; options?: Array<{ id: string; label: string }> };
-        columnField.set(m.column, { apiName: created.apiName, type: m.to.type, id: created.id });
+        columnField.set(m.column, {
+          apiName: created.apiName,
+          type: m.to.type,
+          id: created.id,
+          // Just created, so its config is the default `{}` passed above.
+          def: { id: created.id, api_name: created.apiName, type: m.to.type, config: {} },
+        });
         if (created.options) {
           selectLabelMaps.set(m.column, buildLabelIndex(created.options));
         }
@@ -227,13 +298,28 @@ export class ImportService {
         }
         const meta = columnField.get(column);
         if (!meta) return;
+        if (meta.type === 'multi_select') {
+          // #375 — each part resolves independently: an unknown one is a warning
+          // and the REST of the cell still imports. Dropping the whole cell
+          // because one tag is unrecognised is the per-cell failure this epic is
+          // about, one level down.
+          const labels = selectLabelMaps.get(column);
+          const ids: string[] = [];
+          for (const part of splitMulti(raw)) {
+            const optionId = labels?.get(part.toLowerCase());
+            if (optionId) ids.push(optionId);
+            else warnings.push({ row: rowIndex + 2, column, message: `"${part.slice(0, 30)}" is not a known option` });
+          }
+          if (ids.length > 0) values[meta.apiName] = ids;
+          return;
+        }
         if (meta.type === 'select' || meta.type === 'workflow') {
           const optionId = selectLabelMaps.get(column)?.get(raw.toLowerCase());
           if (optionId) values[meta.apiName] = optionId;
           else warnings.push({ row: rowIndex + 2, column, message: `"${raw.slice(0, 30)}" is not a known option` });
           return;
         }
-        const coerced = coerceScalar(meta.type, raw);
+        const coerced = coerceScalar(meta.type, raw, meta.def);
         if (coerced === undefined) {
           warnings.push({ row: rowIndex + 2, column, message: `"${raw.slice(0, 30)}" dropped — not a valid ${meta.type}` });
         } else {

@@ -26,6 +26,33 @@ export const creatableFieldTypeSchema = z.enum([
 ]);
 export type CreatableFieldType = z.infer<typeof creatableFieldTypeSchema>;
 
+/**
+ * Field types that CANNOT be created by importing data into them, because they
+ * are computed — there is no cell value to put anywhere.
+ *
+ * Named and exported so the exclusion is a deliberate, reviewable list rather
+ * than the accidental complement of whatever someone typed into a UI array.
+ */
+export const NON_IMPORTABLE_FIELD_TYPES = ['lookup', 'rollup', 'formula', 'button'] as const;
+
+/**
+ * #375 — the field types an import mapping may create, DERIVED rather than
+ * hand-listed.
+ *
+ * This existed as two hardcoded arrays: `NEW_TYPES` in the web import wizard and
+ * `NEW_FIELD_TYPES` in the api's field-type-mapping, the second carrying the
+ * comment "matches the wizard's ＋ New field list". Two hand-maintained mirrors
+ * of a list that lives here, and they had drifted to SEVEN of sixteen — no rich
+ * text, no workflow, no multi-select, no person, with nothing indicating
+ * anything was absent. Import quietly decided the user's data model for them.
+ *
+ * Deriving it is the actual fix. Adding the missing nine by hand would have left
+ * the next field type to go silently missing in exactly the same way.
+ */
+export const IMPORTABLE_FIELD_TYPES = creatableFieldTypeSchema.options.filter(
+  (t): t is CreatableFieldType => !(NON_IMPORTABLE_FIELD_TYPES as readonly string[]).includes(t),
+);
+
 export const OPTION_COLORS = [
   'gray',
   'brown',
