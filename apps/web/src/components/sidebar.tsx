@@ -35,6 +35,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { SIDEBAR_INDENT_PX, SidebarRow } from '@/components/sidebar-row';
 import { SidebarViewRow, type SidebarView } from '@/components/sidebar-view-row';
 
 interface Favorite {
@@ -796,7 +797,11 @@ function SpaceSection({
                       {spaceViews
                         .filter((v) => v.database_id === db.id && !v.folder_id)
                         .map((v) => (
-                          <div key={v.id} className="ml-4 border-l border-border-default pl-1">
+                          /* #380 — indent comes from SidebarRow's depth now.
+                             This wrapper only draws the guide line; it used to
+                             add ml-4 while the folder's children used ml-3, so
+                             the two nesting levels disagreed by 4px. */
+                          <div key={v.id} className="border-l border-border-default" style={{ marginLeft: SIDEBAR_INDENT_PX[1] }}>
                             <SidebarViewRow
                               ws={ws}
                               view={v}
@@ -828,30 +833,18 @@ function SpaceSection({
                 folders={folders}
                 onMove={onMoveView}
                 canEdit={canEdit}
+                /* #380 — a space-level dashboard is a SIBLING of the databases,
+                   so it shares their left edge. It used to render LEFT of them. */
+                depth={1}
               />
             ))}
           {(docs.data ?? []).map((d) => (
-            // #219: mirror DatabaseRow so documents and databases share ONE left
-            // edge and the same active/hover treatment. Previously the doc row had
-            // no grip gutter and a different active style, so its icon sat ~16px
-            // left of the database icons with a mismatched highlight.
-            <div
-              key={d.id}
-              className={cn(
-                'group/doc flex items-center justify-between rounded px-2 py-[3px] text-[13px]',
-                pathname === `/w/${ws}/doc/${d.id}`
-                  ? 'bg-active text-ink shadow-[inset_2px_0_0_var(--accent)]'
-                  : 'text-ink-secondary hover:bg-hover',
-              )}
-            >
-              {/* Reserve the same grip gutter DatabaseRow shows when editable —
-                  docs aren't drag-reorderable, so it's an invisible spacer that
-                  keeps the icons aligned with the draggable database rows. */}
-              {canEdit && (
-                <span aria-hidden className="-ml-1 mr-0.5 shrink-0 p-0.5">
-                  <span className="block h-3 w-3" />
-                </span>
-              )}
+            /* #380 — #219 fixed this row by COPYING an invisible spacer out of
+               DatabaseRow. That is why the fix did not reach view rows when they
+               arrived with #347. The gutter is the wrapper's job now, so the
+               spacer is gone and a document sits on the same edge as a database
+               by construction rather than by remembering. */
+            <SidebarRow key={d.id} depth={1} active={pathname === `/w/${ws}/doc/${d.id}`} className="group/doc">
               <Link
                 href={`/w/${ws}/doc/${d.id}`}
                 className="flex min-w-0 flex-1 items-center gap-2"
@@ -879,7 +872,7 @@ function SpaceSection({
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
-            </div>
+            </SidebarRow>
           ))}
         </>
       )}
@@ -990,19 +983,38 @@ function FolderSection({
 
   return (
     <div>
+      {/* #380 — a folder sits on the SAME left edge as the databases beside it
+          (founder's spec: "folders, dashboards — the same padding left as
+          databases"), so it goes through the shared row at depth 1. */}
       <button
         onClick={toggle}
-        className="flex w-full items-center gap-1 rounded px-2 py-[3px] text-[13px] text-ink-secondary hover:bg-hover"
+        style={{ paddingLeft: SIDEBAR_INDENT_PX[1] }}
+        /* gap-0 on the outer: the caret's own mr-0.5 IS the gutter margin, and
+           an extra flex gap here put the folder icon 4px right of every other
+           depth-1 icon. The icon→label gap is applied on the inner span so it
+           matches the gap-2 the database/document rows use. */
+        className="group flex w-full items-center rounded py-[3px] pr-2 text-[13px] text-ink-secondary hover:bg-hover"
       >
-        <ChevronRight className={cn('h-3 w-3 shrink-0 text-faint transition-transform', !collapsed && 'rotate-90')} />
-        <EntityIcon icon={folder.icon} color={null} fallback={<FolderIcon className="h-3.5 w-3.5 shrink-0 text-muted" />} className="text-[13px]" />
-        <span className="truncate">{folder.name}</span>
+        {/* #380 — the caret OCCUPIES the gutter slot rather than adding to it.
+            A database shows a drag grip there; a folder shows its disclosure
+            caret. Same 12px + 2px margin either way, so the icon and label line
+            up exactly with the databases beside it. Giving the folder both a
+            gutter and a caret pushed its label 17px right — measured, not
+            guessed. */}
+        <ChevronRight
+          className={cn('mr-0.5 h-3 w-3 shrink-0 text-faint transition-transform', !collapsed && 'rotate-90')}
+        />
+        <span className="flex min-w-0 flex-1 items-center gap-2">
+          <EntityIcon icon={folder.icon} color={null} fallback={<FolderIcon className="h-3.5 w-3.5 shrink-0 text-muted" />} className="text-[13px]" />
+          <span className="truncate">{folder.name}</span>
+        </span>
         {databases.length + views.length > 0 && (
           <span className="ml-auto text-[11px] text-faint">{databases.length + views.length}</span>
         )}
       </button>
       {!collapsed && (
-        <div className="ml-3 border-l border-border-default pl-1">
+        /* #380 — same guide line, same offset as a database's nested views. */
+        <div className="border-l border-border-default" style={{ marginLeft: SIDEBAR_INDENT_PX[1] }}>
           {databases.length + views.length === 0 && (
             <p className="px-2 py-1 text-[12px] text-faint">Empty</p>
           )}
@@ -1076,32 +1088,23 @@ function DatabaseRow({
   });
 
   return (
-    <div
+    <SidebarRow
+      depth={1}
+      active={active}
+      draggable={canDrag}
       ref={reorderable ? setNodeRef : undefined}
       style={reorderable ? { transform: CSS.Transform.toString(transform), transition } : undefined}
       className={cn(
-        'group flex items-center justify-between rounded px-2 py-[3px] text-[13px]',
-        active
-          ? 'bg-active text-ink shadow-[inset_2px_0_0_var(--accent)]'
-          : 'text-ink-secondary hover:bg-hover',
         isDragging && 'opacity-50',
-        // #322: the row itself is the handle. It used to be ONLY the 12px
-        // opacity-0 grip below — the exact thing header-cell.tsx records as
-        // "too hard to grab, so reorder felt broken" (MN-225). Same treatment
-        // as the space row above so the two sidebar levels behave alike.
+        // #322: the row itself is the handle, not only the 12px grip — the exact
+        // thing header-cell.tsx records as "too hard to grab, so reorder felt
+        // broken" (MN-225).
         canDrag && 'cursor-grab touch-none active:cursor-grabbing',
       )}
       {...(canDrag ? attributes : {})}
       {...(canDrag ? listeners : {})}
       title={canDrag ? 'Drag to reorder' : undefined}
     >
-      {canDrag && (
-        // A hint now, not the handle — hence a span, not a dead button.
-        <GripVertical
-          className="-ml-1 mr-0.5 h-3 w-3 shrink-0 text-faint opacity-0 transition-opacity group-hover:opacity-100"
-          aria-hidden
-        />
-      )}
       {renaming ? (
         <RenameInline
           initial={db.name}
@@ -1208,7 +1211,7 @@ function DatabaseRow({
           }}
         />
       </Dialog>
-    </div>
+    </SidebarRow>
   );
 }
 
