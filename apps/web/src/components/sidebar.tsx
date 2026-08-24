@@ -401,6 +401,47 @@ function HiddenRow({
   );
 }
 
+/**
+ * #382 — per-database expand state, reusing the SAME localStorage shape spaces
+ * and folders already use (`storyos:space-collapsed:`,
+ * `storyos:folder-collapsed:`). A third mechanism here would be the same drift
+ * #380 documents for indentation.
+ *
+ * ONE difference, and it is the point of the ticket: the DEFAULT flips. Spaces
+ * and folders default to expanded; a database defaults to COLLAPSED. So the
+ * stored value means "this one is open" and absence means closed — which is why
+ * the key is `-expanded:` rather than `-collapsed:`. Reusing the word
+ * "collapsed" with an inverted meaning would be worse than a new key: every
+ * future reader would have to remember which way this one runs.
+ *
+ * Per-device, matching spaces and folders. The founder asked for state to
+ * survive reopening app.storyos.dev, which localStorage satisfies for the same
+ * browser. Following the person across devices would mean putting it on the user
+ * record — a deliberate decision recorded on #382, and not what the existing
+ * two do.
+ */
+function useDatabaseExpanded(databaseId: string, forceOpen: boolean) {
+  const key = `storyos:database-expanded:${databaseId}`;
+  const [expanded, setExpanded] = useState(false);
+  useEffect(() => {
+    if (typeof window !== 'undefined') setExpanded(window.localStorage.getItem(key) === '1');
+  }, [key]);
+  const toggle = () =>
+    setExpanded((e) => {
+      const next = !e;
+      if (typeof window !== 'undefined') {
+        // Absence means collapsed, so closing REMOVES the key rather than
+        // writing '0'. Otherwise every database ever opened leaves a row behind
+        // forever, including deleted ones (#382 asks that keys not accumulate).
+        if (next) window.localStorage.setItem(key, '1');
+        else window.localStorage.removeItem(key);
+      }
+      return next;
+    });
+  // You should always be able to see where you are, whatever was stored.
+  return { expanded: expanded || forceOpen, toggle };
+}
+
 function SpaceSection({
   ws,
   space,
@@ -536,6 +577,28 @@ function SpaceSection({
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['space-views', ws, space.id] }),
     onError: () => toast.error('Could not move view'),
   });
+  /**
+   * #381 — the views to render UNDER a database.
+   *
+   * Excludes the one the database row itself opens. Clicking a database name
+   * goes to /w/{ws}/d/{db}, which opens its default view, so listing that view
+   * again as a child costs a row and delivers a destination you already had. In
+   * a real workspace that is a dozen wasted rows before any content.
+   *
+   * Keyed on `is_default` — WHICH view the database actually opens — not a name
+   * match on "All records", so a database whose default has been changed still
+   * hides the right one.
+   *
+   * Views the member cannot see never arrive here: the endpoint applies
+   * notOthersPersonalView, so a personal view of someone else's is already
+   * absent and cannot inflate the count or summon a caret.
+   *
+   * Shared with the caret decision (#382) so the two cannot disagree about
+   * whether a database has children.
+   */
+  const childViewsOf = (databaseId: string) =>
+    spaceViews.filter((v) => v.database_id === databaseId && !v.folder_id && !v.is_default);
+
   /** Placement is per-view; the database is only needed to address the route. */
   const moveSpaceViewToFolder = useMutation({
     mutationFn: async (v: { id: string; folderId: string | null }) => {
@@ -780,39 +843,19 @@ function SpaceSection({
               >
                 <SortableContext items={rootDbs.map((d) => d.id)} strategy={verticalListSortingStrategy}>
                   {rootDbs.map((db) => (
-                    <Fragment key={db.id}>
-                      <DatabaseRow
-                        ws={ws}
-                        db={db}
-                        active={pathname.startsWith(`/w/${ws}/d/${db.id}`)}
-                        canEdit={canEdit}
-                        isAdmin={isAdmin}
-                        folders={folders}
-                        onMove={moveToFolder}
-                        reorderable={canEdit}
-                      />
-                      {/* #347 — a database's own views nest beneath it. Only the
-                          ones with no folder: a view moved into a folder lives
-                          THERE instead, never in both places. */}
-                      {spaceViews
-                        .filter((v) => v.database_id === db.id && !v.folder_id)
-                        .map((v) => (
-                          /* #380 — indent comes from SidebarRow's depth now.
-                             This wrapper only draws the guide line; it used to
-                             add ml-4 while the folder's children used ml-3, so
-                             the two nesting levels disagreed by 4px. */
-                          <div key={v.id} className="border-l border-border-default" style={{ marginLeft: SIDEBAR_INDENT_PX[1] }}>
-                            <SidebarViewRow
-                              ws={ws}
-                              view={v}
-                              active={pathname.startsWith(`/w/${ws}/d/${db.id}`) && currentViewId === v.id}
-                              folders={folders}
-                              onMove={onMoveView}
-                              canEdit={canEdit}
-                            />
-                          </div>
-                        ))}
-                    </Fragment>
+                    <DatabaseBranch
+                      key={db.id}
+                      ws={ws}
+                      db={db}
+                      views={childViewsOf(db.id)}
+                      pathname={pathname}
+                      currentViewId={currentViewId}
+                      folders={folders}
+                      onMove={moveToFolder}
+                      onMoveView={onMoveView}
+                      canEdit={canEdit}
+                      isAdmin={isAdmin}
+                    />
                   ))}
                 </SortableContext>
               </DndContext>
@@ -1052,6 +1095,79 @@ function FolderSection({
   );
 }
 
+/**
+ * #382 — a database and the views under it, with its own expand state.
+ *
+ * Its own component because the expand state is a HOOK and this renders inside a
+ * .map(). It also puts the caret and the children in one place, so #381's "does
+ * this database have children" answer cannot disagree with #382's "should there
+ * be a caret".
+ */
+function DatabaseBranch({
+  ws,
+  db,
+  views,
+  pathname,
+  currentViewId,
+  folders,
+  onMove,
+  onMoveView,
+  canEdit,
+  isAdmin,
+}: {
+  ws: string;
+  db: DatabaseSummary;
+  views: SidebarView[];
+  pathname: string;
+  currentViewId: string | null;
+  folders: FolderInfo[];
+  onMove: (dbId: string, folderId: string | null) => void;
+  onMoveView: (viewId: string, folderId: string | null) => void;
+  canEdit: boolean;
+  isAdmin: boolean;
+}) {
+  const isHere = pathname.startsWith(`/w/${ws}/d/${db.id}`);
+  const { expanded, toggle } = useDatabaseExpanded(db.id, isHere);
+  // #382 — a caret only where there is something behind it. With #381 removing
+  // the default view, most databases have no children at all, which is what
+  // makes the sidebar compact rather than merely collapsible.
+  const hasChildren = views.length > 0;
+
+  return (
+    <Fragment>
+      <DatabaseRow
+        ws={ws}
+        db={db}
+        active={isHere}
+        canEdit={canEdit}
+        isAdmin={isAdmin}
+        folders={folders}
+        onMove={onMove}
+        reorderable={canEdit}
+        expandable={hasChildren}
+        expanded={expanded}
+        onToggle={toggle}
+      />
+      {hasChildren && expanded &&
+        views.map((v) => (
+          /* #380 — indent comes from SidebarRow's depth. This wrapper only draws
+             the guide line; it used to add ml-4 while a folder's children used
+             ml-3, so the two nesting levels disagreed by 4px. */
+          <div key={v.id} className="border-l border-border-default" style={{ marginLeft: SIDEBAR_INDENT_PX[1] }}>
+            <SidebarViewRow
+              ws={ws}
+              view={v}
+              active={isHere && currentViewId === v.id}
+              folders={folders}
+              onMove={onMoveView}
+              canEdit={canEdit}
+            />
+          </div>
+        ))}
+    </Fragment>
+  );
+}
+
 function DatabaseRow({
   ws,
   db,
@@ -1061,6 +1177,9 @@ function DatabaseRow({
   folders = [],
   onMove,
   reorderable = false,
+  expandable = false,
+  expanded = false,
+  onToggle,
 }: {
   ws: string;
   db: DatabaseSummary;
@@ -1070,6 +1189,10 @@ function DatabaseRow({
   folders?: FolderInfo[];
   onMove?: (dbId: string, folderId: string | null) => void;
   reorderable?: boolean;
+  /** #382 — only true when there is something behind the caret. */
+  expandable?: boolean;
+  expanded?: boolean;
+  onToggle?: () => void;
 }) {
   const mutations = useSidebarMutations(ws);
   const [renaming, setRenaming] = useState(false);
@@ -1114,6 +1237,27 @@ function DatabaseRow({
           }}
         />
       ) : (
+        <>
+          {/* #382 — the caret is a SEPARATE control from the link. Clicking the
+              database name must still open it (#381 rejected turning the row
+              into a pure disclosure toggle); expanding is a different intent and
+              gets its own hit target. Rendered only when there is something to
+              expand, which after #381 is the minority of databases. */}
+          {expandable && (
+            <button
+              type="button"
+              aria-label={expanded ? `Collapse ${db.name}` : `Expand ${db.name}`}
+              aria-expanded={expanded}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onToggle?.();
+              }}
+              className="-ml-1 mr-0.5 shrink-0 rounded p-0.5 text-faint hover:bg-active hover:text-ink"
+            >
+              <ChevronRight className={cn('h-3 w-3 transition-transform', expanded && 'rotate-90')} />
+            </button>
+          )}
         <Link href={`/w/${ws}/d/${db.id}`} className="flex min-w-0 flex-1 items-center gap-2">
           <EntityIcon
             icon={db.icon}
@@ -1122,6 +1266,7 @@ function DatabaseRow({
           />
           <span className="truncate">{db.name}</span>
         </Link>
+        </>
       )}
       {canEdit && !renaming && (
         <DropdownMenu>
