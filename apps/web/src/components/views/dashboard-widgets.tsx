@@ -1,7 +1,8 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
 import {
   Bar,
   BarChart,
@@ -16,7 +17,10 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import type { Field } from '../table-view/use-table-data';
+import { useDatabase, useRecordsInfinite } from '../table-view/use-table-data';
+import type { FilterGroup, FilterNode, ViewConfig } from './use-view-state';
+import { andFilterNodes, queryBodyFromConfig } from './use-view-state';
+import { FiltersSection } from './view-toolbar';
 import { TILE_OPS, formatTileValue, opLabel } from './dashboard-tiles';
 import type { TileOp } from './dashboard-tiles';
 import {
@@ -34,6 +38,13 @@ export interface DashboardWidget {
   title: string;
   group_by_field_api_name?: string;
   measure: { op: TileOp; field_api_name?: string };
+  /** #367 — this widget's own scope, ANDed with the view's filter. */
+  filter?: FilterNode;
+  /**
+   * #367 — the database this widget measures. Omitted = the view's own database,
+   * so every dashboard saved before this renders identically with no migration.
+   */
+  database_id?: string;
 }
 
 /**
@@ -99,29 +110,95 @@ function TooltipContent({
 /**
  * A single dashboard chart / grouped-table widget: renders the computed series
  * (bar/line/pie via Recharts, or a grouped table) plus, unless read-only, the
- * inline config (type / group-by / measure) matching the tile config UX.
+ * inline config (source / filter / type / group-by / measure).
  *
- * `rows` are the SAME grant-scoped, view-filtered records the tiles aggregate;
- * the widget computes its grouped series client-side (pure functions in
- * dashboard-charts.ts). Loading and empty states are handled here.
+ * #367 — this widget OWNS ITS QUERY, exactly as `TileValue` has since #304.
+ * It used to receive `rows`, `fields` and `loading` from the page-level fetch,
+ * which is precisely why every widget on a dashboard necessarily measured the
+ * same database with the same scope. It now resolves its own source and fetches
+ * through the SAME grant-scoped `/records/query` path, so operator semantics stay
+ * on the SERVER and a widget can never read past the viewer's access.
+ *
+ * Two widgets with identical source and scope share one request — react-query
+ * dedupes on the query key, so N widgets over M databases are M round trips.
  */
 export function DashboardWidgetCard({
+  ws,
+  db,
+  config,
+  personalFilter,
+  sourceOptions,
+  members,
   widget,
-  rows,
-  fields,
-  loading,
   readOnly,
   onPatch,
   onRemove,
 }: {
+  ws: string;
+  /** #306 — absent on a space-level dashboard; the widget must name its own. */
+  db?: string;
+  config: ViewConfig;
+  /** #259 — narrows this view's results for the current viewer only. */
+  personalFilter?: FilterNode;
+  /** #304's space-scoped, editor-visible picker options, computed once by the view. */
+  sourceOptions: ReadonlyArray<{ id: string; name: string }>;
+  members: Array<{ id: string; name: string }>;
   widget: DashboardWidget;
-  rows: ReadonlyArray<{ values: Record<string, unknown> }>;
-  fields: Field[];
-  loading: boolean;
   readOnly: boolean;
   onPatch: (patch: Partial<DashboardWidget>) => void;
   onRemove: () => void;
 }) {
+  /**
+   * #367 — which database this widget measures. Falls back to the view's, which
+   * is how every dashboard saved before this keeps working with no migration.
+   */
+  const sourceDb = widget.database_id ?? db;
+  const crossDatabase = sourceDb !== db;
+  /**
+   * #306 — no view database AND no widget database. UNCONFIGURED, not broken
+   * (#305's rule): the widget keeps its place and asks to be pointed somewhere,
+   * and cleanViewConfig must never garbage-collect it.
+   */
+  const unconfigured = !sourceDb;
+
+  /**
+   * A CROSS-DATABASE widget must not inherit the view's scope — the same trap
+   * #304 documented for tiles. The view's filter, sorts and the viewer's personal
+   * override all name the VIEW database's fields by api_name. Applying them to
+   * another database asks it about columns it does not have: at best an error, at
+   * worst a silent mismatch where an api_name exists on both and means something
+   * different. That second case is the dangerous one — a widget that looks
+   * configured and charts the wrong thing.
+   */
+  const scoped = useMemo(
+    () => (crossDatabase ? widget.filter : andFilterNodes(personalFilter, widget.filter)),
+    [crossDatabase, personalFilter, widget.filter],
+  );
+  const queryBody = useMemo(
+    () =>
+      crossDatabase
+        ? { filters: scoped as FilterNode | undefined }
+        : queryBodyFromConfig(config, scoped as FilterNode | undefined),
+    [crossDatabase, config, scoped],
+  );
+
+  // The SOURCE database's fields drive the group-by and measure pickers. Offering
+  // the view database's fields for a cross-database widget is how you build a
+  // picker that proposes columns the query cannot honour.
+  const sourceDatabase = useDatabase(ws, sourceDb ?? '');
+  const fields = useMemo(() => sourceDatabase.data?.fields ?? [], [sourceDatabase.data]);
+
+  const records = useRecordsInfinite(ws, sourceDb ?? '', queryBody);
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = records;
+  // Aggregate over the whole matching set, not just page 1.
+  useEffect(() => {
+    if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+  const rows = useMemo(() => (records.data?.pages ?? []).flatMap((p) => p.data), [records.data]);
+  const loading = !unconfigured && (records.isLoading || hasNextPage || isFetchingNextPage);
+  const sourceName = (id: string) => sourceOptions.find((o) => o.id === id)?.name ?? 'the previous database';
+
   const groupableFields = useMemo(
     () => fields.filter((f) => GROUPABLE_TYPES.has(f.type)),
     [fields],
@@ -181,7 +258,20 @@ export function DashboardWidgetCard({
       </div>
 
       <div className="min-h-[220px]">
-        <WidgetBody loading={loading} groupConfigured={!!groupField} series={series} type={widget.type} />
+        <WidgetBody
+          unconfigured={unconfigured}
+          /**
+           * #367 — the query is grant-scoped server-side, so a source the VIEWER
+           * cannot read FAILS rather than returning rows. Rendering an empty
+           * chart here would be a lie: "no access" and "nothing to chart" look
+           * identical, and only one of them is true.
+           */
+          noAccess={records.isError}
+          loading={loading}
+          groupConfigured={!!groupField}
+          series={series}
+          type={widget.type}
+        />
       </div>
 
       {!readOnly && (
@@ -193,6 +283,74 @@ export function DashboardWidgetCard({
             onChange={(e) => onPatch({ title: e.target.value })}
             className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink placeholder:text-faint"
           />
+          {/* #367 — what this widget measures. Scoped to the dashboard's own SPACE,
+              for the same reason #304 scoped the tile picker: a picker wider than
+              the access story is how the leak gets built. */}
+          <select
+            aria-label="Widget source database"
+            value={widget.database_id ?? db ?? ''}
+            onChange={(e) => {
+              const picked = e.target.value;
+              const next = picked === '' || picked === db ? undefined : picked;
+              if ((widget.database_id ?? db ?? '') === (next ?? db ?? '')) return;
+              /**
+               * The filter AND the group-by reference the OLD database's fields
+               * by api_name. Keeping either would query the new database with
+               * columns it does not have — a widget that looks configured and
+               * charts nothing, the exact failure #367 exists to end.
+               *
+               * The group-by is the worse of the two: a stale filter tends to
+               * error, but a stale group-by silently collapses every record into
+               * one meaningless bucket. Clearing them silently would lose the
+               * user's work with no warning, so: clear, and say so.
+               */
+              const lost = [
+                widget.filter != null ? 'filter' : null,
+                widget.group_by_field_api_name != null ? 'group-by' : null,
+                widget.measure.field_api_name != null ? 'measure field' : null,
+              ].filter((x): x is string => x != null);
+              onPatch({
+                database_id: next,
+                filter: undefined,
+                group_by_field_api_name: undefined,
+                measure: { op: widget.measure.op },
+              });
+              if (lost.length > 0) {
+                // Agreement matters here because this message routinely names ONE
+                // thing: "group-by cleared — they referred to…" is what the naive
+                // version says. And the source is phrased as "fields on Clients"
+                // rather than a possessive, which would render "Clients's fields"
+                // for any database name ending in s.
+                const what = lost.length === 1 ? lost[0]! : `${lost.slice(0, -1).join(', ')} and ${lost.at(-1)}`;
+                const verb = lost.length === 1 ? 'it referred' : 'they referred';
+                toast.info(
+                  `${what.charAt(0).toUpperCase()}${what.slice(1)} cleared — ${verb} to fields on ${sourceName(widget.database_id ?? db ?? '')}.`,
+                );
+              }
+            }}
+            className={SELECT_CLASS}
+          >
+            {sourceOptions.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.name}
+              </option>
+            ))}
+          </select>
+          {/* #367 — this widget's own scope, through the SAME builder the view
+              toolbar and tiles use (one filter spec, one UI). Offered only for a
+              widget on the view's OWN database: the builder needs that database's
+              field list, and handing it the wrong one produces conditions the
+              query cannot honour. Mirrors #304's tile restriction exactly. */}
+          {db != null && (widget.database_id ?? db) === db && (
+            <FiltersSection
+              ws={ws}
+              db={db}
+              fields={fields}
+              members={members}
+              filters={widget.filter as FilterGroup | undefined}
+              onChange={(filter) => onPatch({ filter: filter as FilterNode | undefined })}
+            />
+          )}
           <div className="flex flex-wrap gap-1.5">
             <select
               aria-label="Widget type"
@@ -271,18 +429,33 @@ export function DashboardWidgetCard({
 }
 
 function WidgetBody({
+  unconfigured,
+  noAccess,
   loading,
   groupConfigured,
   series,
   type,
 }: {
+  unconfigured: boolean;
+  noAccess: boolean;
   loading: boolean;
   groupConfigured: boolean;
   series: SeriesPoint[];
   type: ChartWidgetType;
 }) {
+  // #306/#367 — asked for, not yet answered. Distinct from broken, and never
+  // garbage-collected (#305).
+  if (unconfigured) {
+    return <CenterNote>Pick a database.</CenterNote>;
+  }
   if (loading) {
     return <CenterNote>Loading…</CenterNote>;
+  }
+  // #367 — checked BEFORE the empty-series branch on purpose. A forbidden source
+  // and an empty one both produce zero rows; falling through to "No data to
+  // chart yet" would report a permissions failure as a fact about the data.
+  if (noAccess) {
+    return <CenterNote>You don&apos;t have access to this widget&apos;s database.</CenterNote>;
   }
   if (!groupConfigured) {
     return <CenterNote>Pick a field to group by.</CenterNote>;

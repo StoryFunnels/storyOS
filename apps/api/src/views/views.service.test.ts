@@ -235,6 +235,8 @@ describe('cleanViewConfig — dashboard chart widgets (MN-225 / #168, Phase 2)',
     cleanViewConfig({ ...BASE, dashboard_widgets }, new Set(), new Set(['stage', 'amount']))
       .dashboard_widgets;
 
+  const OTHER_DB = '55555555-5555-4555-8555-555555555555';
+
   const w = (over: Partial<NonNullable<ViewConfig['dashboard_widgets']>[number]>) => ({
     id: '44444444-4444-4444-4444-444444444444',
     type: 'bar' as const,
@@ -271,6 +273,53 @@ describe('cleanViewConfig — dashboard chart widgets (MN-225 / #168, Phase 2)',
     expect(
       widgets([w({ group_by_field_api_name: undefined, measure: { op: 'sum' } })]),
     ).toHaveLength(1);
+  });
+
+  // #367 — a widget names its OWN source database and is measured against THAT
+  // database's fields. cleanViewConfig only ever knows the VIEW's, so pruning
+  // here would delete a perfectly valid cross-database widget the moment its
+  // group-by happened not to exist on the view's database — #305's defect
+  // wearing the hat #304 already took off tiles.
+  it('KEEPS a cross-database widget whose group-by is unknown to the VIEW database (#367)', () => {
+    const out = widgets([w({ database_id: OTHER_DB, group_by_field_api_name: 'ghost' })]);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.group_by_field_api_name).toBe('ghost');
+  });
+
+  it('KEEPS a cross-database widget whose MEASURE field is unknown to the view (#367)', () => {
+    const out = widgets([w({ database_id: OTHER_DB, measure: { op: 'sum', field_api_name: 'ghost' } })]);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.measure.field_api_name).toBe('ghost');
+  });
+
+  it('does NOT prune a cross-database widget\'s filter against the view\'s fields (#367)', () => {
+    const filter = { and: [{ field: 'ghost', op: 'eq', value: 1 }] };
+    const out = widgets([w({ database_id: OTHER_DB, filter } as never)]);
+    expect(out).toHaveLength(1);
+    // Untouched: 'ghost' may well be a live field on the OTHER database.
+    expect(out[0]!.filter).toEqual(filter);
+  });
+
+  // The exemption has to stay NARROW, or #305's fix silently stops applying to
+  // every widget that never named a source. These two are the guard.
+  it('still DROPS a widget with no database_id whose group-by is dead — the exemption is narrow (#367)', () => {
+    expect(widgets([w({ group_by_field_api_name: 'ghost' })])).toHaveLength(0);
+  });
+
+  it('still prunes the filter of a widget with no database_id (#367)', () => {
+    const out = widgets([
+      w({
+        filter: {
+          and: [
+            { field: 'stage', op: 'eq', value: 'x' },
+            { field: 'ghost', op: 'eq', value: 1 },
+          ],
+        },
+      } as never),
+    ]);
+    expect(out).toHaveLength(1);
+    // The widget survives — only the dead condition goes (#305's rule).
+    expect(out[0]!.filter).toEqual({ and: [{ field: 'stage', op: 'eq', value: 'x' }] });
   });
 
   it('defaults to an empty array when widgets are absent', () => {

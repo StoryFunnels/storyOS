@@ -77,20 +77,17 @@ export function DashboardView({
     () => (members.data ?? []).map((m) => ({ id: m.user.id, name: m.user.name })),
     [members.data],
   );
-  const queryBody = useMemo(() => queryBodyFromConfig(config, personalFilter), [config, personalFilter]);
-  const records = useRecordsInfinite(ws, db ?? '', queryBody);
-
-  // Aggregate over the whole (filtered) dataset, not just the first page —
-  // keep paging until exhausted so count/sum/… are correct. #records is
-  // grant-scoped server-side, so this never over-reads past the viewer's access.
-  const { hasNextPage, isFetchingNextPage, fetchNextPage } = records;
-  useEffect(() => {
-    if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
-
-  const rows = useMemo(() => (records.data?.pages ?? []).flatMap((p) => p.data), [records.data]);
-  const loading = records.isLoading || hasNextPage || isFetchingNextPage;
-
+  /**
+   * #367 — the page-level record fetch is GONE.
+   *
+   * It paged the view's entire filtered dataset on every dashboard render, and
+   * since #304 nothing read it: tiles fetch their own (`TileValue`), and widgets
+   * now do too. It was the last thing forcing every widget onto one database with
+   * one scope — the whole defect this ticket describes — and it was also a full
+   * extra pass over the table that no rendered element consumed.
+   *
+   * `useDatabase` below stays: the pickers still need the VIEW database's fields.
+   */
   const tiles = (config.dashboard_tiles ?? []) as DashboardTile[];
   const fields = database.data?.fields ?? [];
   // Phase 1: numeric ops target plain number fields (formula/rollup targets later).
@@ -316,10 +313,13 @@ export function DashboardView({
           {widgets.map((widget) => (
             <DashboardWidgetCard
               key={widget.id}
+              ws={ws}
+              db={db}
+              config={config}
+              personalFilter={personalFilter}
+              sourceOptions={sourceOptions}
+              members={memberList}
               widget={widget}
-              rows={rows}
-              fields={fields}
-              loading={loading}
               readOnly={readOnly}
               onPatch={(patch) => updateWidget(widget.id, patch)}
               onRemove={() => removeWidget(widget.id)}

@@ -317,29 +317,36 @@ export class SpaceViewsService {
 
     const config = (view.config ?? {}) as {
       dashboard_tiles?: Array<Record<string, unknown>>;
-      dashboard_widgets?: Array<unknown>;
+      dashboard_widgets?: Array<Record<string, unknown>>;
     };
-    const widgets = config.dashboard_widgets ?? [];
-    if (widgets.length > 0) {
-      throw new UnprocessableEntityException(
-        `This dashboard has ${widgets.length} chart/table widget(s), and a widget cannot yet name its own source database. Moving it to the space would leave them measuring nothing. Remove them, or wait for per-widget sources.`,
-      );
-    }
 
+    /**
+     * #367 — this used to REFUSE any dashboard carrying widgets: a tile with no
+     * `database_id` could be backfilled from the database being detached, but a
+     * widget had nowhere to put the answer, so moving would have left every chart
+     * measuring nothing. Widgets now carry the same field, so the refusal is gone
+     * and they are backfilled by the same rule.
+     *
+     * Only the ones relying on the fallback are filled. Anything that already
+     * names a source keeps it — including one deliberately pointing elsewhere.
+     */
     const sourceDatabaseId = view.databaseId;
-    const tiles = (config.dashboard_tiles ?? []).map((tile) =>
-      // Only fill the ones relying on the fallback. A tile that already names a
-      // source keeps it — including one deliberately pointing elsewhere.
-      tile.database_id == null ? { ...tile, database_id: sourceDatabaseId } : tile,
-    );
+    const backfill = <T extends Record<string, unknown>>(items: T[] | undefined): T[] =>
+      (items ?? []).map((item) =>
+        item.database_id == null ? { ...item, database_id: sourceDatabaseId } : item,
+      );
 
     const [updated] = await this.db
       .update(views)
       .set({
-        config: { ...config, dashboard_tiles: tiles } as never,
+        config: {
+          ...config,
+          dashboard_tiles: backfill(config.dashboard_tiles),
+          dashboard_widgets: backfill(config.dashboard_widgets),
+        } as never,
         spaceId: database.spaceId,
         // Cleared in the SAME statement as the backfill above, so there is no
-        // instant at which a tile's fallback resolves to nothing.
+        // instant at which a tile or widget fallback resolves to nothing.
         databaseId: null,
       })
       .where(eq(views.id, viewId))

@@ -135,11 +135,27 @@ export function cleanViewConfig(
     // chart (created with no group-by, by design — you pick it afterwards) was
     // stripped before the user could ever configure it, so "Add chart" could
     // never stick. Drop only fields that are NAMED and missing.
-    dashboard_widgets: (config.dashboard_widgets ?? []).filter(
-      (w) =>
-        (w.group_by_field_api_name == null || liveApiNames.has(w.group_by_field_api_name)) &&
-        (w.measure.field_api_name == null || liveApiNames.has(w.measure.field_api_name)),
-    ),
+    dashboard_widgets: (config.dashboard_widgets ?? [])
+      // #367: the same cross-database exemption tiles got in #304, and it must
+      // stay just as NARROW. This function only ever knows the VIEW's fields, so
+      // a widget measuring another database would have its perfectly valid
+      // group-by pruned the moment that api_name happened not to exist here. A
+      // widget with no database_id is still the view's own and is still pruned.
+      .filter(
+        (w) =>
+          w.database_id != null ||
+          ((w.group_by_field_api_name == null || liveApiNames.has(w.group_by_field_api_name)) &&
+            (w.measure.field_api_name == null || liveApiNames.has(w.measure.field_api_name))),
+      )
+      // A widget's own filter gets the same pruning the view's filter gets — a
+      // condition on a deleted field is dropped rather than left to fail at query
+      // time. The WIDGET survives (it is still configured); only the dead
+      // condition goes. Same cross-database exemption.
+      .map((w) =>
+        w.filter && w.database_id == null
+          ? { ...w, filter: cleanFilterNode(w.filter, liveApiNames) as typeof w.filter }
+          : w,
+      ),
     column_widths: Object.fromEntries(
       Object.entries(config.column_widths ?? {}).filter(([id]) => liveFieldIds.has(id)),
     ),
