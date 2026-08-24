@@ -4211,6 +4211,8 @@ export interface components {
             icon?: string | null;
             content?: unknown;
             expected_version?: number;
+            /** Format: uuid */
+            folder_id?: string | null;
         };
         CreateTokenDto: {
             name: string;

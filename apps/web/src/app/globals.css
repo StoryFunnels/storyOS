@@ -8,7 +8,14 @@
   --bg-sidebar: #f4efe5;
   --bg-card: #ffffff;
   --bg-hover: #f5f3ef;
-  --bg-active: #ece6d8;
+  /**
+   * #380 — deepened from #ece6d8. The active row used to carry an amber inset
+   * bar as well; with that removed this token is the ONLY "you are here" signal,
+   * and at 8 steps from --bg-sidebar (#f4efe5) it was too soft to do that job
+   * alone. Measured in the browser rather than eyeballed. Dark mode was already
+   * a ~35-step delta and is unchanged.
+   */
+  --bg-active: #e7e0ce;
 
   /* Text */
   --text-primary: #0f1729;

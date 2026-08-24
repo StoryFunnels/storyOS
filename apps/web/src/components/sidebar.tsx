@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Fragment, useEffect, useState } from 'react';
-import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
+import { DndContext, PointerSensor, closestCenter, pointerWithin, useDroppable, useSensor, useSensors } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -35,6 +35,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { SIDEBAR_INDENT_PX, SidebarRow, type SidebarDepth } from '@/components/sidebar-row';
 import { SidebarViewRow, type SidebarView } from '@/components/sidebar-view-row';
 
 interface Favorite {
@@ -400,6 +401,68 @@ function HiddenRow({
   );
 }
 
+/**
+ * #382 — per-database expand state, reusing the SAME localStorage shape spaces
+ * and folders already use (`storyos:space-collapsed:`,
+ * `storyos:folder-collapsed:`). A third mechanism here would be the same drift
+ * #380 documents for indentation.
+ *
+ * ONE difference, and it is the point of the ticket: the DEFAULT flips. Spaces
+ * and folders default to expanded; a database defaults to COLLAPSED. So the
+ * stored value means "this one is open" and absence means closed — which is why
+ * the key is `-expanded:` rather than `-collapsed:`. Reusing the word
+ * "collapsed" with an inverted meaning would be worse than a new key: every
+ * future reader would have to remember which way this one runs.
+ *
+ * Per-device, matching spaces and folders. The founder asked for state to
+ * survive reopening app.storyos.dev, which localStorage satisfies for the same
+ * browser. Following the person across devices would mean putting it on the user
+ * record — a deliberate decision recorded on #382, and not what the existing
+ * two do.
+ */
+function useDatabaseExpanded(databaseId: string, forceOpen: boolean) {
+  const key = `storyos:database-expanded:${databaseId}`;
+  const [expanded, setExpanded] = useState(false);
+  useEffect(() => {
+    if (typeof window !== 'undefined') setExpanded(window.localStorage.getItem(key) === '1');
+  }, [key]);
+  const toggle = () =>
+    setExpanded((e) => {
+      const next = !e;
+      if (typeof window !== 'undefined') {
+        // Absence means collapsed, so closing REMOVES the key rather than
+        // writing '0'. Otherwise every database ever opened leaves a row behind
+        // forever, including deleted ones (#382 asks that keys not accumulate).
+        if (next) window.localStorage.setItem(key, '1');
+        else window.localStorage.removeItem(key);
+      }
+      return next;
+    });
+  // You should always be able to see where you are, whatever was stored.
+  return { expanded: expanded || forceOpen, toggle };
+}
+
+/**
+ * #369 — the space root as a drop target, so a leaf can be dragged OUT of a
+ * folder (and a view out from under its database) rather than only in.
+ *
+ * Without an explicit target for "no folder" the only way back out was the menu,
+ * which would have left drag as a one-way trip.
+ */
+function RootDropZone({ spaceId, children }: { spaceId: string; children: React.ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id: `root:${spaceId}` });
+  return (
+    <div ref={setNodeRef} className={cn('rounded', isOver && 'bg-hover ring-1 ring-inset ring-accent/40')}>
+      {children}
+    </div>
+  );
+}
+
+/** The inline name/confirm prompt (MN-24), named so row components can take it. */
+type DialogState =
+  | { kind: 'name'; title: string; value: string; submit: (v: string) => void }
+  | { kind: 'confirm'; title: string; danger?: boolean; submit: () => void };
+
 function SpaceSection({
   ws,
   space,
@@ -422,10 +485,103 @@ function SpaceSection({
   const { hide } = useHidden(ws);
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: space.id });
   const dbSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
-  const onDatabaseDragEnd = (list: DatabaseSummary[]) => (event: DragEndEvent) => {
-    if (!event.over) return;
-    for (const move of computeReorder(list, String(event.active.id), String(event.over.id))) {
-      mutations.updateDatabase.mutate(move);
+  /**
+   * #369 — collision detection that lets a CONTAINER win.
+   *
+   * `closestCenter` compares the centre of every droppable, and a folder or the
+   * space root is a tall container whose centre is far from the pointer — so a
+   * small sortable row always won and a drop never resolved to a folder. The
+   * drag activated correctly and then silently did nothing, which is the worst
+   * shape of broken: it looks like it worked.
+   *
+   * `pointerWithin` asks what is UNDER THE POINTER instead, which is what a user
+   * means by "drop it there". Containers are preferred when several match, since
+   * a folder necessarily overlaps the rows inside it. Falls back to
+   * closestCenter so reordering past the end of a list still works.
+   */
+  const collisionStrategy = (args: Parameters<typeof pointerWithin>[0]) => {
+    const within = pointerWithin(args);
+    const container = within.find((c) => String(c.id).startsWith('folder:') || String(c.id).startsWith('root:'));
+    // A row under the pointer beats the container it sits in — that is a reorder,
+    // not a move — so only fall back to the container when no row matched.
+    const row = within.find((c) => !String(c.id).startsWith('folder:') && !String(c.id).startsWith('root:'));
+    if (row) return [row];
+    if (container) return [container];
+    return closestCenter(args);
+  };
+
+  /**
+   * #369 — ONE drag handler for the whole space, covering every leaf type.
+   *
+   * Previously each list had its own DndContext, which is why dragging could only
+   * ever REORDER within a container: dnd-kit cannot see across two contexts, so a
+   * folder in a different one was never a drop target. Moving between containers
+   * was a menu instead.
+   *
+   * The ticket is explicit that if drag is built it replaces the menu for ALL
+   * leaf types — three types with two different ways to be moved is worse than
+   * one consistent way. The MENU STAYS as the keyboard-accessible path: drag-only
+   * movement is unreachable without a pointer, so it earns its place regardless.
+   */
+  const onSpaceDragEnd = (event: DragEndEvent) => {
+    const over = event.over;
+    if (!over) return;
+    const activeData = event.active.data.current as { kind?: string } | undefined;
+    const overId = String(over.id);
+    const activeId = String(event.active.id);
+
+    // A drop onto a CONTAINER — a folder, or the space root.
+    const target = overId.startsWith('folder:')
+      ? overId.slice(7)
+      : overId === `root:${space.id}`
+        ? null
+        : undefined;
+
+    if (target !== undefined) {
+      switch (activeData?.kind) {
+        case 'database':
+          moveToFolder(activeId, target);
+          return;
+        case 'view':
+          onMoveView(activeId, target);
+          return;
+        case 'document':
+          moveDocToFolder.mutate({ id: activeId, folderId: target });
+          return;
+        default:
+          return;
+      }
+    }
+
+    /**
+     * Dropped onto a ROW. If that row lives in a DIFFERENT container, the user
+     * means "put it there" — that is how you drag something OUT of a folder,
+     * since the row you aim at is usually a sibling at the destination rather
+     * than empty space. Treating this as a reorder is why dragging out silently
+     * did nothing: computeReorder ran against a list the item was not in.
+     */
+    const overData = over.data.current as { kind?: string; folderId?: string | null } | undefined;
+    const fromFolder = (activeData as { folderId?: string | null } | undefined)?.folderId ?? null;
+    const toFolder = overData?.folderId ?? null;
+
+    if (activeData?.kind === 'database' && overData?.kind === 'database' && fromFolder !== toFolder) {
+      moveToFolder(activeId, toFolder);
+      return;
+    }
+    if (activeData?.kind === 'view' && overData?.kind === 'database') {
+      // A view dropped beside a database goes to that database's container.
+      onMoveView(activeId, toFolder);
+      return;
+    }
+    if (activeData?.kind === 'document' && overData?.kind === 'database') {
+      moveDocToFolder.mutate({ id: activeId, folderId: toFolder });
+      return;
+    }
+
+    // Same container, database → an ordinary reorder.
+    if (activeData?.kind === 'database') {
+      const list = databases.filter((d) => (d.folderId ?? null) === fromFolder);
+      for (const move of computeReorder(list, activeId, overId)) mutations.updateDatabase.mutate(move);
     }
   };
   const [renaming, setRenaming] = useState(false);
@@ -465,7 +621,9 @@ function SpaceSection({
         params: { path: { ws, space: space.id } },
       } as never);
       if (error) throw error;
-      return (data as unknown as { data: Array<{ id: string; title: string; icon: string | null }> }).data;
+      return (data as unknown as {
+        data: Array<{ id: string; title: string; icon: string | null; folder_id: string | null }>;
+      }).data;
     },
   });
   const createDoc = useMutation({
@@ -535,6 +693,28 @@ function SpaceSection({
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['space-views', ws, space.id] }),
     onError: () => toast.error('Could not move view'),
   });
+  /**
+   * #381 — the views to render UNDER a database.
+   *
+   * Excludes the one the database row itself opens. Clicking a database name
+   * goes to /w/{ws}/d/{db}, which opens its default view, so listing that view
+   * again as a child costs a row and delivers a destination you already had. In
+   * a real workspace that is a dozen wasted rows before any content.
+   *
+   * Keyed on `is_default` — WHICH view the database actually opens — not a name
+   * match on "All records", so a database whose default has been changed still
+   * hides the right one.
+   *
+   * Views the member cannot see never arrive here: the endpoint applies
+   * notOthersPersonalView, so a personal view of someone else's is already
+   * absent and cannot inflate the count or summon a caret.
+   *
+   * Shared with the caret decision (#382) so the two cannot disagree about
+   * whether a database has children.
+   */
+  const childViewsOf = (databaseId: string) =>
+    spaceViews.filter((v) => v.database_id === databaseId && !v.folder_id && !v.is_default);
+
   /** Placement is per-view; the database is only needed to address the route. */
   const moveSpaceViewToFolder = useMutation({
     mutationFn: async (v: { id: string; folderId: string | null }) => {
@@ -546,6 +726,19 @@ function SpaceSection({
     },
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['space-views', ws, space.id] }),
     onError: () => toast.error('Could not move view'),
+  });
+
+  /** #368 — file a document into a folder, the same move databases and views have. */
+  const moveDocToFolder = useMutation({
+    mutationFn: async (v: { id: string; folderId: string | null }) => {
+      const { error } = await api.PATCH('/api/v1/workspaces/{ws}/documents/{doc}', {
+        params: { path: { ws, doc: v.id } },
+        body: { folder_id: v.folderId } as never,
+      } as never);
+      if (error) throw error;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['space-docs', ws, space.id] }),
+    onError: () => toast.error('Could not move document'),
   });
 
   // #306 — a dashboard that lives in the SPACE, owning no database.
@@ -601,11 +794,7 @@ function SpaceSection({
   });
 
   // Styled name/confirm dialog replaces window.prompt/confirm (MN-24).
-  const [dialog, setDialog] = useState<
-    | null
-    | { kind: 'name'; title: string; value: string; submit: (v: string) => void }
-    | { kind: 'confirm'; title: string; danger?: boolean; submit: () => void }
-  >(null);
+  const [dialog, setDialog] = useState<DialogState | null>(null);
 
   return (
     <div
@@ -752,7 +941,11 @@ function SpaceSection({
       </Dialog>
 
       {!collapsed && (
-        <>
+        /* #369 — ONE context for the whole space. Two sibling contexts (root
+           databases, and one per folder) is why nothing could be dragged BETWEEN
+           containers: dnd-kit cannot see across contexts, so a folder in another
+           one was never a drop target. */
+        <DndContext sensors={dbSensors} collisionDetection={collisionStrategy} onDragEnd={onSpaceDragEnd}>
           {folders.map((folder) => (
             <FolderSection
               key={folder.id}
@@ -760,10 +953,16 @@ function SpaceSection({
               folder={folder}
               databases={databases.filter((d) => d.folderId === folder.id)}
               views={spaceViews.filter((v) => v.folder_id === folder.id)}
+              /* #368 — a folder holds documents too now. The column existed
+                 from MN-096 and nothing ever rendered it. */
+              documents={(docs.data ?? []).filter((d) => d.folder_id === folder.id)}
               folders={folders}
               onMove={moveToFolder}
               onMoveView={onMoveView}
-              onReorder={onDatabaseDragEnd}
+              onMoveDoc={(id, folderId) => moveDocToFolder.mutate({ id, folderId })}
+              onRenameDoc={(id, title) => renameDoc.mutate({ id, title })}
+              onDeleteDoc={(id) => deleteDoc.mutate(id)}
+              setDialog={setDialog}
               pathname={pathname}
               canEdit={canEdit}
               isAdmin={isAdmin}
@@ -772,45 +971,25 @@ function SpaceSection({
           {(() => {
             const rootDbs = databases.filter((db) => !db.folderId);
             return (
-              <DndContext
-                sensors={dbSensors}
-                collisionDetection={closestCenter}
-                onDragEnd={onDatabaseDragEnd(rootDbs)}
-              >
+              <RootDropZone spaceId={space.id}>
                 <SortableContext items={rootDbs.map((d) => d.id)} strategy={verticalListSortingStrategy}>
                   {rootDbs.map((db) => (
-                    <Fragment key={db.id}>
-                      <DatabaseRow
-                        ws={ws}
-                        db={db}
-                        active={pathname.startsWith(`/w/${ws}/d/${db.id}`)}
-                        canEdit={canEdit}
-                        isAdmin={isAdmin}
-                        folders={folders}
-                        onMove={moveToFolder}
-                        reorderable={canEdit}
-                      />
-                      {/* #347 — a database's own views nest beneath it. Only the
-                          ones with no folder: a view moved into a folder lives
-                          THERE instead, never in both places. */}
-                      {spaceViews
-                        .filter((v) => v.database_id === db.id && !v.folder_id)
-                        .map((v) => (
-                          <div key={v.id} className="ml-4 border-l border-border-default pl-1">
-                            <SidebarViewRow
-                              ws={ws}
-                              view={v}
-                              active={pathname.startsWith(`/w/${ws}/d/${db.id}`) && currentViewId === v.id}
-                              folders={folders}
-                              onMove={onMoveView}
-                              canEdit={canEdit}
-                            />
-                          </div>
-                        ))}
-                    </Fragment>
+                    <DatabaseBranch
+                      key={db.id}
+                      ws={ws}
+                      db={db}
+                      views={childViewsOf(db.id)}
+                      pathname={pathname}
+                      currentViewId={currentViewId}
+                      folders={folders}
+                      onMove={moveToFolder}
+                      onMoveView={onMoveView}
+                      canEdit={canEdit}
+                      isAdmin={isAdmin}
+                    />
                   ))}
                 </SortableContext>
-              </DndContext>
+              </RootDropZone>
             );
           })()}
           {/* #306 — views that belong to the SPACE, not to any database: a
@@ -828,63 +1007,124 @@ function SpaceSection({
                 folders={folders}
                 onMove={onMoveView}
                 canEdit={canEdit}
+                /* #380 — a space-level dashboard is a SIBLING of the databases,
+                   so it shares their left edge. It used to render LEFT of them. */
+                depth={1}
               />
             ))}
-          {(docs.data ?? []).map((d) => (
-            // #219: mirror DatabaseRow so documents and databases share ONE left
-            // edge and the same active/hover treatment. Previously the doc row had
-            // no grip gutter and a different active style, so its icon sat ~16px
-            // left of the database icons with a mismatched highlight.
-            <div
+          {/* #368 — only the unfiled ones here; a document in a folder renders
+              inside that folder, never in both places. */}
+          {(docs.data ?? []).filter((d) => !d.folder_id).map((d) => (
+            <DocumentRow
               key={d.id}
-              className={cn(
-                'group/doc flex items-center justify-between rounded px-2 py-[3px] text-[13px]',
-                pathname === `/w/${ws}/doc/${d.id}`
-                  ? 'bg-active text-ink shadow-[inset_2px_0_0_var(--accent)]'
-                  : 'text-ink-secondary hover:bg-hover',
-              )}
-            >
-              {/* Reserve the same grip gutter DatabaseRow shows when editable —
-                  docs aren't drag-reorderable, so it's an invisible spacer that
-                  keeps the icons aligned with the draggable database rows. */}
-              {canEdit && (
-                <span aria-hidden className="-ml-1 mr-0.5 shrink-0 p-0.5">
-                  <span className="block h-3 w-3" />
-                </span>
-              )}
-              <Link
-                href={`/w/${ws}/doc/${d.id}`}
-                className="flex min-w-0 flex-1 items-center gap-2"
-              >
-                <EntityIcon icon={d.icon} color={null} fallback={<FileText className="h-3.5 w-3.5 shrink-0 text-muted" />} className="text-[13px]" />
-                <span className="truncate">{d.title || 'Untitled'}</span>
-              </Link>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button className="shrink-0 rounded p-0.5 text-muted opacity-0 hover:bg-active hover:text-ink group-hover/doc:opacity-100">
-                    <MoreHorizontal className="h-3.5 w-3.5" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem
-                    onSelect={() => setDialog({ kind: 'name', title: 'Rename document', value: d.title || '', submit: (v) => renameDoc.mutate({ id: d.id, title: v }) })}
-                  >
-                    Rename
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    className="text-error"
-                    onSelect={() => setDialog({ kind: 'confirm', title: `Delete "${d.title || 'Untitled'}"?`, danger: true, submit: () => deleteDoc.mutate(d.id) })}
-                  >
-                    Delete
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
+              ws={ws}
+              doc={d}
+              active={pathname === `/w/${ws}/doc/${d.id}`}
+              folders={folders}
+              onMove={(id, folderId) => moveDocToFolder.mutate({ id, folderId })}
+              onRename={(id, title) => renameDoc.mutate({ id, title })}
+              onDelete={(id) => deleteDoc.mutate(id)}
+              setDialog={setDialog}
+            />
           ))}
-        </>
+        </DndContext>
       )}
       {dialog && <PromptDialog state={dialog} onClose={() => setDialog(null)} />}
     </div>
+  );
+}
+
+/**
+ * #368 — a document row, extracted so it can render at the space root AND inside
+ * a folder.
+ *
+ * It used to be inline JSX in SpaceSection, which is why it could only ever
+ * appear in one place — and why `space_documents.folderId` sat unused from
+ * MN-096 until now. #380's shared wrapper is what makes rendering it at two
+ * depths safe: the gutter and indent come from the wrapper, so this cannot drift
+ * from the databases beside it the way view rows did after #347.
+ */
+function DocumentRow({
+  ws,
+  doc,
+  active,
+  folders,
+  onMove,
+  onRename,
+  onDelete,
+  setDialog,
+  depth = 1,
+  canEdit = true,
+}: {
+  ws: string;
+  doc: { id: string; title: string; icon: string | null; folder_id: string | null };
+  active: boolean;
+  folders: FolderInfo[];
+  onMove: (id: string, folderId: string | null) => void;
+  onRename: (id: string, title: string) => void;
+  onDelete: (id: string) => void;
+  setDialog: (d: DialogState) => void;
+  depth?: SidebarDepth;
+  canEdit?: boolean;
+}) {
+  /** #369 — documents are draggable too, so all three leaf types move the same way. */
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: doc.id,
+    data: { kind: 'document' },
+    disabled: !canEdit,
+  });
+  return (
+    <SidebarRow
+      depth={depth}
+      active={active}
+      className={cn('group/doc', isDragging && 'opacity-50')}
+      ref={canEdit ? setNodeRef : undefined}
+      style={canEdit ? { transform: CSS.Transform.toString(transform), transition } : undefined}
+      draggable={canEdit}
+      dragHandleProps={canEdit ? { ...attributes, ...listeners } : undefined}
+    >
+      <Link href={`/w/${ws}/doc/${doc.id}`} className="flex min-w-0 flex-1 items-center gap-2">
+        <EntityIcon icon={doc.icon} color={null} fallback={<FileText className="h-3.5 w-3.5 shrink-0 text-muted" />} className="text-[13px]" />
+        <span className="truncate">{doc.title || 'Untitled'}</span>
+      </Link>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button className="shrink-0 rounded p-0.5 text-muted opacity-0 hover:bg-active hover:text-ink group-hover/doc:opacity-100">
+            <MoreHorizontal className="h-3.5 w-3.5" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem
+            onSelect={() => setDialog({ kind: 'name', title: 'Rename document', value: doc.title || '', submit: (v) => onRename(doc.id, v) })}
+          >
+            Rename
+          </DropdownMenuItem>
+          {(folders.length > 0 || doc.folder_id) && (
+            <>
+              <DropdownMenuSeparator />
+              <div className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-faint">Move to</div>
+              {doc.folder_id && (
+                <DropdownMenuItem onSelect={() => onMove(doc.id, null)}>↑ Space root</DropdownMenuItem>
+              )}
+              {folders
+                .filter((f) => f.id !== doc.folder_id)
+                .map((f) => (
+                  <DropdownMenuItem key={f.id} onSelect={() => onMove(doc.id, f.id)}>
+                    <FolderIcon className="mr-2 h-3.5 w-3.5" /> {f.name}
+                  </DropdownMenuItem>
+                ))}
+            </>
+          )}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            className="text-error"
+            onSelect={() => setDialog({ kind: 'confirm', title: `Delete "${doc.title || 'Untitled'}"?`, danger: true, submit: () => onDelete(doc.id) })}
+          >
+            Delete
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </SidebarRow>
   );
 }
 
@@ -954,10 +1194,14 @@ function FolderSection({
   folder,
   databases,
   views,
+  documents,
   folders,
   onMove,
   onMoveView,
-  onReorder,
+  onMoveDoc,
+  onRenameDoc,
+  onDeleteDoc,
+  setDialog,
   pathname,
   canEdit,
   isAdmin,
@@ -967,15 +1211,25 @@ function FolderSection({
   databases: DatabaseSummary[];
   /** #347 — a folder holds databases AND views. It held only databases before. */
   views: SidebarView[];
+  /** #368 — and documents, whose folder column had been dead since MN-096. */
+  documents: Array<{ id: string; title: string; icon: string | null; folder_id: string | null }>;
   folders: FolderInfo[];
   onMove: (dbId: string, folderId: string | null) => void;
   onMoveView: (viewId: string, folderId: string | null) => void;
-  onReorder: (list: DatabaseSummary[]) => (event: DragEndEvent) => void;
+  onMoveDoc: (id: string, folderId: string | null) => void;
+  onRenameDoc: (id: string, title: string) => void;
+  onDeleteDoc: (id: string) => void;
+  setDialog: (d: DialogState) => void;
   pathname: string;
   canEdit: boolean;
   isAdmin: boolean;
 }) {
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  /**
+   * #369 — the whole folder is the drop target, header included, so it accepts a
+   * drop while COLLAPSED. A collapsed folder that rejects drops fails exactly
+   * when the sidebar is busy enough to need folding.
+   */
+  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: `folder:${folder.id}` });
   const key = `storyos:folder-collapsed:${folder.id}`;
   const [collapsed, setCollapsed] = useState(false);
   useEffect(() => {
@@ -989,25 +1243,52 @@ function FolderSection({
     });
 
   return (
-    <div>
+    <div
+      ref={setDropRef}
+      className={cn('rounded', isOver && 'bg-hover ring-1 ring-inset ring-accent/40')}
+    >
+      {/* #380 — a folder sits on the SAME left edge as the databases beside it
+          (founder's spec: "folders, dashboards — the same padding left as
+          databases"), so it goes through the shared row at depth 1. */}
       <button
         onClick={toggle}
-        className="flex w-full items-center gap-1 rounded px-2 py-[3px] text-[13px] text-ink-secondary hover:bg-hover"
+        style={{ paddingLeft: SIDEBAR_INDENT_PX[1] }}
+        /* gap-0 on the outer: the caret's own mr-0.5 IS the gutter margin, and
+           an extra flex gap here put the folder icon 4px right of every other
+           depth-1 icon. The icon→label gap is applied on the inner span so it
+           matches the gap-2 the database/document rows use. */
+        className="group flex w-full items-center rounded py-[3px] pr-2 text-[13px] text-ink-secondary hover:bg-hover"
       >
-        <ChevronRight className={cn('h-3 w-3 shrink-0 text-faint transition-transform', !collapsed && 'rotate-90')} />
-        <EntityIcon icon={folder.icon} color={null} fallback={<FolderIcon className="h-3.5 w-3.5 shrink-0 text-muted" />} className="text-[13px]" />
-        <span className="truncate">{folder.name}</span>
-        {databases.length + views.length > 0 && (
-          <span className="ml-auto text-[11px] text-faint">{databases.length + views.length}</span>
+        {/* #380 — the caret OCCUPIES the gutter slot rather than adding to it.
+            A database shows a drag grip there; a folder shows its disclosure
+            caret. Same 12px + 2px margin either way, so the icon and label line
+            up exactly with the databases beside it. Giving the folder both a
+            gutter and a caret pushed its label 17px right — measured, not
+            guessed. */}
+        <ChevronRight
+          className={cn('mr-0.5 h-3 w-3 shrink-0 text-faint transition-transform', !collapsed && 'rotate-90')}
+        />
+        <span className="flex min-w-0 flex-1 items-center gap-2">
+          <EntityIcon icon={folder.icon} color={null} fallback={<FolderIcon className="h-3.5 w-3.5 shrink-0 text-muted" />} className="text-[13px]" />
+          <span className="truncate">{folder.name}</span>
+        </span>
+        {databases.length + views.length + documents.length > 0 && (
+          <span className="ml-auto text-[11px] text-faint">
+            {databases.length + views.length + documents.length}
+          </span>
         )}
       </button>
       {!collapsed && (
-        <div className="ml-3 border-l border-border-default pl-1">
-          {databases.length + views.length === 0 && (
-            <p className="px-2 py-1 text-[12px] text-faint">Empty</p>
+        /* #380 — same guide line, same offset as a database's nested views. */
+        <div className="border-l border-border-default" style={{ marginLeft: SIDEBAR_INDENT_PX[1] }}>
+          {databases.length + views.length + documents.length === 0 && (
+            /* #369 — an empty folder needs a target with HEIGHT. "Empty" text
+               alone is a few pixels of hit area, so dropping into a new folder
+               would miss almost every time. */
+            <p className="px-2 py-3 text-center text-[12px] text-faint">Empty — drop something here</p>
           )}
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onReorder(databases)}>
-            <SortableContext items={databases.map((d) => d.id)} strategy={verticalListSortingStrategy}>
+          {/* #369 — no nested DndContext: the space owns the one context now. */}
+          <SortableContext items={databases.map((d) => d.id)} strategy={verticalListSortingStrategy}>
               {databases.map((db) => (
                 <DatabaseRow
                   key={db.id}
@@ -1021,8 +1302,7 @@ function FolderSection({
                   reorderable={canEdit}
                 />
               ))}
-            </SortableContext>
-          </DndContext>
+          </SortableContext>
           {views.map((v) => (
             <SidebarViewRow
               key={v.id}
@@ -1032,11 +1312,103 @@ function FolderSection({
               folders={folders}
               onMove={onMoveView}
               canEdit={canEdit}
+              /* #380/#368 — a FOLDER already supplies the nesting offset, so its
+                 children are all depth 1 relative to it. Left at the default 2 a
+                 view sat 16px right of the databases and documents in the same
+                 folder — the same class of misalignment #380 exists to end,
+                 introduced by adding a second row type to this list. */
+              depth={1}
+            />
+          ))}
+          {documents.map((d) => (
+            <DocumentRow
+              key={d.id}
+              ws={ws}
+              doc={d}
+              active={pathname === `/w/${ws}/doc/${d.id}`}
+              folders={folders}
+              onMove={onMoveDoc}
+              onRename={onRenameDoc}
+              onDelete={onDeleteDoc}
+              setDialog={setDialog}
             />
           ))}
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * #382 — a database and the views under it, with its own expand state.
+ *
+ * Its own component because the expand state is a HOOK and this renders inside a
+ * .map(). It also puts the caret and the children in one place, so #381's "does
+ * this database have children" answer cannot disagree with #382's "should there
+ * be a caret".
+ */
+function DatabaseBranch({
+  ws,
+  db,
+  views,
+  pathname,
+  currentViewId,
+  folders,
+  onMove,
+  onMoveView,
+  canEdit,
+  isAdmin,
+}: {
+  ws: string;
+  db: DatabaseSummary;
+  views: SidebarView[];
+  pathname: string;
+  currentViewId: string | null;
+  folders: FolderInfo[];
+  onMove: (dbId: string, folderId: string | null) => void;
+  onMoveView: (viewId: string, folderId: string | null) => void;
+  canEdit: boolean;
+  isAdmin: boolean;
+}) {
+  const isHere = pathname.startsWith(`/w/${ws}/d/${db.id}`);
+  const { expanded, toggle } = useDatabaseExpanded(db.id, isHere);
+  // #382 — a caret only where there is something behind it. With #381 removing
+  // the default view, most databases have no children at all, which is what
+  // makes the sidebar compact rather than merely collapsible.
+  const hasChildren = views.length > 0;
+
+  return (
+    <Fragment>
+      <DatabaseRow
+        ws={ws}
+        db={db}
+        active={isHere}
+        canEdit={canEdit}
+        isAdmin={isAdmin}
+        folders={folders}
+        onMove={onMove}
+        reorderable={canEdit}
+        expandable={hasChildren}
+        expanded={expanded}
+        onToggle={toggle}
+      />
+      {hasChildren && expanded &&
+        views.map((v) => (
+          /* #380 — indent comes from SidebarRow's depth. This wrapper only draws
+             the guide line; it used to add ml-4 while a folder's children used
+             ml-3, so the two nesting levels disagreed by 4px. */
+          <div key={v.id} className="border-l border-border-default" style={{ marginLeft: SIDEBAR_INDENT_PX[1] }}>
+            <SidebarViewRow
+              ws={ws}
+              view={v}
+              active={isHere && currentViewId === v.id}
+              folders={folders}
+              onMove={onMoveView}
+              canEdit={canEdit}
+            />
+          </div>
+        ))}
+    </Fragment>
   );
 }
 
@@ -1049,6 +1421,9 @@ function DatabaseRow({
   folders = [],
   onMove,
   reorderable = false,
+  expandable = false,
+  expanded = false,
+  onToggle,
 }: {
   ws: string;
   db: DatabaseSummary;
@@ -1058,6 +1433,10 @@ function DatabaseRow({
   folders?: FolderInfo[];
   onMove?: (dbId: string, folderId: string | null) => void;
   reorderable?: boolean;
+  /** #382 — only true when there is something behind the caret. */
+  expandable?: boolean;
+  expanded?: boolean;
+  onToggle?: () => void;
 }) {
   const mutations = useSidebarMutations(ws);
   const [renaming, setRenaming] = useState(false);
@@ -1072,36 +1451,30 @@ function DatabaseRow({
   const canDrag = reorderable && !renaming;
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: db.id,
+    // #369 — the handler needs to know WHAT was dragged to pick the right move,
+    // and which list it came from to reorder within it.
+    data: { kind: 'database', folderId: db.folderId ?? null },
     disabled: !canDrag,
   });
 
   return (
-    <div
+    <SidebarRow
+      depth={1}
+      active={active}
+      draggable={canDrag}
       ref={reorderable ? setNodeRef : undefined}
       style={reorderable ? { transform: CSS.Transform.toString(transform), transition } : undefined}
       className={cn(
-        'group flex items-center justify-between rounded px-2 py-[3px] text-[13px]',
-        active
-          ? 'bg-active text-ink shadow-[inset_2px_0_0_var(--accent)]'
-          : 'text-ink-secondary hover:bg-hover',
         isDragging && 'opacity-50',
-        // #322: the row itself is the handle. It used to be ONLY the 12px
-        // opacity-0 grip below — the exact thing header-cell.tsx records as
-        // "too hard to grab, so reorder felt broken" (MN-225). Same treatment
-        // as the space row above so the two sidebar levels behave alike.
+        // #322: the row itself is the handle, not only the 12px grip — the exact
+        // thing header-cell.tsx records as "too hard to grab, so reorder felt
+        // broken" (MN-225).
         canDrag && 'cursor-grab touch-none active:cursor-grabbing',
       )}
       {...(canDrag ? attributes : {})}
       {...(canDrag ? listeners : {})}
       title={canDrag ? 'Drag to reorder' : undefined}
     >
-      {canDrag && (
-        // A hint now, not the handle — hence a span, not a dead button.
-        <GripVertical
-          className="-ml-1 mr-0.5 h-3 w-3 shrink-0 text-faint opacity-0 transition-opacity group-hover:opacity-100"
-          aria-hidden
-        />
-      )}
       {renaming ? (
         <RenameInline
           initial={db.name}
@@ -1111,6 +1484,27 @@ function DatabaseRow({
           }}
         />
       ) : (
+        <>
+          {/* #382 — the caret is a SEPARATE control from the link. Clicking the
+              database name must still open it (#381 rejected turning the row
+              into a pure disclosure toggle); expanding is a different intent and
+              gets its own hit target. Rendered only when there is something to
+              expand, which after #381 is the minority of databases. */}
+          {expandable && (
+            <button
+              type="button"
+              aria-label={expanded ? `Collapse ${db.name}` : `Expand ${db.name}`}
+              aria-expanded={expanded}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onToggle?.();
+              }}
+              className="-ml-1 mr-0.5 shrink-0 rounded p-0.5 text-faint hover:bg-active hover:text-ink"
+            >
+              <ChevronRight className={cn('h-3 w-3 transition-transform', expanded && 'rotate-90')} />
+            </button>
+          )}
         <Link href={`/w/${ws}/d/${db.id}`} className="flex min-w-0 flex-1 items-center gap-2">
           <EntityIcon
             icon={db.icon}
@@ -1119,6 +1513,7 @@ function DatabaseRow({
           />
           <span className="truncate">{db.name}</span>
         </Link>
+        </>
       )}
       {canEdit && !renaming && (
         <DropdownMenu>
@@ -1208,7 +1603,7 @@ function DatabaseRow({
           }}
         />
       </Dialog>
-    </div>
+    </SidebarRow>
   );
 }
 

@@ -21,6 +21,8 @@ const updateSchema = z.object({
   icon: z.string().max(48).nullable().optional(),
   content: z.unknown().optional(),
   expected_version: z.number().int().min(0).optional(),
+  /** #368 — sidebar placement, mirroring what views got in #347. */
+  folder_id: z.string().uuid().nullable().optional(),
 });
 class UpdateSpaceDocDto extends createZodDto(updateSchema) {}
 

@@ -10,7 +10,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { VIEW_ICON } from '@/components/views/view-tab';
-import { cn } from '@/lib/utils';
+import { useSortable } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { SidebarRow, type SidebarDepth } from '@/components/sidebar-row';
 
 /**
  * #347 — a VIEW as a leaf in the sidebar tree.
@@ -44,6 +46,7 @@ export function SidebarViewRow({
   folders,
   onMove,
   canEdit,
+  depth = 2,
 }: {
   ws: string;
   view: SidebarView;
@@ -51,8 +54,20 @@ export function SidebarViewRow({
   folders: FolderChoice[];
   onMove?: (viewId: string, folderId: string | null) => void;
   canEdit: boolean;
+  /** #380 — 2 when nested under its database, 1 at the space root. */
+  depth?: SidebarDepth;
 }) {
   const Icon = VIEW_ICON[view.type as keyof typeof VIEW_ICON] ?? Table2;
+  /**
+   * #369 — views are draggable now. They were not, so a view could only be moved
+   * through its menu while a database beside it could be dragged: two ways to do
+   * one thing, depending on the row type.
+   */
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: view.id,
+    data: { kind: 'view' },
+    disabled: !canEdit,
+  });
 
   /**
    * A database-owned view stays reachable at `/w/:ws/d/:db?view=` — #347 changed
@@ -76,13 +91,23 @@ export function SidebarViewRow({
   );
 
   return (
-    <div
-      className={cn(
-        'group flex items-center justify-between rounded px-2 py-[3px] text-[13px]',
-        active
-          ? 'bg-active text-ink shadow-[inset_2px_0_0_var(--accent)]'
-          : 'text-ink-secondary hover:bg-hover',
-      )}
+    /**
+     * #380 — depth comes from the wrapper now. This component previously
+     * reserved NO grip gutter, so a space-level dashboard rendered ~10px LEFT of
+     * the databases beside it: #219's fix had been copied into the document row
+     * but view rows arrived later (#347) and never inherited it.
+     *
+     * `depth` is passed by the caller because the same component renders at two
+     * levels — nested under a database (2) or at the space root (1).
+     */
+    <SidebarRow
+      depth={depth}
+      active={active}
+      ref={canEdit ? setNodeRef : undefined}
+      style={canEdit ? { transform: CSS.Transform.toString(transform), transition } : undefined}
+      draggable={canEdit}
+      dragHandleProps={canEdit ? { ...attributes, ...listeners } : undefined}
+      className={isDragging ? 'opacity-50' : undefined}
     >
       {href ? (
         <Link href={href} className="flex min-w-0 flex-1 items-center gap-1.5">
@@ -121,6 +146,6 @@ export function SidebarViewRow({
           </DropdownMenuContent>
         </DropdownMenu>
       )}
-    </div>
+    </SidebarRow>
   );
 }
