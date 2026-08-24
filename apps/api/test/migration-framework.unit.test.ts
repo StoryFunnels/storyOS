@@ -75,7 +75,16 @@ describe('relation resolution by title (generalized from MN-052/MN-075)', () => 
   it('resolves hits and collects one warning per miss/ambiguous target — never fails the row', () => {
     const { hits, warnings } = resolveTargetsByTitle(index, 'Globex, Nowhere Co, Dup');
     expect(hits).toEqual(['1']);
-    expect(warnings).toEqual(['no record titled "Nowhere Co"', '"Dup" is ambiguous']);
+    // #377 reworded the ambiguity warning. The old text was '"Dup" is
+    // ambiguous', which says a problem exists without saying what to do about
+    // it. The new one names the cause — the key is not unique — because a user
+    // reading it has to decide whether to fix the data or match on a different
+    // field. The BEHAVIOUR asserted here is unchanged: one warning per bad
+    // target, the good target still resolves, the row never fails.
+    expect(warnings).toEqual([
+      'no record titled "Nowhere Co"',
+      '"Dup" matches more than one record — titled is not unique',
+    ]);
   });
 });
 

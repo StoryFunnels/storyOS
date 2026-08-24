@@ -135,6 +135,24 @@ export function validateRecordValues(
   return result;
 }
 
+/**
+ * The ONE authority on whether a value is acceptable for a field, and what it
+ * becomes when stored.
+ *
+ * Exported for #371. The CSV importer used to carry its OWN idea of which types
+ * needed validating — a switch over number/checkbox/date with `default: return
+ * value` — so `url` and `email` reached the server unvalidated and blew up the
+ * whole batch on one bad cell. Worse, the importer duplicated this file's
+ * `urlRe`/`emailRe` regexes, so the two could drift silently.
+ *
+ * Importers must run values through THIS, not a parallel implementation. Then a
+ * field type added later cannot opt out of validation by being forgotten
+ * somewhere else, which is exactly how #371 happened.
+ */
+export function coerceFieldValue(field: FieldDef, raw: unknown): { value?: unknown; error?: string } {
+  return coerce(field, raw);
+}
+
 function coerce(field: FieldDef, raw: unknown): { value?: unknown; error?: string } {
   switch (field.type) {
     case 'text': {
