@@ -35,7 +35,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-import { SIDEBAR_INDENT_PX, SidebarRow } from '@/components/sidebar-row';
+import { SIDEBAR_INDENT_PX, SidebarRow, type SidebarDepth } from '@/components/sidebar-row';
 import { SidebarViewRow, type SidebarView } from '@/components/sidebar-view-row';
 
 interface Favorite {
@@ -442,6 +442,11 @@ function useDatabaseExpanded(databaseId: string, forceOpen: boolean) {
   return { expanded: expanded || forceOpen, toggle };
 }
 
+/** The inline name/confirm prompt (MN-24), named so row components can take it. */
+type DialogState =
+  | { kind: 'name'; title: string; value: string; submit: (v: string) => void }
+  | { kind: 'confirm'; title: string; danger?: boolean; submit: () => void };
+
 function SpaceSection({
   ws,
   space,
@@ -507,7 +512,9 @@ function SpaceSection({
         params: { path: { ws, space: space.id } },
       } as never);
       if (error) throw error;
-      return (data as unknown as { data: Array<{ id: string; title: string; icon: string | null }> }).data;
+      return (data as unknown as {
+        data: Array<{ id: string; title: string; icon: string | null; folder_id: string | null }>;
+      }).data;
     },
   });
   const createDoc = useMutation({
@@ -612,6 +619,19 @@ function SpaceSection({
     onError: () => toast.error('Could not move view'),
   });
 
+  /** #368 — file a document into a folder, the same move databases and views have. */
+  const moveDocToFolder = useMutation({
+    mutationFn: async (v: { id: string; folderId: string | null }) => {
+      const { error } = await api.PATCH('/api/v1/workspaces/{ws}/documents/{doc}', {
+        params: { path: { ws, doc: v.id } },
+        body: { folder_id: v.folderId } as never,
+      } as never);
+      if (error) throw error;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['space-docs', ws, space.id] }),
+    onError: () => toast.error('Could not move document'),
+  });
+
   // #306 — a dashboard that lives in the SPACE, owning no database.
   const createSpaceDashboard = useMutation({
     mutationFn: async () => {
@@ -665,11 +685,7 @@ function SpaceSection({
   });
 
   // Styled name/confirm dialog replaces window.prompt/confirm (MN-24).
-  const [dialog, setDialog] = useState<
-    | null
-    | { kind: 'name'; title: string; value: string; submit: (v: string) => void }
-    | { kind: 'confirm'; title: string; danger?: boolean; submit: () => void }
-  >(null);
+  const [dialog, setDialog] = useState<DialogState | null>(null);
 
   return (
     <div
@@ -824,9 +840,16 @@ function SpaceSection({
               folder={folder}
               databases={databases.filter((d) => d.folderId === folder.id)}
               views={spaceViews.filter((v) => v.folder_id === folder.id)}
+              /* #368 — a folder holds documents too now. The column existed
+                 from MN-096 and nothing ever rendered it. */
+              documents={(docs.data ?? []).filter((d) => d.folder_id === folder.id)}
               folders={folders}
               onMove={moveToFolder}
               onMoveView={onMoveView}
+              onMoveDoc={(id, folderId) => moveDocToFolder.mutate({ id, folderId })}
+              onRenameDoc={(id, title) => renameDoc.mutate({ id, title })}
+              onDeleteDoc={(id) => deleteDoc.mutate(id)}
+              setDialog={setDialog}
               onReorder={onDatabaseDragEnd}
               pathname={pathname}
               canEdit={canEdit}
@@ -881,46 +904,103 @@ function SpaceSection({
                 depth={1}
               />
             ))}
-          {(docs.data ?? []).map((d) => (
-            /* #380 — #219 fixed this row by COPYING an invisible spacer out of
-               DatabaseRow. That is why the fix did not reach view rows when they
-               arrived with #347. The gutter is the wrapper's job now, so the
-               spacer is gone and a document sits on the same edge as a database
-               by construction rather than by remembering. */
-            <SidebarRow key={d.id} depth={1} active={pathname === `/w/${ws}/doc/${d.id}`} className="group/doc">
-              <Link
-                href={`/w/${ws}/doc/${d.id}`}
-                className="flex min-w-0 flex-1 items-center gap-2"
-              >
-                <EntityIcon icon={d.icon} color={null} fallback={<FileText className="h-3.5 w-3.5 shrink-0 text-muted" />} className="text-[13px]" />
-                <span className="truncate">{d.title || 'Untitled'}</span>
-              </Link>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button className="shrink-0 rounded p-0.5 text-muted opacity-0 hover:bg-active hover:text-ink group-hover/doc:opacity-100">
-                    <MoreHorizontal className="h-3.5 w-3.5" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem
-                    onSelect={() => setDialog({ kind: 'name', title: 'Rename document', value: d.title || '', submit: (v) => renameDoc.mutate({ id: d.id, title: v }) })}
-                  >
-                    Rename
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    className="text-error"
-                    onSelect={() => setDialog({ kind: 'confirm', title: `Delete "${d.title || 'Untitled'}"?`, danger: true, submit: () => deleteDoc.mutate(d.id) })}
-                  >
-                    Delete
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </SidebarRow>
+          {/* #368 — only the unfiled ones here; a document in a folder renders
+              inside that folder, never in both places. */}
+          {(docs.data ?? []).filter((d) => !d.folder_id).map((d) => (
+            <DocumentRow
+              key={d.id}
+              ws={ws}
+              doc={d}
+              active={pathname === `/w/${ws}/doc/${d.id}`}
+              folders={folders}
+              onMove={(id, folderId) => moveDocToFolder.mutate({ id, folderId })}
+              onRename={(id, title) => renameDoc.mutate({ id, title })}
+              onDelete={(id) => deleteDoc.mutate(id)}
+              setDialog={setDialog}
+            />
           ))}
         </>
       )}
       {dialog && <PromptDialog state={dialog} onClose={() => setDialog(null)} />}
     </div>
+  );
+}
+
+/**
+ * #368 — a document row, extracted so it can render at the space root AND inside
+ * a folder.
+ *
+ * It used to be inline JSX in SpaceSection, which is why it could only ever
+ * appear in one place — and why `space_documents.folderId` sat unused from
+ * MN-096 until now. #380's shared wrapper is what makes rendering it at two
+ * depths safe: the gutter and indent come from the wrapper, so this cannot drift
+ * from the databases beside it the way view rows did after #347.
+ */
+function DocumentRow({
+  ws,
+  doc,
+  active,
+  folders,
+  onMove,
+  onRename,
+  onDelete,
+  setDialog,
+  depth = 1,
+}: {
+  ws: string;
+  doc: { id: string; title: string; icon: string | null; folder_id: string | null };
+  active: boolean;
+  folders: FolderInfo[];
+  onMove: (id: string, folderId: string | null) => void;
+  onRename: (id: string, title: string) => void;
+  onDelete: (id: string) => void;
+  setDialog: (d: DialogState) => void;
+  depth?: SidebarDepth;
+}) {
+  return (
+    <SidebarRow depth={depth} active={active} className="group/doc">
+      <Link href={`/w/${ws}/doc/${doc.id}`} className="flex min-w-0 flex-1 items-center gap-2">
+        <EntityIcon icon={doc.icon} color={null} fallback={<FileText className="h-3.5 w-3.5 shrink-0 text-muted" />} className="text-[13px]" />
+        <span className="truncate">{doc.title || 'Untitled'}</span>
+      </Link>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button className="shrink-0 rounded p-0.5 text-muted opacity-0 hover:bg-active hover:text-ink group-hover/doc:opacity-100">
+            <MoreHorizontal className="h-3.5 w-3.5" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem
+            onSelect={() => setDialog({ kind: 'name', title: 'Rename document', value: doc.title || '', submit: (v) => onRename(doc.id, v) })}
+          >
+            Rename
+          </DropdownMenuItem>
+          {(folders.length > 0 || doc.folder_id) && (
+            <>
+              <DropdownMenuSeparator />
+              <div className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-faint">Move to</div>
+              {doc.folder_id && (
+                <DropdownMenuItem onSelect={() => onMove(doc.id, null)}>↑ Space root</DropdownMenuItem>
+              )}
+              {folders
+                .filter((f) => f.id !== doc.folder_id)
+                .map((f) => (
+                  <DropdownMenuItem key={f.id} onSelect={() => onMove(doc.id, f.id)}>
+                    <FolderIcon className="mr-2 h-3.5 w-3.5" /> {f.name}
+                  </DropdownMenuItem>
+                ))}
+            </>
+          )}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            className="text-error"
+            onSelect={() => setDialog({ kind: 'confirm', title: `Delete "${doc.title || 'Untitled'}"?`, danger: true, submit: () => onDelete(doc.id) })}
+          >
+            Delete
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </SidebarRow>
   );
 }
 
@@ -990,9 +1070,14 @@ function FolderSection({
   folder,
   databases,
   views,
+  documents,
   folders,
   onMove,
   onMoveView,
+  onMoveDoc,
+  onRenameDoc,
+  onDeleteDoc,
+  setDialog,
   onReorder,
   pathname,
   canEdit,
@@ -1003,9 +1088,15 @@ function FolderSection({
   databases: DatabaseSummary[];
   /** #347 — a folder holds databases AND views. It held only databases before. */
   views: SidebarView[];
+  /** #368 — and documents, whose folder column had been dead since MN-096. */
+  documents: Array<{ id: string; title: string; icon: string | null; folder_id: string | null }>;
   folders: FolderInfo[];
   onMove: (dbId: string, folderId: string | null) => void;
   onMoveView: (viewId: string, folderId: string | null) => void;
+  onMoveDoc: (id: string, folderId: string | null) => void;
+  onRenameDoc: (id: string, title: string) => void;
+  onDeleteDoc: (id: string) => void;
+  setDialog: (d: DialogState) => void;
   onReorder: (list: DatabaseSummary[]) => (event: DragEndEvent) => void;
   pathname: string;
   canEdit: boolean;
@@ -1051,14 +1142,16 @@ function FolderSection({
           <EntityIcon icon={folder.icon} color={null} fallback={<FolderIcon className="h-3.5 w-3.5 shrink-0 text-muted" />} className="text-[13px]" />
           <span className="truncate">{folder.name}</span>
         </span>
-        {databases.length + views.length > 0 && (
-          <span className="ml-auto text-[11px] text-faint">{databases.length + views.length}</span>
+        {databases.length + views.length + documents.length > 0 && (
+          <span className="ml-auto text-[11px] text-faint">
+            {databases.length + views.length + documents.length}
+          </span>
         )}
       </button>
       {!collapsed && (
         /* #380 — same guide line, same offset as a database's nested views. */
         <div className="border-l border-border-default" style={{ marginLeft: SIDEBAR_INDENT_PX[1] }}>
-          {databases.length + views.length === 0 && (
+          {databases.length + views.length + documents.length === 0 && (
             <p className="px-2 py-1 text-[12px] text-faint">Empty</p>
           )}
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onReorder(databases)}>
@@ -1087,6 +1180,25 @@ function FolderSection({
               folders={folders}
               onMove={onMoveView}
               canEdit={canEdit}
+              /* #380/#368 — a FOLDER already supplies the nesting offset, so its
+                 children are all depth 1 relative to it. Left at the default 2 a
+                 view sat 16px right of the databases and documents in the same
+                 folder — the same class of misalignment #380 exists to end,
+                 introduced by adding a second row type to this list. */
+              depth={1}
+            />
+          ))}
+          {documents.map((d) => (
+            <DocumentRow
+              key={d.id}
+              ws={ws}
+              doc={d}
+              active={pathname === `/w/${ws}/doc/${d.id}`}
+              folders={folders}
+              onMove={onMoveDoc}
+              onRename={onRenameDoc}
+              onDelete={onDeleteDoc}
+              setDialog={setDialog}
             />
           ))}
         </div>

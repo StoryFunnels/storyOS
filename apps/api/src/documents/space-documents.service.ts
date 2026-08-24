@@ -3,7 +3,7 @@ import { and, asc, desc, eq, isNull } from 'drizzle-orm';
 import { normalizeIconInput } from '@storyos/schemas/icons';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { spaceDocuments, spaces } from '../db/schema';
+import { spaceDocuments, spaceFolders, spaces } from '../db/schema';
 import { extractText } from './documents.service';
 
 const MAX_BYTES = 2 * 1024 * 1024;
@@ -61,7 +61,11 @@ export class SpaceDocumentsService {
       where: and(eq(spaceDocuments.spaceId, spaceId), isNull(spaceDocuments.deletedAt)),
       orderBy: [asc(spaceDocuments.position), asc(spaceDocuments.createdAt)],
     });
-    return rows.map((r) => ({ id: r.id, space_id: r.spaceId, title: r.title, icon: r.icon }));
+    // #368 — folder_id was in the schema from MN-096 and never returned, so the
+    // column has been dead since it was added. That dead column is what made
+    // #347's ticket AND the merged ADR both claim documents were already
+    // foldered: the schema advertised a capability nothing implemented.
+    return rows.map((r) => ({ id: r.id, space_id: r.spaceId, folder_id: r.folderId, title: r.title, icon: r.icon }));
   }
 
   async create(workspaceId: string, spaceId: string, input: { title?: string; icon?: string }, actorId: string) {
@@ -98,10 +102,33 @@ export class SpaceDocumentsService {
   async update(
     workspaceId: string,
     docId: string,
-    input: { title?: string; icon?: string | null; content?: unknown; expected_version?: number },
+    input: {
+      title?: string;
+      icon?: string | null;
+      content?: unknown;
+      expected_version?: number;
+      /** #368 — sidebar placement. `undefined` leaves it alone; null unfiles. */
+      folder_id?: string | null;
+    },
   ) {
     const existing = await this.row(workspaceId, docId);
     const patch: Partial<typeof spaceDocuments.$inferInsert> = {};
+    if (input.folder_id !== undefined) {
+      if (input.folder_id !== null) {
+        // #368 — a folder from ANOTHER space would render this document under a
+        // sidebar it does not belong to, and nothing in the schema catches it.
+        // Same guard views got in #347.
+        const folder = await this.db.query.spaceFolders.findFirst({
+          where: eq(spaceFolders.id, input.folder_id),
+          columns: { spaceId: true },
+        });
+        if (!folder) throw new NotFoundException('Folder not found');
+        if (folder.spaceId !== existing.spaceId) {
+          throw new UnprocessableEntityException('That folder belongs to a different space.');
+        }
+      }
+      patch.folderId = input.folder_id;
+    }
     if (input.title !== undefined) patch.title = input.title.slice(0, 200);
     if (input.icon !== undefined) {
       patch.icon =
