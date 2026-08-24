@@ -539,3 +539,158 @@ describe('CSV import: build a relation and match on a chosen field (#377)', () =
     expect(res.body).toMatch(/cannot match on/i);
   });
 });
+
+/**
+ * #378 — import was create-only, so re-importing a corrected or refreshed file
+ * silently duplicated everything, and the user usually found out much later when
+ * counts stopped making sense.
+ *
+ * "The real test is idempotence": importing the same file twice must leave the
+ * workspace identical to importing it once. That one assertion catches almost
+ * every way this can go wrong.
+ */
+describe('CSV import: match rows by a key to update or skip (#378)', () => {
+  let dbId: string;
+  let keyFieldId: string;
+  const CSV_V1 = 'name;ext_id;stage;notes\nAlpha;a-1;Discovery;first\nBeta;b-2;Delivery;second';
+
+  /** After the seed the fields exist, so map to them rather than re-creating. */
+  let fieldIds: Record<string, string> | null = null;
+  const importIt = async (csv: string, opts: Record<string, unknown>, dry = false) => {
+    const mapping = fieldIds
+      ? [
+          { column: 'name', to: { kind: 'title' } },
+          { column: 'ext_id', to: { kind: 'existing', field_id: fieldIds['Ext Id'] } },
+          { column: 'stage', to: { kind: 'existing', field_id: fieldIds['Stage 378'] } },
+          { column: 'notes', to: { kind: 'existing', field_id: fieldIds['Notes 378'] } },
+        ]
+      : [
+          { column: 'name', to: { kind: 'title' } },
+          { column: 'ext_id', to: { kind: 'new', display_name: 'Ext Id', type: 'text' } },
+          { column: 'stage', to: { kind: 'new', display_name: 'Stage 378', type: 'text' } },
+          { column: 'notes', to: { kind: 'new', display_name: 'Notes 378', type: 'text' } },
+        ];
+    const body = multipart(
+      {
+        mapping: JSON.stringify(mapping),
+        dry_run: String(dry),
+        ...(Object.keys(opts).length ? { upsert: JSON.stringify(opts) } : {}),
+      },
+      csv,
+    );
+    return app.inject({
+      method: 'POST', url: `/api/v1/workspaces/${wsId}/databases/${dbId}/import`,
+      headers: { ...authed(admin.token), ...body.headers }, payload: body.payload,
+    });
+  };
+
+  const rows = async () =>
+    (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records/query`, { limit: 100 })).json().data as
+      Array<{ title: string; values: Record<string, unknown> }>;
+
+  beforeAll(async () => {
+    const spaceId = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
+    dbId = (await inject('POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name: 'Upsert 378' })).json().id;
+    const first = await importIt(CSV_V1, {});
+    if (first.statusCode >= 300) throw new Error(`seed import failed: ${first.body}`);
+    const detail = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}`)).json();
+    const named = detail.fields as Array<{ id: string; displayName: string }>;
+    fieldIds = Object.fromEntries(named.map((f) => [f.displayName, f.id]));
+    keyFieldId = fieldIds['Ext Id']!;
+  });
+
+  it('IDEMPOTENCE: re-importing the same file changes nothing', async () => {
+    const before = await rows();
+    expect(before).toHaveLength(2);
+
+    const res = await importIt(CSV_V1, { column: 'ext_id', match_field_id: keyFieldId, on_match: 'update' });
+    if (res.statusCode >= 300) throw new Error(res.body);
+    expect(res.json().created, 'nothing new').toBe(0);
+    expect(res.json().updated).toBe(2);
+
+    const after = await rows();
+    expect(after, 'no duplicates').toHaveLength(2);
+    expect(after.map((r) => r.title).sort()).toEqual(before.map((r) => r.title).sort());
+  });
+
+  it('an UPDATE never blanks a field the CSV does not mention', async () => {
+    // The silent-data-loss case, and the obvious way to get this wrong: someone
+    // re-importing a two-column corrections file would wipe half of every record
+    // and not know until they looked.
+    const partial = 'name;ext_id;stage\nAlpha;a-1;Won';
+    const body = multipart(
+      {
+        mapping: JSON.stringify([
+          { column: 'name', to: { kind: 'title' } },
+          { column: 'ext_id', to: { kind: 'existing', field_id: keyFieldId } },
+          { column: 'stage', to: { kind: 'existing', field_id: (await (async () => {
+            const d = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}`)).json();
+            return (d.fields as Array<{ id: string; displayName: string }>).find((f) => f.displayName === 'Stage 378')!.id;
+          })()) } },
+        ]),
+        dry_run: 'false',
+        upsert: JSON.stringify({ column: 'ext_id', match_field_id: keyFieldId, on_match: 'update' }),
+      },
+      partial,
+    );
+    const res = await app.inject({
+      method: 'POST', url: `/api/v1/workspaces/${wsId}/databases/${dbId}/import`,
+      headers: { ...authed(admin.token), ...body.headers }, payload: body.payload,
+    });
+    if (res.statusCode >= 300) throw new Error(res.body);
+    expect(res.json().updated).toBe(1);
+
+    const alpha = (await rows()).find((r) => r.title === 'Alpha')!;
+    const notesKey = Object.keys(alpha.values).find((k) => alpha.values[k] === 'first');
+    expect(notesKey, 'notes was NOT in the file and must survive untouched').toBeTruthy();
+  });
+
+  it('on_match: skip leaves the record alone', async () => {
+    const res = await importIt('name;ext_id;stage;notes\nAlpha;a-1;Lost;rewritten', {
+      column: 'ext_id', match_field_id: keyFieldId, on_match: 'skip',
+    });
+    if (res.statusCode >= 300) throw new Error(res.body);
+    expect(res.json().created).toBe(0);
+    expect(res.json().updated).toBe(0);
+    expect(res.json().skipped).toBe(1);
+  });
+
+  it('on_no_match: skip does not create', async () => {
+    const res = await importIt('name;ext_id;stage;notes\nGamma;g-9;New;x', {
+      column: 'ext_id', match_field_id: keyFieldId, on_no_match: 'skip',
+    });
+    if (res.statusCode >= 300) throw new Error(res.body);
+    expect(res.json().created).toBe(0);
+    expect(res.json().skipped).toBe(1);
+  });
+
+  it('the DRY RUN reports created / updated / skipped before committing', async () => {
+    const res = await importIt('name;ext_id;stage;notes\nAlpha;a-1;X;y\nDelta;d-4;X;y', {
+      column: 'ext_id', match_field_id: keyFieldId, on_match: 'update',
+    }, true);
+    if (res.statusCode >= 300) throw new Error(res.body);
+    expect(res.json().will_update).toBe(1); // Alpha exists
+    expect(res.json().will_create).toBe(1); // Delta does not
+  });
+
+  it('a DUPLICATE key is reported and skipped, never guessed at', async () => {
+    // Two records sharing a key: picking one overwrites the wrong record.
+    await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records`, {
+      values: { name: 'Dupe One', [`${keyFieldId}`]: 'dup-key' },
+    });
+    // Write the same key onto a second record through the API so the index sees two.
+    const detail = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}`)).json();
+    const apiName = (detail.fields as Array<{ id: string; apiName: string; displayName: string }>)
+      .find((f) => f.displayName === 'Ext Id')!.apiName;
+    await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records`, { values: { name: 'Dupe A', [apiName]: 'dup-key' } });
+    await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records`, { values: { name: 'Dupe B', [apiName]: 'dup-key' } });
+
+    const res = await importIt('name;ext_id;stage;notes\nWhoKnows;dup-key;X;y', {
+      column: 'ext_id', match_field_id: keyFieldId, on_match: 'update',
+    });
+    if (res.statusCode >= 300) throw new Error(res.body);
+    expect(res.json().skipped).toBe(1);
+    expect(res.json().updated).toBe(0);
+    expect(JSON.stringify(res.json().warnings)).toMatch(/more than one record/);
+  });
+});

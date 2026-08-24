@@ -15,6 +15,7 @@ import {
   buildMatchIndex,
   buildTitleIndex,
   isMatchableKeyType,
+  matchKey,
   resolveTargets,
   splitTargets,
 } from '../migration-framework/relation-resolver';
@@ -43,6 +44,24 @@ export interface ColumnMapping {
      */
     | { kind: 'relation'; field_id?: string; target_database_id?: string; field_name?: string; match_field_id?: string }
     | { kind: 'skip' };
+}
+
+/**
+ * #378 — how an incoming row relates to a record that already exists.
+ *
+ * Import was create-only, which made it a one-shot migration tool rather than a
+ * way to keep data current. Real data arrives as an updated export, a corrected
+ * file, a weekly refresh — and without a key the second import silently
+ * duplicates, usually discovered much later when counts stop making sense.
+ */
+export interface UpsertOptions {
+  /** CSV column holding the key. */
+  column: string;
+  /** Field on THIS database the key matches. Omitted = the record title. */
+  match_field_id?: string;
+  /** Default 'update': the reason someone sets a key at all. */
+  on_match?: 'update' | 'skip' | 'create';
+  on_no_match?: 'create' | 'skip';
 }
 
 interface Warning {
@@ -95,6 +114,7 @@ export class ImportService {
     mapping: ColumnMapping[],
     dryRun: boolean,
     actorId: string,
+    upsert?: UpsertOptions,
   ) {
     const { headers, rows } = this.parseCsv(buffer);
     const byColumn = new Map(mapping.map((m) => [m.column, m.to]));
@@ -248,12 +268,73 @@ export class ImportService {
       });
     }
 
+    /**
+     * #378 — index of EXISTING records in this database, by the chosen key.
+     *
+     * Reuses #377's buildMatchIndex/matchKey, as both tickets require: the two
+     * must be tolerant in the same way, and one implementation cannot drift from
+     * itself. `null` in the index marks a duplicate key, which is REPORTED per
+     * row and never resolved — picking one of two matches overwrites the wrong
+     * record, silently.
+     */
+    let upsertIndex: Map<string, string | null> | undefined;
+    let upsertKeyLabel = 'titled';
+    if (upsert) {
+      if (!headers.includes(upsert.column)) {
+        throw new UnprocessableEntityException(`Key column "${upsert.column}" is not in the CSV`);
+      }
+      if (upsert.match_field_id) {
+        const keyField = await this.db.query.fields.findFirst({
+          where: and(eq(fields.id, upsert.match_field_id), eq(fields.databaseId, databaseId), isNull(fields.deletedAt)),
+        });
+        if (!keyField) throw new UnprocessableEntityException('The key field is not on this database.');
+        if (!isMatchableKeyType(keyField.type)) {
+          throw new UnprocessableEntityException(
+            `Cannot match on a ${keyField.type} field — use a text, number, email, url or id field, or the record title.`,
+          );
+        }
+        upsertKeyLabel = `with ${keyField.apiName}`;
+        const existing = await this.db.query.records.findMany({
+          where: and(eq(records.databaseId, databaseId), isNull(records.deletedAt)),
+          columns: { id: true, title: true, values: true },
+        });
+        upsertIndex = buildMatchIndex(
+          existing.map((r) => ({
+            id: r.id,
+            key: keyField.type === 'title' ? r.title : (r.values as Record<string, unknown>)?.[keyField.id],
+          })),
+        );
+      } else {
+        const existing = await this.db.query.records.findMany({
+          where: and(eq(records.databaseId, databaseId), isNull(records.deletedAt)),
+          columns: { id: true, title: true },
+        });
+        upsertIndex = buildTitleIndex(existing);
+      }
+    }
+    const keyColumnIndex = upsert ? headers.indexOf(upsert.column) : -1;
+    const onMatch = upsert?.on_match ?? 'update';
+    const onNoMatch = upsert?.on_no_match ?? 'create';
+
+    /**
+     * Which existing record this row is, if any. `undefined` = no match,
+     * `null` = the key is duplicated and must not be guessed at.
+     */
+    const matchFor = (row: string[]): string | null | undefined => {
+      if (!upsertIndex || keyColumnIndex < 0) return undefined;
+      const raw = (row[keyColumnIndex] ?? '').trim();
+      if (!raw) return undefined;
+      return upsertIndex.get(matchKey(raw));
+    };
+
     if (dryRun) {
       const report = new DryRunBuilder();
       report.newFields = newFields;
       // #374/#377 — relation preview counts.
       let linksToMake = 0;
       let unmatchedCells = 0;
+      let updated = 0;
+      let skipped = 0;
       // Relations this import would CREATE — previously impossible, so the
       // preview never had to mention them.
       const newRelations = [...relationPlans.entries()]
@@ -266,7 +347,27 @@ export class ImportService {
           report.addWarning({ row: rowIndex + 2, column: titleColumns[0]!.column, message: 'empty title — row skipped' });
           return;
         }
-        report.willCreate++;
+        // #378 — created / updated / skipped, before committing.
+        const match = matchFor(row);
+        if (match === null) {
+          report.addWarning({
+            row: rowIndex + 2,
+            column: upsert!.column,
+            message: `"${(row[keyColumnIndex] ?? '').trim()}" matches more than one record — ${upsertKeyLabel} is not unique, so this row is skipped`,
+          });
+          skipped++;
+          return;
+        }
+        if (match) {
+          if (onMatch === 'skip') { skipped++; return; }
+          if (onMatch === 'update') updated++;
+          else report.willCreate++;
+        } else if (upsert && onNoMatch === 'skip') {
+          skipped++;
+          return;
+        } else {
+          report.willCreate++;
+        }
         const preview: Record<string, unknown> = { name: title };
         headers.forEach((column, i) => {
           const to = byColumn.get(column);
@@ -345,6 +446,9 @@ export class ImportService {
         links_to_make: linksToMake,
         unmatched_relation_cells: unmatchedCells,
         new_relations: newRelations,
+        // #378 — the three numbers a key-matched import turns on.
+        will_update: updated,
+        will_skip: skipped,
       };
     }
 
@@ -389,6 +493,9 @@ export class ImportService {
      */
     const relationFieldIdByColumn = new Map<string, string>();
     const createdRelationIds: string[] = [];
+    // #378
+    const updates: Array<{ recordId: string; values: Record<string, unknown> }> = [];
+    let skippedRows = 0;
 
     /** #372 — undo everything this run wrote. Records first, then fields: the
      * inverse of the order they were created, and a field with values still on
@@ -526,6 +633,25 @@ export class ImportService {
         warnings.push({ row: rowIndex + 2, column: titleColumns[0]!.column, message: 'empty title — row skipped' });
         return;
       }
+      /**
+       * #378 — decide before building values, so a skipped row costs nothing.
+       * `null` = duplicate key: reported and skipped, never guessed at. Picking
+       * one of two matches overwrites the wrong record silently, and the user
+       * finds out much later if at all.
+       */
+      const match = matchFor(row);
+      if (match === null) {
+        warnings.push({
+          row: rowIndex + 2,
+          column: upsert!.column,
+          message: `"${(row[keyColumnIndex] ?? '').trim()}" matches more than one record — ${upsertKeyLabel} is not unique, so this row was skipped`,
+        });
+        skippedRows++;
+        return;
+      }
+      if (match && onMatch === 'skip') { skippedRows++; return; }
+      if (!match && upsert && onNoMatch === 'skip') { skippedRows++; return; }
+
       const values: Record<string, unknown> = { name: title };
       headers.forEach((column, i) => {
         const to = byColumn.get(column);
@@ -573,10 +699,32 @@ export class ImportService {
           values[meta.apiName] = coerced;
         }
       });
+      /**
+       * An UPDATE carries only the columns present in the file. Everything else
+       * is untouched — a three-column corrections file updates three fields and
+       * leaves the rest alone. The opposite is silent data loss: someone
+       * re-importing a two-column file would wipe a whole database and not know
+       * until they looked. `values` is built from the CSV's own columns, so this
+       * property holds by construction rather than by remembering to preserve it.
+       */
+      if (match && onMatch === 'update') {
+        updates.push({ recordId: match, values });
+        return;
+      }
       payloads.push(values);
     });
 
       createdIds = await this.chunkedApply.createChunked(membership.workspaceId, databaseId, payloads, actorId);
+      /**
+       * #378 — updates are NOT rolled back by #372's compensation: there is no
+       * before-image to restore them to. So they run AFTER the creates, when
+       * the risky part is already done. Said plainly rather than left implicit,
+       * because "a failed import changes nothing" is weaker here than it is for
+       * a create-only run.
+       */
+      for (const u of updates) {
+        await this.records.update(membership.workspaceId, databaseId, u.recordId, u.values, actorId);
+      }
       for (const link of pendingLinks) {
         const recordId = createdIds[link.recordIndex];
         if (!recordId) continue;
@@ -611,6 +759,8 @@ export class ImportService {
       dry_run: false,
       created: createdIds.length,
       created_record_ids: createdIds,
+      updated: updates.length,
+      skipped: skippedRows,
       warnings: warnings.slice(0, 100),
       warnings_total: warnings.length,
     };

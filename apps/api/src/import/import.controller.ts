@@ -13,7 +13,7 @@ import { WorkspaceAccessGuard, MinRole } from '../workspaces/workspace-access.gu
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { DatabasesService } from '../databases/databases.service';
 import { ImportService } from './import.service';
-import type { ColumnMapping } from './import.service';
+import type { ColumnMapping, UpsertOptions } from './import.service';
 
 interface MultipartField { value?: string }
 
@@ -66,6 +66,18 @@ export class ImportController {
       };
     }
     const dryRun = fieldValue('dry_run') !== 'false';
-    return this.importService.run(req.membership, databaseId, buffer, mapping, dryRun, req.user.id);
+    // #378 — optional key matching. Absent = create-only, the previous
+    // behaviour, so nothing existing changes.
+    let upsert: UpsertOptions | undefined;
+    const rawUpsert = fieldValue('upsert');
+    if (rawUpsert) {
+      try {
+        upsert = JSON.parse(rawUpsert) as UpsertOptions;
+      } catch {
+        throw new BadRequestException('upsert must be JSON');
+      }
+      if (!upsert?.column) throw new BadRequestException('upsert.column is required');
+    }
+    return this.importService.run(req.membership, databaseId, buffer, mapping, dryRun, req.user.id, upsert);
   }
 }
