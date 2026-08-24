@@ -10,6 +10,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { VIEW_ICON } from '@/components/views/view-tab';
+import { useSortable } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { SidebarRow, type SidebarDepth } from '@/components/sidebar-row';
 
 /**
@@ -56,6 +58,16 @@ export function SidebarViewRow({
   depth?: SidebarDepth;
 }) {
   const Icon = VIEW_ICON[view.type as keyof typeof VIEW_ICON] ?? Table2;
+  /**
+   * #369 — views are draggable now. They were not, so a view could only be moved
+   * through its menu while a database beside it could be dragged: two ways to do
+   * one thing, depending on the row type.
+   */
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: view.id,
+    data: { kind: 'view' },
+    disabled: !canEdit,
+  });
 
   /**
    * A database-owned view stays reachable at `/w/:ws/d/:db?view=` — #347 changed
@@ -88,7 +100,15 @@ export function SidebarViewRow({
      * `depth` is passed by the caller because the same component renders at two
      * levels — nested under a database (2) or at the space root (1).
      */
-    <SidebarRow depth={depth} active={active}>
+    <SidebarRow
+      depth={depth}
+      active={active}
+      ref={canEdit ? setNodeRef : undefined}
+      style={canEdit ? { transform: CSS.Transform.toString(transform), transition } : undefined}
+      draggable={canEdit}
+      dragHandleProps={canEdit ? { ...attributes, ...listeners } : undefined}
+      className={isDragging ? 'opacity-50' : undefined}
+    >
       {href ? (
         <Link href={href} className="flex min-w-0 flex-1 items-center gap-1.5">
           {label}

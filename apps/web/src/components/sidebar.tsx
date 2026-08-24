@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Fragment, useEffect, useState } from 'react';
-import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
+import { DndContext, PointerSensor, closestCenter, pointerWithin, useDroppable, useSensor, useSensors } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -442,6 +442,22 @@ function useDatabaseExpanded(databaseId: string, forceOpen: boolean) {
   return { expanded: expanded || forceOpen, toggle };
 }
 
+/**
+ * #369 — the space root as a drop target, so a leaf can be dragged OUT of a
+ * folder (and a view out from under its database) rather than only in.
+ *
+ * Without an explicit target for "no folder" the only way back out was the menu,
+ * which would have left drag as a one-way trip.
+ */
+function RootDropZone({ spaceId, children }: { spaceId: string; children: React.ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id: `root:${spaceId}` });
+  return (
+    <div ref={setNodeRef} className={cn('rounded', isOver && 'bg-hover ring-1 ring-inset ring-accent/40')}>
+      {children}
+    </div>
+  );
+}
+
 /** The inline name/confirm prompt (MN-24), named so row components can take it. */
 type DialogState =
   | { kind: 'name'; title: string; value: string; submit: (v: string) => void }
@@ -469,10 +485,103 @@ function SpaceSection({
   const { hide } = useHidden(ws);
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: space.id });
   const dbSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
-  const onDatabaseDragEnd = (list: DatabaseSummary[]) => (event: DragEndEvent) => {
-    if (!event.over) return;
-    for (const move of computeReorder(list, String(event.active.id), String(event.over.id))) {
-      mutations.updateDatabase.mutate(move);
+  /**
+   * #369 — collision detection that lets a CONTAINER win.
+   *
+   * `closestCenter` compares the centre of every droppable, and a folder or the
+   * space root is a tall container whose centre is far from the pointer — so a
+   * small sortable row always won and a drop never resolved to a folder. The
+   * drag activated correctly and then silently did nothing, which is the worst
+   * shape of broken: it looks like it worked.
+   *
+   * `pointerWithin` asks what is UNDER THE POINTER instead, which is what a user
+   * means by "drop it there". Containers are preferred when several match, since
+   * a folder necessarily overlaps the rows inside it. Falls back to
+   * closestCenter so reordering past the end of a list still works.
+   */
+  const collisionStrategy = (args: Parameters<typeof pointerWithin>[0]) => {
+    const within = pointerWithin(args);
+    const container = within.find((c) => String(c.id).startsWith('folder:') || String(c.id).startsWith('root:'));
+    // A row under the pointer beats the container it sits in — that is a reorder,
+    // not a move — so only fall back to the container when no row matched.
+    const row = within.find((c) => !String(c.id).startsWith('folder:') && !String(c.id).startsWith('root:'));
+    if (row) return [row];
+    if (container) return [container];
+    return closestCenter(args);
+  };
+
+  /**
+   * #369 — ONE drag handler for the whole space, covering every leaf type.
+   *
+   * Previously each list had its own DndContext, which is why dragging could only
+   * ever REORDER within a container: dnd-kit cannot see across two contexts, so a
+   * folder in a different one was never a drop target. Moving between containers
+   * was a menu instead.
+   *
+   * The ticket is explicit that if drag is built it replaces the menu for ALL
+   * leaf types — three types with two different ways to be moved is worse than
+   * one consistent way. The MENU STAYS as the keyboard-accessible path: drag-only
+   * movement is unreachable without a pointer, so it earns its place regardless.
+   */
+  const onSpaceDragEnd = (event: DragEndEvent) => {
+    const over = event.over;
+    if (!over) return;
+    const activeData = event.active.data.current as { kind?: string } | undefined;
+    const overId = String(over.id);
+    const activeId = String(event.active.id);
+
+    // A drop onto a CONTAINER — a folder, or the space root.
+    const target = overId.startsWith('folder:')
+      ? overId.slice(7)
+      : overId === `root:${space.id}`
+        ? null
+        : undefined;
+
+    if (target !== undefined) {
+      switch (activeData?.kind) {
+        case 'database':
+          moveToFolder(activeId, target);
+          return;
+        case 'view':
+          onMoveView(activeId, target);
+          return;
+        case 'document':
+          moveDocToFolder.mutate({ id: activeId, folderId: target });
+          return;
+        default:
+          return;
+      }
+    }
+
+    /**
+     * Dropped onto a ROW. If that row lives in a DIFFERENT container, the user
+     * means "put it there" — that is how you drag something OUT of a folder,
+     * since the row you aim at is usually a sibling at the destination rather
+     * than empty space. Treating this as a reorder is why dragging out silently
+     * did nothing: computeReorder ran against a list the item was not in.
+     */
+    const overData = over.data.current as { kind?: string; folderId?: string | null } | undefined;
+    const fromFolder = (activeData as { folderId?: string | null } | undefined)?.folderId ?? null;
+    const toFolder = overData?.folderId ?? null;
+
+    if (activeData?.kind === 'database' && overData?.kind === 'database' && fromFolder !== toFolder) {
+      moveToFolder(activeId, toFolder);
+      return;
+    }
+    if (activeData?.kind === 'view' && overData?.kind === 'database') {
+      // A view dropped beside a database goes to that database's container.
+      onMoveView(activeId, toFolder);
+      return;
+    }
+    if (activeData?.kind === 'document' && overData?.kind === 'database') {
+      moveDocToFolder.mutate({ id: activeId, folderId: toFolder });
+      return;
+    }
+
+    // Same container, database → an ordinary reorder.
+    if (activeData?.kind === 'database') {
+      const list = databases.filter((d) => (d.folderId ?? null) === fromFolder);
+      for (const move of computeReorder(list, activeId, overId)) mutations.updateDatabase.mutate(move);
     }
   };
   const [renaming, setRenaming] = useState(false);
@@ -832,7 +941,11 @@ function SpaceSection({
       </Dialog>
 
       {!collapsed && (
-        <>
+        /* #369 — ONE context for the whole space. Two sibling contexts (root
+           databases, and one per folder) is why nothing could be dragged BETWEEN
+           containers: dnd-kit cannot see across contexts, so a folder in another
+           one was never a drop target. */
+        <DndContext sensors={dbSensors} collisionDetection={collisionStrategy} onDragEnd={onSpaceDragEnd}>
           {folders.map((folder) => (
             <FolderSection
               key={folder.id}
@@ -850,7 +963,6 @@ function SpaceSection({
               onRenameDoc={(id, title) => renameDoc.mutate({ id, title })}
               onDeleteDoc={(id) => deleteDoc.mutate(id)}
               setDialog={setDialog}
-              onReorder={onDatabaseDragEnd}
               pathname={pathname}
               canEdit={canEdit}
               isAdmin={isAdmin}
@@ -859,11 +971,7 @@ function SpaceSection({
           {(() => {
             const rootDbs = databases.filter((db) => !db.folderId);
             return (
-              <DndContext
-                sensors={dbSensors}
-                collisionDetection={closestCenter}
-                onDragEnd={onDatabaseDragEnd(rootDbs)}
-              >
+              <RootDropZone spaceId={space.id}>
                 <SortableContext items={rootDbs.map((d) => d.id)} strategy={verticalListSortingStrategy}>
                   {rootDbs.map((db) => (
                     <DatabaseBranch
@@ -881,7 +989,7 @@ function SpaceSection({
                     />
                   ))}
                 </SortableContext>
-              </DndContext>
+              </RootDropZone>
             );
           })()}
           {/* #306 — views that belong to the SPACE, not to any database: a
@@ -919,7 +1027,7 @@ function SpaceSection({
               setDialog={setDialog}
             />
           ))}
-        </>
+        </DndContext>
       )}
       {dialog && <PromptDialog state={dialog} onClose={() => setDialog(null)} />}
     </div>
@@ -946,6 +1054,7 @@ function DocumentRow({
   onDelete,
   setDialog,
   depth = 1,
+  canEdit = true,
 }: {
   ws: string;
   doc: { id: string; title: string; icon: string | null; folder_id: string | null };
@@ -956,9 +1065,24 @@ function DocumentRow({
   onDelete: (id: string) => void;
   setDialog: (d: DialogState) => void;
   depth?: SidebarDepth;
+  canEdit?: boolean;
 }) {
+  /** #369 — documents are draggable too, so all three leaf types move the same way. */
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: doc.id,
+    data: { kind: 'document' },
+    disabled: !canEdit,
+  });
   return (
-    <SidebarRow depth={depth} active={active} className="group/doc">
+    <SidebarRow
+      depth={depth}
+      active={active}
+      className={cn('group/doc', isDragging && 'opacity-50')}
+      ref={canEdit ? setNodeRef : undefined}
+      style={canEdit ? { transform: CSS.Transform.toString(transform), transition } : undefined}
+      draggable={canEdit}
+      dragHandleProps={canEdit ? { ...attributes, ...listeners } : undefined}
+    >
       <Link href={`/w/${ws}/doc/${doc.id}`} className="flex min-w-0 flex-1 items-center gap-2">
         <EntityIcon icon={doc.icon} color={null} fallback={<FileText className="h-3.5 w-3.5 shrink-0 text-muted" />} className="text-[13px]" />
         <span className="truncate">{doc.title || 'Untitled'}</span>
@@ -1078,7 +1202,6 @@ function FolderSection({
   onRenameDoc,
   onDeleteDoc,
   setDialog,
-  onReorder,
   pathname,
   canEdit,
   isAdmin,
@@ -1097,12 +1220,16 @@ function FolderSection({
   onRenameDoc: (id: string, title: string) => void;
   onDeleteDoc: (id: string) => void;
   setDialog: (d: DialogState) => void;
-  onReorder: (list: DatabaseSummary[]) => (event: DragEndEvent) => void;
   pathname: string;
   canEdit: boolean;
   isAdmin: boolean;
 }) {
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  /**
+   * #369 — the whole folder is the drop target, header included, so it accepts a
+   * drop while COLLAPSED. A collapsed folder that rejects drops fails exactly
+   * when the sidebar is busy enough to need folding.
+   */
+  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: `folder:${folder.id}` });
   const key = `storyos:folder-collapsed:${folder.id}`;
   const [collapsed, setCollapsed] = useState(false);
   useEffect(() => {
@@ -1116,7 +1243,10 @@ function FolderSection({
     });
 
   return (
-    <div>
+    <div
+      ref={setDropRef}
+      className={cn('rounded', isOver && 'bg-hover ring-1 ring-inset ring-accent/40')}
+    >
       {/* #380 — a folder sits on the SAME left edge as the databases beside it
           (founder's spec: "folders, dashboards — the same padding left as
           databases"), so it goes through the shared row at depth 1. */}
@@ -1152,10 +1282,13 @@ function FolderSection({
         /* #380 — same guide line, same offset as a database's nested views. */
         <div className="border-l border-border-default" style={{ marginLeft: SIDEBAR_INDENT_PX[1] }}>
           {databases.length + views.length + documents.length === 0 && (
-            <p className="px-2 py-1 text-[12px] text-faint">Empty</p>
+            /* #369 — an empty folder needs a target with HEIGHT. "Empty" text
+               alone is a few pixels of hit area, so dropping into a new folder
+               would miss almost every time. */
+            <p className="px-2 py-3 text-center text-[12px] text-faint">Empty — drop something here</p>
           )}
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onReorder(databases)}>
-            <SortableContext items={databases.map((d) => d.id)} strategy={verticalListSortingStrategy}>
+          {/* #369 — no nested DndContext: the space owns the one context now. */}
+          <SortableContext items={databases.map((d) => d.id)} strategy={verticalListSortingStrategy}>
               {databases.map((db) => (
                 <DatabaseRow
                   key={db.id}
@@ -1169,8 +1302,7 @@ function FolderSection({
                   reorderable={canEdit}
                 />
               ))}
-            </SortableContext>
-          </DndContext>
+          </SortableContext>
           {views.map((v) => (
             <SidebarViewRow
               key={v.id}
@@ -1319,6 +1451,9 @@ function DatabaseRow({
   const canDrag = reorderable && !renaming;
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: db.id,
+    // #369 — the handler needs to know WHAT was dragged to pick the right move,
+    // and which list it came from to reorder within it.
+    data: { kind: 'database', folderId: db.folderId ?? null },
     disabled: !canDrag,
   });
 
