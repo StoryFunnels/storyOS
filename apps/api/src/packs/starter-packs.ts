@@ -58,8 +58,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
     slug: 'agency-os',
     name: 'Agency OS',
     summary:
-      'Clients, contacts, projects and a full task system — the agency backbone. A client entering ' +
-      'Onboarding gates in an assistant that drafts their welcome packet.',
+      'Clients, contacts, projects and a full task system — the agency backbone.',
     highlights: [
       'Clients, Contacts, Projects and Tasks, fully related',
       'Client lifecycle: Lead → Onboarding → Active → Paused → Churned',
@@ -267,7 +266,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
     name: 'Client Portal',
     summary:
       'A per-client space you share with the client — tasks with a client-approval workflow, ' +
-      'deliverables, meetings and requests. A task waiting on approval gates in a draft response.',
+      'deliverables, meetings and requests.',
     highlights: [
       'Tasks, Deliverables, Meetings and Requests, ready to share with a guest',
       'Client Approval workflow: Not needed → Waiting → Approved → Changes requested',
@@ -457,8 +456,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
     slug: 'dev-project-os',
     name: 'Dev Project OS',
     summary:
-      'Issues with a Triage inbox, sprints and releases with changelogs. A new issue in Triage gates ' +
-      'in a bot that proposes its type, priority and labels.',
+      'Issues with a Triage inbox, sprints, and releases with changelogs.',
     highlights: [
       'Issues, Sprints, Releases and Product Docs, fully related',
       'Full task-DNA workflow: Triage → Backlog → To Do → In Progress → In Review → Done/Canceled',
@@ -668,8 +666,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
     slug: 'content-engine',
     name: 'Content Engine',
     summary:
-      'Articles through an editorial board, topic clusters, and campaigns. An article entering Brief ' +
-      'gates in an assistant that drafts the first outline.',
+      'Articles through an editorial board, topic clusters, and campaigns.',
     highlights: [
       'Articles, Topics and Campaigns, fully related',
       'Editorial workflow: Idea → Brief → Writing → Editing → Design → Ready → Published',
@@ -842,8 +839,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
     slug: 'book-launch',
     name: 'Book Launch',
     summary:
-      'A manuscript board of chapters, research notes, launch tasks and appearances. A chapter ' +
-      'entering Draft gates in an assistant that proposes revision notes.',
+      'A manuscript board of chapters, research notes, launch tasks and appearances.',
     highlights: [
       'Books, Chapters, Research Notes, Launch & Marketing and Appearances, fully related',
       'Manuscript workflow: Outline → Draft → Revised → Final',
@@ -1059,7 +1055,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
     name: 'Coaching OS',
     summary:
       'Clients enrolled in programs, sessions as the calendar spine, and action items for ' +
-      'accountability. A session marked Done gates in an assistant that drafts the notes.',
+      'accountability.',
     highlights: [
       'Clients, Programs, Sessions and Action Items, fully related',
       'Session workflow: Scheduled → Done / No-show / Rescheduled / Canceled',
@@ -1242,8 +1238,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
     slug: 'consulting-os',
     name: 'Consulting OS',
     summary:
-      'Proposal pipeline, engagements with hours budgets, and delivery tasks. A proposal entering ' +
-      'Negotiating gates in an assistant that drafts the follow-up.',
+      'Proposal pipeline, engagements with hours budgets, and delivery tasks.',
     highlights: [
       'Clients, Proposals, Engagements and Deliverables & Tasks, fully related',
       'Proposal pipeline: Draft → Sent → Negotiating → Won / Lost',

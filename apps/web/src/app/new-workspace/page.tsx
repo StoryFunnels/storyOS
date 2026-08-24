@@ -5,19 +5,9 @@ import { useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import posthog from 'posthog-js';
 import {
-  Blocks,
-  BookOpen,
-  Bot,
-  BriefcaseBusiness,
-  Check,
-  Code2,
-  Headphones,
-  PenTool,
   Sparkles,
   Square,
-  Users,
 } from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
 import { api, apiErrorMessage } from '@/lib/api';
 import { isErrorEnvelope } from '@storyos/sdk';
 import { AuthCard } from '../(auth)/auth-card';
@@ -26,12 +16,15 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { guestInviteHref } from '@/lib/guest-invite';
 import { cn } from '@/lib/utils';
+import { PackVisual } from '@/components/pack-visual';
 
 interface PackCard {
   slug: string;
   name: string;
   summary: string;
   highlights: string[];
+  /** #351 — already returned by /packs/registry; the picker just never used it. */
+  preview: { databases: number; views: number; automations: number; agents: number };
 }
 
 interface PackEntry extends PackCard {
@@ -53,16 +46,21 @@ const QUICK_PICKS = [
   { id: 'consulting', label: 'Running consulting engagements', slug: 'consulting-os' },
 ] as const;
 
-const PACK_ICONS: Record<string, LucideIcon> = {
-  'agency-os': BriefcaseBusiness,
-  'client-portal': Users,
-  'dev-project-os': Code2,
-  'content-engine': PenTool,
-  'book-launch': BookOpen,
-  'coaching-os': Users,
-  'consulting-os': Blocks,
-  'support-inbox': Headphones,
-};
+/**
+ * The card shows the QUICK_PICKS use-case label ("Running an agency"); the
+ * confirm button used to name the PACK ("Agency OS") — a term the picker never
+ * showed. Naming a selection back to someone with a word they have not read is
+ * how a confirmation stops confirming.
+ *
+ * The two halves are cased differently on purpose: a use-case label is a PHRASE
+ * and folds into the sentence lowercased, while a pack name is a proper noun
+ * that must not ("support inbox").
+ */
+function confirmLabel(slug: string, packName?: string): string {
+  const phrase = QUICK_PICKS.find((q) => q.slug === slug)?.label;
+  if (phrase) return `Create workspace for ${phrase.toLowerCase()}`;
+  return `Create workspace with ${packName ?? 'this pack'}`;
+}
 
 function PackChoice({
   pack,
@@ -75,7 +73,6 @@ function PackChoice({
   selected: boolean;
   onClick: () => void;
 }) {
-  const Icon = PACK_ICONS[pack.slug] ?? Blocks;
   return (
     <button
       type="button"
@@ -83,30 +80,32 @@ function PackChoice({
       // than being carried entirely by a background tint.
       aria-pressed={selected}
       className={cn(
-        'flex items-start gap-3 rounded-[var(--radius-card)] border p-3 text-left',
+        /* #351/#376 — an EXPLICIT card height. Summaries and titles differ in
+           length, so heights came out 194/212/248 and no container height could
+           be a multiple of them: the grid always cut a card in half, which reads
+           as a rendering bug rather than "scroll for more". Fixed height + the
+           line-clamp below makes the cut land between rows by construction. */
+        'flex h-[196px] flex-col gap-2 overflow-hidden rounded-[var(--radius-card)] border p-2 text-left transition-colors',
         selected ? 'border-[var(--accent)] bg-accent-soft' : 'border-border-default hover:bg-hover',
       )}
       onClick={onClick}
     >
-      <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted" />
-      <span className="min-w-0 flex-1">
-        <span className="flex items-baseline justify-between gap-2">
-          <span className="text-[13px] font-medium text-ink">{label ?? pack.name}</span>
-          {/* #333: one pack is preselected. Without a label saying so, a user
-              who scrolls past may not register that a choice has been made on
-              their behalf — and a pack creates databases, automations and an
-              assistant. */}
-          {selected && (
-            <span className="inline-flex shrink-0 items-center gap-0.5 text-[11px] font-medium text-[var(--accent)]">
-              <Check className="h-3 w-3" />
-              Selected
-            </span>
-          )}
-        </span>
-        <span className="line-clamp-2 block text-[12px] text-muted">{pack.summary}</span>
-        <span className="mt-1 block text-[11px] text-faint">
-          Includes databases, views, automations, plus a built-in assistant
-        </span>
+      {/* #351 — #77's visual preview instead of a paragraph. "Nobody can picture
+          the result" was the complaint; four counts answer it at a glance. */}
+      <PackVisual pack={pack} />
+      <span className="min-w-0">
+        <span className="block truncate text-[13px] font-medium text-ink">{label ?? pack.name}</span>
+        {/* #351 — the repeated "Includes databases, views, automations…" line is
+            gone from every card. It was identical on all three, so it could not
+            help anyone choose; it is said ONCE above the grid instead. The
+            "✓ Selected" badge goes with it: nothing is preselected now, so the
+            border and background carry the state. */}
+        {/* NOT `line-clamp-2 block` — Tailwind's `.block` sets `display:block`
+            and wins over `.line-clamp-2`'s `display:-webkit-box` in the
+            cascade, so the clamp silently never applied. Support Inbox's
+            six-line summary then ate the card and squeezed the preview above
+            from 112px to 43px. The class was present and doing nothing. */}
+        <span className="line-clamp-2 text-[12px] text-muted">{pack.summary}</span>
       </span>
     </button>
   );
@@ -120,22 +119,18 @@ function PackChoice({
 export default function NewWorkspacePage() {
   const router = useRouter();
   const [name, setName] = useState('');
-  const [choice, setChoice] = useState<string>('pack:agency-os');
+  /**
+   * #351 — NOTHING is pre-selected. `agency-os` used to arrive already marked
+   * "✓ Selected", so anyone who scrolled to the button without reading silently
+   * accepted a whole workspace template — databases, automations and an agent.
+   * A first-run choice should be made, not defaulted into.
+   */
+  const [choice, setChoice] = useState<string | null>(null);
   const [clientName, setClientName] = useState('');
-  const [browsing, setBrowsing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nameError, setNameError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
-
-  const workspaces = useQuery({
-    queryKey: ['workspaces'],
-    queryFn: async () => {
-      const { data, error: apiError } = await api.GET('/api/v1/workspaces');
-      if (apiError) throw apiError;
-      return data as unknown as Array<{ id: string; name: string }>;
-    },
-  });
 
   const registry = useQuery({
     queryKey: ['packs-registry'],
@@ -152,7 +147,7 @@ export default function NewWorkspacePage() {
 
   const packs = registry.data ?? [];
   const packBySlug = new Map(packs.map((pack) => [pack.slug, pack]));
-  const selectedSlug = choice.startsWith('pack:') ? choice.slice(5) : null;
+  const selectedSlug = choice?.startsWith('pack:') ? choice.slice(5) : null;
   const selectedQuickPick = QUICK_PICKS.find((pick) => pick.slug === selectedSlug);
 
   async function installPack(wsId: string, slug: string): Promise<PackInstallResult> {
@@ -245,7 +240,7 @@ export default function NewWorkspacePage() {
   }
 
   return (
-    <AuthCard title="Create your workspace">
+    <AuthCard title="Create your workspace" wide>
       <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="name">Workspace name</Label>
@@ -271,14 +266,25 @@ export default function NewWorkspacePage() {
 
         <div className="flex flex-col gap-1.5">
           <Label>What are you working on?</Label>
-          <p className="text-[11px] text-faint">
-            Pick a complete Business Pack now, or install any other pack later.
+          {/* #351 — ONE word for the concept, DEFINED before it is used. The
+              screen previously said "Business Pack", "pack" and "StoryOS packs" —
+              three names for one thing a new user has never heard of. And the
+              "includes databases, views, automations" line lived on every card,
+              identical, so it differentiated nothing; it belongs here, once. */}
+          <p className="text-[12px] text-muted">
+            Pick a starting point. Each <span className="text-ink">Business Pack</span> is a
+            ready-made set of databases, views and automations for one kind of work — you can change
+            anything afterwards, or add more later.
           </p>
           {/* #333: 48vh cut the fourth card mid-height on a laptop, which reads
               as a rendering bug rather than as "scroll for more". A shorter box
               lands the cut BETWEEN cards far more often, and the list scrolls
               either way. */}
-          <div className="flex max-h-[38vh] flex-col gap-1.5 overflow-y-auto pr-1">
+          {/* #351 — a GRID of every pack, not three in one column with the rest
+              behind grey text. Eight packs exist and the one screen guaranteed to
+              be seen was showing a third of them. */}
+          {/* Exactly two rows: 2 × 196 + one 8px gap. */}
+          <div className="grid max-h-[400px] grid-cols-1 gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
             {registry.isError ? (
               <div className="flex flex-col items-start gap-2 rounded-[var(--radius-card)] border border-border-default bg-card p-4 text-[13px] text-error">
                 <span>{apiErrorMessage(registry.error, 'Could not load packs')}</span>
@@ -292,23 +298,13 @@ export default function NewWorkspacePage() {
                   {registry.isFetching ? 'Retrying…' : 'Try again'}
                 </Button>
               </div>
-            ) : !browsing ? (
-              QUICK_PICKS.map((pick) => {
-                const pack = packBySlug.get(pick.slug);
-                return pack ? (
-                  <PackChoice
-                    key={pick.id}
-                    pack={pack}
-                    label={pick.label}
-                    selected={choice === `pack:${pick.slug}`}
-                    onClick={() => setChoice(`pack:${pick.slug}`)}
-                  />
-                ) : null;
-              })
             ) : (
               packs.map((pack) => (
                 <PackChoice
                   key={pack.slug}
+                  /* The quick-pick LABEL ("Running an agency") is the reader's
+                     words for the same thing, so it wins over the product name. */
+                  label={QUICK_PICKS.find((q) => q.slug === pack.slug)?.label}
                   pack={pack}
                   selected={choice === `pack:${pack.slug}`}
                   onClick={() => setChoice(`pack:${pack.slug}`)}
@@ -316,29 +312,17 @@ export default function NewWorkspacePage() {
               ))
             )}
 
-            <button
-              type="button"
-              className={cn(
-                'flex items-start gap-3 rounded-[var(--radius-card)] border p-3 text-left',
-                choice === 'marketplace'
-                  ? 'border-[var(--accent)] bg-accent-soft'
-                  : 'border-border-default hover:bg-hover',
-              )}
-              onClick={() => setChoice('marketplace')}
-            >
-              <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-muted" />
-              <span>
-                <span className="block text-[13px] font-medium text-ink">
-                  Browse the Community Marketplace
-                </span>
-                <span className="block text-[12px] text-muted">
-                  Create the workspace, then explore reviewed packs from other builders.
-                </span>
-              </span>
-            </button>
 
+          </div>
+
+          {/* #351 — the ways OUT live OUTSIDE the scroller, so they are visible
+              without scrolling. "Blank workspace" existed before but sat below the
+              fold of a 38vh box, which is why the screen read as having no escape
+              at all. */}
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <button
               type="button"
+              aria-pressed={choice === 'blank'}
               className={cn(
                 'flex items-start gap-3 rounded-[var(--radius-card)] border p-3 text-left',
                 choice === 'blank'
@@ -349,23 +333,32 @@ export default function NewWorkspacePage() {
             >
               <Square className="mt-0.5 h-4 w-4 shrink-0 text-muted" />
               <span>
-                <span className="block text-[13px] font-medium text-ink">Blank workspace</span>
-                <span className="block text-[12px] text-muted">Start from scratch.</span>
+                <span className="block text-[13px] font-medium text-ink">Start empty</span>
+                <span className="block text-[12px] text-muted">
+                  No databases. Build your own from scratch.
+                </span>
+              </span>
+            </button>
+            <button
+              type="button"
+              aria-pressed={choice === 'marketplace'}
+              className={cn(
+                'flex items-start gap-3 rounded-[var(--radius-card)] border p-3 text-left',
+                choice === 'marketplace'
+                  ? 'border-[var(--accent)] bg-accent-soft'
+                  : 'border-border-default hover:bg-hover',
+              )}
+              onClick={() => setChoice('marketplace')}
+            >
+              <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-muted" />
+              <span>
+                <span className="block text-[13px] font-medium text-ink">Browse the marketplace</span>
+                <span className="block text-[12px] text-muted">
+                  Create the workspace first, then explore packs from other builders.
+                </span>
               </span>
             </button>
           </div>
-
-          {!registry.isError && (
-            <button
-              type="button"
-              className="self-start text-[12px] text-muted underline-offset-2 hover:underline"
-              onClick={() => setBrowsing((value) => !value)}
-            >
-              {browsing
-                ? '← Back to quick picks'
-                : `Browse all${packs.length ? ` ${packs.length}` : ''} StoryOS packs`}
-            </button>
-          )}
         </div>
 
         {selectedQuickPick?.id === 'new-client' && (
@@ -389,9 +382,22 @@ export default function NewWorkspacePage() {
           <Button
             type="submit"
             className="w-full"
-            disabled={busy || registry.isLoading || (registry.isError && choice.startsWith('pack:'))}
+            /* #351 — disabled until a starting point is chosen, since nothing is
+               pre-selected any more. The label names the choice, so the button
+               confirms what is about to happen rather than just saying "Create". */
+            disabled={
+              busy || !choice || registry.isLoading || (registry.isError && choice.startsWith('pack:'))
+            }
           >
-            {busy ? 'Setting things up…' : 'Create workspace'}
+            {busy
+              ? 'Setting things up…'
+              : !choice
+                ? 'Choose a starting point above'
+                : choice === 'blank'
+                  ? 'Create empty workspace'
+                  : choice === 'marketplace'
+                    ? 'Create workspace, then browse'
+                    : confirmLabel(selectedSlug ?? '', packBySlug.get(selectedSlug ?? '')?.name)}
           </Button>
         </div>
 
@@ -399,29 +405,11 @@ export default function NewWorkspacePage() {
             field — opening a first-run screen with a limitation. It only renders
             for someone who already has a workspace, so it answers a question
             that arises AFTER the action, and now sits after it. */}
-        {(workspaces.data?.length ?? 0) > 0 && (
-          <p className="text-[12px] text-muted">
-            Need another workspace? Multiple workspaces are available on Enterprise.{' '}
-            <a
-              href={`mailto:hello@storyos.dev?subject=${encodeURIComponent('StoryOS Enterprise — multiple workspaces')}`}
-              className="font-medium text-ink underline underline-offset-2"
-              onClick={() =>
-                posthog.capture('enterprise_contact_clicked', { source: 'new_workspace' })
-              }
-            >
-              Contact us
-            </a>
-            .
-          </p>
-        )}
+        {/* #351 — the Enterprise upsell used to sit here, and the Claude/ChatGPT
+            note below it. Both are accurate and both are POST-setup information,
+            shown to someone who has not yet seen a single feature. Selling before
+            delivering; removed from the first screen. */}
 
-        <div className="flex items-start gap-2 rounded-[var(--radius-control)] bg-hover p-3">
-          <Bot className="mt-0.5 h-4 w-4 shrink-0 text-muted" />
-          <p className="text-[11px] text-muted">
-            After setup, connect Claude or ChatGPT from Settings → Integrations to work with this
-            workspace directly from your assistant.
-          </p>
-        </div>
       </form>
     </AuthCard>
   );
