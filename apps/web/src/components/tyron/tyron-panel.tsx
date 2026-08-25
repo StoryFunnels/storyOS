@@ -101,16 +101,31 @@ export function TyronPanel() {
     return () => window.removeEventListener('keydown', onKey);
   }, [state, leaveFull]);
 
+  /**
+   * The PAIR's box, not the panel's.
+   *
+   * This was the flicker: `ratioFromPointer` needs the region the ratio is a
+   * fraction OF, and measuring the panel's own rect made the input depend on the
+   * output — every pointermove resized the panel, which moved the box, which
+   * produced a different ratio for the same cursor position. The divider chased
+   * itself across the screen.
+   *
+   * The pair is the panel's parent (main + divider + panel, see the workspace
+   * layout), and its box does NOT change while dragging, which is exactly the
+   * property the maths requires.
+   */
+  const pairBox = useCallback(() => regionRef.current?.parentElement?.getBoundingClientRect(), []);
+
   // Drag — pointer math delegated, not reimplemented.
   useEffect(() => {
     if (!dragging) return;
     const onMove = (e: PointerEvent) => {
-      const box = regionRef.current?.getBoundingClientRect();
+      const box = pairBox();
       if (!box) return;
       setRatio(ratioFromPointer(e.clientX, box.left, box.width));
     };
     const onUp = (e: PointerEvent) => {
-      const box = regionRef.current?.getBoundingClientRect();
+      const box = pairBox();
       if (box) persist(ratioFromPointer(e.clientX, box.left, box.width));
       setDragging(false);
     };
@@ -120,7 +135,7 @@ export function TyronPanel() {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
     };
-  }, [dragging, setRatio, persist]);
+  }, [dragging, setRatio, persist, pairBox]);
 
   if (state === 'closed') return null;
 
@@ -138,7 +153,13 @@ export function TyronPanel() {
           aria-orientation="vertical"
           aria-label="Resize Tyron"
           tabIndex={0}
-          onPointerDown={() => setDragging(true)}
+          onPointerDown={(e) => {
+            // Capture the pointer so the drag survives the cursor outrunning the
+            // 4px divider — without this, a fast drag drops the pointermove
+            // stream the moment the cursor leaves the element.
+            e.currentTarget.setPointerCapture(e.pointerId);
+            setDragging(true);
+          }}
           onDoubleClick={() => persist(TYRON_RATIO_DEFAULT)}
           onKeyDown={(e) => {
             // Arrow nudges, same step as the record pair.

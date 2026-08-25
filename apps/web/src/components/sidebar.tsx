@@ -1687,6 +1687,25 @@ function DatabaseRow({
       {...(canDrag ? attributes : {})}
       {...(canDrag ? listeners : {})}
       title={canDrag ? 'Drag to reorder' : undefined}
+      /* #386 — the caret goes in the RESERVED gutter, not beside it, so a
+         database with children lines up with one without. */
+      caret={
+        expandable ? (
+          <button
+            type="button"
+            aria-label={expanded ? `Collapse ${db.name}` : `Expand ${db.name}`}
+            aria-expanded={expanded}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onToggle?.();
+            }}
+            className="rounded text-faint hover:text-ink"
+          >
+            <ChevronRight className={cn('h-3 w-3 transition-transform', expanded && 'rotate-90')} />
+          </button>
+        ) : undefined
+      }
     >
       {renaming ? (
         <RenameInline
@@ -1703,21 +1722,6 @@ function DatabaseRow({
               into a pure disclosure toggle); expanding is a different intent and
               gets its own hit target. Rendered only when there is something to
               expand, which after #381 is the minority of databases. */}
-          {expandable && (
-            <button
-              type="button"
-              aria-label={expanded ? `Collapse ${db.name}` : `Expand ${db.name}`}
-              aria-expanded={expanded}
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                onToggle?.();
-              }}
-              className="-ml-1 mr-0.5 shrink-0 rounded p-0.5 text-faint hover:bg-active hover:text-ink"
-            >
-              <ChevronRight className={cn('h-3 w-3 transition-transform', expanded && 'rotate-90')} />
-            </button>
-          )}
         <Link href={`/w/${ws}/d/${db.id}`} className="flex min-w-0 flex-1 items-center gap-2">
           <EntityIcon
             icon={db.icon}
