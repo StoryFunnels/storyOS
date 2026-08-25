@@ -7114,6 +7114,147 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/tyron/threads": {
+      "get": {
+        "operationId": "TyronThreadsController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "The caller's own Tyron threads, most recent first (#359)",
+        "tags": [
+          "tyron"
+        ]
+      },
+      "post": {
+        "operationId": "TyronThreadsController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateThreadDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Start a thread, auto-named from its first message (#359)",
+        "tags": [
+          "tyron"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/tyron/threads/{thread}": {
+      "get": {
+        "operationId": "TyronThreadsController_get",
+        "parameters": [
+          {
+            "name": "thread",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "One thread with its history (404 unless it is yours)",
+        "tags": [
+          "tyron"
+        ]
+      },
+      "patch": {
+        "operationId": "TyronThreadsController_rename",
+        "parameters": [
+          {
+            "name": "thread",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenameThreadDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Rename a thread",
+        "tags": [
+          "tyron"
+        ]
+      },
+      "delete": {
+        "operationId": "TyronThreadsController_remove",
+        "parameters": [
+          {
+            "name": "thread",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Delete a thread — does NOT undo what it did (#359)",
+        "tags": [
+          "tyron"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/skills": {
       "get": {
         "operationId": "SkillsController_list",
@@ -12712,6 +12853,28 @@
         "properties": {
           "plan": {}
         }
+      },
+      "CreateThreadDto": {
+        "type": "object",
+        "properties": {
+          "first_message": {
+            "type": "string",
+            "maxLength": 10000
+          }
+        }
+      },
+      "RenameThreadDto": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "title"
+        ]
       },
       "CreateSkillDto": {
         "type": "object",
