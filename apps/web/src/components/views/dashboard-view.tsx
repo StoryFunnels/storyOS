@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useMemo } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Check, Filter as FilterIcon, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useDatabase, useMembers, useRecordsInfinite } from '../table-view/use-table-data';
 import { useDatabases } from '@/lib/queries';
 import { toast } from 'sonner';
@@ -11,6 +11,7 @@ import { FiltersSection } from './view-toolbar';
 import {
   TILE_OPS,
   computeTileValue,
+  defaultBlockLabel,
   defaultTileLabel,
   formatTileValue,
   opLabel,
@@ -121,6 +122,51 @@ export function DashboardView({
   const sourceName = (id: string) => sourceOptions.find((o) => o.id === id)?.name ?? 'the previous database';
   const fieldName = useMemo(() => new Map(fields.map((f) => [f.apiName, f.displayName])), [fields]);
 
+  /**
+   * #385 — view mode vs edit mode.
+   *
+   * The only gate here used to be `readOnly`, which answers "CAN this person
+   * edit", not "do they want to edit right now". Those are different questions
+   * and the code only had the first — so anyone with edit rights permanently saw
+   * every label input, database dropdown, aggregation select, filter builder and
+   * delete icon. The readable version of a dashboard already existed and was
+   * shown only to the people who had not built it.
+   *
+   * Deliberately component STATE, not persisted and not in the URL: a dashboard
+   * left in edit mode last week must not greet you as a form. Defaults to view on
+   * every load, including right after adding a tile — that moment ("is it
+   * right?") is exactly when you want to see it clean.
+   */
+  const [editing, setEditing] = useState(false);
+  /** Editors only. A viewer has nothing to toggle and already sees values only. */
+  const showEditor = !readOnly && editing;
+
+  /**
+   * #387 — what a tile is called when nobody typed a label.
+   *
+   * Derived from the source database and the measure, never from the op alone:
+   * `defaultTileLabel` returns "Count of records" for every count tile, which is
+   * precisely the founder's screenshot — two tiles reading 383 and 5 under
+   * identical headings. Returns null for an unconfigured source so the tile
+   * renders its own "pick a database" state instead of a confident label over
+   * nothing (#305).
+   */
+  const tileSourceId = (tile: DashboardTile) => tile.database_id ?? db ?? '';
+  const tileHeading = (tile: DashboardTile): string => {
+    if (tile.label.trim()) return tile.label.trim();
+    const id = tileSourceId(tile);
+    const derived = defaultBlockLabel({
+      sourceName: id ? sourceName(id) : undefined,
+      op: tile.op,
+      // Only the VIEW database's field names are known here; a cross-database
+      // tile's field is named by its own database, which this component does not
+      // load. Falling back to the op-only label is honest — better a generic
+      // measure than a wrong field name.
+      fieldDisplayName: fieldName.get(tile.field_api_name ?? ''),
+    });
+    return derived ?? defaultTileLabel(tile.op, fieldName.get(tile.field_api_name ?? ''));
+  };
+
   function patchTiles(next: DashboardTile[]) {
     onPatch({ dashboard_tiles: next });
   }
@@ -154,9 +200,29 @@ export function DashboardView({
     patchWidgets(widgets.filter((w) => w.id !== id));
   }
 
+  const isEmpty = tiles.length === 0 && widgets.length === 0;
+
   return (
     <div className="h-full overflow-auto p-4">
-      {tiles.length === 0 && widgets.length === 0 && (
+      {/* #385 — the toggle. Only for someone who CAN edit: a viewer has nothing
+          to switch and already sees values only, so showing them a disabled
+          control would be noise. Placed above the grid rather than floating over
+          it, so entering edit mode never covers the thing being edited. */}
+      {!readOnly && !isEmpty && (
+        <div className="mb-3 flex items-center justify-end">
+          <button
+            type="button"
+            onClick={() => setEditing((e) => !e)}
+            aria-pressed={editing}
+            className="flex items-center gap-1.5 rounded-[var(--radius-control)] border border-border-default bg-card px-2.5 py-1 text-[13px] text-ink-secondary hover:bg-hover"
+          >
+            {editing ? <Check className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
+            {editing ? 'Done' : 'Edit'}
+          </button>
+        </div>
+      )}
+
+      {isEmpty && (
         <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
           <p className="text-sm text-muted">Nothing on this dashboard yet.</p>
           {!readOnly && (
@@ -169,15 +235,24 @@ export function DashboardView({
 
       <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
         {tiles.map((tile) => {
-          const heading = tile.label.trim() || defaultTileLabel(tile.op, fieldName.get(tile.field_api_name ?? ''));
+          const heading = tileHeading(tile);
+          const srcId = tileSourceId(tile);
           return (
             <div
               key={tile.id}
               className="flex flex-col gap-3 rounded-[var(--radius-control)] border border-border-default bg-card p-4"
             >
               <div className="flex items-start justify-between gap-2">
-                <span className="text-[13px] font-medium text-muted">{heading}</span>
-                {!readOnly && (
+                {/* #387 — `title` carries the full text: tiles are 220px and a
+                    database name longer than a few words truncates, at which
+                    point hover is the only way to read it. */}
+                <span className="truncate text-[13px] font-medium text-muted" title={heading}>
+                  {heading}
+                </span>
+                {/* #385 — a permanently visible destructive control on a page you
+                    are only reading is its own small hazard, so the delete leaves
+                    view mode entirely rather than merely being discouraged. */}
+                {showEditor && (
                   <button
                     type="button"
                     title="Remove tile"
@@ -192,7 +267,27 @@ export function DashboardView({
                 <TileValue ws={ws} db={db} config={config} personalFilter={personalFilter} tile={tile} />
               </span>
 
-              {!readOnly && (
+              {/* #387 — provenance, quietly, in VIEW mode.
+                  The source database used to be visible only because the editor
+                  was permanently open; #385 hides that dropdown, so without this
+                  line view mode would be less informative than the bug. The
+                  filter marker matters just as much: a filtered count and an
+                  unfiltered one look identical and can differ by an order of
+                  magnitude, which is the difference between a number you trust
+                  and one you go and verify. */}
+              {!showEditor && srcId && (
+                <span className="flex items-center gap-1 text-[11px] text-faint">
+                  <span className="truncate" title={sourceName(srcId)}>{sourceName(srcId)}</span>
+                  {tile.filter != null && (
+                    <span className="flex shrink-0 items-center gap-0.5" title="This tile has its own filter">
+                      <FilterIcon className="h-2.5 w-2.5" />
+                      filtered
+                    </span>
+                  )}
+                </span>
+              )}
+
+              {showEditor && (
                 <div className="flex flex-col gap-1.5 border-t border-border-default pt-2">
                   <input
                     aria-label="Tile label"
@@ -296,7 +391,11 @@ export function DashboardView({
           );
         })}
 
-        {!readOnly && (
+        {/* #385 — the dashed add-placeholders leave view mode, EXCEPT on an empty
+            dashboard. "A dashboard with no tiles still offers a way to add one"
+            is explicit in the ticket, and for good reason: an empty dashboard
+            with no way forward is worse than the problem being fixed. */}
+        {!readOnly && (editing || isEmpty) && (
           <button
             type="button"
             onClick={addTile}
@@ -320,13 +419,13 @@ export function DashboardView({
               sourceOptions={sourceOptions}
               members={memberList}
               widget={widget}
-              readOnly={readOnly}
+              showConfig={showEditor}
               onPatch={(patch) => updateWidget(widget.id, patch)}
               onRemove={() => removeWidget(widget.id)}
             />
           ))}
 
-          {!readOnly && (
+          {!readOnly && (editing || isEmpty) && (
             <button
               type="button"
               onClick={addWidget}

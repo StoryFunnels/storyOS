@@ -87,10 +87,49 @@ export function computeTileValue(
  * Human label for a tile when the user hasn't typed one. E.g.
  * "Count of records", "Sum of Amount". Falls back to the raw api_name when the
  * display name is unknown.
+ *
+ * #387 — kept for the places that genuinely have no source to name (a tile whose
+ * database is not configured yet). Prefer `defaultBlockLabel` everywhere a source
+ * IS known: derived from the OP alone, this returns "Count of records" for every
+ * count tile in existence, which is exactly the founder's screenshot.
  */
 export function defaultTileLabel(op: TileOp, fieldDisplayName?: string): string {
   if (op === 'count') return 'Count of records';
   return `${opLabel(op)} of ${fieldDisplayName ?? 'field'}`;
+}
+
+/**
+ * #387 — the default name for a tile or chart, derived from WHAT it measures.
+ *
+ * The founder's dashboard showed two tiles both headed "Count of records",
+ * reading 383 and 5, distinguishable only by the database dropdown in the editor
+ * beneath each one. #385's view mode correctly hides that dropdown — so without
+ * this, view mode would make the screen strictly LESS informative than the
+ * problem it fixes. That is why the two ship together.
+ *
+ * The database name leads because it is the part that DISTINGUISHES tiles; the
+ * operation is the part that repeats. "Issues · Count" and "Docs · Count" tell
+ * you something; "Count of records" twice does not.
+ *
+ * Returns null when there is no source to name — the caller renders its
+ * unconfigured state rather than inventing a label for a tile measuring nothing
+ * (#305: unconfigured is not invalid, and a confident label on an unconfigured
+ * tile is how a bare 0 gets mistaken for an answer).
+ */
+export function defaultBlockLabel(input: {
+  sourceName?: string;
+  op: TileOp;
+  fieldDisplayName?: string;
+  /** Chart only — the field records are grouped by. */
+  groupByDisplayName?: string;
+}): string | null {
+  if (!input.sourceName) return null;
+  const measure =
+    input.op === 'count' ? 'Count' : `${opLabel(input.op)} of ${input.fieldDisplayName ?? 'field'}`;
+  // A chart's shape is "<measure> by <group>", which reads better with the
+  // source first than the measure-by-group phrasing wrapped in a database name.
+  const what = input.groupByDisplayName ? `${measure} by ${input.groupByDisplayName}` : measure;
+  return `${input.sourceName} · ${what}`;
 }
 
 /**

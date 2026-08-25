@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   computeTileValue,
+  defaultBlockLabel,
   defaultTileLabel,
   formatTileValue,
   opNeedsField,
@@ -105,5 +106,64 @@ describe('formatTileValue', () => {
   });
   it('rounds fractions to 2 decimals', () => {
     expect(formatTileValue(3.14159)).toBe((3.14).toLocaleString(undefined, { maximumFractionDigits: 2 }));
+  });
+});
+
+/**
+ * #387 — the founder's dashboard showed two tiles both headed "Count of records",
+ * reading 383 and 5. The only way to tell them apart was the database dropdown in
+ * the editor beneath each, which #385's view mode hides. These assertions are the
+ * reason the two tickets ship together.
+ */
+describe('defaultBlockLabel (#387)', () => {
+  it('distinguishes two count tiles over different databases — the actual bug', () => {
+    const issues = defaultBlockLabel({ sourceName: 'Issues', op: 'count' });
+    const docs = defaultBlockLabel({ sourceName: 'Docs', op: 'count' });
+    expect(issues).toBe('Issues · Count');
+    expect(docs).toBe('Docs · Count');
+    // The whole point: they must not read the same.
+    expect(issues).not.toBe(docs);
+  });
+
+  it('leads with the database, because that is the distinguishing part', () => {
+    // "Count of records" repeats across every count tile; the source does not.
+    expect(defaultBlockLabel({ sourceName: 'Invoices', op: 'count' })).toMatch(/^Invoices/);
+  });
+
+  it('names the measured field for a numeric op', () => {
+    expect(
+      defaultBlockLabel({ sourceName: 'Invoices', op: 'sum', fieldDisplayName: 'Amount' }),
+    ).toBe('Invoices · Sum of Amount');
+  });
+
+  it('falls back to "field" when the field name is unknown rather than printing an api_name', () => {
+    expect(defaultBlockLabel({ sourceName: 'Invoices', op: 'avg' })).toBe('Invoices · Avg of field');
+  });
+
+  it('reads as "<measure> by <group>" for a chart', () => {
+    expect(
+      defaultBlockLabel({ sourceName: 'Tasks', op: 'count', groupByDisplayName: 'State' }),
+    ).toBe('Tasks · Count by State');
+  });
+
+  it('combines a numeric measure with a group-by', () => {
+    expect(
+      defaultBlockLabel({
+        sourceName: 'Clients',
+        op: 'sum',
+        fieldDisplayName: 'Monthly Value',
+        groupByDisplayName: 'Industry',
+      }),
+    ).toBe('Clients · Sum of Monthly Value by Industry');
+  });
+
+  /**
+   * #305 / #387 — a tile with no configured source must not get a confident
+   * label. Returning null makes the caller render its unconfigured state, which
+   * is what stops a bare 0 from reading as a real answer.
+   */
+  it('returns null when there is no source to name', () => {
+    expect(defaultBlockLabel({ op: 'count' })).toBeNull();
+    expect(defaultBlockLabel({ sourceName: '', op: 'count' })).toBeNull();
   });
 });
