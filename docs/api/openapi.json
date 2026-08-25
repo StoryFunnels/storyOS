@@ -3225,6 +3225,33 @@
         "tags": [
           "views"
         ]
+      },
+      "delete": {
+        "operationId": "SpaceViewsController_remove",
+        "parameters": [
+          {
+            "name": "view",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Delete a space-level view (#383)",
+        "tags": [
+          "views"
+        ]
       }
     },
     "/api/v1/workspaces/{ws}/views/{view}/move-to-space": {

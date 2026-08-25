@@ -37,6 +37,7 @@ import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { SIDEBAR_INDENT_PX, SidebarRow, type SidebarDepth } from '@/components/sidebar-row';
 import { SidebarViewRow, type SidebarView } from '@/components/sidebar-view-row';
+import { SidebarRowMenu } from '@/components/sidebar-row-menu';
 
 interface Favorite {
   target_type: 'record' | 'database';
@@ -758,6 +759,128 @@ function SpaceSection({
     onError: () => toast.error('Could not create dashboard'),
   });
 
+  /**
+   * #383 — rename and delete a view from the sidebar.
+   *
+   * Both route the way `onMoveView` already does: a database-owned view through
+   * its database, a space-level one through the view-first endpoint. That split
+   * is not cosmetic — the per-database DELETE matches on `database_id`, so it
+   * can never reach a space-level view (its `database_id` is NULL), which is why
+   * a space-root dashboard was undeletable by any route before this.
+   */
+  const renameViewOnDatabase = useMutation({
+    mutationFn: async (v: { id: string; databaseId: string; name: string }) => {
+      const { error } = await api.PATCH('/api/v1/workspaces/{ws}/databases/{db}/views/{view}', {
+        params: { path: { ws, db: v.databaseId, view: v.id } },
+        body: { name: v.name } as never,
+      } as never);
+      if (error) throw error;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['space-views', ws, space.id] }),
+    onError: () => toast.error('Could not rename view'),
+  });
+  const renameSpaceView = useMutation({
+    mutationFn: async (v: { id: string; name: string }) => {
+      const { error } = await api.PATCH('/api/v1/workspaces/{ws}/views/{view}', {
+        params: { path: { ws, view: v.id } },
+        body: { name: v.name } as never,
+      } as never);
+      if (error) throw error;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['space-views', ws, space.id] }),
+    onError: () => toast.error('Could not rename view'),
+  });
+  const deleteViewOnDatabase = useMutation({
+    mutationFn: async (v: { id: string; databaseId: string }) => {
+      const { error } = await api.DELETE('/api/v1/workspaces/{ws}/databases/{db}/views/{view}', {
+        params: { path: { ws, db: v.databaseId, view: v.id } },
+      } as never);
+      if (error) throw error;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['space-views', ws, space.id] }),
+    // The API refuses to remove a database's LAST view (409). Say that, rather
+    // than a generic failure for a rule the user could not have known.
+    onError: () => toast.error('Could not delete view — a database must keep at least one.'),
+  });
+  const deleteSpaceView = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await api.DELETE('/api/v1/workspaces/{ws}/views/{view}', {
+        params: { path: { ws, view: id } },
+      } as never);
+      if (error) throw error;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['space-views', ws, space.id] }),
+    onError: () => toast.error('Could not delete dashboard'),
+  });
+
+  const onRenameView = (view: SidebarView) =>
+    setDialog({
+      kind: 'name',
+      title: 'Rename view',
+      value: view.name,
+      submit: (name) =>
+        view.database_id
+          ? renameViewOnDatabase.mutate({ id: view.id, databaseId: view.database_id, name })
+          : renameSpaceView.mutate({ id: view.id, name }),
+    });
+
+  const onDeleteView = (view: SidebarView) =>
+    setDialog({
+      kind: 'confirm',
+      danger: true,
+      /**
+       * #383 — a dashboard's tiles and charts are configuration someone built,
+       * not a derived view of a table, so the confirmation names what is lost
+       * rather than asking a generic "are you sure".
+       */
+      title:
+        view.type === 'dashboard'
+          ? `Delete "${view.name}"? Its tiles and charts go with it. The records they measured are not touched.`
+          : `Delete the view "${view.name}"? The records it shows are not deleted.`,
+      submit: () => {
+        if (view.database_id) {
+          deleteViewOnDatabase.mutate({ id: view.id, databaseId: view.database_id });
+          return;
+        }
+        deleteSpaceView.mutate(view.id);
+        // A space-level view has its own route; if it is the one on screen,
+        // leaving the user on a 404 would be a worse ending than the delete.
+        if (pathname === `/w/${ws}/v/${view.id}`) router.push(`/w/${ws}`);
+      },
+    });
+
+  /** #383 — the folder endpoints existed since MN-096 and nothing ever called them. */
+  const renameFolder = useMutation({
+    mutationFn: async (v: { id: string; name: string }) => {
+      const { error } = await api.PATCH('/api/v1/workspaces/{ws}/folders/{folder}', {
+        params: { path: { ws, folder: v.id } },
+        body: { name: v.name } as never,
+      } as never);
+      if (error) throw error;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['folders', ws, space.id] }),
+    onError: () => toast.error('Could not rename folder'),
+  });
+  const deleteFolder = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await api.DELETE('/api/v1/workspaces/{ws}/folders/{folder}', {
+        params: { path: { ws, folder: id } },
+      } as never);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      // Everything that was inside just moved to the space root — those lists
+      // are now wrong too, not only the folder list.
+      void qc.invalidateQueries({ queryKey: ['folders', ws, space.id] });
+      void qc.invalidateQueries({ queryKey: ['space-views', ws, space.id] });
+      void qc.invalidateQueries({ queryKey: ['space-docs', ws, space.id] });
+      void qc.invalidateQueries({ queryKey: ['databases', ws] });
+    },
+    onError: () => toast.error('Could not delete folder'),
+  });
+  const onRenameFolder = (id: string, name: string) => renameFolder.mutate({ id, name });
+  const onDeleteFolder = (id: string) => deleteFolder.mutate(id);
+
   const onMoveView = (viewId: string, folderId: string | null) => {
     const view = spaceViews.find((v) => v.id === viewId);
     if (!view) return;
@@ -962,6 +1085,10 @@ function SpaceSection({
               onMoveDoc={(id, folderId) => moveDocToFolder.mutate({ id, folderId })}
               onRenameDoc={(id, title) => renameDoc.mutate({ id, title })}
               onDeleteDoc={(id) => deleteDoc.mutate(id)}
+              onRenameView={onRenameView}
+              onDeleteView={onDeleteView}
+              onRenameFolder={onRenameFolder}
+              onDeleteFolder={onDeleteFolder}
               setDialog={setDialog}
               pathname={pathname}
               canEdit={canEdit}
@@ -984,6 +1111,8 @@ function SpaceSection({
                       folders={folders}
                       onMove={moveToFolder}
                       onMoveView={onMoveView}
+                      onRenameView={onRenameView}
+                      onDeleteView={onDeleteView}
                       canEdit={canEdit}
                       isAdmin={isAdmin}
                     />
@@ -1006,6 +1135,8 @@ function SpaceSection({
                 active={pathname === `/w/${ws}/v/${v.id}`}
                 folders={folders}
                 onMove={onMoveView}
+                onRename={onRenameView}
+                onDelete={onDeleteView}
                 canEdit={canEdit}
                 /* #380 — a space-level dashboard is a SIBLING of the databases,
                    so it shares their left edge. It used to render LEFT of them. */
@@ -1201,6 +1332,10 @@ function FolderSection({
   onMoveDoc,
   onRenameDoc,
   onDeleteDoc,
+  onRenameView,
+  onDeleteView,
+  onRenameFolder,
+  onDeleteFolder,
   setDialog,
   pathname,
   canEdit,
@@ -1219,6 +1354,11 @@ function FolderSection({
   onMoveDoc: (id: string, folderId: string | null) => void;
   onRenameDoc: (id: string, title: string) => void;
   onDeleteDoc: (id: string) => void;
+  /** #383 — view rows in a folder get the same menu as those outside one. */
+  onRenameView: (view: SidebarView) => void;
+  onDeleteView: (view: SidebarView) => void;
+  onRenameFolder: (id: string, name: string) => void;
+  onDeleteFolder: (id: string) => void;
   setDialog: (d: DialogState) => void;
   pathname: string;
   canEdit: boolean;
@@ -1230,6 +1370,9 @@ function FolderSection({
    * when the sidebar is busy enough to need folding.
    */
   const { setNodeRef: setDropRef, isOver } = useDroppable({ id: `folder:${folder.id}` });
+  // #383 — named once: the header count, the empty-state and the delete
+  // confirmation all have to agree about what "inside" means.
+  const contentCount = databases.length + views.length + documents.length;
   const key = `storyos:folder-collapsed:${folder.id}`;
   const [collapsed, setCollapsed] = useState(false);
   useEffect(() => {
@@ -1250,8 +1393,17 @@ function FolderSection({
       {/* #380 — a folder sits on the SAME left edge as the databases beside it
           (founder's spec: "folders, dashboards — the same padding left as
           databases"), so it goes through the shared row at depth 1. */}
-      <button
-        onClick={toggle}
+      {/* #383 — the header is a ROW, not a button.
+          It used to be a single <button> wrapping everything, which is why it
+          could never grow a menu: a <button> inside a <button> is invalid HTML
+          and the inner one does not reliably receive clicks. The toggle is now
+          the button and the menu is its sibling, so the folder gets the rename
+          and delete every database row has had all along.
+
+          Geometry is unchanged: paddingLeft moved from the button to this row,
+          and the caret is still the first thing inside, so #380's measured
+          alignment holds. */}
+      <div
         style={{ paddingLeft: SIDEBAR_INDENT_PX[1] }}
         /* gap-0 on the outer: the caret's own mr-0.5 IS the gutter margin, and
            an extra flex gap here put the folder icon 4px right of every other
@@ -1259,29 +1411,68 @@ function FolderSection({
            matches the gap-2 the database/document rows use. */
         className="group flex w-full items-center rounded py-[3px] pr-2 text-[13px] text-ink-secondary hover:bg-hover"
       >
-        {/* #380 — the caret OCCUPIES the gutter slot rather than adding to it.
-            A database shows a drag grip there; a folder shows its disclosure
-            caret. Same 12px + 2px margin either way, so the icon and label line
-            up exactly with the databases beside it. Giving the folder both a
-            gutter and a caret pushed its label 17px right — measured, not
-            guessed. */}
-        <ChevronRight
-          className={cn('mr-0.5 h-3 w-3 shrink-0 text-faint transition-transform', !collapsed && 'rotate-90')}
-        />
-        <span className="flex min-w-0 flex-1 items-center gap-2">
-          <EntityIcon icon={folder.icon} color={null} fallback={<FolderIcon className="h-3.5 w-3.5 shrink-0 text-muted" />} className="text-[13px]" />
-          <span className="truncate">{folder.name}</span>
-        </span>
-        {databases.length + views.length + documents.length > 0 && (
-          <span className="ml-auto text-[11px] text-faint">
-            {databases.length + views.length + documents.length}
+        <button onClick={toggle} className="flex min-w-0 flex-1 items-center text-left">
+          {/* #380 — the caret OCCUPIES the gutter slot rather than adding to it.
+              A database shows a drag grip there; a folder shows its disclosure
+              caret. Same 12px + 2px margin either way, so the icon and label line
+              up exactly with the databases beside it. Giving the folder both a
+              gutter and a caret pushed its label 17px right — measured, not
+              guessed. */}
+          <ChevronRight
+            className={cn('mr-0.5 h-3 w-3 shrink-0 text-faint transition-transform', !collapsed && 'rotate-90')}
+          />
+          <span className="flex min-w-0 flex-1 items-center gap-2">
+            <EntityIcon icon={folder.icon} color={null} fallback={<FolderIcon className="h-3.5 w-3.5 shrink-0 text-muted" />} className="text-[13px]" />
+            <span className="truncate">{folder.name}</span>
           </span>
+        </button>
+        {contentCount > 0 && (
+          <span className="ml-1 shrink-0 text-[11px] text-faint">{contentCount}</span>
         )}
-      </button>
+        {canEdit && (
+          <SidebarRowMenu
+            label={folder.name}
+            actions={[
+              {
+                label: 'Rename',
+                onSelect: () =>
+                  setDialog({
+                    kind: 'name',
+                    title: 'Rename folder',
+                    value: folder.name,
+                    submit: (name) => onRenameFolder(folder.id, name),
+                  }),
+              },
+              {
+                label: 'Delete',
+                danger: true,
+                onSelect: () =>
+                  setDialog({
+                    kind: 'confirm',
+                    danger: true,
+                    /**
+                     * #383 — say what SURVIVES, not just what goes. Deleting a
+                     * container that might take its contents with it is the
+                     * scariest possible unlabelled button, and the answer here is
+                     * reassuring: every folder_id is ON DELETE SET NULL, so the
+                     * contents really do return to the space root. The sentence
+                     * is true by construction, not by convention.
+                     */
+                    title:
+                      contentCount > 0
+                        ? `Delete the folder "${folder.name}"? The ${contentCount} ${contentCount === 1 ? 'item inside moves' : 'items inside move'} back to the space — nothing in it is deleted.`
+                        : `Delete the folder "${folder.name}"? It is empty.`,
+                    submit: () => onDeleteFolder(folder.id),
+                  }),
+              },
+            ]}
+          />
+        )}
+      </div>
       {!collapsed && (
         /* #380 — same guide line, same offset as a database's nested views. */
         <div className="border-l border-border-default" style={{ marginLeft: SIDEBAR_INDENT_PX[1] }}>
-          {databases.length + views.length + documents.length === 0 && (
+          {contentCount === 0 && (
             /* #369 — an empty folder needs a target with HEIGHT. "Empty" text
                alone is a few pixels of hit area, so dropping into a new folder
                would miss almost every time. */
@@ -1311,6 +1502,8 @@ function FolderSection({
               active={pathname.startsWith(`/w/${ws}/d/${v.database_id}`)}
               folders={folders}
               onMove={onMoveView}
+              onRename={onRenameView}
+              onDelete={onDeleteView}
               canEdit={canEdit}
               /* #380/#368 — a FOLDER already supplies the nesting offset, so its
                  children are all depth 1 relative to it. Left at the default 2 a
@@ -1356,6 +1549,8 @@ function DatabaseBranch({
   folders,
   onMove,
   onMoveView,
+  onRenameView,
+  onDeleteView,
   canEdit,
   isAdmin,
 }: {
@@ -1367,6 +1562,9 @@ function DatabaseBranch({
   folders: FolderInfo[];
   onMove: (dbId: string, folderId: string | null) => void;
   onMoveView: (viewId: string, folderId: string | null) => void;
+  /** #383 — a nested view row manages itself like every other row. */
+  onRenameView: (view: SidebarView) => void;
+  onDeleteView: (view: SidebarView) => void;
   canEdit: boolean;
   isAdmin: boolean;
 }) {
@@ -1404,6 +1602,8 @@ function DatabaseBranch({
               active={isHere && currentViewId === v.id}
               folders={folders}
               onMove={onMoveView}
+              onRename={onRenameView}
+              onDelete={onDeleteView}
               canEdit={canEdit}
             />
           </div>
@@ -1518,7 +1718,17 @@ function DatabaseRow({
       {canEdit && !renaming && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="rounded p-0.5 text-muted opacity-0 hover:bg-active group-hover:opacity-100">
+            {/* #383 — this row keeps its own richer menu (icons, a Move-to
+                section, an asChild link, admin-gated items) rather than being
+                forced through SidebarRowMenu's simpler action shape. But the
+                two things a hidden trigger MUST have are shared: an accessible
+                label, and `focus:opacity-100` so a keyboard user is not tabbed
+                onto a control they cannot see. This trigger had neither. */}
+            <button
+              type="button"
+              aria-label={`Options for ${db.name}`}
+              className="rounded p-0.5 text-muted opacity-0 transition-opacity hover:bg-active focus:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100"
+            >
               <MoreHorizontal className="h-3.5 w-3.5" />
             </button>
           </DropdownMenuTrigger>

@@ -1215,7 +1215,8 @@ export interface paths {
         get: operations["SpaceViewsController_get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /** Delete a space-level view (#383) */
+        delete: operations["SpaceViewsController_remove"];
         options?: never;
         head?: never;
         /** Update a view by id — name / config / placement (#306) */
@@ -6902,6 +6903,25 @@ export interface operations {
         };
     };
     SpaceViewsController_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                view: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SpaceViewsController_remove: {
         parameters: {
             query?: never;
             header?: never;
