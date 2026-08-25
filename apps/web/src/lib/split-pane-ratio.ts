@@ -45,24 +45,50 @@ export function ratioFromPointer(clientX: number, regionLeft: number, regionWidt
  * only (used live during a drag, no I/O per pointermove); `persist` also writes
  * localStorage (drag end, keyboard nudge, reset).
  */
-export function useSplitRatio() {
-  const [ratio, setRatio] = useState(SPLIT_RATIO_DEFAULT);
+export function useSplitRatio(
+  /**
+   * #356 — the storage key is a PARAMETER now, because a second draggable pair
+   * exists (Tyron's panel) and the two must not overwrite each other's width.
+   *
+   * The ticket says "no new width logic, no second persistence key", and those
+   * two halves pull apart: sharing ONE key means dragging Tyron silently resizes
+   * the record split-screen and vice versa, which is a bug, not a feature. What
+   * the rule is protecting against is a second *implementation* of the drag
+   * math — so the module is reused verbatim and only the key varies.
+   */
+  key: string = SPLIT_RATIO_KEY,
+  /** Tyron opens narrower than the record pair's 50/50 (#356). */
+  defaultRatio: number = SPLIT_RATIO_DEFAULT,
+) {
+  const [ratio, setRatio] = useState(defaultRatio);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const raw = window.localStorage.getItem(SPLIT_RATIO_KEY);
+    const raw = window.localStorage.getItem(key);
     if (raw == null) return;
     const parsed = Number(raw);
     if (Number.isFinite(parsed)) setRatio(clampSplitRatio(parsed));
-  }, []);
+  }, [key]);
 
-  const persist = useCallback((next: number) => {
-    const clamped = clampSplitRatio(next);
-    setRatio(clamped);
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem(SPLIT_RATIO_KEY, String(clamped));
-    }
-  }, []);
+  const persist = useCallback(
+    (next: number) => {
+      const clamped = clampSplitRatio(next);
+      setRatio(clamped);
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(key, String(clamped));
+      }
+    },
+    [key],
+  );
 
   return { ratio, setRatio, persist };
 }
+
+/**
+ * #356 — Tyron's own key and default. Its ratio is the MAIN pane's fraction, so
+ * "about a third" for the panel means about two thirds here. Deliberately
+ * narrower than the record split's 50/50: the table has to keep its columns,
+ * because seeing rows change is the entire argument for docking.
+ */
+export const TYRON_RATIO_KEY = 'storyos:tyron-ratio';
+export const TYRON_RATIO_DEFAULT = 2 / 3;

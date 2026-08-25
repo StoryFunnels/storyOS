@@ -8,7 +8,7 @@ import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { computeReorder } from '@/lib/reorder';
-import { Activity, Cable, Check, ChevronRight, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, LayoutDashboard, GitPullRequest, GripVertical, Home, Inbox, KeyRound, LayoutTemplate, MoreHorizontal, Package, Plug, Plus, Search, Settings, Star, UserRound, Webhook, X } from 'lucide-react';
+import { Activity, Cable, Check, ChevronRight, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, LayoutDashboard, GitPullRequest, GripVertical, Home, Inbox, KeyRound, LayoutTemplate, MoreHorizontal, Package, Plug, Plus, Search, Settings, Star, UserRound, Webhook, X, Sparkles} from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -38,6 +38,7 @@ import { cn } from '@/lib/utils';
 import { SIDEBAR_INDENT_PX, SidebarRow, type SidebarDepth } from '@/components/sidebar-row';
 import { SidebarViewRow, type SidebarView } from '@/components/sidebar-view-row';
 import { SidebarRowMenu } from '@/components/sidebar-row-menu';
+import { openTyron } from '@/lib/tyron-panel';
 
 interface Favorite {
   target_type: 'record' | 'database';
@@ -189,6 +190,18 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
         >
           <Activity className="h-3.5 w-3.5" /> Runs
         </Link>
+        {/* #356 — the discoverability a keyboard shortcut can never give a
+            newcomer. A button, not a Link: Tyron is a panel beside the page, not
+            a place to navigate to, and making it a route would imply leaving
+            whatever you are looking at. */}
+        <button
+          type="button"
+          onClick={openTyron}
+          className="flex w-full items-center gap-2 rounded px-2 py-[3px] text-left text-[13px] text-ink-secondary hover:bg-hover"
+        >
+          <Sparkles className="h-3.5 w-3.5" /> Ask Tyron
+          <span className="ml-auto text-[11px] text-faint">⌘J</span>
+        </button>
       </div>
       {inboxOpen && <InboxPanel ws={ws} onClose={() => setInboxOpen(false)} />}
 
@@ -1674,6 +1687,25 @@ function DatabaseRow({
       {...(canDrag ? attributes : {})}
       {...(canDrag ? listeners : {})}
       title={canDrag ? 'Drag to reorder' : undefined}
+      /* #386 — the caret goes in the RESERVED gutter, not beside it, so a
+         database with children lines up with one without. */
+      caret={
+        expandable ? (
+          <button
+            type="button"
+            aria-label={expanded ? `Collapse ${db.name}` : `Expand ${db.name}`}
+            aria-expanded={expanded}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onToggle?.();
+            }}
+            className="rounded text-faint hover:text-ink"
+          >
+            <ChevronRight className={cn('h-3 w-3 transition-transform', expanded && 'rotate-90')} />
+          </button>
+        ) : undefined
+      }
     >
       {renaming ? (
         <RenameInline
@@ -1690,21 +1722,6 @@ function DatabaseRow({
               into a pure disclosure toggle); expanding is a different intent and
               gets its own hit target. Rendered only when there is something to
               expand, which after #381 is the minority of databases. */}
-          {expandable && (
-            <button
-              type="button"
-              aria-label={expanded ? `Collapse ${db.name}` : `Expand ${db.name}`}
-              aria-expanded={expanded}
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                onToggle?.();
-              }}
-              className="-ml-1 mr-0.5 shrink-0 rounded p-0.5 text-faint hover:bg-active hover:text-ink"
-            >
-              <ChevronRight className={cn('h-3 w-3 transition-transform', expanded && 'rotate-90')} />
-            </button>
-          )}
         <Link href={`/w/${ws}/d/${db.id}`} className="flex min-w-0 flex-1 items-center gap-2">
           <EntityIcon
             icon={db.icon}

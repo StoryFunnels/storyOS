@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, usePathname, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { Database, FileText, FolderOpen, Home, LayoutTemplate, Plus, Search, Settings, UserPlus, UserRound } from 'lucide-react';
+import { Database, FileText, FolderOpen, Home, LayoutTemplate, Plus, Search, Settings, UserPlus, UserRound, Sparkles} from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { useDatabases } from '@/lib/queries';
 import { EntityIcon } from '@/components/ui/icon-picker';
+import { openTyron } from '@/lib/tyron-panel';
 import { OPEN_PALETTE_EVENT, useShortcut } from '@/lib/shortcuts';
 import { cn } from '@/lib/utils';
 
@@ -179,6 +180,16 @@ export function CommandPalette() {
       });
     }
     const actions: Array<[string, React.ReactNode, () => void]> = [
+      /**
+       * #356 — Tyron is reachable from ⌘K too.
+       *
+       * The ticket asked for ⌘K to open Tyron directly, but this palette has
+       * owned that key since #254 and the cheat-sheet advertises it as "Search &
+       * commands". Rather than break an established binding, Tyron takes ⌘J and
+       * appears HERE as well — so someone who reaches for ⌘K still finds it,
+       * which was the discoverability the original request was really after.
+       */
+      ['Ask Tyron', <Sparkles key="tyron" className="h-3.5 w-3.5" />, () => { setOpen(false); openTyron(); }],
       ['Go to Home', <Home key="home" className="h-3.5 w-3.5" />, () => go(`/w/${ws}`)],
       ['Go to My Work', <UserRound key="mywork" className="h-3.5 w-3.5" />, () => go(`/w/${ws}/me`)],
       ...(onDatabasePage

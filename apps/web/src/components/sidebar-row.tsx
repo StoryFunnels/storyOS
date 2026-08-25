@@ -34,10 +34,19 @@ export const SidebarRow = forwardRef<HTMLDivElement, {
   /** Reserves the grip gutter AND renders the grip. */
   draggable?: boolean;
   dragHandleProps?: Record<string, unknown>;
+  /**
+   * #386 — the disclosure control, rendered INSIDE the reserved gutter.
+   *
+   * Pass it here rather than as a child. A caret rendered as a child sits BESIDE
+   * the gutter and adds its own width, so a row with children ends up indented
+   * further than a sibling without — which is exactly the misalignment reported
+   * on the Clients/Contacts rows.
+   */
+  caret?: React.ReactNode;
   className?: string;
   children: React.ReactNode;
 } & Omit<React.HTMLAttributes<HTMLDivElement>, 'children'>>(function SidebarRow(
-  { depth, active = false, draggable = false, dragHandleProps, className, style, children, ...rest },
+  { depth, active = false, draggable = false, dragHandleProps, caret, className, style, children, ...rest },
   ref,
 ) {
   return (
@@ -72,15 +81,35 @@ export const SidebarRow = forwardRef<HTMLDivElement, {
         Rendering it only on hover is what made rows shift under the cursor.
       */}
       <span
-        aria-hidden={!draggable}
-        className={cn('mr-0.5 flex w-3 shrink-0 justify-center', draggable && 'cursor-grab active:cursor-grabbing')}
-        {...(draggable ? dragHandleProps : {})}
+        aria-hidden={!draggable && !caret}
+        className={cn(
+          'mr-0.5 flex w-3 shrink-0 justify-center',
+          draggable && !caret && 'cursor-grab active:cursor-grabbing',
+        )}
+        {...(draggable && !caret ? dragHandleProps : {})}
       >
-        {draggable ? (
+        {/*
+          #386 — EXACTLY ONE control occupies this slot, and the slot is always
+          12px wide whatever is in it. That is the whole padding system: a row's
+          indent is `SIDEBAR_INDENT_PX[depth]` plus one fixed gutter, never a sum
+          of whichever controls happen to apply.
+
+          The previous rule reserved the gutter for the grip and let a caret add
+          its own width on top, so `Clients` (expandable) sat ~14px right of
+          `Contacts` (not) despite being siblings. #380 fixed precisely this for
+          folders — by putting the caret IN the gutter — and database rows never
+          inherited it. Third time for this mechanism (#380 indentation, #383
+          menus, now this), which is why it belongs here rather than in a caller.
+
+          Caret wins over grip when a row has both: expanding is the frequent,
+          discoverable action, while dragging is available from the row body
+          itself (#322).
+        */}
+        {caret ?? (draggable ? (
           <GripVertical className="h-3 w-3 text-faint opacity-0 transition-opacity group-hover:opacity-100" />
         ) : (
           <span className="block h-3 w-3" />
-        )}
+        ))}
       </span>
       {children}
     </div>

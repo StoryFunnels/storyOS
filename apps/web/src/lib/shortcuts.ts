@@ -76,6 +76,14 @@ export interface ShortcutSpec {
 
 export const SHORTCUTS: ShortcutSpec[] = [
   { id: 'palette', keys: '⌘K', label: 'Search & commands' },
+  /**
+   * #356 asked for ⌘K, which the palette above has owned since #254 and which the
+   * cheat-sheet already advertises. Taking it would have broken an established
+   * binding to add a new one, so Tyron gets ⌘J — the conventional assistant-panel
+   * key — and the palette gains an "Ask Tyron" entry, so ⌘K still reaches it.
+   * Flagged on the ticket rather than decided silently.
+   */
+  { id: 'tyron', keys: '⌘J', label: 'Ask Tyron' },
   { id: 'new-record', keys: 'n', label: 'New record (on a database)' },
   { id: 'select-row', keys: 'x', label: 'Select row under cursor' },
   { id: 'select-range', keys: '⇧ + click', label: 'Select a range' },
