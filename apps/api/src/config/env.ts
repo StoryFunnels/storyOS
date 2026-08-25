@@ -332,6 +332,17 @@ export const envSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   /** Model id for the managed proposer's completion call. */
   OPENAI_MODEL: z.string().default('gpt-4o-mini'),
+  /**
+   * #357 / ADR-0016 §1 — where Tyron reaches the MCP server whose tool catalog it
+   * drives. Defaults to the compose service address, so a standard deployment
+   * needs no new variable; a split deployment overrides it.
+   *
+   * Tyron does NOT hold its own tool definitions: it discovers them here at
+   * runtime, which is what makes drift from `packages/mcp/src/tools.ts`
+   * impossible. The cost is an availability edge (api → mcp), accepted in the
+   * ADR — when this is unreachable Tyron says so rather than pretending to act.
+   */
+  TYRON_MCP_URL: z.string().default('http://mcp:3002/mcp'),
 });
 
 export type Env = Omit<
