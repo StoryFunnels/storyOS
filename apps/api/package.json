@@ -20,6 +20,7 @@
     "@aws-sdk/client-s3": "^3.1081.0",
     "@fastify/cors": "^10.1.0",
     "@fastify/multipart": "^9.4.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@nestjs/common": "^11.1.27",
     "@nestjs/core": "^11.1.27",
     "@nestjs/platform-fastify": "^11.1.27",
