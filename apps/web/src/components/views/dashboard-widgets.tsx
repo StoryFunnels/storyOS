@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo } from 'react';
-import { Trash2 } from 'lucide-react';
+import { Filter as FilterIcon, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   Bar,
@@ -21,7 +21,7 @@ import { useDatabase, useRecordsInfinite } from '../table-view/use-table-data';
 import type { FilterGroup, FilterNode, ViewConfig } from './use-view-state';
 import { andFilterNodes, queryBodyFromConfig } from './use-view-state';
 import { FiltersSection } from './view-toolbar';
-import { TILE_OPS, formatTileValue, opLabel } from './dashboard-tiles';
+import { TILE_OPS, defaultBlockLabel, formatTileValue, opLabel } from './dashboard-tiles';
 import type { TileOp } from './dashboard-tiles';
 import {
   CHART_WIDGET_TYPES,
@@ -130,7 +130,7 @@ export function DashboardWidgetCard({
   sourceOptions,
   members,
   widget,
-  readOnly,
+  showConfig,
   onPatch,
   onRemove,
 }: {
@@ -144,7 +144,15 @@ export function DashboardWidgetCard({
   sourceOptions: ReadonlyArray<{ id: string; name: string }>;
   members: Array<{ id: string; name: string }>;
   widget: DashboardWidget;
-  readOnly: boolean;
+  /**
+   * #385 — whether to render the inline config.
+   *
+   * This was `readOnly`, which answers "can this person edit at all" — a
+   * different question from "are they editing right now", and the component only
+   * had the first. The caller now owns that distinction (`!readOnly && editing`),
+   * so a viewer and an editor who is merely reading get the same clean card.
+   */
+  showConfig: boolean;
   onPatch: (patch: Partial<DashboardWidget>) => void;
   onRemove: () => void;
 }) {
@@ -231,21 +239,32 @@ export function DashboardWidgetCard({
     );
   }, [loading, groupField, rows, widget.group_by_field_api_name, widget.measure, labelFor]);
 
-  const measureLabel =
-    widget.measure.op === 'count'
-      ? 'Count'
-      : `${opLabel(widget.measure.op)} of ${
-          fields.find((f) => f.apiName === widget.measure.field_api_name)?.displayName ?? 'field'
-        }`;
+  /**
+   * #387 — a chart's default title has the same defect a tile's did: derived from
+   * the measure alone, every count-by-state chart reads identically no matter
+   * which database it measures. `title` also defaults to empty, so the fallback
+   * was literally "Untitled widget".
+   *
+   * Uses the shared `defaultBlockLabel` so tiles and charts cannot drift into two
+   * naming conventions — the field-surfaces rule (reuse, don't re-case) applies
+   * to labels as much as to cells.
+   */
+  const sourceLabel = sourceDb ? sourceOptions.find((o) => o.id === sourceDb)?.name : undefined;
   const heading =
     widget.title.trim() ||
-    (groupField ? `${measureLabel} by ${groupField.displayName}` : 'Untitled widget');
+    defaultBlockLabel({
+      sourceName: sourceLabel,
+      op: widget.measure.op,
+      fieldDisplayName: fields.find((f) => f.apiName === widget.measure.field_api_name)?.displayName,
+      groupByDisplayName: groupField?.displayName,
+    }) ||
+    'Untitled widget';
 
   return (
     <div className="flex flex-col gap-3 rounded-[var(--radius-control)] border border-border-default bg-card p-4">
       <div className="flex items-start justify-between gap-2">
         <span className="text-[13px] font-medium text-muted">{heading}</span>
-        {!readOnly && (
+        {showConfig && (
           <button
             type="button"
             title="Remove widget"
@@ -256,6 +275,21 @@ export function DashboardWidgetCard({
           </button>
         )}
       </div>
+
+      {/* #387 — same provenance line the tiles carry: which database, and whether
+          this chart is filtered. Both were visible only while the editor was
+          permanently open. */}
+      {!showConfig && sourceLabel && (
+        <span className="-mt-2 flex items-center gap-1 text-[11px] text-faint">
+          <span className="truncate" title={sourceLabel}>{sourceLabel}</span>
+          {widget.filter != null && (
+            <span className="flex shrink-0 items-center gap-0.5" title="This chart has its own filter">
+              <FilterIcon className="h-2.5 w-2.5" />
+              filtered
+            </span>
+          )}
+        </span>
+      )}
 
       <div className="min-h-[220px]">
         <WidgetBody
@@ -274,7 +308,7 @@ export function DashboardWidgetCard({
         />
       </div>
 
-      {!readOnly && (
+      {showConfig && (
         <div className="flex flex-col gap-1.5 border-t border-border-default pt-2">
           <input
             aria-label="Widget title"
