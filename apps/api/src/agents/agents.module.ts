@@ -13,6 +13,8 @@ import { AgentsService } from './agents.service';
 import { ArchitectController } from './architect.controller';
 import { ArchitectService } from './architect.service';
 import { AgentTriggerSubscriber } from './trigger.subscriber';
+import { TyronThreadsController } from './tyron/threads.controller';
+import { TyronThreadsService } from './tyron/threads.service';
 
 /**
  * Agents + Runs + Agent Triggers system databases (MN-214a / #209 / #211,
@@ -34,6 +36,12 @@ import { AgentTriggerSubscriber } from './trigger.subscriber';
  * "it needs no engine privilege the CRUD API does not already expose" — which is
  * why it lives here rather than in a module of its own.
  *
+ * Tyron's threads (#359) live here too, and add no imports: they are two tables
+ * owned entirely by their own service, scoped by `(workspace, owner)` with no
+ * admin bypass (#290's rule). Kept in this module rather than a new one because
+ * Tyron is an agent surface, and a separate module would imply a separate
+ * permission story it must not have.
+ *
  * "Delegate to agent" (#44) adds one import, `CollaborationModule`, for
  * `CommentsService` — the minimal "assign agent to record → it runs → posts
  * progress back as a comment" path, reusing the same comment-create path a
@@ -51,8 +59,8 @@ import { AgentTriggerSubscriber } from './trigger.subscriber';
     RelationsModule,
     WorkspacesModule,
   ],
-  controllers: [AgentsController, ArchitectController],
-  providers: [AgentsService, ArchitectService, AgentTriggerSubscriber],
-  exports: [AgentsService, ArchitectService],
+  controllers: [AgentsController, ArchitectController, TyronThreadsController],
+  providers: [AgentsService, ArchitectService, AgentTriggerSubscriber, TyronThreadsService],
+  exports: [AgentsService, ArchitectService, TyronThreadsService],
 })
 export class AgentsModule {}

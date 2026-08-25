@@ -1936,3 +1936,83 @@ export const publishedPackVersions = pgTable(
   },
   (t) => [index('published_pack_versions_pack_idx').on(t.publishedPackId, t.publishedAt)],
 );
+
+/**
+ * Tyron threads (#359, ADR-0016).
+ *
+ * Many conversations, not one endless log. Auto-named from the first message so
+ * nothing reads "New chat, New chat, New chat" — a thread list nobody opens
+ * twice — and renameable whenever.
+ *
+ * **Private to the creating member, including from admins.** This follows
+ * `spaces.personal` (#290/#291) deliberately rather than inventing a second
+ * privacy model: `ownerUserId` is who may see it, full stop. The founder's call
+ * was "all private for now", and #290 already decided there is no admin bypass
+ * for personal content, so reusing that shape means one rule to reason about
+ * instead of two that can disagree.
+ *
+ * The privacy boundary is the CONVERSATION, not its consequences. What Tyron
+ * changed lands in the shared database and stays visible to everyone — the
+ * founder's framing: "Result is always a state of the database / record." That
+ * asymmetry is intentional and worth stating, because it is the thing users will
+ * otherwise be surprised by.
+ */
+export const tyronThreads = pgTable(
+  'tyron_threads',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    /**
+     * Plain text, matching `spaces.ownerUserId` — the auth `user` table is not in
+     * this schema. #291's precedent also requires an EXPLICIT hard delete when a
+     * member is removed rather than a DB cascade, and the same applies here: a
+     * departing member's private threads must really go, not linger orphaned.
+     */
+    ownerUserId: text('owner_user_id').notNull(),
+    /** Auto-named from the first message; user-renameable. Never "Untitled". */
+    title: text('title').notNull(),
+    ...timestamps,
+  },
+  (t) => [
+    // The thread list: one member's threads, most recently used first. Owner
+    // leads the index because every read is already scoped to one member — there
+    // is no query in the product that wants "all threads in a workspace".
+    index('tyron_threads_owner_idx').on(t.workspaceId, t.ownerUserId, t.updatedAt),
+  ],
+);
+
+/**
+ * One turn in a thread — and the structured record of what it DID.
+ *
+ * #359 asks for "enough STRUCTURE about what was done — not only prose — that it
+ * could later be replayed on a schedule" (#354). That constraint is honoured here
+ * and it is why `actions` exists beside `content`: if the only record were the
+ * transcript, "do this every Monday" would require re-deriving intent from prose,
+ * which is a rewrite rather than a feature. The ticket's own words: a small
+ * storage decision today and an expensive one later.
+ *
+ * `actions` holds the tool calls as data — name and arguments — not a rendered
+ * log. Deliberately NOT surfaced to the user: #357 is explicit that Tyron streams
+ * outcomes and never a tool trace. This is for replay and for our own
+ * observability, not for display.
+ */
+export const tyronMessages = pgTable(
+  'tyron_messages',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    threadId: uuid('thread_id')
+      .notNull()
+      .references(() => tyronThreads.id, { onDelete: 'cascade' }),
+    role: text('role').notNull(),
+    content: text('content').notNull().default(''),
+    /**
+     * `[{ name, arguments }]` — the turn's tool calls, in order. Empty for a
+     * user message and for an assistant turn that only talked.
+     */
+    actions: jsonb('actions').notNull().default(sql`'[]'::jsonb`),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('tyron_messages_thread_idx').on(t.threadId, t.createdAt)],
+);

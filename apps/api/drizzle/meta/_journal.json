@@ -526,6 +526,13 @@
       "when": 1787268796785,
       "tag": "0074_rare_kate_bishop",
       "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1787687298843,
+      "tag": "0075_mean_turbo",
+      "breakpoints": true
     }
   ]
 }

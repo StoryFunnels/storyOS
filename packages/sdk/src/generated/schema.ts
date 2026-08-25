@@ -2980,6 +2980,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/tyron/threads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The caller's own Tyron threads, most recent first (#359) */
+        get: operations["TyronThreadsController_list"];
+        put?: never;
+        /** Start a thread, auto-named from its first message (#359) */
+        post: operations["TyronThreadsController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/tyron/threads/{thread}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One thread with its history (404 unless it is yours) */
+        get: operations["TyronThreadsController_get"];
+        put?: never;
+        post?: never;
+        /** Delete a thread — does NOT undo what it did (#359) */
+        delete: operations["TyronThreadsController_remove"];
+        options?: never;
+        head?: never;
+        /** Rename a thread */
+        patch: operations["TyronThreadsController_rename"];
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/skills": {
         parameters: {
             query?: never;
@@ -4774,6 +4811,12 @@ export interface components {
         };
         BuildDto: {
             plan?: unknown;
+        };
+        CreateThreadDto: {
+            first_message?: string;
+        };
+        RenameThreadDto: {
+            title: string;
         };
         CreateSkillDto: {
             name: string;
@@ -9474,6 +9517,105 @@ export interface operations {
         };
         responses: {
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    TyronThreadsController_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    TyronThreadsController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateThreadDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    TyronThreadsController_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                thread: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    TyronThreadsController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                thread: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    TyronThreadsController_rename: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                thread: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenameThreadDto"];
+            };
+        };
+        responses: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
