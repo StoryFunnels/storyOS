@@ -31,9 +31,15 @@ jobs:
   delete:
     # Merge-queue landings still fire `closed` with merged == true, so squash-via-
     # queue (how everything lands here) is covered.
+    #
+    # Long-lived environment branches are exempt: a promote PR (e.g. staging →
+    # production) has `staging` as its HEAD, and without the exclusion merging
+    # it would delete the staging branch itself.
     if: >-
       github.event.pull_request.merged == true &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref != 'staging' &&
+      github.event.pull_request.head.ref != 'production'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
