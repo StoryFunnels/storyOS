@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
@@ -87,5 +87,16 @@ export class SpaceViewsController {
     @Body() body: UpdateSpaceViewDto,
   ) {
     return this.spaceViews.updateById(req.membership, view, body);
+  }
+
+  /**
+   * #383 — delete a space-level view. Its absence made a space-root dashboard
+   * undeletable by ANY route: the per-database delete matches on `database_id`,
+   * which is NULL for these.
+   */
+  @Delete('views/:view')
+  @ApiOperation({ summary: 'Delete a space-level view (#383)' })
+  async remove(@Req() req: WorkspaceRequest, @Param('view') view: string) {
+    return this.spaceViews.removeById(req.membership, view);
   }
 }

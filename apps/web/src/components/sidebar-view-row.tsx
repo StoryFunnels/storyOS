@@ -1,14 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { MoreHorizontal, Table2, Lock } from 'lucide-react';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+import { Table2, Lock } from 'lucide-react';
+import { SidebarRowMenu, type SidebarMenuAction } from '@/components/sidebar-row-menu';
 import { VIEW_ICON } from '@/components/views/view-tab';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -45,6 +39,8 @@ export function SidebarViewRow({
   active,
   folders,
   onMove,
+  onRename,
+  onDelete,
   canEdit,
   depth = 2,
 }: {
@@ -53,6 +49,9 @@ export function SidebarViewRow({
   active: boolean;
   folders: FolderChoice[];
   onMove?: (viewId: string, folderId: string | null) => void;
+  /** #383 — rename and delete, which this row never offered. */
+  onRename?: (view: SidebarView) => void;
+  onDelete?: (view: SidebarView) => void;
   canEdit: boolean;
   /** #380 — 2 when nested under its database, 1 at the space root. */
   depth?: SidebarDepth;
@@ -90,6 +89,29 @@ export function SidebarViewRow({
     </>
   );
 
+  const actions: SidebarMenuAction[] = [];
+  if (onRename) actions.push({ label: 'Rename', onSelect: () => onRename(view) });
+  if (onDelete) actions.push({ label: 'Delete', danger: true, onSelect: () => onDelete(view) });
+  if (onMove && view.folder_id) {
+    actions.push({
+      label: view.database_id ? 'Move back under its database' : 'Move to the space root',
+      separatorBefore: true,
+      onSelect: () => onMove(view.id, null),
+    });
+  }
+  if (onMove) {
+    folders
+      .filter((f) => f.id !== view.folder_id)
+      .forEach((f, i) =>
+        actions.push({
+          label: `Move to ${f.name}`,
+          // Separate the move block from rename/delete once, not per folder.
+          separatorBefore: i === 0 && !view.folder_id,
+          onSelect: () => onMove(view.id, f.id),
+        }),
+      );
+  }
+
   return (
     /**
      * #380 — depth comes from the wrapper now. This component previously
@@ -117,35 +139,20 @@ export function SidebarViewRow({
         <span className="flex min-w-0 flex-1 items-center gap-1.5">{label}</span>
       )}
 
-      {canEdit && onMove && (folders.length > 0 || view.folder_id) && (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              className="opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
-              aria-label={`Options for ${view.name}`}
-            >
-              <MoreHorizontal className="h-3.5 w-3.5 text-faint" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-52">
-            {view.folder_id && (
-              <>
-                <DropdownMenuItem onSelect={() => onMove(view.id, null)}>
-                  Move back under its database
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-              </>
-            )}
-            {folders
-              .filter((f) => f.id !== view.folder_id)
-              .map((f) => (
-                <DropdownMenuItem key={f.id} onSelect={() => onMove(view.id, f.id)}>
-                  Move to {f.name}
-                </DropdownMenuItem>
-              ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
+      {/**
+        * #383 — gated on `canEdit` ALONE.
+        *
+        * This used to read `canEdit && onMove && (folders.length > 0 ||
+        * view.folder_id)`, so the menu existed only if the space happened to
+        * contain a folder: create a folder anywhere and a … appeared on every
+        * dashboard, delete it and they all vanished. Whether a dashboard could
+        * be managed depended on whether an unrelated feature was in use, and
+        * since the menu held nothing but move-to-folder entries, deleting a
+        * dashboard was unreachable from the sidebar under every circumstance.
+        *
+        * Move entries now come and go with the folders; the MENU does not.
+        */}
+      {canEdit && <SidebarRowMenu label={view.name} actions={actions} />}
     </SidebarRow>
   );
 }

@@ -315,6 +315,72 @@ describe('GET /spaces/:space/views (#347)', () => {
     expect(denied.statusCode, 'a forbidden source must ERROR, not return an empty page').toBeGreaterThanOrEqual(400);
   });
 
+  /**
+   * #383 — a space-root dashboard used to be undeletable by ANY route. The only
+   * view-delete is scoped `eq(views.databaseId, databaseId)`, and these have
+   * `database_id = NULL`, so every database 404s — including the one it was
+   * moved off. #306 made this shape routine, so "create a dashboard" was a
+   * one-way door.
+   */
+  describe('deleting a space-level view (#383)', () => {
+    const makeSpaceDashboard = async (name: string) => {
+      const res = await as(admin.token, 'POST', `/workspaces/${wsId}/spaces/${space}/views`, {
+        name,
+        type: 'dashboard',
+      });
+      expect(res.statusCode, res.body).toBe(201);
+      return res.json().id as string;
+    };
+
+    it('deletes it, and it stops listing in the space', async () => {
+      const id = await makeSpaceDashboard('Delete me');
+      const res = await as(admin.token, 'DELETE', `/workspaces/${wsId}/views/${id}`);
+      expect(res.statusCode, res.body).toBeLessThan(300);
+
+      const { rows } = await db.pool.query(`SELECT id FROM views WHERE id = $1`, [id]);
+      expect(rows, 'the row is really gone, not just hidden').toHaveLength(0);
+
+      const list = await as(admin.token, 'GET', `/workspaces/${wsId}/spaces/${space}/views`);
+      const names = (JSON.parse(list.body).data as Array<{ name: string }>).map((v) => v.name);
+      expect(names).not.toContain('Delete me');
+    });
+
+    /**
+     * The per-database route enforces "a database must keep at least one view".
+     * This endpoint must not become a second, laxer way to delete the same thing
+     * — it refuses and points at the route that owns the rule.
+     */
+    it('REFUSES a database-owned view, so the keep-one rule cannot be bypassed', async () => {
+      const created = await as(admin.token, 'POST', `/workspaces/${wsId}/databases/${tasksDb}/views`, {
+        name: 'Owned by a database',
+        type: 'table',
+      });
+      expect(created.statusCode, created.body).toBe(201);
+      const id = created.json().id;
+
+      const res = await as(admin.token, 'DELETE', `/workspaces/${wsId}/views/${id}`);
+      expect(res.statusCode).toBe(422);
+      expect(res.body).toMatch(/database/i);
+
+      const { rows } = await db.pool.query(`SELECT id FROM views WHERE id = $1`, [id]);
+      expect(rows, 'a refusal must not half-apply').toHaveLength(1);
+    });
+
+    /**
+     * Only guests can hold partial access (ADR-0009), so this is the only fixture
+     * that proves the door. This guest was granted ONE DATABASE in the space, not
+     * the space itself — they must not be able to delete the space's dashboard.
+     */
+    it('a GUEST without space access cannot delete a space view', async () => {
+      const id = await makeSpaceDashboard('Guest must not delete this');
+      const res = await as(guest.token, 'DELETE', `/workspaces/${wsId}/views/${id}`);
+      expect(res.statusCode, 'a guest with only a database grant must be refused').toBeGreaterThanOrEqual(400);
+
+      const { rows } = await db.pool.query(`SELECT id FROM views WHERE id = $1`, [id]);
+      expect(rows, 'the dashboard survives a refused delete').toHaveLength(1);
+    });
+  });
+
   it('MOVES a dashboard that has widgets, backfilling widget sources too (#367)', async () => {
     // #306 REFUSED this with a 422: a widget had no `database_id` (#304 gave that
     // field to tiles only, deliberately, rather than accept-and-ignore it), so

@@ -231,6 +231,50 @@ export class SpaceViewsService {
    * database-scoped endpoint owns config VALIDATION against live fields, which
    * is meaningless for a view with no database.
    */
+  /**
+   * #383 — delete a view addressed WITHOUT its database.
+   *
+   * There was no way to delete a space-level view at all. The only view-delete
+   * route is `DELETE /databases/:db/views/:view`, and `ViewsService.remove()`
+   * looks the view up with `eq(views.databaseId, databaseId)` — a space-level
+   * view has `databaseId = NULL`, which can never equal any database id, so it
+   * 404s from EVERY database including the one it used to live on. #306 made
+   * space-root dashboards routine while the ability to remove one did not exist,
+   * so creating a dashboard was a one-way door.
+   *
+   * Deliberately does NOT carry `ViewsService.remove()`'s "a database must keep
+   * at least one view" rule. That rule protects a DATABASE from losing its last
+   * lens; a space-level view is nobody's last lens, and applying it here would
+   * make a space's only dashboard undeletable for a second reason.
+   */
+  async removeById(membership: Membership, viewId: string) {
+    const view = await this.db.query.views.findFirst({ where: eq(views.id, viewId) });
+    if (!view) throw new NotFoundException('View not found');
+    if (view.ownerUserId && view.ownerUserId !== membership.userId) {
+      throw new NotFoundException('View not found');
+    }
+    /**
+     * A database-owned view keeps its existing route, which owns the keep-one
+     * rule. Routing it here would quietly bypass that rule — the endpoint has to
+     * refuse rather than become a second, laxer way to delete the same thing.
+     */
+    if (view.databaseId) {
+      throw new UnprocessableEntityException(
+        'This view belongs to a database. Delete it through that database, which enforces that a database keeps at least one view.',
+      );
+    }
+    if (!view.spaceId) throw new NotFoundException('View not found');
+
+    // Same door as every other space-view operation.
+    await this.assertVisibleSpace(membership, view.spaceId);
+    await this.access.assertSpace(membership, view.spaceId, 'editor').catch(() => {
+      throw new ForbiddenException('You need edit access to this space.');
+    });
+
+    await this.db.delete(views).where(eq(views.id, viewId));
+    return { deleted: viewId };
+  }
+
   async updateById(
     membership: Membership,
     viewId: string,
