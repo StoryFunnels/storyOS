@@ -110,3 +110,46 @@ jobs:
               "ghcr.io/$OWNER_LC/storyos-$svc:${{ github.sha }}-amd64" \
               "ghcr.io/$OWNER_LC/storyos-$svc:${{ github.sha }}-arm64"
           done
+
+  # Continuous delivery to the staging VPS: pin IMAGE_TAG to this exact commit,
+  # pull, restart, verify from the outside. Rollback = re-run an older run of
+  # this workflow (its sha gets pinned again). Prod stays manual for now.
+  deploy-staging:
+    name: deploy staging
+    runs-on: ubuntu-latest
+    needs: merge
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    # One deploy at a time; a second push queues instead of racing the first.
+    concurrency:
+      group: deploy-staging
+      cancel-in-progress: false
+    steps:
+      - name: Deploy over SSH
+        env:
+          SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+        run: |
+          install -m 600 /dev/null deploy_key && printf '%s\n' "$SSH_KEY" > deploy_key
+          ssh -i deploy_key -o StrictHostKeyChecking=accept-new deploy@${{ secrets.STAGING_HOST }} bash -s <<'EOF'
+          set -euo pipefail
+          cd ~/storyOS
+          git pull --ff-only
+          if grep -q '^IMAGE_TAG=' .env; then
+            sed -i 's/^IMAGE_TAG=.*/IMAGE_TAG=${{ github.sha }}/' .env
+          else
+            echo 'IMAGE_TAG=${{ github.sha }}' >> .env
+          fi
+          docker compose pull --quiet
+          docker compose up -d
+          docker image prune -f
+          EOF
+
+      - name: Verify rollout
+        run: |
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' https://staging.storyos.dev/api/docs)
+            [ "$code" = "200" ] && echo "staging healthy" && exit 0
+            sleep 5
+          done
+          echo "staging did not come back after deploy" && exit 1
