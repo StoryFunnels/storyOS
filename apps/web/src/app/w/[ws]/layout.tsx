@@ -13,6 +13,8 @@ import { QuickAddFab } from '@/components/quick-add-fab';
 import { ShortcutsOverlay } from '@/components/shortcuts-overlay';
 import { Sidebar } from '@/components/sidebar';
 import { useSidebarCollapsed } from '@/lib/sidebar-state';
+import { TyronPanel } from '@/components/tyron/tyron-panel';
+import { useTyronPanel } from '@/lib/tyron-panel';
 import { cn } from '@/lib/utils';
 
 /** The protected workspace shell. */
@@ -27,6 +29,9 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   // Persistent, per-user collapse toggle for md+ (MN-230b new requirement).
   const { collapsed, toggle: toggleCollapsed } = useSidebarCollapsed();
+  // #356 — FULL means the panel takes the window. Read here because <main> is the
+  // thing that has to give way, and it is owned by this layout.
+  const { state: tyronState } = useTyronPanel();
 
   useEffect(() => {
     if (!isPending && !session) router.replace('/login');
@@ -90,7 +95,25 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
           </div>
           <AccountMenu />
         </header>
-        <main className="min-h-0 min-w-0 flex-1 overflow-auto">{children}</main>
+        {/* #356 — the main content and Tyron are a PAIR, so the panel is a sibling
+            of <main> inside this column rather than an overlay. An overlay would
+            cover the table, and seeing rows change while Tyron works is the entire
+            argument for docking it instead of floating it. */}
+        <div className="flex min-h-0 min-w-0 flex-1">
+          <main
+            className={cn(
+              'min-h-0 min-w-0 flex-1 overflow-auto',
+              // Hidden, not unmounted: unmounting would tear down the table's
+              // scroll position and any in-flight edit, so leaving full would not
+              // return you to where you were. #356 requires the built workspace to
+              // be "already in place" when full is left.
+              tyronState === 'full' && 'hidden',
+            )}
+          >
+            {children}
+          </main>
+          <TyronPanel />
+        </div>
       </div>
       <CommandPalette />
       <ShortcutsOverlay />

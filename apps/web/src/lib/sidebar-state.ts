@@ -30,14 +30,23 @@ export function useSidebarCollapsed() {
     return () => window.removeEventListener(CHANGED, sync);
   }, []);
 
-  const toggle = useCallback(() => {
-    setCollapsed((c) => {
-      const next = !c;
-      window.localStorage.setItem(KEY, next ? '1' : '0');
-      window.dispatchEvent(new CustomEvent(CHANGED));
-      return next;
-    });
+  const apply = useCallback((next: boolean) => {
+    window.localStorage.setItem(KEY, next ? '1' : '0');
+    window.dispatchEvent(new CustomEvent(CHANGED));
+    setCollapsed(next);
   }, []);
 
-  return { collapsed, toggle };
+  const toggle = useCallback(() => apply(!read()), [apply]);
+
+  /**
+   * #356 — an EXPLICIT setter, so Tyron's FULL state can hide the sidebar and
+   * restore it through this same mechanism instead of adding a second way to
+   * hide the sidebar. `toggle` cannot express "make sure it is hidden" — entering
+   * FULL twice would flip it back on, and restoring would depend on what the user
+   * had done in between.
+   *
+   * It writes through the same key and fires the same CHANGED event, so every
+   * other listener stays in step.
+   */
+  return { collapsed, toggle, setCollapsed: apply };
 }
