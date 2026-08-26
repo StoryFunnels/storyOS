@@ -3,13 +3,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, usePathname, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { Database, FileText, FolderOpen, Home, LayoutTemplate, Plus, Search, Settings, UserPlus, UserRound, Sparkles} from 'lucide-react';
+import { Database, FileText, FolderOpen, Home, Keyboard, LayoutTemplate, Plus, Search, Settings, UserPlus, UserRound, Sparkles} from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { useDatabases } from '@/lib/queries';
 import { EntityIcon } from '@/components/ui/icon-picker';
 import { openTyron } from '@/lib/tyron-panel';
-import { OPEN_PALETTE_EVENT, useShortcut } from '@/lib/shortcuts';
+import { OPEN_PALETTE_EVENT, openShortcuts, useShortcut } from '@/lib/shortcuts';
 import { cn } from '@/lib/utils';
 
 interface RecordHit {
@@ -198,6 +198,16 @@ export function CommandPalette() {
       ['Browse templates', <LayoutTemplate key="b" className="h-3.5 w-3.5" />, () => go(`/w/${ws}`)],
       ['Invite people', <UserPlus key="c" className="h-3.5 w-3.5" />, () => go(`/w/${ws}/settings/members`)],
       ['Settings & members', <Settings key="d" className="h-3.5 w-3.5" />, () => go(`/w/${ws}/settings/members`)],
+      /*
+       * #396 — the second independent route to the cheat-sheet.
+       *
+       * People DO find ⌘K. Nothing tells them to press "?", so the one thing
+       * that would teach them every other shortcut was the one shortcut they
+       * could not discover. Listing it here means anyone who has ever opened the
+       * palette can stumble onto the rest — the same reasoning that put "Ask
+       * Tyron" here rather than only behind ⌘J.
+       */
+      ['Keyboard shortcuts', <Keyboard key="kbd" className="h-3.5 w-3.5" />, () => { setOpen(false); openShortcuts(); }],
     ];
     const q = debounced.trim().toLowerCase();
     for (const [label, icon, run] of actions) {

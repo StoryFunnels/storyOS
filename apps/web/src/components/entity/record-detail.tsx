@@ -860,7 +860,7 @@ function DescriptionSection({
             type="button"
             onClick={onHide}
             title="Remove Description from this database's records"
-            className="ml-1 rounded p-0.5 text-faint opacity-0 transition-opacity hover:bg-hover hover:text-danger group-hover/bodyrow:opacity-100"
+            className="ml-1 rounded p-0.5 text-faint opacity-0 transition-opacity hover:bg-hover hover:text-error group-hover/bodyrow:opacity-100"
           >
             <X className="h-3.5 w-3.5" />
           </button>

@@ -1,13 +1,25 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 // #254 — the list now comes from the shared registry, so this overlay and the
 // hover tooltips can never drift apart.
-import { SHORTCUTS, useShortcut } from '@/lib/shortcuts';
+import { SHORTCUTS, formatShortcut, useIsMac, useShortcut } from '@/lib/shortcuts';
+import { OPEN_SHORTCUTS_EVENT } from '@/lib/shortcuts';
 
 export function ShortcutsOverlay() {
   const [open, setOpen] = useState(false);
+  const isMac = useIsMac();
   useShortcut('?', () => setOpen((o) => !o));
+  /*
+   * #396 — "?" is no longer the only way in, which was the entire bug: the
+   * cheat-sheet had exactly the property it exists to cure. The sidebar entry
+   * and the command palette both dispatch this.
+   */
+  useEffect(() => {
+    const onOpen = () => setOpen(true);
+    window.addEventListener(OPEN_SHORTCUTS_EVENT, onOpen);
+    return () => window.removeEventListener(OPEN_SHORTCUTS_EVENT, onOpen);
+  }, []);
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 bg-[rgba(15,23,41,0.35)]" onClick={() => setOpen(false)}>
@@ -21,7 +33,7 @@ export function ShortcutsOverlay() {
             <div key={s.id} className="flex items-center justify-between text-[13px]">
               <span className="text-ink-secondary">{s.label}</span>
               <kbd className="rounded border border-border-default bg-canvas px-1.5 py-0.5 text-[11px] text-muted">
-                {s.keys}
+                {formatShortcut(s.keys, isMac)}
               </kbd>
             </div>
           ))}

@@ -289,7 +289,7 @@ export function DashboardView({
                   type="button"
                   title="Remove tile"
                   onClick={() => removeTile(tile.id)}
-                  className="shrink-0 rounded p-0.5 text-faint hover:bg-hover hover:text-danger"
+                  className="shrink-0 rounded p-0.5 text-faint hover:bg-hover hover:text-error"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
@@ -698,7 +698,7 @@ function TileValue({
                scale from "this is interactive", and #388 requires it legible in
                both themes. These three tokens are already theme-aware. */
             progress.tone === 'good' && 'text-success',
-            progress.tone === 'bad' && 'text-danger',
+            progress.tone === 'bad' && 'text-error',
             progress.tone === 'neutral' && 'text-muted',
           )}
         >
@@ -711,7 +711,7 @@ function TileValue({
             className={cn(
               'block h-full rounded-full',
               progress.tone === 'good' && 'bg-success',
-              progress.tone === 'bad' && 'bg-danger',
+              progress.tone === 'bad' && 'bg-error',
               progress.tone === 'neutral' && 'bg-muted',
             )}
             style={{ width: `${progress.ratio * 100}%` }}

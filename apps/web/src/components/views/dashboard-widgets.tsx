@@ -279,7 +279,7 @@ export function DashboardWidgetCard({
             type="button"
             title="Remove widget"
             onClick={onRemove}
-            className="shrink-0 rounded p-0.5 text-faint hover:bg-hover hover:text-danger"
+            className="shrink-0 rounded p-0.5 text-faint hover:bg-hover hover:text-error"
           >
             <Trash2 className="h-3.5 w-3.5" />
           </button>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 
 type Handler = (e: KeyboardEvent) => void;
 const registry = new Map<string, Handler>();
@@ -53,6 +53,19 @@ export function useShortcut(key: string, handler: Handler) {
 }
 
 export const OPEN_PALETTE_EVENT = 'storyos:open-palette';
+
+/**
+ * #396 — open the cheat-sheet from somewhere other than the "?" key.
+ *
+ * The registry was fine and the overlay was fine; the only way IN was pressing
+ * "?", and nothing anywhere told you to. The founder — who commissioned the
+ * product — did not know the shortcuts existed, which is the strongest possible
+ * evidence that no user did.
+ */
+export const OPEN_SHORTCUTS_EVENT = 'storyos:open-shortcuts';
+export function openShortcuts() {
+  window.dispatchEvent(new CustomEvent(OPEN_SHORTCUTS_EVENT));
+}
 export function openPalette() {
   window.dispatchEvent(new CustomEvent(OPEN_PALETTE_EVENT));
 }
@@ -62,20 +75,27 @@ export function openPalette() {
  * cheat-sheet (shortcuts-overlay.tsx) and the hover tooltips read this, so a
  * shortcut can never be renamed in one place and go stale in the other.
  *
- * `keys` is the DISPLAY form (⌘K, not mod+k) — the registry that actually binds
- * handlers is `useShortcut`'s own key strings, which stay lowercase/`mod+`.
+ * #396 — `keys` is now PLATFORM-NEUTRAL (`mod+K`), not a mac glyph.
+ *
+ * It used to be the literal display string, so every hint the product showed
+ * said ⌘ — on Windows and Linux, where the modifier is Ctrl, that taught people
+ * a shortcut that does nothing. A wrong hint is worse than no hint: it costs a
+ * try, and then trust. The binding layer already spoke `mod+`; only the display
+ * did not, which is why the bug survived #254 unnoticed.
+ *
+ * `formatShortcut` turns a token into what the reader should see.
  */
 export interface ShortcutSpec {
   /** Stable id used by withShortcut() at call sites. */
   id: string;
-  /** Display form, e.g. "⌘K". */
+  /** Platform-neutral token, e.g. "mod+K". Rendered by `formatShortcut`. */
   keys: string;
   /** What it does, as shown in the cheat-sheet. */
   label: string;
 }
 
 export const SHORTCUTS: ShortcutSpec[] = [
-  { id: 'palette', keys: '⌘K', label: 'Search & commands' },
+  { id: 'palette', keys: 'mod+K', label: 'Search & commands' },
   /**
    * #356 asked for ⌘K, which the palette above has owned since #254 and which the
    * cheat-sheet already advertises. Taking it would have broken an established
@@ -83,24 +103,79 @@ export const SHORTCUTS: ShortcutSpec[] = [
    * key — and the palette gains an "Ask Tyron" entry, so ⌘K still reaches it.
    * Flagged on the ticket rather than decided silently.
    */
-  { id: 'tyron', keys: '⌘J', label: 'Ask Tyron' },
+  { id: 'tyron', keys: 'mod+J', label: 'Ask Tyron' },
   { id: 'new-record', keys: 'n', label: 'New record (on a database)' },
   { id: 'select-row', keys: 'x', label: 'Select row under cursor' },
   { id: 'select-range', keys: '⇧ + click', label: 'Select a range' },
-  { id: 'select-all', keys: '⌘A', label: 'Select all loaded rows' },
+  { id: 'select-all', keys: 'mod+A', label: 'Select all loaded rows' },
   { id: 'open-record', keys: 'e', label: 'Open record under cursor' },
   { id: 'edit-cell', keys: 'Enter', label: 'Edit the focused cell' },
   { id: 'cancel', keys: 'Esc', label: 'Clear selection / cancel edit' },
   // #265: registered here so the overlay lists it. #322's lesson — a feature
   // nobody can discover is the same as a missing feature — and the founder
   // reported "no undo" while the product already had one.
-  { id: 'undo', keys: '⌘Z', label: 'Undo the last delete' },
+  { id: 'undo', keys: 'mod+Z', label: 'Undo the last delete' },
   { id: 'help', keys: '?', label: 'Keyboard shortcuts' },
 ];
 
 const BY_ID = new Map(SHORTCUTS.map((s) => [s.id, s]));
 
-/** The display keys for a registered shortcut, or null when the id is unknown. */
+/**
+ * #396 — render a token for the reader's platform.
+ *
+ * Pure and exported so it is testable without a DOM: the whole point is that
+ * "⌘K on a Mac, Ctrl+K everywhere else" is asserted, not eyeballed on one
+ * laptop — which is how the original bug shipped.
+ *
+ * Only `mod` is platform-dependent. ⇧, Enter and Esc read the same everywhere,
+ * and a plain letter is a plain letter.
+ */
+export function formatShortcut(keys: string, isMac: boolean): string {
+  if (!keys.includes('mod')) return keys;
+  // "⌘K" has no separator on a Mac, "Ctrl+K" does — matching each platform's
+  // own convention rather than picking one and applying it to both.
+  return isMac ? keys.replace(/mod\+?/, '⌘') : keys.replace(/mod/, 'Ctrl');
+}
+
+/** Best-effort platform sniff. Only ever affects DISPLAY, never a binding. */
+function detectMac(): boolean {
+  if (typeof navigator === 'undefined') return true;
+  const ua = navigator.userAgent;
+  return /Mac|iPhone|iPad|iPod/.test(ua);
+}
+
+// `useSyncExternalStore` with a distinct SERVER snapshot, rather than a
+// useState/useEffect pair. The server cannot know the platform, so the two
+// renders legitimately differ; this is the API that expresses that without a
+// hydration mismatch. The store never changes, so `subscribe` is a no-op.
+const noopSubscribe = () => () => {};
+
+/** True on Apple platforms. Server-renders as Mac, then corrects on hydration. */
+export function useIsMac(): boolean {
+  return useSyncExternalStore(noopSubscribe, detectMac, () => true);
+}
+
+/** The display keys for a shortcut, correct for THIS reader's platform. */
+export function useShortcutKeys(id: string): string | null {
+  const isMac = useIsMac();
+  const keys = BY_ID.get(id)?.keys;
+  return keys ? formatShortcut(keys, isMac) : null;
+}
+
+/** `withShortcut`, platform-aware. Use this in components. */
+export function useWithShortcut(title: string, id: string): string {
+  const keys = useShortcutKeys(id);
+  return keys ? `${title} (${keys})` : title;
+}
+
+/**
+ * The RAW token for a registered shortcut, or null when the id is unknown.
+ *
+ * Not for display — it returns "mod+K". Use `useShortcutKeys` in a component,
+ * or `formatShortcut` where the platform is already known. Kept separate rather
+ * than quietly formatting, so a caller cannot render "mod+K" to a user by
+ * accident and have it look almost right.
+ */
 export function shortcutKeys(id: string): string | null {
   return BY_ID.get(id)?.keys ?? null;
 }
@@ -111,7 +186,7 @@ export function shortcutKeys(id: string): string | null {
  * registered, so a typo degrades to today's behaviour instead of rendering
  * "undefined".
  */
-export function withShortcut(title: string, id: string): string {
+export function withShortcut(title: string, id: string, isMac = true): string {
   const keys = shortcutKeys(id);
-  return keys ? `${title} (${keys})` : title;
+  return keys ? `${title} (${formatShortcut(keys, isMac)})` : title;
 }
