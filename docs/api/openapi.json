@@ -7255,6 +7255,45 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/tyron/threads/{thread}/turns": {
+      "post": {
+        "operationId": "TyronThreadsController_takeTurn",
+        "parameters": [
+          {
+            "name": "thread",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TakeTurnDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Send a message to Tyron and get what it did (#357)",
+        "tags": [
+          "tyron"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/skills": {
       "get": {
         "operationId": "SkillsController_list",
@@ -12874,6 +12913,19 @@
         },
         "required": [
           "title"
+        ]
+      },
+      "TakeTurnDto": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10000
+          }
+        },
+        "required": [
+          "message"
         ]
       },
       "CreateSkillDto": {
