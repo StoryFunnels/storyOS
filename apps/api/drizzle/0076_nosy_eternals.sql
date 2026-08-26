@@ -1,0 +1,1 @@
+ALTER TABLE "tyron_threads" ADD COLUMN "pending_action" jsonb;

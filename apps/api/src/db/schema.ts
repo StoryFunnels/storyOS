@@ -1973,6 +1973,20 @@ export const tyronThreads = pgTable(
     ownerUserId: text('owner_user_id').notNull(),
     /** Auto-named from the first message; user-renameable. Never "Untitled". */
     title: text('title').notNull(),
+    /**
+     * #357d — the ONE tool call awaiting the user's answer, or null.
+     *
+     * `{ name, arguments, message }`. Held SERVER-side rather than round-tripped
+     * through the client, so what gets executed on "yes" is exactly what was
+     * classified and shown — a client that echoed the action back could answer a
+     * different question than the one it was asked.
+     *
+     * Singular on purpose: a thread has at most one outstanding question, because
+     * the loop stops at the first gated call and applies nothing after it. A queue
+     * here would imply the user can answer them out of order, which the loop
+     * cannot honour.
+     */
+    pendingAction: jsonb('pending_action'),
     ...timestamps,
   },
   (t) => [

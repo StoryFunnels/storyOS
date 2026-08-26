@@ -268,3 +268,83 @@ describe('structured actions (#359 → #354 replay)', () => {
     expect(rows[0].actions).toEqual([]);
   });
 });
+
+/**
+ * #357d — the confirm round-trip.
+ *
+ * These run against the real endpoint with no model configured, which is exactly
+ * the right shape: `confirm` never calls the model. It executes a call that was
+ * already classified and stored, so its behaviour is fully testable here.
+ */
+describe('answering Tyron\'s pending question (#357d/#358)', () => {
+  let thread: string;
+
+  beforeAll(async () => {
+    thread = (
+      await as(owner.token, 'POST', `/workspaces/${wsId}/tyron/threads`, { first_message: 'Confirm me' })
+    ).json().id;
+  });
+
+  it('says so plainly when there is nothing to answer, rather than erroring', async () => {
+    // The likeliest cause is a second click or another tab. A 4xx would make an
+    // ordinary race look like a fault.
+    const res = await as(owner.token, 'POST', `/workspaces/${wsId}/tyron/threads/${thread}/confirm`, {
+      approve: true,
+    });
+    expect(res.statusCode, res.body).toBeLessThan(300);
+    expect(res.json().reply).toMatch(/nothing waiting/i);
+  });
+
+  it('declining runs nothing and says so', async () => {
+    await db.pool.query(
+      `UPDATE tyron_threads SET pending_action = $1 WHERE id = $2`,
+      [JSON.stringify({ name: 'delete_record', arguments: { record_ids: ['x'] }, message: 'Delete 1 record?' }), thread],
+    );
+    const res = await as(owner.token, 'POST', `/workspaces/${wsId}/tyron/threads/${thread}/confirm`, {
+      approve: false,
+    });
+    expect(res.statusCode, res.body).toBeLessThan(300);
+    expect(res.json().reply).toMatch(/haven't done it/i);
+
+    const { rows } = await db.pool.query(`SELECT pending_action FROM tyron_threads WHERE id = $1`, [thread]);
+    expect(rows[0].pending_action, 'a declined question must not linger').toBeNull();
+  });
+
+  /**
+   * The double-click guard. The pending action is cleared BEFORE the tool runs,
+   * so a second click cannot execute a destructive action twice — losing it on a
+   * failure is the safe direction, because the user can ask again whereas a
+   * double delete cannot be taken back.
+   */
+  it('clears the pending action so it cannot be executed twice', async () => {
+    await db.pool.query(
+      `UPDATE tyron_threads SET pending_action = $1 WHERE id = $2`,
+      [JSON.stringify({ name: 'delete_record', arguments: { record_ids: ['x'] }, message: 'Delete 1 record?' }), thread],
+    );
+    // Approve once. The tool call itself fails (no MCP in tests) but the CLEARING
+    // is what this asserts, and it must happen regardless of the outcome.
+    await as(owner.token, 'POST', `/workspaces/${wsId}/tyron/threads/${thread}/confirm`, { approve: true });
+
+    const { rows } = await db.pool.query(`SELECT pending_action FROM tyron_threads WHERE id = $1`, [thread]);
+    expect(rows[0].pending_action).toBeNull();
+
+    const second = await as(owner.token, 'POST', `/workspaces/${wsId}/tyron/threads/${thread}/confirm`, {
+      approve: true,
+    });
+    expect(second.json().reply, 'the second click finds nothing to do').toMatch(/nothing waiting/i);
+  });
+
+  it("a different member cannot answer someone else's question", async () => {
+    await db.pool.query(
+      `UPDATE tyron_threads SET pending_action = $1 WHERE id = $2`,
+      [JSON.stringify({ name: 'delete_record', arguments: {}, message: 'Delete?' }), thread],
+    );
+    const res = await as(admin.token, 'POST', `/workspaces/${wsId}/tyron/threads/${thread}/confirm`, {
+      approve: true,
+    });
+    expect(res.statusCode, 'owner-scoped, like every other thread route').toBe(404);
+
+    const { rows } = await db.pool.query(`SELECT pending_action FROM tyron_threads WHERE id = $1`, [thread]);
+    expect(rows[0].pending_action, 'and it must still be pending').not.toBeNull();
+  });
+});

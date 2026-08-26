@@ -24,6 +24,12 @@ class TakeTurnDto extends createZodDto(
 ) {}
 
 /**
+ * #357d — a BOOLEAN only. The pending call lives server-side, so the client
+ * cannot answer a different question than the one it was asked.
+ */
+class ConfirmDto extends createZodDto(z.object({ approve: z.boolean() })) {}
+
+/**
  * Tyron threads (#359).
  *
  * No admin route and no workspace-wide list, deliberately: every endpoint is
@@ -87,5 +93,21 @@ export class TyronThreadsController {
     @Body() body: TakeTurnDto,
   ) {
     return this.tyron.takeTurn(req.membership, thread, body.message);
+  }
+
+  /**
+   * #357d — answer Tyron's outstanding question.
+   *
+   * The counterpart to #358's classifier: without this a delete ends the turn as
+   * a question nobody can answer, and the confirmation is decorative.
+   */
+  @Post(':thread/confirm')
+  @ApiOperation({ summary: "Approve or decline Tyron's pending action (#358)" })
+  confirm(
+    @Req() req: WorkspaceRequest,
+    @Param('thread') thread: string,
+    @Body() body: ConfirmDto,
+  ) {
+    return this.tyron.confirmPending(req.membership, thread, body.approve);
   }
 }

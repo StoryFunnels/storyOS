@@ -3034,6 +3034,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/tyron/threads/{thread}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve or decline Tyron's pending action (#358) */
+        post: operations["TyronThreadsController_confirm"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/skills": {
         parameters: {
             query?: never;
@@ -4837,6 +4854,9 @@ export interface components {
         };
         TakeTurnDto: {
             message: string;
+        };
+        ConfirmDto: {
+            approve: boolean;
         };
         CreateSkillDto: {
             name: string;
@@ -9655,6 +9675,29 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["TakeTurnDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    TyronThreadsController_confirm: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                thread: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfirmDto"];
             };
         };
         responses: {

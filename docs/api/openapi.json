@@ -7294,6 +7294,45 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/tyron/threads/{thread}/confirm": {
+      "post": {
+        "operationId": "TyronThreadsController_confirm",
+        "parameters": [
+          {
+            "name": "thread",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Approve or decline Tyron's pending action (#358)",
+        "tags": [
+          "tyron"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/skills": {
       "get": {
         "operationId": "SkillsController_list",
@@ -12926,6 +12965,17 @@
         },
         "required": [
           "message"
+        ]
+      },
+      "ConfirmDto": {
+        "type": "object",
+        "properties": {
+          "approve": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "approve"
         ]
       },
       "CreateSkillDto": {

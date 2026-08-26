@@ -23,7 +23,17 @@ export type TurnEvent =
   /** A short "still working" line — outcomes accumulating, not machinery. */
   | { type: 'status'; text: string }
   /** A confirmation or approval the user must answer before anything is applied. */
-  | { type: 'question'; verdict: Extract<SafetyVerdict, { kind: 'confirm' | 'approval_gate' }>; tool: string }
+  | {
+      type: 'question';
+      verdict: Extract<SafetyVerdict, { kind: 'confirm' | 'approval_gate' }>;
+      tool: string;
+      /**
+       * #357d — the exact call awaiting an answer. Carried so the caller can
+       * store it and execute precisely what was classified, rather than
+       * reconstructing it from the prose and hoping the two agree.
+       */
+      call: ChatToolCall;
+    }
   /** A ceiling stopped the run. */
   | { type: 'stopped'; stop: CeilingStop }
   /** The turn ended cleanly. `actions` is persisted, not displayed. */
@@ -145,7 +155,7 @@ export async function* runTurn(
         return;
       }
       if (verdict.kind === 'confirm' || verdict.kind === 'approval_gate') {
-        yield { type: 'question', verdict, tool: call.name };
+        yield { type: 'question', verdict, tool: call.name, call };
         yield { type: 'done', actions };
         return;
       }
