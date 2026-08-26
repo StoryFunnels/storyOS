@@ -2,6 +2,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './helpers/app';
 import { authed, signUpUser } from './helpers/users';
+// #390 — the agent/automation legs are driven through the REAL shared executor
+// rather than asserted by reading the call site.
+import { AutomationActionsService } from '../src/automations/actions.service';
+import { RecordsService } from '../src/records/records.service';
 
 /**
  * #31 (version history C2) — field-level change capture and the per-record
@@ -17,6 +21,9 @@ let wsId: string;
 let dbId: string;
 let statusApi: string;
 let statusId: string;
+let actionsService: AutomationActionsService;
+let recordsService: RecordsService;
+let adminUserId: string;
 
 async function as(token: string, method: string, url: string, payload?: unknown) {
   return app.inject({
@@ -56,7 +63,12 @@ async function changesFor(recordId: string) {
 
 beforeAll(async () => {
   app = await createTestApp();
+  // `strict: false` — these providers live in feature modules, not the root, so
+  // the default strict lookup cannot see them.
+  actionsService = app.get(AutomationActionsService, { strict: false });
+  recordsService = app.get(RecordsService, { strict: false });
   admin = await signUpUser(app, 'field-history');
+  adminUserId = (await as(admin.token, 'GET', '/me')).json().id;
   wsId = (await as(admin.token, 'POST', '/workspaces', { name: 'History Co' })).json().id;
   const spaceId = (await as(admin.token, 'GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
   dbId = (
@@ -201,5 +213,98 @@ describe('the timeline reads back (#31)', () => {
     const event = data.find((c) => c.field_id === doomed.id);
     expect(event).toBeTruthy();
     expect(event!.field_name).toBe('Temporary');
+  });
+});
+
+/**
+ * #390 — the `source` axis: WHAT made the change, beside WHO it was for.
+ *
+ * The column, the enum and the read path have existed since #31. Nothing ever
+ * wrote a non-default value, so every row in the product said 'human' —
+ * including rows written by automations and by MCP. The badge was decorative:
+ * it rendered whatever the default said.
+ *
+ * Two Tyron tickets were already relying on this as if it were finished (#357
+ * lists "`source` is set to the agent value" as an acceptance criterion; #364
+ * narrowed its own scope on the strength of it), and both read as one-line
+ * checks. Neither was: there was no code path that accepted a source, so "don't
+ * skip setting it" could not be complied with.
+ */
+describe('#390 — what made the change, not just who it was for', () => {
+  it('an ordinary UI write is human — the REGRESSION half', async () => {
+    /*
+     * Asserted first and deliberately. Without it, a later refactor that
+     * defaulted everything to 'agent' would pass every other test in this
+     * block while silently mislabelling the overwhelming majority of writes.
+     */
+    const rec = await createRecord({ name: 'Typed by a person' });
+    await as(admin.token, 'PATCH', `/workspaces/${wsId}/databases/${dbId}/records/${rec.id}`, {
+      values: { name: 'Edited by a person' },
+    });
+    const { data } = await changesFor(rec.id);
+    expect(data[0]!.source).toBe('human');
+  });
+
+  it('a write through a personal access token lands as mcp', async () => {
+    // A PAT is how MCP arrives (`auth.via === 'token'`). Proven by writing
+    // through one, not by reading the controller.
+    const pat = await as(admin.token, 'POST', '/me/tokens', {
+      name: 'MCP test',
+      workspace_id: wsId,
+      scope: 'admin',
+    });
+    expect(pat.statusCode, JSON.stringify(pat.json())).toBeLessThan(300);
+    const token = (pat.json() as { token: string }).token;
+
+    const rec = await createRecord({ name: 'Written by a program' });
+    const res = await as(token, 'PATCH', `/workspaces/${wsId}/databases/${dbId}/records/${rec.id}`, {
+      values: { name: 'Edited over MCP' },
+    });
+    expect(res.statusCode, JSON.stringify(res.json())).toBeLessThan(300);
+
+    const { data } = await changesFor(rec.id);
+    expect(data[0]!.source).toBe('mcp');
+  });
+
+  it('an AGENT write lands as agent — and the actor is STILL the person', async () => {
+    /*
+     * The pair is the point, which is why both halves are asserted on the SAME
+     * row. Attribution stays the person in every case (ADR-0010 §2, and #357's
+     * founder decision: "it's always a person that ran the AI agent, never the
+     * agent himself"). A change that set `actorUserId` to an agent id would
+     * satisfy a naive reading of "distinguish agent writes" and quietly destroy
+     * the accountability trail — that is the wrong turn this guards against.
+     *
+     * Driven through ActionsService.execute, which is the REAL path: an agent
+     * applying a staged action calls straight into this executor
+     * (AgentsService.applyProposedAction). It is shared with automations, so
+     * hardcoding a source inside it would have stamped every agent write
+     * 'automation'.
+     */
+    const rec = await createRecord({ name: 'Touched by an agent' });
+    const record = await recordsService.get(dbId, rec.id);
+    await actionsService.execute(
+      [{ type: 'set_values', values: { name: 'Generated' } } as never],
+      { workspaceId: wsId, databaseId: dbId, record, actorId: adminUserId, source: 'agent' } as never,
+    );
+
+    const { data } = await changesFor(rec.id);
+    expect(data[0]!.source).toBe('agent');
+    expect(data[0]!.actor_id, 'the PERSON stays the actor — source is a second axis').toBe(adminUserId);
+  });
+
+  it('the same executor defaults to automation when no source is given', async () => {
+    // Every pre-existing caller is a rule, so the default must be 'automation'
+    // rather than 'human' — otherwise threading it would have been a no-op for
+    // exactly the case that was already wrong.
+    const rec = await createRecord({ name: 'Touched by a rule' });
+    const record = await recordsService.get(dbId, rec.id);
+    await actionsService.execute(
+      [{ type: 'set_values', values: { name: 'Set by rule' } } as never],
+      { workspaceId: wsId, databaseId: dbId, record, actorId: adminUserId } as never,
+    );
+
+    const { data } = await changesFor(rec.id);
+    expect(data[0]!.source).toBe('automation');
   });
 });

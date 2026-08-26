@@ -8,7 +8,9 @@ retention, capture path, and build order. No feature code lands with it.
 
 > **TL;DR** — Add a **field-level change-event log** (`record_field_changes`),
 > one row per changed field per write, each badged by **source**
-> (`human` / `agent` / `automation` / `mcp`) via the #330 principal. Add
+> (`human` / `agent` / `automation` / `mcp`). **Done in #390** — the reference
+> to "#330" throughout this document was stale numbering; #330 is an unrelated,
+> closed billing-tip bug. Add
 > **debounced rich-text snapshots** (`document_versions`). Keep the existing
 > MN-231 whole-record `record_versions` snapshots as the **restore substrate**
 > (whole-record restore ships first; per-field revert is a cheap fast-follow off
@@ -128,7 +130,20 @@ via a query cutoff — **but there is no purge cron**; the rows persist. There i
 (permanent) and **structural undelete of databases/views/spaces are gaps** the
 version-history structural-undelete work (C5) must close.
 
-### Attribution / AgentPrincipal (#330) — identity exists, source label does NOT
+### Attribution / AgentPrincipal — identity exists, and the source label now does too (#390)
+
+> **Updated.** This section described the gap accurately and it is now closed:
+> `RecordsService.update` takes an explicit `source`, set at the HTTP boundary
+> (`auth.via === 'token'` ⇒ `mcp`), by the automation executor, and by the agent
+> path that shares it. `actorUserId` is unchanged and still the PERSON — the
+> label is a second axis, not a replacement (ADR-0010 §2).
+>
+> Known limit, stated rather than glossed: **Tyron's own writes land as `mcp`,
+> not `agent`**, because Tyron drives the MCP with a minted PAT (ADR-0016) and
+> is therefore indistinguishable from any other token at the HTTP boundary.
+> Separating them needs a marker on the token itself.
+
+#### The original gap, for context
 
 - `AgentPrincipal` (`apps/api/src/agents/agent-principal.ts`): an agent **acts
   as its owner**, `{ userId, scope }`, scope = min(owner, agent-declared). The
@@ -202,7 +217,7 @@ Notes / rationale:
 - **Field granularity is the product.** One row per changed field per write.
   `update()` already produces the `{ [fieldId]: { from, to } }` diff; C2 fans it
   out. Title uses `field_id = null` (consistent with `record-diff.ts`).
-- **`source` is the #330 badge.** Enum, not free text, so the UI and audit-log
+- **`source` is the provenance badge (#390).** Enum, not free text, so the UI and audit-log
   filters are cheap. Default `human` keeps existing session writes correct
   without a code change at every call site.
 - **`actor_user_id` stays a user id** (not a FK) — matches `activity_events` /
@@ -386,7 +401,7 @@ This initiative is **history + restore of live entities**. It is **not**:
 
 | Ticket | Scope | Depends on | Notes / gotchas |
 |---|---|---|---|
-| **C2 (#363)** | Field-level capture: `record_field_changes` table + migration; thread `source` through `RecordsService.update/create`; fan out the existing diff into batched rows; plan-gated Free=off; the shared **pruning job** (also prunes `record_versions`). | MN-231, #330 | **Extends** MN-231, does not replace it. One migration only (hard rule #1). The `source` plumbing is the real work — audit every write call site (session, agent runtime, automation job-runner, MCP-PAT). Land with the write-path benchmark. |
+| **C2 (#363)** | Field-level capture: `record_field_changes` table + migration; thread `source` through `RecordsService.update/create`; fan out the existing diff into batched rows; plan-gated Free=off; the shared **pruning job** (also prunes `record_versions`). | MN-231, #390 | **Extends** MN-231, does not replace it. One migration only (hard rule #1). The `source` plumbing is the real work — audit every write call site (session, agent runtime, automation job-runner, MCP-PAT). Land with the write-path benchmark. |
 | **C3 (#364)** | Whole-record restore UX: version list + restore action + `source` badges, over the existing `RecordVersionsController`. | C2 (for source badges), MN-231 | Backend restore already exists — mostly `apps/web` + minor API for source. Hotspot file `r/[rec]/page.tsx` — coordinate per parallel-work lane rules. |
 | **C4 (#365)** | Rich-text history: `document_versions` table + migration; debounced snapshot-on-save for `documents` + `space_documents`; text-history diff view + restore. | C2 (source enum, pruning job) | Snapshots not patches. Debounce server-side. Two document tables — mind both. |
 | **C5 (#366)** | Structural undelete: add `deleted_at` to `databases` / `views` / `spaces` (+ maybe `relations`); trash/restore for them; close the #229 "Erase" gap. | #229 trash pattern | Cascade-on-restore semantics are the trap. One migration. |
@@ -451,7 +466,7 @@ history, structural undelete, and the pruning job are **additive**.
 
 - Initiative: **#321** (research) → this ADR **#362** → build **#363** (C2) /
   **#364** (C3) / **#365** (C4) / **#366** (C5). Related but **out of scope**:
-  **#320** (export), **#322** (backup). Attribution: **#330**. Trash: **#229**.
+  **#320** (export), **#322** (backup). Attribution: **#390**. Trash: **#229**.
 - Shipped substrate: **MN-231 / PR #115** (`record_versions` + list/restore),
   **MN-027** (`activity_events`).
 - Code:

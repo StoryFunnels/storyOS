@@ -123,15 +123,24 @@ The essentials, which every new-provider PR must satisfy:
 
 ## Version history (change log, restore) — build to the ADR
 
-The version-history initiative (#321; C2–C5 = #363–#366) has a design +
+The version-history initiative has a design +
 codebase-inventory ADR that C-tickets must follow:
 [docs/architecture/version-history.md](docs/architecture/version-history.md).
 The load-bearing facts: **extend** MN-231 `record_versions` + its list/restore
 API (don't replace them); capture is **field-level** (`record_field_changes`)
-badged by `source` (human/agent/automation/mcp via #330); retention is
+badged by `source` (human/agent/automation/mcp — threaded in #390, NOT #330);
+retention is
 plan-gated and tiny (Free none · Pro 1d · Business 7d · Enterprise 30d), Free =
 capture off; whole-record restore ships before per-field revert; this is
 history/restore, **not** workspace backup (#320/#322).
+
+**Ticket numbers in this block were wrong and are now removed.** It cited the
+initiative as #321 (really: the field-type picker labels), C2–C5 as #363–#366
+(really: Tyron tickets), and the `source` badge as #330 (really: a Done billing
+-tip bug). Stale numbering from the old MN-* scheme, of the same class #363
+flags about itself. A load-bearing rule pointing at four unrelated tickets is
+worse than no rule, so the claims stand on their own and only #390 — which
+actually did the `source` work — is cited.
 
 ## Running the API tests without Docker (#98)
 

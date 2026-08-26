@@ -1386,6 +1386,15 @@ export class AgentsService implements OnModuleInit {
       databaseId: payload.database_id,
       record,
       actorId,
+      /*
+       * #390 — an AGENT applied this, not a rule.
+       *
+       * The executor is shared with automations, so without this every agent
+       * write would be stamped 'automation'. `actorId` above is still the
+       * OWNER: ADR-0010 §2 and #357's founder decision — "it's always a person
+       * that ran the AI agent, never the agent himself".
+       */
+      source: 'agent',
       depth,
     });
     return {
