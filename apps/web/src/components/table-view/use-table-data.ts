@@ -41,7 +41,15 @@ export interface Field {
 
 export interface DatabaseDetail {
   id: string;
-  /** #310 — description block placement (see useUpdateDescriptionPlacement). */
+  /**
+   * #400 — the DATABASE's own one-line purpose.
+   *
+   * Not to be confused with the two keys below, despite the shared prefix: those
+   * place the RECORD description block (#310) on a record page. This is the
+   * sentence that says what belongs in this table.
+   */
+  description?: string | null;
+  /** #310 — RECORD description block placement (see useUpdateDescriptionPlacement). */
   descriptionHidden?: boolean;
   descriptionOrder?: number | null;
   name: string;

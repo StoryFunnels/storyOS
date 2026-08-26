@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { descriptionPatchSchema, descriptionSchema } from './descriptions';
 
 /**
  * An emoji, or a curated-set reference `set:<name>` (MN-208).
@@ -23,6 +24,15 @@ export const createDatabaseSchema = z.object({
   /** MN-299: explicit override; DatabasesService.create() auto-assigns a
    * random palette color when this is omitted. */
   color: databaseColorSchema.optional(),
+  /**
+   * #400 — a one-line "what belongs in this table".
+   *
+   * NOT the same thing as `description_hidden`/`description_order` below, which
+   * configure the RECORD description block (#310) — a versioned document that
+   * renders on each record's page. This is the DATABASE's own purpose line. The
+   * two live side by side and are easy to confuse; they share nothing.
+   */
+  description: descriptionSchema,
 });
 
 export const updateDatabaseSchema = z.object({
@@ -33,6 +43,9 @@ export const updateDatabaseSchema = z.object({
   /** Sidebar folder (MN-096); null moves the database to the space root. */
   folder_id: z.uuid().nullable().optional(),
   position: z.number().int().optional(),
+  /** #400 — the DATABASE's own purpose line; null clears it. Not the record
+   *  description block configured by the two keys below (#310). */
+  description: descriptionPatchSchema,
   /**
    * #310 — the record description as a positioned, optional element. It is a
    * versioned `documents` row rather than a field, so it has no field config to

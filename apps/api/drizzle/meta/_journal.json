@@ -540,6 +540,13 @@
       "when": 1787743861977,
       "tag": "0076_nosy_eternals",
       "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1787778183087,
+      "tag": "0077_lean_stone_men",
+      "breakpoints": true
     }
   ]
 }

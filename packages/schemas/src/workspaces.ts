@@ -1,10 +1,13 @@
 import { z } from 'zod';
+import { descriptionPatchSchema, descriptionSchema } from './descriptions';
 
 export const membershipRoleSchema = z.enum(['admin', 'member', 'guest']);
 export type MembershipRole = z.infer<typeof membershipRoleSchema>;
 
 export const createWorkspaceSchema = z.object({
   name: z.string().trim().min(1).max(100),
+  /** #400 — a one-line "what this company is doing here". */
+  description: descriptionSchema,
   slug: z
     .string()
     .regex(/^[a-z0-9](?:[a-z0-9-]{0,48}[a-z0-9])?$/, 'lowercase letters, digits and dashes')
@@ -18,6 +21,8 @@ export const updateWorkspaceSchema = z.object({
    * unguessable. Off by default — existing capability-URL behavior is
    * unchanged. Mechanism only; no billing-tier gate is enforced here. */
   private_attachments: z.boolean().optional(),
+  /** #400 — null clears it. */
+  description: descriptionPatchSchema,
 });
 
 export const spaceColorSchema = z.enum([
@@ -39,6 +44,8 @@ export const createSpaceSchema = z.object({
   name: z.string().trim().min(1).max(100),
   icon: z.string().max(48).optional(),
   color: spaceColorSchema.optional(),
+  /** #400 — a one-line "what this area of work is". */
+  description: descriptionSchema,
 });
 
 export const updateSpaceSchema = z.object({
@@ -46,6 +53,8 @@ export const updateSpaceSchema = z.object({
   icon: z.string().max(48).nullable().optional(),
   color: spaceColorSchema.nullable().optional(),
   position: z.number().int().optional(),
+  /** #400 — null clears it. */
+  description: descriptionPatchSchema,
 });
 
 import { grantScopeSchema } from './access';

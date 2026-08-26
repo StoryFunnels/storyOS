@@ -8504,6 +8504,10 @@
             "minLength": 1,
             "maxLength": 100
           },
+          "description": {
+            "type": "string",
+            "maxLength": 200
+          },
           "slug": {
             "type": "string",
             "pattern": "^[a-z0-9](?:[a-z0-9-]{0,48}[a-z0-9])?$"
@@ -8523,6 +8527,11 @@
           },
           "private_attachments": {
             "type": "boolean"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 200,
+            "nullable": true
           }
         }
       },
@@ -8552,6 +8561,10 @@
               "teal",
               "green"
             ]
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 200
           }
         },
         "required": [
@@ -8592,6 +8605,11 @@
             "type": "integer",
             "minimum": -9007199254740991,
             "maximum": 9007199254740991
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 200,
+            "nullable": true
           }
         }
       },
@@ -8836,6 +8854,10 @@
               "teal",
               "green"
             ]
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 200
           }
         },
         "required": [
@@ -8888,6 +8910,11 @@
             "type": "integer",
             "minimum": -9007199254740991,
             "maximum": 9007199254740991
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 200,
+            "nullable": true
           },
           "description_hidden": {
             "type": "boolean"

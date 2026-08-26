@@ -3677,17 +3677,20 @@ export interface components {
     schemas: {
         CreateWorkspaceDto: {
             name: string;
+            description?: string;
             slug?: string;
         };
         UpdateWorkspaceDto: {
             name?: string;
             private_attachments?: boolean;
+            description?: string | null;
         };
         CreateSpaceDto: {
             name: string;
             icon?: string;
             /** @enum {string} */
             color?: "gray" | "brown" | "gold" | "orange" | "red" | "pink" | "purple" | "blue" | "teal" | "green";
+            description?: string;
         };
         UpdateSpaceDto: {
             name?: string;
@@ -3695,6 +3698,7 @@ export interface components {
             /** @enum {string|null} */
             color?: "gray" | "brown" | "gold" | "orange" | "red" | "pink" | "purple" | "blue" | "teal" | "green" | null;
             position?: number;
+            description?: string | null;
         };
         UpdateMemberDto: {
             /** @enum {string} */
@@ -3757,6 +3761,7 @@ export interface components {
             icon?: string;
             /** @enum {string} */
             color?: "gray" | "brown" | "gold" | "orange" | "red" | "pink" | "purple" | "blue" | "teal" | "green";
+            description?: string;
         };
         UpdateDatabaseDto: {
             name?: string;
@@ -3768,6 +3773,7 @@ export interface components {
             /** Format: uuid */
             folder_id?: string | null;
             position?: number;
+            description?: string | null;
             description_hidden?: boolean;
             description_order?: number | null;
         };

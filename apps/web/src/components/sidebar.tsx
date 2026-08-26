@@ -1686,7 +1686,11 @@ function DatabaseRow({
       )}
       {...(canDrag ? attributes : {})}
       {...(canDrag ? listeners : {})}
-      title={canDrag ? 'Drag to reorder' : undefined}
+      /* #400 — the purpose line is the tooltip when there is one. It beats
+         "Drag to reorder": the drag affordance is discoverable by trying it,
+         whereas what a database is FOR is discoverable nowhere else in the
+         sidebar. Falls back to the drag hint when undescribed. */
+      title={db.description || (canDrag ? 'Drag to reorder' : undefined)}
       /* #380 (follow-up) — the caret goes in the RESERVED gutter, not beside it, so a
          database with children lines up with one without. */
       caret={
