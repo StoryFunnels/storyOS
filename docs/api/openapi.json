@@ -9817,6 +9817,47 @@
                       "type": "string",
                       "format": "uuid",
                       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "layout": {
+                      "type": "object",
+                      "properties": {
+                        "order": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "w": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 12
+                        },
+                        "h": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 6
+                        }
+                      },
+                      "required": [
+                        "order",
+                        "w",
+                        "h"
+                      ]
+                    },
+                    "comparison": {
+                      "type": "object",
+                      "properties": {
+                        "target": {
+                          "type": "number"
+                        },
+                        "direction": {
+                          "default": "up",
+                          "type": "string",
+                          "enum": [
+                            "up",
+                            "down"
+                          ]
+                        }
+                      }
                     }
                   },
                   "required": [
@@ -9888,6 +9929,31 @@
                       "type": "string",
                       "format": "uuid",
                       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "layout": {
+                      "type": "object",
+                      "properties": {
+                        "order": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "w": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 12
+                        },
+                        "h": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 6
+                        }
+                      },
+                      "required": [
+                        "order",
+                        "w",
+                        "h"
+                      ]
                     }
                   },
                   "required": [
@@ -10243,6 +10309,47 @@
                       "type": "string",
                       "format": "uuid",
                       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "layout": {
+                      "type": "object",
+                      "properties": {
+                        "order": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "w": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 12
+                        },
+                        "h": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 6
+                        }
+                      },
+                      "required": [
+                        "order",
+                        "w",
+                        "h"
+                      ]
+                    },
+                    "comparison": {
+                      "type": "object",
+                      "properties": {
+                        "target": {
+                          "type": "number"
+                        },
+                        "direction": {
+                          "default": "up",
+                          "type": "string",
+                          "enum": [
+                            "up",
+                            "down"
+                          ]
+                        }
+                      }
                     }
                   },
                   "required": [
@@ -10314,6 +10421,31 @@
                       "type": "string",
                       "format": "uuid",
                       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "layout": {
+                      "type": "object",
+                      "properties": {
+                        "order": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "w": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 12
+                        },
+                        "h": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 6
+                        }
+                      },
+                      "required": [
+                        "order",
+                        "w",
+                        "h"
+                      ]
                     }
                   },
                   "required": [

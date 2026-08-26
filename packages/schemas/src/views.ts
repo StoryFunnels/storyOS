@@ -14,6 +14,80 @@ export type ViewType = z.infer<typeof viewTypeSchema>;
  * `field_api_name`; sum/avg/min/max aggregate the numeric values of the target
  * field (referenced by api_name, the same way filters/sorts reference fields).
  */
+/**
+ * Where a dashboard block sits, and how big it is (#386).
+ *
+ * A 12-column grid — divisible by 2, 3, 4 and 6, so halves, thirds and quarters
+ * are all expressible without fractions.
+ *
+ * **THE DECISION (#386 asks for it to be recorded): flow order + span, not free
+ * x/y.** A block declares how many columns and rows it occupies and where it
+ * comes in one ordered sequence; the grid flows them. It does NOT declare an
+ * absolute cell.
+ *
+ * Free x/y is what a "real" dashboard builder looks like, and it was rejected on
+ * one ground: it makes OVERLAP representable. Two blocks can be dropped on the
+ * same cell, and the only defences are a packing algorithm that shoves
+ * neighbours around (surprising — you move one tile and three others jump) or a
+ * validator that silently refuses the drop (a drag that does nothing reads as
+ * broken). Both are worse than the constraint. Flow order makes an overlapping
+ * dashboard *unrepresentable*, so there is no state to handle, no packing pass,
+ * and no way to save a layout that renders as a pile.
+ *
+ * What flow order costs: you cannot leave a deliberate gap. That is a real
+ * limitation and worth revisiting if anyone asks for it — nobody has, and #384's
+ * complaint was that everything is the same size in creation order, which this
+ * fixes completely.
+ *
+ * What it buys beyond safety: `order` is one sequence across BOTH tiles and
+ * widgets, which is what lets a chart sit beside the number it explains. The two
+ * arrays survive as storage; the render merges them. So the old structural rule
+ * ("all charts below all tiles") is gone with no migration.
+ *
+ * **Optional, and absent means source order at default size.** A dashboard saved
+ * before #386 renders exactly as it did — the same backward-compatibility shape
+ * #304 used for `database_id`, and #305's rule that unconfigured is not invalid.
+ */
+export const blockLayoutSchema = z.object({
+  /**
+   * Position in the single merged sequence. Ties break by the pre-#386 rule
+   * (all tiles, then all widgets, each in array order), so a dashboard where
+   * only SOME blocks have been arranged is still fully determined.
+   */
+  order: z.number().int().min(0),
+  /** Width in columns, 1-12. */
+  w: z.number().int().min(1).max(12),
+  /** Height in rows, 1-6. A row is a tile's natural height. */
+  h: z.number().int().min(1).max(6),
+});
+export type BlockLayout = z.infer<typeof blockLayoutSchema>;
+
+/**
+ * What a number is measured AGAINST (#388).
+ *
+ * "383" is not information; "383, up from 340 last week" is. Two devices cover
+ * it, and the target ships first deliberately: it is a single number in the
+ * config, needs no time-series reasoning, and covers the common case ("we want
+ * 20 leads this month"). A period comparison is the better feature and the
+ * larger one — it needs a date field, a second query, and a decision about what
+ * "the previous period" means for an already-filtered tile.
+ */
+export const tileComparisonSchema = z.object({
+  /** The number this tile is aiming at. */
+  target: z.number().optional(),
+  /**
+   * Which direction is GOOD.
+   *
+   * Not inferable, and getting it wrong is worse than saying nothing: more
+   * revenue is good, more overdue invoices is bad, and a confidently green
+   * "overdue up 40%" actively misleads. Defaults to `up`, which is the common
+   * case AND is stated in the UI so the assumption is visible rather than
+   * silent.
+   */
+  direction: z.enum(['up', 'down']).default('up'),
+});
+export type TileComparison = z.infer<typeof tileComparisonSchema>;
+
 export const dashboardTileSchema = z.object({
   id: z.uuid(),
   label: z.string().trim().max(100).default(''),
@@ -35,6 +109,10 @@ export const dashboardTileSchema = z.object({
    * never garbage-collected (#305's rule).
    */
   database_id: z.uuid().optional(),
+  /** #386 — where this tile sits. Absent = source order (pre-#386 dashboards). */
+  layout: blockLayoutSchema.optional(),
+  /** #388 — a target to measure the number against, so it supports a decision. */
+  comparison: tileComparisonSchema.optional(),
 });
 export type DashboardTile = z.infer<typeof dashboardTileSchema>;
 
@@ -86,6 +164,14 @@ export const dashboardWidgetSchema = z.object({
    * added here together with the render path that honours them.
    */
   database_id: z.uuid().optional(),
+  /**
+   * #386 — where this widget sits, on the SAME grid as the tiles.
+   *
+   * This is what lets a chart sit BESIDE the number it explains. The two arrays
+   * survive as storage, but they are rendered into one grid, so the old
+   * structural rule ("all charts below all tiles") is gone without a migration.
+   */
+  layout: blockLayoutSchema.optional(),
 });
 export type DashboardWidget = z.infer<typeof dashboardWidgetSchema>;
 

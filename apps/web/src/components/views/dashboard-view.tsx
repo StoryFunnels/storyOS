@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Filter as FilterIcon, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useDatabase, useMembers, useRecordsInfinite } from '../table-view/use-table-data';
 import { useDatabases } from '@/lib/queries';
+import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import type { FilterNode, ViewConfig, FilterGroup } from './use-view-state';
 import { andFilterNodes, queryBodyFromConfig } from './use-view-state';
@@ -16,10 +17,17 @@ import {
   formatTileValue,
   opLabel,
   opNeedsField,
+  targetProgress,
 } from './dashboard-tiles';
 import type { TileOp } from './dashboard-tiles';
 import { DashboardWidgetCard } from './dashboard-widgets';
 import type { DashboardWidget } from './dashboard-widgets';
+import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
+import type { DragEndEvent } from '@dnd-kit/core';
+import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable';
+import { DashboardBlockShell } from './dashboard-block-shell';
+import { mergeBlocks, reorderBlocks, splitBlocks } from './dashboard-layout';
+import type { BlockLayout } from '@storyos/schemas';
 
 /** One metric tile in a dashboard view's config (mirrors dashboardTileSchema). */
 export interface DashboardTile {
@@ -34,6 +42,10 @@ export interface DashboardTile {
    * so every dashboard saved before this renders identically with no migration.
    */
   database_id?: string;
+  /** #386 — where this tile sits and how big it is. Absent = source order. */
+  layout?: BlockLayout;
+  /** #388 — a target to measure the number against. */
+  comparison?: { target?: number; direction: 'up' | 'down' };
 }
 
 const SELECT_CLASS =
@@ -200,7 +212,271 @@ export function DashboardView({
     patchWidgets(widgets.filter((w) => w.id !== id));
   }
 
+  /**
+   * #386 — ONE ordered grid over both arrays.
+   *
+   * Tiles and widgets stay in their own config arrays (that is storage, and
+   * merging them would be a migration), but they are rendered as a single
+   * sequence. That is the whole point: the two-grid structure is what forced
+   * every chart below every tile, so a KPI could never sit next to the trend
+   * that explains it.
+   */
+  const blocks = useMemo(() => mergeBlocks(tiles, widgets), [tiles, widgets]);
+  const gridRef = useRef<HTMLDivElement | null>(null);
+  const dragSensors = useSensors(
+    // A small distance threshold so a click on the grip is still a click, and
+    // a stray 1px wobble while pressing a control never starts a drag.
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+  );
+
+  /** Write a reordered/resized sequence back to BOTH arrays in one patch. */
+  function commitBlocks(next: ReturnType<typeof mergeBlocks<DashboardTile, DashboardWidget>>) {
+    const split = splitBlocks(next);
+    // One onPatch, not two: two would be two view-config saves for a single
+    // drag, and the second could land on a stale config.
+    onPatch({ dashboard_tiles: split.tiles, dashboard_widgets: split.widgets });
+  }
+
+  function onBlockDragEnd(e: DragEndEvent) {
+    const { active, over } = e;
+    if (!over || active.id === over.id) return;
+    const from = blocks.findIndex((b) => b.id === active.id);
+    const to = blocks.findIndex((b) => b.id === over.id);
+    if (from < 0 || to < 0) return;
+    commitBlocks(reorderBlocks(blocks, from, to));
+  }
+
+  function resizeBlock(id: string, span: { w: number; h: number }) {
+    commitBlocks(
+      blocks.map((b) => (b.id === id ? { ...b, layout: { ...b.layout, ...span } } : b)),
+    );
+  }
+
   const isEmpty = tiles.length === 0 && widgets.length === 0;
+
+
+  /**
+   * One metric tile's card.
+   *
+   * Extracted from the JSX so #386's grid can render tiles and charts from the
+   * SAME merged sequence — inline in a `tiles.map` it could only ever appear in
+   * the tiles-only pass, which is the structure the ticket is removing.
+   */
+  function renderTile(tile: DashboardTile) {
+        const heading = tileHeading(tile);
+        const srcId = tileSourceId(tile);
+        return (
+          <div
+            key={tile.id}
+            /* `h-full` — the grid ITEM stretches to the row, but the card inside
+               it does not, so a tile with no target (and therefore no progress
+               row) rendered visibly shorter than its neighbours. Cards in a row
+               must share a height or the grid reads as broken. */
+            className="flex h-full flex-col gap-3 rounded-[var(--radius-control)] border border-border-default bg-card p-4"
+          >
+            <div className="flex items-start justify-between gap-2">
+              {/* #387 — `title` carries the full text: tiles are 220px and a
+                  database name longer than a few words truncates, at which
+                  point hover is the only way to read it. */}
+              <span className="truncate text-[13px] font-medium text-muted" title={heading}>
+                {heading}
+              </span>
+              {/* #385 — a permanently visible destructive control on a page you
+                  are only reading is its own small hazard, so the delete leaves
+                  view mode entirely rather than merely being discouraged. */}
+              {showEditor && (
+                <button
+                  type="button"
+                  title="Remove tile"
+                  onClick={() => removeTile(tile.id)}
+                  className="shrink-0 rounded p-0.5 text-faint hover:bg-hover hover:text-danger"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+            <span className="text-3xl font-semibold tabular-nums text-ink">
+              <TileValue ws={ws} db={db} config={config} personalFilter={personalFilter} tile={tile} />
+            </span>
+
+            {/* #387 — provenance, quietly, in VIEW mode.
+                The source database used to be visible only because the editor
+                was permanently open; #385 hides that dropdown, so without this
+                line view mode would be less informative than the bug. The
+                filter marker matters just as much: a filtered count and an
+                unfiltered one look identical and can differ by an order of
+                magnitude, which is the difference between a number you trust
+                and one you go and verify. */}
+            {!showEditor && srcId && (
+              <span className="flex items-center gap-1 text-[11px] text-faint">
+                <span className="truncate" title={sourceName(srcId)}>{sourceName(srcId)}</span>
+                {tile.filter != null && (
+                  <span className="flex shrink-0 items-center gap-0.5" title="This tile has its own filter">
+                    <FilterIcon className="h-2.5 w-2.5" />
+                    filtered
+                  </span>
+                )}
+              </span>
+            )}
+
+            {showEditor && (
+              <div className="flex flex-col gap-1.5 border-t border-border-default pt-2">
+                <input
+                  aria-label="Tile label"
+                  placeholder={defaultTileLabel(tile.op, fieldName.get(tile.field_api_name ?? ''))}
+                  value={tile.label}
+                  onChange={(e) => updateTile(tile.id, { label: e.target.value })}
+                  className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink placeholder:text-faint"
+                />
+                {/* #304 — what this tile measures. Scoped to the dashboard's own
+                    SPACE in v1: offering a picker wider than the access story is
+                    how the leak gets built (#306 defers workspace-root for the
+                    same reason). */}
+                <select
+                  aria-label="Tile source database"
+                  value={tile.database_id ?? db ?? ''}
+                  onChange={(e) => {
+                    const picked = e.target.value;
+                    const next = picked === '' || picked === db ? undefined : picked;
+                    if ((tile.database_id ?? db ?? '') === (next ?? db ?? '')) return;
+                    // The filter references the OLD database's fields by
+                    // api_name. Keeping it would query the new database with
+                    // columns it does not have — a tile that looks configured and
+                    // measures nothing, which is the exact failure this ticket
+                    // exists to end. Clearing it silently would lose the user's
+                    // work with no warning, so: clear, and say so.
+                    const hadFilter = tile.filter != null;
+                    updateTile(tile.id, { database_id: next, filter: undefined, field_api_name: undefined });
+                    if (hadFilter) {
+                      toast.info(`Filter cleared — it referred to ${sourceName(tile.database_id ?? db ?? '')}'s fields.`);
+                    }
+                  }}
+                  className={SELECT_CLASS}
+                >
+                  {sourceOptions.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.name}
+                    </option>
+                  ))}
+                </select>
+                {/* #304 — this tile's own scope. The SAME builder the view toolbar
+                    uses (one filter spec, one UI), so a tile can measure a slice
+                    instead of every tile repeating the view's total. No viewId is
+                    passed: Personal scope is a per-VIEW override, not a per-tile one.
+
+                    Only offered for a tile on the view's OWN database: this
+                    builder needs that database's field list, and handing it the
+                    wrong one produces conditions the query cannot honour. A
+                    cross-database tile filters by choosing its source for now. */}
+                {db != null && (tile.database_id ?? db) === db && (
+                  <FiltersSection
+                    ws={ws}
+                    db={db}
+                    fields={fields}
+                    members={memberList}
+                    filters={tile.filter as FilterGroup | undefined}
+                    onChange={(filter) => updateTile(tile.id, { filter: filter as FilterNode | undefined })}
+                  />
+                )}
+                <div className="flex gap-1.5">
+                  <select
+                    aria-label="Aggregation"
+                    value={tile.op}
+                    onChange={(e) => {
+                      const op = e.target.value as TileOp;
+                      // Moving to a numeric op with no field yet? Default to the first number field.
+                      const field_api_name = opNeedsField(op)
+                        ? tile.field_api_name ?? numberFields[0]?.apiName
+                        : undefined;
+                      updateTile(tile.id, { op, field_api_name });
+                    }}
+                    className={SELECT_CLASS}
+                  >
+                    {TILE_OPS.map((op) => (
+                      <option key={op} value={op}>
+                        {opLabel(op)}
+                      </option>
+                    ))}
+                  </select>
+                  {opNeedsField(tile.op) && (
+                    <select
+                      aria-label="Field"
+                      value={tile.field_api_name ?? ''}
+                      onChange={(e) => updateTile(tile.id, { field_api_name: e.target.value || undefined })}
+                      className={`${SELECT_CLASS} min-w-0 flex-1`}
+                    >
+                      <option value="">Select a number field…</option>
+                      {numberFields.map((f) => (
+                        <option key={f.id} value={f.apiName}>
+                          {f.displayName}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+                {opNeedsField(tile.op) && numberFields.length === 0 && (
+                  <span className="text-[11px] text-faint">This database has no number fields to aggregate.</span>
+                )}
+
+                {/* #388 — a target, so the number supports a decision.
+                    The TARGET ships and the period comparison does not: a target
+                    is one number in the config with no time-series reasoning
+                    behind it, and it covers the common case ("we want 20 leads
+                    this month"). A comparison needs a date field, a second query
+                    and a decision about what "the previous period" means for an
+                    already-filtered tile — a bigger feature, recorded on the
+                    ticket rather than half-built here. */}
+                {/* Stacked, not side by side. A tile is 3 of 12 columns — about
+                    180px — and a number input beside a select overflows the card
+                    at that width, which is what it did on first render. */}
+                <div className="flex flex-col gap-1.5">
+                  <input
+                    type="number"
+                    aria-label="Target"
+                    placeholder="Target (optional)"
+                    value={tile.comparison?.target ?? ''}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      // Empty clears the whole comparison rather than storing a
+                      // target of 0 — which would otherwise read as "we are
+                      // aiming at nothing" and divide to Infinity.
+                      if (raw === '') return updateTile(tile.id, { comparison: undefined });
+                      const target = Number(raw);
+                      if (!Number.isFinite(target)) return;
+                      updateTile(tile.id, {
+                        comparison: { target, direction: tile.comparison?.direction ?? 'up' },
+                      });
+                    }}
+                    className="h-8 w-full min-w-0 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink placeholder:text-faint"
+                  />
+                  {tile.comparison?.target != null && (
+                    <select
+                      aria-label="Which direction is good"
+                      value={tile.comparison.direction}
+                      onChange={(e) =>
+                        updateTile(tile.id, {
+                          comparison: {
+                            target: tile.comparison?.target,
+                            direction: e.target.value as 'up' | 'down',
+                          },
+                        })
+                      }
+                      className={`${SELECT_CLASS} w-full min-w-0`}
+                      /* Stated, not inferred. More revenue is good; more overdue
+                         invoices is bad. A wrong guess here colours a bad number
+                         green, which is worse than no colour at all. */
+                      title="Is a higher number good, or is the target a limit?"
+                    >
+                      <option value="up">Higher is better</option>
+                      <option value="down">Target is a limit</option>
+                    </select>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+  }
 
   return (
     <div className="h-full overflow-auto p-4">
@@ -233,208 +509,80 @@ export function DashboardView({
         </div>
       )}
 
-      <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
-        {tiles.map((tile) => {
-          const heading = tileHeading(tile);
-          const srcId = tileSourceId(tile);
-          return (
-            <div
-              key={tile.id}
-              className="flex flex-col gap-3 rounded-[var(--radius-control)] border border-border-default bg-card p-4"
-            >
-              <div className="flex items-start justify-between gap-2">
-                {/* #387 — `title` carries the full text: tiles are 220px and a
-                    database name longer than a few words truncates, at which
-                    point hover is the only way to read it. */}
-                <span className="truncate text-[13px] font-medium text-muted" title={heading}>
-                  {heading}
-                </span>
-                {/* #385 — a permanently visible destructive control on a page you
-                    are only reading is its own small hazard, so the delete leaves
-                    view mode entirely rather than merely being discouraged. */}
-                {showEditor && (
-                  <button
-                    type="button"
-                    title="Remove tile"
-                    onClick={() => removeTile(tile.id)}
-                    className="shrink-0 rounded p-0.5 text-faint hover:bg-hover hover:text-danger"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                )}
-              </div>
-              <span className="text-3xl font-semibold tabular-nums text-ink">
-                <TileValue ws={ws} db={db} config={config} personalFilter={personalFilter} tile={tile} />
-              </span>
+      {/*
+        #386 — a single 12-column grid for BOTH tiles and charts.
 
-              {/* #387 — provenance, quietly, in VIEW mode.
-                  The source database used to be visible only because the editor
-                  was permanently open; #385 hides that dropdown, so without this
-                  line view mode would be less informative than the bug. The
-                  filter marker matters just as much: a filtered count and an
-                  unfiltered one look identical and can differ by an order of
-                  magnitude, which is the difference between a number you trust
-                  and one you go and verify. */}
-              {!showEditor && srcId && (
-                <span className="flex items-center gap-1 text-[11px] text-faint">
-                  <span className="truncate" title={sourceName(srcId)}>{sourceName(srcId)}</span>
-                  {tile.filter != null && (
-                    <span className="flex shrink-0 items-center gap-0.5" title="This tile has its own filter">
-                      <FilterIcon className="h-2.5 w-2.5" />
-                      filtered
-                    </span>
-                  )}
-                </span>
-              )}
-
-              {showEditor && (
-                <div className="flex flex-col gap-1.5 border-t border-border-default pt-2">
-                  <input
-                    aria-label="Tile label"
-                    placeholder={defaultTileLabel(tile.op, fieldName.get(tile.field_api_name ?? ''))}
-                    value={tile.label}
-                    onChange={(e) => updateTile(tile.id, { label: e.target.value })}
-                    className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink placeholder:text-faint"
+        The narrow-screen rule lives in `.dashboard-grid` (globals.css), not
+        here. `grid-cols-1` alone does NOT collapse the blocks: a child spanning
+        6 in a one-column grid creates five IMPLICIT columns rather than
+        clamping, so a phone still gets tiles side by side. Verified at 375px in
+        a real browser — the first version of this shipped that bug.
+      */}
+      <DndContext sensors={dragSensors} collisionDetection={closestCenter} onDragEnd={onBlockDragEnd}>
+        <SortableContext items={blocks.map((b) => b.id)} strategy={rectSortingStrategy}>
+          <div
+            ref={gridRef}
+            className="dashboard-grid grid grid-cols-1 gap-3 md:grid-cols-12"
+            style={{ gridAutoRows: 'minmax(120px, auto)' }}
+          >
+            {blocks.map((block) => (
+              <DashboardBlockShell
+                key={block.id}
+                id={block.id}
+                layout={block.layout}
+                editing={showEditor}
+                gridRef={gridRef}
+                onResize={(span) => resizeBlock(block.id, span)}
+              >
+                {block.kind === 'tile' ? (
+                  renderTile(block.tile!)
+                ) : (
+                  <DashboardWidgetCard
+                    ws={ws}
+                    db={db}
+                    config={config}
+                    personalFilter={personalFilter}
+                    sourceOptions={sourceOptions}
+                    members={memberList}
+                    widget={block.widget!}
+                    showConfig={showEditor}
+                    onPatch={(patch) => updateWidget(block.widget!.id, patch)}
+                    onRemove={() => removeWidget(block.widget!.id)}
                   />
-                  {/* #304 — what this tile measures. Scoped to the dashboard's own
-                      SPACE in v1: offering a picker wider than the access story is
-                      how the leak gets built (#306 defers workspace-root for the
-                      same reason). */}
-                  <select
-                    aria-label="Tile source database"
-                    value={tile.database_id ?? db ?? ''}
-                    onChange={(e) => {
-                      const picked = e.target.value;
-                      const next = picked === '' || picked === db ? undefined : picked;
-                      if ((tile.database_id ?? db ?? '') === (next ?? db ?? '')) return;
-                      // The filter references the OLD database's fields by
-                      // api_name. Keeping it would query the new database with
-                      // columns it does not have — a tile that looks configured and
-                      // measures nothing, which is the exact failure this ticket
-                      // exists to end. Clearing it silently would lose the user's
-                      // work with no warning, so: clear, and say so.
-                      const hadFilter = tile.filter != null;
-                      updateTile(tile.id, { database_id: next, filter: undefined, field_api_name: undefined });
-                      if (hadFilter) {
-                        toast.info(`Filter cleared — it referred to ${sourceName(tile.database_id ?? db ?? '')}'s fields.`);
-                      }
-                    }}
-                    className={SELECT_CLASS}
-                  >
-                    {sourceOptions.map((o) => (
-                      <option key={o.id} value={o.id}>
-                        {o.name}
-                      </option>
-                    ))}
-                  </select>
-                  {/* #304 — this tile's own scope. The SAME builder the view toolbar
-                      uses (one filter spec, one UI), so a tile can measure a slice
-                      instead of every tile repeating the view's total. No viewId is
-                      passed: Personal scope is a per-VIEW override, not a per-tile one.
+                )}
+              </DashboardBlockShell>
+            ))}
+          </div>
+        </SortableContext>
+      </DndContext>
 
-                      Only offered for a tile on the view's OWN database: this
-                      builder needs that database's field list, and handing it the
-                      wrong one produces conditions the query cannot honour. A
-                      cross-database tile filters by choosing its source for now. */}
-                  {db != null && (tile.database_id ?? db) === db && (
-                    <FiltersSection
-                      ws={ws}
-                      db={db}
-                      fields={fields}
-                      members={memberList}
-                      filters={tile.filter as FilterGroup | undefined}
-                      onChange={(filter) => updateTile(tile.id, { filter: filter as FilterNode | undefined })}
-                    />
-                  )}
-                  <div className="flex gap-1.5">
-                    <select
-                      aria-label="Aggregation"
-                      value={tile.op}
-                      onChange={(e) => {
-                        const op = e.target.value as TileOp;
-                        // Moving to a numeric op with no field yet? Default to the first number field.
-                        const field_api_name = opNeedsField(op)
-                          ? tile.field_api_name ?? numberFields[0]?.apiName
-                          : undefined;
-                        updateTile(tile.id, { op, field_api_name });
-                      }}
-                      className={SELECT_CLASS}
-                    >
-                      {TILE_OPS.map((op) => (
-                        <option key={op} value={op}>
-                          {opLabel(op)}
-                        </option>
-                      ))}
-                    </select>
-                    {opNeedsField(tile.op) && (
-                      <select
-                        aria-label="Field"
-                        value={tile.field_api_name ?? ''}
-                        onChange={(e) => updateTile(tile.id, { field_api_name: e.target.value || undefined })}
-                        className={`${SELECT_CLASS} min-w-0 flex-1`}
-                      >
-                        <option value="">Select a number field…</option>
-                        {numberFields.map((f) => (
-                          <option key={f.id} value={f.apiName}>
-                            {f.displayName}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                  </div>
-                  {opNeedsField(tile.op) && numberFields.length === 0 && (
-                    <span className="text-[11px] text-faint">This database has no number fields to aggregate.</span>
-                  )}
-                </div>
-              )}
-            </div>
-          );
-        })}
+      {/* #385 — the add controls leave view mode, EXCEPT on an empty dashboard.
+          "A dashboard with no tiles still offers a way to add one" is explicit in
+          the ticket: an empty dashboard with no way forward is worse than the
+          problem being fixed.
 
-        {/* #385 — the dashed add-placeholders leave view mode, EXCEPT on an empty
-            dashboard. "A dashboard with no tiles still offers a way to add one"
-            is explicit in the ticket, and for good reason: an empty dashboard
-            with no way forward is worse than the problem being fixed. */}
-        {!readOnly && (editing || isEmpty) && (
+          #386 moved them OUT of the grid. As grid children they were blocks
+          competing for a span, which meant the arrangement shifted the moment
+          you entered edit mode — the layout you were about to adjust was not the
+          layout you had been looking at. */}
+      {!readOnly && (editing || isEmpty) && (
+        <div className="mt-3 flex flex-wrap gap-2">
           <button
             type="button"
             onClick={addTile}
-            className="flex min-h-[120px] flex-col items-center justify-center gap-1 rounded-[var(--radius-control)] border border-dashed border-border-default text-[13px] text-muted hover:border-[var(--accent)] hover:text-ink"
+            className="flex items-center gap-1 rounded-[var(--radius-control)] border border-dashed border-border-default px-3 py-2 text-[13px] text-muted hover:border-[var(--accent)] hover:text-ink"
           >
             <Plus className="h-4 w-4" />
             Add tile
           </button>
-        )}
-      </div>
-
-      {(widgets.length > 0 || !readOnly) && (
-        <div className="mt-4 grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))' }}>
-          {widgets.map((widget) => (
-            <DashboardWidgetCard
-              key={widget.id}
-              ws={ws}
-              db={db}
-              config={config}
-              personalFilter={personalFilter}
-              sourceOptions={sourceOptions}
-              members={memberList}
-              widget={widget}
-              showConfig={showEditor}
-              onPatch={(patch) => updateWidget(widget.id, patch)}
-              onRemove={() => removeWidget(widget.id)}
-            />
-          ))}
-
-          {!readOnly && (editing || isEmpty) && (
-            <button
-              type="button"
-              onClick={addWidget}
-              className="flex min-h-[120px] flex-col items-center justify-center gap-1 rounded-[var(--radius-control)] border border-dashed border-border-default text-[13px] text-muted hover:border-[var(--accent)] hover:text-ink"
-            >
-              <Plus className="h-4 w-4" />
-              Add chart
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={addWidget}
+            className="flex items-center gap-1 rounded-[var(--radius-control)] border border-dashed border-border-default px-3 py-2 text-[13px] text-muted hover:border-[var(--accent)] hover:text-ink"
+          >
+            <Plus className="h-4 w-4" />
+            Add chart
+          </button>
         </div>
       )}
     </div>
@@ -530,5 +678,47 @@ function TileValue({
       </span>
     );
   }
-  return <>{formatTileValue(computeTileValue(tile.op, tile.field_api_name, rows))}</>;
+  const value = computeTileValue(tile.op, tile.field_api_name, rows);
+  /*
+   * #388 — the target, when there is one and it can be computed honestly.
+   * `targetProgress` returns null for a missing value, a missing target or a
+   * zero target, so a tile never reports "0% of target" while still loading or
+   * "∞% of target" against a target of nothing.
+   */
+  const progress = targetProgress(value, tile.comparison?.target, tile.comparison?.direction ?? 'up');
+  if (!progress) return <>{formatTileValue(value)}</>;
+  return (
+    <span className="flex flex-col gap-1">
+      <span className="flex items-baseline gap-1.5">
+        {formatTileValue(value)}
+        <span
+          className={cn(
+            'text-[12px] font-medium',
+            /* Semantic, NOT the brand accent: good/bad/neutral is a different
+               scale from "this is interactive", and #388 requires it legible in
+               both themes. These three tokens are already theme-aware. */
+            progress.tone === 'good' && 'text-success',
+            progress.tone === 'bad' && 'text-danger',
+            progress.tone === 'neutral' && 'text-muted',
+          )}
+        >
+          {Math.round(progress.percent)}%
+        </span>
+      </span>
+      <span className="flex items-center gap-1.5">
+        <span className="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-hover">
+          <span
+            className={cn(
+              'block h-full rounded-full',
+              progress.tone === 'good' && 'bg-success',
+              progress.tone === 'bad' && 'bg-danger',
+              progress.tone === 'neutral' && 'bg-muted',
+            )}
+            style={{ width: `${progress.ratio * 100}%` }}
+          />
+        </span>
+        <span className="shrink-0 text-[11px] font-normal text-faint">{progress.label}</span>
+      </span>
+    </span>
+  );
 }
