@@ -1647,3 +1647,218 @@ describe('stringified arguments are coerced at the schema boundary', () => {
     expect(coerceInputSchema(null)).toBeNull();
   });
 });
+
+/**
+ * #400 / #398 — the purpose line and the colour/option gaps.
+ *
+ * Driven through the real handlers, like the query_records block above, because
+ * both tickets are about what actually reaches the API. #400's acceptance note is
+ * explicit that "a description that exists but is not returned by the listing
+ * tools is a failed acceptance", and #398's is that an option edit must be
+ * non-destructive — neither is provable by reading the input schema.
+ */
+describe('descriptions and option editing over MCP (#400, #398)', () => {
+  const optionsFixture = [
+    { id: 'opt-todo', label: 'To Do', color: 'gray' },
+    { id: 'opt-doing', label: 'Doing', color: 'gray' },
+  ];
+  const describedDb = {
+    id: 'db-1',
+    name: 'Voices',
+    description: 'Tone-of-voice profiles we write in, one per publication.',
+    qualifiedSlug: 'content/voices',
+    spaceSlug: 'content',
+    apiSlug: 'voices',
+    fields: [
+      { id: 'f-state', apiName: 'state', displayName: 'State', type: 'workflow', options: optionsFixture },
+      { id: 'f-title', apiName: 'title', displayName: 'Title', type: 'title' },
+    ],
+  };
+
+  /** Every request the tools made, so we can assert on the wire, not the intent. */
+  interface Sent {
+    method: string;
+    path: string;
+    body?: unknown;
+    params?: unknown;
+  }
+
+  function makeCtx(sent: Sent[], dbOverride?: Record<string, unknown>): Ctx {
+    const db = { ...describedDb, ...dbOverride };
+    const client = {
+      GET: async (path: string) => {
+        if (path === '/api/v1/workspaces') return { data: [{ id: 'ws-1', name: 'Eng' }] };
+        if (path === '/api/v1/workspaces/{ws}/databases') return { data: [db] };
+        if (path === '/api/v1/workspaces/{ws}/databases/{db}') return { data: db };
+        if (path === '/api/v1/workspaces/{ws}/spaces')
+          return { data: [{ id: 'sp-1', name: 'Content', slug: 'content', description: 'All the writing.' }] };
+        throw new Error(`unexpected GET ${path}`);
+      },
+      PATCH: async (path: string, opts: { body: unknown; params: unknown }) => {
+        sent.push({ method: 'PATCH', path, body: opts.body, params: opts.params });
+        return { data: { ok: true } };
+      },
+      DELETE: async (path: string, opts: { body: unknown; params: unknown }) => {
+        sent.push({ method: 'DELETE', path, body: opts.body, params: opts.params });
+        return { data: { ok: true } };
+      },
+      POST: async (path: string, opts: { body: unknown }) => {
+        sent.push({ method: 'POST', path, body: opts.body });
+        return { data: { ok: true } };
+      },
+    };
+    return { client: client as never, baseUrl: 'http://test', token: 'tok' };
+  }
+
+  function harness(dbOverride?: Record<string, unknown>) {
+    const sent: Sent[] = [];
+    const handlers = new Map<string, (args: unknown) => Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }>>();
+    registerTools(
+      { registerTool: (name: string, _c: unknown, h: never) => void handlers.set(name, h as never) } as never,
+      makeCtx(sent, dbOverride),
+    );
+    const call = async (tool: string, args: unknown) => {
+      const res = await handlers.get(tool)!(args);
+      if (res.isError) throw new Error(res.content[0]!.text);
+      return JSON.parse(res.content[0]!.text) as never;
+    };
+    return { call, sent };
+  }
+
+  describe('#400 — the description reaches the reader', () => {
+    it('describe_database returns it', async () => {
+      const { call } = harness();
+      const out = await call('describe_database', { workspace: 'Eng', database: 'Voices' }) as {
+        description?: string;
+      };
+      expect(out.description).toBe('Tone-of-voice profiles we write in, one per publication.');
+    });
+
+    it('list_databases returns it — the listing an agent reads before choosing a target', async () => {
+      const { call } = harness();
+      const out = (await call('list_databases', { workspace: 'Eng' })) as Array<{ description?: string }>;
+      expect(out[0]!.description).toBe('Tone-of-voice profiles we write in, one per publication.');
+    });
+
+    it('list_spaces returns it', async () => {
+      const { call } = harness();
+      const out = (await call('list_spaces', { workspace: 'Eng' })) as Array<{ description?: string }>;
+      expect(out[0]!.description).toBe('All the writing.');
+    });
+
+    it('OMITS the key entirely when there is none, rather than emitting description: null', async () => {
+      // An explicit null on every row of a listing an agent reads on every task
+      // is pure noise, and "absent" already reads as "nobody has said".
+      const { call } = harness({ description: null });
+      const listed = (await call('list_databases', { workspace: 'Eng' })) as Array<Record<string, unknown>>;
+      expect('description' in listed[0]!).toBe(false);
+    });
+
+    it('update_database sends a null description through — null CLEARS, it is not "falsy so skip"', async () => {
+      const { call, sent } = harness();
+      await call('update_database', { workspace: 'Eng', database: 'Voices', description: null });
+      const patch = sent.find((s) => s.method === 'PATCH')!;
+      expect(patch.body).toEqual({ description: null });
+    });
+  });
+
+  describe('#398 — colour and option editing', () => {
+    it('still moves a database between spaces — colour/description did not displace it', async () => {
+      /*
+       * Regression. Adding `color` and `description` to update_database rewrote
+       * this handler's body-building block and dropped the `move_to_space` line
+       * outright; lint noticed only because the argument became unused. Nothing
+       * else would have — the tool would have accepted move_to_space, reported
+       * success, and moved nothing.
+       */
+      const { call, sent } = harness();
+      await call('update_database', {
+        workspace: 'Eng',
+        database: 'Voices',
+        move_to_space: 'Content',
+      });
+      expect(sent.find((s) => s.method === 'PATCH')!.body).toEqual({ space_id: 'sp-1' });
+    });
+
+    it('update_database forwards a colour', async () => {
+      const { call, sent } = harness();
+      await call('update_database', { workspace: 'Eng', database: 'Voices', color: 'teal' });
+      expect(sent.find((s) => s.method === 'PATCH')!.body).toEqual({ color: 'teal' });
+    });
+
+    it('recolours an EXISTING option, addressed by its label', async () => {
+      /*
+       * By label, not id: describe_database shows an agent labels and colours and
+       * never option ids, so requiring an id would demand something the read path
+       * does not emit — the #332 bug one level down.
+       */
+      const { call, sent } = harness();
+      await call('update_field', {
+        workspace: 'Eng',
+        database: 'Voices',
+        field: 'state',
+        update_options: [{ option: 'To Do', color: 'blue' }],
+      });
+      const patch = sent.find((s) => s.method === 'PATCH')!;
+      expect(patch.path).toBe('/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/options/{option}');
+      expect((patch.params as { path: { option: string } }).path.option).toBe('opt-todo');
+      expect(patch.body).toEqual({ color: 'blue' });
+    });
+
+    it('sends ONLY the keys given — a recolour must not blank the label', async () => {
+      // The whole non-destructiveness claim rests on this: a PATCH carrying
+      // `label: undefined` would be a rename to nothing.
+      const { call, sent } = harness();
+      await call('update_field', {
+        workspace: 'Eng',
+        database: 'Voices',
+        field: 'state',
+        update_options: [{ option: 'Doing', color: 'green' }],
+      });
+      expect(sent.find((s) => s.method === 'PATCH')!.body).toEqual({ color: 'green' });
+    });
+
+    it('names the real options when asked for one that does not exist', async () => {
+      const { call } = harness();
+      await expect(
+        call('update_field', {
+          workspace: 'Eng',
+          database: 'Voices',
+          field: 'state',
+          update_options: [{ option: 'Blocked', color: 'red' }],
+        }),
+      ).rejects.toThrow(/To Do, Doing/);
+    });
+
+    it('removing an option does NOT auto-confirm — the refusal carries the usage count', async () => {
+      /*
+       * Defaulting confirm to true would silently destroy record values. The API
+       * answers an unconfirmed delete with the number of records still holding the
+       * option, which is exactly the sentence a user needs BEFORE it happens
+       * (#398: "Removing an option states what happens to records that hold it").
+       */
+      const { call, sent } = harness();
+      await call('update_field', {
+        workspace: 'Eng',
+        database: 'Voices',
+        field: 'state',
+        remove_options: [{ option: 'Doing' }],
+      });
+      expect(sent.find((s) => s.method === 'DELETE')!.body).toEqual({ confirm: false });
+    });
+
+    it('resolves reassign_to by label as well, so holders can be moved rather than cleared', async () => {
+      const { call, sent } = harness();
+      await call('update_field', {
+        workspace: 'Eng',
+        database: 'Voices',
+        field: 'state',
+        remove_options: [{ option: 'Doing', confirm: true, reassign_to: 'To Do' }],
+      });
+      expect(sent.find((s) => s.method === 'DELETE')!.body).toEqual({
+        confirm: true,
+        reassign_to: 'opt-todo',
+      });
+    });
+  });
+});

@@ -101,6 +101,8 @@ export const workspaces = pgTable('workspaces', {
   id: uuid('id').primaryKey().defaultRandom(),
   name: text('name').notNull(),
   slug: text('slug').notNull().unique(),
+  /** #400 — one line: what this company is doing here. Null = never described. */
+  description: text('description'),
   settings: jsonb('settings').notNull().default({}),
   ...timestamps,
 });
@@ -117,6 +119,8 @@ export const spaces = pgTable(
     slug: text('slug').notNull(),
     icon: text('icon'),
     color: text('color'),
+    /** #400 — one line: what this area of work is. Null = never described. */
+    description: text('description'),
     position: integer('position').notNull().default(0),
     /**
      * #291 — a PERSONAL space: visible only to `ownerUserId`, including to admins
@@ -232,6 +236,17 @@ export const databases = pgTable(
     name: text('name').notNull(),
     icon: text('icon'),
     color: text('color'),
+    /**
+     * #400 — one line: what belongs in this table. Null = never described.
+     *
+     * NOT related to `descriptionHidden`/`descriptionOrder` below, despite the
+     * shared prefix. Those configure the RECORD description (#310) — a versioned
+     * `documents` row rendered on each record's page. This column is the
+     * DATABASE's own purpose line, read by `list_databases`/`describe_database`
+     * so an agent knows what a table is FOR without inferring it from column
+     * names. Two unrelated concepts, adjacent by an accident of naming.
+     */
+    description: text('description'),
     apiSlug: text('api_slug').notNull(),
     position: integer('position').notNull().default(0),
     /** Allocator for per-database sequential public record numbers (MN-087). */

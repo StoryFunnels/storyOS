@@ -1,6 +1,7 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import { normalizeIconInput } from '@storyos/schemas/icons';
+import { normalizeDescription } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { spaces } from '../db/schema';
@@ -42,7 +43,10 @@ export class SpacesService {
     }
   }
 
-  async create(workspaceId: string, input: { name: string; icon?: string; color?: string }) {
+  async create(
+    workspaceId: string,
+    input: { name: string; icon?: string; color?: string; description?: string },
+  ) {
     const existing = await this.db.query.spaces.findMany({
       where: eq(spaces.workspaceId, workspaceId),
     });
@@ -54,7 +58,17 @@ export class SpacesService {
     const icon = normalizeIconInput(input.icon, input.name);
     const [space] = await this.db
       .insert(spaces)
-      .values({ workspaceId, name: input.name, slug, icon, color: input.color, position })
+      .values({
+        workspaceId,
+        name: input.name,
+        slug,
+        icon,
+        color: input.color,
+        // #400 — same choke-point reasoning as `icon` above: packs and templates
+        // build spaces by calling this service, bypassing createSpaceSchema.
+        description: normalizeDescription(input.description) ?? null,
+        position,
+      })
       .returning();
     return space!;
   }
@@ -62,7 +76,13 @@ export class SpacesService {
   async update(
     workspaceId: string,
     spaceId: string,
-    patch: { name?: string; icon?: string | null; color?: string | null; position?: number },
+    patch: {
+      name?: string;
+      icon?: string | null;
+      color?: string | null;
+      position?: number;
+      description?: string | null;
+    },
   ) {
     let icon = patch.icon;
     if (icon !== undefined && icon !== null) {
@@ -81,7 +101,16 @@ export class SpacesService {
     }
     const [space] = await this.db
       .update(spaces)
-      .set({ ...patch, icon })
+      .set({
+        ...patch,
+        icon,
+        // Spread first, then override — a raw `patch.description` reaching the
+        // column unnormalized is exactly the drift the service choke point exists
+        // to prevent. Omitted keys stay omitted (`undefined` = leave alone).
+        ...(patch.description !== undefined
+          ? { description: normalizeDescription(patch.description) }
+          : {}),
+      })
       .where(and(eq(spaces.id, spaceId), eq(spaces.workspaceId, workspaceId)))
       .returning();
     if (!space) throw new NotFoundException('Space not found');

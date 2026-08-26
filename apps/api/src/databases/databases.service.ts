@@ -12,7 +12,7 @@ import { AccessService } from '../access/access.service';
 import type { EffectiveRole } from '../access/access.service';
 import { cleanViewConfig } from '../views/views.service';
 import { presentFieldConfig } from '../common/webhook-headers';
-import type { ViewConfig } from '@storyos/schemas';
+import { normalizeDescription, type ViewConfig } from '@storyos/schemas';
 
 export function slugify(name: string): string {
   return (
@@ -253,6 +253,8 @@ export class DatabasesService {
       name: string;
       icon?: string;
       color?: string;
+      /** #400 — what belongs in this table, in one line. */
+      description?: string;
       /**
        * #317/#318/#319 — set ONLY by a service provisioning its own database
        * (the Members projection, the Agentic OS pack). Never settable over
@@ -308,6 +310,10 @@ export class DatabasesService {
               // relation chips always have something to render; the icon-picker
               // swatch UI (update()) can still override it manually afterward.
               color: input.color ?? randomDatabaseColor(),
+              // #400: normalized in the service for the same reason `icon` is —
+              // packs, templates and the Architect build databases by calling
+              // here, never through createDatabaseSchema.
+              description: normalizeDescription(input.description) ?? null,
               apiSlug,
               position,
               isSystem: input.is_system ?? false,
@@ -392,7 +398,10 @@ export class DatabasesService {
       space_id?: string;
       folder_id?: string | null;
       position?: number;
-      /** #310 — the description block's visibility + position on the record page. */
+      /** #400 — the DATABASE's own purpose line; null clears it. */
+      description?: string | null;
+      /** #310 — the RECORD description block's visibility + position. A different
+       *  thing entirely from `description` above; see the schema comment. */
       description_hidden?: boolean;
       description_order?: number | null;
     },
@@ -427,6 +436,9 @@ export class DatabasesService {
         name: patch.name,
         icon,
         color: patch.color === null ? null : patch.color,
+        ...(patch.description !== undefined
+          ? { description: normalizeDescription(patch.description) }
+          : {}),
         spaceId: patch.space_id,
         apiSlug,
         folderId: patch.folder_id,

@@ -28,6 +28,25 @@ import {
   type TriggerInput,
 } from './automations.js';
 
+/**
+ * #400 — the purpose line, shared by every level that carries one.
+ *
+ * Worded to tell an agent WHY to set it, not just that it may: a description is
+ * the cheapest context the product can give the next reader (human or model),
+ * and an agent that has just been told what to build already has the sentence in
+ * hand. Left unset, the sentence is thrown away at the only moment it existed.
+ */
+const DESCRIPTION_PARAM =
+  'One line (max 200 chars) saying what this is FOR — read by list_* and describe_database, so it becomes context for whoever works here next. Set it when you create something: you already know the purpose at that moment.';
+
+/**
+ * #398 — the palette. Named explicitly rather than left free-text, so an agent
+ * picks a real colour instead of discovering the server rejects "navy".
+ */
+const PALETTE = ['gray', 'brown', 'gold', 'orange', 'red', 'pink', 'purple', 'blue', 'teal', 'green'] as const;
+const COLOR_PARAM =
+  `Palette colour: ${PALETTE.join(', ')}. Omit on create and one is auto-assigned AT RANDOM — which is how a set of databases ends up with two purples, so pass distinct colours deliberately when building several.`;
+
 /** Icon param description shared by create_database/update_database/create_space
  * (#251: emoji retired as the picker option in-app; the MCP surface keeps
  * accepting it for back-compat but no longer advertises it as the default). */
@@ -140,6 +159,8 @@ interface FieldDef {
 interface DatabaseDetail {
   id: string;
   name: string;
+  /** #400 — the database's own purpose line (NOT the record description of #310). */
+  description?: string | null;
   spaceSlug?: string | null;
   qualifiedSlug?: string;
   my_access?: string;
@@ -473,6 +494,12 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   create_relation: 'admin',
   delete_relation: 'admin',
   create_space: 'admin',
+  // #400/#397 — both PATCH endpoints already existed and neither had a tool, so
+  // a description was settable over HTTP and not over MCP. Same admin ceiling as
+  // their controllers (`@MinRole('admin')` on the workspace, `@RequiresScope('admin')`
+  // on the space).
+  update_space: 'admin',
+  update_workspace: 'admin',
 };
 
 /** Tools gated by run_button on top of write scope (MN-134). */
@@ -576,7 +603,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'list_workspaces',
     {
       title: 'List workspaces',
-      description: 'Every workspace the token can access (id, name, role).',
+      description: 'Every workspace the token can access (id, name, role, description).',
       inputSchema: {},
     },
     handle<Record<string, never>>(async () => text(await listWorkspaces(client))),
@@ -594,7 +621,16 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       const ws = await resolveWorkspace(client, workspace);
       const dbs = await listDatabases(client, ws.id);
       return text(
-        dbs.map((d) => ({ id: d.id, name: d.name, ref: d.qualifiedSlug ?? d.apiSlug, space: d.spaceSlug ?? null })),
+        dbs.map((d) => ({
+          id: d.id,
+          name: d.name,
+          ref: d.qualifiedSlug ?? d.apiSlug,
+          space: d.spaceSlug ?? null,
+          // #400: omitted entirely when unset. An explicit `description: null` on
+          // every row is noise in a listing an agent reads on every task, and
+          // "absent" already reads as "nobody has said".
+          ...(d.description ? { description: d.description } : {}),
+        })),
       );
     }),
   );
@@ -619,6 +655,10 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       return text({
         id: detail.id,
         name: detail.name,
+        /* #400 — what this table is FOR. A one-liner here tells a reader more
+           than fifteen field definitions do, and it is the difference between an
+           agent choosing a target database by purpose and guessing from its name. */
+        description: detail.description ?? undefined,
         ref: detail.qualifiedSlug ?? undefined,
         space: detail.spaceSlug ?? undefined,
         my_access: detail.my_access,
@@ -1354,15 +1394,24 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         space: z.string().describe('Space name or id the database belongs to.'),
         name: z.string().describe('Database name, e.g. "Clients".'),
         icon: z.string().optional().describe(ICON_PARAM_DESCRIPTION),
+        color: z.enum(PALETTE).optional().describe(COLOR_PARAM),
+        description: z.string().max(200).optional().describe(DESCRIPTION_PARAM),
       },
     },
-    handle<{ workspace: string; space: string; name: string; icon?: string }>(async ({ workspace, space, name, icon }) => {
+    handle<{
+      workspace: string;
+      space: string;
+      name: string;
+      icon?: string;
+      color?: string;
+      description?: string;
+    }>(async ({ workspace, space, name, icon, color, description }) => {
       const ws = await resolveWorkspace(client, workspace);
       const spaceId = await resolveSpaceId(ws.id, space);
       const db = await unwrap<unknown>(
         client.POST('/api/v1/workspaces/{ws}/databases', {
           params: { path: { ws: ws.id } as never },
-          body: { space_id: spaceId, name, icon } as never,
+          body: { space_id: spaceId, name, icon, color, description } as never,
         }),
       );
       return text(db);
@@ -1436,21 +1485,88 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'update_field',
     {
       title: 'Update field',
-      description: 'Rename a field and/or add new select options. Returns the updated field.',
+      description:
+        'Rename a field, add select options, or edit and remove existing ones. Returns the updated field. ' +
+        'Editing is non-destructive: recolouring or renaming an option leaves every record that holds it untouched, ' +
+        'because options have stable ids and records point at the id, not the text. ' +
+        'Removing one is the exception — it refuses with a usage count unless you confirm, and can reassign holders to another option.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
         field: z.string().describe('Field to update (name, api_name, or id).'),
         rename_to: z.string().optional(),
         add_options: z.array(optionShape).optional().describe('New choices to add to a select/multi_select field.'),
+        /*
+         * #398 — the gap that pushed a careful agent toward a DESTRUCTIVE path.
+         *
+         * Reported verbatim: having produced all-grey options and finding no
+         * update path, a session started evaluating `change_field_type` as a
+         * workaround. A missing edit path does not stop the work; it reroutes it
+         * through the most dangerous tool that looks like it might do the job.
+         */
+        update_options: z
+          .array(
+            z.object({
+              option: z.string().describe('Existing option, by label or id.'),
+              label: z.string().max(100).optional().describe('New label.'),
+              color: z.string().optional().describe('New colour, from the option palette.'),
+              icon: z.string().max(120).nullable().optional().describe('Curated icon ref, or null to clear.'),
+            }),
+          )
+          .optional()
+          .describe('Recolour or rename EXISTING options. Records keep their values — ids are stable.'),
+        remove_options: z
+          .array(
+            z.object({
+              option: z.string().describe('Existing option, by label or id.'),
+              confirm: z
+                .boolean()
+                .optional()
+                .describe('Required when records still use it. Without it you get a refusal naming the count.'),
+              reassign_to: z.string().optional().describe('Move holders onto this option instead of clearing them.'),
+            }),
+          )
+          .optional()
+          .describe('Delete options. Refuses with a usage count unless confirmed — read that count before confirming.'),
       },
     },
-    handle<{ workspace: string; database: string; field: string; rename_to?: string; add_options?: Array<string | { label: string; color?: string; icon?: string }> }>(
-      async ({ workspace, database, field, rename_to, add_options }) => {
+    handle<{
+      workspace: string;
+      database: string;
+      field: string;
+      rename_to?: string;
+      add_options?: Array<string | { label: string; color?: string; icon?: string }>;
+      update_options?: Array<{ option: string; label?: string; color?: string; icon?: string | null }>;
+      remove_options?: Array<{ option: string; confirm?: boolean; reassign_to?: string }>;
+    }>(
+      async ({ workspace, database, field, rename_to, add_options, update_options, remove_options }) => {
         const ws = await resolveWorkspace(client, workspace);
         const db = await resolveDatabase(client, ws.id, database);
         const detail = await getDetail(ws.id, db.id);
         const fieldId = anyField(detail, field);
+
+        /*
+         * Options are addressed by LABEL here, resolved to an id before the call.
+         * That matches the rest of this surface ("select labels are resolved
+         * server-side") and it is the only workable choice: describe_database
+         * shows an agent labels and colours, never option ids, so requiring an id
+         * would mean asking for something the read path does not emit — the exact
+         * shape of the #332 bug, one level down.
+         */
+        const optionsOf = () =>
+          detail.fields.find((f) => f.id === fieldId)?.options ?? [];
+        const resolveOption = (ref: string): string => {
+          const opts = optionsOf();
+          const hit =
+            opts.find((o) => o.id === ref) ??
+            opts.find((o) => o.label.toLowerCase() === ref.trim().toLowerCase());
+          if (!hit) {
+            throw new Error(
+              `No option "${ref}" on that field. It has: ${opts.map((o) => o.label).join(', ') || '(none)'}.`,
+            );
+          }
+          return hit.id;
+        };
         if (rename_to) {
           await unwrap<unknown>(
             client.PATCH('/api/v1/workspaces/{ws}/databases/{db}/fields/{field}', {
@@ -1464,6 +1580,35 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
             client.POST('/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/options', {
               params: { path: { ws: ws.id, db: db.id, field: fieldId } } as never,
               body: o as never,
+            }),
+          );
+        }
+        for (const patch of update_options ?? []) {
+          const optionId = resolveOption(patch.option);
+          await unwrap<unknown>(
+            client.PATCH('/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/options/{option}', {
+              params: { path: { ws: ws.id, db: db.id, field: fieldId, option: optionId } } as never,
+              body: {
+                ...(patch.label !== undefined ? { label: patch.label } : {}),
+                ...(patch.color !== undefined ? { color: patch.color } : {}),
+                ...(patch.icon !== undefined ? { icon: patch.icon } : {}),
+              } as never,
+            }),
+          );
+        }
+        for (const rm of remove_options ?? []) {
+          const optionId = resolveOption(rm.option);
+          await unwrap<unknown>(
+            client.DELETE('/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/options/{option}', {
+              params: { path: { ws: ws.id, db: db.id, field: fieldId, option: optionId } } as never,
+              // `confirm` defaults FALSE deliberately — the API answers an
+              // unconfirmed delete with the number of records still holding the
+              // option, which is precisely the sentence the user needs to see
+              // before it happens. Defaulting to true would throw that away.
+              body: {
+                confirm: rm.confirm ?? false,
+                ...(rm.reassign_to ? { reassign_to: resolveOption(rm.reassign_to) } : {}),
+              } as never,
             }),
           );
         }
@@ -1828,15 +1973,22 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'list_spaces',
     {
       title: 'List spaces',
-      description: 'List the spaces in a workspace (id, name, slug). Databases live in spaces; use a space name/slug with create_database.',
+      description: 'List the spaces in a workspace (id, name, slug, description). Databases live in spaces; use a space name/slug with create_database.',
       inputSchema: { workspace: z.string() },
     },
     handle<{ workspace: string }>(async ({ workspace }) => {
       const ws = await resolveWorkspace(client, workspace);
-      const spaces = await unwrap<Array<{ id: string; name: string; slug?: string }>>(
+      const spaces = await unwrap<Array<{ id: string; name: string; slug?: string; description?: string | null }>>(
         client.GET('/api/v1/workspaces/{ws}/spaces', { params: { path: { ws: ws.id } } as never }),
       );
-      return text(spaces.map((s) => ({ id: s.id, name: s.name, slug: s.slug })));
+      return text(
+        spaces.map((s) => ({
+          id: s.id,
+          name: s.name,
+          slug: s.slug,
+          ...(s.description ? { description: s.description } : {}),
+        })),
+      );
     }),
   );
 
@@ -1849,19 +2001,111 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         workspace: z.string(),
         name: z.string().describe('Space name, e.g. "Client Work".'),
         icon: z.string().optional().describe(ICON_PARAM_DESCRIPTION),
-        color: z.string().optional(),
+        color: z.enum(PALETTE).optional().describe(COLOR_PARAM),
+        description: z.string().max(200).optional().describe(DESCRIPTION_PARAM),
       },
     },
-    handle<{ workspace: string; name: string; icon?: string; color?: string }>(async ({ workspace, name, icon, color }) => {
+    handle<{ workspace: string; name: string; icon?: string; color?: string; description?: string }>(
+      async ({ workspace, name, icon, color, description }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const space = await unwrap<unknown>(
+          client.POST('/api/v1/workspaces/{ws}/spaces', {
+            params: { path: { ws: ws.id } } as never,
+            body: { name, icon, color, description } as never,
+          }),
+        );
+        return text(space);
+      },
+    ),
+  );
+
+  reg(
+    'update_space',
+    {
+      title: 'Update space',
+      description:
+        'Rename a space, or set its icon, colour or description. Only the fields you pass change; pass null to clear colour or description.',
+      inputSchema: {
+        workspace: z.string(),
+        space: z.string().describe('Space name, slug or id.'),
+        rename_to: z.string().optional(),
+        icon: z.string().optional().describe(ICON_PARAM_DESCRIPTION),
+        color: z.enum(PALETTE).nullable().optional().describe(`${COLOR_PARAM} Pass null to clear.`),
+        description: z
+          .string()
+          .max(200)
+          .nullable()
+          .optional()
+          .describe(`${DESCRIPTION_PARAM} Pass null to clear.`),
+      },
+    },
+    handle<{
+      workspace: string;
+      space: string;
+      rename_to?: string;
+      icon?: string;
+      color?: string | null;
+      description?: string | null;
+    }>(async ({ workspace, space, rename_to, icon, color, description }) => {
       const ws = await resolveWorkspace(client, workspace);
-      const space = await unwrap<unknown>(
-        client.POST('/api/v1/workspaces/{ws}/spaces', {
-          params: { path: { ws: ws.id } } as never,
-          body: { name, icon, color } as never,
+      const spaceId = await resolveSpaceId(ws.id, space);
+      const body: Record<string, unknown> = {};
+      if (rename_to) body.name = rename_to;
+      if (icon !== undefined) body.icon = icon;
+      // `!== undefined` throughout — null is the CLEAR signal, and truthiness
+      // would silently drop it.
+      if (color !== undefined) body.color = color;
+      if (description !== undefined) body.description = description;
+      const res = await unwrap<unknown>(
+        client.PATCH('/api/v1/workspaces/{ws}/spaces/{space}', {
+          params: { path: { ws: ws.id, space: spaceId } } as never,
+          body: body as never,
         }),
       );
-      return text(space);
+      return text(res);
     }),
+  );
+
+  reg(
+    'update_workspace',
+    {
+      title: 'Update workspace',
+      description:
+        'Rename the workspace or set its description — the top-level "what this company is doing here" line that list_workspaces returns. Only the fields you pass change.',
+      inputSchema: {
+        workspace: z.string(),
+        rename_to: z.string().optional(),
+        description: z
+          .string()
+          .max(200)
+          .nullable()
+          .optional()
+          .describe(`${DESCRIPTION_PARAM} Pass null to clear.`),
+      },
+    },
+    handle<{ workspace: string; rename_to?: string; description?: string | null }>(
+      async ({ workspace, rename_to, description }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const body: Record<string, unknown> = {};
+        if (rename_to) body.name = rename_to;
+        if (description !== undefined) body.description = description;
+        /*
+         * Deliberately NOT exposing `private_attachments`, the other key on
+         * updateWorkspaceSchema. It is a security posture switch for the whole
+         * workspace (#201), and "rename this workspace" is not a reason to put a
+         * lever like that within reach of a model. #397's principle is that every
+         * CAPABILITY is reachable, not that every field of every schema is —
+         * this is a deliberate exclusion, recorded here rather than left silent.
+         */
+        const res = await unwrap<unknown>(
+          client.PATCH('/api/v1/workspaces/{ws}', {
+            params: { path: { ws: ws.id } } as never,
+            body: body as never,
+          }),
+        );
+        return text(res);
+      },
+    ),
   );
 
   reg(
@@ -1895,22 +2139,41 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'update_database',
     {
       title: 'Update database',
-      description: 'Rename a database, set its icon, or move it to another space. The api_slug is stable (rename does not change the ref). Only the fields you pass change.',
+      description: 'Rename a database, set its icon, colour or description, or move it to another space. The api_slug is stable (rename does not change the ref). Only the fields you pass change; pass null to clear colour or description.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
         rename_to: z.string().optional(),
         icon: z.string().optional().describe(ICON_PARAM_DESCRIPTION),
+        color: z.enum(PALETTE).nullable().optional().describe(`${COLOR_PARAM} Pass null to clear.`),
+        description: z
+          .string()
+          .max(200)
+          .nullable()
+          .optional()
+          .describe(`${DESCRIPTION_PARAM} Pass null to clear.`),
         move_to_space: z.string().optional().describe('Space name or slug to move the database into.'),
       },
     },
-    handle<{ workspace: string; database: string; rename_to?: string; icon?: string; move_to_space?: string }>(
-      async ({ workspace, database, rename_to, icon, move_to_space }) => {
+    handle<{
+      workspace: string;
+      database: string;
+      rename_to?: string;
+      icon?: string;
+      color?: string | null;
+      description?: string | null;
+      move_to_space?: string;
+    }>(
+      async ({ workspace, database, rename_to, icon, color, description, move_to_space }) => {
         const ws = await resolveWorkspace(client, workspace);
         const db = await resolveDatabase(client, ws.id, database);
         const body: Record<string, unknown> = {};
         if (rename_to) body.name = rename_to;
         if (icon !== undefined) body.icon = icon;
+        // `!== undefined`, not truthiness — null is the CLEAR signal and must
+        // reach the API, where the schema is explicitly nullable.
+        if (color !== undefined) body.color = color;
+        if (description !== undefined) body.description = description;
         if (move_to_space) body.space_id = await resolveSpaceId(ws.id, move_to_space);
         const res = await unwrap<unknown>(
           client.PATCH('/api/v1/workspaces/{ws}/databases/{db}', {

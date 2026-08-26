@@ -1,5 +1,6 @@
 import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { and, eq, inArray } from 'drizzle-orm';
+import { normalizeDescription } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { memberships, spaces, workspaces } from '../db/schema';
@@ -42,7 +43,7 @@ export class WorkspacesService {
    * Account entity to group them under one billing owner — ADR-0014) — every
    * self-serve plan caps an admin at 1. Self-host has no cap at all.
    */
-  async create(userId: string, input: { name: string; slug?: string }) {
+  async create(userId: string, input: { name: string; slug?: string; description?: string }) {
     if (!(await this.entitlements.canCreateWorkspace(userId))) {
       throw new HttpException(
         'You already have a workspace. Multiple workspaces are available on Enterprise — contact us to discuss.',
@@ -53,7 +54,7 @@ export class WorkspacesService {
     const ws = await this.db.transaction(async (tx) => {
       const [created] = await tx
         .insert(workspaces)
-        .values({ name: input.name, slug })
+        .values({ name: input.name, slug, description: normalizeDescription(input.description) ?? null })
         .returning();
       await tx.insert(spaces).values({ workspaceId: created!.id, name: 'General', slug: 'general', position: 0 });
       await tx
@@ -100,9 +101,18 @@ export class WorkspacesService {
     return wss.map((w) => ({ ...serialize(w), role: roleByWs.get(w.id) }));
   }
 
-  async update(id: string, patch: { name?: string; private_attachments?: boolean }) {
-    const { private_attachments, ...rest } = patch;
-    const set: { name?: string; settings?: Record<string, unknown> } = { ...rest };
+  async update(
+    id: string,
+    patch: { name?: string; private_attachments?: boolean; description?: string | null },
+  ) {
+    const { private_attachments, description, ...rest } = patch;
+    const set: { name?: string; settings?: Record<string, unknown>; description?: string | null } = {
+      ...rest,
+      // #400: normalized here, not in the zod schema — templates and the
+      // onboarding flow call this service directly and never see the DTO.
+      // `undefined` is preserved as "leave alone"; `null` clears it.
+      ...(description !== undefined ? { description: normalizeDescription(description) } : {}),
+    };
     // Same read-modify-write as the integration settings blobs (slack/github/linear
     // services): `settings` is a shared jsonb bag, so a flag write must merge over
     // the current value rather than clobber it.

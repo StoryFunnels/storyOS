@@ -16,18 +16,28 @@ import { Button } from '@/components/ui/button';
 export function EmptyState({
   noun = 'item',
   onAdd,
+  description,
 }: {
   /** Singular thing this database holds, e.g. "task". Falls back to "item". */
   noun?: string;
   /** The view's existing add-record handler. When omitted (e.g. read-only
    * viewers who cannot create), only the coaching copy is shown. */
   onAdd?: () => void;
+  /**
+   * #400 — the database's purpose line. This is the single best place for it:
+   * an empty database is exactly the moment someone needs to know what belongs
+   * here, and it is the one screen with room to say so.
+   */
+  description?: string | null;
 }) {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 p-10 text-center">
       <div className="flex h-10 w-10 items-center justify-center rounded-full bg-hover text-muted">
         <Inbox className="h-5 w-5" />
       </div>
+      {description && (
+        <p className="max-w-sm text-[13px] text-ink-secondary">{description}</p>
+      )}
       <p className="max-w-sm text-[13px] text-muted">
         {onAdd
           ? `Nothing here yet. Add your first ${noun} to get started.`

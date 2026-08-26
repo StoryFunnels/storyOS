@@ -59,6 +59,7 @@ export function GalleryView({
       <EmptyState
         noun={databaseNoun(database.data?.name)}
         onAdd={readOnly ? undefined : addRecord}
+        description={database.data?.description}
       />
     );
   }

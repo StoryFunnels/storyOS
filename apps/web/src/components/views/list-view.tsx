@@ -105,6 +105,7 @@ export function ListView({
       <EmptyState
         noun={databaseNoun(database.data?.name)}
         onAdd={readOnly ? undefined : () => addIn(NO_VALUE)}
+        description={database.data?.description}
       />
     );
 

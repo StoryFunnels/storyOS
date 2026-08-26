@@ -12,6 +12,8 @@ export interface WorkspaceRef {
   name: string;
   slug?: string;
   role?: string;
+  /** #400 — the workspace's own purpose line, returned by list_workspaces. */
+  description?: string | null;
 }
 
 export interface DatabaseRef {
@@ -23,6 +25,8 @@ export interface DatabaseRef {
   /** Canonical cross-space reference: `space/database` (MN-153). */
   qualifiedSlug?: string;
   icon?: string | null;
+  /** #400 — the database's own purpose line, surfaced by list_databases. */
+  description?: string | null;
 }
 
 export async function listWorkspaces(client: Client): Promise<WorkspaceRef[]> {

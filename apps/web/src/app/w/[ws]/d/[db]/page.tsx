@@ -178,6 +178,21 @@ function DatabasePageInner() {
         )}
       </div>
 
+      {/*
+        #400 — the purpose line, rendered ONLY when there is one.
+
+        Deliberately conditional rather than a reserved row. The header above is a
+        dense 44px tab bar, and a permanent line beneath it would cost every user
+        vertical space on every database forever to serve the ones that have been
+        described. Absent means absent (#305: unconfigured is not invalid) — no
+        placeholder, no empty line that reads as a rendering bug.
+      */}
+      {database.data?.description && (
+        <p className="shrink-0 border-b border-border-default px-3 py-1.5 text-[12px] text-muted">
+          {database.data.description}
+        </p>
+      )}
+
       <ViewToolbar
         fields={database.data?.fields ?? []}
         config={config}

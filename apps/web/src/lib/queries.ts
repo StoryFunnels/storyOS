@@ -21,6 +21,8 @@ export interface DatabaseSummary {
   position: number;
   spaceSlug?: string | null;
   qualifiedSlug?: string;
+  /** #400 — the one-line purpose. Null/absent is the normal state. */
+  description?: string | null;
 }
 export interface WorkspaceInfo {
   id: string;
