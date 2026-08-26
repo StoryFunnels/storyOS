@@ -11,7 +11,7 @@ import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, arrayMove, horizontalListSortingStrategy } from '@dnd-kit/sortable';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import { useShortcut, withShortcut } from '@/lib/shortcuts';
+import { useShortcut, useWithShortcut } from '@/lib/shortcuts';
 import { Dialog, DialogTrigger } from '@/components/ui/dialog';
 import { CellDisplay, CellEditor, EmptyFieldAffordance, PressButton, cellToText, fieldValue } from './cells';
 import { AddFieldDialog } from './add-field-dialog';
@@ -96,6 +96,8 @@ export function TableView({
   config?: ViewConfig;
   onPatch?: (updates: Partial<ViewConfig>) => void;
 }) {
+  // #396 — platform-correct: ⌘ on a Mac, Ctrl elsewhere.
+  const newRecordTitle = useWithShortcut('New record', 'new-record');
   const database = useDatabase(ws, db);
   // #149 — the operator's word for a row ("task"), not "record".
   const noun = databaseNoun(database.data?.name);
@@ -892,7 +894,7 @@ export function TableView({
           {!readOnly && (
             <button
               // #254 — the tooltip names the shortcut, from the shared registry.
-              title={withShortcut('New record', 'new-record')}
+              title={newRecordTitle}
               className="flex h-8 w-full items-center gap-2 px-3 text-[13px] text-muted hover:bg-hover"
               onClick={() => {
                 createRecord.mutate(

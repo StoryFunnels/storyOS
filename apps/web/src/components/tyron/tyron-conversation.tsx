@@ -166,19 +166,19 @@ export function TyronConversation({ ws }: { ws: string }) {
               <button
                 type="button"
                 onClick={() => confirm.mutate(true)}
-                className="rounded-[var(--radius-control)] bg-danger px-2 py-1 text-[12px] font-medium text-[var(--on-accent,#fff)]"
+                className="rounded-[var(--radius-control)] bg-error px-2 py-1 text-[12px] font-medium text-[var(--on-accent,#fff)]"
               >
                 Yes, do it
               </button>
             </div>
           )}
           {confirm.isError && (
-            <p className="text-[13px] text-danger">
+            <p className="text-[13px] text-error">
               {apiErrorMessage(confirm.error, "I couldn't finish that just now.")}
             </p>
           )}
           {send.isError && (
-            <p className="text-[13px] text-danger">
+            <p className="text-[13px] text-error">
               {/*
                 `apiErrorMessage` — the SHARED helper, not a hand-rolled reader.
                 The first version of this checked `err.message`, which is not

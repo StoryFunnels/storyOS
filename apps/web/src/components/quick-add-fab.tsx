@@ -10,7 +10,7 @@ import { useDatabases } from '@/lib/queries';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { EntityIcon } from '@/components/ui/icon-picker';
-import { withShortcut } from '@/lib/shortcuts';
+import { useWithShortcut } from '@/lib/shortcuts';
 
 /**
  * Mobile quick-capture (mobile-responsive-plan.md, MN-230c): "a fast 'new
@@ -21,6 +21,8 @@ import { withShortcut } from '@/lib/shortcuts';
  * no shortcut at all: a phone, on any page, without a table in view.
  */
 export function QuickAddFab() {
+  // #396 — platform-correct: ⌘ on a Mac, Ctrl elsewhere.
+  const newRecordTitle = useWithShortcut('New record', 'new-record');
   const { ws } = useParams<{ ws: string }>();
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -60,7 +62,7 @@ export function QuickAddFab() {
         type="button"
         onClick={() => setOpen(true)}
         aria-label="Quick add a record"
-        title={withShortcut('New record', 'new-record')}
+        title={newRecordTitle}
         className="fixed bottom-5 right-4 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-[var(--text-on-dark)] shadow-[0_8px_24px_rgba(15,23,41,0.25)] hover:bg-primary-hover md:hidden"
       >
         <Plus className="h-6 w-6" />

@@ -8,7 +8,7 @@ import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { computeReorder } from '@/lib/reorder';
-import { Activity, Cable, Check, ChevronRight, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, LayoutDashboard, GitPullRequest, GripVertical, Home, Inbox, KeyRound, LayoutTemplate, MoreHorizontal, Package, Plug, Plus, Search, Settings, Star, UserRound, Webhook, X, Sparkles} from 'lucide-react';
+import { Activity, Cable, Check, ChevronRight, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, LayoutDashboard, GitPullRequest, GripVertical, Home, Inbox, Keyboard, KeyRound, LayoutTemplate, MoreHorizontal, Package, Plug, Plus, Search, Settings, Star, UserRound, Webhook, X, Sparkles} from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -17,7 +17,7 @@ import { AutomationsPanel } from '@/components/automations-panel';
 import { ImportWizard } from '@/components/import-wizard';
 import { SourcesDialog } from '@/components/sources-dialog';
 import { InboxPanel, useUnreadCount } from '@/components/inbox-panel';
-import { openPalette, shortcutKeys } from '@/lib/shortcuts';
+import { openPalette, openShortcuts, useShortcutKeys } from '@/lib/shortcuts';
 import { useDatabases, useSidebarMutations, useSpaces, useWorkspace } from '@/lib/queries';
 import { useHidden } from '@/lib/hidden-sidebar';
 import type { DatabaseSummary, Space } from '@/lib/queries';
@@ -99,6 +99,8 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
   const isAdmin = workspace.data?.role === 'admin';
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [inboxOpen, setInboxOpen] = useState(false);
+  // #396 — platform-correct display keys; see the comment at the Search row.
+  const paletteKeys = useShortcutKeys('palette');
   const unread = useUnreadCount(ws);
   const { isHidden, unhide } = useHidden(ws);
 
@@ -152,8 +154,11 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
           onClick={openPalette}
         >
           <Search className="h-3.5 w-3.5" /> Search
-          {/* #254 — from the shared registry, so it can't drift from the binding. */}
-          <span className="ml-auto text-[10px] text-faint">{shortcutKeys('palette')}</span>
+          {/* #254 — from the shared registry, so it can't drift from the binding.
+              #396 — and rendered for THIS reader's platform: `shortcutKeys` now
+              returns the raw "mod+K" token, so displaying it directly would show
+              a Windows user a shortcut that does not exist. */}
+          <span className="ml-auto text-[10px] text-faint">{paletteKeys}</span>
         </button>
         <button
           className="flex w-full items-center gap-2 rounded px-2 py-[3px] text-[13px] text-ink-secondary hover:bg-hover"
@@ -294,6 +299,23 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
             <KeyRound className="h-3.5 w-3.5" /> API tokens
           </Link>
         )}
+        {/*
+          #396 — the persistent way in.
+
+          Of the options the ticket lists this is the highest ratio of discovery
+          to effort: always visible, costs one row, and sits where people already
+          look for meta controls. Explicitly NOT a one-time tour or a
+          coach-mark — those fire once, at the moment a new user has the least
+          room to absorb anything, and get dismissed.
+        */}
+        <button
+          type="button"
+          onClick={openShortcuts}
+          className="flex items-center gap-2 rounded px-2 py-1 text-[13px] text-ink-secondary hover:bg-hover"
+        >
+          <Keyboard className="h-3.5 w-3.5" /> Keyboard shortcuts
+          <span className="ml-auto text-[10px] text-faint">?</span>
+        </button>
         <Button
           variant="ghost"
           size="sm"
@@ -1221,7 +1243,10 @@ function DocumentRow({
     <SidebarRow
       depth={depth}
       active={active}
-      className={cn('group/doc', isDragging && 'opacity-50')}
+      /* `group/doc` removed with #389 — the shared menu's trigger reveals on the
+         row's own `group` (supplied by SidebarRow), so the named variant had no
+         remaining reference. */
+      className={cn(isDragging && 'opacity-50')}
       ref={canEdit ? setNodeRef : undefined}
       style={canEdit ? { transform: CSS.Transform.toString(transform), transition } : undefined}
       draggable={canEdit}
@@ -1231,43 +1256,57 @@ function DocumentRow({
         <EntityIcon icon={doc.icon} color={null} fallback={<FileText className="h-3.5 w-3.5 shrink-0 text-muted" />} className="text-[13px]" />
         <span className="truncate">{doc.title || 'Untitled'}</span>
       </Link>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button className="shrink-0 rounded p-0.5 text-muted opacity-0 hover:bg-active hover:text-ink group-hover/doc:opacity-100">
-            <MoreHorizontal className="h-3.5 w-3.5" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem
-            onSelect={() => setDialog({ kind: 'name', title: 'Rename document', value: doc.title || '', submit: (v) => onRename(doc.id, v) })}
-          >
-            Rename
-          </DropdownMenuItem>
-          {(folders.length > 0 || doc.folder_id) && (
-            <>
-              <DropdownMenuSeparator />
-              <div className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-faint">Move to</div>
-              {doc.folder_id && (
-                <DropdownMenuItem onSelect={() => onMove(doc.id, null)}>↑ Space root</DropdownMenuItem>
-              )}
-              {folders
-                .filter((f) => f.id !== doc.folder_id)
-                .map((f) => (
-                  <DropdownMenuItem key={f.id} onSelect={() => onMove(doc.id, f.id)}>
-                    <FolderIcon className="mr-2 h-3.5 w-3.5" /> {f.name}
-                  </DropdownMenuItem>
-                ))}
-            </>
-          )}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            className="text-error"
-            onSelect={() => setDialog({ kind: 'confirm', title: `Delete "${doc.title || 'Untitled'}"?`, danger: true, submit: () => onDelete(doc.id) })}
-          >
-            Delete
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      {/*
+        #389 — the document row moves onto the shared menu too.
+
+        Not strictly named by the ticket, which is about DatabaseRow, but it was
+        the last row-level menu still owning its own markup, and the AC asks for
+        zero. It also carried the very defect #383 fixed on DatabaseRow: the
+        trigger had NO aria-label and no `focus:opacity-100`, so a keyboard user
+        tabbed onto an invisible, unnamed button. Sharing the component fixes
+        that by construction rather than by remembering.
+      */}
+      <SidebarRowMenu
+        label={doc.title || 'Untitled'}
+        actions={[
+          {
+            label: 'Rename',
+            onSelect: () =>
+              setDialog({ kind: 'name', title: 'Rename document', value: doc.title || '', submit: (v) => onRename(doc.id, v) }),
+          },
+          ...(folders.length > 0 || doc.folder_id
+            ? [
+                ...(doc.folder_id
+                  ? [
+                      {
+                        label: '↑ Space root',
+                        sectionLabel: 'Move to',
+                        separatorBefore: true,
+                        onSelect: () => onMove(doc.id, null),
+                      },
+                    ]
+                  : []),
+                ...folders
+                  .filter((f) => f.id !== doc.folder_id)
+                  .map((f, i) => ({
+                    label: f.name,
+                    icon: <FolderIcon className="mr-2 h-3.5 w-3.5" />,
+                    ...(i === 0 && !doc.folder_id
+                      ? { sectionLabel: 'Move to', separatorBefore: true }
+                      : {}),
+                    onSelect: () => onMove(doc.id, f.id),
+                  })),
+              ]
+            : []),
+          {
+            label: 'Delete',
+            danger: true,
+            separatorBefore: true,
+            onSelect: () =>
+              setDialog({ kind: 'confirm', title: `Delete "${doc.title || 'Untitled'}"?`, danger: true, submit: () => onDelete(doc.id) }),
+          },
+        ]}
+      />
     </SidebarRow>
   );
 }
@@ -1737,60 +1776,71 @@ function DatabaseRow({
         </>
       )}
       {canEdit && !renaming && (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            {/* #383 — this row keeps its own richer menu (icons, a Move-to
-                section, an asChild link, admin-gated items) rather than being
-                forced through SidebarRowMenu's simpler action shape. But the
-                two things a hidden trigger MUST have are shared: an accessible
-                label, and `focus:opacity-100` so a keyboard user is not tabbed
-                onto a control they cannot see. This trigger had neither. */}
-            <button
-              type="button"
-              aria-label={`Options for ${db.name}`}
-              className="rounded p-0.5 text-muted opacity-0 transition-opacity hover:bg-active focus:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100"
-            >
-              <MoreHorizontal className="h-3.5 w-3.5" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent>
-            <DropdownMenuItem onSelect={() => setRenaming(true)}>Rename</DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => setIconing(true)}>Icon & color</DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => setImporting(true)}>Import CSV…</DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => setSyncing(true)}>Sync from…</DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => setAutomating(true)}>Buttons & automations</DropdownMenuItem>
-            {isAdmin && (
-              <DropdownMenuItem onSelect={() => setSharing(true)}>Manage access</DropdownMenuItem>
-            )}
-            {onMove && (folders.length > 0 || db.folderId) && (
-              <>
-                <DropdownMenuSeparator />
-                <div className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-faint">Move to</div>
-                {db.folderId && (
-                  <DropdownMenuItem onSelect={() => onMove(db.id, null)}>↑ Space root</DropdownMenuItem>
-                )}
-                {folders
-                  .filter((f) => f.id !== db.folderId)
-                  .map((f) => (
-                    <DropdownMenuItem key={f.id} onSelect={() => onMove(db.id, f.id)}>
-                      <FolderIcon className="mr-2 h-3.5 w-3.5" /> {f.name}
-                    </DropdownMenuItem>
-                  ))}
-                <DropdownMenuSeparator />
-              </>
-            )}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={() => hide('database', db.id)}>
-              <EyeOff className="mr-2 h-3.5 w-3.5" /> Hide from my sidebar
-            </DropdownMenuItem>
-            <DropdownMenuItem asChild>
-              <Link href={`/w/${ws}/d/${db.id}/trash`}>Trash</Link>
-            </DropdownMenuItem>
-            <DropdownMenuItem className="text-error" onSelect={() => setConfirmingDelete(true)}>
-              Delete database
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        /*
+         * #389 — through the SHARED menu now, not this row's own markup.
+         *
+         * #383 built SidebarRowMenu and moved the two rows that had NO working
+         * menu onto it, deliberately leaving this richer one alone: it was an
+         * Urgent fix (dashboards could not be deleted at all) and refactoring a
+         * menu that WORKED under that pressure was the wrong trade.
+         *
+         * The divergence is the mechanism, not the symptom. #380 documented it
+         * for indentation and #383 for menus; both times a newer row type failed
+         * to inherit what the older ones had, because the behaviour lived per
+         * component. One definition means the next row type gets it by
+         * construction.
+         */
+        <SidebarRowMenu
+          label={db.name}
+          contentClassName="w-56"
+          actions={[
+            { label: 'Rename', onSelect: () => setRenaming(true) },
+            { label: 'Icon & color', onSelect: () => setIconing(true) },
+            { label: 'Import CSV…', onSelect: () => setImporting(true) },
+            { label: 'Sync from…', onSelect: () => setSyncing(true) },
+            { label: 'Buttons & automations', onSelect: () => setAutomating(true) },
+            // `hidden` rather than a conditional spread — see the note on
+            // SidebarMenuAction. The item is declared in place and simply not
+            // rendered, so it cannot be lost to a misplaced spread.
+            { label: 'Manage access', onSelect: () => setSharing(true), hidden: !isAdmin },
+            // "Move to" — the section header rides on the FIRST target, so the
+            // heading cannot outlive the group it labels.
+            ...(onMove && (folders.length > 0 || db.folderId)
+              ? [
+                  ...(db.folderId
+                    ? [
+                        {
+                          label: '↑ Space root',
+                          sectionLabel: 'Move to',
+                          separatorBefore: true,
+                          onSelect: () => onMove(db.id, null),
+                        },
+                      ]
+                    : []),
+                  ...folders
+                    .filter((f) => f.id !== db.folderId)
+                    .map((f, i) => ({
+                      label: f.name,
+                      icon: <FolderIcon className="mr-2 h-3.5 w-3.5" />,
+                      // Only the first target carries the heading/separator, and
+                      // only when "Space root" did not already supply it.
+                      ...(i === 0 && !db.folderId
+                        ? { sectionLabel: 'Move to', separatorBefore: true }
+                        : {}),
+                      onSelect: () => onMove(db.id, f.id),
+                    })),
+                ]
+              : []),
+            {
+              label: 'Hide from my sidebar',
+              icon: <EyeOff className="mr-2 h-3.5 w-3.5" />,
+              separatorBefore: true,
+              onSelect: () => hide('database', db.id),
+            },
+            { label: 'Trash', href: `/w/${ws}/d/${db.id}/trash` },
+            { label: 'Delete database', danger: true, onSelect: () => setConfirmingDelete(true) },
+          ]}
+        />
       )}
       <Dialog open={sharing} onOpenChange={setSharing}>
         {sharing && <ShareDialog ws={ws} scope={{ database_id: db.id }} scopeName={db.name} />}
