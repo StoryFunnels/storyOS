@@ -46,6 +46,19 @@ export interface TurnDeps {
   catalog: TyronToolCatalog;
   /** Prior turns, oldest first. */
   history: ChatMessage[];
+  /**
+   * #363 — the instructions for THIS turn. Defaults to the ordinary assistant
+   * prompt; a workspace build supplies its own.
+   */
+  systemPrompt?: string;
+  /**
+   * #363 — ceilings for THIS turn. A build legitimately runs many more calls than
+   * a question does, and the ordinary cap would stop it half-built — the one
+   * outcome that ticket forbids. Passed in rather than branched on a mode flag, so
+   * the loop has no notion of what kind of turn it is running.
+   */
+  maxToolCalls?: number;
+  maxTurns?: number;
 }
 
 /**
@@ -77,6 +90,7 @@ export async function* runTurn(
   deps: TurnDeps,
 ): AsyncGenerator<TurnEvent, void, undefined> {
   const { chat, catalog, history } = deps;
+  const systemPrompt = deps.systemPrompt ?? TYRON_SYSTEM_PROMPT;
 
   let tools: ChatToolDef[];
   try {
@@ -99,7 +113,7 @@ export async function* runTurn(
   }
 
   const messages: ChatMessage[] = [
-    { role: 'system', content: TYRON_SYSTEM_PROMPT },
+    { role: 'system', content: systemPrompt },
     ...history,
     { role: 'user', content: userMessage },
   ];
@@ -110,7 +124,12 @@ export async function* runTurn(
   let turnsThisRun = 0;
 
   for (;;) {
-    const stop = checkCeilings({ toolCallsThisTurn, turnsThisRun });
+    const stop = checkCeilings({
+      toolCallsThisTurn,
+      turnsThisRun,
+      maxToolCalls: deps.maxToolCalls,
+      maxTurns: deps.maxTurns,
+    });
     if (stop) {
       yield { type: 'stopped', stop };
       return;

@@ -12,6 +12,7 @@ import { scopeForRole } from '../agent-principal';
 import type { Role } from '../../workspaces/workspace-access.guard';
 import { defaultTyronChatClient, type ChatMessage } from './chat-client';
 import { runTurn, type TurnEvent } from './turn-loop';
+import { BUILD_MAX_TOOL_CALLS, BUILD_MAX_TURNS, BUILD_SYSTEM_PROMPT } from './build-workspace';
 
 /** One tool call awaiting the user's yes or no (#357d). */
 interface PendingAction {
@@ -55,6 +56,8 @@ export class TyronService {
     membership: Membership,
     threadId: string,
     message: string,
+    /** #363 — a build supplies its own prompt and ceilings; chat uses the defaults. */
+    overrides?: { systemPrompt?: string; maxToolCalls?: number; maxTurns?: number },
   ): Promise<{ reply: string; question?: { message: string; tool: string }; stopped?: string }> {
     // Owner-scoped: a 404 here if the thread is not theirs, before anything else.
     await this.threads.get(membership, threadId);
@@ -114,7 +117,7 @@ export class TyronService {
       let stopped: string | undefined;
       const actions: Array<{ name: string; arguments: Record<string, unknown> }> = [];
 
-      for await (const event of runTurn(message, { chat, catalog, history })) {
+      for await (const event of runTurn(message, { chat, catalog, history, ...overrides })) {
         applyEvent(event, {
           onText: (t) => {
             // Status lines and the final text both land here; joined so a turn
@@ -158,6 +161,32 @@ export class TyronService {
         /* best effort — a stranded token expires, but must never fail the turn */
       });
     }
+  }
+
+  /**
+   * Build a workspace from a sentence (#363).
+   *
+   * Deliberately `takeTurn` with a different prompt and ceiling, not a second
+   * executor — a build is the same shape as any multi-step job, and a separate
+   * one would mean two places to keep in step on safety, ceilings and
+   * attribution.
+   *
+   * There is no confirmation gate to worry about here: a build only CREATES, and
+   * #358 lets creates through untouched. If the model ever proposed a delete
+   * mid-build, `runTurn` would stop and ask exactly as it does anywhere else —
+   * which is the right behaviour and needs no special case.
+   */
+  async buildWorkspace(
+    membership: Membership,
+    threadId: string,
+    description: string,
+  ): Promise<{ reply: string }> {
+    const result = await this.takeTurn(membership, threadId, description, {
+      systemPrompt: BUILD_SYSTEM_PROMPT,
+      maxToolCalls: BUILD_MAX_TOOL_CALLS,
+      maxTurns: BUILD_MAX_TURNS,
+    });
+    return { reply: result.reply };
   }
 
   /** Store or clear the outstanding question. */

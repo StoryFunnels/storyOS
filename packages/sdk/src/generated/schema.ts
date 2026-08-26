@@ -3051,6 +3051,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/tyron/threads/{thread}/build": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Build a workspace from one sentence (#363) */
+        post: operations["TyronThreadsController_build"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/skills": {
         parameters: {
             query?: never;
@@ -4844,7 +4861,7 @@ export interface components {
             draft?: unknown;
         };
         BuildDto: {
-            plan?: unknown;
+            description: string;
         };
         CreateThreadDto: {
             first_message?: string;
@@ -9698,6 +9715,29 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["ConfirmDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    TyronThreadsController_build: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                thread: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BuildDto"];
             };
         };
         responses: {

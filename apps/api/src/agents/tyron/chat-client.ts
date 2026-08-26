@@ -101,7 +101,23 @@ export class OpenAiTyronChatClient implements TyronChatClient {
     });
     if (!res.ok) {
       const body = await res.text().catch(() => '');
-      throw new Error(`Tyron model call failed (HTTP ${res.status}): ${body.slice(0, 500)}`);
+      /*
+       * The provider's raw body goes to the LOG, never to the user.
+       *
+       * Found live: a rejected key produced OpenAI's full JSON error — including
+       * the key prefix and a link to the account page — rendered verbatim in a
+       * member's chat panel. Two problems in one. It was instance CONFIGURATION
+       * surfacing to an end user who can do nothing about it, and it read like a
+       * crash rather than an explanation.
+       *
+       * The operator still needs the detail, so it is logged. What the user gets
+       * is the CATEGORY of failure, which is the part that tells them whether to
+       * retry or to fetch someone who can fix it.
+       */
+      process.stderr.write(
+        `storyos-tyron: model call failed (HTTP ${res.status}): ${body.slice(0, 1000)}\n`,
+      );
+      throw new Error(modelFailureMessage(res.status));
     }
     const data = (await res.json()) as {
       choices?: Array<{
@@ -131,6 +147,26 @@ export class OpenAiTyronChatClient implements TyronChatClient {
       tokensOut: data.usage?.completion_tokens ?? 0,
     };
   }
+}
+
+/**
+ * What the USER is told when the model call fails.
+ *
+ * Grouped by what the reader can do about it: a configuration fault is somebody
+ * else's job and saying so stops them retrying forever; a rate limit is worth
+ * retrying; anything else is honestly unknown.
+ */
+function modelFailureMessage(status: number): string {
+  if (status === 401 || status === 403) {
+    return "I can't reach the AI service — this instance's API key was rejected. That's a configuration problem on our side, not something you did; an admin needs to look at it.";
+  }
+  if (status === 429) {
+    return "The AI service is rate-limiting us at the moment. Worth trying again shortly.";
+  }
+  if (status >= 500) {
+    return 'The AI service is having trouble. Worth trying again shortly.';
+  }
+  return "I couldn't complete that — the AI service refused the request.";
 }
 
 function safeParse(raw: string): Record<string, unknown> {
