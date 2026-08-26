@@ -30,6 +30,8 @@ export * from './auth-schema';
  * stay correct without touching every call site.
  */
 export const changeSource = pgEnum('change_source', ['human', 'agent', 'automation', 'mcp']);
+/** #390 — the write's PROVENANCE. Orthogonal to `actorUserId`, which stays the person. */
+export type ChangeSource = (typeof changeSource.enumValues)[number];
 
 export const membershipRole = pgEnum('membership_role', ['admin', 'member', 'guest']);
 export const membershipStatus = pgEnum('membership_status', ['pending', 'active']);

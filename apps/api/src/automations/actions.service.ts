@@ -7,6 +7,7 @@ import { evaluateFormula, parseFormula } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { connections, databases, fields, memberships, records, relations, user } from '../db/schema';
+import type { ChangeSource } from '../db/schema';
 import { FieldsService } from '../fields/fields.service';
 import { compileFilter } from '../records/query-compiler';
 import type { FilterNode } from '@storyos/schemas';
@@ -72,6 +73,19 @@ export interface ActionContext {
    */
   record: ProjectedRecord | null;
   actorId: string;
+  /**
+   * #390 — WHAT is running these actions.
+   *
+   * This executor is SHARED: an automation rule runs actions through it, and so
+   * does an agent applying a staged action (AgentsService.applyProposedAction
+   * calls straight into `execute`). Hardcoding 'automation' inside the handlers
+   * would therefore have labelled every agent write as an automation — the
+   * exact confusion the field exists to remove.
+   *
+   * So it comes from the CALLER. Defaults to 'automation' because that is what
+   * every pre-existing call site is; the agent path passes 'agent' explicitly.
+   */
+  source?: ChangeSource;
   /** Loop-guard depth for automation-caused writes (MN-047). */
   depth?: number;
   /** MN-254: the inbound webhook body, addressable via {payload.a.b.0} tokens. */
@@ -907,6 +921,10 @@ export class AutomationActionsService {
           values,
           ctx.actorId,
           ctx.depth ?? 0,
+          // #390 — from the caller: 'automation' for a rule, 'agent' when an
+          // agent applies a staged action through this same executor. The actor
+          // stays the person either way; source is the second axis.
+          ctx.source ?? 'automation',
         );
         effects.push({
           type: 'set_values',
@@ -1037,6 +1055,8 @@ export class AutomationActionsService {
               values,
               ctx.actorId,
               ctx.depth ?? 0,
+              // #390 — same provenance when the write reaches a LINKED record.
+              ctx.source ?? 'automation',
             );
           }
           effects.push({

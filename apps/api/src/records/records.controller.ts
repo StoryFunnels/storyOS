@@ -205,6 +205,19 @@ export class RecordsController {
       recordId,
       body.values,
       req.user.id,
+      0,
+      /*
+       * #390 — a PAT-authenticated write is how MCP arrives (`auth.via` is set
+       * by the auth guard), so `token` is the MCP signal and a session is a
+       * person at a keyboard.
+       *
+       * Deliberately imprecise in one direction, and worth stating: a PAT used
+       * by someone's own curl script also lands as `mcp`. That is acceptable —
+       * both are "a program wrote this, not a person typing" — whereas
+       * pretending a scripted write was human would be a lie in the direction
+       * that matters.
+       */
+      req.auth?.via === 'token' ? 'mcp' : 'human',
     );
   }
 
