@@ -6,6 +6,7 @@ import { AuthGuard } from '../../auth/auth.guard';
 import { WorkspaceAccessGuard } from '../../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../../workspaces/workspace-access.guard';
 import { TyronThreadsService } from './threads.service';
+import { TyronService } from './tyron.service';
 
 class CreateThreadDto extends createZodDto(
   z.object({
@@ -16,6 +17,10 @@ class CreateThreadDto extends createZodDto(
 
 class RenameThreadDto extends createZodDto(
   z.object({ title: z.string().trim().min(1).max(200) }),
+) {}
+
+class TakeTurnDto extends createZodDto(
+  z.object({ message: z.string().trim().min(1).max(10_000) }),
 ) {}
 
 /**
@@ -30,7 +35,10 @@ class RenameThreadDto extends createZodDto(
 @UseGuards(AuthGuard, WorkspaceAccessGuard)
 @Controller('workspaces/:ws/tyron/threads')
 export class TyronThreadsController {
-  constructor(private readonly threads: TyronThreadsService) {}
+  constructor(
+    private readonly threads: TyronThreadsService,
+    private readonly tyron: TyronService,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: "The caller's own Tyron threads, most recent first (#359)" })
@@ -60,5 +68,24 @@ export class TyronThreadsController {
   @ApiOperation({ summary: 'Delete a thread — does NOT undo what it did (#359)' })
   remove(@Req() req: WorkspaceRequest, @Param('thread') thread: string) {
     return this.threads.remove(req.membership, thread);
+  }
+
+  /**
+   * #357c — say something to Tyron and get the outcome.
+   *
+   * One request, one outcome. NOT a stream: #357 asks for "an animation while
+   * working, then a plain statement of what changed", which a spinner plus a
+   * final answer satisfies exactly. #363 is where a progress line is genuinely
+   * required, and `runTurn` is already an async generator, so that ticket can
+   * stream the same loop without reshaping this endpoint.
+   */
+  @Post(':thread/turns')
+  @ApiOperation({ summary: 'Send a message to Tyron and get what it did (#357)' })
+  takeTurn(
+    @Req() req: WorkspaceRequest,
+    @Param('thread') thread: string,
+    @Body() body: TakeTurnDto,
+  ) {
+    return this.tyron.takeTurn(req.membership, thread, body.message);
   }
 }

@@ -35,7 +35,7 @@ export const SidebarRow = forwardRef<HTMLDivElement, {
   draggable?: boolean;
   dragHandleProps?: Record<string, unknown>;
   /**
-   * #386 — the disclosure control, rendered INSIDE the reserved gutter.
+   * #380 (follow-up) — the disclosure control, rendered INSIDE the reserved gutter.
    *
    * Pass it here rather than as a child. A caret rendered as a child sits BESIDE
    * the gutter and adds its own width, so a row with children ends up indented
@@ -89,7 +89,7 @@ export const SidebarRow = forwardRef<HTMLDivElement, {
         {...(draggable && !caret ? dragHandleProps : {})}
       >
         {/*
-          #386 — EXACTLY ONE control occupies this slot, and the slot is always
+          #380 (follow-up) — EXACTLY ONE control occupies this slot, and the slot is always
           12px wide whatever is in it. That is the whole padding system: a row's
           indent is `SIDEBAR_INDENT_PX[depth]` plus one fixed gutter, never a sum
           of whichever controls happen to apply.

@@ -1687,7 +1687,7 @@ function DatabaseRow({
       {...(canDrag ? attributes : {})}
       {...(canDrag ? listeners : {})}
       title={canDrag ? 'Drag to reorder' : undefined}
-      /* #386 — the caret goes in the RESERVED gutter, not beside it, so a
+      /* #380 (follow-up) — the caret goes in the RESERVED gutter, not beside it, so a
          database with children lines up with one without. */
       caret={
         expandable ? (

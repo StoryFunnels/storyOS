@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useParams } from 'next/navigation';
 import { Columns2, Maximize2, Minimize2, PanelRightClose, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -14,6 +15,7 @@ import {
 import { useSidebarCollapsed } from '@/lib/sidebar-state';
 import { OPEN_TYRON_EVENT, useTyronPanel } from '@/lib/tyron-panel';
 import { AgentAvatar } from './agent-avatar';
+import { TyronConversation } from './tyron-conversation';
 
 /**
  * Tyron's docked panel (#356).
@@ -29,6 +31,9 @@ import { AgentAvatar } from './agent-avatar';
  * header, and the FULL state's escape affordance.
  */
 export function TyronPanel() {
+  // The panel lives in the workspace layout, so the ws segment is always present
+  // there; typed as optional because the component itself makes no such promise.
+  const ws = (useParams() as { ws?: string }).ws;
   const { state, set, open, close } = useTyronPanel();
   const { collapsed, setCollapsed } = useSidebarCollapsed();
   const { ratio, setRatio, persist } = useSplitRatio(TYRON_RATIO_KEY, TYRON_RATIO_DEFAULT);
@@ -228,11 +233,16 @@ export function TyronPanel() {
           </span>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-auto p-4">
-          <p className="text-[13px] text-muted">
-            The conversation lands here in #357b — this ticket is the shell it lives in.
-          </p>
-        </div>
+        {ws ? (
+          <TyronConversation ws={ws} />
+        ) : (
+          // Outside a workspace route there is nothing to talk about — every tool
+          // is workspace-scoped. Better to say so than to render a composer whose
+          // every message would fail.
+          <div className="min-h-0 flex-1 overflow-auto p-4">
+            <p className="text-[13px] text-muted">Open a workspace to talk to Tyron.</p>
+          </div>
+        )}
       </div>
     </>
   );

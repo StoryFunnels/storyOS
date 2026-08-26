@@ -3017,6 +3017,23 @@ export interface paths {
         patch: operations["TyronThreadsController_rename"];
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/tyron/threads/{thread}/turns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Send a message to Tyron and get what it did (#357) */
+        post: operations["TyronThreadsController_takeTurn"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/skills": {
         parameters: {
             query?: never;
@@ -4817,6 +4834,9 @@ export interface components {
         };
         RenameThreadDto: {
             title: string;
+        };
+        TakeTurnDto: {
+            message: string;
         };
         CreateSkillDto: {
             name: string;
@@ -9616,6 +9636,29 @@ export interface operations {
         };
         responses: {
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    TyronThreadsController_takeTurn: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                thread: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TakeTurnDto"];
+            };
+        };
+        responses: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };

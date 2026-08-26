@@ -15,6 +15,7 @@ import { ArchitectService } from './architect.service';
 import { AgentTriggerSubscriber } from './trigger.subscriber';
 import { TyronThreadsController } from './tyron/threads.controller';
 import { TyronThreadsService } from './tyron/threads.service';
+import { TyronService } from './tyron/tyron.service';
 
 /**
  * Agents + Runs + Agent Triggers system databases (MN-214a / #209 / #211,
@@ -60,7 +61,7 @@ import { TyronThreadsService } from './tyron/threads.service';
     WorkspacesModule,
   ],
   controllers: [AgentsController, ArchitectController, TyronThreadsController],
-  providers: [AgentsService, ArchitectService, AgentTriggerSubscriber, TyronThreadsService],
-  exports: [AgentsService, ArchitectService, TyronThreadsService],
+  providers: [AgentsService, ArchitectService, AgentTriggerSubscriber, TyronThreadsService, TyronService],
+  exports: [AgentsService, ArchitectService, TyronThreadsService, TyronService],
 })
 export class AgentsModule {}
