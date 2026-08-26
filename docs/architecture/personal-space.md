@@ -9,7 +9,8 @@ private notes in one.
 > export**. It holds **documents and views only**, never databases. A personal
 > *view* is a window onto shared data, so deleting a record through it deletes it
 > for everyone. Mentions inside personal content never notify. Moving content
-> Personal → shared → Personal is reversible.
+> Publishing is a one-way MOVE; coming back is "Copy to My Space", a fork with no
+> sync.
 
 ## 1. Visibility: private from everyone, including admins
 
@@ -97,22 +98,28 @@ or a Slack delivery would leak what the UI hides.
 Mentions still *render* and still link for the owner. The suppression is on
 notification, not on the reference.
 
-## 5. Promote / demote is reversible
+## 5. Publishing is a one-way move; coming back is a fork
 
-**Decision.** Content moves **Personal → shared → Personal**, both directions, any
-number of times.
+**Decision (#293).** Personal → shared is a real **move**: the item leaves Personal
+and lives in the shared space. The reverse is **"Copy to My Space"** — an
+independent copy, owned by the user, with **no sync** between the two afterwards.
 
-**Why.** A one-way "publish" is a known complaint about the reference tool: people
-avoid drafting in Personal at all, because promoting is irreversible and a mistake
-is public. Reversibility is what makes the space usable as a drafting surface.
+This supersedes an earlier draft of this ADR that called the pair "reversible". It
+isn't a reversible re-point, and building one would be the wrong thing: two-way sync
+between a private draft and a shared original is a merge problem nobody asked for.
+A fork is honest about what it is.
 
-Two rules make it safe:
+Three rules make it safe:
 
-- **Publishing is explicit and names the audience** — "Move to <space>? Everyone
-  with access to <space> will be able to see it."
-- **Demoting back to Personal does not un-notify.** Anything already delivered while
-  it was shared stays delivered. Say so in the confirmation, or someone will assume
-  demotion is a recall.
+- **The move confirmation says it is one-way and names the audience** — "This will be
+  visible to everyone with access to <space>. You can copy it back later, but the
+  copy won't stay in sync."
+- **Publishing notifies at publish time.** Moving a doc that mentions people into a
+  shared space *does* notify them then — that is the moment it stops being private,
+  and the mention becomes a real one.
+- **Moving out of Personal makes the item exportable again.** The export boundary
+  follows the item's current container, never its history. Nothing to build, but it
+  is asserted by a test so a refactor can't silently make the boundary sticky.
 
 ## Checklist — building a Personal-space slice (#291–#293)
 
@@ -125,5 +132,6 @@ Two rules make it safe:
       not merely that the UI hides one.
 - [ ] Deleting through a personal view uses the blast-radius wording above.
 - [ ] Databases cannot be created in, or deleted from, a Personal space.
-- [ ] Promote and demote both work, and the demote confirmation states that prior
-      notifications are not recalled.
+- [ ] Publishing is a one-way move whose confirmation says so; "Copy to My Space"
+      forks with no sync back.
+- [ ] An item moved OUT of Personal is exportable again — asserted by a test.

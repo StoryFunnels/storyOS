@@ -67,8 +67,8 @@ The load-bearing decisions:
   view itself is safe. Databases are never reachable from a personal lens.
 - **Mentions in personal content never notify** — suppress at EMIT time, never by
   filtering on read (a digest or Slack delivery would leak what the UI hides).
-- **Promote/demote is reversible**; demoting does not recall notifications already
-  sent.
+- **Publishing is a ONE-WAY move**; coming back is "Copy to My Space" — a fork with
+  no sync (#293). Moving out of Personal makes the item exportable again.
 
 ## Where a view lives (#349 / #347 / #304 / #306) — decided, don't re-litigate
 
