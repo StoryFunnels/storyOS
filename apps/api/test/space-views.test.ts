@@ -157,6 +157,56 @@ describe('GET /spaces/:space/views (#347)', () => {
     ).not.toContain('My private lens');
   });
 
+  it('a personal view does NOT ride along in the database introspection payload (#332)', async () => {
+    /*
+     * The sibling leak, found while building #332's `view` argument for
+     * query_records.
+     *
+     * `DatabasesService.get` loaded views with `eq(views.databaseId, ...)` and
+     * no owner predicate, so the introspection payload — what `describe_database`
+     * is built from, and what the table view reads — returned every view on the
+     * database regardless of owner. `notOthersPersonalView` existed for exactly
+     * this and had a single caller.
+     *
+     * #332 then began returning each view's `filter`/`sorts` there, which would
+     * have widened the exposure from a name to the whole saved query, and the
+     * new `view` argument would have let anyone QUERY THROUGH someone else's
+     * personal lens.
+     *
+     * Latent rather than live: no endpoint sets `views.ownerUserId` yet (#292),
+     * which is exactly why this is the cheap moment — the alternative is #292
+     * shipping a leak on day one through a path nobody re-checked.
+     */
+    const other = await signUpUser(app, 'Nosy');
+    const otherId = (await as(other.token, 'GET', '/me')).json().id;
+    const invite = await as(admin.token, 'POST', `/workspaces/${wsId}/invites`, {
+      email: other.email,
+      role: 'member',
+    });
+    const token = new URL(invite.json().accept_url).searchParams.get('token')!;
+    await as(other.token, 'POST', '/invites/accept', { token });
+
+    await db.pool.query(
+      `INSERT INTO views (database_id, name, type, owner_user_id, config) VALUES ($1, 'Nosy private lens', 'table', $2, $3)`,
+      [tasksDb, otherId, JSON.stringify({ filters: { field: 'title', op: 'contains', value: 'secret' } })],
+    );
+
+    const asOwner = await as(other.token, 'GET', `/workspaces/${wsId}/databases/${tasksDb}`);
+    const asAdmin = await as(admin.token, 'GET', `/workspaces/${wsId}/databases/${tasksDb}`);
+
+    const viewNames = (b: string) =>
+      (JSON.parse(b).views as Array<{ name: string }>).map((v) => v.name);
+
+    expect(viewNames(asOwner.body), 'the owner still sees their own').toContain('Nosy private lens');
+    expect(
+      viewNames(asAdmin.body),
+      'an admin must not see another member\'s personal view here either (#291) — no admin bypass',
+    ).not.toContain('Nosy private lens');
+    // The saved filter is the part #332 would have exposed; assert on the whole
+    // payload, not just the name, because that is what actually leaks.
+    expect(asAdmin.body).not.toContain('secret');
+  });
+
   it('reports a personal view as personal, without saying whose it is', async () => {
     const other = (await db.pool.query(`SELECT owner_user_id FROM views WHERE name = 'My private lens'`))
       .rows[0].owner_user_id as string;

@@ -1862,3 +1862,204 @@ describe('descriptions and option editing over MCP (#400, #398)', () => {
     });
   });
 });
+
+/**
+ * #332 / #394 — querying through a view, and the bulk path.
+ */
+describe('view-scoped queries and bulk building (#332, #394)', () => {
+  const viewConfig = {
+    filters: { and: [{ field: 'state', op: 'eq', value: 'Doing' }] },
+    sorts: [{ field: 'title', direction: 'asc' }],
+  };
+  const dbDetail = {
+    id: 'db-1',
+    name: 'Voices',
+    qualifiedSlug: 'content/voices',
+    fields: [
+      {
+        id: 'f-state',
+        apiName: 'state',
+        displayName: 'State',
+        type: 'workflow',
+        options: [
+          { id: 'opt-todo', label: 'To Do' },
+          { id: 'opt-doing', label: 'Doing' },
+        ],
+      },
+      { id: 'f-title', apiName: 'title', displayName: 'Title', type: 'title' },
+    ],
+    views: [
+      { id: 'view-abc', name: 'In progress', type: 'table', config: viewConfig },
+      { id: 'view-plain', name: 'All', type: 'table', config: {} },
+    ],
+  };
+
+  interface Sent { method: string; path: string; body?: unknown }
+
+  function harness() {
+    const sent: Sent[] = [];
+    const client = {
+      GET: async (path: string) => {
+        if (path === '/api/v1/workspaces') return { data: [{ id: 'ws-1', name: 'Eng' }] };
+        if (path === '/api/v1/workspaces/{ws}/databases') return { data: [dbDetail] };
+        if (path === '/api/v1/workspaces/{ws}/databases/{db}') return { data: dbDetail };
+        if (path === '/api/v1/packs/registry') return { data: [{ slug: 'crm', name: 'CRM' }] };
+        if (path === '/api/v1/packs/registry/{slug}') return { data: { slug: 'crm', manifest: { databases: [] } } };
+        throw new Error(`unexpected GET ${path}`);
+      },
+      POST: async (path: string, opts: { body: unknown }) => {
+        sent.push({ method: 'POST', path, body: opts.body });
+        if (path.endsWith('/records/query')) return { data: { data: [], next_cursor: null, has_more: false } };
+        return { data: { ok: true } };
+      },
+      PATCH: async (path: string, opts: { body: unknown }) => {
+        sent.push({ method: 'PATCH', path, body: opts.body });
+        return { data: { ok: true } };
+      },
+    };
+    const handlers = new Map<string, (a: unknown) => Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }>>();
+    registerTools(
+      { registerTool: (n: string, _c: unknown, h: never) => void handlers.set(n, h as never) } as never,
+      { client: client as never, baseUrl: 'http://test', token: 'tok' } as Ctx,
+    );
+    const call = async (tool: string, args: unknown) => {
+      const r = await handlers.get(tool)!(args);
+      if (r.isError) throw new Error(r.content[0]!.text);
+      return JSON.parse(r.content[0]!.text) as never;
+    };
+    return { call, sent, handlers };
+  }
+
+  const queryBody = (sent: Sent[]) =>
+    sent.find((s) => s.path.endsWith('/records/query'))!.body as { filter?: unknown; sorts?: unknown };
+
+  describe('#332 — "the records in this view", in one call', () => {
+    it('applies the view\'s saved filter and sorts, resolved by view ID', async () => {
+      // The id is what a shared `?view=<uuid>` URL carries — the whole point.
+      const { call, sent } = harness();
+      await call('query_records', { workspace: 'Eng', database: 'Voices', view: 'view-abc' });
+      const body = queryBody(sent);
+      expect(body.sorts).toEqual(viewConfig.sorts);
+      // The label was mapped to an option id on the way through, as any filter is.
+      expect(JSON.stringify(body.filter)).toContain('opt-doing');
+    });
+
+    it('resolves a view by NAME too', async () => {
+      const { call, sent } = harness();
+      await call('query_records', { workspace: 'Eng', database: 'Voices', view: 'In progress' });
+      expect(queryBody(sent).sorts).toEqual(viewConfig.sorts);
+    });
+
+    it('an explicit filter OVERRIDES the view\'s — "this view, but only X" must be expressible', async () => {
+      const { call, sent } = harness();
+      await call('query_records', {
+        workspace: 'Eng',
+        database: 'Voices',
+        view: 'view-abc',
+        filter: { field: 'state', op: 'eq', value: 'To Do' },
+      });
+      expect(JSON.stringify(queryBody(sent).filter)).toContain('opt-todo');
+    });
+
+    it('a view with no saved filter queries everything, rather than sending undefined junk', async () => {
+      const { call, sent } = harness();
+      await call('query_records', { workspace: 'Eng', database: 'Voices', view: 'All' });
+      const body = queryBody(sent);
+      expect(body.filter).toBeUndefined();
+      expect(body.sorts).toEqual([]);
+    });
+
+    it('names the real views when asked for one that does not exist', async () => {
+      const { call } = harness();
+      await expect(
+        call('query_records', { workspace: 'Eng', database: 'Voices', view: 'Nope' }),
+      ).rejects.toThrow(/In progress, All/);
+    });
+
+    it('does NOT expand `me` itself — the server resolves it against the caller', async () => {
+      /*
+       * #332 held this feature back partly because "a view filter can reference
+       * `me`". Passing the AST through unexpanded is not a shortcut: the API's
+       * query compiler resolves `me` from the authenticated caller, so expanding
+       * it here would freeze it to whoever happened to ask.
+       */
+      const meView = { id: 'v-me', name: 'Mine', type: 'table', config: { filters: { field: 'assignee', op: 'eq', value: 'me' } } };
+      dbDetail.views.push(meView as never);
+      const { call, sent } = harness();
+      await call('query_records', { workspace: 'Eng', database: 'Voices', view: 'v-me' });
+      expect(JSON.stringify(queryBody(sent).filter)).toContain('"me"');
+      dbDetail.views.pop();
+    });
+  });
+
+  describe('#394 — one call instead of ninety', () => {
+    it('build_schema passes the plan through VERBATIM', async () => {
+      // Reshaping it here would turn the service's actionable 422 ("this part of
+      // your plan is wrong") into a confusing one, and would be a second copy of
+      // a schema that already exists.
+      const { call, sent } = harness();
+      const plan = { summary: 'x', scenario: 'crm', databases: [{ action: 'create', name: 'Leads', space: 'S', fields: [] }] };
+      await call('build_schema', { workspace: 'Eng', plan });
+      expect(sent.find((s) => s.path.endsWith('/architect/build'))!.body).toEqual({ plan });
+    });
+
+    it('propose_schema creates nothing — it only proposes', async () => {
+      const { call, sent } = harness();
+      await call('propose_schema', { workspace: 'Eng', goal: 'track clients' });
+      const paths = sent.map((s) => s.path);
+      expect(paths).toContain('/api/v1/workspaces/{ws}/architect/propose');
+      expect(paths).not.toContain('/api/v1/workspaces/{ws}/architect/build');
+    });
+
+    it('install_pack with preview writes NOTHING', async () => {
+      const { call, sent } = harness();
+      await call('install_pack', { workspace: 'Eng', slug: 'crm', preview: true });
+      const paths = sent.map((s) => s.path);
+      expect(paths).toContain('/api/v1/workspaces/{ws}/packs/preview');
+      expect(paths).not.toContain('/api/v1/workspaces/{ws}/packs/install');
+    });
+
+    it('install_pack without preview installs', async () => {
+      const { call, sent } = harness();
+      await call('install_pack', { workspace: 'Eng', slug: 'crm' });
+      expect(sent.map((s) => s.path)).toContain('/api/v1/workspaces/{ws}/packs/install');
+    });
+
+    it('create_records sends ONE request for many records', async () => {
+      const { call, sent } = harness();
+      await call('create_records', {
+        workspace: 'Eng',
+        database: 'Voices',
+        records: [{ values: { title: 'a' } }, { values: { title: 'b' } }, { values: { title: 'c' } }],
+      });
+      const writes = sent.filter((s) => s.path.endsWith('/records/batch'));
+      expect(writes).toHaveLength(1);
+      expect((writes[0]!.body as { records: unknown[] }).records).toHaveLength(3);
+    });
+
+    it('a batch write resolves select LABELS, exactly as the single-record write does', async () => {
+      // A batch taking raw option ids while create_record takes labels would be
+      // a second, quietly different write contract.
+      const { call, sent } = harness();
+      await call('create_records', {
+        workspace: 'Eng',
+        database: 'Voices',
+        records: [{ values: { state: 'Doing' } }],
+      });
+      expect(JSON.stringify(sent.find((s) => s.path.endsWith('/records/batch'))!.body)).toContain('opt-doing');
+    });
+
+    it('update_records applies one patch to many ids in a single call', async () => {
+      const { call, sent } = harness();
+      await call('update_records', {
+        workspace: 'Eng',
+        database: 'Voices',
+        record_ids: ['r1', 'r2'],
+        values: { state: 'To Do' },
+      });
+      const patch = sent.find((s) => s.method === 'PATCH' && s.path.endsWith('/records/batch'))!;
+      expect((patch.body as { record_ids: string[] }).record_ids).toEqual(['r1', 'r2']);
+      expect(JSON.stringify(patch.body)).toContain('opt-todo');
+    });
+  });
+});
