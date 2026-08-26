@@ -142,3 +142,60 @@ export function formatTileValue(value: number | null): string {
   const rounded = Number.isInteger(value) ? value : Math.round(value * 100) / 100;
   return rounded.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
+
+/**
+ * #388 — how a number reads against its target.
+ *
+ * "383" is not information; "383 of 400" is. This turns the pair into the three
+ * things a reader needs: how far along, whether that is good, and whether to say
+ * anything at all.
+ */
+export interface TargetProgress {
+  /** 0..1, clamped. Past the target stays 1 so the bar cannot overflow. */
+  ratio: number;
+  /** Percent of target, NOT clamped — "120% of target" is the useful part. */
+  percent: number;
+  /** Whether the reader should feel good about this. */
+  tone: 'good' | 'bad' | 'neutral';
+  /** Rendered beside the number, e.g. "of 400". */
+  label: string;
+}
+
+/**
+ * `null` means render NO comparison — never a zero and never a 100% swing.
+ *
+ * #388 names this trap directly: "A missing or empty previous period renders as
+ * no comparison — never 0, never an infinite percentage. A dashboard that reports
+ * a dramatic swing because last period had no data is actively misleading."
+ * The same reasoning applies to a target of zero, which would divide by zero and
+ * produce Infinity — a tile confidently reporting "∞% of target".
+ */
+export function targetProgress(
+  value: number | null,
+  target: number | undefined,
+  direction: 'up' | 'down' = 'up',
+): TargetProgress | null {
+  if (value == null || target == null || !Number.isFinite(target) || target === 0) return null;
+
+  const percent = (value / target) * 100;
+  const ratio = Math.max(0, Math.min(1, value / target));
+
+  /*
+   * Direction is why this is not a one-liner. More revenue is good; more overdue
+   * invoices is bad. Colouring by "is the number big" would be confidently wrong
+   * half the time, which is worse than no colour at all — so the tile carries
+   * which way is desirable and this respects it.
+   *
+   * `down` means the target is a CEILING: at or under it is good.
+   */
+  const met = direction === 'up' ? value >= target : value <= target;
+  const close = direction === 'up' ? value >= target * 0.9 : value <= target * 1.1;
+  const tone: TargetProgress['tone'] = met ? 'good' : close ? 'neutral' : 'bad';
+
+  return {
+    ratio,
+    percent,
+    tone,
+    label: direction === 'up' ? `of ${formatTileValue(target)}` : `limit ${formatTileValue(target)}`,
+  };
+}

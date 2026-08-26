@@ -3,6 +3,7 @@
 import { useEffect, useMemo } from 'react';
 import { Filter as FilterIcon, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
+import type { BlockLayout } from '@storyos/schemas';
 import {
   Bar,
   BarChart,
@@ -45,6 +46,13 @@ export interface DashboardWidget {
    * so every dashboard saved before this renders identically with no migration.
    */
   database_id?: string;
+  /**
+   * #386 — where this widget sits on the SAME grid as the tiles. This is what
+   * lets a chart sit beside the number it explains; before it, all charts
+   * rendered below all tiles as a structural consequence of two arrays in two
+   * grids.
+   */
+  layout?: BlockLayout;
 }
 
 /**
@@ -261,7 +269,9 @@ export function DashboardWidgetCard({
     'Untitled widget';
 
   return (
-    <div className="flex flex-col gap-3 rounded-[var(--radius-control)] border border-border-default bg-card p-4">
+    /* `h-full` for the same reason as the metric tile: the grid item stretches,
+       the card does not, so a short chart left a gap under itself. */
+    <div className="flex h-full flex-col gap-3 rounded-[var(--radius-control)] border border-border-default bg-card p-4">
       <div className="flex items-start justify-between gap-2">
         <span className="text-[13px] font-medium text-muted">{heading}</span>
         {showConfig && (

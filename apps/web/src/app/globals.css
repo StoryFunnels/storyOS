@@ -414,3 +414,28 @@ body {
     widows: 3;
   }
 }
+
+/*
+ * Dashboard grid (#386).
+ *
+ * The span lives in CSS, not in the inline style, because of a CSS Grid
+ * behaviour that is easy to get wrong: a child with `grid-column: span 6` inside
+ * a ONE-column grid does not clamp to one column — it creates five IMPLICIT
+ * columns. So the obvious "grid-cols-1 md:grid-cols-12" approach silently fails
+ * on a phone and lays tiles out side by side anyway, which is exactly what it
+ * was meant to prevent. Caught in a real browser at 375px, not by any test.
+ *
+ * Below `md` every block spans one column, whatever it stores. Above it, the
+ * stored span applies. The component passes `--block-w` / `--block-h`.
+ */
+.dashboard-grid > * {
+  grid-column: span 1;
+  grid-row: span 1;
+}
+
+@media (min-width: 768px) {
+  .dashboard-grid > * {
+    grid-column: span var(--block-w, 3);
+    grid-row: span var(--block-h, 1);
+  }
+}
