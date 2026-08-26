@@ -4015,6 +4015,19 @@ export interface components {
                     filter?: components["schemas"]["CreateViewDto__schema0"];
                     /** Format: uuid */
                     database_id?: string;
+                    layout?: {
+                        order: number;
+                        w: number;
+                        h: number;
+                    };
+                    comparison?: {
+                        target?: number;
+                        /**
+                         * @default up
+                         * @enum {string}
+                         */
+                        direction: "up" | "down";
+                    };
                 }[];
                 /** @default [] */
                 dashboard_widgets: {
@@ -4038,6 +4051,11 @@ export interface components {
                     filter?: components["schemas"]["CreateViewDto__schema0"];
                     /** Format: uuid */
                     database_id?: string;
+                    layout?: {
+                        order: number;
+                        w: number;
+                        h: number;
+                    };
                 }[];
                 form?: {
                     title?: string;
@@ -4138,6 +4156,19 @@ export interface components {
                     filter?: components["schemas"]["UpdateViewDto__schema0"];
                     /** Format: uuid */
                     database_id?: string;
+                    layout?: {
+                        order: number;
+                        w: number;
+                        h: number;
+                    };
+                    comparison?: {
+                        target?: number;
+                        /**
+                         * @default up
+                         * @enum {string}
+                         */
+                        direction: "up" | "down";
+                    };
                 }[];
                 /** @default [] */
                 dashboard_widgets: {
@@ -4161,6 +4192,11 @@ export interface components {
                     filter?: components["schemas"]["UpdateViewDto__schema0"];
                     /** Format: uuid */
                     database_id?: string;
+                    layout?: {
+                        order: number;
+                        w: number;
+                        h: number;
+                    };
                 }[];
                 form?: {
                     title?: string;
