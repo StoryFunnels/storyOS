@@ -171,6 +171,16 @@ pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm docs:check \
 ```
 
 If you touched API surface: `pnpm sdk:generate` and commit the drift.
+
+**A new API capability ships with its MCP tool in the SAME PR — or an entry in
+`packages/mcp/src/coverage.ts` saying why not** (#397). StoryOS is agent-first:
+a capability the MCP cannot reach effectively does not exist for the product's
+main consumer, and four such gaps accumulated unnoticed before anyone counted.
+`coverage.test.ts` fails on an endpoint that has neither a tool nor an entry, so
+this is enforced rather than remembered. An exclusion needs a real reason;
+"nobody asked for it" is not one, and a genuine gap goes in `DEFERRED` with a
+ticket rather than being disguised as a decision.
+
 If you touched `packages/mcp` or its deps: the Docker image must still build
 (`docker build -f docker/mcp.Dockerfile .`) — CI checks this too.
 

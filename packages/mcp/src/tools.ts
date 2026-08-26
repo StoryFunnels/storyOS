@@ -444,6 +444,8 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   get_links: 'read',
   list_attachments: 'read',
   list_spaces: 'read',
+  // #394 — the pack gallery is public/read-only; installing one is admin.
+  list_packs: 'read',
   list_icon_set: 'read',
   get_record_description: 'read',
   list_skills: 'read',
@@ -500,6 +502,16 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   // on the space).
   update_space: 'admin',
   update_workspace: 'admin',
+  // #394 — schema building. Same admin ceiling as create_database, and the
+  // ArchitectController is admin-gated for the same reason: building a workflow
+  // IS schema work.
+  propose_schema: 'admin',
+  build_schema: 'admin',
+  install_pack: 'admin',
+  // A batch write is a WRITE, not schema — same scope as create_record. The
+  // count is not what decides the privilege.
+  create_records: 'write',
+  update_records: 'write',
 };
 
 /** Tools gated by run_button on top of write scope (MN-134). */
@@ -561,8 +573,16 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         'StoryOS MCP — read AND build a workspace of user-defined relational databases.',
         '',
         'READ:  list_workspaces → list_databases → describe_database (READ THE SCHEMA first) → query_records / search / get_record.',
+        'VIEWS: describe_database returns each view\'s id, filter and sorts. Pass query_records a `view` to get exactly what that view shows — a shared ?view=<uuid> link works directly (#332).',
         'WRITE: describe_database first, then create_record / update_record. Fill the FULL field template, not just a couple of fields.',
-        'BUILD: list_spaces → create_space → create_database → add_field → create_view → create_relation. Then create_record to populate.',
+        /*
+         * #394 — the bulk path is FIRST, because an unadvertised bulk tool is
+         * the same discoverability failure as #393. A session that did not know
+         * these existed made ninety sequential add_field calls and reported
+         * managing our round-trip cost as its main constraint.
+         */
+        'BUILD (fast): list_packs → install_pack for a ready-made workspace, or propose_schema → show the plan → build_schema to create many databases/fields/relations in ONE call. Prefer these over a long create_database/add_field sequence.',
+        'BUILD (manual, for one-off additions): list_spaces → create_space → create_database → add_field → create_view → create_relation. Then create_records (batch, up to 100) to populate.',
         'AUTOMATE (admin): describe_database first, then create_automation = trigger (record_created/_updated/_linked, schedule, or webhook_received) + optional condition (a query_records-style filter) + 1–10 actions (set/create/create_records/comment/notify/email/webhook/http_request/run_agent). ' +
         // #297: these all shipped and worked, but nothing an agent reads mentioned
         // them — so in practice they did not exist.
@@ -738,18 +758,84 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .describe('Sort keys by field api_name.'),
         limit: z.number().int().min(1).max(200).optional(),
         cursor: z.string().optional().describe('next_cursor from a prior call.'),
+        /*
+         * #332 step 3 — "the records in this view", in one call.
+         *
+         * The natural instruction a person gives is a LINK: they paste
+         * `?view=<uuid>` and say "work everything in here". Until now that
+         * needed a human to translate the link into a filter by hand.
+         */
+        view: z
+          .string()
+          .optional()
+          .describe(
+            'View id or name — applies that view\'s saved filter and sorts, so "the records in this view" matches what the UI shows. A `view` URL\'s ?view=<uuid> works directly. Your own `filter`/`sorts` override the view\'s.',
+          ),
       },
     },
-    handle<{ workspace: string; database: string; filter?: unknown; sorts?: unknown; limit?: number; cursor?: string }>(
-      async ({ workspace, database, filter, sorts, limit, cursor }) => {
+    handle<{
+      workspace: string;
+      database: string;
+      filter?: unknown;
+      sorts?: unknown;
+      limit?: number;
+      cursor?: string;
+      view?: string;
+    }>(
+      async ({ workspace, database, filter, sorts, limit, cursor, view }) => {
         const ws = await resolveWorkspace(client, workspace);
         const db = await resolveDatabase(client, ws.id, database);
         // Read the schema first so select labels in the filter can be resolved (#77).
         const detail = await getDetail(ws.id, db.id);
+
+        /*
+         * #332 — the view's saved scope.
+         *
+         * The ticket held this back because "a view filter can reference `me`,
+         * and a personal view (#291) is private to its owner, so it must resolve
+         * against the CALLING identity and refuse someone else's personal view."
+         * Both are satisfied WITHOUT any check written here, and that is the
+         * point rather than an oversight:
+         *
+         *  - The view comes from the database-detail payload, fetched with the
+         *    CALLER's own token, and that query now carries
+         *    `notOthersPersonalView` — so another member's personal view is not
+         *    in the payload to resolve against. (It was missing there until this
+         *    change; see the comment in DatabasesService.get. The MCP is not a
+         *    privileged path (ADR-0016), so it inherits the rule rather than
+         *    re-implementing it — re-implementing it here would be the leak.)
+         *  - `me` is resolved by the API's query compiler against
+         *    `ctx.currentUserId` — the authenticated caller. Passing the AST
+         *    through unexpanded is therefore not just safe but REQUIRED:
+         *    resolving `me` here would freeze it to whoever happened to ask.
+         *
+         */
+        let viewFilter: unknown;
+        let viewSorts: unknown;
+        if (view) {
+          // Resolved from the detail already fetched above — no extra round trip,
+          // and it inherits that endpoint's access filtering rather than
+          // re-deriving it here.
+          const resolved = resolveView(detail, view);
+          const cfg = (resolved.config ?? {}) as { filters?: unknown; sorts?: unknown };
+          viewFilter = cfg.filters;
+          viewSorts = cfg.sorts;
+        }
+
+        // An explicit argument wins over the view's saved one — "this view, but
+        // only the overdue ones" has to be expressible.
+        const effectiveFilter = filter ?? viewFilter;
+        const effectiveSorts = sorts ?? viewSorts;
+
         const res = await unwrap<{ data: RecordRow[]; next_cursor: string | null; has_more: boolean }>(
           client.POST('/api/v1/workspaces/{ws}/databases/{db}/records/query', {
             params: { path: { ws: ws.id, db: db.id } },
-            body: { filter: mapFilterValues(detail, filter), sorts: sorts ?? [], limit: limit ?? 50, cursor } as never,
+            body: {
+              filter: mapFilterValues(detail, effectiveFilter),
+              sorts: effectiveSorts ?? [],
+              limit: limit ?? 50,
+              cursor,
+            } as never,
           }),
         );
         return text({
@@ -1371,6 +1457,195 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     if (!v) throw new Error(`No view matches "${ref}". Available: ${(detail.views ?? []).map((x) => x.name).join(', ') || '(none)'}.`);
     return v;
   };
+
+  /*
+   * #394 — the bulk path. `add_field` creates ONE field, so a 90-field schema
+   * was 90 sequential calls: ninety chances to fail halfway, leaving a
+   * half-built database with no transaction and no obvious way to resume. The
+   * capability already existed twice over (`/architect/*`, `/packs/install`) and
+   * `tools.ts` referenced neither.
+   *
+   * ADR-0010 §6: the Architect "needs no engine privilege the CRUD API does not
+   * already expose", so exposing it here grants nothing new — it stops making
+   * agents do the slow thing.
+   */
+  reg(
+    'propose_schema',
+    {
+      title: 'Propose a schema',
+      description:
+        'Turn a plain-language goal ("track clients, their projects and invoices") into a PLAN — databases, fields, relations and states, each marked create-new or reuse-existing. Creates NOTHING. Show the plan, then pass it to build_schema. This is the fast path for building a workspace: one call instead of one add_field per field.',
+      inputSchema: {
+        workspace: z.string(),
+        goal: z.string().max(2000).describe('What the workspace is for, in plain language.'),
+        mode: z
+          .enum(['non_ai', 'storyos_ai', 'your_own_ai'])
+          .optional()
+          .describe('Omit for the free deterministic planner. "storyos_ai" is metered against this workspace\'s AI credits.'),
+      },
+    },
+    handle<{ workspace: string; goal: string; mode?: string }>(async ({ workspace, goal, mode }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const plan = await unwrap<unknown>(
+        client.POST('/api/v1/workspaces/{ws}/architect/propose', {
+          params: { path: { ws: ws.id } } as never,
+          body: { goal, ...(mode ? { mode } : {}) } as never,
+        }),
+      );
+      return text(plan);
+    }),
+  );
+
+  reg(
+    'build_schema',
+    {
+      title: 'Build a proposed schema',
+      description:
+        'Build an approved plan from propose_schema in ONE call — every database, field, relation and state together, reusing existing databases where the plan says reuse. Returns a summary of what was created vs reused, with ids. Prefer this over a sequence of create_database/add_field calls.',
+      inputSchema: {
+        workspace: z.string(),
+        plan: z
+          .any()
+          .describe('The plan object returned by propose_schema, passed back verbatim.'),
+      },
+    },
+    handle<{ workspace: string; plan: unknown }>(async ({ workspace, plan }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      /*
+       * The plan goes back VERBATIM. The service re-validates it at one
+       * boundary and answers a malformed plan with a 422 naming the bad part —
+       * reshaping it here would turn an actionable error into a confusing one,
+       * and would be a second copy of a schema that already exists.
+       */
+      const built = await unwrap<unknown>(
+        client.POST('/api/v1/workspaces/{ws}/architect/build', {
+          params: { path: { ws: ws.id } } as never,
+          body: { plan } as never,
+        }),
+      );
+      return text(built);
+    }),
+  );
+
+  reg(
+    'list_packs',
+    {
+      title: 'List packs',
+      description:
+        'The built-in Business Pack gallery — ready-made workspaces (databases, fields, relations, views, sample data). Installing one is the fastest possible "build me a workspace"; check here before planning a schema from scratch.',
+      inputSchema: {},
+    },
+    handle<Record<string, never>>(async () =>
+      text(await unwrap<unknown>(client.GET('/api/v1/packs/registry'))),
+    ),
+  );
+
+  reg(
+    'install_pack',
+    {
+      title: 'Install a pack',
+      description:
+        'Install a Business Pack by slug (from list_packs) — creates its databases, fields, relations and views in one call. Idempotent. Set preview to see exactly what it would create WITHOUT creating anything.',
+      inputSchema: {
+        workspace: z.string(),
+        slug: z.string().describe('Pack slug from list_packs.'),
+        preview: z
+          .boolean()
+          .optional()
+          .describe('Show what would be created and create nothing. Worth doing first on a workspace that already has data.'),
+      },
+    },
+    handle<{ workspace: string; slug: string; preview?: boolean }>(async ({ workspace, slug, preview }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const pack = await unwrap<{ manifest?: unknown }>(
+        client.GET('/api/v1/packs/registry/{slug}', { params: { path: { slug } } as never }),
+      );
+      if (!pack?.manifest) throw new Error(`Pack "${slug}" has no manifest. Call list_packs for valid slugs.`);
+      // Two literal calls rather than one computed path: the generated client is
+      // typed per route, so a variable path erases the typing that makes a wrong
+      // body a compile error rather than a 422 in production.
+      const args = {
+        params: { path: { ws: ws.id } } as never,
+        body: { manifest: pack.manifest } as never,
+      };
+      return text(
+        await unwrap<unknown>(
+          preview
+            ? client.POST('/api/v1/workspaces/{ws}/packs/preview', args)
+            : client.POST('/api/v1/workspaces/{ws}/packs/install', args),
+        ),
+      );
+    }),
+  );
+
+  /*
+   * #394's other half, and the one #404 makes urgent: reading and writing
+   * records one at a time is what put 130k tokens of rows through a model.
+   * A batch write is one call and one response.
+   */
+  reg(
+    'create_records',
+    {
+      title: 'Create records (batch)',
+      description:
+        'Create up to 100 records in ONE atomic call — all succeed or none do. Values are keyed by api_name exactly as create_record takes them. Use this instead of calling create_record in a loop.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        records: z
+          .array(z.object({ values: z.record(z.string(), z.any()) }))
+          .min(1)
+          .max(100)
+          .describe('Up to 100 { values } objects.'),
+      },
+    },
+    handle<{ workspace: string; database: string; records: Array<{ values: Record<string, unknown> }> }>(
+      async ({ workspace, database, records }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const detail = await getDetail(ws.id, db.id);
+        const res = await unwrap<unknown>(
+          client.POST('/api/v1/workspaces/{ws}/databases/{db}/records/batch', {
+            params: { path: { ws: ws.id, db: db.id } } as never,
+            // Same label/markdown/relation mapping every single-record write
+            // gets — a batch that took raw ids while create_record took labels
+            // would be a second, quietly different write contract.
+            body: { records: records.map((r) => ({ values: mapWriteValues(detail, r.values) })) } as never,
+          }),
+        );
+        return text(res);
+      },
+    ),
+  );
+
+  reg(
+    'update_records',
+    {
+      title: 'Update records (batch)',
+      description:
+        'Apply ONE set of values to up to 200 records at once — the "set status to Done for everything in this view" shape. Partial failures are reported per record rather than failing the whole call.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        record_ids: z.array(z.string()).min(1).max(200),
+        values: z.record(z.string(), z.any()).describe('The patch applied to every listed record.'),
+      },
+    },
+    handle<{ workspace: string; database: string; record_ids: string[]; values: Record<string, unknown> }>(
+      async ({ workspace, database, record_ids, values }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const detail = await getDetail(ws.id, db.id);
+        const res = await unwrap<unknown>(
+          client.PATCH('/api/v1/workspaces/{ws}/databases/{db}/records/batch', {
+            params: { path: { ws: ws.id, db: db.id } } as never,
+            body: { record_ids, values: mapWriteValues(detail, values) } as never,
+          }),
+        );
+        return text(res);
+      },
+    ),
+  );
 
   reg(
     'list_icon_set',

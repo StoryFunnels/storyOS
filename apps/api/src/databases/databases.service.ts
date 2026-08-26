@@ -152,7 +152,23 @@ export class DatabasesService {
         orderBy: [asc(fields.position)],
       }),
       this.db.query.views.findMany({
-        where: eq(views.databaseId, databaseId),
+        /*
+         * #291/#332 — another member's PERSONAL view must not ride along here.
+         *
+         * This path had no owner predicate, so the introspection payload
+         * returned every view on the database regardless of who owned it, and
+         * `notOthersPersonalView` — the predicate written for exactly this —
+         * had only one caller (`listForSpace`). #332 then started returning each
+         * view's `filter`/`sorts` here, which widened what a leak would expose
+         * from a name to the whole saved query.
+         *
+         * Latent rather than live today: the test in `space-views.test.ts`
+         * records that no endpoint sets `views.ownerUserId` yet (#292 is still
+         * open), so there are no personal views to leak. That is precisely why
+         * this is the cheap moment to close it — the alternative is #292
+         * shipping a leak on day one through a path nobody thought to re-check.
+         */
+        where: and(eq(views.databaseId, databaseId), this.access.notOthersPersonalView(membership)),
         orderBy: [asc(views.position)],
       }),
     ]);
