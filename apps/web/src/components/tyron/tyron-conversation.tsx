@@ -58,7 +58,7 @@ export function TyronConversation({ ws }: { ws: string }) {
         body: { message } as never,
       } as never);
       if (error) throw error;
-      return data as unknown as { reply: string };
+      return data as unknown as { reply: string; question?: { message: string; tool: string } };
     },
     /*
       `onSettled`, not `onSuccess`. The user's message is persisted before the
@@ -68,6 +68,27 @@ export function TyronConversation({ ws }: { ws: string }) {
     */
     onSettled: () => void qc.invalidateQueries({ queryKey: ['tyron-thread', ws] }),
   });
+
+  /**
+   * #357d — answering the question. Sends only a boolean: the pending call is
+   * held server-side, so this cannot authorise something other than what was
+   * shown.
+   */
+  const confirm = useMutation({
+    mutationFn: async (approve: boolean) => {
+      const { data, error } = await api.POST(
+        '/api/v1/workspaces/{ws}/tyron/threads/{thread}/confirm',
+        { params: { path: { ws, thread: threadId! } }, body: { approve } as never } as never,
+      );
+      if (error) throw error;
+      return data as unknown as { reply: string };
+    },
+    onSettled: () => void qc.invalidateQueries({ queryKey: ['tyron-thread', ws] }),
+  });
+
+  // The question stands until it is answered. Cleared once a confirm succeeds,
+  // and replaced if a later turn asks something new.
+  const question = confirm.isSuccess ? undefined : send.data?.question;
 
   const messages = thread.data?.messages ?? [];
 
@@ -126,6 +147,35 @@ export function TyronConversation({ ws }: { ws: string }) {
                 ))}
               </span>
             </div>
+          )}
+          {question && !confirm.isPending && (
+            /*
+              #358's confirmation, made answerable. The destructive choice is NOT
+              the default-looking button: "Yes, do it" carries the danger colour
+              and Cancel is the quiet one, so the safe action is the easy one.
+            */
+            <div className="flex flex-wrap items-center gap-2 rounded-[var(--radius-control)] border border-border-default bg-hover p-2">
+              <span className="min-w-0 flex-1 text-[13px] text-ink">{question.message}</span>
+              <button
+                type="button"
+                onClick={() => confirm.mutate(false)}
+                className="rounded-[var(--radius-control)] px-2 py-1 text-[12px] text-muted hover:bg-active hover:text-ink"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => confirm.mutate(true)}
+                className="rounded-[var(--radius-control)] bg-danger px-2 py-1 text-[12px] font-medium text-[var(--on-accent,#fff)]"
+              >
+                Yes, do it
+              </button>
+            </div>
+          )}
+          {confirm.isError && (
+            <p className="text-[13px] text-danger">
+              {apiErrorMessage(confirm.error, "I couldn't finish that just now.")}
+            </p>
           )}
           {send.isError && (
             <p className="text-[13px] text-danger">

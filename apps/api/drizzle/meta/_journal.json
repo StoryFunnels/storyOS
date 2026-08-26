@@ -533,6 +533,13 @@
       "when": 1787687298843,
       "tag": "0075_mean_turbo",
       "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1787743861977,
+      "tag": "0076_nosy_eternals",
+      "breakpoints": true
     }
   ]
 }

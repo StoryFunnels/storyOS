@@ -194,6 +194,29 @@ describe('write safety gates the loop', () => {
     expect(catalog.calls, 'the allowed write must not slip through beside the delete').toEqual([]);
   });
 
+  /**
+   * #357d — the question must carry the CALL, not only the prose.
+   *
+   * Without it the caller has to reconstruct what to execute from the message
+   * text, and "yes" could run something other than what was classified and
+   * shown. This is the assertion that keeps the confirm round-trip honest.
+   */
+  it('carries the exact call awaiting an answer', async () => {
+    const events = await collect(
+      runTurn('delete those', {
+        chat: scriptedChat([
+          { toolCalls: [{ id: '1', name: 'delete_record', arguments: { record_ids: ['a', 'b'], database: 'crm/clients' } }] },
+        ]),
+        catalog: fakeCatalog(),
+        history: [],
+      }),
+    );
+    const q = events.find((e) => e.type === 'question');
+    if (q?.type !== 'question') throw new Error('unreachable');
+    expect(q.call.name).toBe('delete_record');
+    expect(q.call.arguments).toEqual({ record_ids: ['a', 'b'], database: 'crm/clients' });
+  });
+
   it('a refusal is spoken plainly and ends the turn', async () => {
     const events = await collect(
       runTurn('invite bob', {

@@ -2,14 +2,24 @@ import { Inject, Injectable, UnprocessableEntityException } from '@nestjs/common
 import { and, asc, eq } from 'drizzle-orm';
 import { DB } from '../../db/db.module';
 import type { Db } from '../../db/client';
-import { tyronMessages } from '../../db/schema';
+import { tyronMessages, tyronThreads } from '../../db/schema';
 import { env } from '../../config/env';
 import type { Membership } from '../../workspaces/workspace-access.guard';
 import { TokensService } from '../../tokens/tokens.service';
 import { TyronThreadsService } from './threads.service';
-import { McpToolCatalog, TYRON_READ_ONLY_SCOPE } from './tool-catalog';
+import { McpToolCatalog } from './tool-catalog';
+import { scopeForRole } from '../agent-principal';
+import type { Role } from '../../workspaces/workspace-access.guard';
 import { defaultTyronChatClient, type ChatMessage } from './chat-client';
 import { runTurn, type TurnEvent } from './turn-loop';
+
+/** One tool call awaiting the user's yes or no (#357d). */
+interface PendingAction {
+  name: string;
+  arguments: Record<string, unknown>;
+  /** The question as it was shown, so the record of what was agreed is exact. */
+  message: string;
+}
 
 /**
  * One turn, end to end (#357c).
@@ -75,23 +85,21 @@ export class TyronService {
     /**
      * A short-lived token scoped to THIS member (ADR-0016 §2).
      *
-     * #357c stays READ-ONLY, so the scope is the constant rather than the member's
-     * own ceiling. Not caution for its own sake: `runTurn` already consults #358's
-     * classifier, but a gated call ends the turn as a QUESTION and there is no
-     * round-trip yet to answer it. Enabling writes now would let ordinary writes
-     * through while every delete dead-ended — worse than read-only, because it
-     * would look like it worked.
+     * #357d turns WRITES ON, and the ceiling is `scopeForRole` — the same one
+     * `AgentPrincipal` applies to any agent run (admin→admin, member→write,
+     * guest→read). Tyron can never be handed more than the engine would give any
+     * other agent acting for this person, and a guest stays read-only by the
+     * ordinary rule rather than by a Tyron-specific one.
      *
-     * When that round-trip lands, this becomes `scopeForRole(membership.role)` —
-     * the same ceiling `AgentPrincipal` applies to any agent run (admin→admin,
-     * member→write, guest→read), so Tyron can never be handed more than the
-     * engine would give any other agent acting for this person.
+     * The read-only floor #357c used is gone because the thing it was protecting
+     * against is fixed: a gated call now has a round-trip to answer it, so a
+     * delete asks and waits instead of dead-ending.
      */
     const minted = await this.tokens.create(
       membership.userId,
       membership.workspaceId,
       'Tyron (session)',
-      TYRON_READ_ONLY_SCOPE,
+      scopeForRole(membership.role as Role),
     );
 
     const catalog = new McpToolCatalog(env().TYRON_MCP_URL, minted.token);
@@ -102,6 +110,7 @@ export class TyronService {
 
       let reply = '';
       let question: { message: string; tool: string } | undefined;
+      let pending: PendingAction | null = null;
       let stopped: string | undefined;
       const actions: Array<{ name: string; arguments: Record<string, unknown> }> = [];
 
@@ -112,8 +121,9 @@ export class TyronService {
             // that narrated a step before finishing still reads as one answer.
             reply = reply ? `${reply}\n\n${t}` : t;
           },
-          onQuestion: (q) => {
+          onQuestion: (q, call) => {
             question = q;
+            pending = { name: call.name, arguments: call.arguments, message: q.message };
           },
           onStopped: (s) => {
             stopped = s;
@@ -130,6 +140,12 @@ export class TyronService {
         content: spoken,
         actions,
       });
+      /*
+       * Store the pending call so "yes" executes exactly what was classified and
+       * shown. Cleared on every turn that does NOT end in a question, so an
+       * unanswered question cannot be resurrected by a later, unrelated message.
+       */
+      await this.setPending(threadId, pending);
       return { reply: spoken, ...(question ? { question } : {}), ...(stopped ? { stopped } : {}) };
     } finally {
       /*
@@ -141,6 +157,81 @@ export class TyronService {
       await this.tokens.revoke(membership.userId, minted.id).catch(() => {
         /* best effort — a stranded token expires, but must never fail the turn */
       });
+    }
+  }
+
+  /** Store or clear the outstanding question. */
+  private async setPending(threadId: string, pending: PendingAction | null): Promise<void> {
+    await this.db
+      .update(tyronThreads)
+      .set({ pendingAction: pending })
+      .where(eq(tyronThreads.id, threadId));
+  }
+
+  /**
+   * Answer the outstanding question (#357d / #358).
+   *
+   * This is what makes a confirmation real rather than decorative. Without it a
+   * delete ends the turn as a question nobody can answer, which is why writes
+   * were floored at read-only until now.
+   *
+   * On YES the stored call is executed EXACTLY as classified — the client sends
+   * only a boolean, so it cannot answer a different question than the one it was
+   * asked. On NO nothing runs, and Tyron says so.
+   */
+  async confirmPending(
+    membership: Membership,
+    threadId: string,
+    approve: boolean,
+  ): Promise<{ reply: string }> {
+    const thread = await this.threads.get(membership, threadId);
+    const row = await this.db.query.tyronThreads.findFirst({
+      where: eq(tyronThreads.id, thread.id),
+      columns: { pendingAction: true },
+    });
+    const pending = row?.pendingAction as PendingAction | null | undefined;
+    if (!pending) {
+      // Not an error: the likeliest cause is a second click, or a question
+      // already answered in another tab. Saying so plainly beats a 4xx.
+      return { reply: "There's nothing waiting for an answer." };
+    }
+
+    // Cleared FIRST, so a double-click cannot execute a destructive action twice.
+    // Losing the pending action on a failure is the safe direction: the user can
+    // ask again, whereas running a delete twice cannot be taken back.
+    await this.setPending(thread.id, null);
+
+    if (!approve) {
+      const declined = "Okay — I haven't done it.";
+      await this.threads.appendMessage(membership, threadId, { role: 'assistant', content: declined });
+      return { reply: declined };
+    }
+
+    const minted = await this.tokens.create(
+      membership.userId,
+      membership.workspaceId,
+      'Tyron (confirm)',
+      scopeForRole(membership.role as Role),
+    );
+    const catalog = new McpToolCatalog(env().TYRON_MCP_URL, minted.token);
+    try {
+      const result = await catalog.call(pending.name, pending.arguments);
+      /*
+       * The tool's own words on failure — a permission denial explains itself far
+       * better than "that didn't work", and this is the path where the user has
+       * just explicitly authorised something, so a vague failure is worst here.
+       */
+      const reply = result.isError ? `That didn't go through: ${result.text}` : 'Done.';
+      await this.threads.appendMessage(membership, threadId, {
+        role: 'assistant',
+        content: reply,
+        // Recorded for #354 replay only if it actually ran.
+        actions: result.isError ? [] : [{ name: pending.name, arguments: pending.arguments }],
+      });
+      return { reply };
+    } finally {
+      await catalog.close();
+      await this.tokens.revoke(membership.userId, minted.id).catch(() => {});
     }
   }
 
@@ -174,7 +265,7 @@ function applyEvent(
   event: TurnEvent,
   on: {
     onText: (t: string) => void;
-    onQuestion: (q: { message: string; tool: string }) => void;
+    onQuestion: (q: { message: string; tool: string }, call: { name: string; arguments: Record<string, unknown> }) => void;
     onStopped: (s: string) => void;
     onDone: (a: Array<{ name: string; arguments: Record<string, unknown> }>) => void;
   },
@@ -185,7 +276,7 @@ function applyEvent(
       on.onText(event.text);
       return;
     case 'question':
-      on.onQuestion({ message: event.verdict.message, tool: event.tool });
+      on.onQuestion({ message: event.verdict.message, tool: event.tool }, event.call);
       return;
     case 'stopped':
       on.onStopped(event.stop.message);
