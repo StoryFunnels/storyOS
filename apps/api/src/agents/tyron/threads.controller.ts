@@ -29,6 +29,11 @@ class TakeTurnDto extends createZodDto(
  */
 class ConfirmDto extends createZodDto(z.object({ approve: z.boolean() })) {}
 
+/** #363 — one sentence about the business. */
+class BuildDto extends createZodDto(
+  z.object({ description: z.string().trim().min(3).max(2_000) }),
+) {}
+
 /**
  * Tyron threads (#359).
  *
@@ -109,5 +114,26 @@ export class TyronThreadsController {
     @Body() body: ConfirmDto,
   ) {
     return this.tyron.confirmPending(req.membership, thread, body.approve);
+  }
+
+  /**
+   * #363 — build a workspace from a sentence.
+   *
+   * Its own route rather than a flag on `turns`, because the two differ in what
+   * they are ALLOWED to do (a much higher ceiling) and that is a property of the
+   * endpoint, not of the message. A caller cannot accidentally get build ceilings
+   * by phrasing an ordinary question a certain way.
+   *
+   * Long-running by nature — a build is tens of seconds. The client shows what
+   * has appeared so far by reading the workspace, not by being streamed a log.
+   */
+  @Post(':thread/build')
+  @ApiOperation({ summary: 'Build a workspace from one sentence (#363)' })
+  build(
+    @Req() req: WorkspaceRequest,
+    @Param('thread') thread: string,
+    @Body() body: BuildDto,
+  ) {
+    return this.tyron.buildWorkspace(req.membership, thread, body.description);
   }
 }

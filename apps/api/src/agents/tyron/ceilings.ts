@@ -57,12 +57,12 @@ export interface CeilingStop {
  * exception to surface. Throwing here would land in a generic error handler and
  * produce exactly the opaque failure this guard exists to prevent.
  */
-export function checkToolCallCeiling(callsMade: number): CeilingStop | null {
-  if (callsMade < MAX_TOOL_CALLS_PER_TURN) return null;
+export function checkToolCallCeiling(callsMade: number, max = MAX_TOOL_CALLS_PER_TURN): CeilingStop | null {
+  if (callsMade < max) return null;
   return {
     kind: 'tool_calls_per_turn',
     message:
-      `I stopped after ${MAX_TOOL_CALLS_PER_TURN} steps in one turn, which is my limit for a single request. ` +
+      `I stopped after ${max} steps in one turn, which is my limit for a single request. ` +
       `Everything I did before stopping has been applied — nothing was rolled back. ` +
       `Tell me what to do next and I'll carry on from here.`,
     // Not resumable as the SAME turn: the point of the cap is to break a cycle,
@@ -71,12 +71,12 @@ export function checkToolCallCeiling(callsMade: number): CeilingStop | null {
   };
 }
 
-export function checkTurnCeiling(turnsTaken: number): CeilingStop | null {
-  if (turnsTaken < MAX_TURNS_PER_RUN) return null;
+export function checkTurnCeiling(turnsTaken: number, max = MAX_TURNS_PER_RUN): CeilingStop | null {
+  if (turnsTaken < max) return null;
   return {
     kind: 'turns_per_run',
     message:
-      `I've gone back and forth ${MAX_TURNS_PER_RUN} times on this without finishing, so I've stopped ` +
+      `I've gone back and forth ${max} times on this without finishing, so I've stopped ` +
       `rather than keep going in circles. What I completed is saved. It would help to break this into a ` +
       `smaller step.`,
     resumable: false,
@@ -113,10 +113,17 @@ export function checkCeilings(state: {
   toolCallsThisTurn: number;
   turnsThisRun: number;
   bulk?: { done: number; remaining: number };
+  /**
+   * #363 — a workspace build raises these. Overrides rather than a second set of
+   * constants, so there is still exactly ONE place that decides what a ceiling
+   * MEANS and what it says when hit.
+   */
+  maxToolCalls?: number;
+  maxTurns?: number;
 }): CeilingStop | null {
   return (
-    checkTurnCeiling(state.turnsThisRun) ??
-    checkToolCallCeiling(state.toolCallsThisTurn) ??
+    checkTurnCeiling(state.turnsThisRun, state.maxTurns) ??
+    checkToolCallCeiling(state.toolCallsThisTurn, state.maxToolCalls) ??
     (state.bulk ? checkBulkCheckin(state.bulk.done, state.bulk.remaining) : null)
   );
 }

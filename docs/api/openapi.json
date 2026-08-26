@@ -7333,6 +7333,45 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/tyron/threads/{thread}/build": {
+      "post": {
+        "operationId": "TyronThreadsController_build",
+        "parameters": [
+          {
+            "name": "thread",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BuildDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Build a workspace from one sentence (#363)",
+        "tags": [
+          "tyron"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/skills": {
       "get": {
         "operationId": "SkillsController_list",
@@ -12929,8 +12968,15 @@
       "BuildDto": {
         "type": "object",
         "properties": {
-          "plan": {}
-        }
+          "description": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "description"
+        ]
       },
       "CreateThreadDto": {
         "type": "object",
