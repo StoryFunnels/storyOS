@@ -348,3 +348,65 @@ describe('answering Tyron\'s pending question (#357d/#358)', () => {
     expect(rows[0].pending_action, 'and it must still be pending').not.toBeNull();
   });
 });
+
+/**
+ * #420 — which AI answered.
+ *
+ * The point of the ticket is that a change of model should be something a
+ * person NOTICES rather than discovers, so the assertions are about the value
+ * reaching the client per turn — not about it being stored, which #357 already
+ * covered.
+ */
+describe('#420 — the model that answered is readable per turn', () => {
+  it('returns the model on the assistant turn that used one', async () => {
+    const threads = app.get(TyronThreadsService);
+    const membership = { workspaceId: wsId, userId: (await as(owner.token, 'GET', '/me')).json().id } as never;
+
+    await threads.appendMessage(membership, ownerThread, {
+      role: 'assistant',
+      content: 'Done.',
+      usage: { tokensIn: 10, tokensOut: 20, model: 'a-model-from-env' },
+    });
+
+    const thread = await as(owner.token, 'GET', `/workspaces/${wsId}/tyron/threads/${ownerThread}`);
+    const answered = thread.json().messages.filter((m: { model?: string | null }) => m.model);
+    expect(answered.at(-1).model).toBe('a-model-from-env');
+  });
+
+  it('leaves it null on a USER message rather than inventing one', async () => {
+    const threads = app.get(TyronThreadsService);
+    const membership = { workspaceId: wsId, userId: (await as(owner.token, 'GET', '/me')).json().id } as never;
+    await threads.appendMessage(membership, ownerThread, { role: 'user', content: 'do a thing' });
+
+    const thread = await as(owner.token, 'GET', `/workspaces/${wsId}/tyron/threads/${ownerThread}`);
+    const last = thread.json().messages.at(-1);
+    expect(last.role).toBe('user');
+    expect(last.model).toBeNull();
+  });
+
+  it('does not relabel history when the model changes — each turn keeps its own', async () => {
+    // The reason this is per-message rather than one label on the composer: a
+    // thread that spans a model change must not claim the old turns were
+    // answered by the new model.
+    const threads = app.get(TyronThreadsService);
+    const membership = { workspaceId: wsId, userId: (await as(owner.token, 'GET', '/me')).json().id } as never;
+
+    await threads.appendMessage(membership, ownerThread, {
+      role: 'assistant', content: 'first', usage: { tokensIn: 1, tokensOut: 1, model: 'old-model' },
+    });
+    await threads.appendMessage(membership, ownerThread, {
+      role: 'assistant', content: 'second', usage: { tokensIn: 1, tokensOut: 1, model: 'new-model' },
+    });
+
+    const messages = (await as(owner.token, 'GET', `/workspaces/${wsId}/tyron/threads/${ownerThread}`)).json().messages;
+    const models = messages.filter((m: { model?: string | null }) => m.model).map((m: { model: string }) => m.model);
+    expect(models.slice(-2)).toEqual(['old-model', 'new-model']);
+  });
+
+  it('still returns no tool trace — #357 unchanged', async () => {
+    // Guarding the guard: this PR adds a field to the same projection that
+    // deliberately omits `actions`, so it is worth asserting the omission held.
+    const thread = await as(owner.token, 'GET', `/workspaces/${wsId}/tyron/threads/${ownerThread}`);
+    for (const m of thread.json().messages) expect(m).not.toHaveProperty('actions');
+  });
+});
