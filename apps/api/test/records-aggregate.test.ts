@@ -98,6 +98,62 @@ describe('#404 server-side aggregate', () => {
     expect([min.body.value, max.body.value]).toEqual([1, ROWS]);
   });
 
+  it('#360a — says the answer is EXACT, as a field rather than as prose', async () => {
+    /*
+     * "Here are 4 that look relevant" and "there are exactly 4" are different
+     * claims, and a user cannot tell them apart unless the answer says which one
+     * they got.
+     *
+     * The AC insists it be a FIELD, and the reasoning is worth keeping: a model
+     * told to caveat its answers will sometimes forget, and the one time it
+     * forgets is indistinguishable from a wrong count. A field cannot forget.
+     */
+    const { body } = await agg({ op: 'count' });
+    expect(body.exact).toBe(true);
+  });
+
+  it('#360a — answers a DATE RANGE exactly', async () => {
+    // The AC names three shapes: a count, a date range, and an is-empty. This is
+    // the one the other tests here did not cover.
+    const dated = (await as(admin.token, 'POST', `/workspaces/${wsId}/databases/${dbId}/fields`, {
+      display_name: 'Signed',
+      type: 'date',
+    })).json();
+    expect(dated.apiName).toBe('signed');
+
+    const rec = async (name: string, signed: string | null) =>
+      as(admin.token, 'POST', `/workspaces/${wsId}/databases/${dbId}/records`, {
+        values: { name, ...(signed ? { signed } : {}) },
+      });
+    await rec('Signed in range A', '2026-03-05');
+    await rec('Signed in range B', '2026-03-20');
+    await rec('Signed before', '2026-01-02');
+    await rec('Never signed', null);
+
+    const between = await agg({
+      op: 'count',
+      filter: {
+        and: [
+          { field: 'signed', op: 'after', value: '2026-03-01' },
+          { field: 'signed', op: 'before', value: '2026-04-01' },
+        ],
+      },
+    });
+    // Asserting the NUMBER, not that a number appeared — the AC says so, and a
+    // truthiness check would pass against a count of everything.
+    expect(between.body.value).toBe(2);
+    expect(between.body.exact).toBe(true);
+
+    // The is-empty shape. Every row created earlier in this file also has no
+    // `signed` value, so this asserts the relationship rather than a fixed total.
+    const notEmpty = await agg({ op: 'count', filter: { field: 'signed', op: 'not_empty' } });
+    expect(notEmpty.body.value).toBe(3);
+    const empty = await agg({ op: 'count', filter: { field: 'signed', op: 'is_empty' } });
+    expect(empty.body.value).toBeGreaterThanOrEqual(1);
+    const total = await agg({ op: 'count' });
+    expect(empty.body.value + notEmpty.body.value).toBe(total.body.value);
+  });
+
   it('reports unfiltered as unfiltered', async () => {
     // A filtered count and a total are different claims, and the caller has to
     // be able to tell which one it got.
