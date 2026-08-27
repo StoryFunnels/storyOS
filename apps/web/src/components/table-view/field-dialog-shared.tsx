@@ -22,6 +22,7 @@ import {
   Type,
   UserRound,
   Workflow,
+  Paperclip,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { toast } from 'sonner';
@@ -65,6 +66,8 @@ export const FIELD_TYPES: Array<{
   { value: 'url', label: 'URL', description: 'A link', icon: Link2 },
   { value: 'email', label: 'Email', description: 'An email address', icon: AtSign },
   { value: 'color', label: 'Color', description: 'A hex color with a swatch', icon: Palette },
+  // #391 — the picker and the renderer widen in the SAME commit (CLAUDE.md).
+  { value: 'attachment', label: 'Files', description: 'Images or files on this item', icon: Paperclip },
   { value: 'relation', label: 'Relation', description: 'Link to another list', icon: Workflow },
   /*
    * #321 — `plainLabel` leads in the PICKER and demotes the jargon to a sub-note.
@@ -108,6 +111,9 @@ export const BASIC_FIELD_TYPES = new Set([
   'user',
   'url',
   'email',
+  // #391 — basic, not advanced: "put a photo on it" is not an expert move, and
+  // the gallery cover it unlocks is one of the first things people look for.
+  'attachment',
 ]);
 
 /** Conversions the API allows (docs/architecture/record-storage.md). */
@@ -123,6 +129,10 @@ export const CONVERTIBLE: Record<string, string[]> = {
   url: ['text', 'email'],
   email: ['text', 'url'],
   user: [],
+  // #391 — no conversion in or out. A filename is not a file, so "text →
+  // attachment" would produce a column of names pointing at nothing, and
+  // "attachment → text" would silently strip the files off the record.
+  attachment: [],
 };
 
 export const COLOR_NAMES = Object.keys(OPTION_COLORS);

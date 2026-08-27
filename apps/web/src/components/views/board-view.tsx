@@ -18,6 +18,7 @@ import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { recordHref } from '@/lib/records';
 import { cn } from '@/lib/utils';
+import { API_URL } from '@/lib/api';
 import { Avatar } from '@/components/ui/avatar';
 import { CellDisplay, OPTION_COLORS, OptionIcon, fieldValue } from '../table-view/cells';
 import {
@@ -537,6 +538,7 @@ export function Card({
   memberNames,
   memberImages,
   overlay = false,
+  cover,
 }: {
   row: RecordRow;
   cardFields: Field[];
@@ -544,6 +546,8 @@ export function Card({
   memberNames: Map<string, string>;
   memberImages?: Map<string, string | null>;
   overlay?: boolean;
+  /** #391 — the attachment field a gallery card draws its image from. */
+  cover?: { field: Field; ws: string; db: string };
 }) {
   const s = SIZE_STYLES[size];
   const chips = cardFields
@@ -558,6 +562,7 @@ export function Card({
         overlay && 'shadow-[0_4px_12px_rgba(15,23,41,0.15)]',
       )}
     >
+      <CardCover row={row} cover={cover} />
       <p className={cn('font-medium text-ink', s.title, s.clamp)}>{row.title || 'Untitled'}</p>
       {chips.length > 0 && (
         <div className={cn('mt-2 flex flex-wrap items-center', s.gap)}>
@@ -573,6 +578,41 @@ export function Card({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * The gallery card image (#391) — the FIRST file in the chosen attachment field.
+ *
+ * Renders nothing at all when there is no cover field, no value, or the first
+ * file has no thumbnail. A placeholder box on every card in a gallery that has
+ * not chosen a cover field would be worse than the absence it advertises, and a
+ * non-image attachment (a PDF, a zip) has no thumbnail to show — `has_thumbnail`
+ * is projected precisely so the card can ask before it renders an <img> that
+ * would break.
+ */
+function CardCover({
+  row,
+  cover,
+}: {
+  row: RecordRow;
+  cover?: { field: Field; ws: string; db: string };
+}) {
+  if (!cover) return null;
+  const files = row.values[cover.field.apiName];
+  const first = Array.isArray(files) ? (files[0] as { id?: string; has_thumbnail?: boolean } | undefined) : undefined;
+  if (!first?.id || !first.has_thumbnail) return null;
+  return (
+    <img
+      /* API_URL, not a relative path: the web app and the API are different
+         origins in dev, and a relative src silently resolves against the web
+         server — the image 404s and the card shows an empty box. Matches how
+         AttachmentsStrip builds its thumbnail URLs. */
+      src={`${API_URL}/api/v1/workspaces/${cover.ws}/databases/${cover.db}/records/${row.id}/attachments/${first.id}/thumbnail`}
+      alt=""
+      loading="lazy"
+      className="mb-2 aspect-[4/3] w-full rounded-[calc(var(--radius-card)-2px)] object-cover"
+    />
   );
 }
 

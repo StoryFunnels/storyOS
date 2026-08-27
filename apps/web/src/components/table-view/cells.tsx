@@ -4,6 +4,8 @@ import { useMemo, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Check, ChevronDown, ChevronUp, Plus, Sigma } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { AttachmentEditor, formatBytes } from './attachment-cell';
+import type { AttachmentValue } from './attachment-cell';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { DatePicker } from '@/components/ui/date-picker';
@@ -390,6 +392,31 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, ws 
           {String(value).replace(/^https?:\/\//, '')}
         </a>
       );
+    /*
+     * #391 — an attachment field's value is a list of projected chips, not ids.
+     *
+     * Rendered as filename pills rather than thumbnails: a table row is a fixed
+     * height and a grid of images in it is unreadable. The gallery card is where
+     * the picture belongs, and it has its own renderer for exactly that reason.
+     */
+    case 'attachment': {
+      const files = Array.isArray(value) ? (value as AttachmentValue[]) : [];
+      if (files.length === 0) return null;
+      return (
+        <span className={cn('flex items-center gap-1', wrap ? 'flex-wrap' : 'overflow-hidden')}>
+          {files.map((f) => (
+            <span
+              key={f.id}
+              title={`${f.filename} · ${formatBytes(f.size)}`}
+              className="inline-flex max-w-[160px] items-center gap-1 rounded-[var(--radius-chip)] bg-subtle px-1.5 py-0.5 text-[12px] text-muted"
+            >
+              <span aria-hidden>{f.has_thumbnail ? '🖼' : '📎'}</span>
+              <span className="truncate">{f.filename}</span>
+            </span>
+          ))}
+        </span>
+      );
+    }
     case 'number':
       return <span className="w-full truncate text-right text-[13px] tabular-nums">{formatNumberValue(field, value)}</span>;
     case 'id':
@@ -519,6 +546,13 @@ export function fieldValue(row: ViewRow, field: { type: string; apiName: string 
 interface EditorProps {
   ws: string;
   db: string;
+  /**
+   * #391 — the record being edited. Only the attachment editor needs it (files
+   * upload to a record-scoped endpoint), so it is optional: a caller that edits
+   * values without a record in hand — the batch bar sets one value across many —
+   * legitimately has none, and gets told so rather than getting a broken upload.
+   */
+  rec?: string;
   field: Field;
   value: unknown;
   members: Array<{ id: string; name: string; image?: string | null }>;
@@ -534,7 +568,7 @@ interface EditorProps {
 }
 
 /** Inline editor per field type. Enter commits, Esc cancels, blur commits. */
-export function CellEditor({ ws, db, field, value, members, onCommit, onToggleImmediate, onCancel }: EditorProps) {
+export function CellEditor({ ws, db, rec, field, value, members, onCommit, onToggleImmediate, onCancel }: EditorProps) {
   switch (field.type) {
     case 'title':
       // MN-131: a computed name is derived from a template (#130) and can't be
@@ -547,6 +581,33 @@ export function CellEditor({ ws, db, field, value, members, onCommit, onToggleIm
     case 'url':
     case 'email':
       return <TextEditor initial={value == null ? '' : String(value)} onCommit={(v) => onCommit(v === '' ? null : v)} onCancel={onCancel} />;
+    /*
+     * #391 — files upload to the attachment endpoint, not through onCommit.
+     *
+     * This editor writes as it goes and `onCancel` only closes it. See the note
+     * on AttachmentEditor: wrapping an already-uploaded file in a Cancel button
+     * would be a lie.
+     */
+    case 'attachment':
+      // No record in scope (the batch bar) — files belong to ONE record, so
+      // "set this file on 40 rows" is not a thing this can honestly offer.
+      if (!rec) {
+        return (
+          <div className="rounded-[var(--radius-control)] border border-border-strong bg-card p-2 text-[12px] text-muted">
+            Files are added on a single record.
+          </div>
+        );
+      }
+      return (
+        <AttachmentEditor
+          ws={ws}
+          db={db}
+          rec={rec}
+          fieldId={field.id}
+          value={value}
+          onCancel={onCancel}
+        />
+      );
     case 'number':
       return <NumberEditor initial={value == null ? null : Number(value)} onCommit={onCommit} onCancel={onCancel} />;
     case 'color':

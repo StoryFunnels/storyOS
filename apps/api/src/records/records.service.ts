@@ -11,6 +11,7 @@ import type { FormulaNode } from '@storyos/schemas';
 import type { FieldDef, FilterNode } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import { buildRenderContext, renderTypedValue } from '../activity/render-values';
+import { assertOwnedAttachments, loadAttachmentChips } from '../attachments/attachment-values';
 import type { Db } from '../db/client';
 import { activityEvents, databases, documents, fields, memberships, recordFieldChanges, recordLinks, recordVersions, recordWatchers, records, relations, selectOptions, user } from '../db/schema';
 import type { ChangeSource } from '../db/schema';
@@ -162,7 +163,11 @@ export class RecordsService {
   async attachLinks(projected: ProjectedRecord[], defs: FieldDef[]): Promise<ProjectedRecord[]> {
     const relationDefs = defs.filter((d) => d.type === 'relation');
     if (relationDefs.length === 0 || projected.length === 0) {
-      return this.attachFormulas(projected, defs); // lookups need relations; formulas don't
+      // #391 — attachments do NOT need relations, so they must be resolved on
+      // this path too. Missing it meant a database with no relation field
+      // returned raw attachment ids and every card rendered a uuid, which is
+      // exactly how the six tests below failed the first time.
+      return this.attachFormulas(await this.attachFiles(projected, defs), defs); // lookups need relations; formulas don't
     }
     const ids = projected.map((p) => p.id);
 
@@ -195,9 +200,45 @@ export class RecordsService {
         if (chips?.length) record.values[def.api_name] = chips;
       }
     }
-    const withLookups = await this.attachLookups(projected, defs);
+    const withAttachments = await this.attachFiles(projected, defs);
+    const withLookups = await this.attachLookups(withAttachments, defs);
     const withRollups = await this.attachRollups(withLookups, defs);
     return this.attachFormulas(withRollups, defs);
+  }
+
+  /**
+   * #391 — turn an attachment field's stored id list into renderable chips.
+   *
+   * The stored value is an ordered array of attachment ids; a client cannot draw
+   * a thumbnail from a uuid, so the projection resolves them the same way
+   * relation chips are resolved — one batched query for the page, then a lookup
+   * per value.
+   *
+   * ORDER comes from the stored array, not from the query. A gallery card shows
+   * the FIRST file, and "first" has to mean what the user dragged to the front
+   * rather than whatever `created_at` says.
+   *
+   * An id with no surviving row simply drops out. That is the same rule dangling
+   * relation targets follow, and it means a half-finished delete degrades to a
+   * shorter list rather than to a broken image.
+   */
+  private async attachFiles(projected: ProjectedRecord[], defs: FieldDef[]): Promise<ProjectedRecord[]> {
+    const attachmentDefs = defs.filter((d) => d.type === 'attachment');
+    if (attachmentDefs.length === 0 || projected.length === 0) return projected;
+    const chips = await loadAttachmentChips(
+      this.db,
+      projected.map((r) => r.id),
+      attachmentDefs.map((d) => d.id),
+    );
+    for (const record of projected) {
+      for (const def of attachmentDefs) {
+        const ids = record.values[def.api_name];
+        record.values[def.api_name] = Array.isArray(ids)
+          ? ids.map((id) => chips.get(String(id))).filter(Boolean)
+          : [];
+      }
+    }
+    return projected;
   }
 
   /**
@@ -2084,6 +2125,20 @@ export class RecordsService {
       defs,
       await this.resolveUserInputs(workspaceId, defs, input),
     );
+    /*
+     * #391 — an attachment value may only point at files already on THIS record
+     * and THIS field. Checked before the transaction, for the same reason link
+     * targets are: a forged id must be a clean 422, not a half-applied write.
+     *
+     * Files arrive through the upload endpoint, which checks access on the way
+     * in. This value can reorder or remove; it can never introduce.
+     */
+    for (const def of defs.filter((d) => d.type === 'attachment')) {
+      const next = validated.values[def.id];
+      if (Array.isArray(next)) {
+        await assertOwnedAttachments(this.db, recordId, def.id, next.map(String));
+      }
+    }
     // MN-080: resolved before the transaction — a bad target must not half-apply.
     const linkPlans = validated.links ? await this.planLinks(defs, validated.links) : [];
     // #31: resolved OUTSIDE the transaction — a plan lookup must not hold a row

@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Param,
+  Query,
   Post,
   Req,
   Res,
@@ -53,11 +54,14 @@ export class AttachmentsController {
 
   @Post()
   @ApiConsumes('multipart/form-data')
-  @ApiOperation({ summary: 'Upload a file (multipart field "file"; size-capped)' })
+  @ApiOperation({
+    summary: 'Upload a file (multipart field "file"; size-capped). `?field=<id>` puts it in an attachment field instead of the record bag (#391)',
+  })
   async upload(
     @Req() req: WorkspaceRequest,
     @Param('db') databaseId: string,
     @Param('rec') recordId: string,
+    @Query('field') fieldId?: string,
   ) {
     await this.assertRecord(req, databaseId, recordId, 'editor');
     const raw = req as unknown as FastifyRequest & {
@@ -81,6 +85,7 @@ export class AttachmentsController {
       recordId,
       { filename: file.filename, mime: file.mimetype, data },
       req.user.id,
+      fieldId,
     );
   }
 
