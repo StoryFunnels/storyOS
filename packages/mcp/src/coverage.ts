@@ -176,10 +176,6 @@ export const DEFERRED: CoverageRule[] = [
     reason: '#406 — outbound webhook subscriptions and their delivery log.',
   },
   {
-    match: /\/(documents|folders)/,
-    reason: '#406 — standalone documents and sidebar folders.',
-  },
-  {
     match: '/api/v1/workspaces/{ws}/relations/',
     reason: '#406 — relation configuration beyond create/delete: auto-link rules, running auto-link, select↔relation drift.',
   },
