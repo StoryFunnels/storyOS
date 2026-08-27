@@ -459,6 +459,7 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   describe_database: 'read',
   search: 'read',
   query_records: 'read',
+  count_records: 'read',
   get_record: 'read',
   get_links: 'read',
   list_attachments: 'read',
@@ -751,6 +752,54 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       const hits = (res.records ?? []).slice(0, limit ?? 20);
       return text(hits.map((h) => ({ id: h.id, title: h.title, database: h.database_name, database_id: h.database_id })));
     }),
+  );
+
+  /*
+   * #404 — counting must not be done by fetching.
+   *
+   * "How many contacts do we have?" pulled 148 rows x 22 columns through a
+   * 128k context window and failed at 136,922 tokens. Worse than the crash: when
+   * the fetch DOES fit, the model counts one PAGE and reports it as the total —
+   * a confidently wrong number, which is #401's failure by another route.
+   *
+   * Registered BEFORE query_records so a model scanning the tool list meets the
+   * cheap, correct way to answer "how many" before it meets the expensive one.
+   */
+  reg(
+    'count_records',
+    {
+      title: 'Count records',
+      description:
+        'Count records in a database, or total/average a numeric field — computed in the database, ' +
+        'returning one number. USE THIS FOR ANY "how many" QUESTION rather than fetching records and ' +
+        'counting them: query_records is paginated, so counting its results gives you the size of one ' +
+        'page, not the total. Takes the same filter AST as query_records, so "how many are still open" ' +
+        'is one call.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string().describe('Database name, api slug, or id.'),
+        op: z
+          .enum(['count', 'sum', 'avg', 'min', 'max'])
+          .optional()
+          .describe('Default "count". The others need `field` and aggregate its numeric values.'),
+        field: z.string().optional().describe('Field api_name to aggregate. Required for everything except count.'),
+        filter: z.any().optional().describe('Same filter AST as query_records — see get_started.'),
+        q: z.string().optional().describe('Free-text match on the title, same as query_records.'),
+      },
+    },
+    handle<{ workspace: string; database: string; op?: string; field?: string; filter?: unknown; q?: string }>(
+      async ({ workspace, database, op, field, filter, q }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const res = await unwrap<unknown>(
+          client.POST('/api/v1/workspaces/{ws}/databases/{db}/records/aggregate', {
+            params: { path: { ws: ws.id, db: db.id } },
+            body: { op: op ?? 'count', field, filter, q } as never,
+          }),
+        );
+        return text(res);
+      },
+    ),
   );
 
   reg(

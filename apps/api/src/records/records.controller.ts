@@ -10,6 +10,7 @@ import {
   Query,
   Req,
   UseGuards,
+  HttpCode,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
@@ -22,6 +23,7 @@ import {
   moveRecordSchema,
   queryRecordsSchema,
   updateRecordSchema,
+  aggregateRecordsSchema,
 } from '@storyos/schemas';
 import { AuthGuard } from '../auth/auth.guard';
 import { RequiresScope } from '../auth/token-scope.guard';
@@ -36,6 +38,7 @@ class UpdateRecordDto extends createZodDto(updateRecordSchema) {}
 class BatchUpdateRecordsDto extends createZodDto(batchUpdateRecordsSchema) {}
 class BatchRecordIdsDto extends createZodDto(batchRecordIdsSchema) {}
 class QueryRecordsDto extends createZodDto(queryRecordsSchema) {}
+class AggregateRecordsDto extends createZodDto(aggregateRecordsSchema) {}
 class MoveRecordDto extends createZodDto(moveRecordSchema) {}
 
 const listQuerySchema = z.object({
@@ -101,6 +104,28 @@ export class RecordsController {
   ) {
     await this.assertDb(req, databaseId);
     return this.recordsService.query(databaseId, body, req.user.id);
+  }
+
+  /**
+   * #404 — one number, computed in SQL.
+   *
+   * Sibling of `query` rather than a flag on it, because the two return
+   * different SHAPES and a caller wanting a count should not have to ask for
+   * rows and ignore them. Viewer access, same as reading: a count reveals
+   * nothing a query would not.
+   */
+  @Post('aggregate')
+  // A read, not a creation. Nest defaults POST to 201, which would tell every
+  // client that a count made something.
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Count or aggregate records server-side (same filter AST as /query)' })
+  async aggregate(
+    @Req() req: WorkspaceRequest,
+    @Param('db') databaseId: string,
+    @Body() body: AggregateRecordsDto,
+  ) {
+    await this.assertDb(req, databaseId);
+    return this.recordsService.aggregate(databaseId, body, req.user.id);
   }
 
   @Post('batch')

@@ -2919,6 +2919,92 @@ export class RecordsService {
    * default 'last'); keyset cursors with id tiebreaker; no sorts = manual
    * (position) order.
    */
+  /**
+   * Count or aggregate WITHOUT pulling rows (#404).
+   *
+   * "How many contacts do we have?" was answered by fetching every row and
+   * counting them in the model's head. On a 148-row x 22-column database that
+   * produced 136,922 tokens against a 128,000-token window and simply failed —
+   * and the shape is wrong twice over even when it fits:
+   *
+   *  1. A whole table crosses the context window to compute a single integer.
+   *  2. It can only count what fits in ONE PAGE. If the query paginates, the
+   *     model counts page one and reports it as the total — a confidently wrong
+   *     number, which is #401's failure arriving by a different route.
+   *
+   * A bigger model does not fix this. The growth is in the DATA, so any fixed
+   * window loses eventually; the shape has to change, not the ceiling.
+   *
+   * The filter is compiled by the SAME `compileFilter` the query path uses. That
+   * is the point: a filtered count has to mean exactly what a filtered query
+   * means, or the two disagree and the count becomes another thing nobody can
+   * trust. Reimplementing the predicate here would be a second copy of the
+   * hardest rule in the file.
+   *
+   * `count` needs no field. Every other op aggregates the numeric values of a
+   * target field, in SQL, matching the rollup engine's semantics: non-numeric
+   * and absent values are skipped rather than counted as zero, because a zero
+   * would silently drag an average down.
+   */
+  async aggregate(
+    databaseId: string,
+    input: { op: 'count' | 'sum' | 'avg' | 'min' | 'max'; field?: string; filter?: unknown; q?: string },
+    currentUserId: string,
+  ): Promise<{ op: string; field: string | null; value: number | null; filtered: boolean }> {
+    const defs = await this.fieldDefs(databaseId);
+    const byApiName = new Map(defs.map((d) => [d.api_name, d]));
+    for (const def of systemFieldDefsFor(byApiName.keys())) byApiName.set(def.api_name, def);
+
+    const conditions: unknown[] = [eq(records.databaseId, databaseId), isNull(records.deletedAt)];
+    if (input.q) conditions.push(sql`${records.title} ILIKE ${'%' + input.q + '%'}`);
+    if (input.filter) {
+      conditions.push(compileFilter(input.filter as FilterNode, { defs: byApiName, currentUserId }));
+    }
+    const where = and(...(conditions as SQL[]));
+
+    if (input.op === 'count') {
+      const [row] = await this.db.select({ value: sql<number>`count(*)::int` }).from(records).where(where);
+      return { op: 'count', field: null, value: row?.value ?? 0, filtered: Boolean(input.filter || input.q) };
+    }
+
+    if (!input.field) {
+      throw new UnprocessableEntityException(`"${input.op}" needs a field to aggregate; only "count" works without one`);
+    }
+    const def = byApiName.get(input.field);
+    if (!def) throw new UnprocessableEntityException(`unknown field "${input.field}"`);
+
+    /*
+     * Read the value the same way the rest of the read path does: stored values
+     * are keyed by field UUID (ADR-0002), and formulas/rollups live in
+     * `computed_values`. Casting through `numeric` rather than `int` so a
+     * currency or a decimal is not silently truncated.
+     */
+    const source =
+      def.type === 'formula' || def.type === 'rollup'
+        ? sql`${records.computedValues}->>${def.id}`
+        : sql`${records.values}->>${def.id}`;
+    // A non-numeric value is SKIPPED, not zero. Zero would drag an average down
+    // and report a total that is quietly wrong.
+    const numeric = sql`NULLIF(${source}, '')::numeric`;
+    const guard = sql`${source} ~ '^-?[0-9]+(\.[0-9]+)?$'`;
+    const expr =
+      input.op === 'sum' ? sql`sum(${numeric})`
+      : input.op === 'avg' ? sql`avg(${numeric})`
+      : input.op === 'min' ? sql`min(${numeric})`
+      : sql`max(${numeric})`;
+
+    const [row] = await this.db
+      .select({ value: sql<string | null>`${expr}` })
+      .from(records)
+      .where(and(where, guard));
+    return {
+      op: input.op,
+      field: input.field,
+      value: row?.value == null ? null : Number(row.value),
+      filtered: Boolean(input.filter || input.q),
+    };
+  }
+
   async query(databaseId: string, input: QueryRecordsInput, currentUserId: string) {
     const defs = await this.fieldDefs(databaseId);
     const byApiName = new Map(defs.map((d) => [d.api_name, d]));

@@ -1,4 +1,5 @@
 import { checkCeilings, type CeilingStop } from './ceilings';
+import { capToolResult, trimHistory } from './context-budget';
 import { GROUNDING_NUDGE, GROUNDING_REFUSAL, assertsWorkspaceQuantity } from './grounding';
 import { classifyWrite, type SafetyVerdict } from './write-safety';
 import type { ChatMessage, ChatToolCall, ChatToolDef, TyronChatClient } from './chat-client';
@@ -143,9 +144,20 @@ export async function* runTurn(
     }
     turnsThisRun++;
 
+    /*
+     * #404 — bound the history before every model call, not once at the start.
+     *
+     * A turn can call several tools, so the conversation grows DURING the loop;
+     * checking only on entry would let the third round trip be the one that
+     * fails. Prose turns are kept and the oldest tool results are dropped with a
+     * marker — the rows are the bulky, least-reusable part once they have been
+     * read, and the thread lives in the prose.
+     */
+    const budgeted = trimHistory(messages);
+
     let reply;
     try {
-      reply = await chat.chat(messages, tools);
+      reply = await chat.chat(budgeted, tools);
     } catch (err) {
       /*
        * #357: on failure it STOPS and reports what did and did not happen. It
@@ -231,7 +243,19 @@ export async function* runTurn(
        * explanation, not a crash"), and aborting would turn every recoverable
        * mistake into a dead end.
        */
-      messages.push({ role: 'tool', toolCallId: call.id, content: result.text });
+      /*
+       * #404 — capped, and the cap SAYS SO.
+       *
+       * This line appended the tool's full output verbatim, with no size limit
+       * anywhere, and it stayed in `messages` for every later iteration. A
+       * query over 148 rows x 22 columns blew a 128k window on its own.
+       *
+       * Silent truncation would be worse than the crash: the model would get
+       * twenty rows of a hundred and answer as though it had them all, which
+       * manufactures the confident wrong number #401 exists to prevent. The
+       * marker is the reason this is safe.
+       */
+      messages.push({ role: 'tool', toolCallId: call.id, content: capToolResult(result.text) });
     }
   }
 }

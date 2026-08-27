@@ -171,3 +171,22 @@ export const queryRecordsSchema = z.object({
   cursor: z.string().optional(),
 });
 export type QueryRecordsInput = z.infer<typeof queryRecordsSchema>;
+
+/**
+ * A server-side aggregate over a database (#404).
+ *
+ * Same `filter` AST as `queryRecordsSchema`, deliberately — a filtered count has
+ * to mean exactly what a filtered query means. Reusing the schema is how that
+ * stays true rather than being asserted in a comment.
+ *
+ * `count` is the only op that needs no field; the rest aggregate a numeric one.
+ * That is enforced server-side, where the field's TYPE is known, rather than
+ * here where it is not.
+ */
+export const aggregateRecordsSchema = z.object({
+  op: z.enum(['count', 'sum', 'avg', 'min', 'max']).default('count'),
+  field: z.string().optional(),
+  filter: filterSchema.optional(),
+  q: z.string().optional(),
+});
+export type AggregateRecordsInput = z.infer<typeof aggregateRecordsSchema>;
