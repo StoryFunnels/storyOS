@@ -681,6 +681,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/databases/{db}/records/aggregate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Count or aggregate records server-side (same filter AST as /query) */
+        post: operations["RecordsController_aggregate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/databases/{db}/records/batch": {
         parameters: {
             query?: never;
@@ -3889,6 +3906,30 @@ export interface components {
             limit: number;
             cursor?: string;
         };
+        AggregateRecordsDto__schema0: {
+            field: string;
+            /** @enum {string} */
+            op: "eq" | "neq" | "contains" | "gt" | "gte" | "lt" | "lte" | "before" | "after" | "within" | "has" | "has_none" | "is_empty" | "not_empty";
+            value?: unknown;
+            disabled?: boolean;
+            pinned?: boolean;
+            label?: string;
+            icon?: string;
+        } | {
+            and: components["schemas"]["AggregateRecordsDto__schema0"][];
+        } | {
+            or: components["schemas"]["AggregateRecordsDto__schema0"][];
+        };
+        AggregateRecordsDto: {
+            /**
+             * @default count
+             * @enum {string}
+             */
+            op: "count" | "sum" | "avg" | "min" | "max";
+            field?: string;
+            filter?: components["schemas"]["AggregateRecordsDto__schema0"];
+            q?: string;
+        };
         CreateRecordsBatchDto: {
             records: {
                 /** @default {} */
@@ -6139,6 +6180,29 @@ export interface operations {
         };
         responses: {
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RecordsController_aggregate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AggregateRecordsDto"];
+            };
+        };
+        responses: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
