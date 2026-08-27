@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+export * from './colors';
 export * from './descriptions';
 export * from './workspaces';
 export * from './databases';

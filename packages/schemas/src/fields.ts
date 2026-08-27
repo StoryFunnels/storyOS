@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PALETTE } from './colors';
 import { webhookUrlSchema } from './webhooks';
 import { filterSchema } from './query';
 
@@ -53,23 +54,15 @@ export const IMPORTABLE_FIELD_TYPES = creatableFieldTypeSchema.options.filter(
   (t): t is CreatableFieldType => !(NON_IMPORTABLE_FIELD_TYPES as readonly string[]).includes(t),
 );
 
-export const OPTION_COLORS = [
-  'gray',
-  'brown',
-  'gold',
-  'orange',
-  'red',
-  'pink',
-  'purple',
-  'blue',
-  'teal',
-  'green',
-  'lime',
-  'cyan',
-  'indigo',
-  'magenta',
-  'rose',
-] as const;
+/**
+ * #399 — DERIVED from the one shared palette, never a second hardcoded list.
+ *
+ * This list and the container ones had drifted: the five colours at the end
+ * (lime, cyan, indigo, magenta, rose) were added here and never to the copies,
+ * so `indigo` was a valid status colour and an invalid database colour with no
+ * rule anyone could infer.
+ */
+export const OPTION_COLORS = PALETTE;
 
 
 export const textConfigSchema = z.object({ multiline: z.boolean().default(false) });

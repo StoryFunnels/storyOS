@@ -15,6 +15,7 @@ import { SYSTEM_FIELDS, SYSTEM_FIELD_BY_API_NAME } from '@storyos/schemas/system
 // Type-only — erased at compile time, so unlike a value import this does NOT pull
 // the zod-bearing barrel into the bundle (see note above).
 import type { FilterOp } from '@storyos/schemas';
+import { PALETTE as SHARED_PALETTE } from '@storyos/schemas';
 import { listDatabases, listSkills, listWorkspaces, resolveDatabase, resolveFolder, resolveSkill, resolveWorkspace } from './resolve.js';
 import { databaseUrl, recordUrl, viewUrl } from './links.js';
 import {
@@ -43,7 +44,16 @@ const DESCRIPTION_PARAM =
  * #398 — the palette. Named explicitly rather than left free-text, so an agent
  * picks a real colour instead of discovering the server rejects "navy".
  */
-const PALETTE = ['gray', 'brown', 'gold', 'orange', 'red', 'pink', 'purple', 'blue', 'teal', 'green'] as const;
+/*
+ * #399 — DERIVED, after this file was the fourth hardcoded copy.
+ *
+ * The #399 ticket predicted this exactly: "#398 exposes database colour over
+ * MCP. Whoever builds that hits this immediately, and would otherwise hardcode a
+ * third copy of the palette into a tool description." That is what happened —
+ * PR #404 shipped a ten-value literal here, which was already the SHORT list, so
+ * an agent could not set the five colours a human could.
+ */
+const PALETTE = SHARED_PALETTE;
 const COLOR_PARAM =
   `Palette colour: ${PALETTE.join(', ')}. Omit on create and one is auto-assigned AT RANDOM — which is how a set of databases ends up with two purples, so pass distinct colours deliberately when building several.`;
 

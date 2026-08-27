@@ -44,7 +44,17 @@ const TITLE_WIDTH = 260;
 const DRAG_THRESHOLD = 6;
 
 // The public id renders in the row gutter (Airtable-style), not as its own column.
-const HIDDEN_TYPES = new Set(['id', 'created_by']);
+/**
+ * Field types the table never renders as a column.
+ *
+ * #408 — exported so the relationship with `NON_TOGGLABLE` can be ASSERTED
+ * rather than assumed. The two lists encode halves of one rule ("what renders"
+ * and "what may be turned off"), and the ticket's real complaint is that the
+ * rule lives in two places plus a hand-added exception for `number`. A test now
+ * pins the invariant that matters: anything the table RENDERS must be
+ * TOGGLABLE, or it is a column nobody can turn off.
+ */
+export const HIDDEN_TYPES = new Set(['id', 'created_by']);
 // checkbox toggles on click; rich_text edits on the record page; lookup is computed.
 // Types with no inline editor. `rollup` was missing, which had two consequences:
 // an empty rollup cell offered a fake "Add <field>" affordance, and double-clicking
