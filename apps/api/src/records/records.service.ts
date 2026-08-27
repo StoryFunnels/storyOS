@@ -2910,7 +2910,16 @@ export class RecordsService {
       orderBy: [desc(records.deletedAt)],
       limit: 200,
     });
-    return rows.map((r) => ({ id: r.id, title: r.title, deleted_at: r.deletedAt }));
+    /*
+     * #406 — `number` is returned, not just id/title.
+     *
+     * /records/by-number filters `deletedAt IS NULL`, so once a record is in the
+     * trash its public number resolves to a 404 everywhere. Without the number
+     * here there was no path from "restore #42" to a record id at all — the id
+     * only existed in a response nobody had a reason to keep. The restore
+     * endpoints take uuids; this is what lets a caller find the uuid.
+     */
+    return rows.map((r) => ({ id: r.id, number: r.number, title: r.title, deleted_at: r.deletedAt }));
   }
 
   /**

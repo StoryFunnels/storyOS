@@ -2144,3 +2144,233 @@ describe('space lifecycle over MCP (#416)', () => {
     expect(handlers.has('delete_space')).toBe(true);
   });
 });
+
+/**
+ * #406 areas 1–3 — the record surface.
+ *
+ * The tests are written against the failure each tool was built to prevent, not
+ * against its happy path: a trashed record no longer resolving by number, a
+ * comment body coming back as a document format instead of words, and a link
+ * chip whose url points at the wrong database. All three produce a plausible
+ * response, which is what makes them worth pinning.
+ */
+describe('#406 — record lifecycle, manual order, and what hangs off a record', () => {
+  interface Sent {
+    method: string;
+    path: string;
+    params?: Record<string, string>;
+    body?: Record<string, unknown>;
+  }
+
+  function harness(opts?: { commentBody?: unknown }) {
+    const sent: Sent[] = [];
+    const handlers = new Map<string, (args: unknown) => Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }>>();
+    const dbDetail = {
+      id: 'db-1',
+      name: 'Issues',
+      qualifiedSlug: 'eng/issues',
+      fields: [
+        { id: 'f-state', apiName: 'state', displayName: 'State', type: 'select', options: [{ id: 'opt-done', label: 'Done' }] },
+        {
+          id: 'f-epic',
+          apiName: 'epic',
+          displayName: 'Epic',
+          type: 'relation',
+          relation: { target_database_id: 'db-2', target_database_name: 'Epics', cardinality: 'one_to_many', side: 'a' },
+        },
+      ],
+    };
+    const live = { id: 'rec-1', number: 7, title: 'Live one', values: {} };
+
+    const log = (method: string) => async (path: string, o?: { params?: { path?: Record<string, string> }; body?: unknown }) => {
+      sent.push({ method, path, params: o?.params?.path, body: o?.body as Record<string, unknown> });
+      if (path === '/api/v1/workspaces') return { data: [{ id: 'ws-1', name: 'Eng' }] };
+      if (path === '/api/v1/workspaces/{ws}/databases') return { data: [dbDetail] };
+      if (path === '/api/v1/workspaces/{ws}/databases/{db}') return { data: dbDetail };
+      if (path === '/api/v1/workspaces/{ws}/databases/{db}/records/by-number/{number}') {
+        // Only #7 is live. #42 is in the trash, so this 404s for it — exactly as
+        // the API does, since /by-number filters deletedAt IS NULL.
+        return o?.params?.path?.number === '7' ? { data: live } : { error: { error: { message: 'Record not found' } } };
+      }
+      if (path === '/api/v1/workspaces/{ws}/databases/{db}/records/trash') {
+        return { data: { data: [{ id: 'rec-gone', number: 42, title: 'Deleted one', deleted_at: '2026-08-01T00:00:00Z' }] } };
+      }
+      if (path === '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}') return { data: live };
+      if (path === '/api/v1/workspaces/{ws}/databases/{db}/records') {
+        return { data: { data: [live], next_cursor: 'cur-2', has_more: true } };
+      }
+      if (path === '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/comments') {
+        return {
+          data: {
+            data: [
+              {
+                id: 'cmt-1',
+                body: opts?.commentBody ?? [{ type: 'text', text: 'Shipped ' }, { type: 'mention', user_id: 'u-9' }],
+                author: { id: 'u-1', name: 'Ada' },
+                edited_at: null,
+                created_at: '2026-08-01T00:00:00Z',
+              },
+            ],
+          },
+        };
+      }
+      if (path === '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/links/{field}') {
+        return { data: { data: [{ id: 'rec-epic-1', number: 3, title: 'Big epic' }] } };
+      }
+      if (path.includes('/versions') || path.includes('/activity') || path.includes('/backlinks')) {
+        return { data: { data: [], next_cursor: null } };
+      }
+      if (path.endsWith('/watchers')) return { data: { watchers: [], watching: false } };
+      if (path.endsWith('/duplicate')) return { data: { id: 'rec-copy', number: 8, title: 'Live one (copy)', values: {} } };
+      if (path.endsWith('/batch-restore')) return { data: { restored: 2 } };
+      if (path.endsWith('/batch-delete')) return { data: { deleted: 2 } };
+      return { data: {} };
+    };
+
+    registerTools({ registerTool: (n: string, _c: unknown, h: never) => handlers.set(n, h as never) } as never, {
+      client: { GET: log('GET'), POST: log('POST'), PATCH: log('PATCH'), PUT: log('PUT'), DELETE: log('DELETE') } as never,
+      baseUrl: 'http://test',
+      token: 'tok',
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- each tool returns a different JSON shape.
+    const call = async (name: string, args: unknown): Promise<any> => {
+      const res = await handlers.get(name)!(args);
+      if (res.isError) throw new Error(res.content[0]!.text);
+      return JSON.parse(res.content[0]!.text);
+    };
+    return { call, sent, handlers };
+  }
+
+  const paths = (sent: Sent[], method?: string) => sent.filter((s) => !method || s.method === method).map((s) => s.path);
+
+  describe('area 1 — lifecycle', () => {
+    it('restores by public number via the TRASH listing, because /by-number cannot see a deleted record', async () => {
+      // The reason this tool needed an API change: /records/by-number filters
+      // deletedAt IS NULL, so "restore #42" had no path to a record id at all.
+      const { call, sent } = harness();
+      const out = await call('restore_records', { workspace: 'Eng', database: 'Issues', records: ['42'] });
+      expect(paths(sent)).toContain('/api/v1/workspaces/{ws}/databases/{db}/records/trash');
+      const restore = sent.find((s) => s.path.endsWith('/records/{rec}/restore'))!;
+      expect(restore.params!.rec).toBe('rec-gone');
+      expect(out.id).toBe('rec-1'); // read back through the shared record serialiser
+    });
+
+    it('says which number it could not find, rather than 404ing on an opaque id', async () => {
+      const { call } = harness();
+      await expect(call('restore_records', { workspace: 'Eng', database: 'Issues', records: ['999'] })).rejects.toThrow(
+        /No record #999 in the trash.*list_trash/s,
+      );
+    });
+
+    it('uses batch-restore for several and the single endpoint for one', async () => {
+      const many = harness();
+      await many.call('restore_records', { workspace: 'Eng', database: 'Issues', records: ['a', 'b'] });
+      expect(paths(many.sent)).toContain('/api/v1/workspaces/{ws}/databases/{db}/records/batch-restore');
+      expect(paths(many.sent).some((p) => p.endsWith('/records/{rec}/restore'))).toBe(false);
+    });
+
+    it('delete_records reports the requested count next to the deleted one', async () => {
+      // batch-delete silently skips already-deleted rows, so `deleted` can be
+      // lower than what was asked for. Reporting both is the difference between
+      // a shortfall you can see and one that reads as success.
+      const { call } = harness();
+      const out = await call('delete_records', { workspace: 'Eng', database: 'Issues', records: ['a', 'b', 'c'] });
+      expect(out).toMatchObject({ deleted: 2, requested: 3 });
+    });
+
+    it('duplicate_record returns the NEW record read back, not the raw create response', async () => {
+      const { call, sent } = harness();
+      const out = await call('duplicate_record', { workspace: 'Eng', database: 'Issues', record: '7' });
+      expect(out.duplicated_from).toBe('rec-1');
+      // The read-back is what makes a duplicate look like every other record
+      // (#343) — relation chips and labels included.
+      expect(sent.filter((s) => s.method === 'GET' && s.path.endsWith('/records/{rec}')).length).toBeGreaterThan(0);
+      expect(out.record.url).toContain('/w/ws-1/d/db-1/r/');
+    });
+
+    it('move_record maps a select LABEL in the atomic value patch, like every other write', async () => {
+      const { call, sent } = harness();
+      await call('move_record', { workspace: 'Eng', database: 'Issues', record: '7', after: '7', values: { state: 'Done' } });
+      const move = sent.find((s) => s.path.endsWith('/records/{rec}/move'))!;
+      expect(move.body).toMatchObject({ after_record_id: 'rec-1', values: { state: 'opt-done' } });
+    });
+
+    it('move_record refuses before AND after together instead of letting the API guess', async () => {
+      const { call } = harness();
+      await expect(
+        call('move_record', { workspace: 'Eng', database: 'Issues', record: '7', before: '7', after: '7' }),
+      ).rejects.toThrow(/only one of/i);
+    });
+  });
+
+  describe('area 2 — manual order', () => {
+    it('list_records labels the order and carries the cursor, so paging is possible', async () => {
+      const { call, sent } = harness();
+      const out = await call('list_records', { workspace: 'Eng', database: 'Issues', limit: 1 });
+      expect(paths(sent, 'GET')).toContain('/api/v1/workspaces/{ws}/databases/{db}/records');
+      expect(out.order).toBe('manual');
+      expect(out.next_cursor).toBe('cur-2');
+      expect(out.records[0].url).toContain('/r/live-one-7');
+    });
+  });
+
+  describe('area 3 — around the record', () => {
+    it('list_comments renders a legacy segment body as words, not as JSON', async () => {
+      const { call } = harness();
+      const out = await call('list_comments', { workspace: 'Eng', database: 'Issues', record: '7' });
+      expect(out.comments[0].text).toBe('Shipped @u-9');
+      expect(out.comments[0].author).toBe('Ada');
+    });
+
+    it('list_comments renders a BlockNote body too — both stored shapes, one output', async () => {
+      const { call } = harness({
+        commentBody: { format: 'blocknote', doc: [{ type: 'paragraph', content: [{ type: 'text', text: 'Looks good' }] }] },
+      });
+      const out = await call('list_comments', { workspace: 'Eng', database: 'Issues', record: '7' });
+      expect(out.comments[0].text).toContain('Looks good');
+    });
+
+    it('get_history defaults to per-field changes and switches endpoint by kind', async () => {
+      const f = harness();
+      await f.call('get_history', { workspace: 'Eng', database: 'Issues', record: '7' });
+      expect(paths(f.sent, 'GET')).toContain('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/versions/changes');
+
+      const v = harness();
+      await v.call('get_history', { workspace: 'Eng', database: 'Issues', record: '7', kind: 'versions' });
+      expect(paths(v.sent, 'GET')).toContain('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/versions');
+
+      const a = harness();
+      await a.call('get_history', { workspace: 'Eng', database: 'Issues', record: '7', kind: 'activity' });
+      expect(paths(a.sent, 'GET')).toContain('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/activity');
+    });
+
+    it('watch_record unsubscribes with DELETE when watch:false — not a second POST', async () => {
+      const on = harness();
+      await on.call('watch_record', { workspace: 'Eng', database: 'Issues', record: '7' });
+      expect(paths(on.sent, 'POST')).toContain('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/watch');
+
+      const off = harness();
+      const out = await off.call('watch_record', { workspace: 'Eng', database: 'Issues', record: '7', watch: false });
+      expect(paths(off.sent, 'DELETE')).toContain('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/watch');
+      expect(out.watching).toBe(false);
+    });
+
+    it('list_linked_records builds urls against the TARGET database, not the source one', async () => {
+      // Using the source db id here yields a link that resolves to a 404 — a
+      // wrong url is indistinguishable from a right one until someone clicks it.
+      const { call, sent } = harness();
+      const out = await call('list_linked_records', { workspace: 'Eng', database: 'Issues', record: '7', relation_field: 'epic' });
+      expect(sent.find((s) => s.path.endsWith('/links/{field}'))!.params!.field).toBe('f-epic');
+      expect(out.target_database).toEqual({ id: 'db-2', name: 'Epics' });
+      expect(out.linked[0].url).toContain('/d/db-2/r/big-epic-3');
+    });
+
+    it('list_linked_records names the valid relation fields when given a field that is not one', async () => {
+      const { call } = harness();
+      await expect(
+        call('list_linked_records', { workspace: 'Eng', database: 'Issues', record: '7', relation_field: 'state' }),
+      ).rejects.toThrow(/No relation field matches "state".*epic/s);
+    });
+  });
+});
