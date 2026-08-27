@@ -3717,6 +3717,7 @@ export interface components {
             position?: number;
             description?: string | null;
         };
+        /** @default {} */
         DeleteSpaceDto: {
             confirm?: string;
         };
