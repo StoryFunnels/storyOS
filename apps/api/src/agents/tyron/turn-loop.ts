@@ -1,4 +1,5 @@
 import { checkCeilings, type CeilingStop } from './ceilings';
+import { GROUNDING_NUDGE, GROUNDING_REFUSAL, assertsWorkspaceQuantity } from './grounding';
 import { classifyWrite, type SafetyVerdict } from './write-safety';
 import type { ChatMessage, ChatToolCall, ChatToolDef, TyronChatClient } from './chat-client';
 import type { TyronToolCatalog } from './tool-catalog';
@@ -75,7 +76,11 @@ export const TYRON_SYSTEM_PROMPT = [
   '',
   'Read before you write: inspect a database\'s schema before creating or updating records in it.',
   'When you have finished, state plainly WHAT CHANGED in one or two sentences. Never narrate the steps you took and never mention tool names.',
-  'If you cannot answer exactly, say so rather than guessing — an approximate count presented as a fact is worse than no answer.',
+  // #401 — this line stayed in the prompt and was ignored, which is how "There
+  // are currently 50 companies" reached a user whose real figure was 148. It is
+  // kept because it still shapes behaviour, but it is no longer the mechanism:
+  // the loop now refuses to deliver an ungrounded quantity. See grounding.ts.
+  'Never guess a number. A quantity about the workspace must come from a tool call on this turn — count it, or ask which database to count. Do not estimate and do not hedge.',
 ].join('\n');
 
 /**
@@ -122,6 +127,8 @@ export async function* runTurn(
   const actions: Array<{ name: string; arguments: Record<string, unknown> }> = [];
   let toolCallsThisTurn = 0;
   let turnsThisRun = 0;
+  /** #401 — how many times this turn has been sent back for answering a count blind. */
+  let groundingNudges = 0;
 
   for (;;) {
     const stop = checkCeilings({
@@ -159,6 +166,36 @@ export async function* runTurn(
     }
 
     if (reply.toolCalls.length === 0) {
+      /*
+       * #401 — never guess numbers, always count.
+       *
+       * ZERO tool calls this whole turn means Tyron did not consult the
+       * workspace, so any quantity it now states about the data is unverifiable
+       * by construction. That is the entire test: no intent classification, no
+       * second model call, no judgement about what the user meant.
+       *
+       * A turn that DID call tools is never second-guessed — grounded answers
+       * pass through untouched, which is most of them.
+       *
+       * The first offence is a NUDGE, not a refusal. The right outcome is the
+       * real number, and the model reliably fetches it once told to; refusing
+       * outright would make Tyron useless for the commonest question there is.
+       * The ceilings already bound the retry, and `groundingNudges` bounds it
+       * again so a model that keeps inventing cannot spin.
+       */
+      if (toolCallsThisTurn === 0 && reply.content && assertsWorkspaceQuantity(reply.content)) {
+        if (groundingNudges === 0) {
+          groundingNudges++;
+          messages.push({ role: 'assistant', content: reply.content });
+          messages.push({ role: 'user', content: GROUNDING_NUDGE });
+          continue;
+        }
+        // Twice is not a slip. Shipping the second invention would be worse than
+        // the first, because by now the system knows it is one.
+        yield { type: 'text', text: GROUNDING_REFUSAL };
+        yield { type: 'done', actions };
+        return;
+      }
       if (reply.content) yield { type: 'text', text: reply.content };
       yield { type: 'done', actions };
       return;
