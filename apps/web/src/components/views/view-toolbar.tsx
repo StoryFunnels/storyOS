@@ -39,7 +39,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { DatePicker } from '@/components/ui/date-picker';
 import { EntityIcon, IconColorPicker } from '@/components/ui/icon-picker';
-import { Popover, PopoverContent, PopoverParentAnchor, PopoverTrigger } from '@/components/ui/popover';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { API_URL, api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import type { Field } from '../table-view/use-table-data';
@@ -426,6 +426,34 @@ export function defaultValueFor(input: string): unknown {
 // Fields menu). Re-exported here so existing importers of the toolbar keep working.
 export { fieldTypeIcon };
 
+/**
+ * #423 — retarget a condition at a different field.
+ *
+ * The operator is ALWAYS replaced with one valid for the new type, never
+ * carried over: `is any of` makes sense on a user field and is nonsense on a
+ * date, and a condition holding an op its field does not support renders the
+ * wrong widget for it. The value is reset for the same reason — a user id array
+ * is not a date.
+ *
+ * Returns null when the new type has no operators at all. The previous code
+ * fell back to keeping the old op in that case, which is the one branch that
+ * could produce an incoherent condition; refusing the switch leaves the user
+ * where they were instead of somewhere broken.
+ */
+export function remapConditionToField(
+  condition: FilterCondition,
+  nextField: Field,
+): FilterCondition | null {
+  const first = (OPS_BY_TYPE[nextField.type] ?? [])[0];
+  if (!first) return null;
+  return {
+    ...condition,
+    field: nextField.apiName,
+    op: first.op,
+    value: defaultValueFor(first.input),
+  };
+}
+
 export function AddFilterButton({
   fields,
   onAdd,
@@ -509,7 +537,13 @@ function optionSourceFor(
   return (field.options ?? []).map((o) => ({ id: o.id, label: o.label, icon: o.icon, color: o.color }));
 }
 
-function FilterValueEditor({
+/**
+ * Exported for #423's mount test: every `input` kind in OPS_BY_TYPE has to
+ * render standalone, because that is exactly how the toolbar mounts it — a
+ * control that needs a parent it does not create is a crash waiting for the
+ * first person who picks that field type.
+ */
+export function FilterValueEditor({
   field,
   members,
   ws,
@@ -626,9 +660,26 @@ function DateFilterInput({
   onChange: (value: string | null) => void;
 }) {
   const [editing, setEditing] = useState(false);
+  /*
+   * #423 — there is deliberately NO PopoverParentAnchor here.
+   *
+   * One used to sit at the top of this span, and it crashed the route: a Radix
+   * `PopoverAnchor` throws without a `<Popover>` ancestor, and nothing here
+   * provides one. It was almost certainly copied from the cell editors
+   * (table-view/cells.tsx, entity/scalar-fields.tsx, relation-cell.tsx) where
+   * the CALLER wraps the control in a `<Popover>`. Here the toolbar mounts this
+   * control bare.
+   *
+   * It also rendered outside the `editing` guard, so it threw the moment a date
+   * filter mounted — before anyone clicked anything. That is why picking a date
+   * field was not a degraded experience but a white screen.
+   *
+   * The anchor is not missing: `DatePicker` renders its own `<Popover open>`
+   * AND its own PopoverParentAnchor inside it, and that anchor positions
+   * against this `relative` span. Which is what the span is for — keep it.
+   */
   return (
     <span className="relative inline-block">
-      <PopoverParentAnchor />
       <button
         type="button"
         className={cn(boxed, !value && 'text-faint')}
@@ -1402,13 +1453,8 @@ function ConditionRow({
               onChange={(e) => {
                 const nextField = fields.find((f) => f.apiName === e.target.value);
                 if (!nextField) return;
-                const first = (OPS_BY_TYPE[nextField.type] ?? [])[0];
-                onChange({
-                  ...condition,
-                  field: nextField.apiName,
-                  op: first?.op ?? condition.op,
-                  value: first ? defaultValueFor(first.input) : condition.value,
-                });
+                const next = remapConditionToField(condition, nextField);
+                if (next) onChange(next);
               }}
             >
               {fields.map((f) => (
