@@ -131,6 +131,14 @@ export const EXCLUDED: CoverageRule[] = [
  * exclusion would be the exact silence this file exists to prevent — so these
  * carry a ticket instead of a justification.
  */
+/*
+ * #406 areas 1, 2 and 3 were HERE and are now built — record lifecycle (trash,
+ * restore, duplicate, move, batch delete/restore), listing in manual order, and
+ * everything hanging off a record (history, activity, comments, watchers,
+ * backlinks). Their rules are deleted rather than commented out: the dead-rule
+ * check below fails a rule that stops matching anything, which is precisely how
+ * this file avoids becoming a list of things that used to be true.
+ */
 export const DEFERRED: CoverageRule[] = [
   /*
    * Every entry cites #406, and that is deliberate rather than lazy.
@@ -141,21 +149,6 @@ export const DEFERRED: CoverageRule[] = [
    * rule, because the next reader trusts it. #406 is one real ticket whose body
    * carries the fourteen areas as sections; split it when an area is picked up.
    */
-  {
-    match: /\/records\/(trash|batch-delete|batch-restore|\{rec\}\/(restore|duplicate|move))/,
-    reason:
-      '#406 — record lifecycle: trash, restore, duplicate, reposition, and the batch delete/restore pair. `create_records`/`update_records` landed with #394; these are the rest of the same surface.',
-  },
-  {
-    match: /^GET \/api\/v1\/workspaces\/\{ws\}\/databases\/\{db\}\/records$/,
-    reason:
-      '#406 — listing in MANUAL (drag) order. `query_records` covers filtering and field sorts but cannot return a board/list\'s hand-arranged order, so "the top five as the user arranged them" is unanswerable — which is also #392\'s gap seen from the read side.',
-  },
-  {
-    match: /\/records\/\{rec\}\/(versions|activity|comments|watch|watchers|backlinks|links)/,
-    reason:
-      '#406 — everything hanging off a record other than its values: history, activity, comments, watchers, backlinks, relation chips. `add_comment` exists; reading them back does not.',
-  },
   {
     match: /\/(views\/\{view\}|views\/\{view\}\/(personal-filter|duplicate|default)|spaces\/\{space\}\/views)/,
     reason:

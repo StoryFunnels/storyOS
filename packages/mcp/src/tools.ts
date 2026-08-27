@@ -463,6 +463,20 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   get_record: 'read',
   get_links: 'read',
   list_attachments: 'read',
+  /*
+   * #406 areas 1–3. Each mirrors its controller's floor: the trash listing and
+   * the batch delete/restore pair are `editor` on the database, duplicate is
+   * `creator`, move is `contributor` — all of which sit inside the token scope
+   * `write`, so the split here is read-vs-write exactly as the API sees it.
+   * Reading history, comments and watchers is `viewer`, i.e. read.
+   */
+  list_trash: 'read',
+  list_records: 'read',
+  list_comments: 'read',
+  get_history: 'read',
+  list_backlinks: 'read',
+  list_watchers: 'read',
+  list_linked_records: 'read',
   list_spaces: 'read',
   // #394 — the pack gallery is public/read-only; installing one is admin.
   list_packs: 'read',
@@ -496,6 +510,14 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   link_records: 'write',
   unlink_records: 'write',
   add_comment: 'write',
+  delete_records: 'write',
+  restore_records: 'write',
+  duplicate_record: 'write',
+  move_record: 'write',
+  update_comment: 'write',
+  delete_comment: 'write',
+  restore_version: 'write',
+  watch_record: 'write',
   attach_file: 'write',
   delete_attachment: 'write',
   run_button: 'write',
@@ -598,6 +620,14 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         'READ:  list_workspaces → list_databases → describe_database (READ THE SCHEMA first) → query_records / search / get_record.',
         'VIEWS: describe_database returns each view\'s id, filter and sorts. Pass query_records a `view` to get exactly what that view shows — a shared ?view=<uuid> link works directly (#332).',
         'WRITE: describe_database first, then create_record / update_record. Fill the FULL field template, not just a couple of fields.',
+        /*
+         * #406 — advertised here for the same reason #393 says the bulk tools
+         * are: a tool nobody is told about does not exist in practice. These
+         * close the write-but-never-read gaps specifically (deleting with no
+         * trash, commenting with no thread), so the line is written as the
+         * read/undo counterpart to the WRITE line above rather than as a list.
+         */
+        'AROUND A RECORD: list_records = the hand-arranged order query_records cannot express. get_history = who changed what (kind: fields/versions/activity) and restore_version rolls one back. list_comments reads the thread you post to with add_comment; list_trash + restore_records undo a delete_record (30 days). Also duplicate_record, move_record (kanban drop: after + values), list_backlinks, list_watchers / watch_record.',
         /*
          * #394 — the bulk path is FIRST, because an unadvertised bulk tool is
          * the same discoverability failure as #393. A session that did not know
@@ -1363,6 +1393,522 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       );
       return text({ commented_on: rec });
     }),
+  );
+
+  /* =====================================================================
+   * #406 areas 1–3 — the record surface an agent actually works on.
+   *
+   * The audit that produced #406 counted 110 REST operations with no tool. Its
+   * own sequencing note put these three areas first, and the reason is the
+   * asymmetry rather than the count: `delete_record` existed with no way to see
+   * or undo the trash, `add_comment` existed with no way to read a comment back,
+   * and `query_records` could sort by any field except the order a human had
+   * dragged records into. Each of those is a half-built capability, which is
+   * worse than a missing one — an agent finds the write, uses it, and cannot
+   * check its own work.
+   * ===================================================================== */
+
+  // ---- Area 1: record lifecycle (trash, restore, duplicate, reposition) ----
+
+  /**
+   * Trashed records are invisible to /records/by-number — it filters
+   * `deletedAt IS NULL` — so a public number stops resolving the moment a record
+   * is deleted. Resolve against the trash listing instead. (That listing returns
+   * `number` as of this ticket; it previously returned id/title/deleted_at only,
+   * which left no path at all from "restore #42" to a record id.)
+   */
+  async function resolveTrashedRecordId(wsId: string, dbId: string, ref: string): Promise<string> {
+    const t = ref.trim();
+    if (!/^\d+$/.test(t)) return t;
+    const trash = await unwrap<{ data: Array<{ id: string; number: number | null; title: string }> }>(
+      client.GET('/api/v1/workspaces/{ws}/databases/{db}/records/trash', { params: { path: { ws: wsId, db: dbId } } }),
+    );
+    const hit = trash.data.find((r) => String(r.number) === t);
+    if (!hit) {
+      throw new Error(
+        `No record #${t} in the trash. Call list_trash to see what is restorable — deletion is reversible for 30 days, after which the record is gone.`,
+      );
+    }
+    return hit.id;
+  }
+
+  reg(
+    'list_trash',
+    {
+      title: 'List trash',
+      description:
+        'The deleted records of a database, newest first — restorable for 30 days, then gone for good. Call this before restore_records (a deleted record no longer resolves by public number anywhere else) and after a delete you are unsure about.',
+      inputSchema: { workspace: z.string(), database: z.string() },
+    },
+    handle<{ workspace: string; database: string }>(async ({ workspace, database }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const trash = await unwrap<{ data: Array<{ id: string; number: number | null; title: string; deleted_at: string | null }> }>(
+        client.GET('/api/v1/workspaces/{ws}/databases/{db}/records/trash', { params: { path: { ws: ws.id, db: db.id } } }),
+      );
+      return text({ records: trash.data, retention_days: 30, restore_with: 'restore_records' });
+    }),
+  );
+
+  reg(
+    'delete_records',
+    {
+      title: 'Delete records',
+      description:
+        'Move up to 200 records to trash in one call (restorable 30 days via list_trash / restore_records). Records are uuids or public numbers. Use delete_record for a single one — this exists so cleaning up a query result is one call instead of two hundred.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        records: z.array(z.string()).min(1).max(200).describe('Record uuids or public numbers.'),
+      },
+    },
+    handle<{ workspace: string; database: string; records: string[] }>(async ({ workspace, database, records }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const ids = await Promise.all(records.map((r) => resolveRecordId(ws.id, db.id, r)));
+      const res = await unwrap<{ deleted: number }>(
+        client.POST('/api/v1/workspaces/{ws}/databases/{db}/records/batch-delete', {
+          params: { path: { ws: ws.id, db: db.id } },
+          body: { record_ids: ids } as never,
+        }),
+      );
+      // The API only trashes rows that were live, so `deleted` can be lower than
+      // what was asked for — reported rather than smoothed over, because a silent
+      // shortfall reads as success (#343's lesson applied to a batch).
+      return text({ ...res, requested: ids.length, restorable_for_days: 30 });
+    }),
+  );
+
+  reg(
+    'restore_records',
+    {
+      title: 'Restore records',
+      description:
+        'Bring records back from the trash. Pass uuids or public numbers — a number is resolved against the trash listing, since a deleted record no longer resolves by number anywhere else. Restoring one record returns the record; restoring several returns a count.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        records: z.array(z.string()).min(1).max(200).describe('Record uuids or public numbers (see list_trash).'),
+      },
+    },
+    handle<{ workspace: string; database: string; records: string[] }>(async ({ workspace, database, records }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const ids = await Promise.all(records.map((r) => resolveTrashedRecordId(ws.id, db.id, r)));
+      if (ids.length === 1) {
+        await unwrap(
+          client.POST('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/restore', {
+            params: { path: { ws: ws.id, db: db.id, rec: ids[0]! } },
+          }),
+        );
+        const detail = await getDetail(ws.id, db.id);
+        return text(await readRecord(detail, ws.id, db.id, ids[0]!));
+      }
+      const res = await unwrap<{ restored: number }>(
+        client.POST('/api/v1/workspaces/{ws}/databases/{db}/records/batch-restore', {
+          params: { path: { ws: ws.id, db: db.id } },
+          body: { record_ids: ids } as never,
+        }),
+      );
+      return text({ ...res, requested: ids.length });
+    }),
+  );
+
+  reg(
+    'duplicate_record',
+    {
+      title: 'Duplicate record',
+      description:
+        'Copy a record: its values, its description document, and its single/many-to-many links. Owned collections (the "many" side a record owns) are NOT copied — a duplicated project does not clone its tasks. Returns the new record, so use it as a template-instantiation step rather than re-typing a filled-in record.',
+      inputSchema: { workspace: z.string(), database: z.string(), record: z.string().describe('Record uuid or public number.') },
+    },
+    handle<{ workspace: string; database: string; record: string }>(async ({ workspace, database, record }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const rec = await resolveRecordId(ws.id, db.id, record);
+      const created = await unwrap<RecordRow>(
+        client.POST('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/duplicate', {
+          params: { path: { ws: ws.id, db: db.id, rec } },
+        }),
+      );
+      const detail = await getDetail(ws.id, db.id);
+      return text({ duplicated_from: rec, record: await readRecord(detail, ws.id, db.id, created.id) });
+    }),
+  );
+
+  reg(
+    'move_record',
+    {
+      title: 'Move record',
+      description:
+        'Reposition a record in the hand-arranged (manual) order — the order list_records returns and a board/list shows. Pass exactly ONE of `before` / `after` (the neighbour to land next to), optionally with `values` to change a field in the same atomic step: that pair is a kanban drop, e.g. after:"12" plus values:{state:"Done"} moves the card into Done under #12. `values` alone repositions nothing and just patches.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        record: z.string().describe('Record uuid or public number.'),
+        before: z.string().optional().describe('Land immediately BEFORE this record (uuid or public number).'),
+        after: z.string().optional().describe('Land immediately AFTER this record (uuid or public number).'),
+        values: z
+          .record(z.string(), z.unknown())
+          .optional()
+          .describe('Optional field patch applied atomically with the move — the column a kanban card is dropped into.'),
+      },
+    },
+    handle<{ workspace: string; database: string; record: string; before?: string; after?: string; values?: Record<string, unknown> }>(
+      async ({ workspace, database, record, before, after, values }) => {
+        if (before && after) throw new Error('Pass only one of `before` / `after` — a record lands on one side of one neighbour.');
+        if (!before && !after && !values) throw new Error('Nothing to do: pass `before` or `after` to reposition, and/or `values` to patch.');
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const detail = await getDetail(ws.id, db.id);
+        const rec = await resolveRecordId(ws.id, db.id, record);
+        const body: { before_record_id?: string; after_record_id?: string; values?: Record<string, unknown> } = {};
+        if (before) body.before_record_id = await resolveRecordId(ws.id, db.id, before);
+        if (after) body.after_record_id = await resolveRecordId(ws.id, db.id, after);
+        // Same label→id / Markdown→blocks mapping every other write goes through,
+        // so a kanban drop takes values:{state:"Done"} and not an option uuid.
+        if (values) body.values = mapWriteValues(detail, values);
+        await unwrap(
+          client.POST('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/move', {
+            params: { path: { ws: ws.id, db: db.id, rec } },
+            body: body as never,
+          }),
+        );
+        return text(await readRecord(detail, ws.id, db.id, rec));
+      },
+    ),
+  );
+
+  // ---- Area 2: listing in MANUAL order ----
+
+  reg(
+    'list_records',
+    {
+      title: 'List records (manual order)',
+      description:
+        'Records in the hand-arranged (drag) order a human sees — the one thing query_records cannot express, since it sorts by field values and falls back to manual order only when given no sorts at all. Reach for this when the ORDER is the question ("the top three as they are arranged", "what is first on the board") and for query_records when the FILTER is. `q` does a title substring match; pass the returned next_cursor to page.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        q: z.string().optional().describe('Case-insensitive substring match on the record title.'),
+        limit: z.number().int().min(1).max(200).optional().describe('Default 50, max 200.'),
+        cursor: z.string().optional().describe('next_cursor from a previous call.'),
+      },
+    },
+    handle<{ workspace: string; database: string; q?: string; limit?: number; cursor?: string }>(
+      async ({ workspace, database, q, limit, cursor }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const detail = await getDetail(ws.id, db.id);
+        const res = await unwrap<{ data: RecordRow[]; next_cursor: string | null; has_more: boolean }>(
+          client.GET('/api/v1/workspaces/{ws}/databases/{db}/records', {
+            params: { path: { ws: ws.id, db: db.id }, query: { q, limit, cursor } } as never,
+          }),
+        );
+        return text({
+          order: 'manual',
+          records: res.data.map((r) => serializeRecord(detail, ws.id, db.id, r)),
+          next_cursor: res.next_cursor,
+          has_more: res.has_more,
+        });
+      },
+    ),
+  );
+
+  // ---- Area 3: everything hanging off a record ----
+
+  /**
+   * A comment body is one of two stored shapes — the legacy segment array or a
+   * BlockNote document (#180) — and neither is readable as JSON. Rendered to one
+   * string here so `list_comments` answers "what did they say" rather than
+   * handing back a document format for the model to reverse-engineer.
+   */
+  function commentToText(body: unknown): string {
+    if (Array.isArray(body)) {
+      return body
+        .map((raw) => {
+          const seg = raw as { type?: string; text?: string; user_id?: string; record_id?: string };
+          if (seg.type === 'text') return seg.text ?? '';
+          // A mention renders as an id, not a name: the ids are what an agent can
+          // act on, and resolving them would cost a request per comment.
+          if (seg.type === 'mention') return `@${seg.user_id ?? 'someone'}`;
+          if (seg.type === 'record') return `#${seg.record_id ?? '?'}`;
+          return '';
+        })
+        .join('');
+    }
+    if (body && typeof body === 'object' && (body as { format?: string }).format === 'blocknote') {
+      const doc = (body as { doc?: unknown }).doc;
+      if (Array.isArray(doc)) return blocksToMarkdown(doc as never);
+    }
+    return '';
+  }
+
+  reg(
+    'list_comments',
+    {
+      title: 'List comments',
+      description:
+        'Read a record\'s comment thread, newest first, as plain text — including the ones you posted with add_comment. Each comment carries its id (for update_comment / delete_comment), author and timestamps.',
+      inputSchema: { workspace: z.string(), database: z.string(), record: z.string().describe('Record uuid or public number.') },
+    },
+    handle<{ workspace: string; database: string; record: string }>(async ({ workspace, database, record }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const rec = await resolveRecordId(ws.id, db.id, record);
+      const res = await unwrap<{
+        data: Array<{ id: string; body: unknown; author: { id: string; name: string }; edited_at: string | null; created_at: string }>;
+      }>(client.GET('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/comments', { params: { path: { ws: ws.id, db: db.id, rec } } }));
+      return text({
+        record: rec,
+        comments: res.data.map((c) => ({
+          id: c.id,
+          text: commentToText(c.body),
+          author: c.author.name,
+          author_id: c.author.id,
+          created_at: c.created_at,
+          edited_at: c.edited_at,
+        })),
+      });
+    }),
+  );
+
+  reg(
+    'update_comment',
+    {
+      title: 'Update comment',
+      description:
+        'Replace the text of a comment you authored (get its id from list_comments). Editing someone else\'s is refused by the API — correct a mistake of your own rather than posting a second comment that contradicts the first.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        record: z.string().describe('Record uuid or public number.'),
+        comment: z.string().describe('Comment id from list_comments.'),
+        body: z.string().describe('The replacement text — replaces the whole comment, not appended.'),
+      },
+    },
+    handle<{ workspace: string; database: string; record: string; comment: string; body: string }>(
+      async ({ workspace, database, record, comment, body }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const rec = await resolveRecordId(ws.id, db.id, record);
+        const res = await unwrap<{ id: string; edited_at: string | null }>(
+          client.PATCH('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/comments/{comment}', {
+            params: { path: { ws: ws.id, db: db.id, rec, comment } } as never,
+            body: { body: [{ type: 'text', text: body }] } as never,
+          }),
+        );
+        return text({ id: res.id, text: body, edited_at: res.edited_at });
+      },
+    ),
+  );
+
+  reg(
+    'delete_comment',
+    {
+      title: 'Delete comment',
+      description:
+        'Delete a comment you authored (workspace admins may delete any). Get the id from list_comments. Unlike a record, a comment does not go to a trash you can browse — deleting is the end of it.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        record: z.string().describe('Record uuid or public number.'),
+        comment: z.string().describe('Comment id from list_comments.'),
+      },
+    },
+    handle<{ workspace: string; database: string; record: string; comment: string }>(
+      async ({ workspace, database, record, comment }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const rec = await resolveRecordId(ws.id, db.id, record);
+        await unwrap(
+          client.DELETE('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/comments/{comment}', {
+            params: { path: { ws: ws.id, db: db.id, rec, comment } } as never,
+          }),
+        );
+        return text({ deleted: comment });
+      },
+    ),
+  );
+
+  reg(
+    'get_history',
+    {
+      title: 'Get record history',
+      description:
+        'What happened to this record, newest first, through one of three lenses. kind:"fields" (default) = per-field changes with readable before/after values — use this to answer "who changed the status and when". kind:"versions" = whole-record snapshots, each with a version id you can hand to restore_version. kind:"activity" = the full trail including comments, links and attachments, not just value edits. Three lenses on one question, so pick by what you are answering rather than calling all three.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        record: z.string().describe('Record uuid or public number.'),
+        kind: z.enum(['fields', 'versions', 'activity']).optional().describe('Default "fields".'),
+        limit: z.number().int().min(1).max(100).optional().describe('Default 20.'),
+        cursor: z.string().optional().describe('next_cursor from a previous call.'),
+      },
+    },
+    handle<{ workspace: string; database: string; record: string; kind?: 'fields' | 'versions' | 'activity'; limit?: number; cursor?: string }>(
+      async ({ workspace, database, record, kind, limit, cursor }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const rec = await resolveRecordId(ws.id, db.id, record);
+        const query = { limit, cursor };
+        const path = { ws: ws.id, db: db.id, rec };
+        const which = kind ?? 'fields';
+        const res =
+          which === 'versions'
+            ? await unwrap<unknown>(
+                client.GET('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/versions', { params: { path, query } as never }),
+              )
+            : which === 'activity'
+              ? await unwrap<unknown>(
+                  client.GET('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/activity', { params: { path, query } as never }),
+                )
+              : await unwrap<unknown>(
+                  client.GET('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/versions/changes', {
+                    params: { path, query } as never,
+                  }),
+                );
+        const body = res as { data?: unknown; next_cursor?: string | null };
+        return text({ record: rec, kind: which, entries: body.data ?? [], next_cursor: body.next_cursor ?? null });
+      },
+    ),
+  );
+
+  reg(
+    'restore_version',
+    {
+      title: 'Restore version',
+      description:
+        'Roll a record back to a previously captured snapshot. Get the version id from get_history with kind:"versions". This OVERWRITES the current values with the old ones and is itself recorded as a new version, so it is undoable — but read the version first (a snapshot list gives you titles and timestamps, not values) rather than restoring blind.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        record: z.string().describe('Record uuid or public number.'),
+        version: z.string().describe('Version id from get_history kind:"versions".'),
+      },
+    },
+    handle<{ workspace: string; database: string; record: string; version: string }>(
+      async ({ workspace, database, record, version }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const rec = await resolveRecordId(ws.id, db.id, record);
+        await unwrap(
+          client.POST('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/versions/{version}/restore', {
+            params: { path: { ws: ws.id, db: db.id, rec, version } } as never,
+          }),
+        );
+        const detail = await getDetail(ws.id, db.id);
+        return text({ restored_version: version, record: await readRecord(detail, ws.id, db.id, rec) });
+      },
+    ),
+  );
+
+  reg(
+    'list_backlinks',
+    {
+      title: 'List backlinks',
+      description:
+        'Records whose description document MENTIONS this record — the "Mentioned in" list. This is prose cross-referencing, NOT relation links: use get_record (or describe_database for the relation fields) for structural links, and this to find where a record is being talked about.',
+      inputSchema: { workspace: z.string(), database: z.string(), record: z.string().describe('Record uuid or public number.') },
+    },
+    handle<{ workspace: string; database: string; record: string }>(async ({ workspace, database, record }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const rec = await resolveRecordId(ws.id, db.id, record);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/backlinks', { params: { path: { ws: ws.id, db: db.id, rec } } }),
+      );
+      const body = res as { data?: unknown };
+      return text({ record: rec, mentioned_in: body.data ?? res });
+    }),
+  );
+
+  reg(
+    'list_linked_records',
+    {
+      title: 'List linked records',
+      description:
+        'The full link set of ONE relation field on a record, as records you can act on (id, public number, title, url). Not to be confused with get_links, which builds web URLs: this reads relations. get_record already projects link chips, so reach for this when you need the whole set of a heavily-linked record (up to 200, title-ordered) or the target database\'s id to query it — and to verify a link_records / unlink_records call actually landed.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        record: z.string().describe('Record uuid or public number.'),
+        relation_field: z.string().describe('The relation field on this database (api_name, name, or id).'),
+      },
+    },
+    handle<{ workspace: string; database: string; record: string; relation_field: string }>(
+      async ({ workspace, database, record, relation_field }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const detail = await getDetail(ws.id, db.id);
+        const fieldId = resolveFieldId(detail, relation_field, ['relation'], 'relation');
+        const rec = await resolveRecordId(ws.id, db.id, record);
+        const relField = detail.fields.find((f) => f.id === fieldId);
+        // A self-relation has no separate target database — fall back to this one,
+        // exactly as link_records does, so the urls still resolve.
+        const targetDbId = relField?.relation?.target_database_id ?? db.id;
+        const res = await unwrap<{ data: Array<{ id: string; title: string; number: number | null }> }>(
+          client.GET('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/links/{field}', {
+            params: { path: { ws: ws.id, db: db.id, rec, field: fieldId } } as never,
+          }),
+        );
+        return text({
+          record: rec,
+          relation_field: relField?.apiName ?? fieldId,
+          target_database: { id: targetDbId, name: relField?.relation?.target_database_name ?? null },
+          linked: res.data.map((r) => ({ ...r, url: recordUrl(ws.id, targetDbId, r) })),
+        });
+      },
+    ),
+  );
+
+  reg(
+    'list_watchers',
+    {
+      title: 'List watchers',
+      description:
+        'Who gets notified when this record changes, and whether the caller is among them. Read this before assuming a change will reach anyone — a record with no watchers notifies nobody except through an explicit mention.',
+      inputSchema: { workspace: z.string(), database: z.string(), record: z.string().describe('Record uuid or public number.') },
+    },
+    handle<{ workspace: string; database: string; record: string }>(async ({ workspace, database, record }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const rec = await resolveRecordId(ws.id, db.id, record);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/watchers', { params: { path: { ws: ws.id, db: db.id, rec } } }),
+      );
+      return text({ record: rec, ...(res as Record<string, unknown>) });
+    }),
+  );
+
+  reg(
+    'watch_record',
+    {
+      title: 'Watch record',
+      description:
+        'Subscribe (or unsubscribe) the CALLING identity to a record\'s changes. Note what this is not: it cannot subscribe someone else — a token watches on behalf of whoever it belongs to. To make a person aware of a record, mention them in add_comment instead.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        record: z.string().describe('Record uuid or public number.'),
+        watch: z.boolean().optional().describe('true (default) to watch, false to stop watching.'),
+      },
+    },
+    handle<{ workspace: string; database: string; record: string; watch?: boolean }>(
+      async ({ workspace, database, record, watch }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const rec = await resolveRecordId(ws.id, db.id, record);
+        const on = watch ?? true;
+        const params = { path: { ws: ws.id, db: db.id, rec } };
+        await unwrap(
+          on
+            ? client.POST('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/watch', { params })
+            : client.DELETE('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/watch', { params }),
+        );
+        return text({ record: rec, watching: on });
+      },
+    ),
   );
 
   // ============ Attachments (MN-37): files on a record ============
