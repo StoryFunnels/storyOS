@@ -170,8 +170,31 @@ export function HeaderCell({
     <div
       ref={reorderable ? sortable.setNodeRef : undefined}
       style={style}
+      /*
+       * #413 — the WHOLE header is the handle, not the 37px of label text.
+       *
+       * Measured on the deployed app: for a 180px `Won` column the element
+       * carrying the listeners spanned 37px — about 20% — so pressing at the
+       * header's natural centre did nothing at all. The first UAT attempt aimed
+       * there, got no drag, and had to be re-aimed at the word.
+       *
+       * `sidebar.tsx` already learned this ("#322: the row itself is the handle,
+       * not only the 12px grip — the exact thing header-cell.tsx records as 'too
+       * hard to grab, so reorder felt broken'"). This file recorded the lesson
+       * and never got the fix.
+       *
+       * Safe to widen because every control that must NOT start a drag already
+       * stops propagation on pointerdown: the resize handle (MN-225) and the
+       * dropdown triggers below.
+       */
+      {...(reorderable ? sortable.attributes : {})}
+      {...(reorderable ? sortable.listeners : {})}
+      title={reorderable ? 'Drag to reorder' : undefined}
       className={cn(
         'group/header relative flex h-8 shrink-0 items-center justify-between border-r border-border-default px-2 text-[12px] font-medium text-muted',
+        // #413 — the cursor must cover exactly what responds, or the header
+        // grows a region that looks draggable and is not (and vice versa).
+        reorderable && 'cursor-grab touch-none active:cursor-grabbing',
         sticky && 'bg-app shadow-[2px_0_4px_-2px_rgba(15,23,41,0.12)]',
         /* #409/#411 — `z-40 opacity-70` is what let the dragged header paint
            over its neighbours AND over the frozen first column (whose sticky z
@@ -182,12 +205,9 @@ export function HeaderCell({
     >
       {/* The whole name is the drag handle, not just the (hover-only) grip icon —
           a 12px opacity-0 grip was too hard to grab, so reorder felt broken (MN-225). */}
-      <span
-        className={cn('flex min-w-0 items-center gap-1', reorderable && 'cursor-grab touch-none')}
-        {...(reorderable ? sortable.attributes : {})}
-        {...(reorderable ? sortable.listeners : {})}
-        title={reorderable ? 'Drag to reorder' : undefined}
-      >
+      {/* #413 — the listeners moved to the cell above; this span is now just
+          layout for the grip, the name and the filter marker. */}
+      <span className="flex min-w-0 items-center gap-1">
         {reorderable && (
           <GripVertical className="-ml-1 h-3 w-3 shrink-0 text-faint opacity-0 group-hover/header:opacity-100" />
         )}
@@ -211,6 +231,8 @@ export function HeaderCell({
         <button
           className="rounded p-0.5 text-faint opacity-0 hover:bg-active hover:text-ink group-hover/header:opacity-100"
           title={pinned ? 'Unfreeze column' : 'Freeze column'}
+          /* #413 — see the note on the menu triggers: pinning is not a drag. */
+          onPointerDown={(e) => e.stopPropagation()}
           onClick={onTogglePin}
         >
           {pinned ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}
@@ -219,7 +241,13 @@ export function HeaderCell({
       {canManage && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="rounded p-0.5 opacity-0 hover:bg-active group-hover/header:opacity-100">
+            <button
+              /* #413 — the cell is the drag handle now, so every control inside
+                 it must keep its own gesture off the reorder sensor. Same guard
+                 the resize handle has carried since MN-225. */
+              onPointerDown={(e) => e.stopPropagation()}
+              className="rounded p-0.5 opacity-0 hover:bg-active group-hover/header:opacity-100"
+            >
               <MoreHorizontal className="h-3.5 w-3.5" />
             </button>
           </DropdownMenuTrigger>
@@ -258,7 +286,13 @@ export function HeaderCell({
       {canConfigureTitle && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="rounded p-0.5 opacity-0 hover:bg-active group-hover/header:opacity-100">
+            <button
+              /* #413 — the cell is the drag handle now, so every control inside
+                 it must keep its own gesture off the reorder sensor. Same guard
+                 the resize handle has carried since MN-225. */
+              onPointerDown={(e) => e.stopPropagation()}
+              className="rounded p-0.5 opacity-0 hover:bg-active group-hover/header:opacity-100"
+            >
               <MoreHorizontal className="h-3.5 w-3.5" />
             </button>
           </DropdownMenuTrigger>
