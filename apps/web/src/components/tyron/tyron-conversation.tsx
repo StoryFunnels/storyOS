@@ -9,7 +9,7 @@ import { AgentAvatar } from './agent-avatar';
 import { useRememberedThread } from '@/lib/tyron-thread';
 import { composerHeight } from './composer-height';
 import { ThreadMenu } from './thread-menu';
-import { WorkspaceBuild } from './workspace-build';
+import { StarterCards } from './starter-cards';
 
 /**
  * The conversation inside Tyron's panel (#357c).
@@ -251,10 +251,25 @@ export function TyronConversation({ ws }: { ws: string }) {
          */}
         {buildable === true && (
           <div className="mb-4">
-            <WorkspaceBuild
+            {/*
+             * #362 — four things worth clicking, instead of an empty box.
+             *
+             * Card 1 IS #363's build; the other three are ordinary turns. They
+             * live here rather than on the workspace home because that page is
+             * already a getting-started checklist and a template gallery, and a
+             * third "start here" surface on the same screen competes with the
+             * two that exist.
+             *
+             * Retired by the same latch that retires the build offer: once the
+             * workspace has a database of its own, these do not come back.
+             * Permanent training wheels read as clutter to a returning user.
+             */}
+            <StarterCards
               ws={ws}
               ensureThread={ensureThread}
+              onAsk={(text) => send.mutate(text)}
               onBuilt={() => void qc.invalidateQueries({ queryKey: ['tyron-thread', ws] })}
+              busy={send.isPending}
             />
           </div>
         )}
