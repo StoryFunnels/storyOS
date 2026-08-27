@@ -47,9 +47,11 @@ import { ActivityPanel, AttachmentsStrip, CommentsPanel, MentionedIn } from '@/c
 import {
   AUDIT_TYPES,
   HIDDEN,
+  hasOwnRecordOrder,
   isCollection,
   isHidden,
   orderKey,
+  resetOrderPlan,
   zonesOf,
 } from '@/components/entity/entity-field-utils';
 import type { Zone } from '@/components/entity/entity-field-utils';
@@ -273,6 +275,24 @@ export function RecordDetail({
       }
     });
   }
+  /**
+   * "Follow the database order" (#414 AC2) — the way back out of the one-way door.
+   *
+   * Clears `entity_order` on every field that carries one and returns the
+   * description to its unset position, after which `orderKey` falls back to the
+   * field's API position and the properties panel matches the grid again.
+   *
+   * One mutation per field rather than a bulk endpoint: the same
+   * `setFieldConfig` path the drags already use, so there is no second way to
+   * write this config that could drift from the first. A database with enough
+   * fields for that to be slow has a bigger problem than this button.
+   */
+  function followDatabaseOrder() {
+    const plan = resetOrderPlan(allFields, descriptionOrder);
+    for (const fieldId of plan.fieldIds) setFieldConfig.mutate({ fieldId, config: { entity_order: null } });
+    if (plan.clearDescription) updateDescription.mutate({ description_order: null });
+  }
+
   /** Toggle a field's presence in a zone (MN-077). Unchecking the last zone hides the field. */
   const toggleZone = (field: Field, zone: Zone) => {
     const cur = zonesOf(field);
@@ -297,6 +317,21 @@ export function RecordDetail({
   const columnsRef = useRef<HTMLDivElement | null>(null);
   const { width: sidebarWidth, setWidth: setSidebarWidth, persist: persistSidebarWidth } =
     useRecordSidebarWidth();
+
+  /*
+   * #409/#412/#415 — one presentation for all three property zones (top chips,
+   * body, sidebar). Only one drag runs at a time, so a single hook serves them;
+   * `label` resolves a field id to its display name, which is what #415 needs —
+   * these lists are keyed by field uuid, so the stock announcements were hex.
+   *
+   * ABOVE the early returns below, and it must stay there. #412 landed it after
+   * them, which meant this component called 110 hooks while the record was
+   * loading and 111 once it arrived — "Rendered more hooks than during the
+   * previous render", and every record page was a blank error boundary on main.
+   * Any hook added to RecordDetail belongs in this block, not further down.
+   */
+  const fieldLabel = (id: string) => visibleFields.find((f) => f.id === id)?.displayName;
+  const propDrag = useDragPresentation(fieldLabel);
 
   if (record.isLoading || database.isLoading) return <p className="p-6 text-sm text-muted">Loading…</p>;
   if (!record.data) return <p className="p-6 text-sm text-error">Record not found.</p>;
@@ -325,15 +360,6 @@ export function RecordDetail({
     onToggleZone: toggleZone,
     onCommit: (field: Field, value: unknown) => updateRecord.mutate({ rec: recordId, values: { [field.apiName]: value } }),
   };
-
-  /*
-   * #409/#412/#415 — one presentation for all three property zones (top chips,
-   * body, sidebar). Only one drag runs at a time, so a single hook serves them;
-   * `label` resolves a field id to its display name, which is what #415 needs —
-   * these lists are keyed by field uuid, so the stock announcements were hex.
-   */
-  const fieldLabel = (id: string) => visibleFields.find((f) => f.id === id)?.displayName;
-  const propDrag = useDragPresentation(fieldLabel);
 
   return (
     <div className="px-4 py-6 sm:px-8">
@@ -627,6 +653,22 @@ export function RecordDetail({
                 />
               )}
             </div>
+            {/* #414 — two orders are fine; two orders that LOOK like one are not.
+                Shown only when this database actually has its own arrangement, so
+                the default case stays quiet. */}
+            {schemaEditable && hasOwnRecordOrder(allFields, descriptionOrder) && (
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-border-default px-3 py-2 text-[11px] text-muted">
+                <span>Arranged for records, so it no longer follows the database order.</span>
+                <button
+                  type="button"
+                  onClick={followDatabaseOrder}
+                  disabled={setFieldConfig.isPending}
+                  className="font-medium text-accent underline underline-offset-2 disabled:opacity-50"
+                >
+                  Follow the database order
+                </button>
+              </div>
+            )}
             <DndContext
               sensors={sensors}
               collisionDetection={closestCenter}

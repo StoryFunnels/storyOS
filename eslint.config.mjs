@@ -1,6 +1,7 @@
 // @ts-check
 import eslint from '@eslint/js';
 import tseslint from 'typescript-eslint';
+import reactHooks from 'eslint-plugin-react-hooks';
 
 export default tseslint.config(
   {
@@ -22,6 +23,27 @@ export default tseslint.config(
     rules: {
       '@typescript-eslint/consistent-type-imports': 'off',
     },
+  },
+  {
+    /**
+     * Rules of Hooks, as an ERROR (#414 follow-up).
+     *
+     * The web app is a React app that had no hooks lint at all. #412 added a
+     * `useDragPresentation` call BELOW `RecordDetail`'s two early returns, so the
+     * component ran 110 hooks while the record loaded and 111 once it arrived:
+     * "Rendered more hooks than during the previous render". Every record page on
+     * main was a blank error boundary. Lint passed, typecheck passed, every unit
+     * test passed, and it merged.
+     *
+     * Only `rules-of-hooks` is on. `exhaustive-deps` is a different argument —
+     * it has real false positives, it would light up a codebase this size, and
+     * bundling the two would mean turning both off the first time someone
+     * disagreed with a dependency warning. This rule has no false positives worth
+     * the name: it catches a crash.
+     */
+    files: ['apps/web/src/**/*.{ts,tsx}'],
+    plugins: { 'react-hooks': reactHooks },
+    rules: { 'react-hooks/rules-of-hooks': 'error' },
   },
   {
     // API-first is structural (CONTRIBUTING.md): the web app talks to the
