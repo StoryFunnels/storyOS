@@ -172,10 +172,6 @@ export const DEFERRED: CoverageRule[] = [
       '#406 — membership and access. Deliberately NOT excluded: reading who is in a workspace and what they can see is ordinary context. Writing it is a real decision and the ticket should split the two.',
   },
   {
-    match: '/api/v1/workspaces/{ws}/skills',
-    reason: '#406 — skill authoring. `list_skills`/`run_skill` exist, so an agent can run a skill but never write or edit one.',
-  },
-  {
     match: '/api/v1/workspaces/{ws}/webhooks',
     reason: '#406 — outbound webhook subscriptions and their delivery log.',
   },

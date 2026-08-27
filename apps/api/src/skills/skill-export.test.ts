@@ -14,6 +14,7 @@ const skill: SkillSummary = {
   examples: [{ input: '10 records moved to Done', output: '10 done this week, 2 overdue.' }],
   allowed_tools: ['records.read', 'databases.read'],
   source_template: 'weekly-digest',
+  source: 'human',
   last_run_at: null,
   last_run_status: null,
   editable: true,

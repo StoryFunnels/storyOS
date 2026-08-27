@@ -1,0 +1,1 @@
+ALTER TABLE "skills" ADD COLUMN "source" "change_source" DEFAULT 'human' NOT NULL;

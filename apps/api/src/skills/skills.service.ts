@@ -1,5 +1,6 @@
 import { ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, desc, eq, or } from 'drizzle-orm';
+import type { ChangeSource } from '../db/schema';
 import type {
   CreateSkillInput,
   SkillExport,
@@ -8,6 +9,7 @@ import type {
   SkillRunStep,
   SkillSummary,
   SkillTemplate,
+  SkillVisibility,
   UpdateSkillInput,
 } from '@storyos/schemas';
 import { SKILL_TEMPLATES } from '@storyos/schemas';
@@ -63,6 +65,7 @@ export class SkillsService {
       examples: (row.examples ?? []) as SkillSummary['examples'],
       allowed_tools: (row.allowedTools ?? []) as string[],
       source_template: row.sourceTemplate,
+      source: row.source,
       last_run_at: row.lastRunAt ? row.lastRunAt.toISOString() : null,
       last_run_status: (row.lastRunStatus as 'ok' | 'error' | null) ?? null,
       editable: row.ownerId === callerUserId,
@@ -109,11 +112,40 @@ export class SkillsService {
     return this.present(row, userId);
   }
 
+  /**
+   * #442 — a non-human author may write a PERSONAL skill and may not publish
+   * a shared one.
+   *
+   * The asymmetry is the point. A personal skill is reachable only by the
+   * identity that owns the token, i.e. the same person who asked for it, so
+   * review would add friction and protect nobody. A SHARED skill is
+   * instructions every other member's agent will follow — publishing one is a
+   * decision about other people, and ADR-0010's reasoning applies unchanged:
+   * an agent may queue work for a human to decide and never decide for one.
+   *
+   * So an agent-authored skill starts personal, and a human promotes it in-app
+   * once they have read it. Enforced HERE rather than in the MCP tool, because
+   * a rule that lives in the client is a suggestion — any PAT holder could
+   * otherwise POST `visibility: "shared"` directly.
+   */
+  private assertMayPublish(source: ChangeSource, visibility: SkillVisibility): void {
+    if (visibility === 'shared' && source !== 'human') {
+      throw new ForbiddenException(
+        'A skill authored over the API cannot be shared to the workspace directly — it is created as `personal`, ' +
+          'and a person promotes it to `shared` in-app after reading it. A shared skill is instructions everyone ' +
+          "else's agent follows, so publishing one is a human decision (ADR-0010).",
+      );
+    }
+  }
+
   async create(
     membership: Membership,
     userId: string,
     input: CreateSkillInput,
+    /** Derived from the request's auth, never from the body (#390's precedent). */
+    source: ChangeSource = 'human',
   ): Promise<SkillSummary> {
+    this.assertMayPublish(source, input.visibility);
     const [row] = await this.db
       .insert(skills)
       .values({
@@ -127,6 +159,7 @@ export class SkillsService {
         examples: input.examples,
         allowedTools: input.allowed_tools,
         sourceTemplate: input.source_template ?? null,
+        source,
       })
       .returning();
     return this.present(row!, userId);
@@ -146,8 +179,14 @@ export class SkillsService {
     userId: string,
     id: string,
     input: UpdateSkillInput,
+    /** Derived from the request's auth, never from the body (#390's precedent). */
+    source: ChangeSource = 'human',
   ): Promise<SkillSummary> {
     await this.requireOwner(membership, userId, id);
+    // Promoting an existing skill to `shared` is the same decision as creating
+    // one shared, so it meets the same gate — otherwise the create-side rule is
+    // one PATCH away from being decorative.
+    if (input.visibility !== undefined) this.assertMayPublish(source, input.visibility);
     const patch: Partial<typeof skills.$inferInsert> = {};
     if (input.name !== undefined) patch.name = input.name;
     if (input.description !== undefined) patch.description = input.description;

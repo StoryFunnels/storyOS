@@ -1681,6 +1681,22 @@ export const skills = pgTable(
     /** Which SKILL_TEMPLATES scaffold this was authored from, `'chat'` once #39
      * lands, or null for a from-scratch skill. Provenance only. */
     sourceTemplate: text('source_template'),
+    /**
+     * #442 — WHO authored this: a person typing, or an agent writing over MCP.
+     *
+     * Deliberately a separate column from `sourceTemplate` even though that one
+     * is also called provenance. `sourceTemplate` answers "which scaffold did
+     * this start from" and is CALLER-SUPPLIED, so an agent can set it to
+     * anything; this answers "was a human at the keyboard" and is derived from
+     * the request's auth (`req.auth.source`) exactly as #390 derives a record
+     * write's source. Provenance that can be claimed by its subject is not
+     * provenance — the same reasoning api_tokens.origin's note gives.
+     *
+     * A skill is instructions a future agent will follow, so this is what lets
+     * a reader tell an agent-written instruction from a human-written one
+     * without having to trust the instruction.
+     */
+    source: changeSource('source').notNull().default('human'),
     lastRunAt: timestamp('last_run_at', { withTimezone: true }),
     lastRunStatus: text('last_run_status'), // 'ok' | 'error'
     lastRunSteps: jsonb('last_run_steps'),

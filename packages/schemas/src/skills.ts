@@ -83,6 +83,10 @@ export const skillSummarySchema = z.object({
   examples: z.array(skillExampleSchema),
   allowed_tools: z.array(allowedToolSchema),
   source_template: z.string().nullable(),
+  /** #442 — who authored it: `human` when a person typed it, `mcp`/`agent`
+   * when it was written over the API. Derived from the request's auth, so it
+   * cannot be claimed by its author. */
+  source: z.enum(['human', 'agent', 'automation', 'mcp']),
   last_run_at: z.string().nullable(),
   last_run_status: z.enum(['ok', 'error']).nullable(),
   editable: z.boolean(),
