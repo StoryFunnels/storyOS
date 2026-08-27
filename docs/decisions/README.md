@@ -38,3 +38,4 @@ Decisions we don't relitigate. If you want to change one, open a new ADR that su
 - [ADR-0014 — Billing: one Stripe customer and subscription per workspace](ADR-0014-billing-per-workspace.md)
 - [ADR-0015 — Data durability and recovery](ADR-0015-data-durability-and-recovery.md)
 - [ADR-0016 — Tyron: the conversational agent runtime](ADR-0016-tyron-conversational-runtime.md)
+- [ADR-0017 — Members: workspace people as a projected system database](ADR-0017-members-people-model.md)

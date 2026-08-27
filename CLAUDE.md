@@ -52,6 +52,29 @@ The load-bearing rules:
 - **Test the rejections and what a filter must KEEP** — #305's six existing
   assertions all passed unchanged under the corrected rule.
 
+## Members / the people model (#128 / #320) — read the ADR before touching assignees
+
+Workspace people are a **one-way projection** of `memberships` + better-auth into
+an ordinary system database. Full ADR:
+[docs/decisions/ADR-0017-members-people-model.md](docs/decisions/ADR-0017-members-people-model.md).
+The load-bearing facts:
+
+- **Identity is the `is_system` FLAG, never the display name.** Matching by name
+  handed a user's own "Members" database to the projection, which then rewrote
+  their schema and wrote every colleague's email into their records (#317/#318).
+  The flag cannot be set over HTTP, so it cannot be forged.
+- **Removal TOMBSTONES** (`active = false`), it never deletes — assigned records
+  must keep a resolvable Member, and `resolveMembersForUsers` deliberately
+  returns inactive rows rather than erroring.
+- **Guests get rows**; "viewer" is a grant role from ADR-0007, not a person type,
+  and no grant data is projected.
+- **An assignee is still a bare user id in a `user` field** — NOT a Members
+  relation. `resolveMembersForUsers` exists but has **no production caller**, so
+  do not read the code as "Members already backs assignees". The cutover (#145)
+  should run through ADR-0012's guided conversion, not a bespoke migration.
+- The ADR carries **nine OPEN questions**, including that the Members database
+  has no write protection at all. Answer one there before relying on it.
+
 ## Personal space (#87 / #290–#293) — the rules are decided, don't re-litigate
 
 Per-member private space. Full ADR:
