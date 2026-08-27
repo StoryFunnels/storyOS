@@ -168,7 +168,7 @@ interface FieldDef {
   type: string;
   isSystem?: boolean;
   options?: Array<{ id: string; label: string; color?: string; icon?: string | null }>;
-  relation?: { target_database_id: string; target_database_name: string | null; cardinality: string; side: string };
+  relation?: { id?: string; target_database_id: string; target_database_name: string | null; cardinality: string; side: string };
 }
 interface DatabaseDetail {
   id: string;
@@ -500,6 +500,31 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   delete_folder: 'admin',
   // #394 — the pack gallery is public/read-only; installing one is admin.
   list_packs: 'read',
+  /*
+   * #446 — the rest of the pack surface. Reads are `read`; the two writes are
+   * `admin` because that is where install_pack already sits and they change the
+   * same thing it does (schema). export_pack creates nothing, but it reads the
+   * whole shape of a workspace out in one call, which is an admin-shaped read.
+   */
+  list_installed_packs: 'read',
+  browse_pack_marketplace: 'read',
+  list_pack_submissions: 'read',
+  list_templates: 'read',
+  export_pack: 'admin',
+  uninstall_pack: 'admin',
+  apply_template: 'admin',
+  remove_sample_data: 'admin',
+  /*
+   * #445 — relation configuration. get_relation is a schema read, and the rest
+   * mirror the RelationsController's `creator` floor on BOTH databases. Same
+   * ceiling as create_relation/delete_relation: an auto-link rule decides what
+   * links exist from now on, which is schema, not data.
+   */
+  get_relation: 'read',
+  set_auto_link: 'admin',
+  run_auto_link: 'admin',
+  find_select_drift: 'read',
+  fix_select_drift: 'admin',
   list_icon_set: 'read',
   get_record_description: 'read',
   list_skills: 'read',
@@ -3263,6 +3288,191 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     ),
   );
 
+  /* =====================================================================
+   * #445 (#406 area 12) — relation CONFIGURATION.
+   *
+   * create_relation/delete_relation shipped long ago, so an agent could build
+   * the wiring and never set the rules that make it fill itself in. That gap
+   * costs most in exactly the moment an agent is most useful: create_records
+   * writes 100 rows in one call (#394) and every relation on them then has to
+   * be linked one at a time.
+   *
+   * Relations are addressed by DATABASE + RELATION FIELD, not by a bare uuid.
+   * The id was reachable — the database detail returns `relation.id` — but
+   * nothing in the MCP surfaced it, so delete_relation's "id from a
+   * describe_database relation field" was advice an agent could not follow.
+   * ===================================================================== */
+
+  /** Resolve a relation by the field that carries it, falling back to a raw id. */
+  function resolveRelationId(detail: DatabaseDetail, ref: string): string {
+    const direct = detail.fields.find((f) => f.relation?.id === ref);
+    if (direct) return direct.relation!.id!;
+    const lower = ref.trim().toLowerCase();
+    const f = detail.fields.find(
+      (x) => x.relation && (x.apiName.toLowerCase() === lower || x.displayName.toLowerCase() === lower),
+    );
+    if (f?.relation?.id) return f.relation.id;
+    // A uuid we could not match still gets passed through — the caller may hold
+    // an id from create_relation, whose database may not be the one named here.
+    if (/^[0-9a-f-]{36}$/i.test(ref)) return ref;
+    const avail = detail.fields.filter((x) => x.relation).map((x) => x.apiName);
+    throw new Error(`No relation field matches "${ref}" on this database. Available: ${avail.join(', ') || '(none)'}.`);
+  }
+
+  reg(
+    'get_relation',
+    {
+      title: 'Get relation',
+      description:
+        "A relation's configuration: both sides, its cardinality, its auto-link rules if any, and — the part worth reading — the COMPARABLE FIELDS on each side. Those are the fields set_auto_link will accept, so read this before writing a rule rather than guessing a pairing the server will reject.",
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        relation: z.string().describe('The relation FIELD on this database (name or api_name), or a relation id.'),
+      },
+    },
+    handle<{ workspace: string; database: string; relation: string }>(async ({ workspace, database, relation }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const detail = await getDetail(ws.id, db.id);
+      const rel = resolveRelationId(detail, relation);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/relations/{rel}', { params: { path: { ws: ws.id, rel } } as never }),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'set_auto_link',
+    {
+      title: 'Set auto-link rules',
+      description:
+        'Teach a relation to link itself: give it field pairs, and a record on one side links to a record on the other whenever ALL the pairs match — e.g. this database\'s `customer_email` equals the target\'s `email`. Setting a rule does NOT link anything that already exists; call run_auto_link for that. Pass clear:true to remove the rules. Read get_relation first for the comparable fields on each side; an empty value never matches, and matching is case-insensitive unless you say otherwise.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        relation: z.string().describe('The relation FIELD on this database (name or api_name), or a relation id.'),
+        conditions: z
+          .array(z.object({ field_a: z.string(), field_b: z.string() }))
+          .optional()
+          .describe('1–5 field pairs. field_a is on THIS database, field_b on the target. Names or ids.'),
+        case_sensitive: z.boolean().optional().describe('Default false.'),
+        clear: z.boolean().optional().describe('Remove the auto-link rules entirely.'),
+      },
+    },
+    handle<{
+      workspace: string;
+      database: string;
+      relation: string;
+      conditions?: Array<{ field_a: string; field_b: string }>;
+      case_sensitive?: boolean;
+      clear?: boolean;
+    }>(async ({ workspace, database, relation, conditions, case_sensitive, clear }) => {
+      if (!clear && !conditions?.length) throw new Error('Pass `conditions` to set a rule, or clear: true to remove one.');
+      if (clear && conditions?.length) throw new Error('Pass either `conditions` or clear: true, not both.');
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const detail = await getDetail(ws.id, db.id);
+      const rel = resolveRelationId(detail, relation);
+      const res = await unwrap<unknown>(
+        client.PATCH('/api/v1/workspaces/{ws}/relations/{rel}', {
+          params: { path: { ws: ws.id, rel } } as never,
+          body: { auto_link: clear ? null : { conditions, case_sensitive: case_sensitive ?? false } } as never,
+        }),
+      );
+      return text({
+        ...(res as Record<string, unknown>),
+        note: clear ? 'Auto-link rules removed. Existing links were left alone.' : 'Rule saved. Existing records are NOT linked yet — call run_auto_link.',
+      });
+    }),
+  );
+
+  reg(
+    'run_auto_link',
+    {
+      title: 'Run auto-link',
+      description:
+        'Apply a relation\'s auto-link rules to the records that already exist, and return a summary of what got linked. This is the tool that pays for itself after an import: create_records writes 100 rows in one call, and this links them in one more instead of a hundred link_records calls. Needs a rule set first (set_auto_link).',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        relation: z.string().describe('The relation FIELD on this database (name or api_name), or a relation id.'),
+      },
+    },
+    handle<{ workspace: string; database: string; relation: string }>(async ({ workspace, database, relation }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const detail = await getDetail(ws.id, db.id);
+      const rel = resolveRelationId(detail, relation);
+      const res = await unwrap<unknown>(
+        client.POST('/api/v1/workspaces/{ws}/relations/{rel}/auto-link', { params: { path: { ws: ws.id, rel } } as never }),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'find_select_drift',
+    {
+      title: 'Find select↔relation drift',
+      description:
+        'Find records that LOOK linked and are not: children whose select-field label matches a parent record\'s title, but which carry no actual link. This is the residue of a workspace that used a select column before it had a relation — the labels still read correctly to a human while every rollup, filter and linked view silently misses them. Reports only; fix_select_drift does the linking.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        relation: z.string().describe('The relation FIELD on this database (name or api_name), or a relation id.'),
+        record: z.string().describe('The PARENT record (uuid or public number) to check for drifted children.'),
+      },
+    },
+    handle<{ workspace: string; database: string; relation: string; record: string }>(
+      async ({ workspace, database, relation, record }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const detail = await getDetail(ws.id, db.id);
+        const rel = resolveRelationId(detail, relation);
+        const rec = await resolveRecordId(ws.id, db.id, record);
+        const res = await unwrap<unknown>(
+          client.GET('/api/v1/workspaces/{ws}/relations/{rel}/select-drift', {
+            params: { path: { ws: ws.id, rel }, query: { record_id: rec } } as never,
+          }),
+        );
+        return text(res);
+      },
+    ),
+  );
+
+  reg(
+    'fix_select_drift',
+    {
+      title: 'Fix select↔relation drift',
+      description:
+        'Link every currently-drifted child to the parent, in one call. Run find_select_drift first and show the list — this writes links to records the caller has not named individually, so "it matched on a label" is worth a person seeing before it happens rather than after.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        relation: z.string(),
+        record: z.string().describe('The PARENT record (uuid or public number).'),
+      },
+    },
+    handle<{ workspace: string; database: string; relation: string; record: string }>(
+      async ({ workspace, database, relation, record }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const detail = await getDetail(ws.id, db.id);
+        const rel = resolveRelationId(detail, relation);
+        const rec = await resolveRecordId(ws.id, db.id, record);
+        const res = await unwrap<unknown>(
+          client.POST('/api/v1/workspaces/{ws}/relations/{rel}/select-drift/reconcile', {
+            params: { path: { ws: ws.id, rel } } as never,
+            body: { record_id: rec } as never,
+          }),
+        );
+        return text(res);
+      },
+    ),
+  );
+
   reg(
     'delete_relation',
     {
@@ -3283,6 +3493,195 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
   );
 
   // ============ Spaces + database/field management (backlog #1,2,4,5,9,10,11) ============
+
+  /* =====================================================================
+   * #446 (#406 area 13) — the rest of the pack surface, plus templates.
+   *
+   * #394 exposed the registry and install/preview. The gap that actually cost
+   * something was "what is already installed": install_pack could be called
+   * against a workspace that already had that pack, and nothing let an agent
+   * check first — a duplicate-schema hazard, not a missing nicety.
+   *
+   * export_pack is the other half of the loop: an agent that has just built a
+   * workspace can turn it into something installable, which is the point of
+   * packs existing at all.
+   * ===================================================================== */
+
+  reg(
+    'list_installed_packs',
+    {
+      title: 'List installed packs',
+      description:
+        'What is already installed in this workspace, with the install id uninstall_pack needs. CHECK THIS BEFORE install_pack: installing a pack a workspace already has creates a second copy of its databases, which reads to the user as the agent duplicating their schema.',
+      inputSchema: { workspace: z.string() },
+    },
+    handle<{ workspace: string }>(async ({ workspace }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/packs/installed', { params: { path: { ws: ws.id } } as never }),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'uninstall_pack',
+    {
+      title: 'Uninstall pack',
+      description:
+        'Remove a tracked pack install. Get the install id from list_installed_packs — it is the INSTALL, not the pack slug. Read what the install covers first: uninstalling reaches the databases the pack created, and any records a person has since put in them are the part they will miss.',
+      inputSchema: {
+        workspace: z.string(),
+        install_id: z.string().describe('Install id from list_installed_packs.'),
+        confirm: z.boolean().optional().describe('Must be true — this removes schema the workspace may now be using.'),
+      },
+    },
+    handle<{ workspace: string; install_id: string; confirm?: boolean }>(async ({ workspace, install_id, confirm }) => {
+      if (!confirm) {
+        throw new Error(
+          'Uninstalling removes what the pack created, including anything stored in it since. Call list_installed_packs, show the user what goes, then call again with confirm: true.',
+        );
+      }
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.POST('/api/v1/workspaces/{ws}/packs/{installId}/uninstall', {
+          params: { path: { ws: ws.id, installId: install_id } } as never,
+        }),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'export_pack',
+    {
+      title: 'Export pack',
+      description:
+        'Turn part of this workspace into a pack manifest — the installable form of a schema you just built. Creates nothing; it hands back the manifest. This closes the loop packs exist for: an agent that has designed a good workspace can make it reusable instead of describing how to rebuild it.',
+      inputSchema: {
+        workspace: z.string(),
+        databases: z
+          .array(z.string())
+          .optional()
+          .describe('Databases to include (name, qualified slug, or id). Omit for the workspace default slice.'),
+        space: z.string().optional().describe('Limit the export to one space.'),
+        name: z.string().optional().describe('Name for the exported pack.'),
+      },
+    },
+    handle<{ workspace: string; databases?: string[]; space?: string; name?: string }>(
+      async ({ workspace, databases, space, name }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const body: Record<string, unknown> = {};
+        if (name) body.name = name;
+        if (space) body.space_id = await resolveSpaceId(ws.id, space);
+        if (databases?.length) {
+          body.database_ids = await Promise.all(
+            databases.map(async (d) => (await resolveDatabase(client, ws.id, d)).id),
+          );
+        }
+        const res = await unwrap<unknown>(
+          client.POST('/api/v1/workspaces/{ws}/packs/export', { params: { path: { ws: ws.id } } as never, body: body as never }),
+        );
+        return text(res);
+      },
+    ),
+  );
+
+  reg(
+    'browse_pack_marketplace',
+    {
+      title: 'Browse the pack marketplace',
+      description:
+        'Community-published packs, as opposed to list_packs\' built-in gallery. Pass `pack` for one pack\'s manifest, changelog and versions. Worth checking alongside list_packs before building a workspace by hand — someone may have already modelled the thing being asked for.',
+      inputSchema: { pack: z.string().optional().describe('Marketplace pack slug. Omit to list them all.') },
+    },
+    handle<{ pack?: string }>(async ({ pack }) => {
+      const res = pack
+        ? await unwrap<unknown>(
+            client.GET('/api/v1/packs/marketplace/{slug}', { params: { path: { slug: pack } } as never }),
+          )
+        : await unwrap<unknown>(client.GET('/api/v1/packs/marketplace'));
+      return text(res);
+    }),
+  );
+
+  reg(
+    'list_pack_submissions',
+    {
+      title: 'List pack submissions',
+      description:
+        "This workspace's marketplace submissions and where each stands in review. Read-only: submitting a pack is a publishing act and is not available here — see the note in coverage.ts.",
+      inputSchema: { workspace: z.string() },
+    },
+    handle<{ workspace: string }>(async ({ workspace }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/packs/submissions', { params: { path: { ws: ws.id } } as never }),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'list_templates',
+    {
+      title: 'List starter templates',
+      description:
+        'Starter templates — smaller than a pack: a single database shape, or a space with a few. Reach for one before hand-building an ordinary shape (a CRM, a content calendar); apply_template is one call against a modelled answer.',
+      inputSchema: {},
+    },
+    handle<Record<string, never>>(async () => {
+      const res = await unwrap<unknown>(client.GET('/api/v1/templates'));
+      return text(res);
+    }),
+  );
+
+  reg(
+    'apply_template',
+    {
+      title: 'Apply template',
+      description:
+        'Install a starter template. A pack-shaped template creates its own SPACE; a database-shaped one needs `space` and can be renamed on the way in. Templates seed sample records so the result is not an empty grid — remove_sample_data clears exactly those later, so applying one is not a decision anybody is stuck with.',
+      inputSchema: {
+        workspace: z.string(),
+        template: z.string().describe('Template slug from list_templates.'),
+        space: z.string().optional().describe('Target space — required for a database-shaped template.'),
+        name: z.string().optional().describe('Rename the created database.'),
+      },
+    },
+    handle<{ workspace: string; template: string; space?: string; name?: string }>(
+      async ({ workspace, template, space, name }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const body: Record<string, unknown> = {};
+        if (space) body.space_id = await resolveSpaceId(ws.id, space);
+        if (name) body.name = name;
+        const res = await unwrap<unknown>(
+          client.POST('/api/v1/workspaces/{ws}/templates/{slug}/apply', {
+            params: { path: { ws: ws.id, slug: template } } as never,
+            body: body as never,
+          }),
+        );
+        return text(res);
+      },
+    ),
+  );
+
+  reg(
+    'remove_sample_data',
+    {
+      title: 'Remove sample data',
+      description:
+        'Delete exactly the sample records a template created, and nothing a person has added since. Run it once the real data is in — sample rows left in a live database are the thing that makes a workspace look unfinished.',
+      inputSchema: { workspace: z.string() },
+    },
+    handle<{ workspace: string }>(async ({ workspace }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.DELETE('/api/v1/workspaces/{ws}/templates/sample-data', { params: { path: { ws: ws.id } } as never }),
+      );
+      return text(res);
+    }),
+  );
 
   reg(
     'list_spaces',

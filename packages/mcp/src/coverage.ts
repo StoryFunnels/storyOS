@@ -34,6 +34,24 @@ export interface CoverageRule {
  */
 export const EXCLUDED: CoverageRule[] = [
   {
+    match: 'POST /api/v1/workspaces/{ws}/packs/submissions',
+    reason:
+      /*
+       * #446 asked for a decision on whether marketplace submission belongs to
+       * an agent at all. It does not, and this is the same line #442 drew for
+       * shared skills: submitting a pack publishes this workspace's schema to
+       * other people, for review, under the workspace's name. Publishing is a
+       * decision ABOUT other people, and ADR-0010's reasoning applies unchanged
+       * — an agent may prepare the thing and a person presses submit.
+       *
+       * The READ half is deliberately still reachable (list_pack_submissions):
+       * seeing where your own submission stands is ordinary context. And
+       * export_pack produces the manifest, so an agent can do all the work up
+       * to the publishing act itself.
+       */
+      "#446 — submitting a pack to the marketplace publishes this workspace's schema under its name, for review by others. An agent may build the manifest (export_pack) and read its status (list_pack_submissions); pressing submit is a human act, the same line #442 draws for publishing a shared skill (ADR-0010).",
+  },
+  {
     match: /^POST \/api\/v1\/(hooks|billing\/webhook|providers\/\w+\/webhook|integrations\/github\/webhook)/,
     reason:
       'Inbound receiver, unauthenticated by design and signature-verified. Something calls US here; there is nothing for an agent to invoke.',
@@ -174,15 +192,6 @@ export const DEFERRED: CoverageRule[] = [
   {
     match: '/api/v1/workspaces/{ws}/webhooks',
     reason: '#406 — outbound webhook subscriptions and their delivery log.',
-  },
-  {
-    match: '/api/v1/workspaces/{ws}/relations/',
-    reason: '#406 — relation configuration beyond create/delete: auto-link rules, running auto-link, select↔relation drift.',
-  },
-  {
-    match: /\/(templates|packs)/,
-    reason:
-      '#406 — the rest of the pack surface: installed packs, uninstall, export, marketplace and submissions, plus starter templates. #394 exposed the registry and install/preview.',
   },
   {
     match: /\/agents(\/|$)/,

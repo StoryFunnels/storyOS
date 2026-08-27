@@ -2628,3 +2628,158 @@ describe('#444 — standalone documents and sidebar folders', () => {
     expect(read.url).toBe(`${TEST_WEB_URL}/w/ws-1/doc/doc-1`);
   });
 });
+
+/**
+ * #445 + #446 — relation configuration, and the rest of the pack surface.
+ *
+ * Both areas are mostly pass-through, so the tests target the parts that are
+ * NOT: addressing a relation by the field that carries it (the id was
+ * unreachable over MCP before), and the two guards that exist to stop an agent
+ * doing something wide by accident.
+ */
+describe('#445/#446 — relation config, packs and templates', () => {
+  interface Sent { method: string; path: string; params?: Record<string, string>; body?: Record<string, unknown>; query?: Record<string, unknown> }
+
+  function harness() {
+    const sent: Sent[] = [];
+    const handlers = new Map<string, (a: unknown) => Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }>>();
+    const dbDetail = {
+      id: 'db-1',
+      name: 'Tasks',
+      qualifiedSlug: 'eng/tasks',
+      fields: [
+        { id: 'f-title', apiName: 'name', displayName: 'Name', type: 'title' },
+        {
+          id: 'f-proj',
+          apiName: 'project',
+          displayName: 'Project',
+          type: 'relation',
+          relation: { id: 'rel-9', target_database_id: 'db-2', target_database_name: 'Projects', cardinality: 'one_to_many', side: 'a' },
+        },
+      ],
+    };
+    const log = (method: string) => async (
+      path: string,
+      o?: { params?: { path?: Record<string, string>; query?: Record<string, unknown> }; body?: unknown },
+    ) => {
+      sent.push({ method, path, params: o?.params?.path, query: o?.params?.query, body: o?.body as Record<string, unknown> });
+      if (path === '/api/v1/workspaces') return { data: [{ id: 'ws-1', name: 'Eng' }] };
+      if (path === '/api/v1/workspaces/{ws}/databases') return { data: [dbDetail] };
+      if (path === '/api/v1/workspaces/{ws}/databases/{db}') return { data: dbDetail };
+      if (path === '/api/v1/workspaces/{ws}/spaces') return { data: [{ id: 'sp-1', name: 'Ops', slug: 'ops' }] };
+      if (path === '/api/v1/workspaces/{ws}/databases/{db}/records/by-number/{number}') {
+        return { data: { id: 'rec-1', number: 7, title: 'A parent', values: {} } };
+      }
+      return { data: { ok: true } };
+    };
+    registerTools({ registerTool: (n: string, _c: unknown, h: never) => handlers.set(n, h as never) } as never, {
+      client: { GET: log('GET'), POST: log('POST'), PATCH: log('PATCH'), PUT: log('PUT'), DELETE: log('DELETE') } as never,
+      baseUrl: 'http://test',
+      token: 'tok',
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- shape varies per tool.
+    const call = async (n: string, a: unknown): Promise<any> => {
+      const r = await handlers.get(n)!(a);
+      if (r.isError) throw new Error(r.content[0]!.text);
+      return JSON.parse(r.content[0]!.text);
+    };
+    return { call, sent, handlers };
+  }
+
+  describe('#445 — relations are addressed by the field that carries them', () => {
+    it('resolves a relation from its FIELD name, which is all describe_database gives an agent', async () => {
+      // delete_relation has always asked for "the id from a describe_database
+      // relation field" — but the MCP's own field type never exposed it, so
+      // that was advice nobody could follow.
+      const { call, sent } = harness();
+      await call('get_relation', { workspace: 'Eng', database: 'Tasks', relation: 'project' });
+      expect(sent.find((s) => s.path.endsWith('/relations/{rel}'))!.params!.rel).toBe('rel-9');
+    });
+
+    it('names the relation fields when given something that is not one', async () => {
+      const { call } = harness();
+      await expect(call('get_relation', { workspace: 'Eng', database: 'Tasks', relation: 'name' })).rejects.toThrow(
+        /No relation field matches "name".*project/s,
+      );
+    });
+
+    it('set_auto_link says the rule changes nothing retroactively', async () => {
+      // The single most likely misunderstanding: a rule is saved, the agent
+      // reports success, and the hundred existing rows stay unlinked.
+      const { call, sent } = harness();
+      const out = await call('set_auto_link', {
+        workspace: 'Eng',
+        database: 'Tasks',
+        relation: 'project',
+        conditions: [{ field_a: 'project_code', field_b: 'code' }],
+      });
+      expect(out.note).toMatch(/run_auto_link/);
+      const patch = sent.find((s) => s.method === 'PATCH')!;
+      expect(patch.body!.auto_link).toMatchObject({ case_sensitive: false });
+    });
+
+    it('set_auto_link clear:true sends null, not an empty rule', async () => {
+      const { call, sent } = harness();
+      await call('set_auto_link', { workspace: 'Eng', database: 'Tasks', relation: 'project', clear: true });
+      expect(sent.find((s) => s.method === 'PATCH')!.body!.auto_link).toBeNull();
+    });
+
+    it('set_auto_link refuses an empty call rather than sending a meaningless rule', async () => {
+      const { call } = harness();
+      await expect(call('set_auto_link', { workspace: 'Eng', database: 'Tasks', relation: 'project' })).rejects.toThrow(
+        /conditions.*or clear/i,
+      );
+    });
+
+    it('drift tools resolve the parent record by public number', async () => {
+      const { call, sent } = harness();
+      await call('find_select_drift', { workspace: 'Eng', database: 'Tasks', relation: 'project', record: '7' });
+      expect(sent.find((s) => s.path.endsWith('/select-drift'))!.query).toMatchObject({ record_id: 'rec-1' });
+    });
+  });
+
+  describe('#446 — packs and templates', () => {
+    it('uninstall_pack refuses without confirm, and says what is at stake', async () => {
+      const { call, sent } = harness();
+      await expect(call('uninstall_pack', { workspace: 'Eng', install_id: 'i-1' })).rejects.toThrow(/since|confirm/i);
+      expect(sent.some((s) => s.path.includes('uninstall'))).toBe(false);
+
+      const ok = harness();
+      await ok.call('uninstall_pack', { workspace: 'Eng', install_id: 'i-1', confirm: true });
+      expect(ok.sent.some((s) => s.path.includes('uninstall'))).toBe(true);
+    });
+
+    it('export_pack resolves database NAMES to ids', async () => {
+      const { call, sent } = harness();
+      await call('export_pack', { workspace: 'Eng', databases: ['Tasks'] });
+      expect(sent.find((s) => s.path.endsWith('/packs/export'))!.body!.database_ids).toEqual(['db-1']);
+    });
+
+    it('apply_template resolves a space by slug', async () => {
+      const { call, sent } = harness();
+      await call('apply_template', { workspace: 'Eng', template: 'crm', space: 'ops' });
+      const post = sent.find((s) => s.path.endsWith('/templates/{slug}/apply'))!;
+      expect(post.params!.slug).toBe('crm');
+      expect(post.body!.space_id).toBe('sp-1');
+    });
+
+    it('browse_pack_marketplace hits the single-pack route only when given one', async () => {
+      const many = harness();
+      await many.call('browse_pack_marketplace', {});
+      expect(many.sent.map((s) => s.path)).toContain('/api/v1/packs/marketplace');
+
+      const one = harness();
+      await one.call('browse_pack_marketplace', { pack: 'crm' });
+      expect(one.sent.map((s) => s.path)).toContain('/api/v1/packs/marketplace/{slug}');
+    });
+
+    it('offers no way to SUBMIT a pack — that decision is recorded in coverage.ts', async () => {
+      // #446's AC asked for a decision on marketplace submission. It is an
+      // EXCLUDED entry, not an unbuilt tool, so the absence is deliberate and
+      // this test is what stops it being "fixed" by someone adding one.
+      const { handlers } = harness();
+      expect(handlers.has('list_pack_submissions')).toBe(true);
+      expect([...handlers.keys()].filter((k) => /submit/i.test(k))).toEqual([]);
+    });
+  });
+});
