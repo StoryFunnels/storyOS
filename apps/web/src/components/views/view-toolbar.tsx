@@ -94,6 +94,12 @@ export const OPS_BY_TYPE: Record<string, Array<{ op: string; label: string; inpu
     { op: 'contains', label: 'contains', input: 'text' },
     { op: 'is_empty', label: 'is empty', input: 'none' },
   ],
+  // #391 — "posts with no cover image". Presence only: a filter box asking for
+  // a file uuid is a control with nothing sensible to type into it.
+  attachment: [
+    { op: 'is_empty', label: 'is empty', input: 'none' },
+    { op: 'not_empty', label: 'is not empty', input: 'none' },
+  ],
   number: [
     { op: 'eq', label: '=', input: 'number' },
     { op: 'neq', label: '≠', input: 'number' },
@@ -270,6 +276,29 @@ export function ViewToolbar({
           onChange={(hidden_field_ids) => onPatch({ hidden_field_ids })}
           onReorder={onReorderFields}
         />
+      )}
+
+      {/* #391 — a gallery's card image. Shown only for galleries, and only once
+          the database actually has an attachment field: an empty picker offering
+          nothing is a worse answer than no picker. */}
+      {viewType === 'gallery' && fields.some((f) => f.type === 'attachment') && (
+        <label className="flex items-center gap-1 text-[12px] text-muted">
+          Cover
+          <select
+            value={config.cover_field_id ?? ''}
+            onChange={(e) => onPatch({ cover_field_id: e.target.value || undefined })}
+            className="rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 py-1 text-[12px]"
+          >
+            <option value="">None</option>
+            {fields
+              .filter((f) => f.type === 'attachment')
+              .map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.displayName}
+                </option>
+              ))}
+          </select>
+        </label>
       )}
 
       {/* #307 — period per column, shown only when a board is grouped by a DATE

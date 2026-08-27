@@ -4366,6 +4366,14 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "field",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -4378,7 +4386,7 @@
             "bearer": []
           }
         ],
-        "summary": "Upload a file (multipart field \"file\"; size-capped)",
+        "summary": "Upload a file (multipart field \"file\"; size-capped). `?field=<id>` puts it in an attachment field instead of the record bag (#391)",
         "tags": [
           "attachments"
         ]
@@ -9043,6 +9051,7 @@
               "email",
               "color",
               "user",
+              "attachment",
               "lookup",
               "rollup",
               "button",
@@ -9119,6 +9128,7 @@
               "email",
               "color",
               "user",
+              "attachment",
               "lookup",
               "rollup",
               "button",
@@ -9793,6 +9803,11 @@
                   "large"
                 ]
               },
+              "cover_field_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
               "date_field_id": {
                 "type": "string",
                 "format": "uuid",
@@ -10284,6 +10299,11 @@
                   "medium",
                   "large"
                 ]
+              },
+              "cover_field_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
               },
               "date_field_id": {
                 "type": "string",

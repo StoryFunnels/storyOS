@@ -206,6 +206,9 @@ export const OPS_BY_FIELD_TYPE = {
   select: ['eq', 'neq', 'has', 'has_none', 'is_empty', 'not_empty'],
   multi_select: ['has', 'has_none', 'is_empty', 'not_empty'],
   user: ['eq', 'neq', 'has', 'has_none', 'is_empty', 'not_empty'],
+  // #391 — presence only, matching query-compiler.ts, which refuses everything
+  // else outright rather than accepting an op it cannot answer.
+  attachment: ['is_empty', 'not_empty'],
   relation: ['has', 'has_none', 'is_empty', 'not_empty'],
   checkbox: ['eq', 'neq'],
 } satisfies Record<string, FilterOp[]>;
@@ -229,6 +232,9 @@ export const FILTER_GUIDE = [
   opsRow('select', 'value = option label or id; eq/neq auto-map to has/has_none'),
   opsRow('multi_select', 'value = [labels or ids]'),
   opsRow('user', 'value = "@me" or user id(s); eq/neq auto-map to has/has_none'),
+  // #391 — presence only. Nobody filters on a file uuid; "posts with no cover"
+  // is the question, and is_empty/not_empty is the whole of the answer.
+  opsRow('attachment', 'is_empty / not_empty only — "records with no cover image"'),
   opsRow('relation', 'value = [record ids]'),
   opsRow('checkbox', 'value = true | false'),
   'Relative date tokens for "within": today, yesterday, tomorrow, last_7_days,',
@@ -1344,10 +1350,16 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         content_base64: z.string().optional().describe('Base64-encoded file bytes (use instead of url).'),
         filename: z.string().optional().describe('File name — required with content_base64; inferred from the URL otherwise.'),
         mime: z.string().optional().describe('MIME type, e.g. "image/png". Inferred from the extension / URL response when omitted.'),
+        field: z
+          .string()
+          .optional()
+          .describe(
+            'An attachment FIELD to put the file in (name or id), instead of the record-level bag. Use this when the record has a "Cover"/"Video" style column — a gallery card renders the FIRST file of its cover field, so upload order is the order they appear.',
+          ),
       },
     },
-    handle<{ workspace: string; database: string; record: string; url?: string; content_base64?: string; filename?: string; mime?: string }>(
-      async ({ workspace, database, record, url, content_base64, filename, mime }) => {
+    handle<{ workspace: string; database: string; record: string; url?: string; content_base64?: string; filename?: string; mime?: string; field?: string }>(
+      async ({ workspace, database, record, url, content_base64, filename, mime, field }) => {
         if (!url && !content_base64) throw new Error('Provide either `url` or `content_base64`.');
         if (url && content_base64) throw new Error('Provide only one of `url` or `content_base64`, not both.');
         const ws = await resolveWorkspace(client, workspace);
@@ -1370,7 +1382,31 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           type = type ?? guessMime(filename);
         }
 
-        const attachment = await uploadAttachment(ctx, { ws: ws.id, db: db.id, rec }, { filename: name!, mime: type, data });
+        /*
+         * #391 — resolve the field by NAME as well as id, like every other tool
+         * here. An agent has the schema from describe_database, where a field is
+         * "Cover", not a uuid; making it paste an id would be the kind of
+         * papercut that sends a session looking for a lookup tool.
+         */
+        let fieldId: string | undefined;
+        if (field) {
+          const detail = await unwrap<{ fields?: Array<{ id: string; displayName?: string; apiName?: string; type: string }> }>(
+            client.GET('/api/v1/workspaces/{ws}/databases/{db}', { params: { path: { ws: ws.id, db: db.id } } }),
+          );
+          const match = (detail.fields ?? []).find(
+            (f) =>
+              f.id === field ||
+              f.apiName === field ||
+              f.displayName?.toLowerCase() === field.toLowerCase(),
+          );
+          if (!match) throw new Error(`No field "${field}" on ${db.name}.`);
+          if (match.type !== 'attachment') {
+            throw new Error(`Field "${field}" is a ${match.type} field, not an attachment field.`);
+          }
+          fieldId = match.id;
+        }
+
+        const attachment = await uploadAttachment(ctx, { ws: ws.id, db: db.id, rec }, { filename: name!, mime: type, data }, fieldId);
         return text(attachment);
       },
     ),
@@ -1720,7 +1756,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
    */
   const FIELD_TYPES = [
     'text', 'rich_text', 'number', 'checkbox', 'date', 'select', 'multi_select', 'workflow',
-    'url', 'email', 'color', 'user', 'lookup', 'rollup', 'button', 'formula',
+    'url', 'email', 'color', 'user', 'attachment', 'lookup', 'rollup', 'button', 'formula',
   ] as const;
   /**
    * #216 — an option may carry a curated `icon` ref (`set:<name>` / `brand:<slug>`),

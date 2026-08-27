@@ -909,6 +909,7 @@ export function TableView({
                           <CellEditor
                             ws={ws}
                             db={db}
+                            rec={row.id}
                             field={field}
                             value={valueOf(row, field)}
                             members={memberList}
