@@ -2783,3 +2783,113 @@ describe('#445/#446 — relation config, packs and templates', () => {
     });
   });
 });
+
+/**
+ * #447 — the agent engine.
+ *
+ * The single most important test in this file is the LAST one: that no tool can
+ * approve or reject a staged run. Everything else here is ergonomics; that one
+ * is ADR-0010's gate, and the natural way to extend this area is to build the
+ * whole staged-run lifecycle with the approval step sitting right there.
+ */
+describe('#447 — agents, runs, and the gate that stays human', () => {
+  interface Sent { method: string; path: string; params?: Record<string, string>; body?: Record<string, unknown> }
+
+  function harness() {
+    const sent: Sent[] = [];
+    const handlers = new Map<string, (a: unknown) => Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }>>();
+    const dbDetail = {
+      id: 'db-1',
+      name: 'Leads',
+      qualifiedSlug: 'crm/leads',
+      fields: [
+        { id: 'f-state', apiName: 'state', displayName: 'State', type: 'workflow', options: [{ id: 'opt-new', label: 'New' }] },
+        { id: 'f-name', apiName: 'name', displayName: 'Name', type: 'title' },
+      ],
+    };
+    const log = (method: string) => async (path: string, o?: { params?: { path?: Record<string, string> }; body?: unknown }) => {
+      sent.push({ method, path, params: o?.params?.path, body: o?.body as Record<string, unknown> });
+      if (path === '/api/v1/workspaces') return { data: [{ id: 'ws-1', name: 'Eng' }] };
+      if (path === '/api/v1/workspaces/{ws}/databases') return { data: [dbDetail] };
+      if (path === '/api/v1/workspaces/{ws}/databases/{db}') return { data: dbDetail };
+      if (path === '/api/v1/workspaces/{ws}/databases/{db}/records/by-number/{number}') {
+        return { data: { id: 'rec-1', number: 5, title: 'A lead', values: {} } };
+      }
+      if (path.endsWith('/staged')) return { data: { action: 'send_email', to: 'a@b.c' } };
+      return { data: { ok: true } };
+    };
+    registerTools({ registerTool: (n: string, _c: unknown, h: never) => handlers.set(n, h as never) } as never, {
+      client: { GET: log('GET'), POST: log('POST'), PATCH: log('PATCH'), PUT: log('PUT'), DELETE: log('DELETE') } as never,
+      baseUrl: 'http://test',
+      token: 'tok',
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- shape varies per tool.
+    const call = async (n: string, a: unknown): Promise<any> => {
+      const r = await handlers.get(n)!(a);
+      if (r.isError) throw new Error(r.content[0]!.text);
+      return JSON.parse(r.content[0]!.text);
+    };
+    return { call, sent, handlers };
+  }
+
+  it('create_agent_trigger resolves the state LABEL to an option id', async () => {
+    // The API wants a uuid. Asking an agent for one it can only get by reading
+    // the schema is exactly the friction describe_database exists to remove.
+    const { call, sent } = harness();
+    await call('create_agent_trigger', {
+      workspace: 'Eng',
+      agent: '3',
+      database: 'Leads',
+      state_field: 'state',
+      state: 'New',
+      human_gate: true,
+    });
+    const post = sent.find((s) => s.path.endsWith('/agents/triggers'))!;
+    expect(post.body).toMatchObject({
+      database_id: 'db-1',
+      state_field_id: 'f-state',
+      state_option_id: 'opt-new',
+      human_gate: true,
+    });
+  });
+
+  it('names the real options when given a state that does not exist', async () => {
+    const { call } = harness();
+    await expect(
+      call('create_agent_trigger', { workspace: 'Eng', agent: '3', database: 'Leads', state_field: 'state', state: 'Nope' }),
+    ).rejects.toThrow(/No option "Nope".*New/s);
+  });
+
+  it('omits human_gate entirely when unset, rather than defaulting it here', async () => {
+    // The server owns that default; sending `false` would silently disable the
+    // ADR-0010 gate for anyone who just did not pass the argument.
+    const { call, sent } = harness();
+    await call('create_agent_trigger', { workspace: 'Eng', agent: '3', database: 'Leads', state_field: 'state', state: 'New' });
+    expect(sent.find((s) => s.path.endsWith('/agents/triggers'))!.body).not.toHaveProperty('human_gate');
+  });
+
+  it('delegate_to_agent resolves the record by public number', async () => {
+    const { call, sent } = harness();
+    await call('delegate_to_agent', { workspace: 'Eng', agent: '3', database: 'Leads', record: '5' });
+    expect(sent.find((s) => s.path.endsWith('/delegate'))!.body).toEqual({ record_id: 'rec-1' });
+  });
+
+  it('get_staged_action says where approval actually happens', async () => {
+    // An agent that reads a parked run and then cannot act must tell the person
+    // what to do, or the gate just looks like a dead end.
+    const { call } = harness();
+    const out = await call('get_staged_action', { workspace: 'Eng', run: 'run-1' });
+    expect(out.staged).toBeTruthy();
+    expect(out.approve_with).toMatch(/human-only|Inbox/i);
+  });
+
+  it('exposes NO way to approve or reject a staged run — ADR-0010', async () => {
+    // The gate. An agent able to approve its own staged action does not weaken
+    // it, it removes it. If this test ever fails, the PR that broke it is wrong.
+    const { handlers } = harness();
+    const names = [...handlers.keys()];
+    expect(names.filter((n) => /approve|reject/i.test(n))).toEqual([]);
+    // And the read tool must not have quietly become a write.
+    expect(names).toContain('get_staged_action');
+  });
+});
