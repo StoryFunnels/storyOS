@@ -12,6 +12,7 @@ import { Activity, Cable, Check, ChevronRight, ChevronsDownUp, ChevronsUpDown, D
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { DragPreview, DropIndicator, useDragPresentation, vacatedSlotClass } from '@/components/ui/drag-presentation';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
 import { authClient } from '@/lib/auth-client';
 import { AutomationsPanel } from '@/components/automations-panel';
@@ -539,6 +540,8 @@ function SpaceSection({
   canEdit: boolean;
   isAdmin: boolean;
 }) {
+  // #417 — the typed-name guard for deleting a space (see the menu item below).
+  const confirmDialog = useConfirm();
   const pathname = usePathname();
   const router = useRouter();
   // #347 — which view is open, so the nested row highlights the ACTIVE view
@@ -1113,11 +1116,47 @@ function SpaceSection({
                 <DropdownMenuItem
                   className="text-error"
                   onSelect={() => {
-                    if (databases.length > 0) {
-                      toast.error('Move or delete its databases first');
-                      return;
-                    }
-                    mutations.deleteSpace.mutate(space.id);
+                    /*
+                     * #417 — this used to delete an empty space on ONE click, with
+                     * no dialog and no undo, sitting 25px below the harmless "Hide
+                     * from my sidebar". Being red was the entire safeguard.
+                     *
+                     * A non-empty space was previously REFUSED outright with a
+                     * toast. That refusal was the only protection anywhere and it
+                     * was client-side only — the API cascaded unconditionally, so
+                     * MCP or a script destroyed everything without friction. The
+                     * guard now lives in the service; this dialog is the humane
+                     * front end to it, not the protection itself.
+                     */
+                    void (async () => {
+                      const count = databases.length;
+                      const ok = await confirmDialog(
+                        count > 0
+                          ? {
+                              title: `Delete "${space.name}" and everything in it?`,
+                              message:
+                                `This permanently deletes ${count} database${count === 1 ? '' : 's'} ` +
+                                `(${databases.map((d) => d.name).join(', ')}) and every record in them. ` +
+                                `The trash cannot recover any of it.`,
+                              confirmLabel: 'Delete space',
+                              danger: true,
+                              // Typed name, matching what delete_database already
+                              // demands for a strictly SMALLER action.
+                              requireTyped: space.name,
+                            }
+                          : {
+                              title: `Delete "${space.name}"?`,
+                              message: 'This space is empty. Deleting it cannot be undone.',
+                              confirmLabel: 'Delete space',
+                              danger: true,
+                            },
+                      );
+                      if (!ok) return;
+                      mutations.deleteSpace.mutate({
+                        id: space.id,
+                        ...(count > 0 ? { confirm: space.name } : {}),
+                      });
+                    })();
                   }}
                 >
                   Delete space

@@ -259,6 +259,16 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteSpaceDto"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": ""
@@ -8651,6 +8661,15 @@
             "nullable": true
           }
         }
+      },
+      "DeleteSpaceDto": {
+        "type": "object",
+        "properties": {
+          "confirm": {
+            "type": "string"
+          }
+        },
+        "default": {}
       },
       "UpdateMemberDto": {
         "type": "object",

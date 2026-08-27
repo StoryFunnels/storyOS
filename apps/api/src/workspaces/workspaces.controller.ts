@@ -22,6 +22,7 @@ import {
   CreateWorkspaceDto,
   UpdateMemberDto,
   UpdateSpaceDto,
+  DeleteSpaceDto,
   UpdateWorkspaceDto,
 } from './dto';
 import { AccessService } from '../access/access.service';
@@ -118,9 +119,15 @@ export class WorkspaceController {
   // needs creator ON THIS SPACE (or admin) — `@MinRole('member')` asked nothing
   // about the scope, so the only friction was a confirm box.
   @ApiOperation({ summary: 'Delete a space (creator on this space, or admin)' })
-  async deleteSpace(@Req() req: WorkspaceRequest, @Param('space') spaceId: string) {
+  async deleteSpace(
+    @Req() req: WorkspaceRequest,
+    @Param('space') spaceId: string,
+    @Body() body: DeleteSpaceDto,
+  ) {
     await this.access.assertSpace(req.membership, spaceId, 'creator');
-    return this.spaces.remove(req.membership.workspaceId, spaceId);
+    // #417 — the typed-name guard is enforced in the service, so every caller
+    // (HTTP, MCP, a script) meets it. See SpacesService.remove.
+    return this.spaces.remove(req.membership.workspaceId, spaceId, { confirm: body?.confirm });
   }
 
   // --- Members ---

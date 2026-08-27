@@ -59,6 +59,41 @@ export const updateSpaceSchema = z.object({
 
 import { grantScopeSchema } from './access';
 
+/**
+ * #417 — deleting a space is the LARGEST destructive action in the product.
+ *
+ * `spaces → databases → records` is a hard-delete CASCADE at the database level.
+ * Records have soft-delete for the trash, but a cascade removes the rows
+ * outright, so the trash cannot help: every record in every database in the
+ * space is gone, unrecoverably, in one statement.
+ *
+ * The guard mirrors `deleteDatabaseSchema` deliberately — a space is a strictly
+ * larger blast radius than a database, so it cannot ask for less. Typing the
+ * name is the API-level equivalent of "type the name to delete".
+ *
+ * Optional, because an EMPTY space has nothing to lose: the service requires it
+ * only when the space still holds databases. Demanding a typed name to remove an
+ * empty scratch space would be friction that teaches people to ignore the
+ * prompt, which is how a real one gets confirmed on autopilot.
+ */
+export const deleteSpaceSchema = z
+  .object({
+    /** Must equal the space name exactly. Required only when the space is not empty. */
+    confirm: z.string().optional(),
+  })
+  /*
+   * `.default({})` so an ABSENT body parses instead of 422-ing.
+   *
+   * Not cosmetic: the DTO's validation pipe runs BEFORE the controller's
+   * `assertSpace`, so a required body made a guest deleting a space they cannot
+   * see get 422 instead of 404 — confirming the space exists. `permissions-epic`
+   * asserts 404 there precisely so the API never reveals that ("must 404 — not
+   * even confirm it exists"), and this change broke it until the default was
+   * added. An empty body is a legitimate call: it is how you delete an empty
+   * space.
+   */
+  .default({});
+
 export const createInviteSchema = z
   .object({
     email: z.email(),
