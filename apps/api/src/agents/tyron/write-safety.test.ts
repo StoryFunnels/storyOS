@@ -219,3 +219,38 @@ describe('unknown destructive tools — the fail-safe', () => {
     expect(classifyWrite({ tool: 'undelete_record' }).kind).toBe('proceed');
   });
 });
+
+/**
+ * #363 — a build must not halt on its own housekeeping.
+ *
+ * Found in a live browser: building a workspace from "we run a boutique bakery"
+ * created databases, then replaced a default table view with a board — and the
+ * build STOPPED, asking `"delete_view" looks like it removes something, and I
+ * don't recognise it. Go ahead?`
+ *
+ * The catch-all was working exactly as designed. The gap was that a real, named,
+ * known-safe tool had never been classified, so it fell through to the branch
+ * that exists for tools nobody has thought about.
+ */
+describe('#363 deleting a view is not destructive', () => {
+  it('proceeds, because a view is a lens and the records survive', () => {
+    // ADR-0? / CLAUDE.md, verbatim: "deleting the view itself is safe".
+    expect(classifyWrite({ tool: 'delete_view' })).toEqual({ kind: 'proceed' });
+  });
+
+  it('still stops for the deletes that DO destroy data', () => {
+    // The set is one entry for a reason. These must not have moved.
+    expect(classifyWrite({ tool: 'delete_field', fieldName: 'Notes' }).kind).toBe('confirm');
+    expect(classifyWrite({ tool: 'delete_database', databaseName: 'Clients' }).kind).toBe('confirm');
+    expect(classifyWrite({ tool: 'delete_record', affected: 1 }).kind).toBe('confirm');
+    // A file is data, and deleting it destroys the only copy — it belongs in the
+    // catch-all until someone classifies it deliberately.
+    expect(classifyWrite({ tool: 'delete_attachment' }).kind).toBe('confirm');
+  });
+
+  it('keeps the catch-all working for tools nobody has classified', () => {
+    const verdict = classifyWrite({ tool: 'delete_everything_forever' });
+    expect(verdict.kind).toBe('confirm');
+    expect('message' in verdict && verdict.message).toContain("don't recognise it");
+  });
+});

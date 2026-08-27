@@ -9,6 +9,7 @@ import { AgentAvatar } from './agent-avatar';
 import { useRememberedThread } from '@/lib/tyron-thread';
 import { composerHeight } from './composer-height';
 import { ThreadMenu } from './thread-menu';
+import { WorkspaceBuild } from './workspace-build';
 
 /**
  * The conversation inside Tyron's panel (#357c).
@@ -37,6 +38,39 @@ export function TyronConversation({ ws }: { ws: string }) {
   const { threadId, setThreadId, hydrated } = useRememberedThread(ws);
   const [draft, setDraft] = useState('');
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+
+  /*
+   * #363 — is this workspace worth offering to build?
+   *
+   * System databases (Members, Agents, Runs) are provisioned automatically and
+   * exist in every workspace from the first second, so counting them would mean
+   * the offer never appears for anyone.
+   */
+  const workspaceDatabases = useQuery({
+    queryKey: ['databases', ws],
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/databases', { params: { path: { ws } } });
+      if (error) throw error;
+      return data as unknown as Array<{ id: string; isSystem?: boolean }>;
+    },
+  });
+  /*
+   * LATCHED at first read, not recomputed.
+   *
+   * Found in a live browser: computing this reactively unmounted the whole build
+   * surface the instant Tyron created its FIRST database — the progress line and
+   * tick-list vanished two seconds into a thirty-second build, which is exactly
+   * the "silent gap" the AC forbids. The workspace stops being empty DURING the
+   * build, so an empty check that keeps re-running destroys the UI it is gating.
+   *
+   * Latched on the first settled read, so the answer is "was this workspace empty
+   * when I got here", which is the question actually being asked.
+   */
+  const [buildable, setBuildable] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (buildable !== null || !workspaceDatabases.isSuccess) return;
+    setBuildable((workspaceDatabases.data ?? []).filter((d) => !d.isSystem).length === 0);
+  }, [buildable, workspaceDatabases.isSuccess, workspaceDatabases.data]);
 
   /*
    * #402 — grow the composer as you type.
@@ -95,19 +129,30 @@ export function TyronConversation({ ws }: { ws: string }) {
     if (thread.isError && threadId) setThreadId(null);
   }, [thread.isError, threadId, setThreadId]);
 
+  /**
+   * The thread a message belongs to, created on demand (#363).
+   *
+   * Extracted from `send`, which already did exactly this inline: a thread is
+   * created on the FIRST message so it can be auto-named from it. A build is
+   * almost always that first message, and duplicating the create here would be
+   * a second place for the naming rule to drift.
+   */
+  async function ensureThread(firstMessage: string): Promise<string> {
+    if (threadId) return threadId;
+    const { data, error } = await api.POST('/api/v1/workspaces/{ws}/tyron/threads', {
+      params: { path: { ws } },
+      body: { first_message: firstMessage } as never,
+    } as never);
+    if (error) throw error;
+    const id = (data as unknown as { id: string }).id;
+    setThreadId(id);
+    return id;
+  }
+
   const send = useMutation({
     mutationFn: async (message: string) => {
       // Create the thread on the FIRST message, so it can be auto-named from it.
-      let id = threadId;
-      if (!id) {
-        const { data, error } = await api.POST('/api/v1/workspaces/{ws}/tyron/threads', {
-          params: { path: { ws } },
-          body: { first_message: message } as never,
-        } as never);
-        if (error) throw error;
-        id = (data as unknown as { id: string }).id;
-        setThreadId(id);
-      }
+      const id = await ensureThread(message);
       const { data, error } = await api.POST('/api/v1/workspaces/{ws}/tyron/threads/{thread}/turns', {
         params: { path: { ws, thread: id } },
         body: { message } as never,
@@ -178,9 +223,40 @@ export function TyronConversation({ ws }: { ws: string }) {
             localStorage has been read; without it a remembered conversation
             looks lost for a frame every single time the panel opens. */}
         {hydrated && messages.length === 0 && !send.isPending && !thread.isLoading && (
-          <p className="text-[13px] text-muted">
-            Ask about your data, or tell me what to change.
-          </p>
+          /*
+           * #363 — an EMPTY workspace gets the build offer; a working one gets
+           * the ordinary prompt.
+           *
+           * "Nothing is created before the user has said what they do" is an
+           * acceptance criterion, so this offers and never acts. And it is gated
+           * on the workspace being empty rather than shown always: proposing to
+           * build a workspace to someone who already has one reads as an offer to
+           * replace it.
+           */
+          <p className="text-[13px] text-muted">Ask about your data, or tell me what to change.</p>
+        )}
+        {/*
+         * #363 — OUTSIDE the empty-state branch, and that placement is the fix.
+         *
+         * It lived inside `messages.length === 0` and the progress line never
+         * appeared once in a live build. `takeTurn` stores the user's message
+         * before it starts working, so the thread stops being empty two hundred
+         * milliseconds in — unmounting the progress UI at the exact moment it
+         * became useful. Tying a long-running surface to "has this conversation
+         * started" was the mistake; it owns its own lifecycle instead.
+         *
+         * `buildable` is latched, so this stays put for a workspace that WAS
+         * empty when you arrived, and the tick-list survives as the record of
+         * what got built rather than vanishing on the closing reply.
+         */}
+        {buildable === true && (
+          <div className="mb-4">
+            <WorkspaceBuild
+              ws={ws}
+              ensureThread={ensureThread}
+              onBuilt={() => void qc.invalidateQueries({ queryKey: ['tyron-thread', ws] })}
+            />
+          </div>
         )}
         <div className="flex flex-col gap-4">
           {messages.map((m) => (

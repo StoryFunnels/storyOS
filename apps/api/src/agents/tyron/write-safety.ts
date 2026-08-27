@@ -42,6 +42,30 @@ const STRUCTURAL_DELETES = new Set(['delete_field', 'delete_database', 'delete_r
 const RECORD_DELETES = new Set(['delete_record']);
 
 /**
+ * Deletes that destroy no DATA, so they do not stop to ask (#363).
+ *
+ * A view is a LENS. The personal-space ADR states it outright and CLAUDE.md
+ * repeats it: "deleting the view itself is safe" — the records it showed are
+ * untouched and every other view of them still works.
+ *
+ * These fell through to the `DESTRUCTIVE_NAME` catch-all below, which exists for
+ * tools nobody has classified and says so: `"delete_view" looks like it removes
+ * something, and I don't recognise it`. Found live during a #363 build — Tyron
+ * replaced a default table view with a board, and the build HALTED on a
+ * confirmation about its own housekeeping. An honest catch-all that keeps
+ * catching a known-safe tool is a classification gap, not a safety feature.
+ *
+ * DELIBERATELY ONE ENTRY. `delete_view` is here because an ADR says so, not
+ * because it sounds harmless — that is the bar for anything joining it.
+ *
+ * `delete_attachment` was in an earlier draft of this set and is wrong: a file
+ * is data, and deleting it destroys the only copy. `delete_database` and
+ * `delete_field` stay in STRUCTURAL_DELETES with the strong wording for the same
+ * reason. A set that grows on vibes turns the catch-all into decoration.
+ */
+const SAFE_DELETES = new Set(['delete_view']);
+
+/**
  * Out of Tyron's reach entirely in v1 (#358). Not assistant work, and the blast
  * radius is other PEOPLE rather than data.
  *
@@ -158,6 +182,9 @@ export function classifyWrite(intent: WriteIntent): SafetyVerdict {
         `Delete ${n === 1 ? '1 record' : `${n} records`}${databaseName ? ` from ${databaseName}` : ''}?`,
     };
   }
+
+  // Checked BEFORE the catch-all, which is the whole point of naming them.
+  if (SAFE_DELETES.has(tool)) return { kind: 'proceed' };
 
   if (DESTRUCTIVE_NAME.test(tool)) {
     return {
