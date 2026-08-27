@@ -10,6 +10,7 @@ import { Reflector } from '@nestjs/core';
 import type { FastifyRequest } from 'fastify';
 import { eq } from 'drizzle-orm';
 import { scopeSatisfies, type TokenScope } from '@storyos/schemas';
+import type { ChangeSource } from '../db/schema';
 import { AUTH } from './auth.tokens';
 import type { Auth } from './auth';
 import { DB } from '../db/db.module';
@@ -38,6 +39,18 @@ export interface AuthContext {
   tokenScope?: TokenScope;
   /** Only set for `via: 'token'` — whether run_button is allowed within write scope. */
   allowRunButton?: boolean;
+  /**
+   * #357 — what wrote this, for the change log's `source` badge.
+   *
+   * Derived HERE so every controller reads one answer instead of re-deriving it
+   * from `via`. #390 did that derivation inline at each write site, which was
+   * correct but could only ever say "session or token" — and Tyron mints an
+   * ordinary token, so an agent write was indistinguishable from a script's.
+   *
+   * A session is a person at a keyboard. A token is a program, and the token
+   * ROW says which kind — unset means an ordinary PAT, which is `mcp`.
+   */
+  source: ChangeSource;
 }
 
 export type AuthedRequest = FastifyRequest & { user: AuthedUser; auth: AuthContext };
@@ -136,6 +149,8 @@ export class AuthGuard implements CanActivate {
         workspaceId: resolved.workspaceId,
         tokenScope: resolved.scope,
         allowRunButton: resolved.allowRunButton,
+        // Unset origin = an ordinary PAT = `mcp`, exactly the pre-#357 behaviour.
+        source: resolved.origin ?? 'mcp',
       };
       return true;
     }
@@ -145,7 +160,7 @@ export class AuthGuard implements CanActivate {
     const session = await this.auth.api.getSession({ headers });
     if (session) {
       (request as AuthedRequest).user = session.user as AuthedUser;
-      (request as AuthedRequest).auth = { via: 'session' };
+      (request as AuthedRequest).auth = { via: 'session', source: 'human' };
       return true;
     }
 
@@ -183,7 +198,7 @@ export class AuthGuard implements CanActivate {
             image: account.image,
             emailVerified: account.emailVerified,
           };
-          (request as AuthedRequest).auth = { via: 'oauth' };
+          (request as AuthedRequest).auth = { via: 'oauth', source: 'human' };
           return true;
         }
       }

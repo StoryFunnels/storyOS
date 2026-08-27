@@ -4,7 +4,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import type { TokenScope } from '@storyos/schemas';
-import { apiTokens, memberships } from '../db/schema';
+import { apiTokens, memberships, type ChangeSource } from '../db/schema';
 
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
 
@@ -19,6 +19,16 @@ export class TokensService {
     name: string,
     scope: TokenScope = 'admin',
     allowRunButton = true,
+    /**
+     * #357 — what kind of caller this token is for.
+     *
+     * Omitted for an ordinary personal access token, which reads as `mcp`
+     * downstream. Tyron passes `agent` so its writes are distinguishable from
+     * every other MCP client's, which #357 requires and #390 could not provide:
+     * Tyron mints an ordinary PAT, so "authenticated by token" was as far as the
+     * signal went.
+     */
+    origin?: ChangeSource,
   ) {
     // MN-122: a token is only meaningful for a workspace you're actually in.
     // Without this you could mint one for any uuid — it would grant nothing
@@ -46,6 +56,7 @@ export class TokensService {
         scope,
         // run_button lives in write scope but can be withheld even there (MN-134).
         allowRunButton: scope === 'read' ? false : allowRunButton,
+        origin,
       })
       .returning();
     // Plaintext returned exactly once (E1).
@@ -103,7 +114,14 @@ export class TokensService {
   /** Guard-side resolution: hash lookup, live check, throttled last_used stamp. */
   async resolve(
     token: string,
-  ): Promise<{ userId: string; workspaceId: string; scope: TokenScope; allowRunButton: boolean } | null> {
+  ): Promise<{
+    userId: string;
+    workspaceId: string;
+    scope: TokenScope;
+    allowRunButton: boolean;
+    /** #357 — null for an ordinary PAT, which the guard reads as `mcp`. */
+    origin: ChangeSource | null;
+  } | null> {
     const row = await this.db.query.apiTokens.findFirst({
       where: and(eq(apiTokens.tokenHash, sha256(token)), isNull(apiTokens.revokedAt)),
     });
@@ -115,6 +133,12 @@ export class TokensService {
         .set({ lastUsedAt: new Date() })
         .where(eq(apiTokens.id, row.id));
     }
-    return { userId: row.userId, workspaceId: row.workspaceId, scope: row.scope, allowRunButton: row.allowRunButton };
+    return {
+      userId: row.userId,
+      workspaceId: row.workspaceId,
+      scope: row.scope,
+      allowRunButton: row.allowRunButton,
+      origin: row.origin,
+    };
   }
 }
