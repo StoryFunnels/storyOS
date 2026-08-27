@@ -65,9 +65,23 @@ export function AttachmentEditor({
   const files = Array.isArray(value) ? (value as AttachmentValue[]) : [];
   const base = `${API_URL}/api/v1/workspaces/${ws}/databases/${db}/records/${rec}/attachments`;
 
-  // The record query owns this value, so that is what has to be refetched — the
-  // record-level ['attachments'] key does not carry field files.
-  const refresh = () => void qc.invalidateQueries({ queryKey: ['records', ws, db] });
+  /*
+   * BOTH record query keys, and that is not belt-and-braces.
+   *
+   * The grid reads `['records', ws, db]`; the record page reads
+   * `['record', ws, db, rec]`. Invalidating only the first meant a removal
+   * persisted server-side and the properties panel went on showing the file —
+   * caught in a live browser, not by a test: the API said `cover: []` while the
+   * screen still listed it, which is the worst kind of disagreement because the
+   * user's next move is to click Remove again.
+   *
+   * The record-level `['attachments', …]` key is deliberately NOT invalidated:
+   * it backs the bag, and field files are not in the bag.
+   */
+  const refresh = () => {
+    void qc.invalidateQueries({ queryKey: ['records', ws, db] });
+    void qc.invalidateQueries({ queryKey: ['record', ws, db] });
+  };
 
   async function upload(list: FileList | null) {
     if (!list?.length) return;

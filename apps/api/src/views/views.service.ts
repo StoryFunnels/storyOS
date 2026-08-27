@@ -78,6 +78,23 @@ export function cleanViewConfig(
         ? config.color_by_field_id
         : undefined,
     card_field_ids: (config.card_field_ids ?? []).filter((id) => liveFieldIds.has(id)),
+    /*
+     * #391 — the gallery's cover field, dropped when it no longer exists.
+     *
+     * This function rebuilds the config EXPLICITLY rather than spreading, which
+     * is what makes it a defensive read — and it is also why a new key that is
+     * not listed here is silently stripped on the way out. `cover_field_id`
+     * persisted correctly and came back missing until this line existed, so the
+     * picker read "None" over a config that plainly said otherwise.
+     *
+     * A DANGLING id is dropped; an unset one stays unset. That distinction is
+     * #305's lesson — conflating "not configured" with "invalid" is what deleted
+     * users' dashboard tiles.
+     */
+    cover_field_id:
+      config.cover_field_id && liveFieldIds.has(config.cover_field_id)
+        ? config.cover_field_id
+        : undefined,
     card_size: config.card_size,
     date_field_id:
       config.date_field_id && liveFieldIds.has(config.date_field_id)

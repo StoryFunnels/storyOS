@@ -18,6 +18,7 @@ import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { recordHref } from '@/lib/records';
 import { cn } from '@/lib/utils';
+import { API_URL } from '@/lib/api';
 import { Avatar } from '@/components/ui/avatar';
 import { CellDisplay, OPTION_COLORS, OptionIcon, fieldValue } from '../table-view/cells';
 import {
@@ -603,7 +604,11 @@ function CardCover({
   if (!first?.id || !first.has_thumbnail) return null;
   return (
     <img
-      src={`/api/v1/workspaces/${cover.ws}/databases/${cover.db}/records/${row.id}/attachments/${first.id}/thumbnail`}
+      /* API_URL, not a relative path: the web app and the API are different
+         origins in dev, and a relative src silently resolves against the web
+         server — the image 404s and the card shows an empty box. Matches how
+         AttachmentsStrip builds its thumbnail URLs. */
+      src={`${API_URL}/api/v1/workspaces/${cover.ws}/databases/${cover.db}/records/${row.id}/attachments/${first.id}/thumbnail`}
       alt=""
       loading="lazy"
       className="mb-2 aspect-[4/3] w-full rounded-[calc(var(--radius-card)-2px)] object-cover"
