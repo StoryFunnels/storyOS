@@ -171,7 +171,14 @@ export class TyronService {
        * unanswered question cannot be resurrected by a later, unrelated message.
        */
       await this.setPending(threadId, pending);
-      return { reply: spoken, ...(question ? { question } : {}), ...(stopped ? { stopped } : {}) };
+      // #420 — the just-answered turn carries its model too, so the label
+      // appears immediately rather than only after the thread is refetched.
+      return {
+        reply: spoken,
+        ...(usage ? { model: env().OPENAI_MODEL } : {}),
+        ...(question ? { question } : {}),
+        ...(stopped ? { stopped } : {}),
+      };
     } finally {
       /*
        * Both cleanups run even when the turn throws. The token is the one that

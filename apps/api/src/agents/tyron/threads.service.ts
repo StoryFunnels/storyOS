@@ -109,6 +109,20 @@ export class TyronThreadsService {
         content: m.content,
         created_at: m.createdAt,
         /*
+         * #420 — WHICH AI answered this turn.
+         *
+         * Per MESSAGE, not per thread, and that is the honest shape: the column
+         * has always been per-message, and a thread that spans a model change
+         * would be misrepresented by one label at the bottom of the composer.
+         * It also stays correct when #352 adds bring-your-own — the answer to
+         * "who answered this turn" does not become ambiguous, it just gains a
+         * second possible value.
+         *
+         * Null on user messages and on a turn whose model call failed, matching
+         * how the usage columns are stored: absent is honest there.
+         */
+        model: m.model ?? null,
+        /*
          * `actions` is intentionally NOT returned. #357 is explicit that Tyron
          * streams outcomes and never a tool trace, and an API that hands the
          * client a structured tool log is an invitation to render one. It is

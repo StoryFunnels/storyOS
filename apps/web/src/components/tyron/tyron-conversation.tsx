@@ -24,6 +24,9 @@ interface Msg {
   id: string;
   role: string;
   content: string;
+  /** #420 — which model answered this turn; null on user messages and on a
+   * turn whose model call failed. */
+  model?: string | null;
 }
 
 export function TyronConversation({ ws }: { ws: string }) {
@@ -281,14 +284,33 @@ export function TyronConversation({ ws }: { ws: string }) {
               ) : (
                 <span className="mt-0.5 h-5 w-5 shrink-0" aria-hidden />
               )}
-              <p
-                className={cn(
-                  'min-w-0 whitespace-pre-wrap text-[13px]',
-                  m.role === 'assistant' ? 'text-ink' : 'text-ink-secondary',
-                )}
-              >
-                {m.content}
-              </p>
+              <div className="min-w-0">
+                <p
+                  className={cn(
+                    'whitespace-pre-wrap text-[13px]',
+                    m.role === 'assistant' ? 'text-ink' : 'text-ink-secondary',
+                  )}
+                >
+                  {m.content}
+                </p>
+                {/*
+                  #420 — name the AI that answered, per TURN.
+                  
+                  The raw model id is shown deliberately. "StoryOS AI" would be
+                  friendlier and would hide the exact thing this exists to
+                  reveal: a change of model should be something you notice, not
+                  something you discover. It is rendered small and muted so it
+                  informs without competing with the answer.
+                  
+                  Reads straight from the message, so changing OPENAI_MODEL
+                  changes what appears with no code change — and a thread that
+                  spans a model change shows both, turn by turn, instead of
+                  relabelling its own history.
+                */}
+                {m.role === 'assistant' && m.model ? (
+                  <p className="mt-1 text-[11px] text-faint">Answered by {m.model}</p>
+                ) : null}
+              </div>
             </div>
           ))}
           {send.isPending && (
