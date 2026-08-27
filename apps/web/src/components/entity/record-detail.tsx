@@ -76,6 +76,7 @@ import {
   useRecordSidebarWidth,
 } from '@/lib/record-sidebar-width';
 import { cn } from '@/lib/utils';
+import { DragPreview, useDragPresentation, vacatedSlotClass } from '@/components/ui/drag-presentation';
 import type { RecordRow } from '@/components/table-view/use-table-data';
 
 /**
@@ -325,6 +326,15 @@ export function RecordDetail({
     onCommit: (field: Field, value: unknown) => updateRecord.mutate({ rec: recordId, values: { [field.apiName]: value } }),
   };
 
+  /*
+   * #409/#412/#415 — one presentation for all three property zones (top chips,
+   * body, sidebar). Only one drag runs at a time, so a single hook serves them;
+   * `label` resolves a field id to its display name, which is what #415 needs —
+   * these lists are keyed by field uuid, so the stock announcements were hex.
+   */
+  const fieldLabel = (id: string) => visibleFields.find((f) => f.id === id)?.displayName;
+  const propDrag = useDragPresentation(fieldLabel);
+
   return (
     <div className="px-4 py-6 sm:px-8">
       <div className="mb-4 flex items-center justify-between gap-2">
@@ -458,7 +468,12 @@ export function RecordDetail({
 
           {/* Top strip — a few pinned essentials; shown (with an add affordance) so it's discoverable */}
           {(topFields.length > 0 || schemaEditable) && (
-            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={(e) => reorderWithin(topFields, e)}>
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              {...propDrag.contextProps}
+              onDragEnd={(e) => { reorderWithin(topFields, e); propDrag.contextProps.onDragEnd(e); }}
+            >
               <SortableContext items={topFields.map((f) => f.id)} strategy={horizontalListSortingStrategy}>
                 <div className="mb-5 flex flex-wrap items-center gap-2">
                   {topFields.map((field) => (
@@ -481,7 +496,8 @@ export function RecordDetail({
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
-            onDragEnd={(e) => reorderBody(bodyItems, e)}
+            {...propDrag.contextProps}
+            onDragEnd={(e) => { reorderBody(bodyItems, e); propDrag.contextProps.onDragEnd(e); }}
           >
             {/* #301: a row that isn't sortable must be OUT of this list, not merely
                 `disabled`. dnd-kit still lays out and transforms a disabled member,
@@ -535,6 +551,13 @@ export function RecordDetail({
                 );
               })}
             </SortableContext>
+            <DragPreview>
+              {propDrag.activeId && (
+                <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-[13px] text-ink shadow-[0_8px_24px_rgba(15,23,41,0.25)]">
+                  {fieldLabel(propDrag.activeId) ?? ''}
+                </div>
+              )}
+            </DragPreview>
           </DndContext>
 
           <div className="mb-6 mt-5">
@@ -604,7 +627,12 @@ export function RecordDetail({
                 />
               )}
             </div>
-            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={(e) => reorderWithin(sidebarFields, e)}>
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              {...propDrag.contextProps}
+              onDragEnd={(e) => { reorderWithin(sidebarFields, e); propDrag.contextProps.onDragEnd(e); }}
+            >
               <SortableContext items={sidebarFields.map((f) => f.id)} strategy={verticalListSortingStrategy}>
                 <div className="flex flex-col gap-0.5 p-1.5">
                   {sidebarFields.length === 0 && (
@@ -698,7 +726,9 @@ function BodyRow({
     <div
       ref={sortable.setNodeRef}
       style={style}
-      className={cn('group/bodyrow relative', sortable.isDragging && 'z-10 opacity-80')}
+      // #409 — the floating card used to print over `Owner` and `Won` on its
+      // way up the panel. It now renders in the shared portalled overlay.
+      className={cn('group/bodyrow relative', vacatedSlotClass(sortable.isDragging))}
     >
       {draggable && (
         <button

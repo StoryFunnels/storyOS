@@ -22,6 +22,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
+import { vacatedSlotClass } from '@/components/ui/drag-presentation';
 import { ChangeTypeDialog } from './change-type-dialog';
 import { EditFieldDialog } from './edit-field-dialog';
 import { useDeleteField } from './field-dialog-shared';
@@ -172,7 +173,11 @@ export function HeaderCell({
       className={cn(
         'group/header relative flex h-8 shrink-0 items-center justify-between border-r border-border-default px-2 text-[12px] font-medium text-muted',
         sticky && 'bg-app shadow-[2px_0_4px_-2px_rgba(15,23,41,0.12)]',
-        sortable.isDragging && 'z-40 opacity-70',
+        /* #409/#411 — `z-40 opacity-70` is what let the dragged header paint
+           over its neighbours AND over the frozen first column (whose sticky z
+           is 30 + …). The content now floats in the shared portalled overlay,
+           so this slot never competes for stacking order. */
+        vacatedSlotClass(sortable.isDragging),
       )}
     >
       {/* The whole name is the drag handle, not just the (hover-only) grip icon —
