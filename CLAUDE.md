@@ -52,6 +52,31 @@ The load-bearing rules:
 - **Test the rejections and what a filter must KEEP** — #305's six existing
   assertions all passed unchanged under the corrected rule.
 
+## Tyron (#356–#364) — the rules that must hold in CODE, not in the prompt
+
+Full ADR: [docs/decisions/ADR-0016-tyron-conversational-runtime.md](docs/decisions/ADR-0016-tyron-conversational-runtime.md).
+The load-bearing ones, each of which shipped as a bug first:
+
+- **The system prompt is not a mechanism.** Its own comment says every line is a
+  rule the model can ignore, and twice now it was ignored: #401 (invented a count
+  of 50 when the real figure was 148) and #405 (a confident zero about a database
+  that does not exist). Anything that MUST hold is enforced in the turn loop —
+  see `grounding.ts`.
+- **Never guess numbers.** A quantity about workspace data must come from a tool
+  call on that turn. Zero counts as a quantity, and is the most dangerous one: a
+  wrong number invites checking, a confident zero does not.
+- **Counting must not be done by fetching.** `query_records` paginates, so
+  counting its results returns the size of one page. Use the aggregate endpoint /
+  `count_records` (#404).
+- **Tool results are capped and history is trimmed, and both SAY SO** in the text
+  the model reads. Silent truncation manufactures confident wrong answers.
+- **actor = the member, `source` = `agent`.** Tyron never appears as an actor.
+  The provenance lives on the token row (`api_tokens.origin`), not a header — a
+  header is forgeable by whoever holds the token (#357).
+- **A thread is private, including from admins; suppress at EMIT time.** Nothing
+  emits yet, so this is an obligation inherited by the first feature that does.
+  ADR-0016 §6 has the detail.
+
 ## Members / the people model (#128 / #320) — read the ADR before touching assignees
 
 Workspace people are a **one-way projection** of `memberships` + better-auth into
