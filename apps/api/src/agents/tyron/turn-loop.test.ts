@@ -52,15 +52,24 @@ async function collect(gen: AsyncGenerator<TurnEvent, void, undefined>): Promise
 
 describe('a plain answer', () => {
   it('emits the text and finishes', async () => {
+    /*
+     * #401 — this case USED to be `'You have 12 clients.'` on a turn with zero
+     * tool calls, asserting that it went straight through. That is precisely the
+     * defect this ticket is about: an ungrounded count delivered as a fact.
+     *
+     * The sentence was changed rather than the guard weakened. A test that
+     * pinned the fabrication in place would have to be broken for the fix to
+     * land, and pretending otherwise by exempting it would be worse than either.
+     */
     const events = await collect(
-      runTurn('how many clients?', {
-        chat: scriptedChat([{ content: 'You have 12 clients.' }]),
+      runTurn('what can you do?', {
+        chat: scriptedChat([{ content: 'I can read and update records for you.' }]),
         catalog: fakeCatalog(),
         history: [],
       }),
     );
     expect(events.map((e) => e.type)).toEqual(['text', 'done']);
-    expect(events[0]).toEqual({ type: 'text', text: 'You have 12 clients.' });
+    expect(events[0]).toEqual({ type: 'text', text: 'I can read and update records for you.' });
   });
 
   it('sends the system prompt and the history ahead of the user message', async () => {
@@ -323,5 +332,80 @@ describe('failure reporting', () => {
     const err = events.at(-1)!;
     if (err.type !== 'error') throw new Error('unreachable');
     expect(err.text).toMatch(/nothing was changed/i);
+  });
+});
+
+/**
+ * #401 — never guess numbers, always count.
+ *
+ * The rule lives in the LOOP, not the system prompt. It was in the prompt, the
+ * model ignored it, and "There are currently 50 companies listed in the
+ * database" reached a user whose real figure was 148.
+ */
+describe('#401 grounding: a count must have been counted', () => {
+  const FABRICATED = 'There are currently 50 companies listed in the database.';
+
+  it('does not deliver a fabricated count — it sends the model back to look', async () => {
+    const chat = scriptedChat([
+      { content: FABRICATED },
+      { content: '', toolCalls: [{ id: '1', name: 'query_records', arguments: {} }] },
+      { content: 'There are 148 companies.' },
+    ]);
+    const catalog = fakeCatalog();
+    const events = await collect(runTurn('how many companies do we have', { chat, catalog, history: [] }));
+
+    // The invented number never reaches the user.
+    expect(events.some((e) => e.type === 'text' && e.text === FABRICATED)).toBe(false);
+    // The model DID go and look, and the real figure is what ships.
+    expect(catalog.calls).toEqual(['query_records']);
+    expect(events.at(-2)).toEqual({ type: 'text', text: 'There are 148 companies.' });
+  });
+
+  it('tells the model plainly what it did wrong', async () => {
+    const chat = scriptedChat([{ content: FABRICATED }, { content: 'Which database should I count?' }]);
+    await collect(runTurn('how many companies', { chat, catalog: fakeCatalog(), history: [] }));
+    const nudge = chat.seen[1]!.at(-1)!;
+    expect(nudge.role).toBe('user');
+    expect(nudge.content).toContain('without calling any tool');
+    // Not a licence to hedge — "roughly 50" would be the same defect, quieter.
+    expect(nudge.content).toContain('do not hedge');
+  });
+
+  it('asking WHICH database is an acceptable answer, not another offence', async () => {
+    const chat = scriptedChat([{ content: FABRICATED }, { content: 'Which database should I count?' }]);
+    const events = await collect(runTurn('how many companies', { chat, catalog: fakeCatalog(), history: [] }));
+    expect(events.at(-2)).toEqual({ type: 'text', text: 'Which database should I count?' });
+  });
+
+  it('replaces a SECOND fabrication with an honest admission', async () => {
+    // Twice is not a slip. Shipping the second invention would be worse than the
+    // first, because by then the system knows it is one.
+    const chat = scriptedChat([{ content: FABRICATED }, { content: 'There are about 50 companies listed.' }]);
+    const events = await collect(runTurn('how many companies', { chat, catalog: fakeCatalog(), history: [] }));
+    const text = events.find((e) => e.type === 'text') as { text: string };
+    expect(text.text).toContain("won't guess");
+    expect(text.text).not.toContain('50');
+  });
+
+  it('never second-guesses an answer that DID call tools', async () => {
+    // A grounded count is the whole point. It must pass through untouched, even
+    // though the sentence looks identical to the fabricated one.
+    const chat = scriptedChat([
+      { content: '', toolCalls: [{ id: '1', name: 'query_records', arguments: {} }] },
+      { content: 'There are 148 companies listed in the database.' },
+    ]);
+    const events = await collect(runTurn('how many companies', { chat, catalog: fakeCatalog(), history: [] }));
+    expect(events.at(-2)).toEqual({ type: 'text', text: 'There are 148 companies listed in the database.' });
+  });
+
+  it('leaves an ordinary reply containing a number completely alone', async () => {
+    // The AC names this one. An over-firing guard makes Tyron hedge everything,
+    // which is its own damage (#358).
+    const chat = scriptedChat([{ content: 'I can help with 2 things.' }]);
+    const events = await collect(runTurn('what can you do', { chat, catalog: fakeCatalog(), history: [] }));
+    expect(events.map((e) => e.type)).toEqual(['text', 'done']);
+    expect(events[0]).toEqual({ type: 'text', text: 'I can help with 2 things.' });
+    // and it must not have burned a model round trip proving that
+    expect(chat.seen).toHaveLength(1);
   });
 });
