@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { ErrorBoundary } from '@/components/ui/error-boundary';
 import type { CSSProperties, ReactNode, RefObject } from 'react';
 import { ChevronsLeftRight, PanelLeftOpen, X } from 'lucide-react';
 import { useMediaQuery } from '@/lib/use-media-query';
@@ -120,6 +121,14 @@ export function RecordSurface({ ws, db, rec }: { ws: string; db: string; rec: st
               className="min-w-0 flex-1 overflow-y-auto border-r border-border-default"
               style={primaryPaneStyle}
             >
+              {/*
+                #424 — the record pane renders every field type a database can
+                hold, so it is the widest surface for a bad value to reach: a
+                relation whose target was deleted, a formula whose type changed,
+                an attachment field pointed at a file that is gone. In split
+                screen a throw here used to take BOTH panes and the grid.
+              */}
+              <ErrorBoundary label="This record">
               <RecordDetail
                 ws={ws}
                 db={db}
@@ -130,6 +139,7 @@ export function RecordSurface({ ws, db, rec }: { ws: string; db: string; rec: st
                   dispatch(view.primaryMaximized ? { type: 'restore' } : { type: 'maximize', id: PRIMARY_ID })
                 }
               />
+              </ErrorBoundary>
             </div>
           )}
 
@@ -145,6 +155,9 @@ export function RecordSurface({ ws, db, rec }: { ws: string; db: string; rec: st
 
           {view.activePanel && (
             <div className="min-w-0 flex-1 overflow-y-auto">
+              {/* Each pane gets its OWN boundary: in split screen, one broken
+                  record must not cost the other one you were comparing it to. */}
+              <ErrorBoundary label="This record">
               <RecordDetail
                 ws={ws}
                 db={view.activePanel.target.db}
@@ -160,6 +173,7 @@ export function RecordSurface({ ws, db, rec }: { ws: string; db: string; rec: st
                   )
                 }
               />
+              </ErrorBoundary>
             </div>
           )}
 

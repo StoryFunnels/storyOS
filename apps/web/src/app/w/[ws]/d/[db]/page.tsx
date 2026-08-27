@@ -1,6 +1,7 @@
 'use client';
 
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { ErrorBoundary } from '@/components/ui/error-boundary';
 import { Suspense, useMemo, useState } from 'react';
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
@@ -193,6 +194,15 @@ function DatabasePageInner() {
         </p>
       )}
 
+      {/*
+        #424 — the toolbar is the highest-risk widget on this route: it renders
+        user-authored config (a saved filter whose field was deleted, an
+        operator that no longer applies), and #423 was exactly that. Wrapping it
+        HERE rather than inside view-toolbar.tsx keeps the boundary with the
+        parent that decides the layout, and means a broken filter panel costs
+        the toolbar — not the grid underneath it.
+      */}
+      <ErrorBoundary label="The view toolbar" onReset={() => patch({ filters: undefined })}>
       <ViewToolbar
         fields={database.data?.fields ?? []}
         config={config}
@@ -205,6 +215,7 @@ function DatabasePageInner() {
         personalFilter={personalFilter}
         onReorderFields={schemaEditable ? onReorderFields : undefined}
       />
+      </ErrorBoundary>
 
       <div className="min-h-0 flex-1">
         {activeView?.type === 'board' ? (

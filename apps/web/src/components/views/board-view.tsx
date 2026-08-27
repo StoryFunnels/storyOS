@@ -1,6 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
+import { ErrorBoundary } from '@/components/ui/error-boundary';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   DndContext,
@@ -362,6 +363,14 @@ export function BoardView({
     <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
       <div className="flex h-full gap-3 overflow-x-auto p-4">
         {columns.map((column) => (
+          /*
+           * #424 — per COLUMN, not per board. A board groups by a user-chosen
+           * field, so one column can carry a value the card renderer chokes on
+           * (an option deleted from the select, a formula whose type changed)
+           * while every other column is fine. A board-level boundary would take
+           * all of them for one bad group.
+           */
+          <ErrorBoundary key={column.id} label={`The "${column.label}" column`}>
           <BoardColumn
             key={column.id}
             column={column}
@@ -383,6 +392,7 @@ export function BoardView({
               )
             }
           />
+          </ErrorBoundary>
         ))}
       </div>
       <DragOverlay>

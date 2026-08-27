@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { ErrorBoundary } from '@/components/ui/error-boundary';
 import { Check, Filter as FilterIcon, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useDatabase, useMembers, useRecordsInfinite } from '../table-view/use-table-data';
 import { useDatabases } from '@/lib/queries';
@@ -534,6 +535,16 @@ export function DashboardView({
                 gridRef={gridRef}
                 onResize={(span) => resizeBlock(block.id, span)}
               >
+                {/*
+                  #424 — per BLOCK. A dashboard is the densest concentration of
+                  user-authored config in the product: every tile points at a
+                  database, a field and an aggregate, any of which can be
+                  deleted or retyped underneath it, and a tile aimed at a
+                  database the viewer cannot read is #407. One bad tile used to
+                  take the whole dashboard — and the dashboard is the page
+                  people leave open.
+                */}
+                <ErrorBoundary label={block.kind === 'tile' ? 'This tile' : 'This chart'}>
                 {block.kind === 'tile' ? (
                   renderTile(block.tile!)
                 ) : (
@@ -550,6 +561,7 @@ export function DashboardView({
                     onRemove={() => removeWidget(block.widget!.id)}
                   />
                 )}
+                </ErrorBoundary>
               </DashboardBlockShell>
             ))}
           </div>
