@@ -14,6 +14,10 @@
       "types": "./dist/markdown.d.ts",
       "default": "./dist/markdown.js"
     },
+    "./colors": {
+      "types": "./dist/colors.d.ts",
+      "default": "./dist/colors.js"
+    },
     "./icons": {
       "types": "./dist/icons.d.ts",
       "default": "./dist/icons.js"

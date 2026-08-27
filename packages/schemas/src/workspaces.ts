@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PALETTE } from './colors';
 import { descriptionPatchSchema, descriptionSchema } from './descriptions';
 
 export const membershipRoleSchema = z.enum(['admin', 'member', 'guest']);
@@ -25,9 +26,12 @@ export const updateWorkspaceSchema = z.object({
   description: descriptionPatchSchema,
 });
 
-export const spaceColorSchema = z.enum([
-  'gray', 'brown', 'gold', 'orange', 'red', 'pink', 'purple', 'blue', 'teal', 'green',
-]);
+/**
+ * #399 — DERIVED. Was byte-identical to `databaseColorSchema`: a third copy of
+ * the same ten values, which is how the count in this ticket went from two to
+ * three when somebody looked.
+ */
+export const spaceColorSchema = z.enum(PALETTE);
 
 /**
  * #283: this schema only bounds length — it doesn't reject raw emoji, because

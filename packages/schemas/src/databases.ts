@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PALETTE } from './colors';
 import { descriptionPatchSchema, descriptionSchema } from './descriptions';
 
 /**
@@ -13,9 +14,12 @@ import { descriptionPatchSchema, descriptionSchema } from './descriptions';
  */
 const iconValueSchema = z.string().max(48);
 
-export const databaseColorSchema = z.enum([
-  'gray', 'brown', 'gold', 'orange', 'red', 'pink', 'purple', 'blue', 'teal', 'green',
-]);
+/**
+ * #399 — DERIVED. This was a hardcoded copy of the option palette's first ten,
+ * and the five it was missing had been added to the other list only. A database
+ * can now take any colour a select option can.
+ */
+export const databaseColorSchema = z.enum(PALETTE);
 
 export const createDatabaseSchema = z.object({
   space_id: z.uuid(),

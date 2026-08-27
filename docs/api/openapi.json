@@ -8608,7 +8608,12 @@
               "purple",
               "blue",
               "teal",
-              "green"
+              "green",
+              "lime",
+              "cyan",
+              "indigo",
+              "magenta",
+              "rose"
             ]
           },
           "description": {
@@ -8646,6 +8651,11 @@
               "blue",
               "teal",
               "green",
+              "lime",
+              "cyan",
+              "indigo",
+              "magenta",
+              "rose",
               null
             ],
             "nullable": true
@@ -8910,7 +8920,12 @@
               "purple",
               "blue",
               "teal",
-              "green"
+              "green",
+              "lime",
+              "cyan",
+              "indigo",
+              "magenta",
+              "rose"
             ]
           },
           "description": {
@@ -8949,6 +8964,11 @@
               "blue",
               "teal",
               "green",
+              "lime",
+              "cyan",
+              "indigo",
+              "magenta",
+              "rose",
               null
             ],
             "nullable": true

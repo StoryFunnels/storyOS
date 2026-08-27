@@ -119,7 +119,6 @@ describe('every API operation is reached, excluded, or deferred (#397)', () => {
     // It fails only if the three buckets stop summing to the whole, which would
     // mean the classification itself is broken.
     expect(covered.length + excluded.length + deferred.length).toBe(operations.length);
-    // eslint-disable-next-line no-console
     console.log(
       `#397 coverage: ${operations.length} operations — ${covered.length} reached by a tool, ` +
         `${excluded.length} excluded by design, ${deferred.length} deferred against a ticket.`,

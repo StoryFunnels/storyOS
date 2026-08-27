@@ -2063,8 +2063,25 @@ function SortRow({
   );
 }
 
-/** Title always shows; system timestamps never render in grids or on cards. */
-const NON_TOGGLABLE = new Set(['title', 'created_by']);
+/**
+ * What may never be toggled off.
+ *
+ * `title` only — hiding it would leave rows unidentifiable.
+ *
+ * #408 — the previous version of this comment read "system timestamps never
+ * render in grids or on cards", and that was FALSE: Created at and Updated at
+ * are real field rows (`isSystem: true`) returned by the API for every database,
+ * they render as ordinary columns, and they have always been in this list's
+ * complement — so they are, and were, hideable.
+ *
+ * The comment mattered because it sent a reader looking for a rule that does not
+ * exist. #408 was filed on the strength of it and does not reproduce: on a fresh
+ * single-field database both timestamps appear in Hide fields, hiding one
+ * removes the column, and the choice survives a reload. `created_by` is here
+ * because views genuinely do not render it — a toggle that cannot change what
+ * you see is worse than no toggle.
+ */
+export const NON_TOGGLABLE = new Set(['title', 'created_by']);
 
 /** Board/calendar card composition (MN-042, MN-089): which fields show + card size. */
 function CardFieldsButton({

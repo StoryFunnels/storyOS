@@ -3706,14 +3706,14 @@ export interface components {
             name: string;
             icon?: string;
             /** @enum {string} */
-            color?: "gray" | "brown" | "gold" | "orange" | "red" | "pink" | "purple" | "blue" | "teal" | "green";
+            color?: "gray" | "brown" | "gold" | "orange" | "red" | "pink" | "purple" | "blue" | "teal" | "green" | "lime" | "cyan" | "indigo" | "magenta" | "rose";
             description?: string;
         };
         UpdateSpaceDto: {
             name?: string;
             icon?: string | null;
             /** @enum {string|null} */
-            color?: "gray" | "brown" | "gold" | "orange" | "red" | "pink" | "purple" | "blue" | "teal" | "green" | null;
+            color?: "gray" | "brown" | "gold" | "orange" | "red" | "pink" | "purple" | "blue" | "teal" | "green" | "lime" | "cyan" | "indigo" | "magenta" | "rose" | null;
             position?: number;
             description?: string | null;
         };
@@ -3781,14 +3781,14 @@ export interface components {
             name: string;
             icon?: string;
             /** @enum {string} */
-            color?: "gray" | "brown" | "gold" | "orange" | "red" | "pink" | "purple" | "blue" | "teal" | "green";
+            color?: "gray" | "brown" | "gold" | "orange" | "red" | "pink" | "purple" | "blue" | "teal" | "green" | "lime" | "cyan" | "indigo" | "magenta" | "rose";
             description?: string;
         };
         UpdateDatabaseDto: {
             name?: string;
             icon?: string | null;
             /** @enum {string|null} */
-            color?: "gray" | "brown" | "gold" | "orange" | "red" | "pink" | "purple" | "blue" | "teal" | "green" | null;
+            color?: "gray" | "brown" | "gold" | "orange" | "red" | "pink" | "purple" | "blue" | "teal" | "green" | "lime" | "cyan" | "indigo" | "magenta" | "rose" | null;
             /** Format: uuid */
             space_id?: string;
             /** Format: uuid */
