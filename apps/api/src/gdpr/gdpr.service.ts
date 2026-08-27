@@ -7,6 +7,7 @@ import {
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
+import { MembershipEventsService } from '../events/membership-events.service';
 import {
   account,
   accessGrants,
@@ -40,7 +41,17 @@ import {
  */
 @Injectable()
 export class GdprService {
-  constructor(@Inject(DB) private readonly db: Db) {}
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    /**
+     * #418 — so an erasure reaches the Members projection.
+     *
+     * The bus rather than MembersDbService directly, for the same reason
+     * MembersService uses it: MembersDbModule sits above this in the import
+     * graph and a direct dependency would close a cycle.
+     */
+    private readonly membershipEvents: MembershipEventsService,
+  ) {}
 
   /** Resolve a workspace membership id to its user id (404 if not a member). */
   private async resolveMember(workspaceId: string, membershipId: string) {
@@ -332,7 +343,21 @@ export class GdprService {
       await this.assertNotLastAdmin(workspaceId, membershipId);
     }
 
-    return this.db.transaction(async (tx) => {
+    /*
+     * #418 — every workspace this person belongs to, captured BEFORE the
+     * transaction removes one of them.
+     *
+     * `anonymize` wipes the GLOBAL `user` row, so a Members row in any OTHER
+     * workspace is left holding a real name and email whose only source has just
+     * been destroyed. Erasing only the requesting workspace would satisfy the
+     * letter of the report and leave the same data sitting two clicks away.
+     */
+    const allMemberships = await this.db.query.memberships.findMany({
+      where: eq(memberships.userId, userId),
+      columns: { workspaceId: true },
+    });
+
+    const result = await this.db.transaction(async (tx) => {
       const existing = await tx.query.user.findFirst({
         where: eq(user.id, userId),
       });
@@ -442,5 +467,30 @@ export class GdprService {
         },
       };
     });
+
+    /*
+     * #418 — emitted AFTER commit, and never allowed to fail the erasure.
+     *
+     * Same contract every other membership emit follows: the projection is a
+     * cache with a backfill, not a transactional invariant, and a projection
+     * hiccup must not turn a completed GDPR erasure into a reported failure. The
+     * data is already gone from the source of truth at this point.
+     *
+     * `tombstone` is true only for the workspace the request was made in, where
+     * the membership really was deleted. Elsewhere the person is still a member
+     * and only the PII goes.
+     */
+    const tombstoneEmail = `deleted-${userId}@anonymized.invalid`;
+    for (const m of allMemberships) {
+      this.membershipEvents.emit({
+        type: 'membership_erased',
+        workspaceId: m.workspaceId,
+        userId,
+        anonymisedEmail: tombstoneEmail,
+        tombstone: m.workspaceId === workspaceId,
+      });
+    }
+
+    return result;
   }
 }

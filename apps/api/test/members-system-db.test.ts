@@ -180,3 +180,105 @@ describe('Members system database (#128 Phase 1)', () => {
     expect(row!.values['active']).toBe(false);
   });
 });
+
+/**
+ * #418 / #419 — the projection has to hear about changes that do not go through
+ * MembersService.
+ *
+ * Both defects were found by reading ADR-0017 against the code rather than from a
+ * report, and both have the same shape: the Members projection updates only when
+ * something emits a membership event, and two paths that change what it holds
+ * emitted nothing.
+ */
+describe('#418 GDPR erasure reaches the Members projection', () => {
+  it('wipes the name, email and avatar — and shows them present BEFORE', async () => {
+    /*
+     * The AC insists on before-and-after, and the reason is sharp: a test that
+     * only asserts the after-state passes just as happily against a projection
+     * that never ran at all.
+     */
+    const victim = await signUpUser(app, 'ToBeErased');
+    const invite = await as(admin.token, 'POST', `/workspaces/${wsId}/invites`, {
+      email: victim.email,
+      role: 'member',
+    });
+    const token = new URL(invite.json().accept_url).searchParams.get('token')!;
+    await as(victim.token, 'POST', '/invites/accept', { token });
+    await settle();
+
+    const dbId = (await membersDb())!.id;
+    const before = await rowFor(dbId, victim.email);
+    // BEFORE: the real identity is in the database.
+    expect(before, 'the member row should exist before the erasure').toBeTruthy();
+    expect(before!.values['email']).toBe(victim.email);
+    expect(before!.values['active']).toBe(true);
+
+    const members = (await as(admin.token, 'GET', `/workspaces/${wsId}/members`)).json() as Array<{
+      id: string;
+      user: { email: string };
+    }>;
+    const membershipId = members.find((m) => m.user.email === victim.email)!.id;
+    const anon = await as(admin.token, 'POST', `/workspaces/${wsId}/members/${membershipId}/gdpr/anonymize`);
+    expect(anon.statusCode, anon.body).toBeLessThan(300);
+    await settle();
+
+    const rows = await memberRows(dbId);
+    // AFTER: the real email is nowhere in the database.
+    expect(rows.some((r) => r.values['email'] === victim.email)).toBe(false);
+
+    const erased = rows.find((r) => String(r.values['email'] ?? '').includes('@anonymized.invalid'));
+    expect(erased, 'the row must SURVIVE — deleting it would orphan every assignment').toBeTruthy();
+    // `name` is the TITLE field on this database (members-db.service.ts:167), so
+    // it lives on `records.title` and never appears in the values bag.
+    expect(erased!.title).toBe('Deleted user');
+    expect(erased!.values['avatar']).toBeFalsy();
+    // Tombstoned too, in the workspace the erasure was requested in.
+    expect(erased!.values['active']).toBe(false);
+    // The projection key is kept on purpose: it is an opaque id whose account no
+    // longer exists, and dropping it would leave an unreachable orphan row.
+    expect(erased!.values['user_id']).toBeTruthy();
+  });
+});
+
+describe('#419 a profile change reaches the Members projection', () => {
+  it('an avatar change refreshes the row', async () => {
+    const dbId = (await membersDb())!.id;
+    const before = await rowFor(dbId, admin.email);
+    expect(before!.values['avatar']).toBeFalsy();
+
+    const BOUNDARY = 'X-AVATAR-BOUNDARY';
+    const png = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+      'base64',
+    );
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/users/me/avatar',
+      headers: { ...authed(admin.token), 'content-type': `multipart/form-data; boundary=${BOUNDARY}` },
+      payload: Buffer.concat([
+        Buffer.from(
+          `--${BOUNDARY}\r\ncontent-disposition: form-data; name="file"; filename="a.png"\r\ncontent-type: image/png\r\n\r\n`,
+        ),
+        png,
+        Buffer.from(`\r\n--${BOUNDARY}--\r\n`),
+      ]),
+    });
+    expect(res.statusCode, res.body).toBeLessThan(300);
+    /*
+     * Asserted from the POST's own response, not from `/me`: that endpoint reads
+     * `req.user`, which is the SESSION snapshot, so it reports the avatar the
+     * session was created with rather than the one just written. Cost a
+     * confusing failure before I checked.
+     */
+    expect((res.json() as { image?: string }).image, 'the avatar write must have landed').toBeTruthy();
+    await settle();
+
+    /*
+     * Before this fix the row kept whatever it had until the person's next ROLE
+     * change or the next API restart — both unrelated to the edit, which made the
+     * fix time effectively random.
+     */
+    const after = await rowFor(dbId, admin.email);
+    expect(after!.values['avatar']).toBeTruthy();
+  });
+});
