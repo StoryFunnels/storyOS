@@ -501,6 +501,9 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   // their controllers (`@MinRole('admin')` on the workspace, `@RequiresScope('admin')`
   // on the space).
   update_space: 'admin',
+  // #416 — admin, and destructive: the API refuses it without the typed name
+  // whenever the space still holds databases (#417).
+  delete_space: 'admin',
   update_workspace: 'admin',
   // #394 — schema building. Same admin ceiling as create_database, and the
   // ArchitectController is admin-gated for the same reason: building a workflow
@@ -2338,6 +2341,46 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         }),
       );
       return text(res);
+    }),
+  );
+
+  reg(
+    'delete_space',
+    {
+      title: 'Delete space',
+      description:
+        'Permanently delete a space AND every database and record inside it. Irreversible — the trash cannot recover any of it. Guardrail: `confirm` must equal the space name exactly, the same rule delete_database enforces for a smaller action. An empty space needs no confirm.',
+      inputSchema: {
+        workspace: z.string(),
+        space: z.string().describe('Space name, slug or id.'),
+        confirm: z
+          .string()
+          .optional()
+          .describe('Must equal the space name exactly. Required when the space still holds databases.'),
+      },
+    },
+    handle<{ workspace: string; space: string; confirm?: string }>(async ({ workspace, space, confirm }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const spaceId = await resolveSpaceId(ws.id, space);
+      /*
+       * #416 — the ratchet this closes: the MCP could CREATE a space and never
+       * undo the creation, so a scratch space made by an agent had to be removed
+       * by hand in the browser.
+       *
+       * The guard is NOT implemented here. #417 put it in SpacesService.remove,
+       * so an unconfirmed delete of a populated space is refused by the API with
+       * a message naming the databases that would go — which is exactly why this
+       * tool can exist without inventing its own safety rule. A guard living in
+       * one caller is not a guard; it is a habit.
+       */
+      return text(
+        await unwrap<unknown>(
+          client.DELETE('/api/v1/workspaces/{ws}/spaces/{space}', {
+            params: { path: { ws: ws.id, space: spaceId } } as never,
+            body: { ...(confirm !== undefined ? { confirm } : {}) } as never,
+          }),
+        ),
+      );
     }),
   );
 

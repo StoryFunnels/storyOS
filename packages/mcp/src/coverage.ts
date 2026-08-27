@@ -222,10 +222,6 @@ export const DEFERRED: CoverageRule[] = [
       '#406 — reading one workspace\'s details and creating a workspace. `list_workspaces` covers the common case; creation is plan-gated and worth deciding deliberately.',
   },
   {
-    match: /^DELETE \/api\/v1\/workspaces\/\{ws\}\/spaces\/\{space\}$/,
-    reason: '#406 — deleting a space. Create and update are covered; delete is not.',
-  },
-  {
     match: /\/spaces\/\{space\}\/documents/,
     reason: '#406 — documents that live in a space rather than on a record.',
   },

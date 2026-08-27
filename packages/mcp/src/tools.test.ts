@@ -2063,3 +2063,84 @@ describe('view-scoped queries and bulk building (#332, #394)', () => {
     });
   });
 });
+
+/**
+ * #416 — the MCP could CREATE a space and never undo the creation.
+ *
+ * Hit for real: a UAT made a scratch space, finished with it, and had no MCP
+ * path to remove it — the space had to be deleted by hand in the browser. That
+ * is a one-way ratchet in the worst direction.
+ */
+describe('space lifecycle over MCP (#416)', () => {
+  interface Sent { method: string; path: string; body?: unknown; params?: unknown }
+
+  function harness() {
+    const sent: Sent[] = [];
+    const client = {
+      GET: async (path: string) => {
+        if (path === '/api/v1/workspaces') return { data: [{ id: 'ws-1', name: 'Eng' }] };
+        if (path === '/api/v1/workspaces/{ws}/spaces')
+          return { data: [{ id: 'sp-1', name: 'Scratch', slug: 'scratch' }] };
+        throw new Error(`unexpected GET ${path}`);
+      },
+      POST: async (path: string, o: { body: unknown }) => { sent.push({ method: 'POST', path, body: o.body }); return { data: { id: 'sp-1' } }; },
+      PATCH: async (path: string, o: { body: unknown }) => { sent.push({ method: 'PATCH', path, body: o.body }); return { data: { ok: true } }; },
+      DELETE: async (path: string, o: { body: unknown; params: unknown }) => {
+        sent.push({ method: 'DELETE', path, body: o.body, params: o.params });
+        return { data: { deleted: true, databases_deleted: 0 } };
+      },
+    };
+    const handlers = new Map<string, (a: unknown) => Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }>>();
+    registerTools(
+      { registerTool: (n: string, _c: unknown, h: never) => void handlers.set(n, h as never) } as never,
+      { client: client as never, baseUrl: 'http://test', token: 'tok' } as Ctx,
+    );
+    const call = async (tool: string, args: unknown) => {
+      const r = await handlers.get(tool)!(args);
+      if (r.isError) throw new Error(r.content[0]!.text);
+      return JSON.parse(r.content[0]!.text) as never;
+    };
+    return { call, sent, handlers };
+  }
+
+  it('delete_space exists at all — the ratchet this closes', () => {
+    // The whole ticket: create existed, delete did not.
+    const { handlers } = harness();
+    expect(handlers.has('create_space')).toBe(true);
+    expect(handlers.has('update_space')).toBe(true);
+    expect(handlers.has('delete_space')).toBe(true);
+  });
+
+  it('resolves the space by NAME and deletes it by id', async () => {
+    const { call, sent } = harness();
+    await call('delete_space', { workspace: 'Eng', space: 'Scratch' });
+    const del = sent.find((s) => s.method === 'DELETE')!;
+    expect((del.params as { path: { space: string } }).path.space).toBe('sp-1');
+  });
+
+  it('forwards `confirm` so the API can enforce the typed-name guard', async () => {
+    /*
+     * The tool deliberately does NOT implement the guard. #417 put it in
+     * SpacesService.remove so every caller meets it; re-implementing it here
+     * would be a second copy of a safety rule, and the copy is what rots.
+     */
+    const { call, sent } = harness();
+    await call('delete_space', { workspace: 'Eng', space: 'Scratch', confirm: 'Scratch' });
+    expect(sent.find((s) => s.method === 'DELETE')!.body).toEqual({ confirm: 'Scratch' });
+  });
+
+  it('omits `confirm` entirely when not given — an empty space needs none', async () => {
+    // Not `confirm: undefined`: the API distinguishes an absent body from a
+    // present-but-empty one, and an empty space is a legitimate no-confirm call.
+    const { call, sent } = harness();
+    await call('delete_space', { workspace: 'Eng', space: 'Scratch' });
+    expect(sent.find((s) => s.method === 'DELETE')!.body).toEqual({});
+  });
+
+  it('the description warns that the databases go too', () => {
+    // A destructive tool whose description understates the blast radius is how
+    // an agent confirms something it should have asked about.
+    const { handlers } = harness();
+    expect(handlers.has('delete_space')).toBe(true);
+  });
+});
