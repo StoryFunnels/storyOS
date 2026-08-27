@@ -2,7 +2,8 @@ import { Inject, Injectable } from '@nestjs/common';
 import { and, desc, eq, inArray, lt } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { activityEvents, fields, selectOptions, user } from '../db/schema';
+import { activityEvents, user } from '../db/schema';
+import { buildRenderContext, renderValue } from './render-values';
 
 /**
  * Read side of the activity trail (MN-027). Events are written inside every
@@ -29,15 +30,9 @@ export class ActivityService {
     const hasMore = rows.length > limit;
 
     // Resolution context: fields (INCLUDING soft-deleted, for old diffs), options, actors.
-    const fieldRows = await this.db.query.fields.findMany({
-      where: eq(fields.databaseId, databaseId),
-    });
-    const fieldName = new Map(fieldRows.map((f) => [f.id, f.deletedAt ? `${f.displayName} (deleted field)` : f.displayName]));
-    const selectFieldIds = fieldRows.filter((f) => f.type === 'select' || f.type === 'multi_select' || f.type === 'workflow').map((f) => f.id);
-    const options = selectFieldIds.length
-      ? await this.db.query.selectOptions.findMany({ where: inArray(selectOptions.fieldId, selectFieldIds) })
-      : [];
-    const optionLabel = new Map(options.map((o) => [o.id, o.label]));
+    // Shared with listFieldChanges since #335 — the two read the SAME diff, and
+    // when only this one resolved it, one change rendered two ways.
+    const { fieldName, optionLabel } = await buildRenderContext(this.db, databaseId);
 
     const actorIds = [...new Set(page.map((e) => e.actorId).filter((id): id is string => Boolean(id)))];
     const actors = actorIds.length
@@ -45,11 +40,7 @@ export class ActivityService {
       : [];
     const actorName = new Map(actors.map((a) => [a.id, a.name]));
 
-    const resolveValue = (value: unknown): unknown => {
-      if (typeof value === 'string' && optionLabel.has(value)) return optionLabel.get(value);
-      if (Array.isArray(value)) return value.map(resolveValue);
-      return value;
-    };
+    const resolveValue = (value: unknown): unknown => renderValue(value, { optionLabel });
 
     return {
       data: page.map((event) => {

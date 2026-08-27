@@ -51,6 +51,8 @@ async function changesFor(recordId: string) {
     data: Array<{
       field_id: string | null;
       field_name: string;
+      field_type?: string | null;
+      new_display?: unknown;
       source: string;
       old_value: unknown;
       new_value: unknown;
@@ -212,7 +214,23 @@ describe('the timeline reads back (#31)', () => {
     const { data } = await changesFor(rec.id);
     const event = data.find((c) => c.field_id === doomed.id);
     expect(event).toBeTruthy();
-    expect(event!.field_name).toBe('Temporary');
+    /*
+     * #335 — this assertion CHANGED, deliberately.
+     *
+     * It used to expect the bare 'Temporary'. The activity feed, reading a diff
+     * written by the same update(), had always returned 'Temporary (deleted
+     * field)'. Two sibling endpoints describing the same change two different
+     * ways is the defect this ticket is about, so they now share one resolver
+     * and the marker wins: it keeps the name AND tells the reader the field is
+     * gone, which is the thing they are usually trying to find out.
+     */
+    expect(event!.field_name).toBe('Temporary (deleted field)');
+    // The name half still has to be there — a marker that ate the name would be
+    // a regression dressed up as a fix.
+    expect(event!.field_name).toContain('Temporary');
+    // And the value renders, rather than coming back as a bare id (#335's point).
+    expect(event!.new_display).toBe('second');
+    expect(event!.field_type).toBe('text');
   });
 });
 

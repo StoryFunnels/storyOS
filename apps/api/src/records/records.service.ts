@@ -10,6 +10,7 @@ import { activeFilter, applyFieldDefaults, evaluateFormula, formulaRefs, systemF
 import type { FormulaNode } from '@storyos/schemas';
 import type { FieldDef, FilterNode } from '@storyos/schemas';
 import { DB } from '../db/db.module';
+import { buildRenderContext, renderTypedValue } from '../activity/render-values';
 import type { Db } from '../db/client';
 import { activityEvents, databases, documents, fields, memberships, recordFieldChanges, recordLinks, recordVersions, recordWatchers, records, relations, selectOptions, user } from '../db/schema';
 import type { ChangeSource } from '../db/schema';
@@ -2510,23 +2511,37 @@ export class RecordsService {
     const page = rows.slice(0, limit);
     const hasMore = rows.length > limit;
 
-    // Include soft-deleted fields: a change to a field someone later removed is
-    // still real history, and rendering it as a uuid would be useless.
-    const fieldRows = await this.db.query.fields.findMany({
-      where: eq(fields.databaseId, databaseId),
-    });
-    const nameById = new Map(fieldRows.map((f) => [f.id, f.displayName]));
+    /*
+     * #335 — the same resolution the activity feed already did.
+     *
+     * Include soft-deleted fields: a change to a field someone later removed is
+     * still real history, and rendering it as a uuid would be useless. Since
+     * #335 that also covers select OPTION ids, which capture stores raw (and
+     * must — a change log that echoed a projection would be recording something
+     * other than what the write stored).
+     *
+     * `old_value`/`new_value` stay exactly as captured. `old_display`/
+     * `new_display` are the same values rendered, and `field_type` lets a client
+     * render per type without re-fetching a schema that may no longer contain
+     * the field at all. That is what #335's "project the values or hand the UI
+     * enough type information" asks for; this does both, and keeps the faithful
+     * pair so nothing is lost.
+     */
+    const ctx = await buildRenderContext(this.db, databaseId);
 
     return {
       data: page.map((c) => ({
         id: c.id,
         field_id: c.fieldId,
         // null field_id is the promoted title column (record-diff.ts's "title").
-        field_name: c.fieldId ? nameById.get(c.fieldId) ?? '(deleted field)' : 'Name',
+        field_name: c.fieldId ? ctx.fieldName.get(c.fieldId) ?? '(deleted field)' : 'Name',
+        field_type: c.fieldId ? ctx.fieldType.get(c.fieldId) ?? null : 'title',
         actor_id: c.actorUserId,
         source: c.source,
         old_value: c.oldValue,
         new_value: c.newValue,
+        old_display: renderTypedValue(c.oldValue, c.fieldId ? ctx.fieldType.get(c.fieldId) : 'title', ctx),
+        new_display: renderTypedValue(c.newValue, c.fieldId ? ctx.fieldType.get(c.fieldId) : 'title', ctx),
         created_at: c.createdAt,
       })),
       next_cursor:
