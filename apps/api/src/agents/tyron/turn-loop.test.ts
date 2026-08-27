@@ -110,7 +110,9 @@ describe('ordinary tool use', () => {
      */
     const emitted = JSON.stringify(events.filter((e) => e.type !== 'done'));
     expect(emitted).not.toContain('update_record');
-    expect(events.at(-1)).toEqual({
+    // #357 — `done` also carries the turn's token usage now, so this asserts the
+    // part the test is about rather than pinning the whole event shape.
+    expect(events.at(-1)).toMatchObject({
       type: 'done',
       actions: [{ name: 'update_record', arguments: { record: 'r1' } }],
     });
@@ -407,5 +409,45 @@ describe('#401 grounding: a count must have been counted', () => {
     expect(events[0]).toEqual({ type: 'text', text: 'I can help with 2 things.' });
     // and it must not have burned a model round trip proving that
     expect(chat.seen).toHaveLength(1);
+  });
+});
+
+/**
+ * #357 — spend per workspace is MEASURED, and nothing is enforced.
+ *
+ * #353 decided against a ceiling deliberately, so this exists to let a future
+ * limit be chosen from data rather than guessed. Tokens rather than cents: a
+ * per-model price list does not exist anywhere in this codebase and is a pricing
+ * decision, not an engineering one.
+ */
+describe('#357 turn usage', () => {
+  it('reports what the turn cost', async () => {
+    const chat = scriptedChat([{ content: 'done', tokensIn: 120, tokensOut: 30 }]);
+    const events = await collect(runTurn('hi', { chat, catalog: fakeCatalog(), history: [] }));
+    const done = events.at(-1) as { type: 'done'; usage?: { tokensIn: number; tokensOut: number } };
+    expect(done.usage).toEqual({ tokensIn: 120, tokensOut: 30 });
+  });
+
+  it('SUMS every model call, not just the last one', async () => {
+    /*
+     * The half a naive implementation gets wrong. A turn that called five tools
+     * paid for five round trips, and reporting only the final reply's usage
+     * would under-count exactly the expensive turns a future limit would exist
+     * to catch.
+     */
+    const chat = scriptedChat([
+      { content: '', toolCalls: [{ id: '1', name: 'query_records', arguments: {} }], tokensIn: 100, tokensOut: 10 },
+      { content: 'here it is', tokensIn: 400, tokensOut: 25 },
+    ]);
+    const events = await collect(runTurn('how many', { chat, catalog: fakeCatalog(), history: [] }));
+    const done = events.at(-1) as { type: 'done'; usage?: { tokensIn: number; tokensOut: number } };
+    expect(done.usage).toEqual({ tokensIn: 500, tokensOut: 35 });
+  });
+
+  it('measures without enforcing — a huge turn still completes', async () => {
+    // #353: no spend ceiling. Measurement must never become a gate by accident.
+    const chat = scriptedChat([{ content: 'expensive but fine', tokensIn: 5_000_000, tokensOut: 900_000 }]);
+    const events = await collect(runTurn('hi', { chat, catalog: fakeCatalog(), history: [] }));
+    expect(events.map((e) => e.type)).toEqual(['text', 'done']);
   });
 });

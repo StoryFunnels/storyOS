@@ -38,8 +38,20 @@ export type TurnEvent =
     }
   /** A ceiling stopped the run. */
   | { type: 'stopped'; stop: CeilingStop }
-  /** The turn ended cleanly. `actions` is persisted, not displayed. */
-  | { type: 'done'; actions: Array<{ name: string; arguments: Record<string, unknown> }> }
+  /**
+   * The turn ended cleanly. `actions` is persisted, not displayed.
+   *
+   * `usage` is #357's "spend per workspace is measured" — summed across EVERY
+   * model call the turn made, not just the last one, since a turn that called
+   * five tools paid for five round trips. Measurement only; #353 decided against
+   * a ceiling deliberately, and this exists so a future limit can be chosen from
+   * data rather than guessed.
+   */
+  | {
+      type: 'done';
+      actions: Array<{ name: string; arguments: Record<string, unknown> }>;
+      usage?: { tokensIn: number; tokensOut: number };
+    }
   /** Something failed. The turn halts; work already applied is kept. */
   | { type: 'error'; text: string };
 
@@ -130,6 +142,9 @@ export async function* runTurn(
   let turnsThisRun = 0;
   /** #401 — how many times this turn has been sent back for answering a count blind. */
   let groundingNudges = 0;
+  /** #357 — summed across every model call this turn, not just the last. */
+  let tokensIn = 0;
+  let tokensOut = 0;
 
   for (;;) {
     const stop = checkCeilings({
@@ -158,6 +173,8 @@ export async function* runTurn(
     let reply;
     try {
       reply = await chat.chat(budgeted, tools);
+      tokensIn += reply.tokensIn ?? 0;
+      tokensOut += reply.tokensOut ?? 0;
     } catch (err) {
       /*
        * #357: on failure it STOPS and reports what did and did not happen. It
@@ -205,11 +222,11 @@ export async function* runTurn(
         // Twice is not a slip. Shipping the second invention would be worse than
         // the first, because by now the system knows it is one.
         yield { type: 'text', text: GROUNDING_REFUSAL };
-        yield { type: 'done', actions };
+        yield { type: 'done', actions, usage: { tokensIn, tokensOut } };
         return;
       }
       if (reply.content) yield { type: 'text', text: reply.content };
-      yield { type: 'done', actions };
+      yield { type: 'done', actions, usage: { tokensIn, tokensOut } };
       return;
     }
 
@@ -219,12 +236,12 @@ export async function* runTurn(
       const verdict = classifyWrite({ tool: call.name, ...extractIntent(call) });
       if (verdict.kind === 'refuse') {
         yield { type: 'text', text: verdict.message };
-        yield { type: 'done', actions };
+        yield { type: 'done', actions, usage: { tokensIn, tokensOut } };
         return;
       }
       if (verdict.kind === 'confirm' || verdict.kind === 'approval_gate') {
         yield { type: 'question', verdict, tool: call.name, call };
-        yield { type: 'done', actions };
+        yield { type: 'done', actions, usage: { tokensIn, tokensOut } };
         return;
       }
     }

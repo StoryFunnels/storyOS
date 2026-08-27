@@ -6,6 +6,7 @@ import { authed, signUpUser } from './helpers/users';
 // rather than asserted by reading the call site.
 import { AutomationActionsService } from '../src/automations/actions.service';
 import { RecordsService } from '../src/records/records.service';
+import { TokensService } from '../src/tokens/tokens.service';
 
 /**
  * #31 (version history C2) — field-level change capture and the per-record
@@ -23,6 +24,7 @@ let statusApi: string;
 let statusId: string;
 let actionsService: AutomationActionsService;
 let recordsService: RecordsService;
+let tokensService: TokensService;
 let adminUserId: string;
 
 async function as(token: string, method: string, url: string, payload?: unknown) {
@@ -68,6 +70,7 @@ beforeAll(async () => {
   // `strict: false` — these providers live in feature modules, not the root, so
   // the default strict lookup cannot see them.
   actionsService = app.get(AutomationActionsService, { strict: false });
+  tokensService = app.get(TokensService, { strict: false });
   recordsService = app.get(RecordsService, { strict: false });
   admin = await signUpUser(app, 'field-history');
   adminUserId = (await as(admin.token, 'GET', '/me')).json().id;
@@ -280,6 +283,54 @@ describe('#390 — what made the change, not just who it was for', () => {
     });
     expect(res.statusCode, JSON.stringify(res.json())).toBeLessThan(300);
 
+    const { data } = await changesFor(rec.id);
+    expect(data[0]!.source).toBe('mcp');
+  });
+
+  it("#357 — TYRON's own token writes as agent, not mcp", async () => {
+    /*
+     * The gap #390 could not close.
+     *
+     * #390 derived the source from HOW a request authenticated: session means a
+     * person, token means a program. Correct as far as it goes — but Tyron mints
+     * an ordinary personal access token (ADR-0016 §2), so its writes arrived
+     * looking exactly like a curl script's. #357 requires "a person did this"
+     * and "an agent generated it" to BOTH be recoverable, and the second one
+     * was not.
+     *
+     * The provenance is on the token ROW, not a header: a header is forgeable by
+     * whoever holds the token, and provenance that can be claimed is not
+     * provenance. So this test mints the way Tyron mints and proves the badge
+     * follows the token rather than the caller's say-so.
+     */
+    const minted = await tokensService.create(adminUserId, wsId, 'Tyron (session)', 'admin', true, 'agent');
+
+    const rec = await createRecord({ name: 'Asked of Tyron' });
+    const res = await as(minted.token, 'PATCH', `/workspaces/${wsId}/databases/${dbId}/records/${rec.id}`, {
+      values: { name: 'Changed by Tyron' },
+    });
+    expect(res.statusCode, JSON.stringify(res.json())).toBeLessThan(300);
+
+    const { data } = await changesFor(rec.id);
+    expect(data[0]!.source).toBe('agent');
+    // NOT mcp — that is the whole distinction this ticket adds.
+    expect(data[0]!.source).not.toBe('mcp');
+    // And the actor is still the PERSON who asked. Founder, verbatim: "it's
+    // always a person that run the AI agent, never the agent himself."
+    expect(data[0]!.actor_id).toBe(adminUserId);
+  });
+
+  it('an ordinary PAT is unchanged by #357 — no origin means mcp', async () => {
+    /*
+     * The regression half. Every token that already exists has a null origin,
+     * and must keep behaving exactly as it did. A migration that defaulted them
+     * to 'agent' would relabel every script in every workspace.
+     */
+    const plain = await tokensService.create(adminUserId, wsId, 'Ordinary PAT', 'admin');
+    const rec = await createRecord({ name: 'Script wrote this' });
+    await as(plain.token, 'PATCH', `/workspaces/${wsId}/databases/${dbId}/records/${rec.id}`, {
+      values: { name: 'Edited by a script' },
+    });
     const { data } = await changesFor(rec.id);
     expect(data[0]!.source).toBe('mcp');
   });

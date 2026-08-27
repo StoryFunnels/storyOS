@@ -232,17 +232,23 @@ export class RecordsController {
       req.user.id,
       0,
       /*
-       * #390 — a PAT-authenticated write is how MCP arrives (`auth.via` is set
-       * by the auth guard), so `token` is the MCP signal and a session is a
-       * person at a keyboard.
+       * #390 derived this inline from `auth.via`: token means MCP, session means
+       * a person at a keyboard. Correct, but it could only ever say those two
+       * things — and Tyron mints an ordinary PAT, so an AGENT write was
+       * indistinguishable from a curl script's. #357 needs both "a person did
+       * this" and "an agent generated it" to be recoverable.
        *
-       * Deliberately imprecise in one direction, and worth stating: a PAT used
-       * by someone's own curl script also lands as `mcp`. That is acceptable —
-       * both are "a program wrote this, not a person typing" — whereas
-       * pretending a scripted write was human would be a lie in the direction
-       * that matters.
+       * The derivation now lives in the auth guard, off the token ROW, so every
+       * write site reads one answer instead of re-deriving a partial one. A
+       * header would have been forgeable; provenance that can be claimed by its
+       * holder is not provenance.
+       *
+       * Still deliberately imprecise in one direction, and still worth stating:
+       * a PAT used by someone's own curl script lands as `mcp`. Both are "a
+       * program wrote this, not a person typing", whereas pretending a scripted
+       * write was human would be a lie in the direction that matters.
        */
-      req.auth?.via === 'token' ? 'mcp' : 'human',
+      req.auth?.source ?? 'human',
     );
   }
 

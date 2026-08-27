@@ -103,6 +103,21 @@ export class TyronService {
       membership.workspaceId,
       'Tyron (session)',
       scopeForRole(membership.role as Role),
+      true,
+      /*
+       * #357 — every write on this turn is badged `agent`.
+       *
+       * The ATTRIBUTION stays the member: `created_by`/`updated_by` name the
+       * person who asked, because they authorised it and their permissions
+       * bounded it. Tyron never appears as an actor and never accumulates a
+       * permission surface of its own.
+       *
+       * "Who did this" and "was this typed or generated" are different
+       * questions, and this answers only the second. #390 could not: Tyron mints
+       * an ordinary PAT, so its writes arrived looking like any other MCP
+       * client's.
+       */
+      'agent',
     );
 
     const catalog = new McpToolCatalog(env().TYRON_MCP_URL, minted.token);
@@ -116,6 +131,8 @@ export class TyronService {
       let pending: PendingAction | null = null;
       let stopped: string | undefined;
       const actions: Array<{ name: string; arguments: Record<string, unknown> }> = [];
+      /** #357 — measured, never enforced. See the note on tyron_messages. */
+      let usage: { tokensIn: number; tokensOut: number } | undefined;
 
       for await (const event of runTurn(message, { chat, catalog, history, ...overrides })) {
         applyEvent(event, {
@@ -131,8 +148,9 @@ export class TyronService {
           onStopped: (s) => {
             stopped = s;
           },
-          onDone: (a) => {
+          onDone: (a, u) => {
             actions.push(...a);
+            usage = u;
           },
         });
       }
@@ -142,6 +160,10 @@ export class TyronService {
         role: 'assistant',
         content: spoken,
         actions,
+        // The model comes from env and is never hardcoded (#357), so recording
+        // it here makes a tier change visible in the data rather than only in a
+        // deploy.
+        ...(usage ? { usage: { ...usage, model: env().OPENAI_MODEL } } : {}),
       });
       /*
        * Store the pending call so "yes" executes exactly what was classified and
@@ -241,6 +263,21 @@ export class TyronService {
       membership.workspaceId,
       'Tyron (confirm)',
       scopeForRole(membership.role as Role),
+      true,
+      /*
+       * #357 — every write on this turn is badged `agent`.
+       *
+       * The ATTRIBUTION stays the member: `created_by`/`updated_by` name the
+       * person who asked, because they authorised it and their permissions
+       * bounded it. Tyron never appears as an actor and never accumulates a
+       * permission surface of its own.
+       *
+       * "Who did this" and "was this typed or generated" are different
+       * questions, and this answers only the second. #390 could not: Tyron mints
+       * an ordinary PAT, so its writes arrived looking like any other MCP
+       * client's.
+       */
+      'agent',
     );
     const catalog = new McpToolCatalog(env().TYRON_MCP_URL, minted.token);
     try {
@@ -296,7 +333,10 @@ function applyEvent(
     onText: (t: string) => void;
     onQuestion: (q: { message: string; tool: string }, call: { name: string; arguments: Record<string, unknown> }) => void;
     onStopped: (s: string) => void;
-    onDone: (a: Array<{ name: string; arguments: Record<string, unknown> }>) => void;
+    onDone: (
+      a: Array<{ name: string; arguments: Record<string, unknown> }>,
+      usage?: { tokensIn: number; tokensOut: number },
+    ) => void;
   },
 ): void {
   switch (event.type) {
@@ -314,7 +354,7 @@ function applyEvent(
       on.onText(event.text);
       return;
     case 'done':
-      on.onDone(event.actions);
+      on.onDone(event.actions, event.usage);
       return;
   }
 }

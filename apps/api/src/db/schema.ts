@@ -592,6 +592,24 @@ export const apiTokens = pgTable('api_tokens', {
   scope: tokenScope('scope').notNull().default('admin'),
   /** run_button is gateable separately within write scope (MN-134). */
   allowRunButton: boolean('allow_run_button').notNull().default(true),
+  /**
+   * What KIND of caller this token was minted for (#357).
+   *
+   * #390 already derives `source` from how a request authenticated — a session
+   * is a person at a keyboard, a PAT is a program. That is right as far as it
+   * goes, but Tyron mints an ordinary PAT, so its writes were indistinguishable
+   * from any other MCP client's. #357 requires "a person did this" and "an agent
+   * generated it" to BOTH be recoverable, and the second one was not.
+   *
+   * It lives on the token ROW rather than in a request header on purpose: a
+   * header is forgeable by any API client, and provenance that can be claimed is
+   * not provenance. The token is minted by us, per turn, and cannot be
+   * relabelled by its holder.
+   *
+   * NULL means an ordinary personal access token, which reads as `mcp` — the
+   * pre-#357 behaviour, unchanged for every token that already exists.
+   */
+  origin: changeSource('origin'),
   lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
   revokedAt: timestamp('revoked_at', { withTimezone: true }),
   ...timestamps,
@@ -2061,6 +2079,30 @@ export const tyronMessages = pgTable(
      * user message and for an assistant turn that only talked.
      */
     actions: jsonb('actions').notNull().default(sql`'[]'::jsonb`),
+    /**
+     * What this turn cost, in tokens (#357).
+     *
+     * The AC is "spend per workspace is MEASURED and visible to us; nothing is
+     * enforced" — #353 decided against a ceiling deliberately, so this exists to
+     * let a future limit be chosen from data rather than guessed.
+     *
+     * Tokens, not cents, and that is a deliberate limit on the claim: costing
+     * them needs a per-model price list, which does not exist anywhere in this
+     * codebase and is a pricing decision rather than an engineering one. Tokens
+     * are the primitive the price would multiply, so recording them loses
+     * nothing and invents nothing.
+     *
+     * NOT written to `ai_credit_transactions`: that ledger tracks a BALANCE, and
+     * rows that charge zero would be noise in a financial record. Tyron is
+     * unmetered for v1.
+     *
+     * Null on user messages and on any assistant turn whose model call failed —
+     * absent is the honest value there, and zero would read as "free".
+     */
+    tokensIn: integer('tokens_in'),
+    tokensOut: integer('tokens_out'),
+    /** Which model answered. From env, never hardcoded — so a tier change is visible here. */
+    model: text('model'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('tyron_messages_thread_idx').on(t.threadId, t.createdAt)],

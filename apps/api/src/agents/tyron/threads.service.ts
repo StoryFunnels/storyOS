@@ -160,6 +160,15 @@ export class TyronThreadsService {
       role: 'user' | 'assistant';
       content: string;
       actions?: Array<{ name: string; arguments: Record<string, unknown> }>;
+      /**
+       * #357 — what the turn cost, in tokens, and which model answered.
+       *
+       * Measurement only: #353 decided against a spend ceiling deliberately, and
+       * this exists so a future limit can be chosen from data rather than
+       * guessed. Omitted on user messages and on a turn whose model call failed
+       * — absent is honest there, whereas zero would read as "free".
+       */
+      usage?: { tokensIn: number; tokensOut: number; model: string };
     },
   ) {
     const thread = await this.own(membership, threadId);
@@ -170,6 +179,9 @@ export class TyronThreadsService {
         role: message.role,
         content: message.content,
         actions: message.actions ?? [],
+        tokensIn: message.usage?.tokensIn,
+        tokensOut: message.usage?.tokensOut,
+        model: message.usage?.model,
       })
       .returning();
     await this.db
