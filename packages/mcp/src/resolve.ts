@@ -74,6 +74,8 @@ export interface SkillRef {
   visibility: 'personal' | 'shared';
   editable: boolean;
   source_template: string | null;
+  /** #442 — who authored it, derived from the request's auth server-side. */
+  source?: 'human' | 'agent' | 'automation' | 'mcp';
 }
 
 export async function listSkills(client: Client, workspaceId: string): Promise<SkillRef[]> {

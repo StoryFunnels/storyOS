@@ -2374,3 +2374,116 @@ describe('#406 — record lifecycle, manual order, and what hangs off a record',
     });
   });
 });
+
+/**
+ * #442 — skill authoring over MCP.
+ *
+ * The API owns both real rules (authorship derived from auth; an agent cannot
+ * publish a shared skill), so what is worth testing HERE is that the tools do
+ * not quietly work around them or hand back a shape that hides them.
+ */
+describe('#442 — skill authoring tools', () => {
+  function harness() {
+    const sent: Array<{ method: string; path: string; body?: Record<string, unknown> }> = [];
+    const handlers = new Map<string, (a: unknown) => Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }>>();
+    const skill = {
+      id: 'sk-1',
+      name: 'Weekly digest',
+      description: 'd',
+      when_to_use: 'w',
+      instructions: 'full steps here',
+      examples: [],
+      allowed_tools: ['query_records'],
+      visibility: 'personal',
+      editable: true,
+      source_template: null,
+      source: 'mcp',
+    };
+    const log = (method: string) => async (path: string, o?: { body?: unknown }) => {
+      sent.push({ method, path, body: o?.body as Record<string, unknown> });
+      if (path === '/api/v1/workspaces') return { data: [{ id: 'ws-1', name: 'Eng' }] };
+      if (path === '/api/v1/workspaces/{ws}/skills') return method === 'GET' ? { data: { data: [skill] } } : { data: skill };
+      if (path === '/api/v1/workspaces/{ws}/skills/templates') return { data: { data: [{ id: 'blank', name: 'Blank' }] } };
+      if (path === '/api/v1/workspaces/{ws}/skills/{id}/export') return { data: { filename: 'SKILL.md', content: '# Weekly digest' } };
+      if (path === '/api/v1/workspaces/{ws}/skills/{id}') return { data: skill };
+      return { data: {} };
+    };
+    registerTools({ registerTool: (n: string, _c: unknown, h: never) => handlers.set(n, h as never) } as never, {
+      client: { GET: log('GET'), POST: log('POST'), PATCH: log('PATCH'), PUT: log('PUT'), DELETE: log('DELETE') } as never,
+      baseUrl: 'http://test',
+      token: 'tok',
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- shape varies per tool.
+    const call = async (n: string, a: unknown): Promise<any> => {
+      const r = await handlers.get(n)!(a);
+      if (r.isError) throw new Error(r.content[0]!.text);
+      return JSON.parse(r.content[0]!.text);
+    };
+    return { call, sent, handlers };
+  }
+
+  it('create_skill never sends visibility:"shared" — the argument does not exist', async () => {
+    // Offering an argument the server refuses teaches the model the wrong thing.
+    const { call, sent, handlers } = harness();
+    await call('create_skill', {
+      workspace: 'Eng',
+      name: 'n',
+      description: 'd',
+      when_to_use: 'w',
+      instructions: 'i',
+    });
+    const post = sent.find((s) => s.method === 'POST' && s.path === '/api/v1/workspaces/{ws}/skills')!;
+    expect(post.body!.visibility).toBe('personal');
+
+    const res = await handlers.get('create_skill')!({
+      workspace: 'Eng',
+      name: 'n',
+      description: 'd',
+      when_to_use: 'w',
+      instructions: 'i',
+      visibility: 'shared',
+    });
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toContain('"visibility"');
+  });
+
+  it('every skill read reports who authored it', async () => {
+    // With no Skills page in the web app, these tools are the only place the
+    // agent-vs-human distinction is actually visible.
+    const { call } = harness();
+    expect((await call('get_skill', { workspace: 'Eng', skill: 'Weekly digest' })).authored_by).toBe('mcp');
+    expect((await call('create_skill', {
+      workspace: 'Eng', name: 'n', description: 'd', when_to_use: 'w', instructions: 'i',
+    })).skill.authored_by).toBe('mcp');
+  });
+
+  it('get_skill returns instructions, which list_skills omits', async () => {
+    const { call } = harness();
+    expect((await call('get_skill', { workspace: 'Eng', skill: 'sk-1' })).instructions).toBe('full steps here');
+    const listed = await call('list_skills', { workspace: 'Eng' });
+    expect(listed[0]).not.toHaveProperty('instructions');
+  });
+
+  it('delete_skill refuses without confirm, and names the skill it would destroy', async () => {
+    // "confirm: true is required" alone does not tell a caller whether a partial
+    // name match picked the right skill — which is the actual risk here.
+    const { call, sent } = harness();
+    await expect(call('delete_skill', { workspace: 'Eng', skill: 'Weekly' })).rejects.toThrow(/Weekly digest.*permanent/s);
+    expect(sent.some((s) => s.method === 'DELETE')).toBe(false);
+
+    const ok = harness();
+    await ok.call('delete_skill', { workspace: 'Eng', skill: 'Weekly', confirm: true });
+    expect(ok.sent.some((s) => s.method === 'DELETE')).toBe(true);
+  });
+
+  it('update_skill refuses an empty patch instead of sending a no-op PATCH', async () => {
+    const { call } = harness();
+    await expect(call('update_skill', { workspace: 'Eng', skill: 'sk-1' })).rejects.toThrow(/at least one field/i);
+  });
+
+  it('export_skill defaults to markdown and passes the format through', async () => {
+    const { call } = harness();
+    expect((await call('export_skill', { workspace: 'Eng', skill: 'sk-1' })).format).toBe('markdown');
+    expect((await call('export_skill', { workspace: 'Eng', skill: 'sk-1', format: 'claude_skill' })).content).toContain('Weekly digest');
+  });
+});

@@ -20,6 +20,7 @@ import type { FilterOp } from '@storyos/schemas';
 // barrel and the mcp image would fail to boot. It did, on this branch, in CI.
 import { PALETTE as SHARED_PALETTE } from '@storyos/schemas/colors';
 import { listDatabases, listSkills, listWorkspaces, resolveDatabase, resolveFolder, resolveSkill, resolveWorkspace } from './resolve.js';
+import type { SkillRef } from './resolve.js';
 import { databaseUrl, recordUrl, viewUrl } from './links.js';
 import {
   annotateActions,
@@ -483,6 +484,21 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   list_icon_set: 'read',
   get_record_description: 'read',
   list_skills: 'read',
+  /*
+   * #442 — skill authoring. The SkillsController floors create/update/delete at
+   * `@MinRole('member')` on the workspace, which is a ROLE and not a token
+   * scope; the token-scope equivalent of "writes prose the product will act on"
+   * is `write`, the same floor add_comment and create_record sit at. NOT admin:
+   * a skill is not schema, and an agent-authored skill is personal to its owner
+   * and cannot be published (SkillsService.assertMayPublish), so it changes
+   * nothing anyone else sees.
+   */
+  get_skill: 'read',
+  list_skill_templates: 'read',
+  export_skill: 'read',
+  create_skill: 'write',
+  update_skill: 'write',
+  delete_skill: 'write',
   // MN-255: read-only by design — approve/reject are Inbox-only in v1, so
   // an agent can queue work for a human to decide but never decide for one.
   list_approvals: 'read',
@@ -3269,6 +3285,267 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         })),
       );
     }),
+  );
+
+  /* =====================================================================
+   * #442 (#406 area 9) — skill AUTHORING.
+   *
+   * `list_skills` and `run_skill` shipped with #41, so an agent could run a
+   * skill and never write one — meaning the actor best placed to author a skill
+   * (the one that just did the task successfully) was the only actor that could
+   * not. That is the same write-but-never-read asymmetry areas 1–3 closed, run
+   * backwards.
+   *
+   * Two rules, both enforced by the API rather than described here:
+   *
+   *   Authorship is DERIVED, never declared. `skills.source` is set from the
+   *   request's auth (#390's precedent), so a skill written over MCP reads as
+   *   `mcp` no matter what the caller sends.
+   *
+   *   An agent may write a PERSONAL skill and may not publish a SHARED one. A
+   *   shared skill is instructions every other member's agent follows;
+   *   publishing one is a decision about other people (ADR-0010).
+   * ===================================================================== */
+
+  /** The full read shape, including `instructions` — which `list_skills`
+   * deliberately omits to keep a catalog listing small. */
+  interface SkillFull extends SkillRef {
+    workspace_id: string;
+    owner_id: string;
+    created_at: string;
+    updated_at: string;
+    last_run_at: string | null;
+    last_run_status: 'ok' | 'error' | null;
+  }
+
+  /** One shape for a skill however you touched it, same reasoning as #343's
+   * serializeRecord: a create/update echo that differs from a read forces a
+   * re-read to find out whether anything was lost. */
+  const serializeSkill = (s: Partial<SkillFull> & { id: string; name: string }) => ({
+    id: s.id,
+    name: s.name,
+    description: s.description,
+    when_to_use: s.when_to_use,
+    instructions: s.instructions,
+    examples: s.examples,
+    allowed_tools: s.allowed_tools,
+    visibility: s.visibility,
+    // Surfaced on every skill read: the only way a reader can tell an
+    // agent-written instruction from a human-written one WITHOUT trusting the
+    // instruction. There is no Skills page in the web app yet, so these tools
+    // are where it is actually visible today.
+    authored_by: s.source ?? 'human',
+    source_template: s.source_template ?? null,
+    editable: s.editable,
+    last_run_at: s.last_run_at ?? null,
+    last_run_status: s.last_run_status ?? null,
+  });
+
+  reg(
+    'get_skill',
+    {
+      title: 'Get skill',
+      description:
+        "Read one skill in full, including its `instructions` — which list_skills omits to keep the catalog small. Read this before update_skill (a patch replaces a field WHOLE, so editing instructions means sending the full new text) and before following a skill you did not write.",
+      inputSchema: { workspace: z.string(), skill: z.string().describe('Skill name or id (from list_skills).') },
+    },
+    handle<{ workspace: string; skill: string }>(async ({ workspace, skill }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const ref = await resolveSkill(client, ws.id, skill);
+      const full = await unwrap<SkillFull>(
+        client.GET('/api/v1/workspaces/{ws}/skills/{id}', { params: { path: { ws: ws.id, id: ref.id } } } as never),
+      );
+      return text(serializeSkill(full));
+    }),
+  );
+
+  reg(
+    'list_skill_templates',
+    {
+      title: 'List skill templates',
+      description:
+        'The starter scaffolds a skill can be authored from — each a complete, worked example of the six fields (name, description, when_to_use, instructions, examples, allowed_tools). Read one before create_skill: a skill written from a blank box tends to be a title and a vague sentence, and these show the level of detail that actually makes a skill re-runnable. Pass the one you started from as create_skill\'s `from_template`.',
+      inputSchema: { workspace: z.string() },
+    },
+    handle<{ workspace: string }>(async ({ workspace }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<{ data: Array<{ id: string; name: string; description: string; when_to_use: string; instructions: string }> }>(
+        client.GET('/api/v1/workspaces/{ws}/skills/templates', { params: { path: { ws: ws.id } } } as never),
+      );
+      return text({ templates: res.data, use_with: 'create_skill(from_template: "<id>")' });
+    }),
+  );
+
+  reg(
+    'create_skill',
+    {
+      title: 'Create skill',
+      description:
+        'Save a reusable skill — a named instruction bundle you or another agent can run later with run_skill. Write one when you have just worked out how to do something in this workspace that will be asked for again; that is the moment the knowledge exists, and it is otherwise thrown away when the session ends. Call list_skill_templates first for a worked example of the level of detail that makes a skill re-runnable. ' +
+        'TWO THINGS TO KNOW: the skill is recorded as authored by an agent (derived from your credential — you cannot set this), and it is created PERSONAL to the token owner. Sharing it with the workspace is a human decision made in-app, so `visibility` is not an argument here.',
+      inputSchema: {
+        workspace: z.string(),
+        name: z.string().describe('Short, specific name — how a person will pick it out of a list. Max 100 chars.'),
+        description: z.string().describe('One or two sentences on what it does. Max 500 chars.'),
+        when_to_use: z
+          .string()
+          .describe(
+            'The trigger, in the words someone would use when they need it — this is what a future agent matches against, so "when a lead lands and needs a first reply drafted" beats "for leads". Max 1000 chars.',
+          ),
+        instructions: z
+          .string()
+          .describe(
+            'The actual procedure, as numbered steps. Write it for a reader with NO memory of this session: name the databases and fields explicitly, and say what NOT to do (invent a price, send anything). Max 20000 chars.',
+          ),
+        examples: z
+          .array(z.object({ input: z.string(), output: z.string() }))
+          .optional()
+          .describe('Worked input→output pairs. One good example does more than a paragraph of clarification. Max 20.'),
+        allowed_tools: z
+          .array(z.string())
+          .optional()
+          .describe('Tool names this skill should stick to when run, e.g. ["query_records","create_record"]. Max 50.'),
+        from_template: z.string().optional().describe('Template id from list_skill_templates, recorded as provenance.'),
+      },
+    },
+    handle<{
+      workspace: string;
+      name: string;
+      description: string;
+      when_to_use: string;
+      instructions: string;
+      examples?: Array<{ input: string; output: string }>;
+      allowed_tools?: string[];
+      from_template?: string;
+    }>(async ({ workspace, name, description, when_to_use, instructions, examples, allowed_tools, from_template }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const created = await unwrap<SkillFull>(
+        client.POST('/api/v1/workspaces/{ws}/skills', {
+          // `as never` because the skills routes declare `parameters: []` in the
+          // spec (no @ApiParam for the class-level `:ws`), so the generated
+          // types drop the path param. Same workaround listSkills already uses
+          // in resolve.ts — the request is correct, the type is under-specified.
+          params: { path: { ws: ws.id } } as never,
+          body: {
+            name,
+            description,
+            when_to_use,
+            instructions,
+            examples: examples ?? [],
+            allowed_tools: allowed_tools ?? [],
+            // Never sent as `shared`: the API refuses it for a non-human author
+            // anyway, and a tool that offers an argument the server rejects is
+            // a tool that teaches the wrong thing.
+            visibility: 'personal',
+            source_template: from_template,
+          } as never,
+        }),
+      );
+      return text({
+        skill: serializeSkill(created),
+        note: 'Personal to you and recorded as agent-authored. A person can read it in-app and promote it to shared.',
+      });
+    }),
+  );
+
+  reg(
+    'update_skill',
+    {
+      title: 'Update skill',
+      description:
+        'Edit a skill you own — typically to sharpen `instructions` after running it and finding a step that was ambiguous. Each field you pass REPLACES that field whole, so read it with get_skill first and send the full new text rather than a fragment. Editing someone else\'s skill is refused, and this cannot publish a skill to the workspace (see create_skill).',
+      inputSchema: {
+        workspace: z.string(),
+        skill: z.string().describe('Skill name or id (from list_skills).'),
+        name: z.string().optional(),
+        description: z.string().optional(),
+        when_to_use: z.string().optional(),
+        instructions: z.string().optional().describe('Replaces the whole procedure — get_skill first.'),
+        examples: z.array(z.object({ input: z.string(), output: z.string() })).optional(),
+        allowed_tools: z.array(z.string()).optional(),
+      },
+    },
+    handle<{
+      workspace: string;
+      skill: string;
+      name?: string;
+      description?: string;
+      when_to_use?: string;
+      instructions?: string;
+      examples?: Array<{ input: string; output: string }>;
+      allowed_tools?: string[];
+    }>(async ({ workspace, skill, ...patch }) => {
+      const given = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
+      if (Object.keys(given).length === 0) throw new Error('Nothing to change — pass at least one field to update.');
+      const ws = await resolveWorkspace(client, workspace);
+      const ref = await resolveSkill(client, ws.id, skill);
+      const updated = await unwrap<SkillFull>(
+        client.PATCH('/api/v1/workspaces/{ws}/skills/{id}', {
+          params: { path: { ws: ws.id, id: ref.id } } as never,
+          body: given as never,
+        }),
+      );
+      return text(serializeSkill(updated));
+    }),
+  );
+
+  reg(
+    'delete_skill',
+    {
+      title: 'Delete skill',
+      description:
+        'Delete a skill you own. Unlike a record there is no trash and no 30-day window — a skill is gone. If the goal is to stop it being suggested rather than to destroy it, edit its when_to_use instead. Deleting someone else\'s is refused even if you can see it.',
+      inputSchema: {
+        workspace: z.string(),
+        skill: z.string().describe('Skill name or id (from list_skills).'),
+        confirm: z
+          .boolean()
+          .optional()
+          .describe('Must be true. The guard exists because this is unrecoverable and a name can resolve by partial match.'),
+      },
+    },
+    handle<{ workspace: string; skill: string; confirm?: boolean }>(async ({ workspace, skill, confirm }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const ref = await resolveSkill(client, ws.id, skill);
+      // Resolve BEFORE demanding confirm, so the error can name what would be
+      // destroyed — "confirm: true is required" on its own tells a caller
+      // nothing about whether it picked the right skill.
+      if (!confirm) {
+        throw new Error(
+          `Deleting "${ref.name}" is permanent — there is no trash for skills. Call again with confirm: true if that is what you mean.`,
+        );
+      }
+      await unwrap(
+        client.DELETE('/api/v1/workspaces/{ws}/skills/{id}', { params: { path: { ws: ws.id, id: ref.id } } } as never),
+      );
+      return text({ deleted: ref.id, name: ref.name });
+    }),
+  );
+
+  reg(
+    'export_skill',
+    {
+      title: 'Export skill',
+      description:
+        'Render a skill as portable instructions that mean the same thing pasted into a different tool: `markdown` (plain prose), `claude_skill` (a SKILL.md with name/description frontmatter, the on-disk Agent Skills convention), or `chatgpt` (custom-instructions shaped). Use this when someone asks for a skill they can take with them — every field of a skill is plain text by design, so nothing StoryOS-internal leaks into the output.',
+      inputSchema: {
+        workspace: z.string(),
+        skill: z.string().describe('Skill name or id (from list_skills).'),
+        format: z.enum(['markdown', 'claude_skill', 'chatgpt']).optional().describe('Default "markdown".'),
+      },
+    },
+    handle<{ workspace: string; skill: string; format?: 'markdown' | 'claude_skill' | 'chatgpt' }>(
+      async ({ workspace, skill, format }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const ref = await resolveSkill(client, ws.id, skill);
+        const res = await unwrap<{ filename?: string; content?: string } & Record<string, unknown>>(
+          client.GET('/api/v1/workspaces/{ws}/skills/{id}/export', {
+            params: { path: { ws: ws.id, id: ref.id }, query: { format: format ?? 'markdown' } } as never,
+          }),
+        );
+        return text({ skill: ref.name, format: format ?? 'markdown', ...res });
+      },
+    ),
   );
 
   reg(

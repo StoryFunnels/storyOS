@@ -165,3 +165,84 @@ describe('skills framework (#40)', () => {
     expect(get.statusCode).toBe(404);
   });
 });
+
+/**
+ * #442 — a skill is instructions a future agent will follow, so two things have
+ * to be true about one written over the API: the record of WHO wrote it cannot
+ * be set by the writer, and an agent cannot publish instructions to other
+ * people's agents.
+ *
+ * Both are asserted against a real PAT rather than a mocked auth context —
+ * `auth.source` is derived in AuthGuard, so a unit test of the service would
+ * prove the gate works while leaving the derivation untested, which is the half
+ * that actually decides the value.
+ */
+describe('#442 — authorship is derived, and an agent cannot publish a skill', () => {
+  let pat: string;
+
+  beforeAll(async () => {
+    const res = await inject('POST', '/me/tokens', { name: 'skill-author', workspace_id: wsId });
+    pat = res.json().token;
+  });
+
+  it('records a session-authored skill as human', async () => {
+    const res = await inject('POST', `/workspaces/${wsId}/skills`, { ...baseSkill, name: 'Typed by a person' });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().source).toBe('human');
+  });
+
+  it('records a PAT-authored skill as mcp — and ignores a body that claims otherwise', async () => {
+    // The `source: 'human'` in the payload is the attack: provenance a caller can
+    // declare is not provenance. It must be dropped, not honoured.
+    const res = await inject(
+      'POST',
+      `/workspaces/${wsId}/skills`,
+      { ...baseSkill, name: 'Written by an agent', source: 'human' },
+      pat,
+    );
+    expect(res.statusCode).toBe(201);
+    expect(res.json().source).toBe('mcp');
+  });
+
+  it('refuses to create a SHARED skill over a token, naming why', async () => {
+    const res = await inject(
+      'POST',
+      `/workspaces/${wsId}/skills`,
+      { ...baseSkill, name: 'Agent tries to publish', visibility: 'shared' },
+      pat,
+    );
+    expect(res.statusCode).toBe(403);
+    expect(res.json().message ?? res.body).toMatch(/personal/i);
+  });
+
+  it('refuses to PROMOTE an existing skill to shared over a token', async () => {
+    // Without this the create-side rule is one PATCH away from decorative.
+    const created = await inject('POST', `/workspaces/${wsId}/skills`, { ...baseSkill, name: 'Promote me' }, pat);
+    expect(created.statusCode).toBe(201);
+    const id = created.json().id;
+
+    const promote = await inject('PATCH', `/workspaces/${wsId}/skills/${id}`, { visibility: 'shared' }, pat);
+    expect(promote.statusCode).toBe(403);
+
+    const after = await inject('GET', `/workspaces/${wsId}/skills/${id}`, undefined, pat);
+    expect(after.json().visibility).toBe('personal');
+  });
+
+  it('still lets an agent edit its own skill, and a HUMAN promote it', async () => {
+    // The gate is about publishing, not about writing — an agent that cannot
+    // refine its own instructions would make the whole feature pointless.
+    const created = await inject('POST', `/workspaces/${wsId}/skills`, { ...baseSkill, name: 'Refine me' }, pat);
+    const id = created.json().id;
+
+    const edit = await inject('PATCH', `/workspaces/${wsId}/skills/${id}`, { instructions: 'Sharper steps.' }, pat);
+    expect(edit.statusCode).toBe(200);
+    expect(edit.json().instructions).toBe('Sharper steps.');
+
+    // Same owner, session auth — the person reads it and publishes it.
+    const promote = await inject('PATCH', `/workspaces/${wsId}/skills/${id}`, { visibility: 'shared' });
+    expect(promote.statusCode).toBe(200);
+    expect(promote.json().visibility).toBe('shared');
+    // Promotion does not rewrite history: it was still written by an agent.
+    expect(promote.json().source).toBe('mcp');
+  });
+});

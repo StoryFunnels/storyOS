@@ -62,7 +62,9 @@ export class SkillsController {
   @MinRole('member')
   @ApiOperation({ summary: 'Create a skill — personal by default; pass visibility: "shared" to publish it to the workspace' })
   create(@Req() req: WorkspaceRequest, @Body() body: CreateSkillDto) {
-    return this.skills.create(req.membership, req.user.id, body);
+    // #442: authorship comes from the AUTH context, never the body — a caller
+    // must not be able to describe itself as a human.
+    return this.skills.create(req.membership, req.user.id, body, req.auth.source);
   }
 
   @Patch(':id')
@@ -70,7 +72,7 @@ export class SkillsController {
   @ApiParam({ name: 'id', description: 'The skill record id' })
   @ApiOperation({ summary: "Edit a skill — owner-only, even if it's shared" })
   update(@Req() req: WorkspaceRequest, @Param('id') id: string, @Body() body: UpdateSkillDto) {
-    return this.skills.update(req.membership, req.user.id, id, body);
+    return this.skills.update(req.membership, req.user.id, id, body, req.auth.source);
   }
 
   @Delete(':id')
