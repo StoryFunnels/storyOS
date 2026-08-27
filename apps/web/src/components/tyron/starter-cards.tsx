@@ -72,9 +72,27 @@ const CARDS: Card[] = [
     icon: Link2,
     title: 'Connect two things',
     blurb: 'Link two databases and see what that suddenly makes possible.',
+    /*
+     * Works from NOTHING, and that is not a detail.
+     *
+     * These cards only appear on a new workspace — so on the one surface where
+     * this card exists, there is usually nothing to connect. A card that
+     * answers "you don't have two databases yet" is a dead card, and it would be
+     * dead precisely for the first-time user it was written for.
+     *
+     * So it creates the pair when there isn't one, exactly as card 3 creates a
+     * table from a paste. The point of the card is the PAYOFF — seeing what a
+     * relation makes possible — not the click that makes the link.
+     */
     prompt:
-      'Look at the databases in this workspace and connect two that obviously belong together with a relation. ' +
-      'Then add a rollup or a linked view that shows what the connection makes possible, and tell me in one sentence what I can now see that I could not before.',
+      'Show me what a relation does, in three steps, and do all three.\n' +
+      '1. If this workspace already has two databases that obviously belong together, use those. ' +
+      'Otherwise create a pair that does — Clients and Projects — with two or three example records each, ' +
+      'and link the projects to the clients.\n' +
+      '2. THEN add a ROLLUP field on the parent side that counts or totals the linked records. This step ' +
+      'is the point of the whole exercise: use add_field with type "rollup" and config ' +
+      '{relation_field_id, op}. Do not stop after making the link.\n' +
+      '3. Tell me in one sentence what that number shows me that I could not see before.',
   },
 ];
 
