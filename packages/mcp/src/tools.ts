@@ -21,7 +21,7 @@ import type { FilterOp } from '@storyos/schemas';
 import { PALETTE as SHARED_PALETTE } from '@storyos/schemas/colors';
 import { listDatabases, listSkills, listWorkspaces, resolveDatabase, resolveFolder, resolveSkill, resolveWorkspace } from './resolve.js';
 import type { SkillRef } from './resolve.js';
-import { databaseUrl, recordUrl, viewUrl } from './links.js';
+import { databaseUrl, recordUrl, viewUrl, webBaseUrl } from './links.js';
 import {
   annotateActions,
   buildAutomationTrigger,
@@ -479,6 +479,25 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   list_watchers: 'read',
   list_linked_records: 'read',
   list_spaces: 'read',
+  /*
+   * #444 — documents and folders. The two halves sit at DIFFERENT floors and
+   * that is the API's doing, not a choice made here: SpaceDocumentsController
+   * is unmarked, so it defaults by method (GET → read, PATCH/POST/DELETE →
+   * write), while FoldersController carries a class-level
+   * `@RequiresScope('admin')`. So a write-scoped token can write a page and
+   * cannot create the folder to file it in. Mirrored rather than smoothed over:
+   * the map exists to stop an agent calling a doomed tool, and pretending the
+   * floors match would cause exactly that.
+   */
+  list_documents: 'read',
+  get_document: 'read',
+  create_document: 'write',
+  update_document: 'write',
+  delete_document: 'write',
+  list_folders: 'admin',
+  create_folder: 'admin',
+  update_folder: 'admin',
+  delete_folder: 'admin',
   // #394 — the pack gallery is public/read-only; installing one is admin.
   list_packs: 'read',
   list_icon_set: 'read',
@@ -2835,6 +2854,364 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         return text(out);
       },
     ),
+  );
+
+  /* =====================================================================
+   * #444 (#406 area 11) — standalone documents and the folders they sit in.
+   *
+   * Before this, the only rich text an agent could write was attached to a
+   * record: `update_record_description`, or a `rich_text` field. Prose that is
+   * not ABOUT a record had nowhere to go, so an agent asked for a summary, a
+   * plan or a write-up either crammed it into a record or created a database to
+   * hold one page. Both are workarounds a person can see.
+   *
+   * Markdown in, Markdown out, like every other rich-text surface here — the
+   * blocksToMarkdown/markdownToBlocks pair already does the work.
+   * ===================================================================== */
+
+  interface SpaceDocRow {
+    id: string;
+    space_id: string;
+    folder_id?: string | null;
+    title: string;
+    icon: string | null;
+    content?: unknown;
+    version?: number;
+    updated_at?: string | null;
+  }
+
+  const documentUrl = (wsId: string, docId: string) => `${webBaseUrl()}/w/${wsId}/doc/${docId}`;
+
+  const serializeDoc = (wsId: string, d: SpaceDocRow) => ({
+    id: d.id,
+    title: d.title,
+    icon: d.icon,
+    space_id: d.space_id,
+    folder_id: d.folder_id ?? null,
+    ...(d.content !== undefined ? { content: Array.isArray(d.content) ? blocksToMarkdown(d.content) : '' } : {}),
+    ...(d.version !== undefined ? { version: d.version } : {}),
+    url: documentUrl(wsId, d.id),
+  });
+
+  /** Documents are addressed by title within a space, or by id — the same
+   * name-or-id convention every other resolver here uses. Kept local rather
+   * than added to resolve.ts because it needs a space to scope the name. */
+  async function resolveDocumentId(wsId: string, spaceId: string, ref: string): Promise<string> {
+    const res = await unwrap<{ data: SpaceDocRow[] }>(
+      client.GET('/api/v1/workspaces/{ws}/spaces/{space}/documents', {
+        params: { path: { ws: wsId, space: spaceId } } as never,
+      }),
+    );
+    const list = res.data ?? [];
+    const byId = list.find((d) => d.id === ref);
+    if (byId) return byId.id;
+    const lower = ref.trim().toLowerCase();
+    const exact = list.filter((d) => d.title.toLowerCase() === lower);
+    if (exact.length === 1) return exact[0]!.id;
+    if (exact.length > 1) {
+      throw new Error(`"${ref}" matches ${exact.length} documents in this space. Pass the document id (from list_documents).`);
+    }
+    throw new Error(
+      `No document matches "${ref}" in this space. Available: ${list.map((d) => d.title).join(', ') || '(none)'}.`,
+    );
+  }
+
+  reg(
+    'list_documents',
+    {
+      title: 'List documents',
+      description:
+        'The standalone documents in a space — the pages that live in the sidebar next to databases, belonging to no record. Titles and ids only; call get_document for the text of one.',
+      inputSchema: { workspace: z.string(), space: z.string().describe('Space name, slug, or id (from list_spaces).') },
+    },
+    handle<{ workspace: string; space: string }>(async ({ workspace, space }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const spaceId = await resolveSpaceId(ws.id, space);
+      const res = await unwrap<{ data: SpaceDocRow[] }>(
+        client.GET('/api/v1/workspaces/{ws}/spaces/{space}/documents', {
+          params: { path: { ws: ws.id, space: spaceId } } as never,
+        }),
+      );
+      return text({ space: spaceId, documents: (res.data ?? []).map((d) => serializeDoc(ws.id, d)) });
+    }),
+  );
+
+  reg(
+    'get_document',
+    {
+      title: 'Get document',
+      description:
+        'Read a standalone document as Markdown. `version` comes back with it — pass it to update_document to be told about a conflicting edit instead of silently overwriting someone.',
+      inputSchema: {
+        workspace: z.string(),
+        space: z.string().describe('Space the document lives in.'),
+        document: z.string().describe('Document title or id (from list_documents).'),
+      },
+    },
+    handle<{ workspace: string; space: string; document: string }>(async ({ workspace, space, document }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const spaceId = await resolveSpaceId(ws.id, space);
+      const docId = await resolveDocumentId(ws.id, spaceId, document);
+      const doc = await unwrap<SpaceDocRow>(
+        client.GET('/api/v1/workspaces/{ws}/documents/{doc}', { params: { path: { ws: ws.id, doc: docId } } } as never),
+      );
+      return text(serializeDoc(ws.id, doc));
+    }),
+  );
+
+  reg(
+    'create_document',
+    {
+      title: 'Create document',
+      description:
+        'Write a standalone page in a space — a summary, a plan, a write-up, meeting notes. Reach for this instead of inventing a database to hold one page of prose, or cramming prose into a record it is not about. `content` is Markdown (headings, lists, links, code). Optionally file it in a folder.',
+      inputSchema: {
+        workspace: z.string(),
+        space: z.string().describe('Space name, slug, or id (from list_spaces).'),
+        title: z.string().describe('The page title, as it appears in the sidebar. Max 200 chars.'),
+        content: z.string().optional().describe('Markdown body. Omit for an empty page you will fill in later.'),
+        icon: z.string().optional().describe(ICON_PARAM_DESCRIPTION),
+        folder: z.string().optional().describe('Folder name or id to file it under (from list_folders).'),
+      },
+    },
+    handle<{ workspace: string; space: string; title: string; content?: string; icon?: string; folder?: string }>(
+      async ({ workspace, space, title, content, icon, folder }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const spaceId = await resolveSpaceId(ws.id, space);
+        const created = await unwrap<SpaceDocRow>(
+          client.POST('/api/v1/workspaces/{ws}/spaces/{space}/documents', {
+            params: { path: { ws: ws.id, space: spaceId } } as never,
+            body: { title, icon } as never,
+          }),
+        );
+        /*
+         * The create endpoint takes title and icon only — content and folder are
+         * PATCH-only. Doing the second call HERE rather than making the caller
+         * do it is the difference between "write a document" being one step and
+         * three; an agent that stopped after create would leave an empty page
+         * behind and reasonably believe it had written something.
+         */
+        const needsPatch = content !== undefined || folder !== undefined;
+        if (!needsPatch) return text(serializeDoc(ws.id, created));
+
+        const patch: Record<string, unknown> = { expected_version: created.version ?? 0 };
+        if (content !== undefined) patch.content = markdownToBlocks(content);
+        if (folder !== undefined) patch.folder_id = await resolveFolder(client, ws.id, spaceId, folder);
+        const updated = await unwrap<SpaceDocRow>(
+          client.PATCH('/api/v1/workspaces/{ws}/documents/{doc}', {
+            params: { path: { ws: ws.id, doc: created.id } } as never,
+            body: patch as never,
+          }),
+        );
+        return text(serializeDoc(ws.id, { ...created, ...updated }));
+      },
+    ),
+  );
+
+  reg(
+    'update_document',
+    {
+      title: 'Update document',
+      description:
+        'Change a document\'s title, icon, folder, or body. `content` REPLACES the whole body — read it with get_document and send the full new text, rather than the paragraph you meant to add. Pass the `version` you read to be told about a conflicting edit (409) instead of overwriting it; omit it and the last write wins.',
+      inputSchema: {
+        workspace: z.string(),
+        space: z.string().describe('Space the document lives in.'),
+        document: z.string().describe('Document title or id (from list_documents).'),
+        title: z.string().optional(),
+        content: z.string().optional().describe('Markdown — replaces the whole body.'),
+        icon: z.string().optional().describe(ICON_PARAM_DESCRIPTION),
+        folder: z.string().nullable().optional().describe('Folder name or id, or null to move it to the space root.'),
+        version: z.number().int().optional().describe('The version from get_document. Omit to overwrite unconditionally.'),
+      },
+    },
+    handle<{
+      workspace: string;
+      space: string;
+      document: string;
+      title?: string;
+      content?: string;
+      icon?: string;
+      folder?: string | null;
+      version?: number;
+    }>(async ({ workspace, space, document, title, content, icon, folder, version }) => {
+      if (title === undefined && content === undefined && icon === undefined && folder === undefined) {
+        throw new Error('Nothing to change — pass at least one of title, content, icon, folder.');
+      }
+      const ws = await resolveWorkspace(client, workspace);
+      const spaceId = await resolveSpaceId(ws.id, space);
+      const docId = await resolveDocumentId(ws.id, spaceId, document);
+
+      const patch: Record<string, unknown> = {};
+      if (title !== undefined) patch.title = title;
+      if (icon !== undefined) patch.icon = icon;
+      if (folder !== undefined) patch.folder_id = folder === null ? null : await resolveFolder(client, ws.id, spaceId, folder);
+      if (content !== undefined) {
+        patch.content = markdownToBlocks(content);
+        /*
+         * A content write needs a version. Rather than refuse without one, read
+         * the current version — the same read-then-write update_record_description
+         * does. Supplying `version` is what turns this into a real check; the
+         * fallback keeps a one-shot edit from being a two-call ritual.
+         */
+        patch.expected_version =
+          version ??
+          (
+            await unwrap<{ version: number }>(
+              client.GET('/api/v1/workspaces/{ws}/documents/{doc}', { params: { path: { ws: ws.id, doc: docId } } } as never),
+            )
+          ).version;
+      }
+      const updated = await unwrap<SpaceDocRow>(
+        client.PATCH('/api/v1/workspaces/{ws}/documents/{doc}', {
+          params: { path: { ws: ws.id, doc: docId } } as never,
+          body: patch as never,
+        }),
+      );
+      return text(serializeDoc(ws.id, updated));
+    }),
+  );
+
+  reg(
+    'delete_document',
+    {
+      title: 'Delete document',
+      description:
+        'Delete a standalone document. Unlike a record this does not appear in any trash you can browse, so treat it as permanent.',
+      inputSchema: {
+        workspace: z.string(),
+        space: z.string(),
+        document: z.string().describe('Document title or id (from list_documents).'),
+        confirm: z.boolean().optional().describe('Must be true — a title can resolve by exact match to the wrong page.'),
+      },
+    },
+    handle<{ workspace: string; space: string; document: string; confirm?: boolean }>(
+      async ({ workspace, space, document, confirm }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const spaceId = await resolveSpaceId(ws.id, space);
+        const docId = await resolveDocumentId(ws.id, spaceId, document);
+        if (!confirm) {
+          const doc = await unwrap<SpaceDocRow>(
+            client.GET('/api/v1/workspaces/{ws}/documents/{doc}', { params: { path: { ws: ws.id, doc: docId } } } as never),
+          );
+          throw new Error(
+            `Deleting "${doc.title}" is not undoable from here — there is no document trash. Call again with confirm: true.`,
+          );
+        }
+        await unwrap(
+          client.DELETE('/api/v1/workspaces/{ws}/documents/{doc}', { params: { path: { ws: ws.id, doc: docId } } } as never),
+        );
+        return text({ deleted: docId });
+      },
+    ),
+  );
+
+  // ---- Folders: the sidebar grouping documents, databases and views sit in ----
+
+  reg(
+    'list_folders',
+    {
+      title: 'List folders',
+      description:
+        'The folders in a space — the sidebar groups that documents, databases and views can be filed under. Read this before create_document\'s `folder` so you file a page in an existing group instead of inventing a near-duplicate.',
+      inputSchema: { workspace: z.string(), space: z.string() },
+    },
+    handle<{ workspace: string; space: string }>(async ({ workspace, space }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const spaceId = await resolveSpaceId(ws.id, space);
+      const res = await unwrap<{ data: Array<{ id: string; name: string; icon: string | null; position?: number }> }>(
+        client.GET('/api/v1/workspaces/{ws}/spaces/{space}/folders', {
+          params: { path: { ws: ws.id, space: spaceId } } as never,
+        }),
+      );
+      return text({ space: spaceId, folders: res.data ?? [] });
+    }),
+  );
+
+  reg(
+    'create_folder',
+    {
+      title: 'Create folder',
+      description:
+        'Add a sidebar folder to a space. Worth doing when you have just built several related things — a folder is how a person finds them later. Call list_folders first: a second "Reports" next to an existing one is worse than no folder.',
+      inputSchema: {
+        workspace: z.string(),
+        space: z.string(),
+        name: z.string().describe('Folder name, max 100 chars.'),
+        icon: z.string().optional().describe(ICON_PARAM_DESCRIPTION),
+      },
+    },
+    handle<{ workspace: string; space: string; name: string; icon?: string }>(async ({ workspace, space, name, icon }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const spaceId = await resolveSpaceId(ws.id, space);
+      const created = await unwrap<{ id: string; name: string; icon: string | null }>(
+        client.POST('/api/v1/workspaces/{ws}/spaces/{space}/folders', {
+          params: { path: { ws: ws.id, space: spaceId } } as never,
+          body: { name, icon } as never,
+        }),
+      );
+      return text(created);
+    }),
+  );
+
+  reg(
+    'update_folder',
+    {
+      title: 'Update folder',
+      description: 'Rename a folder, change its icon, or move it up/down the sidebar with `position`.',
+      inputSchema: {
+        workspace: z.string(),
+        space: z.string(),
+        folder: z.string().describe('Folder name or id (from list_folders).'),
+        name: z.string().optional(),
+        icon: z.string().optional().describe(ICON_PARAM_DESCRIPTION),
+        position: z.number().int().optional().describe('Sidebar order — lower sorts first.'),
+      },
+    },
+    handle<{ workspace: string; space: string; folder: string; name?: string; icon?: string; position?: number }>(
+      async ({ workspace, space, folder, name, icon, position }) => {
+        if (name === undefined && icon === undefined && position === undefined) {
+          throw new Error('Nothing to change — pass at least one of name, icon, position.');
+        }
+        const ws = await resolveWorkspace(client, workspace);
+        const spaceId = await resolveSpaceId(ws.id, space);
+        const folderId = await resolveFolder(client, ws.id, spaceId, folder);
+        const updated = await unwrap<{ id: string; name: string; icon: string | null }>(
+          client.PATCH('/api/v1/workspaces/{ws}/folders/{folder}', {
+            params: { path: { ws: ws.id, folder: folderId } } as never,
+            body: { name, icon, position } as never,
+          }),
+        );
+        return text(updated);
+      },
+    ),
+  );
+
+  reg(
+    'delete_folder',
+    {
+      title: 'Delete folder',
+      description:
+        'Remove a sidebar folder. Its contents are NOT deleted — documents, databases and views inside it fall back to the space root. That makes this the safe way to undo a grouping you got wrong.',
+      inputSchema: {
+        workspace: z.string(),
+        space: z.string(),
+        folder: z.string().describe('Folder name or id (from list_folders).'),
+      },
+    },
+    handle<{ workspace: string; space: string; folder: string }>(async ({ workspace, space, folder }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const spaceId = await resolveSpaceId(ws.id, space);
+      const folderId = await resolveFolder(client, ws.id, spaceId, folder);
+      // No confirm guard, deliberately: unlike delete_document this destroys
+      // nothing — the folder's contents survive at the space root.
+      await unwrap(
+        client.DELETE('/api/v1/workspaces/{ws}/folders/{folder}', {
+          params: { path: { ws: ws.id, folder: folderId } } as never,
+        }),
+      );
+      return text({ deleted: folderId, note: 'Its contents moved to the space root; nothing was destroyed.' });
+    }),
   );
 
   // ============ Relations (MN-146 fast-follow): link databases ============

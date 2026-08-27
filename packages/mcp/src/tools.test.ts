@@ -2487,3 +2487,144 @@ describe('#442 — skill authoring tools', () => {
     expect((await call('export_skill', { workspace: 'Eng', skill: 'sk-1', format: 'claude_skill' })).content).toContain('Weekly digest');
   });
 });
+
+/**
+ * #444 — documents and folders.
+ *
+ * The interesting failures here are all "it looked like it worked": a document
+ * created with content that is actually empty, a Markdown body stored as the
+ * literal string, and a version omitted so a concurrent edit is silently
+ * clobbered. Each returns a perfectly plausible success.
+ */
+describe('#444 — standalone documents and sidebar folders', () => {
+  interface Sent { method: string; path: string; body?: Record<string, unknown>; params?: Record<string, string> }
+
+  function harness() {
+    const sent: Sent[] = [];
+    const handlers = new Map<string, (a: unknown) => Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }>>();
+    const doc = {
+      id: 'doc-1',
+      space_id: 'sp-1',
+      folder_id: null,
+      title: 'Q3 plan',
+      icon: null,
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Existing body' }] }],
+      version: 4,
+    };
+    const log = (method: string) => async (path: string, o?: { params?: { path?: Record<string, string> }; body?: unknown }) => {
+      sent.push({ method, path, params: o?.params?.path, body: o?.body as Record<string, unknown> });
+      if (path === '/api/v1/workspaces') return { data: [{ id: 'ws-1', name: 'Eng' }] };
+      if (path === '/api/v1/workspaces/{ws}/spaces') return { data: [{ id: 'sp-1', name: 'Ops', slug: 'ops' }] };
+      if (path === '/api/v1/workspaces/{ws}/spaces/{space}/documents') {
+        // POST creates title+icon only — no content, which is the whole reason
+        // create_document has to make a second call.
+        return method === 'POST'
+          ? { data: { id: 'doc-new', space_id: 'sp-1', title: (o?.body as { title?: string })?.title, icon: null, version: 0 } }
+          : { data: { data: [doc] } };
+      }
+      if (path === '/api/v1/workspaces/{ws}/spaces/{space}/folders') {
+        return method === 'POST'
+          ? { data: { id: 'f-new', name: 'Reports', icon: null } }
+          : { data: { data: [{ id: 'f-1', name: 'Reports', icon: null }] } };
+      }
+      if (path === '/api/v1/workspaces/{ws}/documents/{doc}') {
+        if (method === 'PATCH') return { data: { ...doc, ...(o?.body as object) } };
+        return { data: doc };
+      }
+      return { data: {} };
+    };
+    registerTools({ registerTool: (n: string, _c: unknown, h: never) => handlers.set(n, h as never) } as never, {
+      client: { GET: log('GET'), POST: log('POST'), PATCH: log('PATCH'), PUT: log('PUT'), DELETE: log('DELETE') } as never,
+      baseUrl: 'http://test',
+      token: 'tok',
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- shape varies per tool.
+    const call = async (n: string, a: unknown): Promise<any> => {
+      const r = await handlers.get(n)!(a);
+      if (r.isError) throw new Error(r.content[0]!.text);
+      return JSON.parse(r.content[0]!.text);
+    };
+    return { call, sent };
+  }
+
+  it('create_document with content actually writes the content', async () => {
+    // The create endpoint accepts title and icon ONLY. A tool that stopped there
+    // would return a convincing success and leave an empty page behind.
+    const { call, sent } = harness();
+    await call('create_document', { workspace: 'Eng', space: 'ops', title: 'Q3 plan', content: '# Goals\n\n- ship it' });
+    const patch = sent.find((s) => s.method === 'PATCH')!;
+    expect(patch, 'content must be written by a follow-up PATCH').toBeDefined();
+    expect(Array.isArray(patch.body!.content)).toBe(true);
+    expect(JSON.stringify(patch.body!.content)).toContain('Goals');
+  });
+
+  it('create_document with no content makes no second call', async () => {
+    const { call, sent } = harness();
+    await call('create_document', { workspace: 'Eng', space: 'ops', title: 'Empty page' });
+    expect(sent.some((s) => s.method === 'PATCH')).toBe(false);
+  });
+
+  it('stores Markdown as blocks and reads it back as Markdown', async () => {
+    const { call } = harness();
+    const read = await call('get_document', { workspace: 'Eng', space: 'ops', document: 'Q3 plan' });
+    expect(read.content).toContain('Existing body');
+    expect(read.content).not.toContain('"type"'); // not raw BlockNote JSON
+  });
+
+  it('update_document reads the current version when none is given', async () => {
+    // Sending expected_version: undefined would make every content write
+    // unconditional AND look like it was checked.
+    const { call, sent } = harness();
+    await call('update_document', { workspace: 'Eng', space: 'ops', document: 'Q3 plan', content: 'new body' });
+    const patch = sent.find((s) => s.method === 'PATCH')!;
+    expect(patch.body!.expected_version).toBe(4);
+  });
+
+  it('update_document passes a supplied version through, so a conflict can 409', async () => {
+    const { call, sent } = harness();
+    await call('update_document', { workspace: 'Eng', space: 'ops', document: 'Q3 plan', content: 'x', version: 2 });
+    expect(sent.find((s) => s.method === 'PATCH')!.body!.expected_version).toBe(2);
+  });
+
+  it('update_document refuses an empty patch', async () => {
+    const { call } = harness();
+    await expect(call('update_document', { workspace: 'Eng', space: 'ops', document: 'Q3 plan' })).rejects.toThrow(/at least one/i);
+  });
+
+  it('resolves a folder by NAME on both create and update', async () => {
+    const { call, sent } = harness();
+    await call('create_document', { workspace: 'Eng', space: 'ops', title: 'Filed', folder: 'Reports' });
+    expect(sent.find((s) => s.method === 'PATCH')!.body!.folder_id).toBe('f-1');
+
+    const u = harness();
+    await u.call('update_document', { workspace: 'Eng', space: 'ops', document: 'Q3 plan', folder: 'Reports' });
+    expect(u.sent.find((s) => s.method === 'PATCH')!.body!.folder_id).toBe('f-1');
+  });
+
+  it('update_document folder:null moves the page to the space root', async () => {
+    const { call, sent } = harness();
+    await call('update_document', { workspace: 'Eng', space: 'ops', document: 'Q3 plan', folder: null });
+    expect(sent.find((s) => s.method === 'PATCH')!.body!.folder_id).toBeNull();
+  });
+
+  it('delete_document names the page before destroying it, and deletes nothing without confirm', async () => {
+    const { call, sent } = harness();
+    await expect(call('delete_document', { workspace: 'Eng', space: 'ops', document: 'Q3 plan' })).rejects.toThrow(/Q3 plan/);
+    expect(sent.some((s) => s.method === 'DELETE')).toBe(false);
+  });
+
+  it('delete_folder needs no confirm — it destroys nothing', async () => {
+    // The asymmetry with delete_document is deliberate: a folder's contents
+    // survive at the space root, so a confirm prompt here is noise.
+    const { call, sent } = harness();
+    const out = await call('delete_folder', { workspace: 'Eng', space: 'ops', folder: 'Reports' });
+    expect(sent.some((s) => s.method === 'DELETE')).toBe(true);
+    expect(out.note).toMatch(/space root/i);
+  });
+
+  it('a document url points at the real web route', async () => {
+    const { call } = harness();
+    const read = await call('get_document', { workspace: 'Eng', space: 'ops', document: 'Q3 plan' });
+    expect(read.url).toBe(`${TEST_WEB_URL}/w/ws-1/doc/doc-1`);
+  });
+});
