@@ -285,6 +285,35 @@ export function TableView({
     fields.slice(frozenCount).map((f) => f.id),
   );
 
+  /*
+   * #410 — the body must preview the SAME order the header previews.
+   *
+   * Only the header cells sit inside the `SortableContext`, so dnd-kit gave them
+   * a preview transform while the virtualized rows below kept rendering straight
+   * from `fields`. Mid-drag the grid therefore stated, in plain sight, that
+   * Amount = "New" and Stage = "1,200" — with one record it looks like a glitch;
+   * with a screenful it looks like the data moved.
+   *
+   * Recomputed on `over` CHANGE, not per pointermove: `over` only flips when the
+   * pointer crosses a column boundary, so this is a handful of renders per drag
+   * rather than one per mouse event (AC4's concern).
+   *
+   * The frozen leading columns are excluded, exactly as `onColumnDragEnd` does —
+   * they never move, and including them would let a drop preview a position the
+   * commit cannot produce.
+   */
+  const previewFields = useMemo(() => {
+    const { activeId, overId } = columnDrag;
+    if (!activeId || !overId || activeId === overId) return fields;
+    const head = fields.slice(0, frozenCount);
+    const rest = fields.slice(frozenCount);
+    const from = rest.findIndex((f) => f.id === activeId);
+    const to = rest.findIndex((f) => f.id === overId);
+    if (from < 0 || to < 0) return fields;
+    return [...head, ...arrayMove(rest, from, to)];
+  }, [fields, frozenCount, columnDrag]);
+
+
   function commitEdit(row: RecordRow, field: Field, value: unknown) {
     setEditing(false);
     const current = valueOf(row, field) ?? null;
@@ -756,7 +785,12 @@ export function TableView({
                       )}
                     </div>
                   </div>
-                  {fields.map((field, colIndex) => {
+                  {/* #410 — preview order, so values stay under their own headers. */}
+                  {previewFields.map((field) => {
+                    // colIndex from the COMMITTED order: the cursor and range
+                    // selection address cells by index, and renumbering them
+                    // mid-drag would move someone's selection under them.
+                    const colIndex = fields.indexOf(field);
                     const isCursor = cursor?.row === item.index && cursor?.col === colIndex;
                     const isEditing = isCursor && editing;
                     // MN-285: cells inside the active shift-click/shift-arrow range
