@@ -3717,6 +3717,9 @@ export interface components {
             position?: number;
             description?: string | null;
         };
+        DeleteSpaceDto: {
+            confirm?: string;
+        };
         UpdateMemberDto: {
             /** @enum {string} */
             role?: "admin" | "member" | "guest";
@@ -5240,7 +5243,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteSpaceDto"];
+            };
+        };
         responses: {
             200: {
                 headers: {

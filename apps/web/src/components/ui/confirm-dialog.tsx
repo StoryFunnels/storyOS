@@ -12,6 +12,20 @@ interface ConfirmOptions {
   cancelLabel?: string;
   /** Style the confirm button as destructive (deletes). */
   danger?: boolean;
+  /**
+   * #417 — require the user to TYPE this string before the confirm button works.
+   *
+   * The strength of a guard should match the blast radius, and that rule has to
+   * live in one place or it becomes a per-menu judgement call. A plain dialog is
+   * one keystroke from a slip; typing a name cannot be done by accident.
+   *
+   * Reserve it for actions that destroy data the trash cannot recover — deleting
+   * a space (which hard-cascades every database and record inside it) or a
+   * populated database. An empty container does not need it; asking for ceremony
+   * where nothing is at stake is how people learn to type the name without
+   * reading the sentence above it.
+   */
+  requireTyped?: string;
 }
 
 type ConfirmFn = (options: ConfirmOptions) => Promise<boolean>;
@@ -25,9 +39,11 @@ const ConfirmContext = createContext<ConfirmFn | null>(null);
  */
 export function ConfirmProvider({ children }: { children: ReactNode }) {
   const [opts, setOpts] = useState<ConfirmOptions | null>(null);
+  const [typed, setTyped] = useState('');
   const resolver = useRef<((value: boolean) => void) | null>(null);
 
   const confirm = useCallback<ConfirmFn>((options) => {
+    setTyped('');
     setOpts(options);
     return new Promise<boolean>((resolve) => {
       resolver.current = resolve;
@@ -47,6 +63,18 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
         {opts && (
           <DialogContent title={opts.title}>
             {opts.message && <p className="mb-5 text-[13px] leading-relaxed text-muted">{opts.message}</p>}
+            {opts.requireTyped && (
+              <label className="mb-5 block text-[13px] text-ink-secondary">
+                Type <span className="font-medium text-ink">{opts.requireTyped}</span> to confirm
+                <input
+                  autoFocus
+                  value={typed}
+                  onChange={(e) => setTyped(e.target.value)}
+                  aria-label={`Type ${opts.requireTyped} to confirm`}
+                  className="mt-1.5 h-8 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                />
+              </label>
+            )}
             <div className="flex justify-end gap-2">
               <Button variant="secondary" size="sm" onClick={() => settle(false)}>
                 {opts.cancelLabel ?? 'Cancel'}
@@ -54,7 +82,11 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
               <Button
                 variant={opts.danger ? 'destructive' : 'primary'}
                 size="sm"
-                autoFocus
+                /* autoFocus goes to the INPUT when one is required — focusing the
+                   destructive button and letting Enter fire it would undo the
+                   whole point of asking. */
+                autoFocus={!opts.requireTyped}
+                disabled={Boolean(opts.requireTyped) && typed !== opts.requireTyped}
                 onClick={() => settle(true)}
               >
                 {opts.confirmLabel ?? 'Confirm'}

@@ -110,10 +110,15 @@ export function useSidebarMutations(ws: string) {
       onSuccess: invalidate,
     }),
     deleteSpace: useMutation({
-      mutationFn: async (id: string) =>
+      // #417 — `confirm` is the typed space name, required by the API whenever
+      // the space still holds databases. Sent from the UI's typed-confirm dialog;
+      // the API rejects the call without it, so the guard cannot be bypassed by
+      // a caller that forgets to ask.
+      mutationFn: async ({ id, confirm }: { id: string; confirm?: string }) =>
         unwrap<unknown>(
           await api.DELETE('/api/v1/workspaces/{ws}/spaces/{space}', {
             params: { path: { ws, space: id } },
+            body: { confirm } as never,
           }),
         ),
       onSuccess: invalidate,

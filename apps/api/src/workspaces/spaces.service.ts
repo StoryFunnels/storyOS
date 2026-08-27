@@ -1,10 +1,10 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import { normalizeIconInput } from '@storyos/schemas/icons';
 import { normalizeDescription } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { spaces } from '../db/schema';
+import { databases, spaces } from '../db/schema';
 import { AccessService } from '../access/access.service';
 import { slugify } from '../databases/databases.service';
 import type { Membership } from './workspace-access.guard';
@@ -117,12 +117,56 @@ export class SpacesService {
     return space;
   }
 
-  async remove(workspaceId: string, spaceId: string) {
+  /**
+   * #417 — the guard lives HERE, not in the UI.
+   *
+   * The sidebar refused to delete a non-empty space, so the founder's one-click
+   * loss was an empty one — but that refusal was the ONLY protection anywhere,
+   * and it was client-side. `DELETE /spaces/:space` cascaded unconditionally, so
+   * MCP, a script or curl destroyed every database and record in the space with
+   * no friction at all. A guard that only exists in one caller is not a guard;
+   * it is a habit.
+   *
+   * `spaces → databases → records` is a hard-delete cascade. Records carry
+   * `deletedAt` for the trash, but a cascade deletes the ROWS, so the trash
+   * cannot recover any of it.
+   *
+   * Empty spaces confirm without a typed name deliberately — see
+   * `deleteSpaceSchema`. Asking for ceremony where there is nothing to lose is
+   * how people learn to type the name without reading the sentence.
+   */
+  async remove(workspaceId: string, spaceId: string, opts: { confirm?: string } = {}) {
+    const space = await this.db.query.spaces.findFirst({
+      where: and(eq(spaces.id, spaceId), eq(spaces.workspaceId, workspaceId)),
+      columns: { id: true, name: true },
+    });
+    if (!space) throw new NotFoundException('Space not found');
+
+    const contained = await this.db.query.databases.findMany({
+      where: eq(databases.spaceId, spaceId),
+      columns: { id: true, name: true },
+    });
+
+    if (contained.length > 0 && opts.confirm !== space.name) {
+      /*
+       * The message states the blast radius rather than the rule. "confirm must
+       * equal the name" tells someone what to type; naming the databases tells
+       * them whether they should.
+       */
+      const names = contained.map((d) => d.name).join(', ');
+      throw new UnprocessableEntityException(
+        `Deleting "${space.name}" will permanently delete ${contained.length} database${
+          contained.length === 1 ? '' : 's'
+        } (${names}) and every record in them. This cannot be undone and the trash cannot recover it. ` +
+          `To proceed, pass confirm: "${space.name}".`,
+      );
+    }
+
     const [gone] = await this.db
       .delete(spaces)
       .where(and(eq(spaces.id, spaceId), eq(spaces.workspaceId, workspaceId)))
       .returning();
     if (!gone) throw new NotFoundException('Space not found');
-    return { deleted: true };
+    return { deleted: true, databases_deleted: contained.length };
   }
 }
