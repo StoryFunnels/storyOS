@@ -51,6 +51,36 @@ const NUMBER_WORDS = [
 const VAGUE_QUANTIFIERS = ['several', 'a few', 'dozens', 'hundreds', 'thousands', 'many', 'a couple', 'numerous'];
 
 /**
+ * ZERO is a quantity, and it is the most dangerous one (#405).
+ *
+ * Asked "How many archived deals are there?" against a workspace with no deals
+ * database at all, Tyron answered "There are no archived deals in the database."
+ * Zero tool calls. The sentence has no numeral, so the #401 detector let it
+ * through.
+ *
+ * A wrong COUNT invites doubt — numbers get checked. A confident ZERO does not:
+ * it reads as a clean, unremarkable result, so nobody goes looking. And it is
+ * exactly what a search over a nonexistent thing naturally produces, so EMPTY and
+ * ABSENT collapse into the same sentence. The two readings are completely
+ * different:
+ *
+ *   "you have a deals database and nothing archived in it"  <- what it says
+ *   "there is no deals database"                            <- what is true
+ *
+ * The second is a fact about the SCHEMA and it is the one that changes what the
+ * user does next. Someone who accepts the answer walks away believing they have
+ * a deals database.
+ *
+ * #405 is #401 with the SUBJECT invented instead of the number, and the same
+ * rule underneath: you cannot count a thing you have not established exists, so
+ * the check belongs before the count. Making the loop send this back means the
+ * model resolves the noun — and `resolveDatabase` already answers a miss with
+ * "No database matches "deals" in this workspace. Available: ...", which names
+ * what DOES exist and makes a wording near-miss recoverable in one step.
+ */
+const ZERO_WORDS = ['zero', 'none', 'no ', 'not any', 'nothing', "aren't any", 'are not any'];
+
+/**
  * Nouns that ARE workspace storage. A quantity beside one of these is a count of
  * the user's data, full stop.
  */
@@ -120,6 +150,7 @@ function sentences(text: string): string[] {
 function hasQuantity(lower: string): boolean {
   if (/\d/.test(lower)) return true;
   if (VAGUE_QUANTIFIERS.some((q) => lower.includes(q))) return true;
+  if (ZERO_WORDS.some((z) => lower.includes(z))) return true;
   return NUMBER_WORDS.some((w) => new RegExp(`\\b${w}\\b`).test(lower));
 }
 

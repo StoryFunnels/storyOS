@@ -125,7 +125,29 @@ function presentExpr(def: FieldDef): SQL {
 
 function compileCondition(fieldName: string, op: FilterOp, value: unknown, ctx: CompilerContext): SQL {
   const def = ctx.defs.get(fieldName);
-  if (!def) throw err(`unknown field "${fieldName}" in filter`);
+  if (!def) {
+    /*
+     * #405 — name what DOES exist.
+     *
+     * An unknown field already refused rather than matching nothing, so this was
+     * never the silent-zero bug the database case was. But half the time a miss
+     * is a WORDING mismatch rather than a wrong belief, and a bare "unknown
+     * field" leaves the caller — human or model — to guess again. Listing the
+     * real names makes a near-miss recoverable in one step, exactly as
+     * `resolveDatabase` already does for databases.
+     *
+     * Capped, because a wide database would otherwise put a hundred names into
+     * an error message and bury the sentence that matters.
+     */
+    const known = [...ctx.defs.keys()].sort();
+    const shown = known.slice(0, 25).join(', ');
+    const more = known.length > 25 ? `, and ${known.length - 25} more` : '';
+    throw err(
+      known.length
+        ? `unknown field "${fieldName}" in filter. Available fields: ${shown}${more}.`
+        : `unknown field "${fieldName}" in filter.`,
+    );
+  }
 
   // #351: system fields advertise an exact op vocabulary in the registry. Reject an
   // unsupported op up front with a clear, registry-sourced error, so MCP and API
