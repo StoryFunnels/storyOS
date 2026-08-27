@@ -2950,7 +2950,28 @@ export class RecordsService {
     databaseId: string,
     input: { op: 'count' | 'sum' | 'avg' | 'min' | 'max'; field?: string; filter?: unknown; q?: string },
     currentUserId: string,
-  ): Promise<{ op: string; field: string | null; value: number | null; filtered: boolean }> {
+  ): Promise<{
+    op: string;
+    field: string | null;
+    value: number | null;
+    filtered: boolean;
+    /**
+     * #360a — this number is EXACT, and that claim travels as data.
+     *
+     * "Here are 4 that look relevant" and "there are exactly 4" are different
+     * claims, and a user cannot tell them apart unless we say which one they
+     * got. The AC is explicit that it must be a FIELD rather than a phrasing
+     * instruction: a model told to caveat its answers will sometimes forget, and
+     * the one time it forgets is indistinguishable from a wrong count.
+     *
+     * Always true here, because this endpoint counts in SQL over the whole
+     * matching set — there is no sampling and no pagination to be wrong about.
+     * It is stated anyway rather than left implicit, so that when the semantic
+     * half (#421) lands it returns the same SHAPE with `exact: false`, and a
+     * caller reads one field instead of knowing which endpoint it called.
+     */
+    exact: true;
+  }> {
     const defs = await this.fieldDefs(databaseId);
     const byApiName = new Map(defs.map((d) => [d.api_name, d]));
     for (const def of systemFieldDefsFor(byApiName.keys())) byApiName.set(def.api_name, def);
@@ -2964,7 +2985,7 @@ export class RecordsService {
 
     if (input.op === 'count') {
       const [row] = await this.db.select({ value: sql<number>`count(*)::int` }).from(records).where(where);
-      return { op: 'count', field: null, value: row?.value ?? 0, filtered: Boolean(input.filter || input.q) };
+      return { op: 'count', field: null, value: row?.value ?? 0, filtered: Boolean(input.filter || input.q), exact: true };
     }
 
     if (!input.field) {
@@ -3002,6 +3023,7 @@ export class RecordsService {
       field: input.field,
       value: row?.value == null ? null : Number(row.value),
       filtered: Boolean(input.filter || input.q),
+      exact: true,
     };
   }
 
