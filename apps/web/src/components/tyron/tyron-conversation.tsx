@@ -6,7 +6,9 @@ import { ArrowUp } from 'lucide-react';
 import { api, apiErrorMessage } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { AgentAvatar } from './agent-avatar';
+import { useRememberedThread } from '@/lib/tyron-thread';
 import { composerHeight } from './composer-height';
+import { ThreadMenu } from './thread-menu';
 
 /**
  * The conversation inside Tyron's panel (#357c).
@@ -25,7 +27,14 @@ interface Msg {
 
 export function TyronConversation({ ws }: { ws: string }) {
   const qc = useQueryClient();
-  const [threadId, setThreadId] = useState<string | null>(null);
+  /*
+   * #403 — remembered across open/close, per workspace.
+   *
+   * This was `useState<string | null>(null)`, so closing the panel unmounted the
+   * component and reopening started from nothing. The conversation was never
+   * lost; it was unreachable.
+   */
+  const { threadId, setThreadId, hydrated } = useRememberedThread(ws);
   const [draft, setDraft] = useState('');
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -63,6 +72,9 @@ export function TyronConversation({ ws }: { ws: string }) {
   const thread = useQuery({
     queryKey: ['tyron-thread', ws, threadId],
     enabled: Boolean(threadId),
+    // A remembered thread can be deleted from another tab or another device, so
+    // this WILL 404 sometimes. Retrying a 404 just delays the recovery below.
+    retry: false,
     queryFn: async () => {
       const { data, error } = await api.GET('/api/v1/workspaces/{ws}/tyron/threads/{thread}', {
         params: { path: { ws, thread: threadId! } },
@@ -71,6 +83,17 @@ export function TyronConversation({ ws }: { ws: string }) {
       return data as unknown as { id: string; title: string; messages: Msg[] };
     },
   });
+
+  /*
+   * #403 — a remembered thread that no longer exists starts a fresh one.
+   *
+   * Deleting a thread on another device leaves a stale id here. Treating that
+   * 404 as an error would show a broken panel for a reason the user cannot see
+   * and cannot clear; forgetting the id puts them back at a working empty state.
+   */
+  useEffect(() => {
+    if (thread.isError && threadId) setThreadId(null);
+  }, [thread.isError, threadId, setThreadId]);
 
   const send = useMutation({
     mutationFn: async (message: string) => {
@@ -140,8 +163,21 @@ export function TyronConversation({ ws }: { ws: string }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      {/* #403 — the thread controls sit here rather than in the panel header
+          because the thread id lives in THIS component. Lifting it two levels so
+          the buttons could live one row higher would spread the state for a
+          cosmetic gain. */}
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border-default px-3 py-1.5">
+        <span className="min-w-0 truncate text-[12px] text-muted" title={thread.data?.title}>
+          {thread.data?.title ?? 'New conversation'}
+        </span>
+        <ThreadMenu ws={ws} threadId={threadId} onPick={setThreadId} />
+      </div>
       <div className="min-h-0 flex-1 overflow-auto p-4">
-        {messages.length === 0 && !send.isPending && (
+        {/* #403 — `hydrated` gates this so the empty state does not flash before
+            localStorage has been read; without it a remembered conversation
+            looks lost for a frame every single time the panel opens. */}
+        {hydrated && messages.length === 0 && !send.isPending && !thread.isLoading && (
           <p className="text-[13px] text-muted">
             Ask about your data, or tell me what to change.
           </p>
