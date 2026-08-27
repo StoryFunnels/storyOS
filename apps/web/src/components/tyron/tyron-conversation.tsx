@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowUp } from 'lucide-react';
 import { api, apiErrorMessage } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { AgentAvatar } from './agent-avatar';
+import { composerHeight } from './composer-height';
 
 /**
  * The conversation inside Tyron's panel (#357c).
@@ -26,6 +27,37 @@ export function TyronConversation({ ws }: { ws: string }) {
   const qc = useQueryClient();
   const [threadId, setThreadId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
+
+  /*
+   * #402 — grow the composer as you type.
+   *
+   * `rows={1}` with `max-h-32 min-h-8` set a floor and a ceiling and NOTHING
+   * drove the height between them. A textarea does not auto-size, so a long
+   * message scrolled inside a one-row box — verified in a live browser at 1440x900:
+   * 34px before typing, 34px after 180 characters.
+   *
+   * Reset to `auto` FIRST. Without that the element can only ever get taller,
+   * because `scrollHeight` of an already-tall box includes the height it was
+   * given — so deleting text would leave the box stretched.
+   *
+   * `useLayoutEffect`, not `useEffect`: this runs before paint, so the box is
+   * never briefly the wrong size. And it keys off `draft` rather than the input
+   * event, so clearing the draft after a send shrinks it back — an input handler
+   * alone would leave a four-line box above an empty composer.
+   *
+   * The RULE lives in `composer-height.ts` so it is testable without a DOM —
+   * everything that could be wrong about this is the clamp and the overflow
+   * flip, and neither needs a browser to check.
+   */
+  useLayoutEffect(() => {
+    const el = composerRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    const next = composerHeight(el.scrollHeight);
+    el.style.height = `${next.height}px`;
+    el.style.overflowY = next.overflowY;
+  }, [draft]);
   const endRef = useRef<HTMLDivElement | null>(null);
 
   const thread = useQuery({
@@ -199,6 +231,7 @@ export function TyronConversation({ ws }: { ws: string }) {
       <div className="shrink-0 border-t border-border-default p-3">
         <div className="flex items-end gap-2">
           <textarea
+            ref={composerRef}
             rows={1}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
