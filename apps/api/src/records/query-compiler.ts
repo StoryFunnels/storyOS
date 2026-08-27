@@ -109,7 +109,15 @@ function presentExpr(def: FieldDef): SQL {
   if (def.type === 'created_at' || def.type === 'updated_at') return sql`TRUE`;
   if (def.type === 'created_by') return sql`(${records.createdBy} IS NOT NULL)`;
   if (def.type === 'updated_by') return sql`(${records.updatedBy} IS NOT NULL)`;
-  if (def.type === 'multi_select' || (def.type === 'user' && def.config['multi'] === true)) {
+  if (
+    def.type === 'multi_select' ||
+    // #391 — "posts with no cover image" is the ticket's headline filter, and an
+    // attachment field that has been emptied leaves an EMPTY ARRAY behind rather
+    // than a missing key. Without this it would read as present-but-empty and the
+    // filter would answer nothing.
+    def.type === 'attachment' ||
+    (def.type === 'user' && def.config['multi'] === true)
+  ) {
     return sql`(${records.values} ? ${def.id} AND jsonb_array_length(${records.values}->${def.id}) > 0)`;
   }
   return sql`(${records.values} ? ${def.id})`;
@@ -170,6 +178,17 @@ function compileCondition(fieldName: string, op: FilterOp, value: unknown, ctx: 
       return compileIdSet(def, op, value, ctx, 'scalar');
     case 'user':
       return compileIdSet(def, op, value, ctx, def.config['multi'] === true ? 'array' : 'scalar');
+    /*
+     * #391 — attachments filter on PRESENCE only.
+     *
+     * `is_empty` / `not_empty` fall through to `presentExpr` above, which is the
+     * whole of what AC5 asks for ("posts with no cover"). Deliberately no eq/has
+     * against an attachment id: nobody types a file uuid into a filter, and
+     * offering an op that is unusable in practice is worse than not offering it —
+     * the picker would show a control with nothing sensible to put in it.
+     */
+    case 'attachment':
+      throw err(`field "${fieldName}" supports only is_empty / not_empty`);
     /*
      * #300: rollups are filterable now. Every rollup value is materialized into
      * computed_values — the numeric ops always were (MN-267), and pick-one is as

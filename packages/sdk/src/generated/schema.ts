@@ -1584,7 +1584,7 @@ export interface paths {
         /** Attachments on a record */
         get: operations["AttachmentsController_list"];
         put?: never;
-        /** Upload a file (multipart field "file"; size-capped) */
+        /** Upload a file (multipart field "file"; size-capped). `?field=<id>` puts it in an attachment field instead of the record bag (#391) */
         post: operations["AttachmentsController_upload"];
         delete?: never;
         options?: never;
@@ -3806,7 +3806,7 @@ export interface components {
         CreateFieldDto: {
             display_name: string;
             /** @enum {string} */
-            type: "text" | "rich_text" | "number" | "checkbox" | "date" | "select" | "multi_select" | "workflow" | "url" | "email" | "color" | "user" | "lookup" | "rollup" | "button" | "formula";
+            type: "text" | "rich_text" | "number" | "checkbox" | "date" | "select" | "multi_select" | "workflow" | "url" | "email" | "color" | "user" | "attachment" | "lookup" | "rollup" | "button" | "formula";
             config?: {
                 [key: string]: unknown;
             };
@@ -3825,7 +3825,7 @@ export interface components {
         };
         ChangeFieldTypeDto: {
             /** @enum {string} */
-            type: "text" | "rich_text" | "number" | "checkbox" | "date" | "select" | "multi_select" | "workflow" | "url" | "email" | "color" | "user" | "lookup" | "rollup" | "button" | "formula";
+            type: "text" | "rich_text" | "number" | "checkbox" | "date" | "select" | "multi_select" | "workflow" | "url" | "email" | "color" | "user" | "attachment" | "lookup" | "rollup" | "button" | "formula";
             /** @default false */
             dry_run: boolean;
         };
@@ -3998,6 +3998,8 @@ export interface components {
                 /** @enum {string} */
                 card_size?: "small" | "medium" | "large";
                 /** Format: uuid */
+                cover_field_id?: string;
+                /** Format: uuid */
                 date_field_id?: string;
                 /** Format: uuid */
                 start_date_field_id?: string;
@@ -4138,6 +4140,8 @@ export interface components {
                 card_field_ids: string[];
                 /** @enum {string} */
                 card_size?: "small" | "medium" | "large";
+                /** Format: uuid */
+                cover_field_id?: string;
                 /** Format: uuid */
                 date_field_id?: string;
                 /** Format: uuid */
@@ -7768,7 +7772,9 @@ export interface operations {
     };
     AttachmentsController_upload: {
         parameters: {
-            query?: never;
+            query: {
+                field: string;
+            };
             header?: never;
             path: {
                 db: string;

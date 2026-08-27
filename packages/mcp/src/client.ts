@@ -50,10 +50,13 @@ export async function uploadAttachment(
   ctx: Ctx,
   path: { ws: string; db: string; rec: string },
   file: { filename: string; mime?: string; data: Uint8Array },
+  /** #391 — an attachment FIELD to put the file in, instead of the record bag. */
+  fieldId?: string,
 ): Promise<unknown> {
   const form = new FormData();
   form.append('file', new Blob([file.data as unknown as BlobPart], file.mime ? { type: file.mime } : {}), file.filename);
-  const url = `${ctx.baseUrl}/api/v1/workspaces/${path.ws}/databases/${path.db}/records/${path.rec}/attachments`;
+  const query = fieldId ? `?field=${encodeURIComponent(fieldId)}` : '';
+  const url = `${ctx.baseUrl}/api/v1/workspaces/${path.ws}/databases/${path.db}/records/${path.rec}/attachments${query}`;
   const res = await fetch(url, { method: 'POST', headers: { Authorization: `Bearer ${ctx.token}` }, body: form });
   const payload = (await res.json().catch(() => undefined)) as Envelope | undefined;
   if (!res.ok) {

@@ -29,6 +29,13 @@ export interface ViewConfig {
   card_field_ids: string[];
   /** Board card density (MN-089). */
   card_size?: 'small' | 'medium' | 'large';
+  /**
+   * #391 — the attachment field a gallery card draws its image from.
+   *
+   * Unset means no image, which is the pre-#391 behaviour and stays the default:
+   * a gallery that has not chosen a cover looks exactly as it did.
+   */
+  cover_field_id?: string;
   date_field_id?: string;
   /** Timeline (MN-092). */
   start_date_field_id?: string;

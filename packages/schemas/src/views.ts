@@ -206,6 +206,19 @@ export const viewConfigSchema = z.object({
   card_field_ids: z.array(z.uuid()).default([]),
   /** Board/gallery card density (MN-089). */
   card_size: z.enum(['small', 'medium', 'large']).optional(),
+  /**
+   * #391 — the attachment field a gallery card draws its image from.
+   *
+   * A gallery is the obvious view for media and until attachment fields existed
+   * it had nothing to show: record-level attachments are a bag, and a card
+   * cannot render a bag. Unset means no image, which is the previous behaviour
+   * and stays the default.
+   *
+   * The card shows the FIRST file in the field, which is why the field's value
+   * is an ordered list rather than a set — "which one is the cover" has to have
+   * an answer the user controls.
+   */
+  cover_field_id: z.uuid().optional(),
   /** Calendar only — the date field that places records on the grid (MN-051). */
   date_field_id: z.uuid().optional(),
   /** Timeline (MN-092) — start (required) + optional end date field. */

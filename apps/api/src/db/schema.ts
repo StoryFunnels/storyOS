@@ -66,6 +66,9 @@ export const fieldType = pgEnum('field_type', [
   'email',
   'color',
   'user',
+  // #391: files as a COLUMN, not just the record-level bag. The value is an
+  // ordered array of attachment ids; membership lives on `attachments.field_id`.
+  'attachment',
   'relation',
   'lookup',
   'rollup',
@@ -601,6 +604,16 @@ export const attachments = pgTable(
     recordId: uuid('record_id')
       .notNull()
       .references(() => records.id, { onDelete: 'cascade' }),
+    /**
+     * #391 — which attachment FIELD this file belongs to, or null for the
+     * record-level bag that has always existed.
+     *
+     * `ON DELETE SET NULL`, deliberately: deleting a "Cover" field must not
+     * delete the customer's photographs. The files fall back into the record's
+     * bag, which is exactly where they lived before attachment fields existed,
+     * so nothing is lost and nothing is orphaned.
+     */
+    fieldId: uuid('field_id').references(() => fields.id, { onDelete: 'set null' }),
     filename: text('filename').notNull(),
     size: integer('size').notNull(),
     mime: text('mime').notNull(),
@@ -610,7 +623,12 @@ export const attachments = pgTable(
     uploadedBy: text('uploaded_by'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('attachments_record_idx').on(t.recordId, t.createdAt)],
+  (t) => [
+    index('attachments_record_idx').on(t.recordId, t.createdAt),
+    // #391 — the bag query filters `field_id IS NULL` and a field's files filter
+    // on a specific id; both are this index.
+    index('attachments_record_field_idx').on(t.recordId, t.fieldId),
+  ],
 );
 
 /** Workspace-scoped uploads for rich-text editors (MN-097) — images embedded in

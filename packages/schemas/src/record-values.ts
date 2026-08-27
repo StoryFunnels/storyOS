@@ -243,6 +243,25 @@ function coerce(field: FieldDef, raw: unknown): { value?: unknown; error?: strin
       if (typeof raw !== 'string') return { error: 'expected a user id' };
       return { value: raw };
     }
+    /**
+     * #391 — an ordered list of attachment ids.
+     *
+     * Shape-checked here; MEMBERSHIP is checked in the service, which is the
+     * only layer that can. An id is valid only if that attachment already
+     * belongs to THIS record and THIS field, so a write can reorder or remove
+     * but can never claim someone else's file — "permissions follow the record"
+     * is not enforceable against a bag of uuids without asking the database.
+     *
+     * Files arrive through the attachment upload endpoint, never through a
+     * record PATCH: this value cannot conjure a file into existence, only
+     * rearrange ones that are already there.
+     */
+    case 'attachment': {
+      if (!Array.isArray(raw) || raw.some((v) => typeof v !== 'string')) {
+        return { error: 'expected an array of attachment ids' };
+      }
+      return { value: [...new Set(raw)] };
+    }
     default:
       return { error: `unsupported field type "${field.type}"` };
   }

@@ -53,6 +53,21 @@ export function GalleryView({
     () => (database.data?.fields ?? []).filter((f) => config.card_field_ids.includes(f.id)),
     [database.data, config.card_field_ids],
   );
+  /*
+   * #391 — the gallery's card image.
+   *
+   * Resolved against the CURRENT field list, so a cover field that was deleted
+   * simply stops being a cover rather than leaving cards asking for a thumbnail
+   * that cannot exist. The type check matters as much as the existence check:
+   * a config carried over from a field that was retyped must not send the card
+   * looking for attachment chips in a text value.
+   */
+  const cover = useMemo(() => {
+    const field = (database.data?.fields ?? []).find(
+      (f) => f.id === config.cover_field_id && f.type === 'attachment',
+    );
+    return field ? { field, ws, db } : undefined;
+  }, [database.data, config.cover_field_id, ws, db]);
 
   if (rows.length === 0) {
     return (
@@ -80,6 +95,7 @@ export function GalleryView({
               size={config.card_size ?? 'medium'}
               memberNames={memberNames}
               memberImages={memberImages}
+              cover={cover}
             />
           </div>
         ))}

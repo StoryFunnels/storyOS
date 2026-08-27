@@ -220,6 +220,7 @@ function ScalarValue({ field, cell, record, ws, db, rec, members, memberNames, m
         <CellEditor
           ws={ws}
           db={db}
+          rec={rec}
           field={field}
           value={value}
           members={members}

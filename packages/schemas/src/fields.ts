@@ -20,6 +20,9 @@ export const creatableFieldTypeSchema = z.enum([
   'email',
   'color',
   'user',
+  // #391: files as a COLUMN. A record can now hold a cover, a video and an
+  // overlay in three addressable fields instead of one undifferentiated pile.
+  'attachment',
   'lookup',
   'rollup',
   'button',
@@ -34,7 +37,15 @@ export type CreatableFieldType = z.infer<typeof creatableFieldTypeSchema>;
  * Named and exported so the exclusion is a deliberate, reviewable list rather
  * than the accidental complement of whatever someone typed into a UI array.
  */
-export const NON_IMPORTABLE_FIELD_TYPES = ['lookup', 'rollup', 'formula', 'button'] as const;
+export const NON_IMPORTABLE_FIELD_TYPES = [
+  'lookup',
+  'rollup',
+  'formula',
+  'button',
+  // #391: a CSV cell cannot become a file. An import that "created" an
+  // attachment field would produce a column that is empty for every row.
+  'attachment',
+] as const;
 
 /**
  * #375 — the field types an import mapping may create, DERIVED rather than
@@ -402,6 +413,25 @@ export const fieldConfigSchemas: Record<CreatableFieldType, z.ZodType> = {
   workflow: emptyConfigSchema,
   url: emptyConfigSchema,
   email: emptyConfigSchema,
+  /*
+   * #391 — no config, deliberately.
+   *
+   * The obvious candidates were a `multi` flag (like `user`) and a mime
+   * allow-list. Both were rejected:
+   *
+   * A `multi: false` field would still have to store an array — a single file
+   * is a one-element list — so the flag would only be a UI hint, and the first
+   * surface that forgot to read it would let a "single" field hold two. The
+   * field is always an ordered list, and a cover image is "the first one",
+   * which is a rule every surface gets right by construction.
+   *
+   * A mime allow-list sounds prudent and is mostly a trap: it rejects the
+   * customer's file on a technicality (a .heic photo, a mislabelled octet-
+   * stream) long after they chose it. The gallery already asks `has_thumbnail`
+   * before rendering an image, so a PDF in a cover field degrades to no picture
+   * rather than to a broken one.
+   */
+  attachment: emptyConfigSchema,
   color: emptyConfigSchema,
   user: userConfigSchema,
   lookup: lookupConfigSchema,
