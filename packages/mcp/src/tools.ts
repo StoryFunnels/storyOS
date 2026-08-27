@@ -549,6 +549,26 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   // MN-264: read-only — rerun is an app-only action (permission-checked,
   // human-confirmed), not exposed to an agent via MCP.
   get_runs: 'read',
+  /*
+   * #447 — the agent engine. AgentsController is admin-gated (it provisions a
+   * space and writes bindings validated against live schema), so the writes
+   * mirror that. The reads are `read`: seeing what an agent did, what a run
+   * cost, and what a parked run is waiting for is ordinary context.
+   *
+   * get_staged_action is READ scope and read-only on purpose. Approving is
+   * human-only (ADR-0010) and has no tool at any scope — a `write`-scoped
+   * staged-action tool would be one refactor away from someone adding the
+   * approve call next to it.
+   */
+  get_agents: 'read',
+  get_run: 'read',
+  get_run_quota: 'read',
+  get_staged_action: 'read',
+  setup_agents: 'admin',
+  run_agent: 'admin',
+  delegate_to_agent: 'admin',
+  create_agent_trigger: 'admin',
+  rerun_action: 'admin',
   // #239: visibility only — creating/editing a source stays UI/API-only in v1
   // (the field-mapping dialog is not something an agent should improvise).
   list_sources: 'read',
@@ -4357,6 +4377,253 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         note: 'No model was invoked server-side — apply `instructions` to `inputs` yourself, preferring tools named in allowed_tools when the skill declares any.',
         run_log: run,
       });
+    }),
+  );
+
+  /* =====================================================================
+   * #447 (#406 area 14) — the agent engine: provisioning, running,
+   * delegating, triggers, run history and quota.
+   *
+   * This is the product's own subject matter. An agent that could build
+   * databases, views and automations but not set up another agent was missing
+   * the layer everything else exists to support.
+   *
+   * THE HARD BOUNDARY, and it is not negotiable: approve and reject are NOT
+   * here and must never be. ADR-0010's gate is human-only, and an agent able to
+   * approve its own staged action does not weaken the gate — it removes it.
+   * They are listed in EXCLUDED in coverage.ts with that reason, a test asserts
+   * no such tool exists, and the natural way to build "staged runs" is to build
+   * the whole lifecycle with the approval step sitting right there. Do not.
+   *
+   * get_staged_action exists precisely so the gate stays useful: an agent can
+   * READ what is parked and tell a person what they are being asked to decide,
+   * which is the opposite of deciding for them.
+   * ===================================================================== */
+
+  reg(
+    'get_agents',
+    {
+      title: 'Get agents setup',
+      description:
+        "Whether this workspace has the Agentic OS provisioned, and a summary of its Agents / Runs / Agent Triggers databases. Returns `exists: false` when it has not been set up — call setup_agents then. Once it exists, the agents themselves are ordinary RECORDS in the Agents database, so list them with query_records and edit them with update_record.",
+      inputSchema: { workspace: z.string() },
+    },
+    handle<{ workspace: string }>(async ({ workspace }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/agents', { params: { path: { ws: ws.id } } as never }),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'setup_agents',
+    {
+      title: 'Set up the agent engine',
+      description:
+        'Provision the Agentic OS space and its three databases (Agents, Runs, Agent Triggers). Idempotent — safe to call when it already exists, which is why get_agents and this can be used together without a check-then-act race. After this, create an agent with create_record against the Agents database.',
+      inputSchema: { workspace: z.string() },
+    },
+    handle<{ workspace: string }>(async ({ workspace }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.POST('/api/v1/workspaces/{ws}/agents/ensure', { params: { path: { ws: ws.id } } as never }),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'run_agent',
+    {
+      title: 'Run agent',
+      description:
+        'Run an agent by hand and get back its Run record, including the step log. Works with no model configured — the run class is stamped at dispatch and a runtime error lands as a Failed run rather than an error here, so read the returned run rather than assuming success from the absence of an exception. Use delegate_to_agent instead when the agent should work ON a particular record.',
+      inputSchema: {
+        workspace: z.string(),
+        agent: z.string().describe("The agent record's uuid or public number (from the Agents database)."),
+      },
+    },
+    handle<{ workspace: string; agent: string }>(async ({ workspace, agent }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.POST('/api/v1/workspaces/{ws}/agents/{agent}/run', {
+          params: { path: { ws: ws.id, agent } } as never,
+        }),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'delegate_to_agent',
+    {
+      title: 'Delegate a record to an agent',
+      description:
+        'Hand one record to an agent: it runs with that record as its context and posts its outcome back ON the record as a comment, with a link to the full Run. This is the one to reach for when a person asks "get the agent to handle this" — the trail stays where the work is, so the next human to open the record sees what happened without knowing runs exist.',
+      inputSchema: {
+        workspace: z.string(),
+        agent: z.string().describe("The agent record's uuid or public number."),
+        database: z.string().describe('Database holding the record to delegate.'),
+        record: z.string().describe('Record uuid or public number.'),
+      },
+    },
+    handle<{ workspace: string; agent: string; database: string; record: string }>(
+      async ({ workspace, agent, database, record }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const rec = await resolveRecordId(ws.id, db.id, record);
+        const res = await unwrap<unknown>(
+          client.POST('/api/v1/workspaces/{ws}/agents/{agent}/delegate', {
+            params: { path: { ws: ws.id, agent } } as never,
+            body: { record_id: rec } as never,
+          }),
+        );
+        return text(res);
+      },
+    ),
+  );
+
+  reg(
+    'create_agent_trigger',
+    {
+      title: 'Create agent trigger',
+      description:
+        'Fire an agent whenever a record reaches a given state — e.g. run the triage agent when a lead moves to "New". Set human_gate:true to make the agent STAGE its action for a person to approve rather than apply it; that is the ADR-0010 gate, and it is the right default for anything that writes to something a customer sees. Read the database with describe_database first: the state field must be a select/workflow and the option must be one of its own.',
+      inputSchema: {
+        workspace: z.string(),
+        agent: z.string().describe("The agent record's uuid or public number."),
+        database: z.string().describe('The database whose state changes should fire the agent.'),
+        state_field: z.string().describe('The select/workflow field to watch (name, api_name, or id).'),
+        state: z.string().describe('The option that fires it — the human label, e.g. "New".'),
+        human_gate: z
+          .boolean()
+          .optional()
+          .describe('true = the agent stages its action for a person to approve instead of applying it (ADR-0010).'),
+        enabled: z.boolean().optional().describe('Default true.'),
+      },
+    },
+    handle<{
+      workspace: string;
+      agent: string;
+      database: string;
+      state_field: string;
+      state: string;
+      human_gate?: boolean;
+      enabled?: boolean;
+    }>(async ({ workspace, agent, database, state_field, state, human_gate, enabled }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const detail = await getDetail(ws.id, db.id);
+      const fieldId = resolveFieldId(detail, state_field, ['select', 'workflow'], 'select/workflow');
+      const field = detail.fields.find((f) => f.id === fieldId);
+      // Resolve the LABEL to an option id here, like every other write in this
+      // file — the API wants an id, and asking an agent for a uuid it can only
+      // get by reading the schema is the friction describe_database exists to
+      // remove.
+      const option = field?.options?.find(
+        (o) => o.id === state || o.label.toLowerCase() === state.trim().toLowerCase(),
+      );
+      if (!option) {
+        throw new Error(
+          `No option "${state}" on ${field?.apiName ?? state_field}. Available: ${(field?.options ?? []).map((o) => o.label).join(', ') || '(none)'}.`,
+        );
+      }
+      const res = await unwrap<unknown>(
+        client.POST('/api/v1/workspaces/{ws}/agents/triggers', {
+          params: { path: { ws: ws.id } } as never,
+          body: {
+            agent,
+            database_id: db.id,
+            state_field_id: fieldId,
+            state_option_id: option.id,
+            ...(human_gate === undefined ? {} : { human_gate }),
+            ...(enabled === undefined ? {} : { enabled }),
+          } as never,
+        }),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'get_staged_action',
+    {
+      title: 'Get a run’s staged action',
+      description:
+        "What a parked run is waiting to do, plus its step log — or null if it is not waiting. READ-ONLY, and deliberately: approving or rejecting is human-only (ADR-0010), and no tool here can do it. This exists so an agent can tell a person exactly what they are being asked to decide, which is the opposite of deciding for them. Point them at the Inbox to approve.",
+      inputSchema: { workspace: z.string(), run: z.string().describe('Run id (from get_run / get_runs).') },
+    },
+    handle<{ workspace: string; run: string }>(async ({ workspace, run }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/agents/runs/{run}/staged', {
+          params: { path: { ws: ws.id, run } } as never,
+        }),
+      );
+      return text({
+        run,
+        staged: res,
+        approve_with: 'A person, in the Inbox. Approval is human-only by design (ADR-0010) and is not available over MCP.',
+      });
+    }),
+  );
+
+  reg(
+    'get_run',
+    {
+      title: 'Get run',
+      description:
+        'One run in full: what triggered it, each action with its attempts and artifacts, and its approval linkage. get_runs lists them; this is the one to read when something did not do what was expected, because the per-action attempt log is where the reason lives.',
+      inputSchema: { workspace: z.string(), run: z.string().describe('Run id (from get_runs).') },
+    },
+    handle<{ workspace: string; run: string }>(async ({ workspace, run }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/runs/{id}', { params: { path: { ws: ws.id, id: run } } as never }),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'get_run_quota',
+    {
+      title: 'Get run quota',
+      description:
+        "This month's automation-run usage against the plan allowance, with a projection of where the pace lands. Worth checking before building something that fires on every record change — a rule that looks harmless can be the one that exhausts the month.",
+      inputSchema: { workspace: z.string() },
+    },
+    handle<{ workspace: string }>(async ({ workspace }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/runs/quota', { params: { path: { ws: ws.id } } as never }),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'rerun_action',
+    {
+      title: 'Re-run a failed action',
+      description:
+        "Retry ONE failed action from a run, with its original frozen inputs — so it repeats what it was actually asked to do, not what the record says now. Use it after fixing the cause (a bad credential, a missing field). Get the action's index from get_run. It re-runs a single action, never the whole run.",
+      inputSchema: {
+        workspace: z.string(),
+        run: z.string().describe('Run id (from get_runs).'),
+        action_index: z.number().int().min(0).describe("The failed action's index, from get_run."),
+      },
+    },
+    handle<{ workspace: string; run: string; action_index: number }>(async ({ workspace, run, action_index }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.POST('/api/v1/workspaces/{ws}/runs/{id}/actions/{index}/rerun', {
+          params: { path: { ws: ws.id, id: run, index: String(action_index) } } as never,
+        }),
+      );
+      return text(res);
     }),
   );
 

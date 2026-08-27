@@ -194,15 +194,6 @@ export const DEFERRED: CoverageRule[] = [
     reason: '#406 — outbound webhook subscriptions and their delivery log.',
   },
   {
-    match: /\/agents(\/|$)/,
-    reason:
-      '#406 — the agent engine: provisioning, running, delegating, triggers, staged runs. Note the approve/reject halves are EXCLUDED above and must stay so.',
-  },
-  {
-    match: '/api/v1/workspaces/{ws}/runs',
-    reason: '#406 — run history, quota and re-running a failed action.',
-  },
-  {
     match: /\/automations\/\{id\}\/(test|last-payload|regenerate-hook)/,
     reason: '#406 — automation dry-run, last received payload, and hook-token rotation. Rule CRUD is already covered.',
   },
