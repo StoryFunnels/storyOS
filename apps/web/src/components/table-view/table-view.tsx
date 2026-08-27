@@ -32,6 +32,7 @@ import { databaseNoun, recordHref } from '@/lib/records';
 import { systemFieldId } from '@storyos/schemas';
 import { atLeast } from '@/lib/access';
 import { cn } from '@/lib/utils';
+import { DragPreview, useDragPresentation } from '@/components/ui/drag-presentation';
 import { ViewQueryError } from '../views/query-error';
 
 const ROW_HEIGHT = 32;
@@ -267,6 +268,21 @@ export function TableView({
   const frozenLeft = useCallback(
     (colIndex: number) => 56 + fields.slice(0, colIndex).reduce((sum, f) => sum + widthOf(f), 0),
     [fields, widthOf],
+  );
+
+  /*
+   * #409/#412/#415 — the shared drag presentation for column reordering.
+   *
+   * The header used to stay in the flow with a pointer-following transform, so
+   * two labels painted on the same pixels mid-drag — the header literally read
+   * "Stagunt". `columnLabel` is also what fixes #415 here: columns are keyed by
+   * field uuid, so dnd-kit's stock announcements read out hex.
+   */
+  const columnLabel = (id: string) => fields.find((f) => f.id === id)?.displayName;
+  const columnDrag = useDragPresentation(
+    columnLabel,
+    { onDragEnd: onColumnDragEnd },
+    fields.slice(frozenCount).map((f) => f.id),
   );
 
   function commitEdit(row: RecordRow, field: Field, value: unknown) {
@@ -626,7 +642,11 @@ export function TableView({
                 }}
               />
             ))}
-            <DndContext sensors={columnSensors} collisionDetection={closestCenter} onDragEnd={onColumnDragEnd}>
+            <DndContext
+              sensors={columnSensors}
+              collisionDetection={closestCenter}
+              {...columnDrag.contextProps}
+            >
               <SortableContext items={fields.slice(frozenCount).map((f) => f.id)} strategy={horizontalListSortingStrategy}>
                 {fields.slice(frozenCount).map((field) => (
                   <HeaderCell
@@ -648,6 +668,13 @@ export function TableView({
                   />
                 ))}
               </SortableContext>
+              <DragPreview>
+                {columnDrag.activeId && (
+                  <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-[12px] font-medium text-ink shadow-[0_8px_24px_rgba(15,23,41,0.25)]">
+                    {columnLabel(columnDrag.activeId) ?? ''}
+                  </div>
+                )}
+              </DragPreview>
             </DndContext>
             {schemaEditable && (
               <Dialog open={addingField !== null} onOpenChange={(open) => setAddingField(open ? {} : null)}>

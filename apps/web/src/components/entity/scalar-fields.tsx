@@ -17,6 +17,7 @@ import { fieldTypeIcon } from '@/components/views/field-type-icon';
 import { Popover, PopoverContent, PopoverParentAnchor } from '@/components/ui/popover';
 import { recordHref, recordSegment } from '@/lib/records';
 import { cn } from '@/lib/utils';
+import { vacatedSlotClass } from '@/components/ui/drag-presentation';
 import { useDatabases, useSpaces } from '@/lib/queries';
 import type { DatabaseSummary, Space } from '@/lib/queries';
 import { qualifiedDatabaseLabel, resolveDatabaseIds, serializeDatabaseIds } from '@/lib/database-labels';
@@ -455,7 +456,10 @@ export function SidebarField({ field, schemaEditable, onToggleZone, topDivider, 
         // field (created/updated/by) sets the read-only audit block apart from
         // the user's own properties without a heavy divider.
         topDivider && 'mt-1.5 border-t border-border-default/60 pt-2.5',
-        sortable.isDragging && 'z-10 bg-card opacity-80 shadow-sm',
+        // #409 — was `z-10 opacity-80`, which is what made the dragged card
+        // print over its neighbours. The content now floats in the shared
+        // <DragPreview>; this slot is just a dimmed placeholder.
+        vacatedSlotClass(sortable.isDragging),
       )}
     >
       {/* #209: drag grip pulled OUT of the label's flow (absolute) so it no
@@ -508,7 +512,8 @@ export function TopChip({ field, schemaEditable, onToggleZone, ...vp }: VP & { f
       className={cn(
         'group flex items-center gap-1.5 rounded-md border border-border-default bg-card px-2.5 py-1.5',
         schemaEditable && (sortable.isDragging ? 'cursor-grabbing' : 'cursor-grab'),
-        sortable.isDragging && 'z-10 opacity-80 shadow-sm',
+        // #409 — see the note above; same defect, second surface.
+        vacatedSlotClass(sortable.isDragging),
       )}
       {...(schemaEditable ? sortable.attributes : {})}
       {...(schemaEditable ? sortable.listeners : {})}

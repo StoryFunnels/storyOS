@@ -43,10 +43,19 @@ export const SidebarRow = forwardRef<HTMLDivElement, {
    * on the Clients/Contacts rows.
    */
   caret?: React.ReactNode;
+  /**
+   * #412 — the insertion marker shown while a drag is over THIS row.
+   *
+   * A slot rather than something the row derives, for the same reason `caret` is
+   * a slot: the row does not know which drag context it belongs to, and giving
+   * it that knowledge is how one shared component turns back into several.
+   * Positioned absolutely, so it never affects the row's height or indent.
+   */
+  indicator?: React.ReactNode;
   className?: string;
   children: React.ReactNode;
 } & Omit<React.HTMLAttributes<HTMLDivElement>, 'children'>>(function SidebarRow(
-  { depth, active = false, draggable = false, dragHandleProps, caret, className, style, children, ...rest },
+  { depth, active = false, draggable = false, dragHandleProps, caret, indicator, className, style, children, ...rest },
   ref,
 ) {
   return (
@@ -61,7 +70,9 @@ export const SidebarRow = forwardRef<HTMLDivElement, {
        */
       style={{ paddingLeft: SIDEBAR_INDENT_PX[depth], ...style }}
       className={cn(
-        'group flex items-center justify-between rounded pr-2 py-[3px] text-[13px]',
+        // `relative` so #412's absolutely-positioned insertion marker anchors to
+        // the row rather than escaping to the nearest positioned ancestor.
+        'group relative flex items-center justify-between rounded pr-2 py-[3px] text-[13px]',
         /**
          * #380 — BACKGROUND ONLY for the active row.
          *
@@ -80,6 +91,7 @@ export const SidebarRow = forwardRef<HTMLDivElement, {
         line up vertically within a depth — draggable or not, hovered or not.
         Rendering it only on hover is what made rows shift under the cursor.
       */}
+      {indicator}
       <span
         aria-hidden={!draggable && !caret}
         className={cn(

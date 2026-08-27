@@ -11,6 +11,7 @@ import { computeReorder } from '@/lib/reorder';
 import { Activity, Cable, Check, ChevronRight, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, LayoutDashboard, GitPullRequest, GripVertical, Home, Inbox, Keyboard, KeyRound, LayoutTemplate, MoreHorizontal, Package, Plug, Plus, Search, Settings, Star, UserRound, Webhook, X, Sparkles} from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { DragPreview, DropIndicator, useDragPresentation, vacatedSlotClass } from '@/components/ui/drag-presentation';
 import { api } from '@/lib/api';
 import { authClient } from '@/lib/auth-client';
 import { AutomationsPanel } from '@/components/automations-panel';
@@ -123,6 +124,18 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
     }
   }
 
+  /*
+   * #409/#412/#415 — one hook supplies the overlay tracking and the spoken
+   * announcements. `label` maps a sortable id to a NAME, which is the whole fix
+   * for #415: every sortable in this app is keyed by uuid, so dnd-kit's stock
+   * strings read out hex ("Picked up draggable item 102568ca-…").
+   */
+  const spaceDrag = useDragPresentation(
+    (id) => visibleSpaces.find((sp) => sp.id === id)?.name,
+    { onDragEnd: onSpaceDragEnd },
+    visibleSpaces.map((sp) => sp.id),
+  );
+
   return (
     <aside className="flex h-full w-60 shrink-0 flex-col border-r border-border-default bg-sidebar">
       <div className="flex shrink-0 items-stretch">
@@ -224,7 +237,14 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
             </button>
           )}
         </div>
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onSpaceDragEnd}>
+        {/* #409/#412/#415 — the shared drag presentation: a portalled preview so
+            the dragged row cannot paint over its neighbours, and announcements
+            that name the space instead of reading out its uuid. */}
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          {...spaceDrag.contextProps}
+        >
           <SortableContext items={visibleSpaces.map((s) => s.id)} strategy={verticalListSortingStrategy}>
             {visibleSpaces.map((space) => (
               <SpaceSection
@@ -237,6 +257,13 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
               />
             ))}
           </SortableContext>
+          <DragPreview>
+            {spaceDrag.activeId && (
+              <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-[3px] text-[11px] font-semibold uppercase tracking-wider text-muted shadow-[0_8px_24px_rgba(15,23,41,0.25)]">
+                {visibleSpaces.find((sp) => sp.id === spaceDrag.activeId)?.name ?? ''}
+              </div>
+            )}
+          </DragPreview>
         </DndContext>
 
         {canEdit && <NewSpaceButton onCreate={(name) => mutations.createSpace.mutate({ name })} />}
@@ -559,6 +586,7 @@ function SpaceSection({
    * one consistent way. The MENU STAYS as the keyboard-accessible path: drag-only
    * movement is unreachable without a pointer, so it earns its place regardless.
    */
+
   const onSpaceDragEnd = (event: DragEndEvent) => {
     const over = event.over;
     if (!over) return;
@@ -620,6 +648,7 @@ function SpaceSection({
       for (const move of computeReorder(list, activeId, overId)) mutations.updateDatabase.mutate(move);
     }
   };
+
   const [renaming, setRenaming] = useState(false);
   const [newDbOpen, setNewDbOpen] = useState(false);
   const [sharing, setSharing] = useState(false);
@@ -954,6 +983,21 @@ function SpaceSection({
   // Styled name/confirm dialog replaces window.prompt/confirm (MN-24).
   const [dialog, setDialog] = useState<DialogState | null>(null);
 
+
+  /*
+   * #409/#412/#415 — the same shared presentation for the items INSIDE a space.
+   * This is the list the UAT measured: the dragged row translated by the pointer
+   * delta (-60px) while its neighbours moved by one row pitch (+26px), so rows
+   * visibly piled on each other. The dragged content now lives in a portalled
+   * overlay and this list only shows the vacated slot.
+   */
+  const itemLabel = (id: string) =>
+    databases.find((d) => d.id === id)?.name ??
+    spaceViews.find((v) => v.id === id)?.name ??
+    (docs.data ?? []).find((doc) => doc.id === id)?.title ??
+    folders.find((f) => f.id === id)?.name;
+  const itemDrag = useDragPresentation(itemLabel, { onDragEnd: onSpaceDragEnd });
+
   return (
     <div
       ref={setNodeRef}
@@ -1103,7 +1147,11 @@ function SpaceSection({
            databases, and one per folder) is why nothing could be dragged BETWEEN
            containers: dnd-kit cannot see across contexts, so a folder in another
            one was never a drop target. */
-        <DndContext sensors={dbSensors} collisionDetection={collisionStrategy} onDragEnd={onSpaceDragEnd}>
+        <DndContext
+          sensors={dbSensors}
+          collisionDetection={collisionStrategy}
+          {...itemDrag.contextProps}
+        >
           {folders.map((folder) => (
             <FolderSection
               key={folder.id}
@@ -1193,6 +1241,13 @@ function SpaceSection({
               setDialog={setDialog}
             />
           ))}
+          <DragPreview>
+            {itemDrag.activeId && (
+              <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-[3px] text-[13px] text-ink shadow-[0_8px_24px_rgba(15,23,41,0.25)]">
+                {itemLabel(itemDrag.activeId) ?? ''}
+              </div>
+            )}
+          </DragPreview>
         </DndContext>
       )}
       {dialog && <PromptDialog state={dialog} onClose={() => setDialog(null)} />}
@@ -1246,7 +1301,7 @@ function DocumentRow({
       /* `group/doc` removed with #389 — the shared menu's trigger reveals on the
          row's own `group` (supplied by SidebarRow), so the named variant had no
          remaining reference. */
-      className={cn(isDragging && 'opacity-50')}
+      className={cn(vacatedSlotClass(isDragging))}
       ref={canEdit ? setNodeRef : undefined}
       style={canEdit ? { transform: CSS.Transform.toString(transform), transition } : undefined}
       draggable={canEdit}
@@ -1701,7 +1756,7 @@ function DatabaseRow({
   const { hide } = useHidden(ws);
   // Reorder is suspended while renaming so the inline input keeps pointer focus.
   const canDrag = reorderable && !renaming;
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging, isOver } = useSortable({
     id: db.id,
     // #369 — the handler needs to know WHAT was dragged to pick the right move,
     // and which list it came from to reorder within it.
@@ -1717,7 +1772,11 @@ function DatabaseRow({
       ref={reorderable ? setNodeRef : undefined}
       style={reorderable ? { transform: CSS.Transform.toString(transform), transition } : undefined}
       className={cn(
-        isDragging && 'opacity-50',
+        'relative',
+        /* #409 — the row no longer paints over its neighbours: the dragged
+           content is rendered by the shared <DragPreview> outside the flow, and
+           this slot reads as a dimmed placeholder rather than a hole. */
+        vacatedSlotClass(isDragging),
         // #322: the row itself is the handle, not only the 12px grip — the exact
         // thing header-cell.tsx records as "too hard to grab, so reorder felt
         // broken" (MN-225).
@@ -1730,6 +1789,10 @@ function DatabaseRow({
          whereas what a database is FOR is discoverable nowhere else in the
          sidebar. Falls back to the drag hint when undescribed. */
       title={db.description || (canDrag ? 'Drag to reorder' : undefined)}
+      /* #412 — the insertion marker, derived from `isOver` (the same value the
+         drop resolves against), so it can never point somewhere a release would
+         not produce. Renders nothing when this row is not the target. */
+      indicator={<DropIndicator active={isOver && !isDragging} />}
       /* #380 (follow-up) — the caret goes in the RESERVED gutter, not beside it, so a
          database with children lines up with one without. */
       caret={
