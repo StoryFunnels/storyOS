@@ -141,6 +141,32 @@ describe('personal filter overrides (#259)', () => {
     expect(res.statusCode).toBe(422);
   });
 
+  it('#405 — the refusal NAMES the real fields, so a wording near-miss is one step from fixed', async () => {
+    /*
+     * The field-level half of #405.
+     *
+     * "How many companies are marked urgent?" against a database with no urgency
+     * field was never the silent-zero bug the DATABASE case was — an unknown
+     * field has always refused rather than matching nothing. But a bare "unknown
+     * field" left the caller, human or model, to guess again; and half the time a
+     * miss is a wording mismatch rather than a wrong belief.
+     *
+     * `resolveDatabase` already answers a database miss with "Available: ...".
+     * This is the same courtesy one level down.
+     */
+    const res = await as(owner.token, 'POST', `/workspaces/${wsId}/databases/${dbId}/records/query`, {
+      filter: { field: 'urgency', op: 'eq', value: 'high' },
+    });
+    expect(res.statusCode).toBe(422);
+    const message = res.json().error.message as string;
+    expect(message).toContain('unknown field "urgency"');
+    // Naming the real ones is the point — a bare refusal leaves the caller to guess.
+    expect(message).toContain('Available fields:');
+    expect(message).toContain('state');
+    // And it must not come back as an empty page, which would read as "none".
+    expect(res.json().data).toBeUndefined();
+  });
+
   describe('the load-bearing test: two users, one view, zero cross-contamination', () => {
     it('each user reads back only their own override', async () => {
       const ownerSet = await as(owner.token, 'PUT', `/workspaces/${wsId}/databases/${dbId}/views/${viewId}/personal-filter`, {
