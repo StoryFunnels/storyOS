@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { isIncompleteCondition } from '@storyos/schemas';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
@@ -843,7 +844,32 @@ export function FiltersSection({
     [nodes],
   );
   const pinned = leaves.filter((f) => f.node.pinned);
-  const activeCount = leaves.filter((f) => !f.node.disabled).length;
+  /**
+   * #426 — the chip counts what is CONFIGURED, and says so when that differs
+   * from what is applied.
+   *
+   * It used to count the saved tree only, so while the panel was open it
+   * under-reported: two conditions built, "1 filter" shown. A chip that
+   * silently under-counts is the same lie as a grid that does not update, in a
+   * smaller form.
+   *
+   * `configuredCount` is every enabled condition the user has built (draft
+   * first, since that is what they are looking at). `appliedCount` is the subset
+   * complete enough to actually run — #345's rule, unchanged. When they differ
+   * the chip shows both rather than the smaller number, which is what makes an
+   * incomplete row (#425) visible instead of merely absent.
+   */
+  const shownLeaves = useMemo(
+    () =>
+      flattenFilterTree(draftGlobal?.nodes ?? nodes).filter(
+        (f): f is typeof f & { node: FilterCondition } => !isFilterGroup(f.node),
+      ),
+    [draftGlobal, nodes],
+  );
+  const enabled = shownLeaves.filter((f) => !f.node.disabled);
+  const configuredCount = enabled.length;
+  const appliedCount = enabled.filter((f) => !isIncompleteCondition(f.node)).length;
+  const activeCount = configuredCount;
   const hasPersonalFilter = Boolean(personalFilter);
 
   function setNodes(next: FilterNode[]) {
@@ -877,13 +903,58 @@ export function FiltersSection({
     setOpen(true);
   }
 
+  const changed = (a: unknown, b: unknown) => JSON.stringify(a) !== JSON.stringify(b);
+
   /**
-   * #278 — commit on close. Only scopes whose draft actually differs are written,
-   * so closing without editing performs no mutation and no re-query (JSON compare:
-   * these trees are small, plain and already serialised for the API).
+   * #426 — APPLY AS YOU BUILD, debounced.
+   *
+   * This deliberately reverses #278's commit-on-close. That decision made every
+   * other filter bug indistinguishable: "my condition is wrong", "it was
+   * silently dropped" (#425), "the value never got set" (#422) and "it worked,
+   * you just can't see it" all looked identical — you did something and nothing
+   * changed. Measured on the live app: a correct `Name contains Tyron` left the
+   * grid at 50 rows and the chip reading "1 filter" until the panel was
+   * dismissed, at which point it became 7 rows and "2 filters".
+   *
+   * The panel is a live control over the view, not a form you submit — which is
+   * also what the reference tool does.
+   *
+   * Debounced rather than immediate so typing a 20-character value issues one
+   * query, not twenty. The draft stays the source of truth for what the INPUTS
+   * show, so keystrokes never wait on a round-trip.
+   *
+   * Only a scope whose draft actually differs is written, so opening and closing
+   * without editing still performs no mutation and no re-query.
+   */
+  const APPLY_DEBOUNCE_MS = 300;
+  const liveGlobal = useDebouncedValue(draftGlobal, APPLY_DEBOUNCE_MS);
+  const livePersonal = useDebouncedValue(draftPersonal, APPLY_DEBOUNCE_MS);
+
+  useEffect(() => {
+    if (!liveGlobal) return;
+    if (changed(liveGlobal.nodes, nodes) || liveGlobal.connector !== connector) {
+      onChange(buildFilterGroup(liveGlobal.connector, liveGlobal.nodes));
+    }
+    // `nodes`/`connector` are intentionally NOT dependencies: they change as a
+    // RESULT of this commit, and including them would re-fire the effect on the
+    // echo of its own write. (exhaustive-deps is off repo-wide, so there is no
+    // directive to suppress — this comment is the record of the decision.)
+  }, [liveGlobal]);
+
+  useEffect(() => {
+    if (!livePersonal) return;
+    if (changed(livePersonal.nodes, personalNodes) || livePersonal.connector !== personalConnector) {
+      persistPersonalGroup(buildFilterGroup(livePersonal.connector, livePersonal.nodes));
+    }
+    // Same reasoning as the global effect above.
+  }, [livePersonal]);
+
+  /**
+   * Closing flushes anything the debounce has not yet written, so a fast
+   * click-away cannot lose the last edit — the failure #278 was protecting
+   * against, kept without keeping commit-on-close.
    */
   function closeBuilder() {
-    const changed = (a: unknown, b: unknown) => JSON.stringify(a) !== JSON.stringify(b);
     if (draftGlobal && (changed(draftGlobal.nodes, nodes) || draftGlobal.connector !== connector)) {
       onChange(buildFilterGroup(draftGlobal.connector, draftGlobal.nodes));
     }
@@ -949,7 +1020,13 @@ export function FiltersSection({
           )}
         >
           <ListFilter className="h-3.5 w-3.5" />
-          {activeCount > 0 ? `${activeCount} filter${activeCount > 1 ? 's' : ''}` : 'Filter'}
+          {configuredCount === 0
+            ? 'Filter'
+            : appliedCount === configuredCount
+              ? `${configuredCount} filter${configuredCount > 1 ? 's' : ''}`
+              : /* Never just the smaller number — "2 · 1 applied" is the only
+                   honest reading when a row is still missing its value. */
+                `${configuredCount} · ${appliedCount} applied`}
         </button>
         {open && (
           <>
@@ -995,6 +1072,23 @@ export function FiltersSection({
       </span>
     </>
   );
+}
+
+/**
+ * #426 — debounce any value, not just a string.
+ *
+ * command-palette.tsx has a string-only `useDebounced`; this one is generic so
+ * the whole draft (connector + node tree) can be debounced as a unit. Kept here
+ * rather than generalising that one, which would drag an unrelated component
+ * into this change.
+ */
+function useDebouncedValue<T>(value: T, ms: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), ms);
+    return () => clearTimeout(t);
+  }, [value, ms]);
+  return debounced;
 }
 
 type FilterScope = 'global' | 'personal';
@@ -1520,6 +1614,22 @@ function ConditionRow({
                 Done
               </button>
             </div>
+          )}
+          {/*
+            #425 — an unfinished condition says so, instead of looking valid.
+            
+            A row with no value is KEPT (the persistence path has always
+            preserved it — the schema accepts it, cleanFilterNode keeps it,
+            buildFilterGroup keeps it) but it is excluded from the query by
+            #345's rule. Unlabelled, that is indistinguishable from a condition
+            that is simply not working, which is the ambiguity #426 is about.
+            
+            `is_empty` / `not_empty` legitimately carry no value and must never
+            be marked — isIncompleteCondition already encodes that, so this
+            reads it rather than re-deriving emptiness here.
+          */}
+          {isIncompleteCondition(condition) && !condition.disabled && (
+            <p className="mt-0.5 text-[11px] text-warning">Needs a value — not applied yet</p>
           )}
         </div>
 
