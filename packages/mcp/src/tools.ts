@@ -15,7 +15,10 @@ import { SYSTEM_FIELDS, SYSTEM_FIELD_BY_API_NAME } from '@storyos/schemas/system
 // Type-only — erased at compile time, so unlike a value import this does NOT pull
 // the zod-bearing barrel into the bundle (see note above).
 import type { FilterOp } from '@storyos/schemas';
-import { PALETTE as SHARED_PALETTE } from '@storyos/schemas';
+// Subpath, not the barrel (see note above) — colors.ts is pure data with no zod
+// import, but reaching it through the index would inline the whole zod-bearing
+// barrel and the mcp image would fail to boot. It did, on this branch, in CI.
+import { PALETTE as SHARED_PALETTE } from '@storyos/schemas/colors';
 import { listDatabases, listSkills, listWorkspaces, resolveDatabase, resolveFolder, resolveSkill, resolveWorkspace } from './resolve.js';
 import { databaseUrl, recordUrl, viewUrl } from './links.js';
 import {
