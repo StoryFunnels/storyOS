@@ -146,6 +146,38 @@ work the user may want to keep — ADR-0010 §4's staged-actions model already
 makes "applied" and "proposed" distinguishable, which is what lets this be an
 honest report rather than a guess.
 
+### 6. A thread is private, and privacy is suppressed at EMIT time — never filtered on read.
+
+Threads are private to the member who created them, including from admins
+(#359). That half is enforced by construction: every read goes through one
+owner-scoped lookup with the owner id in the WHERE clause, and a miss is a 404
+rather than a 403, because "that thread exists but is not yours" leaks the one
+fact privacy exists to withhold.
+
+**The half that is NOT yet enforced, and is written here so it is inherited
+rather than rediscovered:** nothing in Tyron emits a notification, a digest or an
+email today, so "a private thread is never surfaced in a notification" is
+currently true only because there is nothing to surface it. #359 left that
+acceptance criterion explicitly unticked rather than claiming it, on the grounds
+that a test asserting the absence of a feature is theatre.
+
+**The obligation lands on whatever feature first gives Tyron something to emit** —
+#364's mentions, a future digest, an email summary. When it does:
+
+- Suppress at the point of EMISSION, never by filtering on read. Personal space
+  (#290) learned this the expensive way: a read filter protects the UI and leaks
+  through every other delivery path, and a digest or an email is exactly where it
+  escapes.
+- The distinction to keep straight: **the conversation is private, its
+  consequences are not.** What Tyron changed lands in the shared database and is
+  visible to everyone — founder's framing, "result is always a state of the
+  database / record". So a notification ABOUT a record Tyron changed is fine; one
+  that quotes or names the thread is not.
+
+Search is not a live risk and was checked: `apps/api/src/search/` indexes records
+and documents, and a thread is neither. It becomes one only if a future semantic
+index is ever pointed at conversations.
+
 ### Sequencing
 
 1. **#357a** — this ADR, the MCP client seam, the turn loop, ceilings.
