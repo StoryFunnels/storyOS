@@ -16,9 +16,39 @@ import { Injectable } from '@nestjs/common';
  * so it is the key the projection upserts and tombstones on.
  */
 export interface MembershipEvent {
-  type: 'membership_changed' | 'membership_removed';
+  /**
+   * `membership_erased` is NOT a synonym for `membership_removed` (#418).
+   *
+   * Removal TOMBSTONES: `active` goes false and the name, email and avatar stay,
+   * deliberately, so a record assigned to that person still resolves to a human
+   * (ADR-0017 §7). That is exactly the wrong behaviour for a GDPR erasure, where
+   * the whole point is that the identity goes.
+   *
+   * So the projection needs to tell them apart, and a boolean flag on
+   * `membership_removed` would have been the smaller change and the worse one —
+   * a subscriber that forgot to read the flag would silently under-erase, which
+   * is the failure mode this exists to prevent.
+   */
+  type: 'membership_changed' | 'membership_removed' | 'membership_erased';
   workspaceId: string;
   userId: string;
+  /**
+   * #418 — only on `membership_erased`: the anonymised address the `user` row was
+   * given, so the projection writes the SAME value rather than deriving its own.
+   *
+   * Passed rather than looked up because the erasure has already replaced the
+   * row by the time this is handled, and a projection that re-read it would be
+   * racing its own cause.
+   */
+  anonymisedEmail?: string;
+  /**
+   * #418 — only on `membership_erased`: also mark the row inactive.
+   *
+   * True for the workspace the erasure ran in (the membership really is gone),
+   * false for the person's OTHER workspaces, where the PII must go but the
+   * membership stands.
+   */
+  tombstone?: boolean;
 }
 
 type Listener = (event: MembershipEvent) => void;

@@ -65,6 +65,20 @@ export class MembersProjectionSubscriber implements OnModuleInit {
   }
 
   private async handle(event: MembershipEvent): Promise<void> {
+    if (event.type === 'membership_erased') {
+      /*
+       * #418 — checked BEFORE `membership_removed`, and they are separate
+       * branches on purpose. An erasure that fell through to a tombstone would
+       * leave the identity in place and report success.
+       */
+      await this.membersDb.erasePii(
+        event.workspaceId,
+        event.userId,
+        event.anonymisedEmail ?? '',
+        event.tombstone === true,
+      );
+      return;
+    }
     if (event.type === 'membership_removed') {
       await this.membersDb.tombstoneMembership(event.workspaceId, event.userId);
       return;

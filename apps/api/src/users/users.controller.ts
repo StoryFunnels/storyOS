@@ -18,6 +18,8 @@ import { eq } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { user } from '../db/auth-schema';
+import { memberships } from '../db/schema';
+import { MembershipEventsService } from '../events/membership-events.service';
 import { AuthGuard } from '../auth/auth.guard';
 import type { AuthedRequest } from '../auth/auth.guard';
 import { getStorage } from '../attachments/storage';
@@ -38,7 +40,11 @@ function sniffMime(data: Buffer): string {
 @UseGuards(AuthGuard)
 @Controller('users')
 export class UsersController {
-  constructor(@Inject(DB) private readonly db: Db) {}
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    /** #419 — so a profile edit reaches the Members projection. */
+    private readonly membershipEvents: MembershipEventsService,
+  ) {}
 
   @Post('me/avatar')
   @ApiConsumes('multipart/form-data')
@@ -62,6 +68,7 @@ export class UsersController {
     await getStorage().put(`avatars/${req.user.id}`, data, file.mimetype);
     const url = `/api/v1/users/${req.user.id}/avatar?v=${Date.now()}`;
     await this.db.update(user).set({ image: url }).where(eq(user.id, req.user.id));
+    await this.resyncMemberRows(req.user.id);
     return { image: url };
   }
 
@@ -72,7 +79,36 @@ export class UsersController {
       .delete(`avatars/${req.user.id}`)
       .catch(() => undefined);
     await this.db.update(user).set({ image: null }).where(eq(user.id, req.user.id));
+    await this.resyncMemberRows(req.user.id);
     return { image: null };
+  }
+
+  /**
+   * Push a profile change into the Members projection (#419).
+   *
+   * The projection re-reads name, email and avatar from the `user` table on every
+   * sync, so it corrects itself the moment ANY membership event fires for this
+   * person. What was missing was the firing: an avatar change wrote `user.image`
+   * and emitted nothing, so a colleague's Members row kept the old picture until
+   * that person's next role change or the next API restart. Both are unrelated to
+   * the edit, which made the fix time effectively random.
+   *
+   * Emitted for EVERY workspace they belong to. A profile is global; the
+   * projection of it is per workspace, so one edit has to reach all of them or
+   * the same name is right in one place and wrong in another.
+   *
+   * `membership_changed`, not a new event type: this IS a change to what the
+   * projection holds, and the existing handler already does exactly the right
+   * thing with it.
+   */
+  private async resyncMemberRows(userId: string): Promise<void> {
+    const rows = await this.db.query.memberships.findMany({
+      where: eq(memberships.userId, userId),
+      columns: { workspaceId: true },
+    });
+    for (const r of rows) {
+      this.membershipEvents.emit({ type: 'membership_changed', workspaceId: r.workspaceId, userId });
+    }
   }
 
   @Get(':id/avatar')

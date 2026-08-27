@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
+import { env } from '../config/env';
 import {
   databases as databasesTable,
   fields as fieldsTable,
@@ -72,6 +73,33 @@ export interface ResolvedMember {
  * nothing. Rows are keyed by better-auth `user_id` so upsert/tombstone are
  * idempotent too — re-running a backfill never duplicates a database or a row.
  */
+/**
+ * The avatar as something a `url` field will accept (#419).
+ *
+ * FOUND WHILE FIXING #419, AND IT IS OLDER THAN #419. The `avatar` field is type
+ * `url`, and `record-values.ts` requires `http(s)://` for that type — but our own
+ * avatar route stores a RELATIVE path (`/api/v1/users/{id}/avatar?v=…`). So
+ * `syncMembership` failed validation on every avatar it tried to project, the
+ * subscriber swallowed the rejection as a warning, and the column silently never
+ * worked for anyone who uploaded a picture in the app. Only Google sign-ins,
+ * whose `image` is already an absolute Google URL, ever populated it.
+ *
+ * Absolutising here rather than changing the field to `text`: `ensureField` is
+ * idempotent by api_name and will not retype an existing field, so a type change
+ * would fix new workspaces and leave every existing one broken. This needs no
+ * migration and works everywhere immediately.
+ *
+ * If `API_URL` ever changes, stored avatars point at the old host until the next
+ * membership event re-projects them — which is self-healing rather than
+ * permanent, and the alternative (storing a relative path a `url` field rejects)
+ * does not work at all.
+ */
+function absoluteAvatar(image: string | null | undefined): string | null {
+  if (!image) return null;
+  if (/^https?:\/\//i.test(image)) return image;
+  return `${env().API_URL.replace(/\/$/, '')}${image.startsWith('/') ? '' : '/'}${image}`;
+}
+
 @Injectable()
 export class MembersDbService {
   private readonly logger = new Logger(MembersDbService.name);
@@ -294,7 +322,7 @@ export class MembersDbService {
     const values: Record<string, unknown> = {
       name: account?.name ?? account?.email ?? '(unknown user)',
       email: account?.email ?? null,
-      avatar: account?.image ?? null,
+      avatar: absoluteAvatar(account?.image),
       role: roleIds.get(membership.role) ?? null,
       active: true,
       user_id: userId,
@@ -314,6 +342,66 @@ export class MembersDbService {
    * row survives as an inactive projection (#128 Phase 1). No-op if the database
    * or row was never provisioned.
    */
+  /**
+   * A GDPR erasure, projected (#418).
+   *
+   * `GdprService.anonymize` deletes the `memberships` row and overwrites the
+   * `user` row's PII — but it emitted no event, so the Members row kept the
+   * erased person's REAL name, email and avatar, and stayed `active = true`. For
+   * a first-class database whose entire content is personal data, that is the
+   * opposite of what the erasure promised, and nothing in the product would have
+   * shown it: Members is excluded from workspace export, so an export would not
+   * reveal it either.
+   *
+   * The row SURVIVES, and that is deliberate. Deleting it would orphan every
+   * record assigned to that person, which is the guarantee ADR-0017 §7 exists to
+   * protect. So this is a tombstone PLUS an overwrite: the person stops being
+   * identifiable while the assignment stays resolvable.
+   *
+   * The replacement values MIRROR what `anonymize` writes to the `user` row
+   * ("Deleted user", a tombstone email, no avatar) rather than inventing a
+   * second vocabulary for the same state. If those ever diverge, a reader
+   * comparing the two would reasonably conclude one of them had not run.
+   *
+   * `user_id` is kept. It is the projection key — `findMemberRow` locates a row
+   * by matching it — and it is not personal data on its own: it is an opaque
+   * identifier whose account has already been destroyed. Dropping it would leave
+   * an unreachable orphan row that a later backfill could duplicate.
+   */
+  async erasePii(
+    workspaceId: string,
+    userId: string,
+    anonymisedEmail: string,
+    /**
+     * Tombstone as well as erase.
+     *
+     * TRUE only for the workspace the erasure was requested in, where the
+     * membership really was deleted. `anonymize` wipes the GLOBAL `user` row, so
+     * every OTHER workspace this person belongs to is also left holding PII with
+     * no source — those rows need the overwrite too, but they must not be marked
+     * inactive, because the person is still a member there and a GDPR request in
+     * one workspace is not a resignation from another.
+     */
+    alsoTombstone: boolean,
+  ): Promise<void> {
+    const database = await this.findMembersDb(workspaceId);
+    if (!database) return;
+    const existing = await this.findMemberRow(database.id, userId);
+    if (!existing) return;
+    await this.records.update(
+      workspaceId,
+      database.id,
+      existing.id,
+      {
+        name: 'Deleted user',
+        email: anonymisedEmail,
+        avatar: null,
+        ...(alsoTombstone ? { active: false } : {}),
+      },
+      SYSTEM_ACTOR,
+    );
+  }
+
   async tombstoneMembership(workspaceId: string, userId: string): Promise<void> {
     const database = await this.findMembersDb(workspaceId);
     if (!database) return;

@@ -21,7 +21,19 @@ import type { EmailService } from '../mail/email.service';
  * - Google OAuth only when env credentials exist (MN-007)
  * - bearer plugin: session token usable as `Authorization: Bearer` for curl/scripts
  */
-export function createAuth(db: Db, emailService: EmailService) {
+export function createAuth(
+  db: Db,
+  emailService: EmailService,
+  /**
+   * #419 — called after better-auth updates a `user` row.
+   *
+   * A callback rather than a service, so this file stays ignorant of the Members
+   * projection. It already knows about email and the database because it cannot
+   * work without them; it does not need to know why anyone cares that a name
+   * changed.
+   */
+  onUserUpdated?: (userId: string) => void,
+) {
   const e = env();
   const googleEnabled = Boolean(e.GOOGLE_CLIENT_ID && e.GOOGLE_CLIENT_SECRET);
 
@@ -30,6 +42,34 @@ export function createAuth(db: Db, emailService: EmailService) {
     basePath: '/api/v1/auth',
     secret: e.BETTER_AUTH_SECRET,
     trustedOrigins: [e.WEB_URL],
+    /**
+     * #419 — a profile edit must reach the Members projection.
+     *
+     * The avatar routes are ours and emit directly. The display NAME is not:
+     * the web app calls better-auth's own `authClient.updateUser({ name })`, so
+     * the write never passes through any controller we own and there was nothing
+     * to hook. A renamed user's Members row stayed wrong until their next role
+     * change or the next API restart — both unrelated to the edit, which made
+     * the fix time effectively random.
+     *
+     * A DATABASE hook rather than routing profile edits through our own API,
+     * which was the other option considered. This catches every path, including
+     * ones we do not own and ones better-auth adds later — routing would have
+     * fixed today's caller and left the next one to rediscover the bug.
+     *
+     * `after`, so it never blocks or fails the update: the projection is a cache
+     * with a backfill, and a rename must not fail because a downstream refresh
+     * hiccuped.
+     */
+    databaseHooks: {
+      user: {
+        update: {
+          after: async (updated: { id?: string }) => {
+            if (updated?.id) onUserUpdated?.(updated.id);
+          },
+        },
+      },
+    },
     database: drizzleAdapter(db, {
       provider: 'pg',
       schema: {
