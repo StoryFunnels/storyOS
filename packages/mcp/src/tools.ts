@@ -546,6 +546,14 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   // MN-255: read-only by design — approve/reject are Inbox-only in v1, so
   // an agent can queue work for a human to decide but never decide for one.
   list_approvals: 'read',
+  /*
+   * #439 — the inbox. Reads are `read`. Marking read/archived is a `write`
+   * because it changes what a PERSON will see next time they look, even though
+   * it writes no business data — the notification is theirs, not the agent's.
+   */
+  list_notifications: 'read',
+  get_unread_count: 'read',
+  mark_notifications: 'write',
   // MN-264: read-only — rerun is an app-only action (permission-checked,
   // human-confirmed), not exposed to an agent via MCP.
   get_runs: 'read',
@@ -4625,6 +4633,165 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       );
       return text(res);
     }),
+  );
+
+  /* =====================================================================
+   * #439 (#406 area 6) — the inbox.
+   *
+   * An automation action can NOTIFY a person. Nothing could read the inbox. So
+   * an agent could add to someone's pile and never tell them what was in it —
+   * the same write-but-never-read asymmetry areas 1–3 closed, and the reason
+   * this area was High while most of the rest were not.
+   *
+   * A PRIVACY BOUNDARY, not an ergonomics detail: an inbox is per-identity.
+   * These read and write the notifications of whoever the TOKEN belongs to, and
+   * there is no argument for choosing a person — the API has no such parameter
+   * and this surface must not invent one. Said plainly in every description, so
+   * an agent does not waste a turn trying to route around it.
+   * ===================================================================== */
+
+  /** The notification types the API filters on, listed so an agent can narrow
+   * without guessing a string the server will reject. */
+  const NOTIFICATION_TYPES = [
+    'assigned',
+    'mentioned',
+    'commented',
+    'state_changed',
+    'approval_requested',
+    'action_approval_requested',
+  ] as const;
+
+  reg(
+    'list_notifications',
+    {
+      title: 'List my notifications',
+      description:
+        'What is waiting for the identity this token belongs to — assignments, mentions, comments, state changes and approval requests, newest first. This is the "what should I look at" question, and it is the one an agent could not answer before: notify existed, reading did not. ' +
+        'It reads YOUR inbox and cannot read anyone else\'s; there is no argument for choosing a person and the API has none. To make someone else aware of something, mention them with add_comment.',
+      inputSchema: {
+        workspace: z.string(),
+        unread_only: z.boolean().optional().describe('Only what has not been read yet.'),
+        type: z.enum(NOTIFICATION_TYPES).optional().describe('Narrow to one kind.'),
+        archived: z.boolean().optional().describe('Show the archived pile instead of the inbox.'),
+        cursor: z.string().optional().describe('next_cursor from a previous call.'),
+      },
+    },
+    handle<{ workspace: string; unread_only?: boolean; type?: string; archived?: boolean; cursor?: string }>(
+      async ({ workspace, unread_only, type, archived, cursor }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const res = await unwrap<{
+          data: Array<{
+            id: string;
+            type: string;
+            snippet: string | null;
+            read_at: string | null;
+            created_at: string;
+            record: { id: string; title: string; database_id: string; deleted: boolean } | null;
+            actor: { id: string; name: string } | null;
+          }>;
+          next_cursor: string | null;
+        }>(
+          client.GET('/api/v1/workspaces/{ws}/notifications', {
+            params: {
+              path: { ws: ws.id },
+              query: {
+                ...(unread_only ? { unread_only: 'true' } : {}),
+                ...(type ? { type } : {}),
+                ...(archived ? { archived: 'true' } : {}),
+                ...(cursor ? { cursor } : {}),
+              },
+            } as never,
+          }),
+        );
+        return text({
+          notifications: res.data.map((n) => ({
+            id: n.id,
+            type: n.type,
+            what: n.snippet,
+            from: n.actor?.name ?? null,
+            unread: n.read_at === null,
+            created_at: n.created_at,
+            // The record link is the actionable part — a notification without a
+            // way to reach what it is about is just a sentence.
+            record: n.record
+              ? { id: n.record.id, title: n.record.title, deleted: n.record.deleted, url: recordUrl(ws.id, n.record.database_id, n.record) }
+              : null,
+          })),
+          next_cursor: res.next_cursor,
+        });
+      },
+    ),
+  );
+
+  reg(
+    'get_unread_count',
+    {
+      title: 'Count my unread notifications',
+      description:
+        'How many unread notifications the calling identity has — one number, no pagination. Cheaper than list_notifications when the question is only "is there anything waiting", e.g. at the start of a session.',
+      inputSchema: { workspace: z.string() },
+    },
+    handle<{ workspace: string }>(async ({ workspace }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/notifications/unread-count', { params: { path: { ws: ws.id } } as never }),
+      );
+      return text(typeof res === 'number' ? { unread: res } : (res as Record<string, unknown>));
+    }),
+  );
+
+  reg(
+    'mark_notifications',
+    {
+      title: 'Mark my notifications',
+      description:
+        'Mark notifications read, or archive them, for the calling identity only. Pass `all: true` with action "read" to clear the whole inbox at once. ' +
+        'Think before archiving on someone\'s behalf: it is their inbox, and a notification archived by an agent is one they never saw. Reading and reporting is usually the useful act; clearing is theirs to ask for.',
+      inputSchema: {
+        workspace: z.string(),
+        action: z.enum(['read', 'archive', 'unarchive']).describe('What to do with them.'),
+        notifications: z.array(z.string()).optional().describe('Notification ids from list_notifications.'),
+        all: z.boolean().optional().describe('With action "read" only: mark everything read.'),
+      },
+    },
+    handle<{ workspace: string; action: 'read' | 'archive' | 'unarchive'; notifications?: string[]; all?: boolean }>(
+      async ({ workspace, action, notifications, all }) => {
+        if (all && action !== 'read') throw new Error('`all` is only supported with action "read" — the API has no archive-all.');
+        if (!all && !notifications?.length) throw new Error('Pass `notifications` ids, or all: true with action "read".');
+        const ws = await resolveWorkspace(client, workspace);
+
+        if (all) {
+          await unwrap(
+            client.POST('/api/v1/workspaces/{ws}/notifications/read-all', { params: { path: { ws: ws.id } } as never }),
+          );
+          return text({ marked: 'all', action: 'read' });
+        }
+        /*
+         * One call per id: the API exposes no batch for these, and looping is
+         * honest about that rather than pretending a bulk endpoint exists.
+         *
+         * The three paths are written out LITERALLY rather than interpolated.
+         * coverage.test.ts derives what the MCP reaches by grepping the actual
+         * client call sites out of this source, so an interpolated path would
+         * read as three unreachable endpoints and the parity check would be
+         * wrong in the direction that matters — claiming a gap that is closed.
+         *
+         * (That grep reads comments too. Writing a fake call site in prose here
+         * made the test fail, which is the check doing exactly its job.)
+         */
+        for (const id of notifications!) {
+          const params = { path: { ws: ws.id, id } } as never;
+          await unwrap(
+            action === 'read'
+              ? client.POST('/api/v1/workspaces/{ws}/notifications/{id}/read', { params })
+              : action === 'archive'
+                ? client.POST('/api/v1/workspaces/{ws}/notifications/{id}/archive', { params })
+                : client.POST('/api/v1/workspaces/{ws}/notifications/{id}/unarchive', { params }),
+          );
+        }
+        return text({ marked: notifications!.length, action });
+      },
+    ),
   );
 
   reg(
