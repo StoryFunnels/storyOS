@@ -1,6 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
+import { arrangeBoardColumns } from './board-columns';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import {
@@ -184,6 +185,28 @@ export function BoardView({
     ];
   }, [groupField, rows, groupOf, memberQuery.data, targets.data]);
 
+  /*
+   * #427 / #428 — which of those columns are shown, and in what order.
+   *
+   * Applied AFTER the buckets are filled, deliberately: "empty" means "no cards
+   * in it right now", which is not knowable until the rows are distributed. It
+   * also keeps the arrangement rules pure and testable, out of a useMemo that
+   * already juggles four grouping kinds.
+   */
+  const shownColumns = useMemo(
+    () =>
+      arrangeBoardColumns(
+        columns,
+        {
+          column_sort: config.column_sort,
+          hide_empty_groups: config.hide_empty_groups,
+          hide_empty_no_value_group: config.hide_empty_no_value_group,
+        },
+        { groupType: groupField?.type ?? '' },
+      ),
+    [columns, config.column_sort, config.hide_empty_groups, config.hide_empty_no_value_group, groupField],
+  );
+
   const columnLabels = useMemo(() => new Map(columns.map((c) => [c.id, c.label])), [columns]);
 
   const router = useRouter();
@@ -362,7 +385,7 @@ export function BoardView({
   return (
     <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
       <div className="flex h-full gap-3 overflow-x-auto p-4">
-        {columns.map((column) => (
+        {shownColumns.map((column) => (
           /*
            * #424 — per COLUMN, not per board. A board groups by a user-chosen
            * field, so one column can carry a value the card renderer chokes on

@@ -4038,6 +4038,10 @@ export interface components {
                 card_field_ids: string[];
                 /** @enum {string} */
                 card_size?: "small" | "medium" | "large";
+                /** @enum {string} */
+                column_sort?: "natural" | "alpha" | "count";
+                hide_empty_groups?: boolean;
+                hide_empty_no_value_group?: boolean;
                 /** Format: uuid */
                 cover_field_id?: string;
                 /** Format: uuid */
@@ -4181,6 +4185,10 @@ export interface components {
                 card_field_ids: string[];
                 /** @enum {string} */
                 card_size?: "small" | "medium" | "large";
+                /** @enum {string} */
+                column_sort?: "natural" | "alpha" | "count";
+                hide_empty_groups?: boolean;
+                hide_empty_no_value_group?: boolean;
                 /** Format: uuid */
                 cover_field_id?: string;
                 /** Format: uuid */

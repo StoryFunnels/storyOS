@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { COLUMN_SORT_LABELS, type ColumnSort } from './board-columns';
 import { isIncompleteCondition } from '@storyos/schemas';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -247,6 +248,26 @@ export function ViewToolbar({
         filters={config.filters}
         onChange={(filters) => onPatch({ filters })}
         personalFilter={personalFilter}
+        /*
+         * #428 — supplied only when the view is actually GROUPED. On an
+         * ungrouped table these controls would be two switches and a dropdown
+         * that change nothing, which is worse than their absence.
+         */
+        grouping={
+          config.group_by_field_id
+            ? {
+                hideEmpty: Boolean(config.hide_empty_groups),
+                hideEmptyNoValue: Boolean(config.hide_empty_no_value_group),
+                noValueLabel: noValueLabelFor(augmented.find((f) => f.id === config.group_by_field_id)?.type),
+                columnSort: config.column_sort ?? 'natural',
+                // #427 AC-3 — a date board's columns are chronological periods;
+                // any other order is meaningless, so the control is not offered.
+                canSortColumns:
+                  augmented.find((f) => f.id === config.group_by_field_id)?.type !== 'date',
+                onChange: onPatch,
+              }
+            : undefined
+        }
       />
 
       {/* Sorts (MN-252): the builder is field-type-aware and self-filters to what
@@ -792,7 +813,16 @@ export function FilterChip({
  * (MN-253). One `FilterGroup` (persisted as `ViewConfig.filters`) drives both —
  * pinning just formalizes what used to be "every active condition is a chip".
  */
+/** The label of the ungrouped bucket, matched to board-view.tsx's own copy so
+ * the toggle names the column the user is actually looking at (#428). */
+function noValueLabelFor(groupType: string | undefined): string {
+  if (groupType === 'date') return 'No date';
+  if (groupType === 'select' || groupType === 'workflow') return 'No value';
+  return 'Unassigned';
+}
+
 export function FiltersSection({
+  grouping,
   fields,
   members,
   ws,
@@ -812,6 +842,15 @@ export function FiltersSection({
   onChange: (filters: FilterGroup | undefined) => void;
   /** #259 — current viewer's personal override for THIS view, if any. */
   personalFilter?: FilterNode;
+  /** #428 — present only for a grouped view; forwarded straight to the builder. */
+  grouping?: {
+    hideEmpty: boolean;
+    hideEmptyNoValue: boolean;
+    noValueLabel: string;
+    columnSort: ColumnSort;
+    canSortColumns: boolean;
+    onChange: (patch: Partial<ViewConfig>) => void;
+  };
 }) {
   const [open, setOpen] = useState(false);
   // #259: which tree the panel is editing — defaults to Global, same as every
@@ -1042,6 +1081,7 @@ export function FiltersSection({
               )}
               {scope === 'global' || !canUsePersonalScope ? (
                 <FilterBuilderPanel
+                  grouping={grouping}
                   fields={fields}
                   members={members}
                   ws={ws}
@@ -1052,6 +1092,7 @@ export function FiltersSection({
                 />
               ) : (
                 <FilterBuilderPanel
+                  grouping={grouping}
                   fields={fields}
                   members={members}
                   ws={ws}
@@ -1187,6 +1228,7 @@ function PinnedFilterChip({
  * own local state instead of a persisted `ViewConfig.filters`.
  */
 export function FilterBuilderPanel({
+  grouping,
   fields,
   members,
   ws,
@@ -1202,6 +1244,16 @@ export function FilterBuilderPanel({
   connector: FilterConnector;
   nodes: FilterNode[];
   onNodesChange: (next: FilterNode[]) => void;
+  /** #428 — only supplied for a GROUPED view; absent on an ungrouped one, where
+   * these controls would do nothing. */
+  grouping?: {
+    hideEmpty: boolean;
+    hideEmptyNoValue: boolean;
+    noValueLabel: string;
+    columnSort: ColumnSort;
+    canSortColumns: boolean;
+    onChange: (patch: Partial<ViewConfig>) => void;
+  };
   onConnectorChange: (next: FilterConnector) => void;
   /** #259 — true when this instance is editing the PERSONAL tree, not the
    * shared view's. Swaps the copy so "no filters yet" doesn't read as if it's
@@ -1292,6 +1344,84 @@ export function FilterBuilderPanel({
         <div className="border-t border-border-default p-1">
           <AddFilterButton fields={fields} onAdd={addCondition} label="Add condition" />
         </div>
+      )}
+
+      {/*
+        #428 — the group toggles live HERE, at the bottom of the Filter panel.
+        
+        That placement is the ticket's, and it is right: hiding empty groups IS
+        a filter on what you see, so this is where someone looks for it rather
+        than in view settings. Only rendered for a grouped view — on an
+        ungrouped table these would be two switches that do nothing.
+      */}
+      {grouping && <GroupVisibilityToggles {...grouping} />}
+    </div>
+  );
+}
+
+/**
+ * #428 — two switches, not one.
+ *
+ * "No Epic" is a different question from "an epic with no issues". The
+ * ungrouped bucket is usually the triage pile — the most important column on
+ * the board — so it gets its own control rather than being swept away with the
+ * empty real groups. Collapsing these into a single toggle is the obvious
+ * implementation and the wrong one.
+ */
+function GroupVisibilityToggles({
+  hideEmpty,
+  hideEmptyNoValue,
+  noValueLabel,
+  columnSort,
+  canSortColumns,
+  onChange,
+}: {
+  hideEmpty: boolean;
+  hideEmptyNoValue: boolean;
+  noValueLabel: string;
+  columnSort: ColumnSort;
+  canSortColumns: boolean;
+  onChange: (patch: Partial<ViewConfig>) => void;
+}) {
+  const row = 'flex w-full items-center justify-between gap-2 px-2 py-1.5 text-[12px] text-ink hover:bg-hover';
+  return (
+    <div className="border-t border-border-default py-1">
+      <span className="block px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-faint">Groups</span>
+      <label className={row}>
+        Hide empty groups
+        <input
+          type="checkbox"
+          checked={hideEmpty}
+          onChange={(e) => onChange({ hide_empty_groups: e.target.checked || undefined })}
+        />
+      </label>
+      <label className={row}>
+        {/* Named after the actual bucket ("Unassigned", "No value", "No date")
+            so it is obvious WHICH column this hides. */}
+        Hide “{noValueLabel}” when empty
+        <input
+          type="checkbox"
+          checked={hideEmptyNoValue}
+          onChange={(e) => onChange({ hide_empty_no_value_group: e.target.checked || undefined })}
+        />
+      </label>
+      {canSortColumns && (
+        <label className={row}>
+          {/* #427 — column order, next to the other which-columns-do-I-see
+              controls. The Sort panel sorts CARDS and now says so. */}
+          Column order
+          <select
+            className="rounded border border-border-default bg-card px-1 py-0.5 text-[12px] text-ink"
+            value={columnSort}
+            onChange={(e) => onChange({ column_sort: e.target.value as ColumnSort })}
+          >
+            {(Object.keys(COLUMN_SORT_LABELS) as ColumnSort[]).map((k) => (
+              <option key={k} value={k}>
+                {COLUMN_SORT_LABELS[k]}
+              </option>
+            ))}
+          </select>
+        </label>
       )}
     </div>
   );
@@ -2050,7 +2180,10 @@ export function SortButton({
           <div className="fixed inset-0 z-[var(--z-overlay-backdrop)]" onClick={() => setOpen(false)} />
           <div className="absolute left-0 top-full z-[var(--z-overlay)] mt-1 w-72 max-w-[calc(100vw-2rem)] rounded-[var(--radius-card)] border border-border-default bg-card shadow-[0_4px_12px_rgba(15,23,41,0.08)]">
             <div className="flex items-center justify-between border-b border-border-default px-3 py-2">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-faint">Sort</span>
+              {/* #427 — "Sort" read as if it sorted the board. It sorts CARDS; column
+                  order lives in the Filter panel's Groups section. The old label is
+                  why this was filed as a bug rather than a missing feature. */}
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-faint">Sort cards</span>
               <a
                 href="https://docs.storyos.dev/concepts/views/#filters--sorts"
                 target="_blank"

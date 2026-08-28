@@ -9948,6 +9948,20 @@
                   "large"
                 ]
               },
+              "column_sort": {
+                "type": "string",
+                "enum": [
+                  "natural",
+                  "alpha",
+                  "count"
+                ]
+              },
+              "hide_empty_groups": {
+                "type": "boolean"
+              },
+              "hide_empty_no_value_group": {
+                "type": "boolean"
+              },
               "cover_field_id": {
                 "type": "string",
                 "format": "uuid",
@@ -10444,6 +10458,20 @@
                   "medium",
                   "large"
                 ]
+              },
+              "column_sort": {
+                "type": "string",
+                "enum": [
+                  "natural",
+                  "alpha",
+                  "count"
+                ]
+              },
+              "hide_empty_groups": {
+                "type": "boolean"
+              },
+              "hide_empty_no_value_group": {
+                "type": "boolean"
               },
               "cover_field_id": {
                 "type": "string",

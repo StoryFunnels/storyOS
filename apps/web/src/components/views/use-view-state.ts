@@ -29,6 +29,12 @@ export interface ViewConfig {
   card_field_ids: string[];
   /** Board card density (MN-089). */
   card_size?: 'small' | 'medium' | 'large';
+  /** #427 — board COLUMN order, distinct from `sorts`, which sorts CARDS. */
+  column_sort?: 'natural' | 'alpha' | 'count';
+  /** #428 — hide groups with no cards; the no-value bucket has its own flag,
+   * because "No Epic" is a different question from "an epic with no issues". */
+  hide_empty_groups?: boolean;
+  hide_empty_no_value_group?: boolean;
   /**
    * #391 — the attachment field a gallery card draws its image from.
    *
