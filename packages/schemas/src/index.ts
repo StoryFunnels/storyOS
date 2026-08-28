@@ -35,3 +35,4 @@ export * from './connections';
 export * from './sources';
 export * from './skills';
 export * from './billing';
+export * from './column-match';

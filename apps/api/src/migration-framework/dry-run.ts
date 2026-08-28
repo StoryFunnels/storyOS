@@ -14,6 +14,11 @@ export class DryRunBuilder {
   private warnings: ImportWarning[] = [];
   private warningsTotal = 0;
   private sample: Array<Record<string, unknown>> = [];
+  /** #432 — NOT capped like warnings. A blocker list is a list of things the
+   * user must decide on, and truncating it would hide a decision rather than
+   * merely a detail. There are as many as there are fields, so it is bounded
+   * anyway. */
+  private blocking: Array<{ sourceKey: string; message: string }> = [];
   willCreate = 0;
   willUpdate = 0;
   newFields: NewFieldSpec[] = [];
@@ -21,6 +26,15 @@ export class DryRunBuilder {
   addWarning(w: ImportWarning): void {
     this.warningsTotal++;
     if (this.warnings.length < WARNING_CAP) this.warnings.push(w);
+  }
+
+  addBlocking(sourceKey: string, message: string): void {
+    this.blocking.push({ sourceKey, message });
+  }
+
+  /** True while anything refuses the operation. */
+  get isBlocked(): boolean {
+    return this.blocking.length > 0;
   }
 
   addSample(record: Record<string, unknown>): void {
@@ -35,6 +49,7 @@ export class DryRunBuilder {
       warnings: this.warnings,
       warnings_total: this.warningsTotal,
       sample: this.sample,
+      ...(this.blocking.length ? { blocking: this.blocking } : {}),
     };
   }
 }

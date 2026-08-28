@@ -7,7 +7,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { IMPORTABLE_FIELD_TYPES } from '@storyos/schemas';
 import { API_URL } from '@/lib/api';
-import { matchExistingField } from '@/components/import-column-match';
+import { matchExistingField } from '@storyos/schemas';
 import { useDatabase } from '@/components/table-view/use-table-data';
 import { useDatabases } from '@/lib/queries';
 import { Button } from '@/components/ui/button';
