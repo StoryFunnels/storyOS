@@ -21,6 +21,16 @@ DB_ISSUES="3f743dcd-d5ca-47c0-a676-72f40934119b"
 DB_SCENARIOS="d11d687e-4b82-451e-943d-5fdbc8fabb8d"
 LOCKS="$ENVS/.locks"; LOGS="$ENVS/logs"
 mkdir -p "$LOCKS" "$LOGS"
+
+# Resolve the claude binary rather than trusting PATH. A launchd job gets a
+# minimal PATH and `claude` lives under ~/.local/bin, so hardcoding a directory
+# list silently produced "claude: command not found" at the moment of launch —
+# after the queue check had already reported work to do.
+CLAUDE="${CLAUDE_BIN:-$(command -v claude 2>/dev/null)}"
+for c in "$HOME/.local/bin/claude" "$HOME/.npm-global/bin/claude" /opt/homebrew/bin/claude /usr/local/bin/claude; do
+  [[ -n "$CLAUDE" ]] && break
+  [[ -x "$c" ]] && CLAUDE="$c"
+done
 log() { echo "$(date '+%F %T') [$NAME] $*" >> "$LOGS/$NAME.poll.log"; }
 
 # never overlap a run with itself — a drain can outlast the hour
@@ -100,6 +110,7 @@ n=$(curl -fsS -X POST "$API/workspaces/$WS/databases/$DB/records/query" \
 # a stale timestamp means the schedule itself has stopped.
 if [[ "$n" -eq 0 ]]; then log "idle — queue empty, no session started"; exit 0; fi
 
+[[ -x "$CLAUDE" ]] || { log "claude binary not found — set CLAUDE_BIN in $NAME.env"; exit 1; }
 log "queue non-empty — draining"
 echo $$ > "$lock"
 trap 'rm -f "$lock"' EXIT
@@ -107,5 +118,5 @@ trap 'rm -f "$lock"' EXIT
 if [[ "$NAME" == "mira" || "$NAME" == "otto" ]]; then FOLDER=readers; else FOLDER="$NAME"; fi
 cd "$ENVS/$FOLDER" || { log "no folder $ENVS/$FOLDER — run setup-agents.sh first"; exit 1; }
 # Unattended: nobody can answer a permission prompt, so a prompt is a hang.
-claude --model opus --permission-mode bypassPermissions -p "$(cat "$SELF/$NAME.txt")" >> "$LOGS/$NAME.log" 2>> "$LOGS/$NAME.err"
+"$CLAUDE" --model opus --permission-mode bypassPermissions -p "$(cat "$SELF/$NAME.txt")" >> "$LOGS/$NAME.log" 2>> "$LOGS/$NAME.err"
 log "drain finished"
