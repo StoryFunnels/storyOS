@@ -95,7 +95,10 @@ n=$(curl -fsS -X POST "$API/workspaces/$WS/databases/$DB/records/query" \
     | python3 -c "import sys,json;print(len(json.load(sys.stdin).get('data',[])))") || {
   log "queue check FAILED — not launching"; exit 1; }
 
-[[ "$n" -eq 0 ]] && exit 0
+# A silent success is indistinguishable from a job that never ran. Log every
+# check so poll.log is a heartbeat: "idle" means healthy-and-nothing-to-do, and
+# a stale timestamp means the schedule itself has stopped.
+if [[ "$n" -eq 0 ]]; then log "idle — queue empty, no session started"; exit 0; fi
 
 log "queue non-empty — draining"
 echo $$ > "$lock"
