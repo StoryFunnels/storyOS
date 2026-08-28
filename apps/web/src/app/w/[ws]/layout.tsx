@@ -55,14 +55,14 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
       {/* Mobile-only backdrop — tapping it closes the drawer, same as the X. */}
       {mobileOpen && (
         <div
-          className="fixed inset-0 z-30 bg-[rgba(15,23,41,0.35)] md:hidden"
+          className="fixed inset-0 z-[var(--z-drawer-backdrop)] bg-[rgba(15,23,41,0.35)] md:hidden"
           onClick={() => setMobileOpen(false)}
           aria-hidden
         />
       )}
       <div
         className={cn(
-          'z-40 h-full shrink-0 transition-transform duration-200 ease-out',
+          'z-[var(--z-drawer)] h-full shrink-0 transition-transform duration-200 ease-out',
           'fixed inset-y-0 left-0 md:static md:z-auto md:translate-x-0',
           mobileOpen ? 'translate-x-0' : '-translate-x-full',
           // Desktop collapse (persistent, per-user): fully removed from the

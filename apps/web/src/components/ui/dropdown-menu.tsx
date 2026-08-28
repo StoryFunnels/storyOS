@@ -14,7 +14,7 @@ export function DropdownMenuContent({ className, ...props }: ComponentProps<type
         align="start"
         sideOffset={4}
         className={cn(
-          'z-50 min-w-40 rounded-[var(--radius-card)] border border-border-default bg-card p-1 shadow-[0_4px_12px_rgba(15,23,41,0.08)]',
+          'z-[var(--z-popover)] min-w-40 rounded-[var(--radius-card)] border border-border-default bg-card p-1 shadow-[0_4px_12px_rgba(15,23,41,0.08)]',
           className,
         )}
         {...props}
