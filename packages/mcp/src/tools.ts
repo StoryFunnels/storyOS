@@ -766,7 +766,14 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
          */
         'BUILD (fast): list_packs → install_pack for a ready-made workspace, or propose_schema → show the plan → build_schema to create many databases/fields/relations in ONE call. Prefer these over a long create_database/add_field sequence.',
         'BUILD (manual, for one-off additions): list_spaces → create_space → create_database → add_field → create_view → create_relation. Then create_records (batch, up to 100) to populate.',
-        'AUTOMATE (admin): describe_database first, then create_automation = trigger (record_created/_updated/_linked, schedule, or webhook_received) + optional condition (a query_records-style filter) + 1–10 actions (set/create/create_records/comment/notify/email/webhook/http_request/run_agent). ' +
+        /*
+         * #393 — this compressed list is what a reviewer skimmed past before
+         * concluding rules could not email or call an API. Naming the three
+         * outward capabilities in words costs one line and is the whole fix.
+         */
+        'AUTOMATE (admin): describe_database first, then create_automation = trigger (record_created/_updated/_linked, schedule, or webhook_received) + optional condition (a query_records-style filter) + 1–10 actions. ' +
+        'Rules REACH OUTSIDE StoryOS — they can send real email, call any public HTTP API, and post to Slack, from scheduled and triggered rules alike, not just from buttons. ' +
+        'Actions: set/create/create_records/comment/notify/send_email/send_webhook/http_request/send_slack_message/run_agent. ' +
         // #297: these all shipped and worked, but nothing an agent reads mentioned
         // them — so in practice they did not exist.
         'A record_linked trigger takes direction:"link"|"unlink" (omit = both). EVERY action takes an optional `condition` — a non-match skips just that action. ' +
@@ -5553,7 +5560,26 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Create automation',
       description:
-'#334: create an automation rule = trigger + optional condition + 1–10 actions. TRIGGERS: ' +
+/*
+         * #393 — the capability sentence comes FIRST, in words.
+         *
+         * Everything below was already accurate and a careful reviewer with
+         * docs and MCP access still concluded that scheduled rules could not
+         * call a webhook and that email was "genuinely missing". Both false.
+         * They then acted on it: the plan routed around outbound HTTP and
+         * treated email as a blocker.
+         *
+         * The failure was not absence, it was a dense slash-separated list —
+         * "email" and "http_request" among fifteen tokens do not read as "send
+         * real email" and "call any API". So the three capabilities people
+         * assume are missing are stated as a sentence before the grammar
+         * starts, where they cannot be skimmed past.
+         */
+        'A rule CAN REACH OUTSIDE STORYOS: it can SEND EMAIL (send_email, via a Resend or SMTP connection — the connection\'s own verified address sends it), ' +
+        'CALL ANY HTTP API (http_request — any method, templated URL and body, optional auth via a connection, and it can capture JSON from the response back onto fields), ' +
+        'and POST TO SLACK (send_slack_message). These work from SCHEDULED and TRIGGERED rules, not only from buttons — a button and a rule share one action schema, so anything one can do the other can. ' +
+        'Private and internal addresses are refused on http_request (SSRF guard); public ones are fine. ' +
+        '#334: create an automation rule = trigger + optional condition + 1–10 actions. TRIGGERS: ' +
         '{type:"record_created"} · {type:"record_updated", field?:"<name>"} · ' +
         // #297: `direction` shipped in #270 but was undocumented AND silently dropped.
         '{type:"record_linked", relation_field:"<name>", direction?:"link"|"unlink"} (omit direction to fire on both) · ' +
