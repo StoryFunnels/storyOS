@@ -15,6 +15,7 @@ import { slugify } from '../databases/databases.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { isComparableType } from './auto-link';
 import { DomainEventsService } from '../events/domain-events.service';
+import { AccessService } from '../access/access.service';
 
 /** Persisted auto-link config (on relations.autoLink) — field ids, resolved at save. */
 export interface StoredAutoLink {
@@ -30,6 +31,9 @@ export class RelationsService {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly domainEvents: DomainEventsService,
+    /** #448 — per-viewer database visibility, so a relation to a database the
+     * caller cannot read is dropped rather than hinted at. */
+    private readonly access: AccessService,
   ) {}
 
   private async uniqueApiName(databaseId: string, displayName: string): Promise<string> {
@@ -261,6 +265,98 @@ export class RelationsService {
     return list
       .filter((f) => isComparableType(f.type))
       .map((f) => ({ id: f.id, api_name: f.apiName, display_name: f.displayName, type: f.type }));
+  }
+
+  /**
+   * #448 — the whole relation graph, ONE ENTRY PER RELATION.
+   *
+   * There was create, get-one, patch and delete, and no list — so the ids could
+   * be fetched only by something that already had them. The only route to the
+   * graph was `list_databases` then `describe_database` × N, filtering fields to
+   * `type === 'relation'` and de-duplicating the two sides by hand. N+1 calls to
+   * answer one question, with the de-duplication pushed onto every caller.
+   *
+   * One row per relation is the load-bearing detail. Returning both sides
+   * separately would just move that de-duplication back out, which is what made
+   * the workaround error-prone in the first place.
+   *
+   * ACCESS — the part most likely to leak. A relation is visible only when the
+   * viewer can read BOTH databases, and an unreadable one drops the edge
+   * ENTIRELY. No placeholder node: that leaks the same fact (a database exists,
+   * over there, connected to this) more quietly, which is worse than an obvious
+   * leak because nobody notices it. Only guests can have partial access, so this
+   * rule is invisible to admin and member callers.
+   */
+  async listRelations(
+    membership: Membership,
+    filter: { spaceId?: string; databaseId?: string } = {},
+  ) {
+    const rows = await this.db.query.relations.findMany({
+      where: eq(relations.workspaceId, membership.workspaceId),
+    });
+    if (rows.length === 0) return { data: [] };
+
+    const dbIds = [...new Set(rows.flatMap((r) => [r.databaseAId, r.databaseBId]))];
+    const dbRows = await this.db.query.databases.findMany({
+      // No soft-delete column on `databases` — a deleted database is a real
+      // delete and its relations cascade with it, so a missing row here means
+      // the edge is already gone. Filtered below rather than joined away.
+      where: inArray(databases.id, dbIds),
+      columns: { id: true, name: true, spaceId: true },
+    });
+    const byId = new Map(dbRows.map((d) => [d.id, d]));
+
+    // Resolved once per database rather than per edge — a workspace with 40
+    // relations over 20 databases would otherwise ask the same question twice
+    // per edge.
+    const readable = new Map<string, boolean>();
+    for (const d of dbRows) {
+      readable.set(d.id, (await this.access.effectiveForDatabase(membership, d)) !== null);
+    }
+
+    const fieldRows = await this.db.query.fields.findMany({
+      where: inArray(fields.id, rows.flatMap((r) => [r.fieldAId, r.fieldBId])),
+      columns: { id: true, apiName: true, displayName: true },
+    });
+    const fieldById = new Map(fieldRows.map((f) => [f.id, f]));
+
+    const side = (databaseId: string, fieldId: string) => {
+      const db = byId.get(databaseId);
+      const f = fieldById.get(fieldId);
+      return {
+        database_id: databaseId,
+        database_name: db?.name ?? null,
+        space_id: db?.spaceId ?? null,
+        field_id: fieldId,
+        field_name: f?.displayName ?? null,
+        field_api_name: f?.apiName ?? null,
+      };
+    };
+
+    const data = rows
+      .filter((r) => byId.has(r.databaseAId) && byId.has(r.databaseBId))
+      // Both sides readable, or the edge does not exist for this viewer.
+      .filter((r) => readable.get(r.databaseAId) && readable.get(r.databaseBId))
+      .filter((r) => {
+        if (filter.databaseId) return r.databaseAId === filter.databaseId || r.databaseBId === filter.databaseId;
+        if (filter.spaceId) {
+          return byId.get(r.databaseAId)?.spaceId === filter.spaceId || byId.get(r.databaseBId)?.spaceId === filter.spaceId;
+        }
+        return true;
+      })
+      .map((r) => ({
+        id: r.id,
+        cardinality: r.cardinality,
+        // A self-relation is ONE relation with two fields on the same database,
+        // so it appears once here with both field names — not twice, and not
+        // truncated to one side (#448 AC-5).
+        self_relation: r.databaseAId === r.databaseBId,
+        auto_link: Boolean(r.autoLink),
+        a: side(r.databaseAId, r.fieldAId),
+        b: side(r.databaseBId, r.fieldBId),
+      }));
+
+    return { data };
   }
 
   /** Relation + both sides' fields + auto-link config, for the config UI. */
