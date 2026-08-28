@@ -34,6 +34,35 @@ export interface CoverageRule {
  */
 export const EXCLUDED: CoverageRule[] = [
   {
+    match: /(POST|DELETE|PATCH) .*\/(grants|invites|members)(\/|$)/,
+    reason:
+      /*
+       * #441 — the write half of membership and access. EXCLUDED, not deferred,
+       * with the split recorded on the ticket before any code (which is what
+       * #406 asked for on this area specifically).
+       *
+       * ADR-0010's reasoning, unchanged: a token's SCOPE is what it may do, and
+       * the GRANT SET is what it may do it to. An agent that can edit the
+       * second collapses the distinction — it can widen its own blast radius,
+       * and no approval gate sees it happen.
+       *
+       * There is also no compensating benefit. Inviting a colleague and handing
+       * out database access are things a person does a handful of times,
+       * deliberately, and are already two clicks in-app. Rare case where the
+       * capability gap costs almost nothing and closing it costs a lot.
+       *
+       * Inviting is worse than re-granting and would stay out even if this were
+       * reopened: POST /invites is the only route here that sends mail to an
+       * address of the agent's choosing, i.e. to someone not yet in the
+       * workspace at all.
+       *
+       * Same line #442 draws for publishing a shared skill and #446 for
+       * submitting a pack. Three areas, one rule: an agent may prepare, a
+       * person decides.
+       */
+      "#441 — an agent that can grant access can widen its own blast radius: scope is what a token MAY do, grants are what it may do it TO, and letting one edit the other removes the distinction (ADR-0010). Reading membership IS reachable (list_members); changing it is a human act.",
+  },
+  {
     match: 'POST /api/v1/workspaces/{ws}/packs/submissions',
     reason:
       /*
@@ -170,11 +199,6 @@ export const DEFERRED: CoverageRule[] = [
   {
     match: /\/(sources|sources\/.*)$/,
     reason: '#406 — source (sync) configuration. `list_sources` is read-only; creating, reconfiguring and running a sync are not exposed.',
-  },
-  {
-    match: /\/(grants|members|invites)/,
-    reason:
-      '#406 — membership and access. Deliberately NOT excluded: reading who is in a workspace and what they can see is ordinary context. Writing it is a real decision and the ticket should split the two.',
   },
   {
     match: '/api/v1/workspaces/{ws}/webhooks',

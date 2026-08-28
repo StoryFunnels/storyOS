@@ -3165,3 +3165,87 @@ describe('#437/#440 — views and personal surfaces', () => {
     });
   });
 });
+
+/**
+ * #441 — membership and access, read only.
+ *
+ * Two assertions carry this whole area: that no WRITE tool exists, and that
+ * `list_members` does not hand back email. Everything else is plumbing.
+ */
+describe('#441 — membership reads, and the writes that must not exist', () => {
+  function harness() {
+    const sent: string[] = [];
+    const handlers = new Map<string, (a: unknown) => Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }>>();
+    const log = (method: string) => async (path: string) => {
+      sent.push(`${method} ${path}`);
+      if (path === '/api/v1/workspaces') return { data: [{ id: 'ws-1', name: 'Eng' }] };
+      if (path === '/api/v1/workspaces/{ws}/members') {
+        return {
+          data: [
+            {
+              id: 'm-1',
+              role: 'admin',
+              user_id: 'u-1',
+              user: { id: 'u-1', name: 'Ada Lovelace', email: 'ada@example.com', image: 'https://x/y.png' },
+            },
+          ],
+        };
+      }
+      return { data: [] };
+    };
+    registerTools({ registerTool: (n: string, _c: unknown, h: never) => handlers.set(n, h as never) } as never, {
+      client: { GET: log('GET'), POST: log('POST'), PATCH: log('PATCH'), PUT: log('PUT'), DELETE: log('DELETE') } as never,
+      baseUrl: 'http://test',
+      token: 'tok',
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- shape varies per tool.
+    const call = async (n: string, a: unknown): Promise<any> => {
+      const r = await handlers.get(n)!(a);
+      if (r.isError) throw new Error(r.content[0]!.text);
+      return JSON.parse(r.content[0]!.text);
+    };
+    return { call, sent, handlers };
+  }
+
+  it('does NOT return member emails, though the endpoint provides them', async () => {
+    // A read-scoped token is the weakest credential the product issues, and the
+    // member list is the workspace's contact sheet. Nothing legitimate needs
+    // the address: a user field wants the id, a sentence wants the name.
+    const { call } = harness();
+    const out = await call('list_members', { workspace: 'Eng' });
+    expect(JSON.stringify(out)).not.toContain('ada@example.com');
+    expect(out.members[0]).toMatchObject({ user_id: 'u-1', name: 'Ada Lovelace', role: 'admin' });
+  });
+
+  it('returns the id a user field actually wants, and says so', async () => {
+    // The gap this closes: assignee writes were rejected for naming a
+    // non-member, with no way to check first.
+    const { call } = harness();
+    const out = await call('list_members', { workspace: 'Eng' });
+    expect(out.members[0].user_id).toBe('u-1');
+    expect(out.note).toMatch(/user field/i);
+  });
+
+  it('exposes NO tool that changes membership or access — ADR-0010', async () => {
+    // The gate. An agent that can grant access can widen its own blast radius:
+    // scope is what a token MAY do, grants are what it may do it TO. If this
+    // test ever fails, the PR that broke it is wrong.
+    const { handlers } = harness();
+    const names = [...handlers.keys()];
+    // Matched on WRITE VERBS rather than on the nouns: an earlier version of
+    // this regex flagged `list_invites`, which is the read half doing its job.
+    const writeVerb = /^(create|add|remove|revoke|delete|update|set|invite|grant)_.*(member|grant|invite|role|access)/i;
+    expect(names.filter((n) => writeVerb.test(n))).toEqual([]);
+    // And the read half must still be there — a guard that passes because the
+    // whole area vanished would be worthless.
+    expect(names).toEqual(expect.arrayContaining(['list_members', 'list_grants', 'list_invites']));
+  });
+
+  it('every membership tool is a GET', async () => {
+    const { call, sent } = harness();
+    await call('list_members', { workspace: 'Eng' });
+    await call('list_grants', { workspace: 'Eng' });
+    await call('list_invites', { workspace: 'Eng' });
+    expect(sent.filter((s) => !s.startsWith('GET '))).toEqual([]);
+  });
+});
