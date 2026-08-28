@@ -13,6 +13,10 @@ Each time you fire:
   c. If it has items: work them per the runbook below, and keep going until the
      queue is empty. Then stop.
 
+API base: https://app.storyos.dev/api/v1   (there is no api.storyos.dev)
+Workspace: 3448c14b-70f3-41bc-9188-839029be9f7e
+Full ids and the queue query shape: ~/storyos-envs/bin/_shared.md
+
 Auth: the token is in ~/storyos-envs/nadia.env — source it, never print it.
 You are already authenticated as Ievgen for Claude itself; there is no API key
 and there must not be one.

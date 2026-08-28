@@ -52,7 +52,17 @@ for row in "${AGENTS[@]}"; do
   IFS='|' read -r name folder branch _ _ _ <<< "$row"
   [[ "$name" == "nils" ]] && continue
   dir="$ENVS/$folder"
-  [[ -d "$dir" ]] && { echo "    $folder exists, skipping"; continue; }
+  if [[ -d "$dir" ]]; then
+    # Skipping outright left worktrees pinned at whatever commit they were created
+    # at, so agents read a stale contract. Fast-forward them instead.
+    if [[ "$branch" == "main" ]]; then
+      git -C "$dir" fetch -q origin && git -C "$dir" checkout -q --detach origin/main \
+        && echo "    $folder updated to origin/main" || echo "    $folder exists (could not update — local changes?)"
+    else
+      echo "    $folder exists on $branch, left alone"
+    fi
+    continue
+  fi
   if [[ "$branch" == "main" ]]; then
     git -C "$REPO" worktree add "$dir" origin/main --detach
   else
