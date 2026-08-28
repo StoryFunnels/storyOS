@@ -323,3 +323,118 @@ describe('nested filter groups: checkFilterNames validates and/or recursively (M
     expect(view.config.filters).toEqual({ and: [{ field: 'estimate', op: 'gt', value: 0 }] });
   });
 });
+
+/**
+ * #425 — an unfinished filter condition SURVIVES being saved.
+ *
+ * The report was that a condition with no value vanished from the builder after
+ * the panel closed, and the ticket's hypothesis was that #345's pruning had
+ * deleted it. This exists because that hypothesis is wrong, and acting on it
+ * would have been expensive: pruning is client-side and is only ever applied to
+ * the QUERY, never to what is persisted.
+ *
+ * These assertions cover the layer the client-side unit tests cannot — a real
+ * PATCH through viewConfigSchema, assertFilterFieldsLive and cleanViewConfig,
+ * then a real read back off the database detail. If any of those ever starts
+ * dropping an incomplete condition, it surfaces here rather than as somebody
+ * losing work.
+ *
+ * (The actual cause is almost certainly #422: the relation picker sat beneath
+ * the filter panel's own close-backdrop, so the click that should have set a
+ * value closed the panel instead. That is a lost EDIT, not a pruned condition,
+ * and from the outside the two are indistinguishable.)
+ */
+describe('#425 — an incomplete condition survives save and read-back', () => {
+  let viewId: string;
+  let ownField: string;
+
+  const CONFIG_BASE = { sorts: [], hidden_field_ids: [], card_field_ids: [], column_widths: {} };
+
+  /** Views are read through the database detail — there is no GET on the views
+   * controller — so this is also the exact path the app itself reads them by. */
+  async function savedFilters() {
+    const detail = await inject('GET', `/workspaces/${wsId}/databases/${dbId}`);
+    const view = detail.json().views.find((v: { id: string }) => v.id === viewId);
+    return view.config.filters;
+  }
+
+  beforeAll(async () => {
+    // Its own field, so the test does not depend on what earlier tests in this
+    // file did to the shared ones.
+    const created = await inject('POST', `/workspaces/${wsId}/databases/${dbId}/fields`, {
+      display_name: 'Owner Note',
+      type: 'text',
+    });
+    const row = created.json();
+    ownField = row.api_name ?? row.apiName;
+    if (!ownField) throw new Error(`field create returned no api_name: ${created.body}`);
+    viewId = (
+      await inject('POST', `/workspaces/${wsId}/databases/${dbId}/views`, {
+        name: 'Half-built filter',
+        type: 'table',
+        config: { ...CONFIG_BASE },
+      })
+    ).json().id;
+  });
+
+  it('keeps a condition with an EMPTY value alongside a complete one', async () => {
+    // Exactly the reported shape: one real condition plus one not filled in yet.
+    const patch = await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/views/${viewId}`, {
+      config: {
+        ...CONFIG_BASE,
+        filters: {
+          and: [
+            { field: ownField, op: 'contains', value: 'real' },
+            { field: ownField, op: 'contains', value: '' },
+          ],
+        },
+      },
+    });
+    expect(patch.statusCode, patch.body).toBe(200);
+
+    const filters = await savedFilters();
+    expect(filters.and, 'both conditions must come back').toHaveLength(2);
+    expect(filters.and[1]).toMatchObject({ op: 'contains', value: '' });
+  });
+
+  it('keeps one whose value key is absent entirely', async () => {
+    const patch = await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/views/${viewId}`, {
+      config: { ...CONFIG_BASE, filters: { and: [{ field: ownField, op: 'contains' }] } },
+    });
+    expect(patch.statusCode, patch.body).toBe(200);
+    // A single-child group is stored as it was sent — the server does not
+    // collapse it (the CLIENT collapses for the query, which is a different job).
+    expect((await savedFilters()).and[0]).toMatchObject({ field: ownField, op: 'contains' });
+  });
+
+  it('preserves the UI-only keys a half-built row carries', async () => {
+    // pinned/label are what make the row identifiable in the builder. Stripped,
+    // it would come back anonymous — which reads as "something was lost" even
+    // though the condition itself survived.
+    const patch = await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/views/${viewId}`, {
+      config: {
+        ...CONFIG_BASE,
+        filters: { and: [{ field: ownField, op: 'contains', value: '', pinned: true, label: 'By note' }] },
+      },
+    });
+    expect(patch.statusCode, patch.body).toBe(200);
+    expect((await savedFilters()).and[0]).toMatchObject({ pinned: true, label: 'By note' });
+  });
+
+  it('still REFUSES a condition on a field that no longer exists', async () => {
+    // The one thing that must not be kept. Asserted so "keep incomplete
+    // conditions" never widens into "keep everything".
+    const temp = (
+      await inject('POST', `/workspaces/${wsId}/databases/${dbId}/fields`, {
+        display_name: 'Temp Field',
+        type: 'text',
+      })
+    ).json();
+    await inject('DELETE', `/workspaces/${wsId}/databases/${dbId}/fields/${temp.id}`);
+
+    const withDead = await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/views/${viewId}`, {
+      config: { ...CONFIG_BASE, filters: { and: [{ field: temp.api_name, op: 'contains', value: 'x' }] } },
+    });
+    expect(withDead.statusCode).toBe(422);
+  });
+});
