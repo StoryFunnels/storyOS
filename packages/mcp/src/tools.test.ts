@@ -2893,3 +2893,114 @@ describe('#447 — agents, runs, and the gate that stays human', () => {
     expect(names).toContain('get_staged_action');
   });
 });
+
+/**
+ * #439 — the inbox.
+ *
+ * The asymmetry this closes: an automation could NOTIFY a person and nothing
+ * could read the inbox, so an agent added to someone's pile and could never
+ * tell them what was in it.
+ *
+ * The assertions that matter are the boundary ones. An inbox is per-identity,
+ * and the failure worth preventing is a future tool growing a `user` argument.
+ */
+describe('#439 — notifications', () => {
+  interface Sent { method: string; path: string; params?: Record<string, string>; query?: Record<string, unknown> }
+
+  function harness() {
+    const sent: Sent[] = [];
+    const handlers = new Map<string, (a: unknown) => Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }>>();
+    const log = (method: string) => async (
+      path: string,
+      o?: { params?: { path?: Record<string, string>; query?: Record<string, unknown> } },
+    ) => {
+      sent.push({ method, path, params: o?.params?.path, query: o?.params?.query });
+      if (path === '/api/v1/workspaces') return { data: [{ id: 'ws-1', name: 'Eng' }] };
+      if (path === '/api/v1/workspaces/{ws}/notifications') {
+        return {
+          data: {
+            data: [
+              {
+                id: 'n-1',
+                type: 'mentioned',
+                snippet: 'Ada mentioned you',
+                read_at: null,
+                created_at: '2026-08-27T10:00:00Z',
+                record: { id: 'rec-1', title: 'Fix the bug', database_id: 'db-1', number: 42, deleted: false },
+                actor: { id: 'u-1', name: 'Ada' },
+              },
+            ],
+            next_cursor: null,
+          },
+        };
+      }
+      if (path.endsWith('/unread-count')) return { data: 3 };
+      return { data: { ok: true } };
+    };
+    registerTools({ registerTool: (n: string, _c: unknown, h: never) => handlers.set(n, h as never) } as never, {
+      client: { GET: log('GET'), POST: log('POST'), PATCH: log('PATCH'), PUT: log('PUT'), DELETE: log('DELETE') } as never,
+      baseUrl: 'http://test',
+      token: 'tok',
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- shape varies per tool.
+    const call = async (n: string, a: unknown): Promise<any> => {
+      const r = await handlers.get(n)!(a);
+      if (r.isError) throw new Error(r.content[0]!.text);
+      return JSON.parse(r.content[0]!.text);
+    };
+    return { call, sent, handlers };
+  }
+
+  it('offers NO way to read another person’s inbox', async () => {
+    // The privacy boundary, asserted rather than described. The API has no such
+    // parameter and this surface must never invent one.
+    const { handlers } = harness();
+    for (const name of ['list_notifications', 'get_unread_count', 'mark_notifications']) {
+      const res = await handlers.get(name)!({ workspace: 'Eng', user: 'someone-else', action: 'read', all: true });
+      expect(res.isError, `${name} must reject a user argument`).toBe(true);
+      expect(res.content[0]!.text).toContain('"user"');
+    }
+  });
+
+  it('turns a notification into something actionable — a record link', async () => {
+    // A notification without a way to reach what it is about is just a sentence.
+    const { call } = harness();
+    const out = await call('list_notifications', { workspace: 'Eng' });
+    expect(out.notifications[0]).toMatchObject({ type: 'mentioned', from: 'Ada', unread: true });
+    expect(out.notifications[0].record.url).toContain('/r/fix-the-bug-42');
+  });
+
+  it('passes the narrowing filters through as the API expects them', async () => {
+    const { call, sent } = harness();
+    await call('list_notifications', { workspace: 'Eng', unread_only: true, type: 'assigned' });
+    expect(sent.find((s) => s.path.endsWith('/notifications'))!.query).toMatchObject({
+      unread_only: 'true',
+      type: 'assigned',
+    });
+  });
+
+  it('read-all goes to the bulk route; specific ids go one at a time', async () => {
+    const bulk = harness();
+    await bulk.call('mark_notifications', { workspace: 'Eng', action: 'read', all: true });
+    expect(bulk.sent.map((s) => s.path)).toContain('/api/v1/workspaces/{ws}/notifications/read-all');
+
+    const some = harness();
+    await some.call('mark_notifications', { workspace: 'Eng', action: 'archive', notifications: ['n-1', 'n-2'] });
+    const archives = some.sent.filter((s) => s.path.endsWith('/archive'));
+    expect(archives).toHaveLength(2);
+    expect(archives.map((a) => a.params!.id)).toEqual(['n-1', 'n-2']);
+  });
+
+  it('refuses all:true for anything but read — there is no archive-all', async () => {
+    // Rather than silently archiving one page of results and reporting success.
+    const { call } = harness();
+    await expect(call('mark_notifications', { workspace: 'Eng', action: 'archive', all: true })).rejects.toThrow(
+      /only supported with action "read"/,
+    );
+  });
+
+  it('refuses a mark with neither ids nor all', async () => {
+    const { call } = harness();
+    await expect(call('mark_notifications', { workspace: 'Eng', action: 'read' })).rejects.toThrow(/ids, or all/);
+  });
+});

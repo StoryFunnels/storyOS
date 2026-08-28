@@ -177,10 +177,6 @@ export const DEFERRED: CoverageRule[] = [
     reason: '#406 — source (sync) configuration. `list_sources` is read-only; creating, reconfiguring and running a sync are not exposed.',
   },
   {
-    match: '/api/v1/workspaces/{ws}/notifications',
-    reason: '#406 — the inbox. An agent that can notify someone cannot see whether anything is waiting for the person it works for.',
-  },
-  {
     match: /\/(favorites|my-work|recent)/,
     reason: '#406 — the personal surfaces a person actually opens: starred items, my work, recently touched.',
   },
