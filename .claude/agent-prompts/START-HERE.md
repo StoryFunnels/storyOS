@@ -32,6 +32,11 @@ Then type exactly this, substituting the agent name:
 /loop 1h Read ~/storyos-envs/bin/<agent>.txt and execute it exactly as written. Do not summarise it — do it.
 ```
 
+**If it offers to make this a cloud schedule, say no.** Intervals of an hour or
+more trigger that suggestion. A cloud run has no access to the worktree, the
+token file, local postgres or your `gh` auth — it fails immediately. These
+agents are deliberately machine-bound.
+
 **Do not `cat` the file first.** That makes the session read it and hand you a
 summary — which is not the same as adopting it, and is what happened on the
 first attempt with Marek.
