@@ -149,13 +149,27 @@ cat <<'DONE'
 
 Before loading anything:
   1. Fill STORYOS_TOKEN in each ~/storyos-envs/<agent>.env  (scope=write, never admin)
-  2. Run migrations in each env that has a DATABASE_URL:  pnpm db:migrate
-  3. Seed nadia and kai:  pnpm seed:agent-uat --persona nadia   (separate ticket — not yet built)
+  2. Run migrations in each env with a DATABASE_URL:  pnpm install && pnpm db:migrate
+  3. Nadia and Kai also need seed data (ticket #451, not yet built). The other
+     eight work without it.
 
-Start ONE agent and watch it before loading the rest:
+launchctl does not care what directory you run it from.
+
+Start ONE agent and watch it:
   launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.storyos.agent.vera.plist
-  launchctl kickstart -k gui/$(id -u)/dev.storyos.agent.vera     # run it now
-  tail -f ~/storyos-envs/logs/vera.log
+  tail -f ~/storyos-envs/logs/vera.poll.log      # the HEARTBEAT — one line per hourly check
+
+Two different logs, and picking the wrong one looks like a failure:
+  <agent>.poll.log   every check. "idle" = healthy, nothing to do. This is the one you want.
+  <agent>.log        only exists once a SESSION actually starts. Absent = the agent has
+                     never had work, which for Vera is the expected state.
+
+Re-run it now instead of waiting an hour:
+  launchctl kickstart -k gui/$(id -u)/dev.storyos.agent.vera
+
+Already-loaded jobs fail with "Bootstrap failed: 5: Input/output error" — that means
+it is already running, not that something broke. Check with:
+  launchctl list | grep storyos          # LastExit 0 is a clean run
 
 Remove all jobs:  ./setup-agents.sh --uninstall
 DONE
