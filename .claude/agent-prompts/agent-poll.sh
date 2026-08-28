@@ -10,7 +10,10 @@
 set -euo pipefail
 
 NAME="${1:?usage: agent-poll.sh <agent>}"
-REPO="${REPO:-$HOME/Documents/storyOS}"
+# Prompts live beside this script, so the poller never depends on which branch
+# some other checkout happens to be sitting on. setup-agents.sh snapshots both
+# here from origin/main; re-run it to refresh.
+SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENVS="${ENVS:-$HOME/storyos-envs}"
 API="https://app.storyos.dev/api/v1"
 WS="3448c14b-70f3-41bc-9188-839029be9f7e"
@@ -100,5 +103,6 @@ trap 'rm -f "$lock"' EXIT
 # Mira and Otto share the read-only `readers` checkout; everyone else has their own.
 if [[ "$NAME" == "mira" || "$NAME" == "otto" ]]; then FOLDER=readers; else FOLDER="$NAME"; fi
 cd "$ENVS/$FOLDER" || { log "no folder $ENVS/$FOLDER — run setup-agents.sh first"; exit 1; }
-claude --model opus -p "$(cat "$REPO/.claude/agent-prompts/$NAME.txt")" >> "$LOGS/$NAME.log" 2>> "$LOGS/$NAME.err"
+# Unattended: nobody can answer a permission prompt, so a prompt is a hang.
+claude --model opus --permission-mode bypassPermissions -p "$(cat "$SELF/$NAME.txt")" >> "$LOGS/$NAME.log" 2>> "$LOGS/$NAME.err"
 log "drain finished"
