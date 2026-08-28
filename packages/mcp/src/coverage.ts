@@ -168,17 +168,8 @@ export const DEFERRED: CoverageRule[] = [
    * carries the fourteen areas as sections; split it when an area is picked up.
    */
   {
-    match: /\/(views\/\{view\}|views\/\{view\}\/(personal-filter|duplicate|default)|spaces\/\{space\}\/views)/,
-    reason:
-      '#406 — view management beyond create/update/delete: duplicate, set-default, space-level views, and the per-viewer personal filter. #332 closed reading a view\'s config and querying through it.',
-  },
-  {
     match: /\/(sources|sources\/.*)$/,
     reason: '#406 — source (sync) configuration. `list_sources` is read-only; creating, reconfiguring and running a sync are not exposed.',
-  },
-  {
-    match: /\/(favorites|my-work|recent)/,
-    reason: '#406 — the personal surfaces a person actually opens: starred items, my work, recently touched.',
   },
   {
     match: /\/(grants|members|invites)/,

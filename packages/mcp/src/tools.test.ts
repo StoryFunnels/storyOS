@@ -3004,3 +3004,164 @@ describe('#439 — notifications', () => {
     await expect(call('mark_notifications', { workspace: 'Eng', action: 'read' })).rejects.toThrow(/ids, or all/);
   });
 });
+
+/**
+ * #437 / #440 — view management, and the surfaces a person actually opens.
+ *
+ * The through-line worth testing in both: WHOSE screen a thing changes.
+ * set_default_view changes everyone's; set_personal_filter changes only the
+ * caller's; get_my_work and set_favorite are the caller's alone. Getting that
+ * wrong is not a bug you notice in your own session — it is one a teammate
+ * reports days later.
+ */
+describe('#437/#440 — views and personal surfaces', () => {
+  interface Sent { method: string; path: string; params?: Record<string, string>; query?: Record<string, unknown>; body?: Record<string, unknown> }
+
+  function harness() {
+    const sent: Sent[] = [];
+    const handlers = new Map<string, (a: unknown) => Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }>>();
+    const dbDetail = {
+      id: 'db-1',
+      name: 'Issues',
+      qualifiedSlug: 'eng/issues',
+      fields: [{ id: 'f-state', apiName: 'state', displayName: 'State', type: 'select', options: [{ id: 'opt-hi', label: 'High' }] }],
+      views: [{ id: 'view-1', name: 'Board', type: 'board' }],
+    };
+    const log = (method: string) => async (
+      path: string,
+      o?: { params?: { path?: Record<string, string>; query?: Record<string, unknown> }; body?: unknown },
+    ) => {
+      sent.push({ method, path, params: o?.params?.path, query: o?.params?.query, body: o?.body as Record<string, unknown> });
+      if (path === '/api/v1/workspaces') return { data: [{ id: 'ws-1', name: 'Eng' }] };
+      if (path === '/api/v1/workspaces/{ws}/databases') return { data: [dbDetail] };
+      if (path === '/api/v1/workspaces/{ws}/databases/{db}') return { data: dbDetail };
+      if (path === '/api/v1/workspaces/{ws}/spaces') return { data: [{ id: 'sp-1', name: 'Ops', slug: 'ops' }] };
+      if (path.endsWith('/duplicate')) return { data: { id: 'view-2', name: 'Board copy' } };
+      if (path.endsWith('/my-work')) return { data: { groups: [] } };
+      if (path.endsWith('/recent')) return { data: { records: [] } };
+      if (path.endsWith('/favorites')) return { data: [{ id: 'x' }] };
+      return { data: { ok: true } };
+    };
+    registerTools({ registerTool: (n: string, _c: unknown, h: never) => handlers.set(n, h as never) } as never, {
+      client: { GET: log('GET'), POST: log('POST'), PATCH: log('PATCH'), PUT: log('PUT'), DELETE: log('DELETE') } as never,
+      baseUrl: 'http://test',
+      token: 'tok',
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- shape varies per tool.
+    const call = async (n: string, a: unknown): Promise<any> => {
+      const r = await handlers.get(n)!(a);
+      if (r.isError) throw new Error(r.content[0]!.text);
+      return JSON.parse(r.content[0]!.text);
+    };
+    return { call, sent, handlers };
+  }
+
+  describe('#437 — whose screen does this change', () => {
+    it('set_default_view says plainly that it affects EVERYONE', async () => {
+      // The one tool here that changes what teammates see. If its result read
+      // like the personal filter's, an agent would use them interchangeably.
+      const { call } = harness();
+      const out = await call('set_default_view', { workspace: 'Eng', database: 'Issues', view: 'Board' });
+      expect(out.applies_to).toMatch(/everyone/i);
+    });
+
+    it('set_personal_filter says plainly that it affects only the caller', async () => {
+      const { call } = harness();
+      const out = await call('set_personal_filter', {
+        workspace: 'Eng', database: 'Issues', view: 'Board', filter: { field: 'state', op: 'eq', value: 'High' },
+      });
+      expect(out.visible_to).toMatch(/you only/i);
+    });
+
+    it('maps a personal filter’s LABEL to an option id, like every other filter', async () => {
+      // A personal filter taking raw option uuids while query_records takes
+      // labels would be a second, quietly different filter contract.
+      const { call, sent } = harness();
+      await call('set_personal_filter', {
+        workspace: 'Eng', database: 'Issues', view: 'Board', filter: { field: 'state', op: 'eq', value: 'High' },
+      });
+      expect(JSON.stringify(sent.find((s) => s.method === 'PUT')!.body)).toContain('opt-hi');
+    });
+
+    it('clear:true DELETEs rather than writing an empty filter', async () => {
+      const { call, sent } = harness();
+      const out = await call('set_personal_filter', { workspace: 'Eng', database: 'Issues', view: 'Board', clear: true });
+      expect(sent.some((s) => s.method === 'DELETE')).toBe(true);
+      expect(sent.some((s) => s.method === 'PUT')).toBe(false);
+      expect(out.personal_filter).toBeNull();
+    });
+
+    it('refuses a personal filter call that says nothing', async () => {
+      const { call } = harness();
+      await expect(call('set_personal_filter', { workspace: 'Eng', database: 'Issues', view: 'Board' })).rejects.toThrow(
+        /filter.*or clear/i,
+      );
+    });
+
+    it('duplicate_view resolves the view by NAME and returns a usable link', async () => {
+      const { call, sent } = harness();
+      const out = await call('duplicate_view', { workspace: 'Eng', database: 'Issues', view: 'Board' });
+      expect(sent.find((s) => s.path.endsWith('/duplicate'))!.params!.view).toBe('view-1');
+      expect(out.url).toContain('?view=view-2');
+    });
+
+    it('delete_space_view states that the records survive', async () => {
+      // A dashboard is a lens. "Deleted" next to a view name reads alarming
+      // unless the result says what was NOT deleted.
+      const { call } = harness();
+      expect((await call('delete_space_view', { workspace: 'Eng', view: 'v-9' })).note).toMatch(/untouched/i);
+    });
+
+    it('update_space_view refuses an empty change', async () => {
+      const { call } = harness();
+      await expect(call('update_space_view', { workspace: 'Eng', view: 'v-9' })).rejects.toThrow(/name.*space/i);
+    });
+  });
+
+  describe('#440 — one tool with a kind, not three', () => {
+    it('routes each kind to its own endpoint', async () => {
+      // The decision #440 asked for: three lenses on "what is this person
+      // working on", not three entries in a catalog every session pays for.
+      const cases: Array<[string, string]> = [
+        ['assigned', '/api/v1/workspaces/{ws}/my-work'],
+        ['created', '/api/v1/workspaces/{ws}/my-work'],
+        ['recent', '/api/v1/workspaces/{ws}/recent'],
+        ['favorites', '/api/v1/workspaces/{ws}/favorites'],
+      ];
+      for (const [kind, path] of cases) {
+        const h = harness();
+        await h.call('get_my_work', { workspace: 'Eng', kind });
+        expect(h.sent.map((s) => s.path), kind).toContain(path);
+      }
+    });
+
+    it('distinguishes assigned from created via the tab the API expects', async () => {
+      const a = harness();
+      await a.call('get_my_work', { workspace: 'Eng' });
+      expect(a.sent.find((s) => s.path.endsWith('/my-work'))!.query).toMatchObject({ tab: 'assigned' });
+
+      const c = harness();
+      await c.call('get_my_work', { workspace: 'Eng', kind: 'created' });
+      expect(c.sent.find((s) => s.path.endsWith('/my-work'))!.query).toMatchObject({ tab: 'created' });
+    });
+
+    it('offers no way to read ANOTHER person’s work or stars', async () => {
+      const { handlers } = harness();
+      for (const name of ['get_my_work', 'set_favorite']) {
+        const res = await handlers.get(name)!({ workspace: 'Eng', user: 'someone-else', target_type: 'database', target: 'Issues' });
+        expect(res.isError, `${name} must reject a user argument`).toBe(true);
+      }
+    });
+
+    it('set_favorite resolves a database by name, and unstars via DELETE', async () => {
+      const on = harness();
+      await on.call('set_favorite', { workspace: 'Eng', target_type: 'database', target: 'Issues' });
+      expect(on.sent.find((s) => s.method === 'POST')!.body).toMatchObject({ target_type: 'database', target_id: 'db-1' });
+
+      const off = harness();
+      const out = await off.call('set_favorite', { workspace: 'Eng', target_type: 'database', target: 'Issues', starred: false });
+      expect(off.sent.some((s) => s.method === 'DELETE')).toBe(true);
+      expect(out.starred).toBe(false);
+    });
+  });
+});
