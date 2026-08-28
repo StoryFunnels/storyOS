@@ -582,7 +582,7 @@ function FormFieldsSidebar({
   };
 
   return (
-    <div className="fixed inset-0 z-40" role="dialog" aria-label="Form fields">
+    <div className="fixed inset-0 z-[var(--z-overlay-backdrop)]" role="dialog" aria-label="Form fields">
       <div className="absolute inset-0 bg-[rgba(15,23,41,0.35)]" onClick={onClose} />
       <div className="absolute right-0 top-0 flex h-full w-80 flex-col gap-4 overflow-y-auto border-l border-border-default bg-card p-4">
         <div className="flex items-center justify-between">

@@ -22,7 +22,7 @@ export function ShortcutsOverlay() {
   }, []);
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 bg-[rgba(15,23,41,0.35)]" onClick={() => setOpen(false)}>
+    <div className="fixed inset-0 z-[var(--z-palette)] bg-[rgba(15,23,41,0.35)]" onClick={() => setOpen(false)}>
       <div
         className="mx-auto mt-28 w-full max-w-sm rounded-[var(--radius-modal)] border border-border-default bg-card p-5 shadow-[0_20px_50px_rgba(15,23,41,0.2)]"
         onClick={(e) => e.stopPropagation()}

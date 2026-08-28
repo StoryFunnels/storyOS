@@ -72,6 +72,47 @@
      deliberately NOT full-pill, so the "solid mini-tag" direction reads as its
      own visual language rather than the generic rounded-pill every other tool uses. */
   --radius-chip: 4px;
+
+  /*
+   * #422 — THE STACKING SCALE. One place, one stated order.
+   *
+   * The bug that produced this: the filter builder's invisible full-screen
+   * close-backdrop sat at z-40 and the relation picker it opened sat at z-30,
+   * so every click on an epic hit the backdrop and closed the panel. Two
+   * sibling primitives from the same design system, both portalled to document
+   * level, twenty apart for no stated reason — PopoverContent at 30,
+   * DropdownMenuContent at 50.
+   *
+   * Bumping the popover to 45 would have fixed that ticket and left the next
+   * collision to be found the same way. It was already the third go: #276
+   * portalled this picker to escape a clip, and the portal is what put it into
+   * this fight in the first place.
+   *
+   * THE RULE, which is the part worth remembering:
+   *
+   *     A popover sits above whatever opened it, and ANYTHING can open one.
+   *
+   * So --z-popover is the highest interactive layer. That is not a bigger
+   * number picked to win one fight — it resolves the whole class, including the
+   * latent trap #422 identified but could not trigger: DialogOverlay was z-40,
+   * so the first dialog to contain a date or relation picker would have hit
+   * exactly this bug again, in a different file, months later.
+   *
+   * Nothing at document level may share a layer with a portalled popover, so no
+   * stacking outcome depends on DOM order. z-scale.unit.test.ts enforces the
+   * ordering AND the uniqueness, and fails on a raw z-index added to any
+   * document-level overlay.
+   */
+  --z-sticky: 10;           /* sticky table headers, in-flow toolbars */
+  --z-drawer-backdrop: 20;  /* mobile sidebar scrim */
+  --z-drawer: 30;           /* the mobile sidebar itself */
+  --z-overlay-backdrop: 40; /* a panel's own click-away catcher */
+  --z-overlay: 50;          /* the panel body that backdrop belongs to */
+  --z-dialog-backdrop: 60;
+  --z-dialog: 70;
+  --z-palette: 80;          /* command palette, shortcuts overlay */
+  --z-popover: 90;          /* EVERY portalled popover/menu — above all of the above */
+  --z-toast: 100;
 }
 
 /* Dark theme (#30). Everything downstream reads the semantic --bg/--text/--border

@@ -305,7 +305,7 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
   // relative to the ~240px sidebar box instead of the viewport — clipped to a
   // sliver on mobile, and rendered mostly off-screen to the left on desktop.
   return createPortal(
-    <div className="fixed inset-0 z-40" onClick={onClose}>
+    <div className="fixed inset-0 z-[var(--z-overlay-backdrop)]" onClick={onClose}>
       <div
         // Fits a 375px viewport (was a hard-coded w-96/384px, wider than the
         // screen it needs to sit inside): full-bleed under md, fixed width above.
