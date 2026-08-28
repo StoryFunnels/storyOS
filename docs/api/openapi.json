@@ -2418,6 +2418,41 @@
         "tags": [
           "relations"
         ]
+      },
+      "get": {
+        "operationId": "RelationsController_list",
+        "parameters": [
+          {
+            "name": "space",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "database",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Every relation in the workspace — one entry per relation, both sides resolved (#448)",
+        "tags": [
+          "relations"
+        ]
       }
     },
     "/api/v1/workspaces/{ws}/relations/{rel}": {

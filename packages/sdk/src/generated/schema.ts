@@ -1015,7 +1015,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** Every relation in the workspace — one entry per relation, both sides resolved (#448) */
+        get: operations["RelationsController_list"];
         put?: never;
         /** Create a relation — needs creator on BOTH databases */
         post: operations["RelationsController_create"];
@@ -6663,6 +6664,26 @@ export interface operations {
         requestBody?: never;
         responses: {
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RelationsController_list: {
+        parameters: {
+            query: {
+                space: string;
+                database: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };

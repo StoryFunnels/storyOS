@@ -59,6 +59,27 @@ export class RelationsController {
     return this.relationsService.create(req.membership, body);
   }
 
+  /**
+   * #448 — the graph in one call.
+   *
+   * Deliberately NOT `@RequiresScope`-relaxed: the class is admin-scoped and
+   * this inherits that. The per-viewer filtering inside is about DATABASE
+   * access, which is a different axis — an admin-scoped token still only sees
+   * relations whose both ends its holder can read.
+   */
+  @Get()
+  @ApiOperation({ summary: 'Every relation in the workspace — one entry per relation, both sides resolved (#448)' })
+  async list(
+    @Req() req: WorkspaceRequest,
+    @Query('space') space?: string,
+    @Query('database') database?: string,
+  ) {
+    return this.relationsService.listRelations(req.membership, {
+      ...(space ? { spaceId: space } : {}),
+      ...(database ? { databaseId: database } : {}),
+    });
+  }
+
   @Get(':rel')
   @ApiOperation({ summary: 'Relation config + comparable fields for the auto-link editor' })
   async detail(@Req() req: WorkspaceRequest, @Param('rel') relationId: string) {

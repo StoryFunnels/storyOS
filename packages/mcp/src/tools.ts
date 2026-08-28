@@ -520,6 +520,10 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
    * ceiling as create_relation/delete_relation: an auto-link rule decides what
    * links exist from now on, which is schema, not data.
    */
+  /* #448 — the graph. Same admin ceiling as get_relation (the controller is
+   * class-level admin-scoped); the per-viewer database filtering inside is a
+   * different axis and applies regardless of token scope. */
+  list_relations: 'read',
   get_relation: 'read',
   set_auto_link: 'admin',
   run_auto_link: 'admin',
@@ -3384,6 +3388,37 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     const avail = detail.fields.filter((x) => x.relation).map((x) => x.apiName);
     throw new Error(`No relation field matches "${ref}" on this database. Available: ${avail.join(', ') || '(none)'}.`);
   }
+
+  reg(
+    'list_relations',
+    {
+      title: 'List relations',
+      description:
+        'The whole relation graph of a workspace in one call — what is connected to what, one entry per relation with both sides resolved (database and field name on each). ' +
+        'READ THIS BEFORE structural work: adding a field, moving a database, planning a migration, or answering "what would break if I deleted this". The alternative is describe_database on every database and de-duplicating the two sides of each relation by hand, which is what this replaces. ' +
+        'A self-relation appears ONCE with both its field names. Narrow with `space` or `database` when a workspace is large.',
+      inputSchema: {
+        workspace: z.string(),
+        space: z.string().optional().describe('Only relations touching this space (name, slug, or id).'),
+        database: z.string().optional().describe('Only relations touching this database (name, qualified slug, or id).'),
+      },
+    },
+    handle<{ workspace: string; space?: string; database?: string }>(async ({ workspace, space, database }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const query: Record<string, string> = {};
+      if (space) query.space = await resolveSpaceId(ws.id, space);
+      if (database) query.database = (await resolveDatabase(client, ws.id, database)).id;
+      const res = await unwrap<{ data: unknown[] }>(
+        client.GET('/api/v1/workspaces/{ws}/relations', { params: { path: { ws: ws.id }, query } as never }),
+      );
+      return text({
+        relations: res.data,
+        // Said explicitly because a short list can otherwise read as "there is
+        // nothing else", when it may mean "there is nothing else you can see".
+        note: 'Only relations whose BOTH databases you can read are listed.',
+      });
+    }),
+  );
 
   reg(
     'get_relation',
