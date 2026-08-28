@@ -110,6 +110,20 @@ for row in "${AGENTS[@]}"; do
   fi
 done
 
+echo "==> per-folder permission mode"
+# A flag on the command line has to be remembered on every restart, and forgetting
+# it means the agent stops on a permission prompt at 03:07 with nobody to answer.
+# A settings file in the folder cannot be forgotten. It is gitignored in both
+# repos, so it adds no untracked noise.
+for row in "${AGENTS[@]}"; do
+  IFS='|' read -r name folder _ _ _ _ <<< "$row"
+  d="$ENVS/$folder"
+  [[ -d "$d" ]] || continue
+  mkdir -p "$d/.claude"
+  printf '{\n  "permissions": {\n    "defaultMode": "bypassPermissions"\n  }\n}\n' > "$d/.claude/settings.local.json"
+done
+echo "    bypassPermissions set as the folder default for every agent"
+
 echo "==> runtime snapshot"
 # The poller and prompts are copied out of origin/main into a location that no
 # branch checkout can invalidate. Nils's folder is the website repo and has no
