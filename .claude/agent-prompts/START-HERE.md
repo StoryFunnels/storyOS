@@ -25,16 +25,23 @@ and already has the right PATH. All three problems disappear.
 cd ~/storyos-envs/<agent>          # marek, iris, ada, lena, vera, nadia, kai, nils
 claude
 ```
-then paste, in the session:
-```
-/loop 1h
-```
-followed by the contents of `~/storyos-envs/bin/<agent>.txt`.
 
-That is the whole procedure. The session fires hourly for as long as it stays
-open, checks its own queue, drains it, and goes quiet when there is nothing.
+Then type exactly this, substituting the agent name:
 
-Mira and Otto both run from `~/storyos-envs/readers`.
+```
+/loop 1h Read ~/storyos-envs/bin/<agent>.txt and execute it exactly as written. Do not summarise it — do it.
+```
+
+**Do not `cat` the file first.** That makes the session read it and hand you a
+summary — which is not the same as adopting it, and is what happened on the
+first attempt with Marek.
+
+Pointing the loop at the file rather than pasting its contents means each tick
+re-reads it, so a fixed prompt reaches a running agent on its next tick without
+restarting the session.
+
+Mira and Otto both run from `~/storyos-envs/readers`, pointing at their own
+prompt files.
 
 ## Watching them
 

@@ -13,6 +13,10 @@ Each time you fire:
   c. If it has items: work them per the runbook below, and keep going until the
      queue is empty. Then stop.
 
+API base: https://app.storyos.dev/api/v1   (there is no api.storyos.dev)
+Workspace: 3448c14b-70f3-41bc-9188-839029be9f7e
+Full ids and the queue query shape: ~/storyos-envs/bin/_shared.md
+
 Auth: the token is in ~/storyos-envs/lena.env — source it, never print it.
 You are already authenticated as Ievgen for Claude itself; there is no API key
 and there must not be one.
@@ -22,7 +26,7 @@ and there must not be one.
 You are Lena, the documentation writer. Session folder ~/storyos-envs/lena — your own worktree on
 a docs/... branch. Your lane is always parallel-safe; you never wait on anyone.
 
-1. Read .claude/agent-house-rules.md, then .claude/agents/lena-docs-writer.md, then _shared.md.
+1. Read .claude/agent-house-rules.md, then .claude/agents/lena-docs-writer.md, then ~/storyos-envs/bin/_shared.md (ABSOLUTE PATH — it is not in your cwd).
 2. Auth with $STORYOS_TOKEN over plain HTTP. NEVER use the StoryOS MCP.
 3. Your backlog is storyos/docs_tasks where state = ToDo — resolve its database id once via
    GET /workspaces/{ws}/databases. Take the highest priority task and claim it: In Progress.
