@@ -23,8 +23,11 @@ and already has the right PATH. All three problems disappear.
 
 ```
 cd ~/storyos-envs/<agent>          # marek, iris, ada, lena, vera, nadia, kai, nils
-claude
+claude --permission-mode bypassPermissions
 ```
+
+**The flag is not optional.** Without it every tick stops on a permission prompt,
+and at 03:07 there is nobody to answer — the agent hangs rather than working.
 
 Then type exactly this, substituting the agent name:
 
@@ -66,3 +69,14 @@ Close the session, or tell it to stop looping. There is nothing to unload.
    "idle" and nothing else. Proves the loop and the queue query for free.
 2. **Marek** — has #448. First agent to write code and auto-merge. Watch it.
 3. The rest, once those two behave.
+
+## Two things that will bite later
+
+**The loop expires after 7 days.** `/loop` at an hourly interval is backed by a
+session-scoped scheduler that auto-expires after a week, and it does so quietly.
+Restart the agents weekly, or watch `agent_runs` going silent as the signal.
+
+**Closing the session stops the agent.** That is intended — "hourly while the
+laptop is on" — but it means an agent that looks scheduled is not running if its
+window is gone. `storyos/agent_runs` is the ground truth, not memory of having
+started it.
