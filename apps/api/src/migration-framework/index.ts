@@ -6,4 +6,5 @@ export * from './dry-run';
 export * from './chunked-apply.service';
 export * from './external-id-upsert.service';
 export * from './relation-linker.service';
+export * from './storyos-source-adapter';
 export * from './migration-framework.module';
