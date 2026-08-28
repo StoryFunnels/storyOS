@@ -3249,3 +3249,73 @@ describe('#441 — membership reads, and the writes that must not exist', () => 
     expect(sent.filter((s) => !s.startsWith('GET '))).toEqual([]);
   });
 });
+
+/**
+ * #393 — the capabilities that exist must be FINDABLE.
+ *
+ * A careful reviewer with docs and MCP access concluded that scheduled rules
+ * could not call a webhook and that email was "genuinely missing". Both false,
+ * and both acted on — the resulting plan routed around outbound HTTP and
+ * treated email as a blocker.
+ *
+ * Wrong capability information does not merely inform badly, it changes what
+ * gets built. So this asserts the descriptions say the three things in WORDS,
+ * not that the actions exist — they always did.
+ */
+describe('#393 — a reader can tell that rules email, call APIs and post to Slack', () => {
+  function descriptions() {
+    const configs = new Map<string, { description?: string }>();
+    registerTools(
+      { registerTool: (n: string, c: { description?: string }) => configs.set(n, c) } as never,
+      { client: { GET: async () => ({ data: [] }) } as never, baseUrl: '', token: '' } as never,
+    );
+    return configs;
+  }
+
+  /** get_started builds its orientation text in the HANDLER, not the config —
+   * so this is where that line actually has to be asserted. */
+  async function orientation(): Promise<string> {
+    const handlers = new Map<string, (a: unknown) => Promise<{ content: Array<{ text: string }> }>>();
+    registerTools(
+      { registerTool: (n: string, _c: unknown, h: never) => handlers.set(n, h as never) } as never,
+      { client: { GET: async () => ({ data: [] }) } as never, baseUrl: '', token: '' } as never,
+    );
+    const res = await handlers.get('get_started')!({});
+    return res.content[0]!.text;
+  }
+
+  it('create_automation states email, HTTP and Slack in prose', () => {
+    const d = descriptions().get('create_automation')!.description!;
+    expect(d).toMatch(/SEND EMAIL/);
+    expect(d).toMatch(/CALL ANY HTTP API/);
+    expect(d).toMatch(/POST TO SLACK/i);
+  });
+
+  it('create_automation says these work from SCHEDULED rules, not only buttons', () => {
+    // The reviewer's exact wrong conclusion was "buttons can hit a webhook …
+    // scheduled and triggered rules cannot".
+    const d = descriptions().get('create_automation')!.description!;
+    expect(d).toMatch(/SCHEDULED and TRIGGERED rules, not only from buttons/i);
+  });
+
+  it('names the SSRF restriction where someone would look for it', () => {
+    // "Any HTTP API" is not quite true and the exception matters: a private
+    // address is refused. Stating it here stops it being discovered as a bug.
+    const d = descriptions().get('create_automation')!.description!;
+    expect(d).toMatch(/[Pp]rivate and internal addresses are refused/);
+  });
+
+  it('get_started says it too — that is where an agent orients', async () => {
+    const d = await orientation();
+    expect(d).toMatch(/REACH OUTSIDE StoryOS/i);
+    expect(d).toMatch(/send real email/i);
+  });
+
+  it('the compressed action list still names the real action ids', async () => {
+    // Prose replaces nothing — an agent still needs the exact names to call.
+    const d = await orientation();
+    for (const action of ['send_email', 'http_request', 'send_slack_message']) {
+      expect(d, `${action} must still be listed`).toContain(action);
+    }
+  });
+});
