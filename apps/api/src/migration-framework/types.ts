@@ -108,4 +108,16 @@ export interface DryRunReport {
   warnings: ImportWarning[];
   warnings_total: number;
   sample: Array<Record<string, unknown>>;
+  /**
+   * #432 — fields that REFUSE the operation, kept separate from `warnings`.
+   *
+   * A warning is "proceed knowing this"; a block is "you cannot proceed". They
+   * are different questions with different answers, and collapsing them into
+   * one list is precisely how a block becomes a warning nobody reads — which is
+   * the failure #430's refuse-don't-drop decision exists to prevent.
+   *
+   * Optional so the CSV and Linear importers, which have no blocking concept,
+   * are unchanged.
+   */
+  blocking?: Array<{ sourceKey: string; message: string }>;
 }

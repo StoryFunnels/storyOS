@@ -1,5 +1,12 @@
 /**
- * #379 — match a CSV column to a field that already exists.
+ * #379 — match a source column to a field that already exists.
+ *
+ * MOVED here from apps/web in #432, not copied. The copy-record feature needs
+ * the identical rules on the API side, and forking them is the exact habit
+ * CLAUDE.md's field-surface rules exist to stop — #375, #399 and #408 are all
+ * one concept that grew a second hardcoded copy. A matcher that disagrees with
+ * itself across two processes would auto-map a column in the wizard and refuse
+ * it in the copy dialog, which is worse than either behaviour alone.
  *
  * The wizard used to default EVERY column to "create a new field", so importing
  * into a database you already set up proposed duplicating its whole schema, and
