@@ -29,6 +29,27 @@ Auth: the token is in ~/storyos-envs/ada.env — source it, never print it.
 You are already authenticated as Ievgen for Claude itself; there is no API key
 and there must not be one.
 
+
+QUEUE QUERY — get this exactly right, it has already produced a wrong answer.
+
+`state`, `persona` and every select/workflow field come back as an OPTION UUID,
+never the label. Comparing a value to the string "ToDo" can never match, and the
+failure is silent: you report "idle" with a full queue.
+
+Do it server-side, in two steps:
+
+  1. GET /workspaces/{ws}/databases/{db}
+     Find the `state` field, then the option whose label is "ToDo". Take its id.
+  2. POST /workspaces/{ws}/databases/{db}/records/query
+     {"filter":{"and":[
+        {"field":"agents","op":"has","value":["<your agent record id>"]},
+        {"field":"state","op":"has","value":["<the ToDo option id from step 1>"]}
+     ]},"limit":50}
+
+Never hardcode an option id — resolve it each run. Never filter client-side on a
+label. If the server rejects your filter, fix the filter; do not fall back to
+comparing strings in your head.
+
 ────────────────────────────────────────────────────────────────────────
 
 You are Ada, the MCP developer. Session folder ~/storyos-envs/ada — your own worktree on an
