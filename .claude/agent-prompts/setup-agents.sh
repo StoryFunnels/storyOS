@@ -100,6 +100,18 @@ for row in "${AGENTS[@]}"; do
   fi
 done
 
+echo "==> runtime snapshot"
+# The poller and prompts are copied out of origin/main into a location that no
+# branch checkout can invalidate. Nils's folder is the website repo and has no
+# .claude/ at all, so a per-worktree path would not work for him either.
+mkdir -p "$ENVS/bin"
+for f in agent-poll.sh _shared.md nadia.txt kai.txt vera.txt mira.txt otto.txt \
+         iris.txt marek.txt ada.txt lena.txt nils.txt; do
+  git -C "$REPO" show "origin/main:.claude/agent-prompts/$f" > "$ENVS/bin/$f"
+done
+chmod +x "$ENVS/bin/agent-poll.sh"
+echo "    snapshotted poller + 10 prompts from origin/main to $ENVS/bin"
+
 echo "==> launchd jobs"
 for row in "${AGENTS[@]}"; do
   IFS='|' read -r name folder _ _ _ _ <<< "$row"
@@ -120,7 +132,7 @@ for row in "${AGENTS[@]}"; do
   </dict>
   <key>ProgramArguments</key><array>
     <string>/bin/bash</string><string>-lc</string>
-    <string>exec "$REPO/.claude/agent-prompts/agent-poll.sh" $name</string>
+    <string>exec "$ENVS/bin/agent-poll.sh" $name</string>
   </array>
   <key>StartInterval</key><integer>3600</integer>
   <key>RunAtLoad</key><true/>
