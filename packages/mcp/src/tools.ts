@@ -575,6 +575,18 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
    * can affect what a teammate sees. Starring is a `write` because it changes
    * the caller's sidebar.
    */
+  /*
+   * #441 — membership READS only; the write half is EXCLUDED in coverage.ts.
+   *
+   * list_members is `read` and returns no email (see the tool). Grants and
+   * pending invites are `admin`: "who can reach what" is a security posture,
+   * and a pending invite names someone who is not yet a member and has
+   * accepted nothing — both belong at the same ceiling as the routes that
+   * change them, even though these only look.
+   */
+  list_members: 'read',
+  list_grants: 'admin',
+  list_invites: 'admin',
   get_my_work: 'read',
   set_favorite: 'write',
   list_notifications: 'read',
@@ -4952,6 +4964,97 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         client.DELETE('/api/v1/workspaces/{ws}/views/{view}', { params: { path: { ws: ws.id, view } } as never }),
       );
       return text({ deleted: view, note: 'The view is gone; the records it showed are untouched.' });
+    }),
+  );
+
+  /* =====================================================================
+   * #441 (#406 area 8) — membership and access, READ ONLY.
+   *
+   * #406 said this area must have its read/write line drawn before anything was
+   * built, and it does: the full reasoning is on the ticket. The short version
+   * is in coverage.ts next to the EXCLUDED rule for the write half — a token's
+   * SCOPE is what it may do and the GRANT SET is what it may do it to, so an
+   * agent that edits the second can widen its own blast radius.
+   *
+   * What ships is the half that closes a real, daily gap: an agent had no way
+   * to know who is in a workspace, so filling a `user` field was guesswork.
+   * ===================================================================== */
+
+  reg(
+    'list_members',
+    {
+      title: 'List members',
+      description:
+        "Who is in this workspace and what role they hold — the list to check BEFORE writing a `user` field, because an address that is not a member is rejected and there was previously no way to find that out except by failing. Returns name, role and user id; the id is what a user field wants. " +
+        'Read-only: this cannot invite, remove, or change anyone\'s access. Those are human decisions and have no tool at any scope.',
+      inputSchema: { workspace: z.string() },
+    },
+    handle<{ workspace: string }>(async ({ workspace }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<
+        Array<{ id: string; role: string; user_id: string; user: { id: string; name: string; email: string | null; image: string | null } }>
+      >(client.GET('/api/v1/workspaces/{ws}/members', { params: { path: { ws: ws.id } } as never }));
+      return text({
+        members: res.map((m) => ({
+          /*
+           * #441 — EMAIL IS DELIBERATELY OMITTED.
+           *
+           * The endpoint returns it. A read-scoped token is the weakest
+           * credential the product issues, and the member list is the
+           * workspace's contact sheet — so exposing it here would make a
+           * read-only token a staff-directory harvester.
+           *
+           * Nothing legitimate needs it: filling a `user` field wants the ID,
+           * and telling a person who someone is wants the NAME. If a later
+           * ticket genuinely needs the address it can argue for it on its own
+           * merits rather than inheriting it by default.
+           */
+          user_id: m.user.id,
+          name: m.user.name,
+          role: m.role,
+          avatar: m.user.image,
+        })),
+        note: 'Use `user_id` when writing a user field. Changing membership or access is not available over MCP.',
+      });
+    }),
+  );
+
+  reg(
+    'list_grants',
+    {
+      title: 'List access grants',
+      description:
+        'Who can reach which spaces and databases, beyond their workspace role. Read this when a person reports that a database is missing for them and present for you — a grant, or its absence, is usually the answer. Read-only: granting and revoking are human decisions.',
+      inputSchema: {
+        workspace: z.string(),
+        user: z.string().optional().describe('Narrow to one user id (from list_members).'),
+      },
+    },
+    handle<{ workspace: string; user?: string }>(async ({ workspace, user }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/grants', {
+          params: { path: { ws: ws.id }, query: user ? { user_id: user } : {} } as never,
+        }),
+      );
+      return text({ grants: res, note: 'Read-only — grants are changed in-app.' });
+    }),
+  );
+
+  reg(
+    'list_invites',
+    {
+      title: 'List pending invites',
+      description:
+        'Invitations sent but not yet accepted. Worth checking before telling someone a colleague "is not in the workspace" — they may simply not have clicked the link yet, which is a different problem with a different fix. Read-only: inviting and revoking are human decisions.',
+      inputSchema: { workspace: z.string() },
+    },
+    handle<{ workspace: string }>(async ({ workspace }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/invites', { params: { path: { ws: ws.id } } as never }),
+      );
+      return text({ pending_invites: res, note: 'Read-only — inviting is not available over MCP.' });
     }),
   );
 
