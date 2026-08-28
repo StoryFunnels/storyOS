@@ -96,6 +96,17 @@ export function cleanViewConfig(
         ? config.cover_field_id
         : undefined,
     card_size: config.card_size,
+    /*
+     * #427 / #428 — board column order and the two empty-group toggles.
+     *
+     * Listed here for the reason the comments above and below both spell out:
+     * this function is an explicit allowlist, and an unlisted key saves fine and
+     * then vanishes on every read. That has now cost #227 and #391; these are
+     * pure preferences naming no field id, so they pass through unconditionally.
+     */
+    column_sort: config.column_sort,
+    hide_empty_groups: config.hide_empty_groups,
+    hide_empty_no_value_group: config.hide_empty_no_value_group,
     date_field_id:
       config.date_field_id && liveFieldIds.has(config.date_field_id)
         ? config.date_field_id

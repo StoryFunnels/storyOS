@@ -438,3 +438,46 @@ describe('#425 — an incomplete condition survives save and read-back', () => {
     expect(withDead.statusCode).toBe(422);
   });
 });
+
+/**
+ * #427 / #428 — the board-column preferences survive a save.
+ *
+ * cleanViewConfig is an explicit ALLOWLIST: a key it does not name saves fine
+ * and then vanishes on every read. That has already cost #227 (the timeline's
+ * baseline pair) and #391 (the gallery cover), both of which looked broken end
+ * to end for exactly this reason. So a new config key gets a round-trip test on
+ * the way in, not after someone reports it.
+ */
+describe('#427/#428 — board column preferences round-trip', () => {
+  it('keeps column_sort and both empty-group toggles', async () => {
+    const created = await inject('POST', `/workspaces/${wsId}/databases/${dbId}/views`, {
+      name: 'Epic board',
+      type: 'board',
+      config: {
+        // A board is grouped by definition — creating one without a grouping
+        // field is refused, so the fixture supplies the select field.
+        group_by_field_id: stateFieldId,
+        sorts: [], hidden_field_ids: [], card_field_ids: [], column_widths: {},
+      },
+    });
+    expect(created.statusCode, created.body).toBe(201);
+    const viewId = created.json().id;
+
+    const patch = await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/views/${viewId}`, {
+      config: {
+        group_by_field_id: stateFieldId,
+        sorts: [], hidden_field_ids: [], card_field_ids: [], column_widths: {},
+        column_sort: 'alpha',
+        hide_empty_groups: true,
+        hide_empty_no_value_group: true,
+      },
+    });
+    expect(patch.statusCode, patch.body).toBe(200);
+
+    const detail = await inject('GET', `/workspaces/${wsId}/databases/${dbId}`);
+    const saved = detail.json().views.find((v: { id: string }) => v.id === viewId).config;
+    expect(saved.column_sort).toBe('alpha');
+    expect(saved.hide_empty_groups).toBe(true);
+    expect(saved.hide_empty_no_value_group).toBe(true);
+  });
+});

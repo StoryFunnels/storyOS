@@ -207,6 +207,21 @@ export const viewConfigSchema = z.object({
   /** Board/gallery card density (MN-089). */
   card_size: z.enum(['small', 'medium', 'large']).optional(),
   /**
+   * #427 — board COLUMN order, as distinct from the card sort in `sorts`.
+   *
+   * `natural` follows the grouping source: the option order for select/workflow
+   * (a real editorial decision) and API return order for user/relation (no
+   * intent at all, which is what the ticket was filed about). Stored on the
+   * VIEW so rearranging a board never rewrites the grouping field's options —
+   * a schema every other view reads.
+   */
+  column_sort: z.enum(['natural', 'alpha', 'count']).optional(),
+  /** #428 — hide groups with no cards. The no-value bucket has its own flag
+   * below, because "No Epic" is a different question from "an epic with no
+   * issues" and is usually the triage pile. */
+  hide_empty_groups: z.boolean().optional(),
+  hide_empty_no_value_group: z.boolean().optional(),
+  /**
    * #391 — the attachment field a gallery card draws its image from.
    *
    * A gallery is the obvious view for media and until attachment fields existed
