@@ -551,6 +551,32 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
    * because it changes what a PERSON will see next time they look, even though
    * it writes no business data — the notification is theirs, not the agent's.
    */
+  /*
+   * #437 — view management. Reads are `read`; view CRUD sits at `admin` with
+   * create_view/update_view/delete_view, because a view IS schema-adjacent —
+   * set_default_view in particular changes what every member lands on.
+   *
+   * The personal filter is the exception and deliberately so: it writes only
+   * for the calling identity and is invisible to everyone else, so it is a
+   * `write`, not an admin act. Same reasoning as watch_record (#406 area 3).
+   */
+  get_view: 'read',
+  list_space_views: 'read',
+  get_personal_filter: 'read',
+  set_personal_filter: 'write',
+  duplicate_view: 'admin',
+  set_default_view: 'admin',
+  create_space_view: 'admin',
+  update_space_view: 'admin',
+  delete_space_view: 'admin',
+  /*
+   * #440 — the personal surfaces. Both are per-identity: get_my_work reads the
+   * caller's own work and set_favorite stars for the caller only, so neither
+   * can affect what a teammate sees. Starring is a `write` because it changes
+   * the caller's sidebar.
+   */
+  get_my_work: 'read',
+  set_favorite: 'write',
   list_notifications: 'read',
   get_unread_count: 'read',
   mark_notifications: 'write',
@@ -4660,6 +4686,356 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'approval_requested',
     'action_approval_requested',
   ] as const;
+
+  /* =====================================================================
+   * #440 (#406 area 7) — the surfaces a person actually opens.
+   *
+   * get_started maps a workspace STRUCTURALLY: spaces, databases, fields. That
+   * says what EXISTS and nothing about what MATTERS. These answer the second
+   * question, which is the cheaper and usually more useful one at the start of
+   * a session.
+   *
+   * ONE tool with a `kind`, not three — the decision #440 asked for. They are
+   * three lenses on one question ("what is this person working on"), the same
+   * shape get_history took for "what happened to this record", and a catalog is
+   * context every session pays for whether or not it calls anything.
+   *
+   * Per-identity, like the inbox (#439): these read the CALLER's surfaces and
+   * there is no argument for choosing a person.
+   * ===================================================================== */
+
+  /* =====================================================================
+   * #437 (#406 area 4) — view management beyond create/update/delete.
+   *
+   * #332 closed reading a view's config and querying through it. What was left
+   * is everything about a view AS AN OBJECT: duplicating one, deciding which
+   * one people land on, the space-level dashboards that belong to no database,
+   * and the per-viewer personal filter.
+   * ===================================================================== */
+
+  reg(
+    'duplicate_view',
+    {
+      title: 'Duplicate view',
+      description:
+        'Copy a view, with its filters, sorts, grouping and column layout. The fastest way to make a variant of something that already works — build the board once, duplicate it, then change the one thing that differs. Cheaper and safer than rebuilding a config by hand, which is where a filter gets subtly mistyped.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        view: z.string().describe('View name or id (from describe_database).'),
+        name: z.string().optional().describe('Name for the copy. Defaults to the API\'s own "… copy".'),
+      },
+    },
+    handle<{ workspace: string; database: string; view: string; name?: string }>(
+      async ({ workspace, database, view, name }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const detail = await getDetail(ws.id, db.id);
+        const v = resolveView(detail, view);
+        const created = await unwrap<{ id: string; name: string }>(
+          client.POST('/api/v1/workspaces/{ws}/databases/{db}/views/{view}/duplicate', {
+            params: { path: { ws: ws.id, db: db.id, view: v.id } } as never,
+            body: (name ? { name } : {}) as never,
+          }),
+        );
+        return text({ ...created, url: viewUrl(ws.id, db.id, created.id) });
+      },
+    ),
+  );
+
+  reg(
+    'set_default_view',
+    {
+      title: 'Set the default view',
+      description:
+        'Choose which view people land on when they open this database. Worth setting deliberately after building several: an agent that creates the right board and leaves the wrong view in front of everyone has done the work and hidden it. This changes what EVERY member sees, unlike a personal filter.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        view: z.string().describe('View name or id (from describe_database).'),
+      },
+    },
+    handle<{ workspace: string; database: string; view: string }>(async ({ workspace, database, view }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const detail = await getDetail(ws.id, db.id);
+      const v = resolveView(detail, view);
+      await unwrap(
+        client.POST('/api/v1/workspaces/{ws}/databases/{db}/views/{view}/default', {
+          params: { path: { ws: ws.id, db: db.id, view: v.id } } as never,
+        }),
+      );
+      return text({ default_view: v.name, id: v.id, applies_to: 'everyone in this workspace' });
+    }),
+  );
+
+  reg(
+    'get_personal_filter',
+    {
+      title: 'Get my personal filter',
+      description:
+        "The extra filter the CALLING identity has layered on a view, on top of what everyone else sees, or null if none. Worth checking when a person says a view looks wrong: a personal filter is invisible to teammates by design, so \"my board is empty and yours isn't\" usually means this.",
+      inputSchema: { workspace: z.string(), database: z.string(), view: z.string() },
+    },
+    handle<{ workspace: string; database: string; view: string }>(async ({ workspace, database, view }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const detail = await getDetail(ws.id, db.id);
+      const v = resolveView(detail, view);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/databases/{db}/views/{view}/personal-filter', {
+          params: { path: { ws: ws.id, db: db.id, view: v.id } } as never,
+        }),
+      );
+      return text({ view: v.name, personal_filter: res, visible_to: 'you only' });
+    }),
+  );
+
+  reg(
+    'set_personal_filter',
+    {
+      title: 'Set my personal filter',
+      description:
+        'Narrow a view for YOURSELF only, leaving what teammates see untouched — "the team board, but just my rows". Pass clear:true to remove it. ' +
+        'It writes for the identity this token belongs to and cannot filter anyone else\'s screen; to change the view for everyone, use update_view instead. Filter syntax is identical to query_records.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        view: z.string(),
+        filter: z.record(z.string(), z.unknown()).optional().describe('A query_records-style filter. Omit with clear:true.'),
+        clear: z.boolean().optional().describe('Remove the personal filter entirely.'),
+      },
+    },
+    handle<{ workspace: string; database: string; view: string; filter?: Record<string, unknown>; clear?: boolean }>(
+      async ({ workspace, database, view, filter, clear }) => {
+        if (!clear && !filter) throw new Error('Pass a `filter`, or clear: true to remove the personal filter.');
+        if (clear && filter) throw new Error('Pass either `filter` or clear: true, not both.');
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const detail = await getDetail(ws.id, db.id);
+        const v = resolveView(detail, view);
+        const path = { ws: ws.id, db: db.id, view: v.id };
+        if (clear) {
+          await unwrap(
+            client.DELETE('/api/v1/workspaces/{ws}/databases/{db}/views/{view}/personal-filter', {
+              params: { path } as never,
+            }),
+          );
+          return text({ view: v.name, personal_filter: null });
+        }
+        // Same label→id mapping every other filter goes through, so a personal
+        // filter takes "High" rather than an option uuid like query_records does.
+        const mapped = mapFilterValues(detail, filter);
+        await unwrap(
+          client.PUT('/api/v1/workspaces/{ws}/databases/{db}/views/{view}/personal-filter', {
+            params: { path } as never,
+            body: { filter: mapped } as never,
+          }),
+        );
+        return text({ view: v.name, personal_filter: mapped, visible_to: 'you only' });
+      },
+    ),
+  );
+
+  reg(
+    'list_space_views',
+    {
+      title: 'List space views',
+      description:
+        'Views that belong to a SPACE rather than a database — dashboards that pull from several databases at once, and the ones that appear in the sidebar tree. describe_database only ever shows a database\'s own views, so these are invisible from there.',
+      inputSchema: { workspace: z.string(), space: z.string() },
+    },
+    handle<{ workspace: string; space: string }>(async ({ workspace, space }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const spaceId = await resolveSpaceId(ws.id, space);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/spaces/{space}/views', {
+          params: { path: { ws: ws.id, space: spaceId } } as never,
+        }),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'create_space_view',
+    {
+      title: 'Create a space view',
+      description:
+        'Create a space-level DASHBOARD — the only view type that lives on a space rather than a database, because it is the only one that reads from several. Use this for a "how is everything going" page; use create_view for anything scoped to one database.',
+      inputSchema: {
+        workspace: z.string(),
+        space: z.string(),
+        name: z.string(),
+      },
+    },
+    handle<{ workspace: string; space: string; name: string }>(async ({ workspace, space, name }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const spaceId = await resolveSpaceId(ws.id, space);
+      const created = await unwrap<{ id: string; name: string }>(
+        client.POST('/api/v1/workspaces/{ws}/spaces/{space}/views', {
+          params: { path: { ws: ws.id, space: spaceId } } as never,
+          body: { name, type: 'dashboard' } as never,
+        }),
+      );
+      return text(created);
+    }),
+  );
+
+  reg(
+    'get_view',
+    {
+      title: 'Get view',
+      description:
+        'One view by id, whether it belongs to a database or a space. describe_database covers a database\'s own views; reach for this when you hold a view id from a shared link or list_space_views and do not know which it is.',
+      inputSchema: { workspace: z.string(), view: z.string().describe('View id.') },
+    },
+    handle<{ workspace: string; view: string }>(async ({ workspace, view }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/views/{view}', { params: { path: { ws: ws.id, view } } as never }),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'update_space_view',
+    {
+      title: 'Update or move a space view',
+      description:
+        'Rename a space-level view, change its config, or MOVE a database dashboard into a space so it stops being scoped to one database. Pass `space` to move it. For a database view\'s filters and layout, use update_view.',
+      inputSchema: {
+        workspace: z.string(),
+        view: z.string().describe('View id (from list_space_views or get_view).'),
+        name: z.string().optional(),
+        space: z.string().optional().describe('Move the view into this space (name, slug, or id).'),
+      },
+    },
+    handle<{ workspace: string; view: string; name?: string; space?: string }>(
+      async ({ workspace, view, name, space }) => {
+        if (!name && !space) throw new Error('Nothing to change — pass `name` and/or `space`.');
+        const ws = await resolveWorkspace(client, workspace);
+        if (space) {
+          const spaceId = await resolveSpaceId(ws.id, space);
+          await unwrap(
+            client.POST('/api/v1/workspaces/{ws}/views/{view}/move-to-space', {
+              params: { path: { ws: ws.id, view } } as never,
+              body: { space_id: spaceId } as never,
+            }),
+          );
+        }
+        if (name) {
+          await unwrap(
+            client.PATCH('/api/v1/workspaces/{ws}/views/{view}', {
+              params: { path: { ws: ws.id, view } } as never,
+              body: { name } as never,
+            }),
+          );
+        }
+        return text({ view, ...(name ? { name } : {}), ...(space ? { moved_to_space: space } : {}) });
+      },
+    ),
+  );
+
+  reg(
+    'delete_space_view',
+    {
+      title: 'Delete a space view',
+      description:
+        'Delete a space-level view. Deletes the VIEW, never the records it showed — a dashboard is a lens, and removing it removes nothing underneath. Use delete_view for a database\'s own views.',
+      inputSchema: { workspace: z.string(), view: z.string().describe('View id.') },
+    },
+    handle<{ workspace: string; view: string }>(async ({ workspace, view }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      await unwrap(
+        client.DELETE('/api/v1/workspaces/{ws}/views/{view}', { params: { path: { ws: ws.id, view } } as never }),
+      );
+      return text({ deleted: view, note: 'The view is gone; the records it showed are untouched.' });
+    }),
+  );
+
+  reg(
+    'get_my_work',
+    {
+      title: 'What I am working on',
+      description:
+        'The three surfaces a person actually opens, for the identity this token belongs to. kind:"assigned" (default) = records assigned to them; kind:"created" = records they made; kind:"recent" = what they touched most recently; kind:"favorites" = what they starred. ' +
+        'Worth calling at the START of a session: list_databases tells you what exists, this tells you what matters, and the two answer different questions. Reads YOUR surfaces only — there is no argument for another person.',
+      inputSchema: {
+        workspace: z.string(),
+        kind: z.enum(['assigned', 'created', 'recent', 'favorites']).optional().describe('Default "assigned".'),
+      },
+    },
+    handle<{ workspace: string; kind?: 'assigned' | 'created' | 'recent' | 'favorites' }>(
+      async ({ workspace, kind }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const which = kind ?? 'assigned';
+        if (which === 'favorites') {
+          const res = await unwrap<unknown>(
+            client.GET('/api/v1/workspaces/{ws}/favorites', { params: { path: { ws: ws.id } } as never }),
+          );
+          return text({ kind: which, favorites: res });
+        }
+        if (which === 'recent') {
+          const res = await unwrap<unknown>(
+            client.GET('/api/v1/workspaces/{ws}/recent', { params: { path: { ws: ws.id } } as never }),
+          );
+          return text({ kind: which, ...(res as Record<string, unknown>) });
+        }
+        const res = await unwrap<unknown>(
+          client.GET('/api/v1/workspaces/{ws}/my-work', {
+            params: { path: { ws: ws.id }, query: { tab: which } } as never,
+          }),
+        );
+        return text({ kind: which, ...(res as Record<string, unknown>) });
+      },
+    ),
+  );
+
+  reg(
+    'set_favorite',
+    {
+      title: 'Star or unstar',
+      description:
+        'Star a record or database for the calling identity, or remove a star. Starring is how a person finds something again, so this is worth doing after you build something they asked for — an unstarred new database is one they have to go looking for. Stars are per-person: this cannot star anything for a teammate.',
+      inputSchema: {
+        workspace: z.string(),
+        target_type: z.enum(['record', 'database']),
+        target: z.string().describe('Database name/slug/id, or a record uuid.'),
+        database: z.string().optional().describe('Required when target_type is "record" and `target` is a public number.'),
+        starred: z.boolean().optional().describe('true (default) to star, false to unstar.'),
+      },
+    },
+    handle<{ workspace: string; target_type: 'record' | 'database'; target: string; database?: string; starred?: boolean }>(
+      async ({ workspace, target_type, target, database, starred }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        let id = target;
+        if (target_type === 'database') {
+          id = (await resolveDatabase(client, ws.id, target)).id;
+        } else if (database) {
+          const db = await resolveDatabase(client, ws.id, database);
+          id = await resolveRecordId(ws.id, db.id, target);
+        }
+        const on = starred ?? true;
+        if (on) {
+          await unwrap(
+            client.POST('/api/v1/workspaces/{ws}/favorites', {
+              params: { path: { ws: ws.id } } as never,
+              body: { target_type, target_id: id } as never,
+            }),
+          );
+        } else {
+          await unwrap(
+            client.DELETE('/api/v1/workspaces/{ws}/favorites/{type}/{id}', {
+              params: { path: { ws: ws.id, type: target_type, id } } as never,
+            }),
+          );
+        }
+        return text({ target_type, target_id: id, starred: on });
+      },
+    ),
+  );
 
   reg(
     'list_notifications',
