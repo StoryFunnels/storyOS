@@ -23,11 +23,14 @@ and already has the right PATH. All three problems disappear.
 
 ```
 cd ~/storyos-envs/<agent>          # marek, iris, ada, lena, vera, nadia, kai, nils
-claude --permission-mode bypassPermissions
+claude
 ```
 
-**The flag is not optional.** Without it every tick stops on a permission prompt,
-and at 03:07 there is nobody to answer — the agent hangs rather than working.
+No flag needed. `setup-agents.sh` writes `.claude/settings.local.json` into each
+agent folder setting `bypassPermissions` as the default, so any session started
+there is already in that mode. A command-line flag would have to be remembered
+on every restart, and forgetting it means the agent stops on a permission prompt
+at 03:07 with nobody to answer.
 
 Then type exactly this, substituting the agent name:
 
