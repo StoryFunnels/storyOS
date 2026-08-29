@@ -60,6 +60,21 @@ token; it does not tell you which program held it.
 `human` means a browser session and nothing else, so it is a reliable answer to "was a person at
 the keyboard" — which is the question the badge exists to answer.
 
+## What a change looks like
+
+Every change is stored **exactly as it was written** — a select's option id, not its label. That
+faithfulness is the one thing a change log cannot give up: a stored label would quietly rewrite
+itself every time somebody renamed an option.
+
+The translating happens when you read it, so history shows you the same thing the record shows
+you: field names, option labels, values rendered by type. Both `old_value` / `new_value` (the raw
+stored values) and `old_display` / `new_display` (rendered for a human) come back, so you can have
+either.
+
+**Deleted fields and deleted options still render by name.** A field outliving the field is the
+whole point of a change log, and a row that renders as a bare uuid because its column was removed
+is exactly the moment you start doubting the history.
+
 ## Restoring
 
 A previous version can be restored (`POST …/versions/{version}/restore`). The restore is itself a
