@@ -13,6 +13,62 @@ it by hand, not from a separate list of assistant rules.
 Everything below sits **on top of** that. It is for things you genuinely can do but probably did
 not mean to do at this scale.
 
+## Starting from nothing
+
+On a new workspace Tyron opens with four things worth clicking rather than an empty box:
+
+- **Build me a workspace** — describe what you do, and it sets up databases that fit and connects
+  them.
+- **What needs me today?** — reads across everything and tells you what is waiting. It changes
+  nothing, which makes it the safest possible first interaction.
+- **Turn a list into a database** — paste names, emails, a chunk of a spreadsheet, anything messy.
+- **Connect two things** — links two databases and shows you what that makes possible. If you do
+  not have two yet, it creates a pair, so the card works from nothing.
+
+Two of them act on one click; the other two open their own input first, because "build me a
+workspace" means nothing without knowing what you do.
+
+## Building a workspace from a sentence
+
+Tell Tyron what you do — *"I run a design studio"* — and it builds databases with **relations and
+views**, not a set of disconnected tables. Tables alone are a spreadsheet; the relations are the
+point.
+
+**It will not interrogate you first.** It guesses from your sentence and builds, and you reshape it
+by carrying on the conversation. Reshaping is cheap; a wall of clarifying questions on your first
+minute is not.
+
+A build gets a **higher ceiling than an ordinary request** — four databases with a few fields each,
+two relations and a couple of views runs to 25–35 tool calls, and stopping half-built is the one
+outcome this is designed to avoid. It is still bounded, so a runaway still stops, just later.
+
+## Threads
+
+Conversations are **threads**: as many as you like, kept between sessions, and listed by how
+recently you used them.
+
+**A thread is named from your first message**, not called "Untitled" — a list reading "New chat,
+New chat, New chat" is one nobody opens twice. It takes the first line only, so pasting a long
+brief gives you a title rather than a wall of text. You can rename one.
+
+**Threads are private.** Yours only — there is no admin view of them, deliberately, because a
+thread is a record of somebody thinking out loud. Asking for a thread that is not yours returns
+"not found" rather than "not allowed", since the second answer leaks the fact the first one
+protects.
+
+## Finding things
+
+Tyron searches records by title, and filters them the way any view does.
+
+When it counts something for you, **the count is exact** — it counts in the database rather than
+sampling, and it says so as part of the answer rather than as a turn of phrase. *"Here are 4 that
+look relevant"* and *"there are exactly 4"* are different claims, and you should not have to guess
+which one you got.
+
+> **Not yet:** searching by meaning rather than by title — *"the thing about the pricing
+> objection"* — is not available. Today, finding something needs a word that is actually in its
+> title, or a filter.
+
 ## When it asks before writing
 
 The rule is **write easily, delete only after a commitment**. A confirmation on every write would
