@@ -3,7 +3,11 @@
 Every field change on a record is logged: what changed, from what to what, who it was for, and
 **what made the change**.
 
-Open it from a record's activity panel.
+> **Where you can see this today.** The source label is recorded on every change and returned by
+> `GET /workspaces/{ws}/databases/{db}/records/{rec}/versions/changes` (and by the MCP
+> `get_history` tool). The record's in-app **activity panel does not show it yet** — it reads a
+> different endpoint and renders only the actor and the field change. So this page describes an
+> API-level field, not something you can currently read off the screen.
 
 ## Two different questions
 
@@ -58,5 +62,5 @@ the keyboard" — which is the question the badge exists to answer.
 
 ## Restoring
 
-A previous version can be restored from the history panel, and the restore is itself a change:
-it appears in history like any other, badged by whatever made it.
+A previous version can be restored (`POST …/versions/{version}/restore`). The restore is itself a
+change and appears in the log like any other, badged by whatever made it.
