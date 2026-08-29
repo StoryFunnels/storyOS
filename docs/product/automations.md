@@ -35,6 +35,30 @@ Eleven actions, all available to buttons and rules alike.
 Every action supports the `@me` / `@today` / `@now` tokens and `{Field Name}` interpolation.
 A rule carries between 1 and 10 actions.
 
+## Computing a number
+
+Setting a **number** field, a token expression is **evaluated, not substituted**. So
+`{Remaining} - 1` writes `4` when Remaining is 5 — it does not write the text `"4 - 1"` and then
+fail validation.
+
+That makes the most ordinary rules there are finally writable: a counter, a countdown, "add 1 to
+Times Contacted".
+
+| Goal | Set |
+|---|---|
+| Count down | *Remaining* = `{Remaining} - 1` |
+| Count up | *Times Contacted* = `{Times Contacted} + 1` |
+| Derive a total | *Total* = `{Unit Price} * {Quantity}` |
+
+Two things to know:
+
+- **It is the same expression language as formula fields** — same parser, same operators, same
+  rules about what an empty value does. Nothing new to learn, and nothing that behaves subtly
+  differently from the formulas you already write.
+- **Only number targets compute.** A text field still does literal substitution, so
+  `{Name} - 1` on a text field writes exactly what it always wrote. Whether an expression is
+  evaluated depends on the type of the field you are writing to.
+
 ## Anatomy of a rule
 
 **When** (trigger) → **Only if** (condition) → **Then** (actions)
