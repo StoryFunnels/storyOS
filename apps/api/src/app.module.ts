@@ -59,7 +59,7 @@ import { DeploymentModule } from './deployment/deployment.module';
       pinoHttp: {
         genReqId: (req) =>
           (req.headers['x-request-id'] as string | undefined) ?? `req_${randomUUID()}`,
-        level: env().NODE_ENV === 'test' ? 'silent' : 'info',
+        level: env().LOG_LEVEL ?? (env().NODE_ENV === 'test' ? 'silent' : 'info'),
         transport:
           env().NODE_ENV === 'development' ? { target: 'pino-pretty' } : undefined,
         autoLogging: { ignore: (req) => req.url === '/healthz' },
