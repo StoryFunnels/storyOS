@@ -41,6 +41,36 @@ usable while the personal data is removed:
   named individual. Attribution across the app renders as “Deleted user” /
   “(deactivated)”.
 
+### The Members database is erased too
+
+Members is a **first-class database** in the workspace, not just an internal table — its rows are
+visible, assignable and linkable like any other. Its entire content is personal data, so an
+erasure has to reach it, and it does:
+
+- The member's row is **overwritten**, not just deactivated. Name, email and avatar are replaced
+  with the same anonymised values written to the account itself, and the row is marked inactive.
+- **The row survives, deliberately.** Deleting it would orphan every record assigned to that
+  person. So the person stops being identifiable while their assignments stay resolvable — the
+  same tombstone-plus-overwrite trade the rest of the erasure makes.
+
+This is worth stating explicitly because it is a place an incomplete erasure would have been
+invisible: Members is excluded from workspace export, so an export would not have revealed a stale
+name sitting in it.
+
+**Every workspace, not just the one that asked.** An account is global, so the erasure overwrites
+the person's Members row in *every* workspace they belong to. Only the workspace that requested it
+marks them inactive — a GDPR request in one workspace is not a resignation from another.
+
+> **Know this before you add fields to Members.** The erasure overwrites **name, email and avatar**.
+> Any *additional* field your workspace has added to the Members database — a phone number, a home
+> address, a personal note — is **not** touched, and will survive the erasure. If you extend
+> Members with personal data, clearing it is currently your responsibility, not the erasure's.
+
+Note the distinction from an ordinary **removal**, which is not an erasure: removing someone marks
+their Members row inactive and **keeps** the name, email and avatar, on purpose, so that a record
+assigned to them still resolves to a human. That is exactly the wrong behaviour for an erasure,
+which is why the two are separate operations rather than one with a flag.
+
 The last remaining admin of a workspace cannot be erased — promote another admin
 first. Because a person is a single account, wiping the identity is inherently
 global; a workspace admin's erase additionally strips access only within their
