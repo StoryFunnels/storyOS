@@ -105,6 +105,14 @@ export function resolveConnectionsMasterKey(
 
 export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  /**
+   * #451 — request-log verbosity. Defaults to today's behaviour ('info', and
+   * 'silent' under test), so nothing changes unless an operator asks. It exists
+   * because a setup script that makes several hundred API calls buries its own
+   * progress output under a request log nobody reads: `LOG_LEVEL=warn` makes
+   * `seed:agent-uat` legible without turning logging off in the server.
+   */
+  LOG_LEVEL: z.enum(['silent', 'error', 'warn', 'info', 'debug', 'trace']).optional(),
   PORT: z.coerce.number().int().positive().default(3001),
   DATABASE_URL: z
     .string()

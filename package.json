@@ -17,7 +17,8 @@
     "license:check": "node scripts/license-check.mjs",
     "db:migrate": "pnpm --filter @storyos/api db:migrate",
     "db:generate": "pnpm --filter @storyos/api db:generate",
-    "sdk:generate": "pnpm --filter @storyos/api openapi:generate && pnpm --filter @storyos/sdk generate && pnpm --filter @storyos/sdk build"
+    "sdk:generate": "pnpm --filter @storyos/api openapi:generate && pnpm --filter @storyos/sdk generate && pnpm --filter @storyos/sdk build",
+    "seed:agent-uat": "pnpm --filter @storyos/api seed:agent-uat --"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
