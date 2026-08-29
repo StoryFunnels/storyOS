@@ -57,6 +57,15 @@ This is worth stating explicitly because it is a place an incomplete erasure wou
 invisible: Members is excluded from workspace export, so an export would not have revealed a stale
 name sitting in it.
 
+**Every workspace, not just the one that asked.** An account is global, so the erasure overwrites
+the person's Members row in *every* workspace they belong to. Only the workspace that requested it
+marks them inactive — a GDPR request in one workspace is not a resignation from another.
+
+> **Know this before you add fields to Members.** The erasure overwrites **name, email and avatar**.
+> Any *additional* field your workspace has added to the Members database — a phone number, a home
+> address, a personal note — is **not** touched, and will survive the erasure. If you extend
+> Members with personal data, clearing it is currently your responsibility, not the erasure's.
+
 Note the distinction from an ordinary **removal**, which is not an erasure: removing someone marks
 their Members row inactive and **keeps** the name, email and avatar, on purpose, so that a record
 assigned to them still resolves to a human. That is exactly the wrong behaviour for an erasure,
