@@ -134,6 +134,87 @@ start being rejected on shape for no reason you changed.
 client cannot see. `get_started` prints the tool-argument schema version and the server version, so
 you can tell whether yours is behind.
 
+## What else is reachable
+
+Beyond schema, records and views, the catalog covers most of the product. The tools worth knowing
+exist, grouped by what you would be trying to do.
+
+### Views
+
+`create_view` / `update_view` / `delete_view`, plus `get_view`, `reorder_views`,
+`create_space_view` and friends for space-level ones.
+
+Two that save real work:
+
+- **`duplicate_view`** copies a view with its filters, sorts, grouping and columns. Build the board
+  once, duplicate it, change the one thing that differs — cheaper and safer than rebuilding a
+  config by hand, which is where a filter gets subtly wrong.
+- **`set_default_view`** chooses what people land on when they open a database. Worth setting
+  deliberately after building several: creating the right board and leaving the wrong view in
+  front of everyone is doing the work and then hiding it. This changes what **every** member sees.
+
+### Personal surfaces
+
+- **`get_my_work`** — the three things a person actually opens, for the identity your token belongs
+  to: `assigned`, `created`, `recent` or `favorites`.
+- **`set_personal_filter`** narrows a view **for you only**, leaving what teammates see untouched —
+  "the team board, but just my rows". `clear: true` removes it.
+- **`set_favorite`** stars something.
+
+Note the contrast with `set_default_view` above: one changes your own view of a thing, the other
+changes everyone's.
+
+### Notifications and comments
+
+**`list_notifications`** answers "what should I look at" — assignments, mentions, comments, state
+changes and approval requests, newest first, for your token's identity. Also `get_unread_count`,
+`mark_notifications`, `watch_record`, `list_watchers`, and the `add_comment` /
+`update_comment` / `delete_comment` trio.
+
+### Relations, and linking after an import
+
+- **`list_relations`** returns the whole relation graph in one call — what is connected to what,
+  both sides resolved. This is how you find out what a workspace's shape actually is.
+- **`set_auto_link`** teaches a relation to link itself: give it field pairs, and a record links
+  whenever **all** the pairs match (this database's `customer_email` equals the target's `email`).
+- **`run_auto_link`** applies those rules to records that already exist.
+
+**Setting a rule links nothing retroactively** — that is what `run_auto_link` is for. Together
+these are the tool that pays for itself after an import: `create_records` writes 100 rows in one
+call, and `run_auto_link` links them in one more instead of a hundred `link_records` calls.
+
+### Documents and folders
+
+`list_documents` / `get_document` / `create_document` / `update_document` / `delete_document`, and
+`list_folders` / `create_folder` / `update_folder` / `delete_folder`.
+
+**The two halves sit at different scopes**, and it is worth knowing before you plan a sequence: a
+`write` token can create a document but **not** the folder to file it in — folder tools are `admin`.
+That mirrors the API's own decorations rather than smoothing them over.
+
+### Packs, templates and skills
+
+`list_packs` / `install_pack` / `uninstall_pack` / `list_installed_packs` /
+`browse_pack_marketplace` / `export_pack`, plus `list_templates` / `apply_template` and
+`remove_sample_data` for clearing a pack's example rows.
+
+Skills: `list_skills`, `get_skill`, `create_skill`, `update_skill`, `delete_skill`, `run_skill`,
+`export_skill`, `list_skill_templates`.
+
+### Agents
+
+`get_agents`, `setup_agents`, `run_agent`, `delegate_to_agent`, `create_agent_trigger`,
+`get_run_quota` and `rerun_action`.
+
+### Membership and access — deliberately read-only
+
+`list_members`, `list_grants` and `list_invites` read. **There is no tool to invite someone, remove
+them, or change a role or a permission.** That is a decision, not a gap: those actions affect other
+*people* rather than data, so they stay human.
+
+`list_grants` is the one to reach for when somebody reports that a database is missing for them and
+present for you — a grant, or its absence, is usually the answer.
+
 ## What to do when a tool is missing
 
 Two different causes, and they need different fixes:
