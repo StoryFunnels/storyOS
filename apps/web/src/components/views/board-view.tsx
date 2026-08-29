@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { arrangeBoardColumns } from './board-columns';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
 import { useCallback, useMemo, useRef, useState } from 'react';
+import type { MouseEvent } from 'react';
 import {
   DndContext,
   DragOverlay,
@@ -18,7 +19,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
-import { recordHref } from '@/lib/records';
+import { recordHref, recordSegment } from '@/lib/records';
+import { useOpenRecord } from '@/components/entity/split-panel-context';
 import { cn } from '@/lib/utils';
 import { API_URL } from '@/lib/api';
 import { Avatar } from '@/components/ui/avatar';
@@ -215,9 +217,17 @@ export function BoardView({
   const lastDragEnd = useRef(0);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
-  function openRecord(row: RecordRow) {
+  // #199 — the shared split/navigate decision. Named `openInSplitOrNavigate` so the
+  // board's own drag guard below stays the only board-specific rule in the path.
+  const openInSplitOrNavigate = useOpenRecord('swap');
+
+  function openCard(row: RecordRow, event: MouseEvent) {
     if (Date.now() - lastDragEnd.current < 200) return;
-    router.push(recordHref(ws, db, row));
+    openInSplitOrNavigate(
+      { db, rec: recordSegment(row), title: row.title, number: row.number },
+      event,
+      () => router.push(recordHref(ws, db, row)),
+    );
   }
 
   const move = useMutation({
@@ -401,7 +411,7 @@ export function BoardView({
             size={config.card_size ?? 'medium'}
             memberNames={memberNames} memberImages={memberImages}
             readOnly={readOnly}
-            onOpen={openRecord}
+            onOpen={openCard}
             onAdd={() =>
               createRecord.mutate(
                 {
@@ -445,7 +455,7 @@ function BoardColumn({
   memberNames: Map<string, string>;
   memberImages?: Map<string, string | null>;
   readOnly: boolean;
-  onOpen: (row: RecordRow) => void;
+  onOpen: (row: RecordRow, event: MouseEvent) => void;
   onAdd: () => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: `col:${column.id}` });
@@ -491,7 +501,7 @@ function BoardColumn({
             size={size}
             memberNames={memberNames} memberImages={memberImages}
             disabled={readOnly}
-            onOpen={() => onOpen(row)}
+            onOpen={(e) => onOpen(row, e)}
           />
         ))}
       </div>
@@ -514,7 +524,7 @@ function DraggableCard({
   memberNames: Map<string, string>;
   memberImages?: Map<string, string | null>;
   disabled: boolean;
-  onOpen: () => void;
+  onOpen: (event: MouseEvent) => void;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: row.id,

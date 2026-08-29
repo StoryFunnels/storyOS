@@ -28,7 +28,8 @@ import {
 } from './use-table-data';
 import type { Field, RecordRow } from './use-table-data';
 import type { ViewConfig } from '../views/use-view-state';
-import { databaseNoun, recordHref } from '@/lib/records';
+import { databaseNoun, recordHref, recordSegment } from '@/lib/records';
+import { useOpenRecord } from '@/components/entity/split-panel-context';
 import { systemFieldId } from '@storyos/schemas';
 import { atLeast } from '@/lib/access';
 import { cn } from '@/lib/utils';
@@ -205,6 +206,9 @@ export function TableView({
   }
   const gridRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
+  // #199 — the ONE decision about whether a row opens beside the table or replaces
+  // it. Shared with My Work, the other views and the relation links inside a record.
+  const openRecord = useOpenRecord('swap');
 
   // MN-050: multi-select + batch edit
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -610,7 +614,16 @@ export function TableView({
       toggleSelect(cursor.row, e.shiftKey);
     } else if (e.key.toLowerCase() === 'e' && cursor) {
       const row = rows[cursor.row];
-      if (row) router.push(recordHref(ws, db, row));
+      // #199 — the keyboard's "open" goes through the same entry point the Open
+      // chip uses, so `e` and a click cannot disagree about whether a record opens
+      // in the split panel. A keyboard event carries no mouse button, so it is
+      // always an unmodified primary "click" as far as `useOpenRecord` is concerned.
+      if (row)
+        openRecord(
+          { db, rec: recordSegment(row), title: row.title, number: row.number },
+          { button: 0, preventDefault: () => {} },
+          () => router.push(recordHref(ws, db, row)),
+        );
     } else if (e.key.toLowerCase() === 'a' && (e.metaKey || e.ctrlKey) && !readOnly) {
       e.preventDefault();
       setSelected(new Set(rows.map((r) => r.id)));
@@ -803,7 +816,13 @@ export function TableView({
             {field.type === 'title' && (
               <Link
                 href={recordHref(ws, db, row)}
-                onClick={(e) => e.stopPropagation()}
+                // #199 — opens beside the table in the split panel on desktop; the
+                // `href` still carries cmd/middle-click to a new tab, and below `md`
+                // the default navigation runs unchanged.
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openRecord({ db, rec: recordSegment(row), title: row.title, number: row.number }, e);
+                }}
                 className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-1 rounded border border-border-default bg-card px-1.5 py-0.5 text-[11px] font-medium text-muted opacity-0 shadow-sm hover:text-ink group-hover:opacity-100"
               >
                 <Maximize2 className="h-3 w-3" /> Open

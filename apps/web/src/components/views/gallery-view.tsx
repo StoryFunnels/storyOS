@@ -2,7 +2,8 @@
 
 import { useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { recordHref } from '@/lib/records';
+import { recordHref, recordSegment } from '@/lib/records';
+import { useOpenRecord } from '@/components/entity/split-panel-context';
 import { useDatabase, useMembers, useRecordMutations, useRecordsInfinite } from '../table-view/use-table-data';
 import { Card } from './board-view';
 import { EmptyState, databaseNoun } from './empty-state';
@@ -28,6 +29,8 @@ export function GalleryView({
 }) {
   const database = useDatabase(ws, db);
   const router = useRouter();
+  // #199 — the shared split/navigate decision, identical on every surface.
+  const openRecord = useOpenRecord('swap');
   const { createRecord } = useRecordMutations(ws, db);
   const queryBody = useMemo(() => queryBodyFromConfig(config, personalFilter), [config, personalFilter]);
   const records = useRecordsInfinite(ws, db, queryBody);
@@ -88,7 +91,16 @@ export function GalleryView({
     <div className="h-full overflow-auto p-4">
       <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${min}px, 1fr))` }}>
         {rows.map((row) => (
-          <div key={row.id} onClick={() => router.push(recordHref(ws, db, row))}>
+          <div
+            key={row.id}
+            onClick={(e) =>
+              openRecord(
+                { db, rec: recordSegment(row), title: row.title, number: row.number },
+                e,
+                () => router.push(recordHref(ws, db, row)),
+              )
+            }
+          >
             <Card
               row={row}
               cardFields={cardFields}

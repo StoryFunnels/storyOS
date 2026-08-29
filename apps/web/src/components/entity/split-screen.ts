@@ -132,6 +132,14 @@ export type SplitAction =
    *  to rails to keep the active pair; a no-op if the same record is already the
    *  expanded panel (guards double-clicks / re-clicking the active relation). */
   | { type: 'open'; target: SplitTarget }
+  /** #199 — SWAP the active panel's record in place, keeping the panel's identity.
+   *  This is queue triage: walking a list with ↑/↓ must change what the one panel
+   *  shows, not push a panel per step and leave a rail behind for every row you
+   *  passed. Distinct from `open`, which STACKS and stays the behaviour of relation
+   *  links inside a record (#166/#168) — both live here so there is one model with
+   *  two named transitions, rather than a second stack implementation for lists.
+   *  Falls back to `open` when nothing is open yet. */
+  | { type: 'replace'; target: SplitTarget }
   /** Dock a pane to its peek-rail (#166/#167/#182). `id` may be a panel id or
    *  `PRIMARY_ID` — the primary docks to its left rail (#183). */
   | { type: 'collapse'; id: string }
@@ -204,6 +212,21 @@ export function reduceSplit(state: SplitStackState, action: SplitAction): SplitS
       const panels = collapseOverflow([...state.panels, pushed], id);
       // A fresh open lands as the shared pair, never inheriting a prior maximize.
       return { ...state, panels, maximizedId: null, seq: state.seq + 1 };
+    }
+
+    case 'replace': {
+      // The active pane is the expanded one (`selectSplitView` picks the same
+      // panel: a maximize collapses every sibling, so the maximized panel is also
+      // the only expanded one).
+      const active = state.panels.find((p) => !p.collapsed);
+      if (!active) return reduceSplit(state, { type: 'open', target: action.target });
+      if (active.target.db === action.target.db && active.target.rec === action.target.rec) return state;
+      // Keeping `id` is the point: the pane is not remounted, rails and React keys
+      // do not churn, and a maximized panel stays maximized as you walk the queue.
+      return {
+        ...state,
+        panels: state.panels.map((p) => (p.id === active.id ? { ...p, target: action.target } : p)),
+      };
     }
 
     case 'expand': {
