@@ -6,6 +6,35 @@ integration plan against the existing record-page architecture and MN-230b's
 mobile work, and a routing-model decision. Implementation is deliberately out
 of scope; the end of this doc lists the follow-up tickets it unblocks.
 
+### Implementation status (updated by #199, 2026-08-30)
+
+The follow-up "wire the surfaces" ticket this doc anticipates in §1 has now
+shipped for the list surfaces. What is TRUE in the code today:
+
+- The provider is no longer record-page-only. `SplitHost`
+  (`apps/web/src/components/entity/split-screen-host.tsx`) takes its primary
+  pane as a render prop, and both `RecordSurface` (record page) and
+  `ListSurface` (My Work, the database views) mount it. The reducer in
+  `split-screen.ts` and the context in `split-panel-context.tsx` are shared
+  unchanged — there is one split model, not one per surface.
+- Wired surfaces: My Work, table, list, board, gallery, feed, timeline. A row
+  opens beside the list at `≥ md`; below `md` it full-navigates as before.
+- `useOpenRecord(mode)` is the single decision point every surface calls.
+  `mode: 'stack'` (default) is the relation-link behaviour from §2 —
+  unchanged. `mode: 'swap'` is what list rows use, so walking a queue with
+  ↑/↓ replaces the panel's record instead of leaving a rail behind per row.
+
+What this doc still describes but the code does NOT do:
+
+- **§4's `?panel=<db>/<rec>` URL encoding is NOT implemented.** Split state is
+  entirely ephemeral client state, at every depth — a split arrangement is not
+  shareable or bookmarkable, and a reload drops it. The recommendation in §4
+  stands as a recommendation only.
+- **Search results do not open into the split.** The command palette is
+  mounted in the workspace layout, outside any `SplitHost`, so its context is
+  null and it navigates. Wiring it needs the provider hoisted above the
+  palette, which is a larger change than #199 took on.
+
 Source: StoryOS ticket #282, whose `details` field contains the founder's
 direct answers (marked `->`) to the four open questions the original ticket
 raised. Six screenshots are attached to #282; the MCP connection available in

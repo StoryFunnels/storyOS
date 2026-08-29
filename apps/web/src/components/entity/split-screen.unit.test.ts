@@ -340,3 +340,68 @@ describe('#168/#184 split-screen — close (panels and from the rail)', () => {
     expect(reduceSplit(s, { type: 'close', id: PRIMARY_ID })).toBe(s);
   });
 });
+
+describe('#199 split-screen — reduceSplit (replace / queue triage)', () => {
+  const a: SplitTarget = { db: 'db-a', rec: 'alpha-1', title: 'Alpha' };
+  const b: SplitTarget = { db: 'db-b', rec: 'beta-2', title: 'Beta' };
+  const c: SplitTarget = { db: 'db-c', rec: 'gamma-3', title: 'Gamma' };
+
+  const open = (state: SplitStackState, target: SplitTarget) => reduceSplit(state, { type: 'open', target });
+  const replace = (state: SplitStackState, target: SplitTarget) =>
+    reduceSplit(state, { type: 'replace', target });
+
+  it('swaps the active panel’s record in place instead of pushing another panel', () => {
+    let s = open(emptySplitStack(), a);
+    const id = s.panels[0]!.id;
+    s = replace(s, b);
+    expect(s.panels).toHaveLength(1);
+    expect(s.panels[0]!.target).toEqual(b);
+    // Same identity: the pane is not remounted and no rail is left behind.
+    expect(s.panels[0]!.id).toBe(id);
+  });
+
+  it('leaves NO rail behind when walking a queue — the point of the transition', () => {
+    let s = open(emptySplitStack(), a);
+    s = replace(s, b);
+    s = replace(s, c);
+    expect(s.panels).toHaveLength(1);
+    expect(selectSplitView(s).rightRailPanels).toEqual([]);
+    expect(selectSplitView(s).activePanel?.target).toEqual(c);
+  });
+
+  it('falls back to open when nothing is open yet, so the first arrow press works', () => {
+    const s = replace(emptySplitStack(), a);
+    expect(s.panels).toHaveLength(1);
+    expect(s.panels[0]!.target).toEqual(a);
+  });
+
+  it('is a no-op when the active panel already shows that record', () => {
+    const s = open(emptySplitStack(), a);
+    expect(replace(s, a)).toBe(s);
+  });
+
+  it('keeps a maximized panel maximized while the queue is walked', () => {
+    let s = open(emptySplitStack(), a);
+    const id = s.panels[0]!.id;
+    s = reduceSplit(s, { type: 'maximize', id });
+    s = replace(s, b);
+    expect(s.maximizedId).toBe(id);
+    expect(selectSplitView(s).activePanelMaximized).toBe(true);
+    expect(selectSplitView(s).activePanel?.target).toEqual(b);
+  });
+
+  it('swaps the EXPANDED panel, never a railed one — a rail keeps what it was showing', () => {
+    // `a` stacks to a rail when `b` opens (MAX_EXPANDED_PANELS = 1).
+    let s = open(open(emptySplitStack(), a), b);
+    const railed = s.panels.find((p) => p.collapsed)!;
+    s = replace(s, c);
+    expect(s.panels.find((p) => p.id === railed.id)!.target).toEqual(a);
+    expect(s.panels.find((p) => !p.collapsed)!.target).toEqual(c);
+  });
+
+  it('does NOT change `open` — relation links inside a record still stack (#166/#168)', () => {
+    const s = open(open(emptySplitStack(), a), b);
+    expect(s.panels).toHaveLength(2);
+    expect(selectSplitView(s).rightRailPanels).toHaveLength(1);
+  });
+});

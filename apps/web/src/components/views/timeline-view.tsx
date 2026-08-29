@@ -1,11 +1,12 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { PointerEvent as ReactPointerEvent } from 'react';
+import type { MouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { CalendarRange } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { recordHref } from '@/lib/records';
+import { recordHref, recordSegment } from '@/lib/records';
+import { useOpenRecord } from '@/components/entity/split-panel-context';
 import { CellDisplay, fieldValue, isDateField, optionColor } from '../table-view/cells';
 import { useDatabase, useMembers, useRecordMutations, useRecordsInfinite } from '../table-view/use-table-data';
 import type { Field, RecordRow } from '../table-view/use-table-data';
@@ -166,6 +167,8 @@ export function TimelineView({
 }) {
   const database = useDatabase(ws, db);
   const router = useRouter();
+  // #199 — the shared split/navigate decision, identical on every surface.
+  const openRecord = useOpenRecord('swap');
   const { updateRecord } = useRecordMutations(ws, db);
   const queryBody = useMemo(
     () => ({ ...queryBodyFromConfig(config, personalFilter), limit: 200 }),
@@ -564,7 +567,13 @@ export function TimelineView({
             {bars.map(({ row }) => (
               <button
                 key={row.id}
-                onClick={() => router.push(recordHref(ws, db, row))}
+                onClick={(e) =>
+                  openRecord(
+                    { db, rec: recordSegment(row), title: row.title, number: row.number },
+                    e,
+                    () => router.push(recordHref(ws, db, row)),
+                  )
+                }
                 className="flex w-full items-stretch border-b border-border-default text-left hover:bg-hover"
                 style={{ height: ROW_H }}
               >
@@ -689,12 +698,16 @@ export function TimelineView({
               const { row, start, end, milestone } = bar;
               const color = (colorField && optionColor(colorField, row.values[colorField.apiName])) || 'var(--accent)';
               const x = (start - range.min) * px;
-              const handleClick = () => {
+              const handleClick = (e: MouseEvent) => {
                 if (didDragRef.current) {
                   didDragRef.current = false;
                   return;
                 }
-                router.push(recordHref(ws, db, row));
+                openRecord(
+                  { db, rec: recordSegment(row), title: row.title, number: row.number },
+                  e,
+                  () => router.push(recordHref(ws, db, row)),
+                );
               };
               if (milestone) {
                 const size = 14;

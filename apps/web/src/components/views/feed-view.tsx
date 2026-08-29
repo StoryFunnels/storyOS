@@ -5,7 +5,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Maximize2, UserPlus } from 'lucide-react';
 import { Avatar } from '@/components/ui/avatar';
-import { recordHref } from '@/lib/records';
+import { recordHref, recordSegment } from '@/lib/records';
+import { useOpenRecord } from '@/components/entity/split-panel-context';
 import { useDateFormat } from '@/lib/preferences';
 import { atLeast } from '@/lib/access';
 import { cn } from '@/lib/utils';
@@ -39,6 +40,8 @@ export function FeedView({
 }) {
   const database = useDatabase(ws, db);
   const router = useRouter();
+  // #199 — the shared split/navigate decision, identical on every surface.
+  const openRecord = useOpenRecord('swap');
   const fmt = useDateFormat();
   const queryBody = useMemo(() => queryBodyFromConfig(config, personalFilter), [config, personalFilter]);
   const records = useRecordsInfinite(ws, db, queryBody);
@@ -106,7 +109,13 @@ export function FeedView({
           return (
             <div
               key={row.id}
-              onClick={() => router.push(recordHref(ws, db, row))}
+              onClick={(e) =>
+                openRecord(
+                  { db, rec: recordSegment(row), title: row.title, number: row.number },
+                  e,
+                  () => router.push(recordHref(ws, db, row)),
+                )
+              }
               style={dot ? { borderLeftColor: dot, borderLeftWidth: 3 } : undefined}
               className="cursor-pointer rounded-[var(--radius-card)] border border-border-default bg-card p-4 hover:border-border-strong"
             >
@@ -162,7 +171,10 @@ export function FeedView({
                     )}
                     <Link
                       href={recordHref(ws, db, row)}
-                      onClick={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openRecord({ db, rec: recordSegment(row), title: row.title, number: row.number }, e);
+                      }}
                       className="flex items-center gap-1 rounded-full px-1.5 py-0.5 text-faint hover:bg-hover hover:text-ink"
                       title="Open"
                     >

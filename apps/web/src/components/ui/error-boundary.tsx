@@ -34,6 +34,16 @@ interface Props {
   fallback?: (state: { error: Error; retry: () => void }) => ReactNode;
   /** Extra recovery beyond re-mounting — e.g. clearing the filter that threw. */
   onReset?: () => void;
+  /**
+   * Class for the happy-path wrapper element (#199). The boundary has to render a
+   * real element to key its retry off, and that element sits in the middle of its
+   * caller's layout — so a caller whose child depends on the height chain needs
+   * `h-full`, and one that must stay layout-transparent needs `contents`. Without
+   * this the only way to avoid the wrapper was to render the boundary
+   * conditionally, which changes the subtree's position and REMOUNTS it — the very
+   * thing the boundary exists to avoid.
+   */
+  className?: string;
 }
 
 interface State {
@@ -61,7 +71,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
   render(): ReactNode {
     const { error } = this.state;
-    if (!error) return <div key={this.state.attempt}>{this.props.children}</div>;
+    if (!error) return <div key={this.state.attempt} className={this.props.className}>{this.props.children}</div>;
     if (this.props.fallback) return this.props.fallback({ error, retry: this.retry });
 
     return (

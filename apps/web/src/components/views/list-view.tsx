@@ -3,7 +3,8 @@
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChevronRight, Plus } from 'lucide-react';
-import { recordHref } from '@/lib/records';
+import { recordHref, recordSegment } from '@/lib/records';
+import { useOpenRecord } from '@/components/entity/split-panel-context';
 import { cn } from '@/lib/utils';
 import { OPTION_COLORS, optionColor } from '../table-view/cells';
 import { useDatabase, useMembers, useRecordMutations, useRecordsInfinite } from '../table-view/use-table-data';
@@ -35,6 +36,8 @@ export function ListView({
 }) {
   const database = useDatabase(ws, db);
   const router = useRouter();
+  // #199 — the shared split/navigate decision, identical on every surface.
+  const openRecord = useOpenRecord('swap');
   const { createRecord } = useRecordMutations(ws, db);
   const queryBody = useMemo(() => queryBodyFromConfig(config, personalFilter), [config, personalFilter]);
   const records = useRecordsInfinite(ws, db, queryBody);
@@ -136,7 +139,13 @@ export function ListView({
                     return (
                     <div
                       key={row.id}
-                      onClick={() => router.push(recordHref(ws, db, row))}
+                      onClick={(e) =>
+                        openRecord(
+                          { db, rec: recordSegment(row), title: row.title, number: row.number },
+                          e,
+                          () => router.push(recordHref(ws, db, row)),
+                        )
+                      }
                       className="flex cursor-pointer items-center gap-3 border-b border-border-default px-3 py-2 last:border-b-0 hover:bg-hover"
                     >
                       {dot && <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: dot }} />}

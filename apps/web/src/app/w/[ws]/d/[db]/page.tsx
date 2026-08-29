@@ -21,6 +21,7 @@ import { FeedView } from '@/components/views/feed-view';
 import { TimelineView } from '@/components/views/timeline-view';
 import { FormView } from '@/components/views/form-view';
 import { TableView } from '@/components/table-view/table-view';
+import { ListSurface } from '@/components/entity/split-screen-host';
 import { EntityIconChip, IconColorPicker } from '@/components/ui/icon-picker';
 import { ViewToolbar } from '@/components/views/view-toolbar';
 import { ViewTab } from '@/components/views/view-tab';
@@ -466,10 +467,30 @@ function NewViewDialog({
   );
 }
 
+/**
+ * #199 — the database page is a LIST surface: clicking a row in any of its views
+ * (table, list, board, gallery, feed) opens that record in the split panel beside
+ * the view instead of replacing it, so you keep your place in the queue. The split
+ * model is the same one the record page uses — `ListSurface` is `SplitHost` with
+ * the view as the primary pane rather than a record.
+ *
+ * The rail label reads from the database name here rather than inside the view so
+ * the docked spine says "Issues", not "Database".
+ */
+function DatabasePageSurface() {
+  const { ws, db } = useParams<{ ws: string; db: string }>();
+  const database = useDatabase(ws, db);
+  return (
+    <ListSurface ws={ws} label={database.data?.name || 'Database'}>
+      <DatabasePageInner />
+    </ListSurface>
+  );
+}
+
 export default function DatabasePage() {
   return (
     <Suspense>
-      <DatabasePageInner />
+      <DatabasePageSurface />
     </Suspense>
   );
 }

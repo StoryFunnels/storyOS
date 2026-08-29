@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, ChevronRight, Database } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -22,6 +22,9 @@ import {
   toField,
   visibleFields,
 } from '@/components/my-work/group-config';
+import { ListSurface } from '@/components/entity/split-screen-host';
+import { useOpenRecord, useSplitPanel } from '@/components/entity/split-panel-context';
+import { recordSegment } from '@/lib/records';
 import { useDateFormat } from '@/lib/preferences';
 import { cn } from '@/lib/utils';
 
@@ -54,8 +57,23 @@ const TABS: { id: Tab; label: string }[] = [
 ];
 
 /** My Work / My Issues (MN-049, #36): tabs for what's assigned to me, what I created,
- * and what I recently touched — the cross-database "what should I work on" home. */
+ * and what I recently touched — the cross-database "what should I work on" home.
+ *
+ * #199 — My Work is the ticket's headline surface: a triage queue. It is mounted
+ * inside `ListSurface`, so opening a row puts the record in the split panel BESIDE
+ * the queue instead of replacing it, and ↑/↓ walk the queue swapping the panel's
+ * record. That is the whole user story: read an item, set its state, move to the
+ * next one without losing your place. */
 export default function MyWorkPage() {
+  const { ws } = useParams<{ ws: string }>();
+  return (
+    <ListSurface ws={ws} label="My Work">
+      <MyWorkInner />
+    </ListSurface>
+  );
+}
+
+function MyWorkInner() {
   const { ws } = useParams<{ ws: string }>();
   const fmt = useDateFormat();
   const [tab, setTab] = useState<Tab>('assigned');
@@ -134,6 +152,97 @@ export default function MyWorkPage() {
   const recent = activity.data?.records ?? [];
   const empty = !loading && (tab === 'activity' ? recent.length === 0 : groups.length === 0);
 
+  // #199 — filter → sort → group ONCE, and read both the rendered structure and the
+  // flat triage order out of that single result. Deriving the ↑/↓ order separately
+  // would be a second ordering implementation, free to drift from what the screen
+  // shows; the arrow keys must walk exactly the rows you can see, in the order you
+  // see them. Collapsed groups are excluded because their rows are not on screen.
+  const view = useMemo(() => {
+    const rendered = groups.map((group) => {
+      const fields = (group.fields ?? []) as DenseField[];
+      const config = myWork[group.database.id] ?? EMPTY_MYWORK;
+      const filtered = group.records.filter((r) => matchesFilters(r.values, config));
+      // MN-252: apply the same persisted sort spec before grouping, so precedence
+      // holds within each sub-group (groupRecords preserves input order per bucket).
+      const sorted = sortMyWorkRecords(filtered, fields, config);
+      return {
+        group,
+        fields,
+        config,
+        chips: visibleFields(fields, config),
+        count: filtered.length,
+        subGroups: groupRecords(sorted, fields, config, memberNames),
+      };
+    });
+    const queue: { dbId: string; record: MyWorkRecord }[] = [];
+    for (const r of rendered) {
+      if (collapsed.has(r.group.database.id)) continue;
+      for (const sg of r.subGroups) {
+        for (const record of sg.records) queue.push({ dbId: r.group.database.id, record: record as MyWorkRecord });
+      }
+    }
+    return { rendered, queue };
+  }, [groups, myWork, memberNames, collapsed]);
+
+  // The row currently shown in the split panel. Null until a row is opened INTO the
+  // panel — which is also what arms ↑/↓ below, so a plain My Work page never steals
+  // the arrow keys from ordinary page scrolling.
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const split = useSplitPanel();
+  // 'swap': walking the queue replaces the panel's record instead of stacking a
+  // rail for every row you passed.
+  const openRecord = useOpenRecord('swap');
+
+  // Open a queue entry in the panel. Returns false when the split declined it
+  // (mobile, modifier-click, no provider) so the caller can let its `<Link>`
+  // navigate instead — the same decision every other surface makes.
+  const openInPanel = useCallback(
+    (dbId: string, record: MyWorkRecord, event: Parameters<typeof openRecord>[1]) => {
+      let navigated = false;
+      openRecord(
+        { db: dbId, rec: recordSegment(record), title: record.title, number: record.number },
+        event,
+        () => {
+          navigated = true;
+        },
+      );
+      if (!navigated) setActiveId(record.id);
+      return !navigated;
+    },
+    [openRecord],
+  );
+
+  // #199 — ↑/↓ triage. Armed only while a record is open in the panel; walks the
+  // same `view.queue` the screen renders and swaps the panel's record in place, so
+  // there is no navigation and no lost scroll position.
+  const queueRef = useRef(view.queue);
+  queueRef.current = view.queue;
+  useEffect(() => {
+    if (!activeId || !split?.isDesktop) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      // Never hijack the arrows while someone is typing — in a panel field, a
+      // filter box, or any editable surface.
+      const el = e.target as HTMLElement | null;
+      if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
+      const queue = queueRef.current;
+      const i = queue.findIndex((q) => q.record.id === activeId);
+      if (i === -1) return;
+      const next = queue[i + (e.key === 'ArrowDown' ? 1 : -1)];
+      if (!next) return;
+      e.preventDefault();
+      split!.replace({
+        db: next.dbId,
+        rec: recordSegment(next.record),
+        title: next.record.title,
+        number: next.record.number,
+      });
+      setActiveId(next.record.id);
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [activeId, split]);
+
   return (
     <div className="p-4 sm:p-8">
       <h1 className="mb-1 text-xl font-semibold text-ink">My Work</h1>
@@ -164,16 +273,8 @@ export default function MyWorkPage() {
       )}
 
       {tab !== 'activity' &&
-        groups.map((group) => {
+        view.rendered.map(({ group, fields, config, chips, count, subGroups }) => {
           const isCollapsed = collapsed.has(group.database.id);
-          const fields = (group.fields ?? []) as DenseField[];
-          const config = myWork[group.database.id] ?? EMPTY_MYWORK;
-          const chips = visibleFields(fields, config);
-          const filtered = group.records.filter((r) => matchesFilters(r.values, config));
-          // MN-252: apply the same persisted sort spec before grouping, so precedence
-          // holds within each sub-group (groupRecords preserves input order per bucket).
-          const sorted = sortMyWorkRecords(filtered, fields, config);
-          const subGroups = groupRecords(sorted, fields, config, memberNames);
           return (
             <div key={group.database.id} className="mb-6 max-w-4xl">
               <div className="mb-2 flex items-center gap-1.5 text-[12px] font-medium uppercase tracking-wider text-faint">
@@ -200,7 +301,7 @@ export default function MyWorkPage() {
                     fallback={<Database className="h-3.5 w-3.5" />}
                   />
                   {group.database.name}
-                  <span className="text-faint">{filtered.length}</span>
+                  <span className="text-faint">{count}</span>
                 </Link>
               </div>
               {!isCollapsed && (
@@ -225,11 +326,22 @@ export default function MyWorkPage() {
                             <Link
                               key={record.id}
                               href={`/w/${ws}/d/${group.database.id}/r/${record.id}`}
+                              // #199 — opens beside the queue in the split panel on
+                              // desktop. The `href` stays real so cmd/middle-click
+                              // still opens a new tab and below `md` the plain
+                              // navigation runs, exactly as before.
+                              onClick={(e) => openInPanel(group.database.id, record, e)}
                               // flex-wrap: at 375px a few chips + the date won't fit
                               // beside the title on one line — they wrap to their own
                               // row (below) instead of forcing horizontal overflow,
                               // since those items are shrink-0 and refuse to squeeze.
-                              className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border-default px-4 py-2.5 last:border-b-0 hover:bg-hover"
+                              className={cn(
+                                'flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border-default px-4 py-2.5 last:border-b-0 hover:bg-hover',
+                                // #199 — the active row: which item the panel is
+                                // showing, so ↑/↓ triage has a visible cursor.
+                                record.id === activeId && 'bg-active',
+                              )}
+                              aria-current={record.id === activeId ? 'true' : undefined}
                               style={tint ? { boxShadow: `inset 3px 0 0 ${tint}` } : undefined}
                             >
                               <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">

@@ -293,6 +293,13 @@ export function useRecordMutations(ws: string, db: string) {
       void qc.invalidateQueries({ queryKey: key });
       void qc.invalidateQueries({ queryKey: ['record', ws, db] });
       void qc.invalidateQueries({ queryKey: ['activity', ws, db] });
+      // #199 — My Work lists records from EVERY database, so an edit made anywhere
+      // can change a row it is showing (a title, an assignee that moves the record
+      // off the list, a field it renders as a chip). Before split screen you always
+      // navigated away and back, and the refetch was incidental; now the queue and
+      // the record are on screen together, so a stale row is visible the moment you
+      // edit. Not scoped by `db` for that reason — the key is cross-database.
+      void qc.invalidateQueries({ queryKey: ['my-work', ws] });
     },
   });
 
