@@ -680,6 +680,74 @@ describe('MN-168 — entitlements wiring for the automations engine', () => {
     await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}`, { enabled: false });
   });
 
+  it('a converging create loop finishes and stops on its own — no false loop-block (#246)', async () => {
+    /*
+     * #246's last acceptance criterion, and the case the ticket was opened for:
+     * "create one Day per missing sprint day" written the way an author
+     * naturally writes it — a rule that creates a record AND decrements the
+     * very count that triggers it. That is a self-trigger, so before #275's
+     * convergence guard the flat MAX_DEPTH=2 stopped it after two Days and the
+     * author saw a loop-block on work that was never runaway.
+     *
+     * What this asserts is the whole point of the pair: the chain runs to
+     * completion (five Days, not two), it stops because the RULE's own
+     * condition stops matching — not because the guard cut it off — and the
+     * run log contains no skip at all. `create_records` (above) sidesteps this
+     * shape entirely; this test covers the shape itself, which is what the
+     * community thread was actually stuck on.
+     */
+    const spaceId = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
+    const sprintDaysDb = (await inject('POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name: 'Sprint Days' })).json().id;
+    const remaining = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/fields`, {
+      display_name: 'Remaining',
+      type: 'number',
+      config: {},
+    })).json();
+    const remainingApi = remaining.apiName;
+
+    const rule = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/automations`, {
+      name: 'Fill sprint days',
+      trigger: { type: 'record_updated', field_id: remaining.id },
+      // The stop condition is the author's, not the engine's.
+      condition: { field: remainingApi, op: 'gt', value: 0 },
+      actions: [
+        { type: 'create_record', database_id: sprintDaysDb, values: { name: 'Day {Remaining}' } },
+        // #342 — computed, because Remaining is a number field.
+        { type: 'set_values', values: { [remainingApi]: '{Remaining} - 1' } },
+      ],
+    })).json();
+    expect(rule.id, JSON.stringify(rule)).toBeTruthy();
+
+    const sprint = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records`, {
+      values: { name: 'Sprint 2', [remainingApi]: 0 },
+    })).json();
+    // The user edit that starts the chain: five days to fill.
+    await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/records/${sprint.id}`, {
+      values: { [remainingApi]: 5 },
+    });
+    // Drain generously — the chain is five links deep, well past MAX_DEPTH.
+    for (let i = 0; i < 30; i++) {
+      await engine.settle(sprint.id);
+      await wait(30);
+    }
+
+    const days = (await inject('POST', `/workspaces/${wsId}/databases/${sprintDaysDb}/records/query`, {})).json();
+    expect(days.data.map((r: { title: string }) => r.title).sort(), 'one Day per missing day, not MAX_DEPTH of them').toEqual([
+      'Day 1', 'Day 2', 'Day 3', 'Day 4', 'Day 5',
+    ]);
+
+    // It stopped because Remaining reached 0, and it stopped there exactly.
+    const after = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/records/${sprint.id}`)).json();
+    expect(after.values[remainingApi]).toBe(0);
+
+    const runs = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}/runs`)).json();
+    const skipped = runs.data.filter((r: { status: string }) => r.status === 'skipped');
+    expect(skipped, 'a converging chain must never be loop-blocked').toEqual([]);
+    expect(runs.data.filter((r: { status: string }) => r.status === 'ok')).toHaveLength(5);
+
+    await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}`, { enabled: false });
+  });
+
   it('record_linked condition tests the LINKED record — fires only when the linked record matches (#271)', async () => {
     const spaceId = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
     const msDb = (await inject('POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name: 'Milestones-271' })).json().id;
