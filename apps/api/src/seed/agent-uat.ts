@@ -59,7 +59,10 @@ async function main() {
   const plan = buildPlan(args.persona, args.seed, { scale: args.scale });
 
   console.log(`seed:agent-uat — persona ${args.persona}, seed ${args.seed}, scale ${args.scale}`);
-  console.log(`plan ${planHash(plan)}: ${plan.totals.workspaces} workspaces, ${plan.totals.databases} databases, ${plan.totals.records} records`);
+  console.log(
+    `plan ${planHash(plan)}: ${plan.totals.workspaces} workspaces, ${plan.totals.databases} databases, ` +
+      `${plan.totals.records} records, ${plan.totals.attachments} attachments`,
+  );
   if (args.dryRun) {
     console.log('--dry-run: nothing written.');
     return;
@@ -78,7 +81,9 @@ async function main() {
     console.log(
       `done in ${seconds}s — ${result.workspaces_created} workspaces created, ${result.workspaces_topped_up} topped up, ` +
         `${result.databases_created} databases, ${result.records_created} records, ${result.records_edited} edits, ` +
-        `${result.links_created} links, guest ${result.guest_granted ? 'granted' : 'not granted'}`,
+        `${result.links_created} links, ${result.attachments_uploaded} attachments, ` +
+        `${result.templates_applied} templates, ${result.packs_installed} packs, ` +
+        `guest ${result.guest_granted ? 'granted' : 'not granted'}`,
     );
     if (seconds > 300) {
       console.warn('WARNING: this run took longer than the five minutes #451 budgets for a setup step.');
