@@ -13,7 +13,15 @@ The API contract is code-generated — this folder holds the committed spec and 
 | `guides/authentication.md` — sessions, PATs, curl examples | MN-028 |
 | `guides/querying.md` — filter AST, cursors, expand, batch create | MN-012 |
 | `guides/build-an-mcp-server.md` — schema introspection → generic tools over any workspace | MN-028 |
+| `guides/mcp-tools.md` — the first-party MCP server: fast paths, batch writes, scopes | #394 |
 
 ## The MCP story
 
-We don't ship an MCP server in v1 — deliberately. The API is designed so anyone can build one: introspect schema (`GET /databases`, fields + relation metadata), query records (`POST /records/query`), mutate (`PATCH /records/:id`), all with a PAT. If the community builds it, the API did its job. A first-party MCP server (and a hosted one) is a post-v1 / cloud concern.
+**StoryOS now ships a first-party MCP server** (`packages/mcp`), advertising 127 tools. See
+[guides/mcp-tools.md](guides/mcp-tools.md) for the fast paths and the scope model, and call
+`get_started` for the in-band tour.
+
+That was not always the plan, and the original reasoning still holds for anyone building their
+own: the API is designed so that you can. Introspect schema (`GET /databases`, fields + relation
+metadata), query records (`POST /records/query`), mutate (`PATCH /records/:id`), all with a PAT —
+see [guides/build-an-mcp-server.md](guides/build-an-mcp-server.md).
