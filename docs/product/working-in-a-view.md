@@ -24,6 +24,35 @@ Two orders is a reasonable thing to want. Two orders that *look* like one is not
 the notice appears at all, and why it stays quiet until a database actually has its own
 arrangement.
 
+## Board columns
+
+A board's columns come from whatever it is grouped by, and two settings control them
+independently of how the cards inside are sorted.
+
+### Column order
+
+- **Natural** — the grouping source's own order. For a select or a workflow that is the option
+  order, which somebody chose deliberately, so it is usually what you want. For a person or a
+  relation it is whatever order the API returned, which carries no intent at all.
+- **Alphabetical**
+- **By count**
+
+That distinction is the reason the setting exists: a board grouped by an 18-value relation used to
+give you 18 columns in no particular order.
+
+**Rearranging a board never rewrites the grouping field's options.** Column order belongs to the
+*view*, so your board cannot quietly change a schema that every other view reads.
+
+### Hiding empty columns
+
+**Hide empty groups** drops columns with no cards. A board scrolls sideways, so empty columns push
+the real work off-screen.
+
+**The "no value" column has its own separate switch**, and that is on purpose. *"No Epic"* is a
+different question from *"an epic with no issues"* — the ungrouped column is usually the triage
+pile, which makes it the most important one on the board. Sweeping it away along with the empty
+real groups would be the obvious implementation and the wrong one.
+
 ## An empty view versus a broken one
 
 If a view cannot load its records it says so, with an error and a retry. It does **not** render as
