@@ -280,6 +280,25 @@ export function TableView({
     [fields, widthOf],
   );
 
+  // #251 Column virtualization — only render non-frozen columns visible in the
+  // horizontal scroll window. Frozen columns (id + title) always render.
+  const nonFrozenFields = useMemo(
+    () => fields.slice(frozenCount),
+    [fields, frozenCount],
+  );
+  const frozenTotalWidth = useMemo(
+    () => 56 + fields.slice(0, frozenCount).reduce((sum, f) => sum + widthOf(f), 0),
+    [fields, frozenCount, widthOf],
+  );
+  const columnVirtualizer = useVirtualizer({
+    horizontal: true,
+    count: nonFrozenFields.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: (i) => widthOf(nonFrozenFields[i]!),
+    paddingStart: frozenTotalWidth,
+    overscan: 3,
+  });
+
   /*
    * #409/#412/#415 — the shared drag presentation for column reordering.
    *
@@ -549,6 +568,7 @@ export function TableView({
             col: Math.min(max.col, Math.max(0, anchor.col + dc)),
           };
           virtualizer.scrollToIndex(next.row);
+          if (next.col >= frozenCount) columnVirtualizer.scrollToIndex(next.col - frozenCount);
           return next;
         });
         return;
@@ -561,6 +581,7 @@ export function TableView({
           col: Math.min(max.col, Math.max(0, base.col + dc)),
         };
         virtualizer.scrollToIndex(next.row);
+        if (next.col >= frozenCount) columnVirtualizer.scrollToIndex(next.col - frozenCount);
         return next;
       });
     };
@@ -625,6 +646,175 @@ export function TableView({
   const totalWidth =
     fields.reduce((sum, f) => sum + widthOf(f), 0) + 56 + (schemaEditable ? 110 : 0);
 
+  // #251 Column virtualization: which non-frozen columns to render this frame.
+  // During a column drag, dnd-kit needs every item mounted, so skip windowing.
+  const virtualCols = columnVirtualizer.getVirtualItems();
+  const isDraggingCol = !!columnDrag.activeId;
+  const firstVCol = virtualCols[0];
+  const lastVCol = virtualCols[virtualCols.length - 1];
+  const colLeftSpacer =
+    isDraggingCol || !firstVCol ? 0 : firstVCol.start - frozenTotalWidth;
+  const colRightSpacer =
+    isDraggingCol || !lastVCol
+      ? 0
+      : columnVirtualizer.getTotalSize() - (lastVCol.start + lastVCol.size);
+
+  // #251 — cell renderer extracted so frozen and non-frozen columns share
+  // one render path (field-surfaces.md: never duplicate render logic).
+  function renderBodyCell(field: Field, colIndex: number, rowIdx: number, row: RecordRow) {
+    const isCursor = cursor?.row === rowIdx && cursor?.col === colIndex;
+    const isCellEditing = isCursor && editing;
+    const inRange =
+      rangeBounds !== null &&
+      rowIdx >= rangeBounds.r0 &&
+      rowIdx <= rangeBounds.r1 &&
+      colIndex >= rangeBounds.c0 &&
+      colIndex <= rangeBounds.c1;
+    return (
+      <div
+        key={field.id}
+        data-row={rowIdx}
+        data-col={colIndex}
+        style={{
+          width: widthOf(field),
+          ...(pinned && colIndex < frozenCount
+            ? { left: frozenLeft(colIndex) }
+            : {}),
+        }}
+        className={cn(
+          'relative flex shrink-0 items-center overflow-visible border-r border-border-default px-2',
+          isCursor && 'z-20 ring-2 ring-inset ring-[var(--accent)]',
+          pinned &&
+            colIndex < frozenCount &&
+            cn(
+              'sticky z-10',
+              colIndex === frozenCount - 1 &&
+                'shadow-[2px_0_4px_-2px_rgba(15,23,41,0.12)]',
+              selected.has(row.id)
+                ? 'bg-accent-soft'
+                : 'bg-card group-hover:bg-hover',
+            ),
+          inRange && !isCursor && 'z-10 bg-accent-soft/60',
+        )}
+        onMouseDown={(e) => {
+          suppressClickRef.current = false;
+          if (e.button !== 0 || e.shiftKey || isCellEditing) return;
+          dragAnchorRef.current = {
+            row: rowIdx,
+            col: colIndex,
+            x: e.clientX,
+            y: e.clientY,
+          };
+          window.addEventListener('mousemove', handleDragMove);
+          window.addEventListener('mouseup', handleDragUp);
+        }}
+        onClick={(e) => {
+          if (e.shiftKey && cursor) {
+            setRangeEnd({ row: rowIdx, col: colIndex });
+            scrollRef.current?.focus();
+            return;
+          }
+          setRangeEnd(null);
+          setCursor({ row: rowIdx, col: colIndex });
+          scrollRef.current?.focus();
+          if (readOnly) return;
+          if (field.type === 'checkbox') {
+            commitEdit(row, field, !(valueOf(row, field) === true));
+          } else if (
+            field.type !== 'title' &&
+            field.type !== 'id' &&
+            field.type !== 'select' &&
+            field.type !== 'workflow' &&
+            field.type !== 'relation' &&
+            !NO_EDITOR.has(field.type)
+          ) {
+            setEditing(true);
+          }
+        }}
+        onDoubleClick={() => {
+          if (
+            !readOnly &&
+            (field.type === 'title' ||
+              field.type === 'select' ||
+              field.type === 'workflow' ||
+              field.type === 'relation')
+          ) {
+            setRangeEnd(null);
+            setCursor({ row: rowIdx, col: colIndex });
+            setEditing(true);
+          }
+        }}
+      >
+        {isCellEditing && field.type === 'relation' ? (
+          <RelationEditor
+            ws={ws}
+            db={db}
+            recordId={row.id}
+            field={field}
+            current={
+              (valueOf(row, field) as Array<{
+                id: string;
+                title: string;
+              }>) ?? []
+            }
+            onDone={() => {
+              setEditing(false);
+              scrollRef.current?.focus();
+            }}
+          />
+        ) : isCellEditing && !NO_EDITOR.has(field.type) ? (
+          <CellEditor
+            ws={ws}
+            db={db}
+            rec={row.id}
+            field={field}
+            value={valueOf(row, field)}
+            members={memberList}
+            onCommit={(value) => commitEdit(row, field, value)}
+            onCancel={() => {
+              setEditing(false);
+              scrollRef.current?.focus();
+            }}
+          />
+        ) : field.type === 'button' ? (
+          <PressButton
+            ws={ws}
+            db={db}
+            recordId={row.id}
+            field={field}
+            disabled={readOnly}
+            onPressed={() => updateRecord.reset()}
+          />
+        ) : isEmptyCellValue(valueOf(row, field)) &&
+          !readOnly &&
+          field.type !== 'id' &&
+          field.type !== 'title' &&
+          !NO_EDITOR.has(field.type) ? (
+          <EmptyFieldAffordance field={field} editable />
+        ) : (
+          <>
+            <CellDisplay
+              field={field}
+              value={valueOf(row, field)}
+              memberNames={memberNames}
+              memberImages={memberImages}
+              ws={ws}
+            />
+            {field.type === 'title' && (
+              <Link
+                href={recordHref(ws, db, row)}
+                onClick={(e) => e.stopPropagation()}
+                className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-1 rounded border border-border-default bg-card px-1.5 py-0.5 text-[11px] font-medium text-muted opacity-0 shadow-sm hover:text-ink group-hover:opacity-100"
+              >
+                <Maximize2 className="h-3 w-3" /> Open
+              </Link>
+            )}
+          </>
+        )}
+      </div>
+    );
+  }
+
   // #346 — a rejected query must never render as an empty view. Placed after every
   // hook so the early return cannot change hook order.
   if (records.isError) return <ViewQueryError error={records.error} onRetry={() => void records.refetch()} />;
@@ -686,8 +876,12 @@ export function TableView({
               collisionDetection={closestCenter}
               {...columnDrag.contextProps}
             >
-              <SortableContext items={fields.slice(frozenCount).map((f) => f.id)} strategy={horizontalListSortingStrategy}>
-                {fields.slice(frozenCount).map((field) => (
+              <SortableContext items={nonFrozenFields.map((f) => f.id)} strategy={horizontalListSortingStrategy}>
+                {colLeftSpacer > 0 && <div key="__hdr-l" style={{ width: colLeftSpacer, flexShrink: 0 }} />}
+                {(isDraggingCol
+                  ? nonFrozenFields
+                  : virtualCols.map((vc) => nonFrozenFields[vc.index]!)
+                ).map((field) => (
                   <HeaderCell
                     key={field.id}
                     ws={ws}
@@ -706,6 +900,7 @@ export function TableView({
                     }}
                   />
                 ))}
+                {colRightSpacer > 0 && <div key="__hdr-r" style={{ width: colRightSpacer, flexShrink: 0 }} />}
               </SortableContext>
               <DragPreview>
                 {columnDrag.activeId && (
@@ -795,168 +990,28 @@ export function TableView({
                       )}
                     </div>
                   </div>
-                  {/* #410 — preview order, so values stay under their own headers. */}
-                  {previewFields.map((field) => {
-                    // colIndex from the COMMITTED order: the cursor and range
-                    // selection address cells by index, and renumbering them
-                    // mid-drag would move someone's selection under them.
-                    const colIndex = fields.indexOf(field);
-                    const isCursor = cursor?.row === item.index && cursor?.col === colIndex;
-                    const isEditing = isCursor && editing;
-                    // MN-285: cells inside the active shift-click/shift-arrow range
-                    // (including the anchor cell itself) get a lighter fill than the
-                    // single-cell cursor ring, like a spreadsheet selection.
-                    const inRange =
-                      rangeBounds !== null &&
-                      item.index >= rangeBounds.r0 &&
-                      item.index <= rangeBounds.r1 &&
-                      colIndex >= rangeBounds.c0 &&
-                      colIndex <= rangeBounds.c1;
-                    return (
-                      <div
-                        key={field.id}
-                        // #296: read back by cellFromPoint during a drag, since a
-                        // mousemove event carries no React target for the cell
-                        // currently under the pointer.
-                        data-row={item.index}
-                        data-col={colIndex}
-                        style={{ width: widthOf(field), ...(pinned && colIndex < frozenCount ? { left: frozenLeft(colIndex) } : {}) }}
-                        className={cn(
-                          'relative flex shrink-0 items-center overflow-visible border-r border-border-default px-2',
-                          isCursor && 'z-20 ring-2 ring-inset ring-[var(--accent)]',
-                          pinned &&
-                            colIndex < frozenCount &&
-                            cn(
-                              'sticky z-10',
-                              colIndex === frozenCount - 1 && 'shadow-[2px_0_4px_-2px_rgba(15,23,41,0.12)]',
-                              selected.has(row.id) ? 'bg-accent-soft' : 'bg-card group-hover:bg-hover',
-                            ),
-                          // MN-285: applied last so twMerge lets the range fill win over
-                          // the frozen-column background above when both are present.
-                          inRange && !isCursor && 'z-10 bg-accent-soft/60',
-                        )}
-                        onMouseDown={(e) => {
-                          // A stale flag from a drag whose mouseup landed somewhere
-                          // no click event reaches (e.g. released outside the
-                          // window) shouldn't swallow a later, unrelated click.
-                          suppressClickRef.current = false;
-                          // Shift+mousedown is left alone entirely so shift+click's
-                          // own branch below (extending the range from the existing
-                          // cursor) runs exactly as before; and mousedown on a cell
-                          // that's already open for editing lets the editor's own
-                          // text-selection/caret placement happen instead of
-                          // hijacking it into a range drag.
-                          if (e.button !== 0 || e.shiftKey || isEditing) return;
-                          dragAnchorRef.current = { row: item.index, col: colIndex, x: e.clientX, y: e.clientY };
-                          window.addEventListener('mousemove', handleDragMove);
-                          window.addEventListener('mouseup', handleDragUp);
-                        }}
-                        onClick={(e) => {
-                          if (e.shiftKey && cursor) {
-                            setRangeEnd({ row: item.index, col: colIndex });
-                            scrollRef.current?.focus();
-                            return;
-                          }
-                          setRangeEnd(null);
-                          setCursor({ row: item.index, col: colIndex });
-                          // Focus the keydown container so Cmd/Ctrl+C/V + arrows work (#15).
-                          scrollRef.current?.focus();
-                          if (readOnly) return;
-                          if (field.type === 'checkbox') {
-                            commitEdit(row, field, !(valueOf(row, field) === true));
-                          } else if (
-                            field.type !== 'title' &&
-                            field.type !== 'id' &&
-                            // MN-292: select/relation single click also just selects — it
-                            // used to pop the picker open immediately, leaving no way to
-                            // reach a copyable "selected, not editing" state (Cmd+C bailed
-                            // out while editing). Double-click or Enter opens the editor.
-                            field.type !== 'select' &&
-                            field.type !== 'workflow' &&
-                            field.type !== 'relation' &&
-                            !NO_EDITOR.has(field.type)
-                          ) {
-                            setEditing(true);
-                          }
-                        }}
-                        onDoubleClick={() => {
-                          // Title/select/relation edit on double-click; single click
-                          // selects so the hover "Open" affordance (title) and Cmd+C
-                          // (select/relation, MN-292) stay reachable.
-                          if (
-                            !readOnly &&
-                            (field.type === 'title' || field.type === 'select' || field.type === 'workflow' || field.type === 'relation')
-                          ) {
-                            setRangeEnd(null);
-                            setCursor({ row: item.index, col: colIndex });
-                            setEditing(true);
-                          }
-                        }}
-                      >
-                        {isEditing && field.type === 'relation' ? (
-                          <RelationEditor
-                            ws={ws}
-                            db={db}
-                            recordId={row.id}
-                            field={field}
-                            current={(valueOf(row, field) as Array<{ id: string; title: string }>) ?? []}
-                            onDone={() => {
-                              setEditing(false);
-                              scrollRef.current?.focus();
-                            }}
-                          />
-                        ) : isEditing && !NO_EDITOR.has(field.type) ? (
-                          <CellEditor
-                            ws={ws}
-                            db={db}
-                            rec={row.id}
-                            field={field}
-                            value={valueOf(row, field)}
-                            members={memberList}
-                            onCommit={(value) => commitEdit(row, field, value)}
-                            onCancel={() => {
-                              setEditing(false);
-                              scrollRef.current?.focus();
-                            }}
-                          />
-                        ) : field.type === 'button' ? (
-                          <PressButton
-                            ws={ws}
-                            db={db}
-                            recordId={row.id}
-                            field={field}
-                            disabled={readOnly}
-                            onPressed={() => updateRecord.reset()}
-                          />
-                        ) : isEmptyCellValue(valueOf(row, field)) &&
-                          !readOnly &&
-                          field.type !== 'id' &&
-                          field.type !== 'title' &&
-                          !NO_EDITOR.has(field.type) ? (
-                          // #187: an empty *editable* cell invites a fill
-                          // ("Add/Set <field>") instead of reading blank. Display
-                          // only — the cell's own click / double-click still owns
-                          // opening the editor. Title keeps its blank + hover
-                          // "Open"; id and computed/read-only types (NO_EDITOR)
-                          // stay blank, never a fake affordance.
-                          <EmptyFieldAffordance field={field} editable />
-                        ) : (
-                          <>
-                            <CellDisplay field={field} value={valueOf(row, field)} memberNames={memberNames} memberImages={memberImages} ws={ws} />
-                            {field.type === 'title' && (
-                              <Link
-                                href={recordHref(ws, db, row)}
-                                onClick={(e) => e.stopPropagation()}
-                                className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-1 rounded border border-border-default bg-card px-1.5 py-0.5 text-[11px] font-medium text-muted opacity-0 shadow-sm hover:text-ink group-hover:opacity-100"
-                              >
-                                <Maximize2 className="h-3 w-3" /> Open
-                              </Link>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    );
-                  })}
+                  {/* #251 Column virtualization: frozen always, non-frozen windowed.
+                       #410 — during drag, preview order so values stay under their headers. */}
+                  {fields.slice(0, frozenCount).map((field, i) =>
+                    renderBodyCell(field, i, item.index, row),
+                  )}
+                  {colLeftSpacer > 0 && (
+                    <div key="__cl" style={{ width: colLeftSpacer, flexShrink: 0 }} />
+                  )}
+                  {(isDraggingCol
+                    ? previewFields
+                        .slice(frozenCount)
+                        .map((f) => ({ field: f, colIndex: fields.indexOf(f) }))
+                    : virtualCols.map((vc) => ({
+                        field: nonFrozenFields[vc.index]!,
+                        colIndex: frozenCount + vc.index,
+                      }))
+                  ).map(({ field, colIndex }) =>
+                    renderBodyCell(field, colIndex, item.index, row),
+                  )}
+                  {colRightSpacer > 0 && (
+                    <div key="__cr" style={{ width: colRightSpacer, flexShrink: 0 }} />
+                  )}
                 </div>
               );
             })}
