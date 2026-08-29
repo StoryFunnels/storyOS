@@ -84,7 +84,41 @@ describe('#451 — agent UAT seed plan', () => {
     expect(crossRel, 'a relation that genuinely crosses a space').toBeTruthy();
 
     expect(flagship.spaces.length).toBeGreaterThan(0);
-    expect(flagship.guest_grant?.space_key).toBe('delivery');
+    expect(flagship.guest_grant?.space_keys).toContain('delivery');
+    // #460 — a portal the client cannot open is not a portal.
+    expect(flagship.guest_grant?.space_keys).toContain('pack:Client Portal');
+  });
+
+  it('plans invoices and a portal from the product catalogue, not by hand (#460)', () => {
+    const plan = buildPlan('nadia', '1');
+    const flagship = plan.workspaces[0]!;
+    // `client-work` is the agency template; its Invoices database is where the
+    // invoices come from. Building our own would seed a shape the product does
+    // not actually ship.
+    expect(flagship.templates.map((t) => t.slug)).toContain('client-work');
+    expect(flagship.templates.every((t) => t.include_samples)).toBe(true);
+    expect(flagship.packs.map((p) => p.slug)).toContain('client-portal');
+    // Flagship only — eleven copies would be noise.
+    expect(plan.workspaces.slice(1).every((w) => w.templates.length === 0 && w.packs.length === 0)).toBe(true);
+  });
+
+  it('plans real files on real records, weighted to where an operator looks (#460)', () => {
+    const nadia = buildPlan('nadia', '1');
+    expect(nadia.totals.attachments).toBeGreaterThan(50);
+    const flagship = nadia.workspaces[0]!;
+    expect(flagship.databases.every((d) => d.attachments.length > 0)).toBe(true);
+    // Never two files planned onto the same record slot, and never off the end.
+    for (const ws of nadia.workspaces) {
+      for (const database of ws.databases) {
+        const indexes = database.attachments.map((a) => a.record_index);
+        expect(new Set(indexes).size).toBe(indexes.length);
+        expect(indexes.every((i) => i < database.records.length)).toBe(true);
+      }
+    }
+    // Kai is the file-heavy persona; his density must beat Nadia's per record.
+    const kai = buildPlan('kai', '1');
+    const density = (p: ReturnType<typeof buildPlan>) => p.totals.attachments / p.totals.records;
+    expect(density(kai)).toBeGreaterThan(density(nadia));
   });
 
   it('names are obviously synthetic — nothing reads as a real company', () => {

@@ -33,3 +33,9 @@ sbom.cdx.json
 # Claude Code local settings
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
+
+# Locally stored attachments (ATTACHMENTS_DIR, default ./data/attachments).
+# The default storage driver is local disk, so running the API — or seeding an
+# agent UAT environment (#460), which uploads a few hundred files — fills this
+# with binary blobs. They are workspace data, not source.
+apps/api/data/

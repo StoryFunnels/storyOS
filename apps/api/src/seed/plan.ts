@@ -59,6 +59,7 @@ export interface PlannedDatabase {
   description: string;
   fields: PlannedField[];
   records: PlannedRecord[];
+  attachments: PlannedAttachment[];
 }
 
 export interface PlannedRelation {
@@ -77,6 +78,40 @@ export interface PlannedSpace {
   name: string;
 }
 
+/**
+ * #460 — a file actually attached to a record, uploaded through the real
+ * multipart endpoint. `kind` selects one of a few fixed, tiny, obviously-fake
+ * payloads; the bytes are constants so the same seed produces the same files.
+ */
+export interface PlannedAttachment {
+  record_index: number;
+  filename: string;
+  kind: 'png' | 'txt' | 'pdf';
+}
+
+/**
+ * #460 — a first-party template applied into the workspace. This is how
+ * invoices get seeded: rather than inventing an Invoices database, the seeder
+ * applies the same `client-work` template a user would, samples included, so
+ * the invoices are the product's own invoices.
+ */
+export interface PlannedTemplate {
+  slug: string;
+  space_name?: string;
+  include_samples: boolean;
+}
+
+/**
+ * #460 — a starter pack installed through the marketplace install path. The
+ * client portal is a pack, not a hand-built space, and installing it the real
+ * way is the only version of "a portal exists" worth testing against.
+ */
+export interface PlannedPack {
+  slug: string;
+  /** The space the pack creates, so the guest can be granted it. */
+  space_name: string;
+}
+
 export interface PlannedWorkspace {
   /** Stable identity across runs. The seeder matches on this to stay additive. */
   key: string;
@@ -85,8 +120,17 @@ export interface PlannedWorkspace {
   spaces: PlannedSpace[];
   databases: PlannedDatabase[];
   relations: PlannedRelation[];
-  /** #451 — only guests can hold partial access, so the guest gets ONE space of several. */
-  guest_grant?: { space_key: string; role: 'commenter' | 'editor' };
+  /** #460 — first-party templates applied into this workspace (invoices come from one). */
+  templates: PlannedTemplate[];
+  /** #460 — starter packs installed into this workspace (the client portal is one). */
+  packs: PlannedPack[];
+  /**
+   * #451 — only guests can hold partial access, so the guest gets SOME spaces,
+   * never all of them. #460 adds the portal: a client portal nobody outside the
+   * team can open is not a portal, so the guest is granted it too — and the
+   * workspace keeps more spaces than the guest can see.
+   */
+  guest_grant?: { space_keys: string[]; role: 'commenter' | 'editor' };
 }
 
 export interface SeedPlan {
@@ -95,7 +139,7 @@ export interface SeedPlan {
   owner: { email: string; name: string };
   guest: { email: string; name: string } | null;
   workspaces: PlannedWorkspace[];
-  totals: { workspaces: number; databases: number; records: number };
+  totals: { workspaces: number; databases: number; records: number; attachments: number };
 }
 
 /** Six months, the window the ticket asks for. */
@@ -231,7 +275,41 @@ function makeDatabase(
     description: opts.description,
     fields: opts.fields,
     records,
+    attachments: [],
   };
+}
+
+/**
+ * #460 — deterministically pick records to hang files on.
+ *
+ * Every attachment is one real multipart upload, so this is also a request
+ * budget: a handful per database keeps the full run inside the five minutes
+ * #451 set, while still putting files on enough records that a list view, a
+ * record page and a download all have something to render.
+ */
+const ATTACHMENT_FILES: Array<{ kind: 'png' | 'txt' | 'pdf'; name: string }> = [
+  { kind: 'png', name: 'mockup-v{n}.png' },
+  { kind: 'txt', name: 'handover-notes-{n}.txt' },
+  { kind: 'pdf', name: 'brief-{n}.pdf' },
+  { kind: 'png', name: 'screenshot-{n}.png' },
+];
+
+function attachmentsFor(rng: Rng, recordCount: number, howMany: number): PlannedAttachment[] {
+  if (recordCount === 0 || howMany === 0) return [];
+  const out: PlannedAttachment[] = [];
+  const used = new Set<number>();
+  for (let i = 0; i < howMany; i++) {
+    const index = rng.int(0, recordCount);
+    if (used.has(index)) continue;
+    used.add(index);
+    const file = ATTACHMENT_FILES[rng.int(0, ATTACHMENT_FILES.length)]!;
+    out.push({
+      record_index: index,
+      filename: file.name.replace('{n}', String(index + 1)),
+      kind: file.kind,
+    });
+  }
+  return out;
 }
 
 /**
@@ -302,12 +380,13 @@ function planNadia(seed: string, scale: number): PlannedWorkspace[] {
     const isFlagship = wsIndex === 0;
     const spaces: PlannedSpace[] = isFlagship ? [{ key: 'delivery', name: 'Delivery' }] : [];
 
+    const attachRng = rng.fork(`${key}:attachments`);
     const databases = entry.dbs.map((count, dbIndex) => {
       const dbKey = `${key}-db${dbIndex + 1}`;
       // Only the flagship's second database lives in the extra space, so the
       // relation below genuinely crosses one.
       const spaceKey = isFlagship && dbIndex === 1 ? 'delivery' : 'general';
-      return makeDatabase(rng.fork(dbKey), {
+      const made = makeDatabase(rng.fork(dbKey), {
         key: dbKey,
         name: `${rng.pick(PROJECT_WORDS)} ${dbIndex === 0 ? 'Tasks' : dbIndex === 1 ? 'Deliverables' : `Board ${dbIndex}`}`,
         spaceKey,
@@ -316,6 +395,15 @@ function planNadia(seed: string, scale: number): PlannedWorkspace[] {
         fields: commonFields(),
         messy: false,
       });
+      // #460 — files on real records. Weighted to the flagship, where an
+      // operator actually goes looking, and thin elsewhere so the run stays
+      // inside its time budget.
+      made.attachments = attachmentsFor(
+        attachRng.fork(dbKey),
+        made.records.length,
+        scaled(isFlagship ? 14 : 4, scale),
+      );
+      return made;
     });
 
     const relations: PlannedRelation[] = [];
@@ -362,7 +450,24 @@ function planNadia(seed: string, scale: number): PlannedWorkspace[] {
       spaces,
       databases,
       relations,
-      guest_grant: isFlagship ? { space_key: 'delivery', role: 'commenter' } : undefined,
+      /*
+       * #460 — invoices and the portal are NOT hand-built here.
+       *
+       * `client-work` is the product's own agency template and it ships an
+       * Invoices database, billed against both a Client and a Project, with
+       * sample rows. `client-portal` is a real starter pack. Applying and
+       * installing them the way a user would means the seeded environment
+       * contains the actual surfaces, not a seeder's impression of them — and
+       * it exercises the template and pack-install paths on the way.
+       *
+       * Flagship only: eleven copies would be noise, and the point is that a
+       * place exists where an operator can find them.
+       */
+      templates: isFlagship ? [{ slug: 'client-work', space_name: 'Agency Back Office', include_samples: true }] : [],
+      packs: isFlagship ? [{ slug: 'client-portal', space_name: 'Client Portal' }] : [],
+      // A portal the client cannot open is not a portal. The guest gets the
+      // portal and Delivery — still strictly fewer spaces than the owner sees.
+      guest_grant: isFlagship ? { space_keys: ['delivery', 'pack:Client Portal'], role: 'commenter' } : undefined,
     };
   });
 }
@@ -393,6 +498,10 @@ function planKai(seed: string, scale: number): PlannedWorkspace[] {
     for (const record of db.records) {
       if (docRng.chance(0.6)) record.document = docRng.sample(DOC_PARAGRAPHS, docRng.int(2, 7));
     }
+    // #460 — Kai is the file-heavy operator: pasted screenshots and dropped
+    // files, not structure. Denser than Nadia's, for the same reason her
+    // databases are bigger — each persona is a different failure mode.
+    db.attachments = attachmentsFor(rng.fork(`${key}-db${i + 1}:files`), db.records.length, scaled(30, scale));
     return db;
   });
   return [
@@ -403,6 +512,8 @@ function planKai(seed: string, scale: number): PlannedWorkspace[] {
       spaces: [],
       databases,
       relations: [],
+      templates: [],
+      packs: [],
     },
   ];
 }
@@ -413,6 +524,10 @@ export function buildPlan(persona: Persona, seed: string, options: PlanOptions =
   const databases = workspaces.reduce((n, w) => n + w.databases.length, 0);
   const records = workspaces.reduce(
     (n, w) => n + w.databases.reduce((m, d) => m + d.records.length, 0),
+    0,
+  );
+  const attachments = workspaces.reduce(
+    (n, w) => n + w.databases.reduce((m, d) => m + d.attachments.length, 0),
     0,
   );
   return {
@@ -426,6 +541,6 @@ export function buildPlan(persona: Persona, seed: string, options: PlanOptions =
         ? { email: `guest-${seed}@agents.storyos.invalid`, name: 'Tuva Synthetic (guest)' }
         : null,
     workspaces,
-    totals: { workspaces: workspaces.length, databases, records },
+    totals: { workspaces: workspaces.length, databases, records, attachments },
   };
 }

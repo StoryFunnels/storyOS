@@ -36,14 +36,26 @@ virtualization and paging are genuinely exercised. Six months of backdated
 history spread over ~183 distinct days, with some records edited more than once
 so version history and activity feeds have something to page through. One
 self-relation and one cross-space relation — the two shapes that break diagrams
-and filters. A guest with partial access to one space of two, because only
-guests can hold partial access and an access-boundary test without one proves
-nothing. A workflow field with more options than fit comfortably on a board.
+and filters. A workflow field with more options than fit comfortably on a board.
+
+Her flagship workspace also carries the surfaces an agency actually meets:
+~113 **attached files** (PNG, PDF and text, all tiny and obviously synthetic)
+uploaded through the real multipart endpoint so they genuinely download; an
+**Invoices** database with sample rows, from applying the product's own
+`client-work` agency template; and a **Client Portal**, installed from the
+`client-portal` starter pack through the marketplace install path. Neither is
+hand-built — a seeder's impression of an invoice is not an invoice.
+
+A **guest** holds partial access to the portal and Delivery — two of the
+flagship's five spaces. Only guests can hold partial access, so an
+access-boundary test without one proves nothing; and a client portal the client
+cannot open is not a portal.
 
 **Kai** — one workspace, ~900 records weighted toward documents and rich text
-rather than structure, and deliberately messy: half-filled records, untitled
-rows, records with a single field set. The states a fast solo user actually
-leaves behind.
+rather than structure, ~86 attached files (a denser file-to-record ratio than
+Nadia's — he is the operator who pastes and drops things), and deliberately
+messy: half-filled records, untitled rows, records with a single field set. The
+states a fast solo user actually leaves behind.
 
 Every name is obviously synthetic — "Northwind Consulting", never a plausible
 agency. Screenshots from these environments get pasted into tickets, and nobody
@@ -55,9 +67,14 @@ machine would be a standing risk for no benefit.
 ## Re-running it, and the reset that is not here
 
 Running it again is safe and **additive**: a workspace is matched by its slug
-(derived from persona + seed), and only missing databases and missing records
-are created. Nothing existing is touched, and nothing is deleted. A second full
-run takes about six seconds and creates nothing.
+(derived from persona + seed), a template or pack by the space it creates, and
+a file by its name on its record. Only what is missing gets created. Nothing
+existing is touched, and nothing is deleted. A second full run takes about two
+seconds and creates nothing.
+
+Files are checked per file rather than "did this run create the record", so an
+environment seeded before attachments existed gains them on the next run
+instead of never getting them.
 
 **There is deliberately no `--reset` flag.** These environments are persistent
 on purpose and the accumulated data is the instrument — an agent that has been
@@ -100,11 +117,26 @@ Two narrow, deliberate exceptions, both in `apps/api/src/seed/apply.ts`:
    themselves are real, written by real `PATCH` calls.
 
 The API rate-limits at `RATE_LIMIT_PER_MINUTE` (300 by default) and the seeder
-makes several hundred calls, so it waits out a 429 and retries rather than
-skipping the call. That is why a full Nadia run takes ~2 minutes rather than
-~20 seconds. Every other non-2xx is fatal: an earlier version swallowed them
-and produced an environment missing an entire workspace's links while reporting
-success.
+makes well over a thousand calls, so it waits out a 429 and retries rather than
+skipping the call. That is most of why a full Nadia run takes ~75 seconds
+rather than ~20. Every other non-2xx is fatal: an earlier version swallowed
+them and produced an environment missing an entire workspace's links while
+reporting success.
+
+**Order matters between the pack and the template.** The `client-portal` pack
+ships databases called Tasks, Deliverables, Meetings and Requests; the
+`client-work` template ships a Tasks of its own. Applying the template first
+makes the pack install `409` on a real name collision — and for databases the
+only resolution the product offers is `reuse`, which would bolt the portal's
+client-approval workflow onto an unrelated table. The seeder installs packs
+first, into a workspace whose databases are all named `<Project> Tasks`, where
+nothing collides.
+
+**Records are addressed by index**, so `listRecordIds` sorts by the public
+record number to return them in creation order. `records/query` returns view
+order, and backdating scrambles anything date-ordered; past the 200-row page
+boundary a re-run mapped index N to a different record and uploaded a second
+copy of every file.
 
 ## Where the agent setup instructions live
 
