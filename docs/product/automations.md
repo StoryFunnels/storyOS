@@ -134,6 +134,34 @@ it is about the missing record, not about the action being dangerous. **Email an
 available on a webhook-triggered rule.** Have the webhook create a record, and let a
 record-created rule do the outbound work.
 
+## Triggering a rule from another tool
+
+Pick **A webhook is received** as the trigger, save the rule once, and it gets its own URL and
+secret.
+
+**Paste the URL into whatever should trigger it.** In Typeform: *Connect → Webhooks → Add a
+webhook*. In Zapier or Make: choose a "Webhooks" action and paste it as the destination. Nothing
+else is required — send a test from that tool and the rule runs.
+
+Both the URL and the secret have a **Copy** button, and **Regenerate** mints a new pair. Regenerating
+stops the old URL and secret working immediately, so update anywhere you pasted them.
+
+### Reading the delivered payload
+
+`{payload.…}` tokens read the body that arrived, in any action field: `{payload.email}`, or
+`{payload.answers.0.value}` for something nested. The panel can show you the **last received
+payload**, which is the quickest way to find the path you need — send one test from the calling
+tool, look at what arrived, then write the token.
+
+### Signing
+
+Optional. Sign requests with the secret (`X-StoryOS-Signature: sha256=…` plus
+`X-StoryOS-Timestamp`) and StoryOS verifies them. **Unsigned requests are accepted** if no
+signature is sent, which is what lets a no-code tool call the endpoint with nothing but a URL.
+
+Remember that a webhook-triggered rule has no triggering record, so it can only run the actions
+listed in [the section above](#what-a-webhook-triggered-rule-cannot-do).
+
 ## Recipes
 
 | Goal | Rule |
