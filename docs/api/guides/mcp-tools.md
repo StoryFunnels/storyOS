@@ -115,6 +115,25 @@ Before this, an option created grey stayed grey forever.
 
 Options are addressed **by label**, because `describe_database` shows labels and never option ids.
 
+## Relations link in the same write
+
+`create_record` and `update_record` accept relation values directly: `{ project: [12] }` takes an
+array of target record **numbers or ids** and links them as part of the same write. There is no
+follow-up `link_records` call.
+
+If you learned otherwise — that relation values in `values` were accepted and silently dropped —
+that was true and is not any more.
+
+## When your writes suddenly fail on argument shape
+
+A client negotiates tool schemas **once, when it connects**. If your session connected before the
+server was last deployed, your tool definitions can be stale, and the symptom is that arguments
+start being rejected on shape for no reason you changed.
+
+**Reconnect.** Do not retry different argument shapes — you will be guessing against a schema your
+client cannot see. `get_started` prints the tool-argument schema version and the server version, so
+you can tell whether yours is behind.
+
 ## What to do when a tool is missing
 
 Two different causes, and they need different fixes:
