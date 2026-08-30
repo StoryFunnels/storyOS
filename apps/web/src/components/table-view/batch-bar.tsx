@@ -63,6 +63,37 @@ export function BatchBar({
   const database = useDatabase(ws, db);
   const noun = databaseNoun(database.data?.name);
   const [settingField, setSettingField] = useState<Field | null>(null);
+
+  /**
+   * #479 — mount the editor on the NEXT frame, after the menu has finished
+   * closing. Not a cosmetic delay: it is the fix.
+   *
+   * Five field types opened nothing at all — select, workflow, multi_select,
+   * date, user — silently, with no error. Those are exactly the editors that
+   * render inside a Radix Popover; text/number/email are plain inputs and were
+   * fine. Mounting the popover synchronously from `onSelect` put it on screen
+   * while the dropdown's FocusScope was still tearing down, and that teardown
+   * moves focus. The popover's own DismissableLayer saw focus land outside
+   * itself and dismissed immediately. Measured stack, bottom to top:
+   *
+   *   FocusScope.useEffect -> handleFocusOut -> focus()
+   *     -> DismissableLayer focusOutside -> onDismiss
+   *     -> onOpenChange(false) -> OptionList.handleOpenChange -> onClose()
+   *     -> setSettingField(null)
+   *
+   * so the panel was added and removed in the same tick and no popper content
+   * was ever created. `onCloseAutoFocus` does not cover it — that governs where
+   * focus goes when the menu closes, not the focus-out the scope fires while it
+   * is still mounted.
+   *
+   * Waiting one frame means the menu's scope is gone before the popover exists,
+   * so there is no outside-focus for it to react to. The alternative — telling
+   * every popover editor to ignore focus-outside — would have changed the grid,
+   * where these same editors are used far more and already work.
+   */
+  const openEditorFor = (field: Field) => {
+    requestAnimationFrame(() => setSettingField(field));
+  };
   const [linkingField, setLinkingField] = useState<Field | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -249,9 +280,35 @@ export function BatchBar({
               Set field ▾
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent className="max-h-64 overflow-y-auto">
+          {/*
+            #479 — `onCloseAutoFocus` is the whole fix, and it is worth saying why
+            a one-liner was the answer to "five field types open nothing".
+
+            Radix returns focus to a menu's trigger when the menu closes. Picking
+            a field mounts the editor for it, and the editors for select,
+            workflow, multi_select, date and user are Radix Popovers. The order is
+            the problem: the popover mounts first, THEN the menu restores focus to
+            the "Set field" button — which the popover's dismissable layer reads as
+            focus moving outside itself. It calls `onOpenChange(false)`, OptionList
+            forwards that to `onClose()`, this component's `onCancel` sets
+            `settingField` back to null, and the panel unmounts in the same tick it
+            appeared. Measured: the panel div is added and removed in one
+            MutationObserver batch, no popper content is ever created, and focus
+            lands on the trigger button immediately after.
+
+            text / number / email survived only because they render plain inputs
+            and have no dismissable layer to trigger.
+
+            Preventing the focus restore fixes the cause. Nothing about the shared
+            editors changes, so the grid — where these same editors are used far
+            more heavily and already work — is untouched.
+          */}
+          <DropdownMenuContent
+            className="max-h-64 overflow-y-auto"
+            onCloseAutoFocus={(e) => e.preventDefault()}
+          >
             {fields.map((field) => (
-              <DropdownMenuItem key={field.id} onSelect={() => setSettingField(field)}>
+              <DropdownMenuItem key={field.id} onSelect={() => openEditorFor(field)}>
                 {field.displayName}
               </DropdownMenuItem>
             ))}
