@@ -30,8 +30,20 @@ describe('fieldDefaultValue (#203)', () => {
   });
 
   it('has no default for types that do not support one', () => {
-    for (const type of ['text', 'number', 'select', 'user', 'url']) {
+    for (const type of ['text', 'number', 'user', 'url']) {
       expect(fieldDefaultValue(type, { default: true, default_today: true }, NOW)).toBeUndefined();
+    }
+  });
+
+  it('#475: defaults a select/workflow field to the configured option id', () => {
+    for (const type of ['select', 'workflow']) {
+      expect(fieldDefaultValue(type, { default: 'opt-todo' }, NOW)).toBe('opt-todo');
+      // No default configured — still no default, same as any other type.
+      expect(fieldDefaultValue(type, {}, NOW)).toBeUndefined();
+      // A boolean/empty-string `default` (e.g. copied from a checkbox config,
+      // or a cleared field) is not a real option id.
+      expect(fieldDefaultValue(type, { default: true }, NOW)).toBeUndefined();
+      expect(fieldDefaultValue(type, { default: '' }, NOW)).toBeUndefined();
     }
   });
 });

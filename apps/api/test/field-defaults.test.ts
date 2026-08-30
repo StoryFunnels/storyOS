@@ -31,6 +31,22 @@ async function addField(name: string, type: string, config: Record<string, unkno
   return res.json() as { id: string; apiName: string };
 }
 
+async function addOptionedField(
+  name: string,
+  type: 'select' | 'workflow',
+  options: string[],
+  config: Record<string, unknown> = {},
+) {
+  const res = await as(admin.token, 'POST', `/workspaces/${wsId}/databases/${dbId}/fields`, {
+    display_name: name,
+    type,
+    config,
+    options: options.map((label) => ({ label })),
+  });
+  expect(res.statusCode, res.body).toBeLessThan(300);
+  return res.json() as { id: string; apiName: string; options: Array<{ id: string; label: string }> };
+}
+
 async function createRecord(values: Record<string, unknown>) {
   // The endpoint takes `{ values }` keyed by api_name — NOT a flat body. Posting
   // flat silently creates an empty record, which made every "explicit value"
@@ -120,5 +136,122 @@ describe('existing records and fields are unaffected (#203)', () => {
 
     const after = await createRecord({ name: 'Created after' });
     expect(after.values[field.apiName]).toBe(true);
+  });
+});
+
+/**
+ * #475 — Vera's exact reproduction: a select field with options and no
+ * default let a record land with a null value, 201, no warning — invisible to
+ * the standard `state has [<option>]` queue filter every agent runs, while
+ * still visible to an unfiltered page-through. This suite proves both that
+ * the bug reproduces without a default, and that configuring one closes it.
+ */
+describe('select/workflow default (#475)', () => {
+  it('reproduction: with no default, a record created without the field is invisible to the queue filter', async () => {
+    const field = await addOptionedField('State (undefaulted)', 'select', ['Backlog', 'ToDo', 'Done']);
+    const todoId = field.options.find((o) => o.label === 'ToDo')!.id;
+
+    const filed = await createRecord({ name: 'Filed with no state' });
+    expect(filed.values[field.apiName]).toBeUndefined();
+    const control = await createRecord({ name: 'Filed with a state', [field.apiName]: todoId });
+
+    const queued = await as(admin.token, 'POST', `/workspaces/${wsId}/databases/${dbId}/records/query`, {
+      filter: { field: field.apiName, op: 'has', value: [todoId] },
+    });
+    const ids = queued.json().data.map((r: { id: string }) => r.id);
+    expect(ids).toContain(control.id);
+    expect(ids).not.toContain(filed.id);
+
+    const unfiltered = await as(admin.token, 'POST', `/workspaces/${wsId}/databases/${dbId}/records/query`, {});
+    const allIds = unfiltered.json().data.map((r: { id: string }) => r.id);
+    expect(allIds).toContain(filed.id);
+  });
+
+  it('a default configured at create time (by option label) fills a record filed with no value', async () => {
+    const field = await addOptionedField('State (defaulted select)', 'select', ['Backlog', 'ToDo', 'Done'], {
+      default: 'Backlog',
+    });
+    const backlogId = field.options.find((o) => o.label === 'Backlog')!.id;
+
+    const filed = await createRecord({ name: 'Filed with no state' });
+    expect(filed.values[field.apiName]).toBe(backlogId);
+
+    // MUST KEEP WORKING: an explicit null is a deliberate "leave this empty"
+    // and must survive — the server must not put the default back.
+    const explicitNull = await createRecord({ name: 'Explicitly cleared', [field.apiName]: null });
+    expect(explicitNull.values[field.apiName]).toBeFalsy();
+
+    // Now findable by the exact filter shape every agent's queue runs.
+    const queued = await as(admin.token, 'POST', `/workspaces/${wsId}/databases/${dbId}/records/query`, {
+      filter: { field: field.apiName, op: 'has', value: [backlogId] },
+    });
+    expect(queued.json().data.map((r: { id: string }) => r.id)).toContain(filed.id);
+  });
+
+  it('a workflow field defaults the same way as select', async () => {
+    const field = await addOptionedField('Status', 'workflow', ['Triage', 'ToDo', 'Done'], { default: 'Triage' });
+    const triageId = field.options.find((o) => o.label === 'Triage')!.id;
+    const filed = await createRecord({ name: 'No status given' });
+    expect(filed.values[field.apiName]).toBe(triageId);
+  });
+
+  it('create rejects a default label that does not match any of the field\'s own options', async () => {
+    const res = await as(admin.token, 'POST', `/workspaces/${wsId}/databases/${dbId}/fields`, {
+      display_name: 'Bad Default',
+      type: 'select',
+      config: { default: 'Nonexistent' },
+      options: [{ label: 'A' }, { label: 'B' }],
+    });
+    expect(res.statusCode).toBe(422);
+  });
+
+  it('configuring a default via PATCH (by option id) applies to records created afterward, never retroactively', async () => {
+    const field = await addOptionedField('State (patched default)', 'select', ['Backlog', 'ToDo', 'Done']);
+    const backlogId = field.options.find((o) => o.label === 'Backlog')!.id;
+    const before = await createRecord({ name: 'Created before the default existed' });
+    expect(before.values[field.apiName]).toBeUndefined();
+
+    const patch = await as(admin.token, 'PATCH', `/workspaces/${wsId}/databases/${dbId}/fields/${field.id}`, {
+      config: { default: backlogId },
+    });
+    expect(patch.statusCode, patch.body).toBeLessThan(300);
+
+    const reread = (
+      await as(admin.token, 'GET', `/workspaces/${wsId}/databases/${dbId}/records/${before.id}`)
+    ).json();
+    expect(reread.values[field.apiName]).toBeUndefined();
+
+    const after = await createRecord({ name: 'Created after the default' });
+    expect(after.values[field.apiName]).toBe(backlogId);
+  });
+
+  it('update rejects a default id that is not one of the field\'s own options', async () => {
+    const field = await addOptionedField('State (rejects bad patch)', 'select', ['Backlog', 'ToDo']);
+    const res = await as(admin.token, 'PATCH', `/workspaces/${wsId}/databases/${dbId}/fields/${field.id}`, {
+      config: { default: '00000000-0000-0000-0000-000000000000' },
+    });
+    expect(res.statusCode).toBe(422);
+  });
+
+  it('removing the option a field defaults to clears the dangling default rather than leaving it', async () => {
+    const field = await addOptionedField('State (default removed)', 'select', ['Backlog', 'ToDo']);
+    const backlog = field.options.find((o) => o.label === 'Backlog')!;
+    await as(admin.token, 'PATCH', `/workspaces/${wsId}/databases/${dbId}/fields/${field.id}`, {
+      config: { default: backlog.id },
+    });
+
+    const removed = await as(
+      admin.token,
+      'DELETE',
+      `/workspaces/${wsId}/databases/${dbId}/fields/${field.id}/options/${backlog.id}`,
+      { confirm: true },
+    );
+    expect(removed.statusCode, removed.body).toBeLessThan(300);
+
+    // The default is gone, not dangling — a new record is filed with no value,
+    // exactly as if no default had ever been configured, never an id that
+    // resolves to nothing.
+    const filed = await createRecord({ name: 'After the default option was removed' });
+    expect(filed.values[field.apiName]).toBeUndefined();
   });
 });
