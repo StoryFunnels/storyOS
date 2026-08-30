@@ -2,10 +2,10 @@
 
 import { useParams, useRouter } from 'next/navigation';
 import { useRef, useState } from 'react';
-import posthog from 'posthog-js';
 import { toast } from 'sonner';
 import { API_URL } from '@/lib/api';
-import { authClient, useSession } from '@/lib/auth-client';
+import { useSession } from '@/lib/auth-client';
+import { useSignOut } from '@/lib/sign-out';
 import { Avatar } from '@/components/ui/avatar';
 import {
   DropdownMenu,
@@ -38,6 +38,7 @@ async function resizeTo256(file: File): Promise<Blob> {
 
 export function AccountMenu() {
   const router = useRouter();
+  const signOut = useSignOut();
   const { ws } = useParams<{ ws: string }>();
   const { data: session } = useSession();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -105,15 +106,7 @@ export function AccountMenu() {
             Remove photo
           </DropdownMenuItem>
         )}
-        <DropdownMenuItem
-          onSelect={async () => {
-            posthog.reset();
-            await authClient.signOut();
-            router.replace('/login');
-          }}
-        >
-          Sign out
-        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => void signOut()}>Sign out</DropdownMenuItem>
       </DropdownMenuContent>
       <input
         ref={fileRef}

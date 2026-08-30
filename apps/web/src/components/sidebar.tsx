@@ -14,7 +14,6 @@ import { toast } from 'sonner';
 import { DragPreview, DropIndicator, useDragPresentation, vacatedSlotClass } from '@/components/ui/drag-presentation';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
-import { authClient } from '@/lib/auth-client';
 import { AutomationsPanel } from '@/components/automations-panel';
 import { ImportWizard } from '@/components/import-wizard';
 import { SourcesDialog } from '@/components/sources-dialog';
@@ -37,6 +36,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
+import { useSignOut } from '@/lib/sign-out';
 import { cn } from '@/lib/utils';
 import { SIDEBAR_INDENT_PX, SidebarRow, type SidebarDepth } from '@/components/sidebar-row';
 import { SidebarViewRow, type SidebarView } from '@/components/sidebar-view-row';
@@ -92,11 +92,11 @@ function FavoritesSection({ ws }: { ws: string }) {
 export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) {
   const params = useParams<{ ws: string }>();
   const ws = params.ws;
+  const signOut = useSignOut();
   const workspace = useWorkspace(ws);
   const spaces = useSpaces(ws);
   const databases = useDatabases(ws);
   const mutations = useSidebarMutations(ws);
-  const router = useRouter();
 
   const canEdit = workspace.data?.role !== 'guest';
   const isAdmin = workspace.data?.role === 'admin';
@@ -349,10 +349,7 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
           variant="ghost"
           size="sm"
           className="justify-start"
-          onClick={async () => {
-            await authClient.signOut();
-            router.replace('/login');
-          }}
+          onClick={() => void signOut()}
         >
           Sign out
         </Button>
