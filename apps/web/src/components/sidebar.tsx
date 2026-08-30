@@ -651,7 +651,13 @@ function SpaceSection({
   };
 
   const [renaming, setRenaming] = useState(false);
-  const [newDbOpen, setNewDbOpen] = useState(false);
+  /**
+   * #211 — the New-database dialog is shared by the space's "+" and by every
+   * folder's menu, so it carries the destination rather than each caller owning a
+   * copy of the dialog. `null` = the space root, a string = that folder, and
+   * `undefined` = closed.
+   */
+  const [newDbFolder, setNewDbFolder] = useState<string | null | undefined>(undefined);
   const [sharing, setSharing] = useState(false);
   const [iconing, setIconing] = useState(false);
   // #457 — its own menu item and its own dialog, NOT folded into the inline
@@ -697,14 +703,35 @@ function SpaceSection({
       }).data;
     },
   });
+  /**
+   * #211 — create a document, optionally straight INSIDE a folder.
+   *
+   * Two calls rather than one because `CreateSpaceDocDto` takes only `title` and
+   * `icon`; `folder_id` is settable on the PATCH. The ticket sanctions exactly
+   * this ("create then set folder_id, or accept folder_id on create") and the
+   * first half keeps it in the web lane — widening the create DTO would be an API
+   * change, and there is no reason to make one for a placement the PATCH already
+   * expresses.
+   */
   const createDoc = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (folderId?: string | null) => {
       const { data, error } = await api.POST('/api/v1/workspaces/{ws}/spaces/{space}/documents', {
         params: { path: { ws, space: space.id } },
         body: { title: 'Untitled' } as never,
       } as never);
       if (error) throw error;
-      return data as unknown as { id: string };
+      const doc = data as unknown as { id: string };
+      if (folderId) {
+        const { error: moveError } = await api.PATCH('/api/v1/workspaces/{ws}/documents/{doc}', {
+          params: { path: { ws, doc: doc.id } },
+          body: { folder_id: folderId } as never,
+        } as never);
+        // A document that was created but not filed is still a document. Say so
+        // rather than pretending the whole thing failed and leaving an orphan the
+        // person cannot see.
+        if (moveError) toast.error('Created, but could not put it in the folder');
+      }
+      return doc;
     },
     onSuccess: (d) => {
       void qc.invalidateQueries({ queryKey: ['space-docs', ws, space.id] });
@@ -948,8 +975,25 @@ function SpaceSection({
     },
     onError: () => toast.error('Could not delete folder'),
   });
+  /**
+   * #211 — a folder's icon. `UpdateFolderDto` has carried `icon` since MN-096 and,
+   * like rename and delete before #383, nothing ever called it. Same endpoint as
+   * rename, so it invalidates the same list.
+   */
+  const setFolderIcon = useMutation({
+    mutationFn: async (v: { id: string; icon: string | null }) => {
+      const { error } = await api.PATCH('/api/v1/workspaces/{ws}/folders/{folder}', {
+        params: { path: { ws, folder: v.id } },
+        body: { icon: v.icon } as never,
+      } as never);
+      if (error) throw error;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['folders', ws, space.id] }),
+    onError: () => toast.error('Could not change the folder icon'),
+  });
   const onRenameFolder = (id: string, name: string) => renameFolder.mutate({ id, name });
   const onDeleteFolder = (id: string) => deleteFolder.mutate(id);
+  const onFolderIcon = (id: string, icon: string | null) => setFolderIcon.mutate({ id, icon });
 
   const onMoveView = (viewId: string, folderId: string | null) => {
     const view = spaceViews.find((v) => v.id === viewId);
@@ -1065,10 +1109,10 @@ function SpaceSection({
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start">
-                <DropdownMenuItem onSelect={() => setNewDbOpen(true)}>
+                <DropdownMenuItem onSelect={() => setNewDbFolder(null)}>
                   <Database className="mr-2 h-3.5 w-3.5" /> New database
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => createDoc.mutate()}>
+                <DropdownMenuItem onSelect={() => createDoc.mutate(null)}>
                   <FileText className="mr-2 h-3.5 w-3.5" /> New document
                 </DropdownMenuItem>
                 {/* #306 — a dashboard is the one view type that belongs to the
@@ -1086,17 +1130,32 @@ function SpaceSection({
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-            <Dialog open={newDbOpen} onOpenChange={setNewDbOpen}>
+            <Dialog
+              open={newDbFolder !== undefined}
+              onOpenChange={(open) => !open && setNewDbFolder(undefined)}
+            >
               <NewDatabaseDialog
                 onCreate={(name) => {
+                  const folderId = newDbFolder ?? null;
                   mutations.createDatabase.mutate(
                     { space_id: space.id, name },
                     {
                       onError: () => toast.error('Could not create database'),
-                      onSuccess: (created) => router.push(`/w/${ws}/d/${created.id}`),
+                      onSuccess: (created) => {
+                        // #211 — file it, then open it. Same two-step as a
+                        // document: `CreateDatabaseDto` has no `folder_id`, the
+                        // update does.
+                        if (folderId) {
+                          mutations.updateDatabase.mutate(
+                            { id: created.id, folder_id: folderId },
+                            { onError: () => toast.error('Created, but could not put it in the folder') },
+                          );
+                        }
+                        router.push(`/w/${ws}/d/${created.id}`);
+                      },
                     },
                   );
-                  setNewDbOpen(false);
+                  setNewDbFolder(undefined);
                 }}
               />
             </Dialog>
@@ -1229,6 +1288,11 @@ function SpaceSection({
               onRenameView={onRenameView}
               onDeleteView={onDeleteView}
               onRenameFolder={onRenameFolder}
+              /* #211 — a folder is a container you can put things IN, not only a
+                 label you can drag things onto. */
+              onFolderIcon={onFolderIcon}
+              onNewDatabase={(folderId) => setNewDbFolder(folderId)}
+              onNewDocument={(folderId) => createDoc.mutate(folderId)}
               onDeleteFolder={onDeleteFolder}
               setDialog={setDialog}
               pathname={pathname}
@@ -1501,6 +1565,9 @@ function FolderSection({
   onDeleteView,
   onRenameFolder,
   onDeleteFolder,
+  onFolderIcon,
+  onNewDatabase,
+  onNewDocument,
   setDialog,
   pathname,
   canEdit,
@@ -1524,6 +1591,12 @@ function FolderSection({
   onDeleteView: (view: SidebarView) => void;
   onRenameFolder: (id: string, name: string) => void;
   onDeleteFolder: (id: string) => void;
+  /** #211 — folders carry an `icon` column that nothing ever wrote. */
+  onFolderIcon: (id: string, icon: string | null) => void;
+  /** #211 — create INSIDE this folder, rather than at the space root and then
+   *  dragging it in. Both open the space's own creators with a destination. */
+  onNewDatabase: (folderId: string) => void;
+  onNewDocument: (folderId: string) => void;
   setDialog: (d: DialogState) => void;
   pathname: string;
   canEdit: boolean;
@@ -1538,6 +1611,7 @@ function FolderSection({
   // #383 — named once: the header count, the empty-state and the delete
   // confirmation all have to agree about what "inside" means.
   const contentCount = databases.length + views.length + documents.length;
+  const [iconing, setIconing] = useState(false);
   const key = `storyos:folder-collapsed:${folder.id}`;
   const [collapsed, setCollapsed] = useState(false);
   useEffect(() => {
@@ -1608,9 +1682,29 @@ function FolderSection({
                     submit: (name) => onRenameFolder(folder.id, name),
                   }),
               },
+              // #211 — the same "Icon & color" affordance a space and a database
+              // have had all along. A folder has no colour column, so the picker
+              // is icon-only; see the dialog below.
+              { label: 'Icon', onSelect: () => setIconing(true) },
+              // #211 — create INSIDE the folder. Before this a folder was a
+              // destination you could only drag into: you made a database at the
+              // space root and then moved it, which is why an empty folder read
+              // as a dead end.
+              {
+                label: 'New database',
+                icon: <Database className="mr-2 h-3.5 w-3.5" />,
+                separatorBefore: true,
+                onSelect: () => onNewDatabase(folder.id),
+              },
+              {
+                label: 'New document',
+                icon: <FileText className="mr-2 h-3.5 w-3.5" />,
+                onSelect: () => onNewDocument(folder.id),
+              },
               {
                 label: 'Delete',
                 danger: true,
+                separatorBefore: true,
                 onSelect: () =>
                   setDialog({
                     kind: 'confirm',
@@ -1640,8 +1734,34 @@ function FolderSection({
           {contentCount === 0 && (
             /* #369 — an empty folder needs a target with HEIGHT. "Empty" text
                alone is a few pixels of hit area, so dropping into a new folder
-               would miss almost every time. */
-            <p className="px-2 py-3 text-center text-[12px] text-faint">Empty — drop something here</p>
+               would miss almost every time. The buttons #211 adds make it taller,
+               not shorter, so that still holds.
+
+               #211 — and it is no longer only a drop target. "Empty" on its own
+               was a dead end: the founder's report was a folder showing exactly
+               that with no way forward, and dragging is not a way forward if you
+               have nothing to drag yet. */
+            <div className="flex flex-col items-center gap-1.5 px-2 py-3 text-center">
+              <p className="text-[12px] text-faint">Empty — drop something here</p>
+              {canEdit && (
+                <div className="flex flex-wrap items-center justify-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => onNewDatabase(folder.id)}
+                    className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[12px] text-muted hover:bg-hover hover:text-ink"
+                  >
+                    <Plus className="h-3 w-3" /> Database
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onNewDocument(folder.id)}
+                    className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[12px] text-muted hover:bg-hover hover:text-ink"
+                  >
+                    <Plus className="h-3 w-3" /> Document
+                  </button>
+                </div>
+              )}
+            </div>
           )}
           {/* #369 — no nested DndContext: the space owns the one context now. */}
           <SortableContext items={databases.map((d) => d.id)} strategy={verticalListSortingStrategy}>
@@ -1693,6 +1813,23 @@ function FolderSection({
           ))}
         </div>
       )}
+      {/* #211 — icon only, via `showColor={false}`. A folder has an `icon` column
+          but no `color` one (UpdateFolderDto is name/icon/position), so a swatch
+          here would be a control that accepts a click and changes nothing. */}
+      <Dialog open={iconing} onOpenChange={setIconing}>
+        {iconing && (
+          <DialogContent title={`Icon for "${folder.name}"`} className="max-w-fit">
+            <IconColorPicker
+              icon={folder.icon}
+              color={null}
+              showColor={false}
+              onChange={(patch) => {
+                if (patch.icon !== undefined) onFolderIcon(folder.id, patch.icon);
+              }}
+            />
+          </DialogContent>
+        )}
+      </Dialog>
     </div>
   );
 }

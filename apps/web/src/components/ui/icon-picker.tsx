@@ -38,10 +38,20 @@ export function IconColorPicker({
   icon,
   color,
   onChange,
+  showColor = true,
 }: {
   icon: string | null;
   color: string | null;
   onChange: (patch: { icon?: string | null; color?: string | null }) => void;
+  /**
+   * #211 — hide the colour half for things that have an icon but NO colour column.
+   * A folder is the first: `UpdateFolderDto` is name/icon/position, so a swatch
+   * shown there is a control that looks live, accepts a click, and changes
+   * nothing. Widening this picker rather than forking a second icon-only one, for
+   * the reason `docs/architecture/field-surfaces.md` gives — a copy made "to
+   * match" is how these drift.
+   */
+  showColor?: boolean;
 }) {
   const [query, setQuery] = useState('');
   const [cat, setCat] = useState<IconCategory | 'all' | 'brands'>('all');
@@ -156,6 +166,7 @@ export function IconColorPicker({
         </div>
       </div>
 
+      {showColor && (
       <div className="border-t border-border-default pt-2">
         <p className="mb-1 text-[11px] font-medium uppercase tracking-wider text-faint">Background</p>
         <div className="flex gap-1">
@@ -175,12 +186,13 @@ export function IconColorPicker({
           ))}
         </div>
       </div>
+      )}
       <button
         type="button"
         className="self-start text-[12px] text-muted underline-offset-2 hover:underline"
         onClick={() => onChange({ icon: null, color: null })}
       >
-        Remove icon & color
+        {showColor ? 'Remove icon & color' : 'Remove icon'}
       </button>
     </div>
   );
