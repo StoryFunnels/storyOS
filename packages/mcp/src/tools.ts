@@ -619,9 +619,30 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   delegate_to_agent: 'admin',
   create_agent_trigger: 'admin',
   rerun_action: 'admin',
-  // #239: visibility only — creating/editing a source stays UI/API-only in v1
-  // (the field-mapping dialog is not something an agent should improvise).
+  /*
+   * #438 — the whole sources area, not just visibility.
+   *
+   * #239 stopped at `list_sources` because "the field-mapping dialog is not
+   * something an agent should improvise". That reasoning was about BLIND
+   * mapping and it stops holding once the remote schema is readable:
+   * `discover_source_fields` returns the provider's real keys and a PROPOSED
+   * mapping, and `create_source` then applies a mapping it was given. Nothing
+   * here guesses — the same discover → propose → apply shape `propose_schema`
+   * / `build_schema` already use for databases.
+   *
+   * Scopes mirror SourcesController exactly: reads are `read`, and every
+   * mutation is `write` (the controller additionally requires `creator` on the
+   * database, which the API enforces and this cannot loosen).
+   */
   list_sources: 'read',
+  list_source_providers: 'read',
+  list_source_runs: 'read',
+  list_youtube_channels: 'read',
+  discover_source_fields: 'write',
+  create_source: 'write',
+  update_source: 'write',
+  delete_source: 'write',
+  sync_source: 'write',
   // #334: automation-rule CRUD. The AutomationsController is @RequiresScope('admin')
   // AND creator-gated on the database, so EVERY tool here — including the reads —
   // mirrors that ceiling: a read- or write-scoped token never even sees them, and
@@ -5375,8 +5396,10 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List sources',
       description:
-        '#239: the scheduled syncs feeding this database from an external provider (YouTube comments/videos/metrics, more as MN-261/262 land) — provider, schedule, status and last_sync_at for each. ' +
-        'Use this to diagnose data freshness ("is this database still syncing?") before trusting its records as current. Read-only: configuring a source stays UI/API-only in v1.',
+        'The scheduled syncs feeding this database from an external provider — provider, schedule, status, field_mapping, connection_id and last_sync_at for each. ' +
+        'Use this to diagnose data freshness ("is this database still syncing?") before trusting its records as current. ' +
+        'Configuring a source IS reachable over MCP (#438): list_source_providers → discover_source_fields → create_source, then sync_source and list_source_runs. ' +
+        'This is also the only place an existing connection_id is readable — see create_source.',
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
         database: z.string().describe('Database name, api slug, or id.'),
@@ -5392,6 +5415,484 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       );
       return text(res.data ?? []);
     }),
+  );
+
+  // ---- #438: the rest of the sources area — discover → propose → apply. ----
+  //
+  // #239 exposed `list_sources` only, reasoning that "the field-mapping dialog
+  // is not something an agent should improvise". Correct about a BLIND mapping,
+  // and it stops applying once the remote schema is readable: `discover_source_
+  // fields` returns the provider's real keys AND a proposed mapping against
+  // this database's fields, and `create_source` applies a mapping it is handed.
+  //
+  // What deliberately did NOT change: credentials. `create_source` takes a
+  // `connection_id`, never a secret, so nothing here puts auth material into a
+  // tool argument or a transcript — the connections rule (coverage.ts) stays
+  // untouched. The cost is that an agent has no way to LOOK UP a connection id;
+  // that is #491, and `create_source` says so rather than leaving it to be
+  // discovered by failure.
+
+  interface SourceRow {
+    id: string;
+    name: string;
+    connection_id: string;
+    provider_source: string;
+    field_mapping?: Record<string, string>;
+  }
+
+  /** Name-or-id resolution for a source (MN-076 convention), scoped to one database. */
+  async function resolveSource(wsId: string, dbId: string, ref: string): Promise<SourceRow> {
+    const res = await unwrap<{ data?: SourceRow[] }>(
+      client.GET('/api/v1/workspaces/{ws}/databases/{db}/sources', {
+        params: { path: { ws: wsId, db: dbId } },
+      } as never),
+    );
+    const list = res.data ?? [];
+    const byId = list.find((s) => s.id === ref);
+    if (byId) return byId;
+    const lower = ref.trim().toLowerCase();
+    const exact = list.filter((s) => s.name.toLowerCase() === lower);
+    if (exact.length === 1) return exact[0]!;
+    if (exact.length > 1) {
+      throw new Error(`"${ref}" matches ${exact.length} sources in this database. Pass the source id from list_sources.`);
+    }
+    throw new Error(
+      `No source matches "${ref}" in this database. Available: ${list.map((s) => s.name).join(', ') || '(none)'}.`,
+    );
+  }
+
+  /** A field id from a name, api_name or id — any type. The mapping targets are
+   * ordinary fields, so unlike resolveFieldId this does not narrow by type. */
+  function resolveAnyFieldId(detail: DatabaseDetail, ref: string): string {
+    const lower = ref.trim().toLowerCase();
+    const f = detail.fields.find(
+      (x) => x.id === ref || x.apiName.toLowerCase() === lower || x.displayName.toLowerCase() === lower,
+    );
+    if (!f) {
+      throw new Error(
+        `No field matches "${ref}" in this database. Available: ${detail.fields.map((x) => x.apiName).join(', ') || '(none)'}.`,
+      );
+    }
+    return f.id;
+  }
+
+  /** Map a caller's `{ externalKey: fieldNameOrId }` onto the API's `{ externalKey: fieldId }`. */
+  function resolveFieldMapping(detail: DatabaseDetail, mapping: Record<string, unknown>): Record<string, string> {
+    const out: Record<string, string> = {};
+    for (const [key, ref] of Object.entries(mapping)) {
+      if (typeof ref !== 'string') {
+        throw new Error(`field_mapping["${key}"] must be a field name or id, got ${JSON.stringify(ref)}.`);
+      }
+      out[key] = resolveAnyFieldId(detail, ref);
+    }
+    return out;
+  }
+
+  /** Comparison key for matching a provider's external key to a field name. */
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  reg(
+    'list_source_providers',
+    {
+      title: 'List source providers',
+      description:
+        'What this database can sync FROM: the provider catalog — each entry\'s `id` (the `provider_source` value create_source needs, e.g. "youtube.comments"), the `connection_provider` its connection must be, its `config_schema`, and `supports_discover`. ' +
+        'Providers an operator has disabled on this server are omitted, so anything listed here can actually be created. ' +
+        'Call this before create_source: provider ids and config keys come from here, never from memory.',
+      inputSchema: {
+        workspace: z.string().describe('Workspace name or id.'),
+        database: z.string().describe('Database name, api slug, or id — the sync TARGET.'),
+      },
+    },
+    handle<{ workspace: string; database: string }>(async ({ workspace, database }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const res = await unwrap<{ data?: unknown[] }>(
+        client.GET('/api/v1/workspaces/{ws}/databases/{db}/sources/providers', {
+          params: { path: { ws: ws.id, db: db.id } },
+        } as never),
+      );
+      return text(res.data ?? []);
+    }),
+  );
+
+  reg(
+    'list_youtube_channels',
+    {
+      title: 'List YouTube channels',
+      description:
+        'The YouTube channels a connected Google account owns, as `{ id, title }`. Needed only to fill the `channel_id` config key of the youtube.* source providers — a source created against the wrong channel syncs nothing and looks healthy while doing it. ' +
+        'Reads through to YouTube using the stored connection; creates and changes nothing. Requires a "google" connection — any other provider is rejected.',
+      inputSchema: {
+        workspace: z.string().describe('Workspace name or id.'),
+        database: z.string().describe('Database name, api slug, or id.'),
+        connection_id: z
+          .string()
+          .describe('The google connection\'s id. See create_source for where a connection_id comes from.'),
+      },
+    },
+    handle<{ workspace: string; database: string; connection_id: string }>(
+      async ({ workspace, database, connection_id }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const res = await unwrap<{ data?: unknown[] }>(
+          client.GET('/api/v1/workspaces/{ws}/databases/{db}/sources/channels', {
+            params: { path: { ws: ws.id, db: db.id }, query: { connection_id } },
+          } as never),
+        );
+        return text(res.data ?? []);
+      },
+    ),
+  );
+
+  reg(
+    'discover_source_fields',
+    {
+      title: 'Discover source fields',
+      description:
+        'Ask the provider what it would actually return, and propose how to map it onto this database. CREATES NOTHING, syncs nothing, writes nothing. ' +
+        'Returns `keys` (the provider\'s real external keys), `proposed_field_mapping` (key → field, matched by name), `unmatched_keys` (no field looks right — add a field or map them by hand) and `suggested_external_key_field`. ' +
+        'The proposal is a SUGGESTION from name matching, not a verified mapping: show it, let it be corrected, then pass the agreed mapping to create_source. This is the discover → propose → apply path — never hand create_source a mapping nothing has looked at. ' +
+        'Only providers whose `supports_discover` is true (see list_source_providers) can answer; the rest return an error naming the provider.',
+      inputSchema: {
+        workspace: z.string().describe('Workspace name or id.'),
+        database: z.string().describe('Database name, api slug, or id — the sync TARGET, whose fields the proposal maps onto.'),
+        connection_id: z.string().describe('The connection to read through. See create_source for where a connection_id comes from.'),
+        provider_source: z.string().describe('Provider id from list_source_providers, e.g. "youtube.comments".'),
+        config: z
+          .record(z.string(), z.any())
+          .optional()
+          .describe('Provider config (shape in list_source_providers\' config_schema). Partial is fine — discovery tolerates a half-filled config.'),
+      },
+    },
+    handle<{
+      workspace: string;
+      database: string;
+      connection_id: string;
+      provider_source: string;
+      config?: Record<string, unknown>;
+    }>(async ({ workspace, database, connection_id, provider_source, config }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const [discovered, detail] = await Promise.all([
+        unwrap<{ keys?: string[] }>(
+          client.POST('/api/v1/workspaces/{ws}/databases/{db}/sources/discover', {
+            params: { path: { ws: ws.id, db: db.id } } as never,
+            body: { connection_id, provider_source, config: config ?? {} } as never,
+          }),
+        ),
+        getDetail(ws.id, db.id),
+      ]);
+      const keys = discovered.keys ?? [];
+      const candidates = detail.fields.filter((f) => !f.isSystem);
+      const proposed: Record<string, string> = {};
+      const unmatched: string[] = [];
+      const taken = new Set<string>();
+      for (const key of keys) {
+        const hit = candidates.find(
+          (f) => !taken.has(f.id) && (norm(f.apiName) === norm(key) || norm(f.displayName) === norm(key)),
+        );
+        if (hit) {
+          proposed[key] = hit.apiName;
+          taken.add(hit.id);
+        } else {
+          unmatched.push(key);
+        }
+      }
+      /*
+       * The external key is what makes a re-sync UPDATE instead of duplicate, so
+       * a wrong guess here is the expensive one. Only ever suggest a key that
+       * actually looks like an identifier, and say plainly when nothing does —
+       * an empty suggestion the caller must fill is better than a confident one
+       * that silently doubles the database on the second sync.
+       */
+      const idKey = keys.find((k) => /(^|_)(id|key|guid|uuid)$/i.test(k)) ?? null;
+      return text({
+        provider_source,
+        keys,
+        proposed_field_mapping: proposed,
+        unmatched_keys: unmatched,
+        suggested_external_key_field: idKey ? (proposed[idKey] ?? null) : null,
+        note:
+          'Nothing was created. proposed_field_mapping is a NAME MATCH, not a verified mapping — review it, then pass the agreed version to create_source as field_mapping. ' +
+          (unmatched.length
+            ? `${unmatched.length} key(s) matched no field: ${unmatched.join(', ')}. Add fields with add_field, or leave them unmapped (unmapped keys are simply not stored).`
+            : 'Every discovered key matched a field by name.') +
+          ' external_key_field must be one of field_mapping\'s targets and must be the provider\'s STABLE id — get it wrong and every sync re-creates rather than updates.',
+      });
+    }),
+  );
+
+  reg(
+    'create_source',
+    {
+      title: 'Create source',
+      description:
+        'Configure a scheduled sync from an external provider INTO this database, and start it running. ' +
+        'CREDENTIALS NEVER PASS THROUGH THIS TOOL: connect the account once in the app (Settings → Connections) and reference it by `connection_id`. There is no MCP tool that lists connections yet (#491), so today a connection_id comes from list_sources on a database that already syncs, or from a human. ' +
+        'Run list_source_providers then discover_source_fields first — `field_mapping` should be a mapping somebody has looked at, not a guess. ' +
+        'field_mapping maps the provider\'s external keys to fields in THIS database, and takes field names or ids ("Comment text" or a uuid). Keys you leave out are simply not stored. ' +
+        'external_key_field is the field holding the provider\'s stable id; it MUST be one of field_mapping\'s targets, and it is what makes the next sync update a record rather than duplicate it. ' +
+        'Defaults to a daily sync when neither schedule nor recurrence is given. The source is created active — call sync_source to run it immediately instead of waiting for the schedule.',
+      inputSchema: {
+        workspace: z.string().describe('Workspace name or id.'),
+        database: z.string().describe('Database name, api slug, or id — the sync TARGET.'),
+        name: z.string().describe('A human label for this source, e.g. "Shopify orders".'),
+        connection_id: z
+          .string()
+          .describe('Id of the stored connection to sync through. NOT a credential — see this tool\'s description for where it comes from.'),
+        provider_source: z.string().describe('Provider id from list_source_providers, e.g. "youtube.comments".'),
+        field_mapping: z
+          .record(z.string(), z.string())
+          .describe('{ "provider_external_key": "field name or id" }. Start from discover_source_fields\' proposed_field_mapping.'),
+        external_key_field: z
+          .string()
+          .describe('Field (name or id) holding the provider\'s stable id. Must be one of field_mapping\'s target fields.'),
+        config: z
+          .record(z.string(), z.any())
+          .optional()
+          .describe('Provider config; shape is in list_source_providers\' config_schema.'),
+        schedule: z
+          .enum(['15m', 'hour', 'day'])
+          .optional()
+          .describe('Coarse cadence. Omit to get the default daily sync, or pass `recurrence` for an exact time.'),
+        recurrence: z
+          .record(z.string(), z.any())
+          .optional()
+          .describe('Exact cadence, and it wins over `schedule`: {kind:"hourly",minute} | {kind:"daily",hour,minute} | {kind:"weekly",weekday,hour,minute}.'),
+      },
+    },
+    handle<{
+      workspace: string;
+      database: string;
+      name: string;
+      connection_id: string;
+      provider_source: string;
+      field_mapping: Record<string, string>;
+      external_key_field: string;
+      config?: Record<string, unknown>;
+      schedule?: string;
+      recurrence?: Record<string, unknown>;
+    }>(async (a) => {
+      const ws = await resolveWorkspace(client, a.workspace);
+      const db = await resolveDatabase(client, ws.id, a.database);
+      const detail = await getDetail(ws.id, db.id);
+      const mapping = resolveFieldMapping(detail, a.field_mapping);
+      const externalKeyFieldId = resolveAnyFieldId(detail, a.external_key_field);
+      /*
+       * The API enforces this too (400). Catching it here costs nothing and
+       * answers with the field NAMES the caller used, rather than making them
+       * match uuids by eye to find out which one they meant.
+       */
+      if (!Object.values(mapping).includes(externalKeyFieldId)) {
+        throw new Error(
+          `external_key_field "${a.external_key_field}" is not one of field_mapping's target fields (${Object.values(a.field_mapping).join(', ')}). ` +
+            'The external key must be a field the provider actually writes to, or a re-sync cannot match an existing record.',
+        );
+      }
+      const created = await unwrap<unknown>(
+        client.POST('/api/v1/workspaces/{ws}/databases/{db}/sources', {
+          params: { path: { ws: ws.id, db: db.id } } as never,
+          body: {
+            name: a.name,
+            connection_id: a.connection_id,
+            provider_source: a.provider_source,
+            config: a.config ?? {},
+            field_mapping: mapping,
+            external_key_field_id: externalKeyFieldId,
+            ...(a.schedule ? { schedule: a.schedule } : {}),
+            ...(a.recurrence ? { recurrence: a.recurrence } : {}),
+          } as never,
+        }),
+      );
+      return text(created);
+    }),
+  );
+
+  reg(
+    'update_source',
+    {
+      title: 'Update source',
+      description:
+        'Reconfigure an existing source — rename it, change its schedule, repoint its field mapping, or pause and resume it. A true patch: omitted arguments are left as they are. ' +
+        'Pass status:"paused" to stop it syncing without deleting it (delete_source discards the configuration; pausing keeps it). ' +
+        'field_mapping REPLACES the whole mapping rather than merging into it, so send the complete map — read the current one from list_sources first.',
+      inputSchema: {
+        workspace: z.string().describe('Workspace name or id.'),
+        database: z.string().describe('Database name, api slug, or id.'),
+        source: z.string().describe('Source name or id (from list_sources).'),
+        name: z.string().optional().describe('New human label.'),
+        connection_id: z.string().optional().describe('Point the source at a different stored connection.'),
+        config: z.record(z.string(), z.any()).optional().describe('Replacement provider config.'),
+        field_mapping: z
+          .record(z.string(), z.string())
+          .describe('{ "provider_external_key": "field name or id" } — the COMPLETE mapping, which replaces the existing one.')
+          .optional(),
+        external_key_field: z.string().optional().describe('Field (name or id) holding the provider\'s stable id.'),
+        schedule: z.enum(['15m', 'hour', 'day']).optional().describe('Coarse cadence.'),
+        recurrence: z
+          .record(z.string(), z.any())
+          .optional()
+          .describe('Exact cadence, wins over `schedule`: {kind:"hourly",minute} | {kind:"daily",hour,minute} | {kind:"weekly",weekday,hour,minute}.'),
+        status: z
+          .enum(['active', 'paused', 'error'])
+          .optional()
+          .describe('"paused" stops the schedule without discarding the source; "active" resumes it.'),
+      },
+    },
+    handle<{
+      workspace: string;
+      database: string;
+      source: string;
+      name?: string;
+      connection_id?: string;
+      config?: Record<string, unknown>;
+      field_mapping?: Record<string, string>;
+      external_key_field?: string;
+      schedule?: string;
+      recurrence?: Record<string, unknown>;
+      status?: string;
+    }>(async (a) => {
+      const ws = await resolveWorkspace(client, a.workspace);
+      const db = await resolveDatabase(client, ws.id, a.database);
+      const src = await resolveSource(ws.id, db.id, a.source);
+      const body: Record<string, unknown> = {};
+      if (a.name !== undefined) body.name = a.name;
+      if (a.connection_id !== undefined) body.connection_id = a.connection_id;
+      if (a.config !== undefined) body.config = a.config;
+      if (a.schedule !== undefined) body.schedule = a.schedule;
+      if (a.recurrence !== undefined) body.recurrence = a.recurrence;
+      if (a.status !== undefined) body.status = a.status;
+      if (a.field_mapping !== undefined || a.external_key_field !== undefined) {
+        const detail = await getDetail(ws.id, db.id);
+        if (a.field_mapping !== undefined) body.field_mapping = resolveFieldMapping(detail, a.field_mapping);
+        if (a.external_key_field !== undefined) {
+          body.external_key_field_id = resolveAnyFieldId(detail, a.external_key_field);
+        }
+        /*
+         * The API's create path enforces "external key must be one of the
+         * mapping's targets"; on update the two arrive independently, so a
+         * caller changing only one can strand the pair. Check against the
+         * EFFECTIVE post-patch pair (new value, else the stored one).
+         */
+        const effectiveMapping = (body.field_mapping as Record<string, string>) ?? src.field_mapping ?? {};
+        const effectiveKey = (body.external_key_field_id as string) ?? undefined;
+        if (effectiveKey && Object.keys(effectiveMapping).length && !Object.values(effectiveMapping).includes(effectiveKey)) {
+          throw new Error(
+            'external_key_field is not one of field_mapping\'s target fields after this change. ' +
+              'Send field_mapping and external_key_field together when either one moves, or the source loses its ability to match an existing record on re-sync.',
+          );
+        }
+      }
+      if (Object.keys(body).length === 0) {
+        throw new Error('Nothing to update — pass at least one of name, connection_id, config, field_mapping, external_key_field, schedule, recurrence, status.');
+      }
+      const updated = await unwrap<unknown>(
+        client.PATCH('/api/v1/workspaces/{ws}/databases/{db}/sources/{id}', {
+          params: { path: { ws: ws.id, db: db.id, id: src.id } } as never,
+          body: body as never,
+        }),
+      );
+      return text(updated);
+    }),
+  );
+
+  reg(
+    'delete_source',
+    {
+      title: 'Delete source',
+      description:
+        'Stop syncing and discard the source configuration — its field mapping, schedule and sync cursor. ' +
+        'RECORDS ARE NOT DELETED: every record the source ever created stays in the database, it simply stops being updated. ' +
+        'The configuration itself is NOT recoverable, so `confirm` must equal the source\'s name exactly. To stop a sync temporarily, use update_source with status:"paused" instead — that keeps the configuration.',
+      inputSchema: {
+        workspace: z.string().describe('Workspace name or id.'),
+        database: z.string().describe('Database name, api slug, or id.'),
+        source: z.string().describe('Source name or id (from list_sources).'),
+        confirm: z.string().describe('The source\'s exact name, as a guard against deleting the wrong one.'),
+      },
+    },
+    handle<{ workspace: string; database: string; source: string; confirm: string }>(
+      async ({ workspace, database, source, confirm }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const src = await resolveSource(ws.id, db.id, source);
+        if (confirm !== src.name) {
+          throw new Error(
+            `confirm must equal the source's exact name to delete it. Got "${confirm}", expected "${src.name}". Nothing was deleted.`,
+          );
+        }
+        await unwrap<unknown>(
+          client.DELETE('/api/v1/workspaces/{ws}/databases/{db}/sources/{id}', {
+            params: { path: { ws: ws.id, db: db.id, id: src.id } } as never,
+          }),
+        );
+        return text({
+          deleted: { id: src.id, name: src.name },
+          records: 'kept — deleting a source never deletes the records it created',
+        });
+      },
+    ),
+  );
+
+  reg(
+    'sync_source',
+    {
+      title: 'Sync source now',
+      description:
+        'Run one sync cycle immediately, ignoring the schedule. Returns that run\'s outcome — records fetched, created, updated, and the error if it failed. ' +
+        'Use it to prove a newly created source actually works instead of waiting for its schedule, and to refresh data on demand. ' +
+        'The run is recorded in the same log as a scheduled one, so list_source_runs shows it alongside the rest.',
+      inputSchema: {
+        workspace: z.string().describe('Workspace name or id.'),
+        database: z.string().describe('Database name, api slug, or id.'),
+        source: z.string().describe('Source name or id (from list_sources).'),
+      },
+    },
+    handle<{ workspace: string; database: string; source: string }>(async ({ workspace, database, source }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const src = await resolveSource(ws.id, db.id, source);
+      const run = await unwrap<unknown>(
+        client.POST('/api/v1/workspaces/{ws}/databases/{db}/sources/{id}/sync-now', {
+          params: { path: { ws: ws.id, db: db.id, id: src.id } } as never,
+        }),
+      );
+      return text(run);
+    }),
+  );
+
+  reg(
+    'list_source_runs',
+    {
+      title: 'List source runs',
+      description:
+        'The sync history for ONE source, newest first — status, when it ran, how many records it fetched/created/updated, and the error message when it failed. ' +
+        'This is the answer to "the data looks stale" and "did my sync actually do anything": a source can sit at status active and be failing every cycle. ' +
+        'Covers scheduled runs and sync_source runs alike.',
+      inputSchema: {
+        workspace: z.string().describe('Workspace name or id.'),
+        database: z.string().describe('Database name, api slug, or id.'),
+        source: z.string().describe('Source name or id (from list_sources).'),
+        limit: z.number().int().min(1).max(200).optional().describe('Max runs to return (default 50).'),
+      },
+    },
+    handle<{ workspace: string; database: string; source: string; limit?: number }>(
+      async ({ workspace, database, source, limit }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const src = await resolveSource(ws.id, db.id, source);
+        const res = await unwrap<{ data?: unknown[] }>(
+          client.GET('/api/v1/workspaces/{ws}/databases/{db}/sources/{id}/runs', {
+            params: {
+              path: { ws: ws.id, db: db.id, id: src.id },
+              query: { limit: String(limit ?? 50) },
+            },
+          } as never),
+        );
+        return text(res.data ?? res);
+      },
+    ),
   );
 
   // ---- #334: automation-rule CRUD — build a complete workflow over MCP. ----
