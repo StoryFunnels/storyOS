@@ -65,9 +65,8 @@ const TABS: { id: Tab; label: string }[] = [
  * record. That is the whole user story: read an item, set its state, move to the
  * next one without losing your place. */
 export default function MyWorkPage() {
-  const { ws } = useParams<{ ws: string }>();
   return (
-    <ListSurface ws={ws} label="My Work">
+    <ListSurface label="My Work">
       <MyWorkInner />
     </ListSurface>
   );

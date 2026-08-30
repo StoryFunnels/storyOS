@@ -11,14 +11,21 @@ of scope; the end of this doc lists the follow-up tickets it unblocks.
 The follow-up "wire the surfaces" ticket this doc anticipates in §1 has now
 shipped for the list surfaces. What is TRUE in the code today:
 
-- The provider is no longer record-page-only. `SplitHost`
-  (`apps/web/src/components/entity/split-screen-host.tsx`) takes its primary
-  pane as a render prop, and both `RecordSurface` (record page) and
-  `ListSurface` (My Work, the database views) mount it. The reducer in
-  `split-screen.ts` and the context in `split-panel-context.tsx` are shared
-  unchanged — there is one split model, not one per surface.
-- Wired surfaces: My Work, table, list, board, gallery, feed, timeline. A row
-  opens beside the list at `≥ md`; below `md` it full-navigates as before.
+- The provider is no longer record-page-only, and since #462 it is no longer
+  per-page either. `SplitHost`
+  (`apps/web/src/components/entity/split-screen-host.tsx`) wraps the WHOLE
+  workspace layout and renders no markup; `SplitArea` renders the panes, rails
+  and divider in the row beside `<main>`. Pages register a rail label and read
+  their pane controls through context. The reducer in `split-screen.ts` and the
+  context in `split-panel-context.tsx` are shared unchanged — there is one split
+  model, not one per surface.
+- Why the host had to move up: `useOpenRecord` reads the split from React
+  context, so anything that can open a record must be a descendant. The command
+  palette is mounted near the root of the layout, so a per-page host — and even
+  a host wrapping only `<main>` — left it outside, and a search result navigated.
+- Wired surfaces: My Work, table, list, board, gallery, feed, timeline, and
+  search results in the command palette (#462). A row opens beside the list at
+  `≥ md`; below `md` it full-navigates as before.
 - `useOpenRecord(mode)` is the single decision point every surface calls.
   `mode: 'stack'` (default) is the relation-link behaviour from §2 —
   unchanged. `mode: 'swap'` is what list rows use, so walking a queue with
@@ -30,10 +37,12 @@ What this doc still describes but the code does NOT do:
   entirely ephemeral client state, at every depth — a split arrangement is not
   shareable or bookmarkable, and a reload drops it. The recommendation in §4
   stands as a recommendation only.
-- **Search results do not open into the split.** The command palette is
-  mounted in the workspace layout, outside any `SplitHost`, so its context is
-  null and it navigates. Wiring it needs the provider hoisted above the
-  palette, which is a larger change than #199 took on.
+- **A split does not survive navigating the primary**, at any depth. #462 kept
+  that deliberately: before it, each page mounted its own host, so routing away
+  dropped the panels, and hoisting the host would have silently changed that.
+  `SplitHost` resets the stack on pathname change to preserve the old behaviour,
+  which leaves "should a panel outlive the page it was opened from?" an open
+  product question rather than an answer inherited from a refactor.
 
 Source: StoryOS ticket #282, whose `details` field contains the founder's
 direct answers (marked `->`) to the four open questions the original ticket

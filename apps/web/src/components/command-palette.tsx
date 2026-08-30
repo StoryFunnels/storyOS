@@ -8,12 +8,19 @@ import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { useDatabases } from '@/lib/queries';
 import { EntityIcon } from '@/components/ui/icon-picker';
+import { useOpenRecord } from '@/components/entity/split-panel-context';
+import { recordSegment } from '@/lib/records';
 import { openTyron } from '@/lib/tyron-panel';
 import { OPEN_PALETTE_EVENT, openShortcuts, useShortcut } from '@/lib/shortcuts';
 import { cn } from '@/lib/utils';
 
 interface RecordHit {
   id: string;
+  /** #462 — the search endpoint has always returned this; the local type just
+   *  never declared it. Carried so a panel opened from the palette keys on the
+   *  same pretty `slug-{number}` segment the record page uses and shares React
+   *  Query's cache, and so a collapsed panel's rail can label its spine. */
+  number: number | null;
   title: string;
   database_id: string;
   database_name: string;
@@ -129,6 +136,16 @@ export function CommandPalette() {
     [ws, router],
   );
 
+  /*
+   * #462 — the palette is inside the layout's SplitHost now, so this sees a real
+   * context and a result opens BESIDE what you were looking at instead of
+   * replacing it. 'swap' for the same reason every list uses it: searching
+   * repeatedly is queue-walking, and stacking would leave a rail behind for every
+   * record you glanced at. Below `md`, or with a modifier held, `openRecord` falls
+   * through to `go` and navigates exactly as it always has.
+   */
+  const openRecord = useOpenRecord('swap');
+
   const rows = useMemo<Row[]>(() => {
     const out: Row[] = [];
     const go = (path: string) => {
@@ -143,7 +160,26 @@ export function CommandPalette() {
         icon: <EntityIcon icon={hit.database_icon} color={null} fallback={<FileText className="h-3.5 w-3.5" />} className="text-[13px]" />,
         label: hit.title || 'Untitled',
         hint: hit.database_name,
-        run: () => go(`/w/${ws}/d/${hit.database_id}/r/${hit.id}`),
+        run: () => {
+          // The palette closes either way — you have made your choice; what
+          // differs is whether the record replaces the page behind it or opens
+          // next to it.
+          setOpen(false);
+          openRecord(
+            {
+              db: hit.database_id,
+              rec: recordSegment({ id: hit.id, title: hit.title, number: hit.number }),
+              title: hit.title,
+              number: hit.number,
+            },
+            // A palette row is activated by Enter as often as by a click, so there
+            // is no mouse event to read: this is always an unmodified primary
+            // "click", and the desktop/mobile rule inside `useOpenRecord` still
+            // decides the rest.
+            { button: 0 },
+            () => router.push(`/w/${ws}/d/${hit.database_id}/r/${hit.id}`),
+          );
+        },
       });
     }
     // #253 — "Create <query> in <database>": only while a query is typed (an empty
