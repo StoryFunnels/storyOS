@@ -61,6 +61,10 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
     ...(referrals.data?.enabled ? [{ href: `${base}/referrals`, label: 'Referrals' }] : []),
   ];
   const workspaceLinks = [
+    // #457 — first page the workspace itself has ever had. Everything else in
+    // this list is a subsystem (members, billing, tokens); "General" is where a
+    // property OF the workspace goes, starting with its description.
+    { href: `${base}/general`, label: 'General' },
     ...(isAdmin ? [{ href: `${base}/members`, label: 'Members' }] : []),
     ...(isAdmin && billing.data?.enabled ? [{ href: `${base}/billing`, label: 'Billing' }] : []),
     ...(isAdmin ? [{ href: `${base}/integrations`, label: 'Integrations' }] : []),

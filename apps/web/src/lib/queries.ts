@@ -9,6 +9,9 @@ export interface Space {
   icon: string | null;
   color: string | null;
   position: number;
+  /** #400's purpose line. Absent from this type until #457 — which is part of why
+   *  nothing in the app ever offered to write one. */
+  description?: string | null;
 }
 export interface DatabaseSummary {
   id: string;
@@ -28,6 +31,8 @@ export interface WorkspaceInfo {
   id: string;
   name: string;
   role: 'admin' | 'member' | 'guest';
+  /** #400's purpose line, writable from the app since #457. */
+  description?: string | null;
 }
 
 function unwrap<T>({ data, error }: { data?: unknown; error?: unknown }): T {
@@ -89,9 +94,34 @@ export function useSidebarMutations(ws: string) {
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ['spaces', ws] });
     void qc.invalidateQueries({ queryKey: ['databases', ws] });
+    // #457 — the sidebar's LIST of databases (`['databases', ws]`) and the open
+    // database's OWN record (`['database', ws, db]`, from `useDatabase`) are
+    // separate queries reading the same row. Only the list was invalidated here,
+    // so a rename or an icon change refreshed the sidebar while the database page
+    // showing the same thing kept the old value until a reload. That was invisible
+    // while everything these mutations changed was rendered only in the sidebar;
+    // the description is the first field written from the sidebar and read on the
+    // page, so it surfaced immediately (the line under the title stayed blank
+    // until F5). Invalidating the singular key too keeps the two in step.
+    void qc.invalidateQueries({ queryKey: ['database', ws] });
   };
 
   return {
+    /**
+     * #457 — the workspace's purpose line. The PATCH endpoint has existed since
+     * #400; nothing in the web app ever called it, which is why a workspace could
+     * be described by an agent but not by a person.
+     */
+    updateWorkspace: useMutation({
+      mutationFn: async (body: { name?: string; description?: string | null }) =>
+        unwrap<WorkspaceInfo>(
+          await api.PATCH('/api/v1/workspaces/{ws}', { params: { path: { ws } }, body }),
+        ),
+      onSuccess: () => {
+        void qc.invalidateQueries({ queryKey: ['workspace', ws] });
+        void qc.invalidateQueries({ queryKey: ['workspaces'] });
+      },
+    }),
     createSpace: useMutation({
       mutationFn: async (body: { name: string }) =>
         unwrap<Space>(
@@ -100,7 +130,7 @@ export function useSidebarMutations(ws: string) {
       onSuccess: invalidate,
     }),
     updateSpace: useMutation({
-      mutationFn: async ({ id, ...body }: { id: string; name?: string; icon?: string | null; color?: string | null; position?: number }) =>
+      mutationFn: async ({ id, ...body }: { id: string; name?: string; icon?: string | null; color?: string | null; position?: number; description?: string | null }) =>
         unwrap<Space>(
           await api.PATCH('/api/v1/workspaces/{ws}/spaces/{space}', {
             params: { path: { ws, space: id } },
@@ -142,6 +172,9 @@ export function useSidebarMutations(ws: string) {
         space_id?: string;
         folder_id?: string | null;
         position?: number;
+        /** #457 — the purpose line. `null` clears it; omitting it leaves it alone,
+         *  which is `descriptionPatchSchema`'s contract, not this hook's. */
+        description?: string | null;
       }) =>
         unwrap<DatabaseSummary>(
           await api.PATCH('/api/v1/workspaces/{ws}/databases/{db}', {
