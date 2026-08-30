@@ -3616,3 +3616,167 @@ describe('sources: discover → propose → apply (#438)', () => {
     for (const t of reads) expect(r.handlers.has(t), `${t} at read scope`).toBe(true);
   });
 });
+
+/**
+ * #443 — MCP parity area 10: outbound webhooks.
+ *
+ * The delivery log is the half that matters: "I registered a webhook and
+ * nothing arrived" is the question this area exists to answer, and a
+ * subscription can read as enabled while failing every attempt. So these assert
+ * that failures and their REASON survive to the model, that an empty log is
+ * labelled rather than left looking like a healthy silence, and that no tool
+ * here can mint or surface a signing secret.
+ */
+describe('webhooks: manage and debug, never mint (#443)', () => {
+  const WORKSPACE = { id: 'ws-1', name: 'JCM Agency' };
+  const HOOK = {
+    id: 'wh-1',
+    url: 'https://example.com/hook',
+    events: ['record.created'],
+    enabled: true,
+    last_status: 'failed',
+  };
+  const DELIVERY = {
+    id: 'del-1',
+    event_type: 'record.created',
+    status: 'pending',
+    attempts: 3,
+    status_code: 500,
+    error: 'HTTP 500',
+    next_attempt_at: '2026-08-30T10:00:00.000Z',
+    delivered_at: null,
+  };
+
+  function harness(opts: { hooks?: unknown[]; deliveries?: unknown[] } = {}) {
+    const handlers = new Map<string, (a: unknown) => Promise<unknown>>();
+    const server = { registerTool: (n: string, _c: unknown, h: (a: unknown) => Promise<unknown>) => handlers.set(n, h) };
+    const patched: Array<{ body: unknown }> = [];
+    const deleted: string[] = [];
+    const client = {
+      GET: async (path: string) => {
+        if (path === '/api/v1/workspaces') return { data: [WORKSPACE] };
+        if (path === '/api/v1/workspaces/{ws}/webhooks') return { data: { data: opts.hooks ?? [HOOK] } };
+        if (path === '/api/v1/workspaces/{ws}/webhooks/{id}/deliveries') {
+          return { data: { data: opts.deliveries ?? [DELIVERY] } };
+        }
+        throw new Error(`unmocked GET ${path}`);
+      },
+      PATCH: async (_p: string, o: { body?: unknown }) => {
+        patched.push({ body: o?.body });
+        return { data: { id: 'wh-1', ...(o?.body as Record<string, unknown>) } };
+      },
+      DELETE: async (p: string) => {
+        deleted.push(p);
+        return { data: { deleted: true } };
+      },
+      POST: async (p: string) => {
+        throw new Error(`no webhook tool may POST (attempted ${p})`);
+      },
+    } as never;
+    registerTools(server as never, { client, baseUrl: 'x', token: 't' } as Ctx, { scope: 'admin', allowRunButton: true });
+    return { handlers, patched, deleted };
+  }
+  const call = async (h: (a: unknown) => Promise<unknown>, a: unknown) =>
+    (await h(a)) as { isError?: boolean; content: Array<{ text: string }> };
+
+  it('exposes NO create tool — minting a subscription returns a live signing secret', () => {
+    const { handlers } = harness();
+    expect(handlers.has('create_webhook')).toBe(false);
+    // The manage/debug half must still be there, or the area is simply missing.
+    for (const t of ['list_webhooks', 'update_webhook', 'delete_webhook', 'list_webhook_deliveries']) {
+      expect(handlers.has(t), t).toBe(true);
+    }
+  });
+
+  it('surfaces a FAILED delivery with its reason, code and retry state', async () => {
+    const { handlers } = harness();
+    const res = await call(handlers.get('list_webhook_deliveries')!, { workspace: 'JCM Agency', webhook: 'wh-1' });
+    const out = JSON.parse(res.content[0]!.text) as { deliveries: Array<Record<string, unknown>>; note?: string };
+    expect(out.deliveries[0]).toMatchObject({ status_code: 500, error: 'HTTP 500', attempts: 3 });
+    expect(out.note).toBeUndefined();
+  });
+
+  it('LABELS an empty delivery log instead of letting it read as healthy silence', async () => {
+    const { handlers } = harness({ deliveries: [] });
+    const res = await call(handlers.get('list_webhook_deliveries')!, { workspace: 'JCM Agency', webhook: 'wh-1' });
+    const out = JSON.parse(res.content[0]!.text) as { note?: string; webhook: { events: string[] } };
+    expect(out.note).toContain('Nothing was dispatched');
+    // The subscribed events ride along, because that is what the reader must check next.
+    expect(out.webhook.events).toEqual(['record.created']);
+  });
+
+  it('resolves a webhook by url, and refuses an ambiguous one', async () => {
+    const ok = harness();
+    const one = await call(ok.handlers.get('list_webhook_deliveries')!, {
+      workspace: 'JCM Agency',
+      webhook: 'https://example.com/hook',
+    });
+    expect(one.isError).toBeUndefined();
+
+    const dupe = harness({ hooks: [HOOK, { ...HOOK, id: 'wh-2' }] });
+    const two = await call(dupe.handlers.get('list_webhook_deliveries')!, {
+      workspace: 'JCM Agency',
+      webhook: 'https://example.com/hook',
+    });
+    expect(two.isError).toBe(true);
+    expect(two.content[0]!.text).toContain('2 webhooks point at');
+  });
+
+  it('update_webhook patches only what was passed and refuses an empty change', async () => {
+    const { handlers, patched } = harness();
+    const ok = await call(handlers.get('update_webhook')!, { workspace: 'JCM Agency', webhook: 'wh-1', enabled: false });
+    expect(ok.isError).toBeUndefined();
+    expect(patched[0]!.body).toEqual({ enabled: false });
+
+    const empty = await call(handlers.get('update_webhook')!, { workspace: 'JCM Agency', webhook: 'wh-1' });
+    expect(empty.isError).toBe(true);
+    expect(empty.content[0]!.text).toContain('Nothing to update');
+  });
+
+  it('delete_webhook is gated on the exact url and says the secret dies with it', async () => {
+    const { handlers, deleted } = harness();
+    const refused = await call(handlers.get('delete_webhook')!, {
+      workspace: 'JCM Agency',
+      webhook: 'wh-1',
+      confirm: 'https://example.com/HOOK',
+    });
+    expect(refused.isError).toBe(true);
+    expect(deleted).toEqual([]);
+
+    const done = await call(handlers.get('delete_webhook')!, {
+      workspace: 'JCM Agency',
+      webhook: 'wh-1',
+      confirm: 'https://example.com/hook',
+    });
+    expect(done.isError).toBeUndefined();
+    expect(deleted).toHaveLength(1);
+    expect(done.content[0]!.text).toContain('new one');
+  });
+
+  it('is admin-only, mirroring WebhooksController\'s @MinRole(admin) — including the reads', () => {
+    for (const scope of ['read', 'write'] as const) {
+      const handlers = new Map<string, unknown>();
+      const server = { registerTool: (n: string, _c: unknown, h: unknown) => handlers.set(n, h) };
+      registerTools(server as never, { client: {} as never, baseUrl: 'x', token: 't' } as Ctx, { scope, allowRunButton: true });
+      for (const t of ['list_webhooks', 'update_webhook', 'delete_webhook', 'list_webhook_deliveries']) {
+        expect(handlers.has(t), `${t} must not be advertised at ${scope} scope`).toBe(false);
+      }
+    }
+  });
+
+  it('points the reader at automations, so "can StoryOS call my system?" is answered correctly', () => {
+    const handlers = new Map<string, unknown>();
+    const descriptions = new Map<string, string>();
+    const server = {
+      registerTool: (n: string, c: { description?: string }, h: unknown) => {
+        handlers.set(n, h);
+        descriptions.set(n, c.description ?? '');
+      },
+    };
+    registerTools(server as never, { client: {} as never, baseUrl: 'x', token: 't' } as Ctx, { scope: 'admin', allowRunButton: true });
+    // #393's failure was a reviewer concluding automations could not call an API.
+    // A missing create_webhook must not recreate that wrong conclusion.
+    expect(descriptions.get('list_webhooks')).toContain('create_automation');
+    expect(descriptions.get('delete_webhook')).toContain('cannot be undone'.toUpperCase());
+  });
+});
