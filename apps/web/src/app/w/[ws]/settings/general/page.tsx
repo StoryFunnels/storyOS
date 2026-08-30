@@ -3,7 +3,7 @@
 import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { DESCRIPTION_MAX } from '@storyos/schemas';
+import { describeDraft } from '@/lib/description-draft';
 import { Button } from '@/components/ui/button';
 import { useSidebarMutations, useWorkspace } from '@/lib/queries';
 import { apiErrorMessage } from '@/lib/api';
@@ -20,15 +20,13 @@ import { cn } from '@/lib/utils';
  * rendering a 404. That gap is why #400's workspace description could be written
  * by an agent and by no one else.
  *
- * The editor here is NOT a third copy of the description control. The dialog
- * component (`components/description-dialog.tsx`) exists for the two menu-driven
- * levels; a settings page wants an inline field with its own Save, not a modal
- * opened from a menu. What must not fork is the RULES, and they do not: the cap
- * is `DESCRIPTION_MAX` from `packages/schemas/src/descriptions.ts` — the same
- * import the dialog uses — the over-limit measurement collapses whitespace the
- * same way, and clearing sends `null` so the server's `normalizeDescription`
- * removes it rather than storing `''`. There is one definition of "what a
- * description is" and both surfaces read it.
+ * The editor here is an INLINE field rather than the dialog the two menu-driven
+ * levels use, because a settings page wants a field with its own Save, not a modal
+ * opened from a menu. That is chrome. The rules behind it — the trim, the
+ * over-limit test, the clear-to-null behaviour and the counter wording — all come
+ * from `describeDraft` (`lib/description-draft.ts`), the same one definition the
+ * dialog reads. The first cut of this ticket re-derived them here instead, and
+ * failed verification on criterion 6 for it.
  */
 export default function GeneralSettingsPage() {
   const { ws } = useParams<{ ws: string }>();
@@ -43,16 +41,17 @@ export default function GeneralSettingsPage() {
   const loaded = workspace.data?.description ?? '';
   useEffect(() => setValue(loaded), [loaded]);
 
-  const measured = value.replace(/\s+/g, ' ').trim();
-  const over = measured.length > DESCRIPTION_MAX;
-  const dirty = measured !== (workspace.data?.description ?? '');
+  // #457 — same ONE definition the dialog uses. This page is an inline field
+  // rather than a modal, which is a legitimate difference in chrome; the rules
+  // behind it are not allowed to differ, and re-deriving them here is exactly what
+  // failed verification the first time.
+  const draft = describeDraft(value);
+  const dirty = (draft.value ?? '') !== (workspace.data?.description ?? '');
 
   const save = () => {
-    if (over) return;
+    if (draft.over) return;
     updateWorkspace.mutate(
-      // Empty box → null (remove it), never `''` — #305: absent and empty must
-      // not become two states that render identically.
-      { description: measured === '' ? null : value },
+      { description: draft.value },
       {
         onSuccess: () => toast.success('Description saved'),
         onError: (e) => toast.error(apiErrorMessage(e, 'Could not save — try again')),
@@ -82,19 +81,17 @@ export default function GeneralSettingsPage() {
             placeholder="What is this workspace for?"
             className={cn(
               'w-full resize-none rounded-[var(--radius-control)] border bg-card px-2 py-1.5 text-[13px] text-ink disabled:opacity-60',
-              over ? 'border-error' : 'border-border-default',
+              draft.over ? 'border-error' : 'border-border-default',
             )}
           />
           <div className="flex items-center gap-3">
-            <span className={cn('text-[12px] tabular-nums', over ? 'text-error' : 'text-faint')}>
-              {over
-                ? `${measured.length - DESCRIPTION_MAX} over the ${DESCRIPTION_MAX}-character limit`
-                : `${DESCRIPTION_MAX - measured.length} left`}
+            <span className={cn('text-[12px] tabular-nums', draft.over ? 'text-error' : 'text-faint')}>
+              {draft.hint}
             </span>
             <Button
               className="ml-auto"
               onClick={save}
-              disabled={!isAdmin || over || !dirty || updateWorkspace.isPending}
+              disabled={!isAdmin || draft.over || !dirty || updateWorkspace.isPending}
             >
               {updateWorkspace.isPending ? 'Saving…' : 'Save'}
             </Button>

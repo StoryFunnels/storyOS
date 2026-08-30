@@ -1,41 +1,29 @@
 'use client';
 
 import { useState } from 'react';
-import { DESCRIPTION_MAX } from '@storyos/schemas';
+import { describeDraft } from '@/lib/description-draft';
 import { Button } from '@/components/ui/button';
 import { DialogClose, DialogContent } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 
 /**
- * THE description editor (#457). One component for all three levels — workspace,
- * space and database — deliberately, and it is the only place in the web app that
- * knows how a description is written.
+ * The description editor as a DIALOG (#457) — used by the database and space
+ * context menus, which is where those two levels already have a menu to hang it
+ * on. The workspace has no such menu, so its editor is an inline field on the
+ * Settings → General page.
  *
- * #400 already made this choice on the API side: `packages/schemas/src/descriptions.ts`
+ * That difference is CHROME, and it is allowed. What is not allowed is the rules
+ * differing, and in the first cut of this ticket they did: both surfaces
+ * re-derived the same trim, over-limit test, clear-to-null rule and counter
+ * wording. Verification failed on exactly that (criterion 6), correctly — the cap
+ * was shared and nothing else was. All four now come from `describeDraft`
+ * (`lib/description-draft.ts`), which is the one web-side definition, and neither
+ * surface computes any of them.
+ *
+ * #400 made the same choice on the API side: `packages/schemas/src/descriptions.ts`
  * carries ONE `descriptionSchema` for all three levels, with a comment saying in so
- * many words that three copies of `z.string().max(200)` is the shape that drifts —
- * one gains a trim, one gains a longer cap, and the product ends up with three
- * different ideas of what a description is. The UI must not undo that on the way
- * back out. Rename is already implemented twice in `sidebar.tsx` (inline, once for
- * a space and once for a database), which is exactly the path that would have given
- * this feature two or three copies with their own caps and their own trimming; this
- * codebase has shipped one concept as several drifting copies at least six times
- * (#375, #380, #383, #399, #408, #422).
- *
- * Two rules this component does NOT own, and must not re-implement:
- *
- *   - **The cap is `DESCRIPTION_MAX`**, imported from the schema package. Not a
- *     literal 200 typed here. If the server's bound moves, this moves with it.
- *   - **Normalisation is the server's** (`normalizeDescription`, same file):
- *     whitespace collapsing, trimming, and turning an emptied box into `null`.
- *     This component sends what the person typed and lets the one choke point
- *     decide. The single exception is the empty case below, which it must handle
- *     itself because the difference is `null` vs. a string at the API boundary.
- *
- * **Clearing means `null`, never `''`.** An emptied box sends `null` so the
- * description is removed rather than stored as an empty string. `''` and absent
- * would render identically but be two different states — #305's rule, that
- * unconfigured is not invalid, and also that it should not be two things.
+ * many words that three copies of `z.string().max(200)` is the shape that drifts.
+ * This is that rule holding on the way back out.
  */
 export function DescriptionDialogContent({
   /** What is being described — "Issues", "Product", the workspace name. Shown in
@@ -54,13 +42,11 @@ export function DescriptionDialogContent({
   onSave: (description: string | null) => void;
 }) {
   const [value, setValue] = useState(initial ?? '');
-  // Length is measured on what the server will actually store, so the counter does
-  // not tell someone they are over the limit because of a trailing newline the
-  // server is about to collapse away. Deliberately mirrors `normalizeDescription`'s
-  // collapse rule rather than re-deriving a different one.
-  const measured = value.replace(/\s+/g, ' ').trim();
-  const over = measured.length > DESCRIPTION_MAX;
-  const remaining = DESCRIPTION_MAX - measured.length;
+  // #457 — the trim, the over-limit test, the clear-to-null rule and the counter
+  // wording all come from `describeDraft`, the ONE web-side definition. This file
+  // used to re-derive them, and so did the workspace settings page; they were
+  // identical, which is how these things always start.
+  const draft = describeDraft(value);
 
   return (
     <DialogContent title={`Describe ${name}`}>
@@ -68,9 +54,8 @@ export function DescriptionDialogContent({
         className="flex flex-col gap-3"
         onSubmit={(e) => {
           e.preventDefault();
-          if (over) return;
-          // Empty box → null (remove it), never `''`. See the note above.
-          onSave(measured === '' ? null : value);
+          if (draft.over) return;
+          onSave(draft.value);
         }}
       >
         <label className="flex flex-col gap-1.5">
@@ -87,16 +72,14 @@ export function DescriptionDialogContent({
             // to be visible and exceeding it reported, not prevented invisibly.
             className={cn(
               'w-full resize-none rounded-[var(--radius-control)] border bg-card px-2 py-1.5 text-[13px] text-ink',
-              over ? 'border-error' : 'border-border-default',
+              draft.over ? 'border-error' : 'border-border-default',
             )}
             placeholder={`What is this ${noun} for?`}
           />
         </label>
         <div className="flex items-center gap-2">
-          <span className={cn('text-[12px] tabular-nums', over ? 'text-error' : 'text-faint')}>
-            {over
-              ? `${measured.length - DESCRIPTION_MAX} over the ${DESCRIPTION_MAX}-character limit`
-              : `${remaining} left`}
+          <span className={cn('text-[12px] tabular-nums', draft.over ? 'text-error' : 'text-faint')}>
+            {draft.hint}
           </span>
           <div className="ml-auto flex gap-2">
             <DialogClose asChild>
@@ -104,7 +87,7 @@ export function DescriptionDialogContent({
                 Cancel
               </Button>
             </DialogClose>
-            <Button type="submit" disabled={over}>
+            <Button type="submit" disabled={draft.over}>
               Save
             </Button>
           </div>
