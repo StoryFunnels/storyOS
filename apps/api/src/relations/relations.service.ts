@@ -462,8 +462,25 @@ export class RelationsService {
     return { field, relation, record, side, targetDatabaseId };
   }
 
-  async listLinks(databaseId: string, recordId: string, fieldId: string) {
-    const { relation, side } = await this.resolveLinkContext(databaseId, recordId, fieldId);
+  /**
+   * #469 — `membership` optional and omitted by every internal caller (none
+   * exist today; the record-detail links panel is the only reader). Passed
+   * from the controller, a target database the caller cannot read returns an
+   * empty list rather than the denied database's record titles — the same
+   * bound `attachLinks` (records.service.ts) applies to the relation chip this
+   * endpoint feeds.
+   */
+  async listLinks(databaseId: string, recordId: string, fieldId: string, membership?: Membership) {
+    const { relation, side, targetDatabaseId } = await this.resolveLinkContext(databaseId, recordId, fieldId);
+    if (membership) {
+      const targetDb = await this.db.query.databases.findFirst({
+        where: eq(databases.id, targetDatabaseId),
+        columns: { id: true, spaceId: true },
+      });
+      if (targetDb && (await this.access.effectiveForDatabase(membership, targetDb)) === null) {
+        return { data: [] };
+      }
+    }
     const myCol = side === 'a' ? recordLinks.fromRecordId : recordLinks.toRecordId;
     const otherCol = side === 'a' ? recordLinks.toRecordId : recordLinks.fromRecordId;
 

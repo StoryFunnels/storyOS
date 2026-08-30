@@ -179,6 +179,30 @@ export class AccessService {
     return result;
   }
 
+  /**
+   * #469 — Databases a guest can see: directly granted + those inside a granted
+   * space (mirrors `visibleSpaceIds`). null = sees every database (member/admin).
+   *
+   * This computation existed as three drifting copies before this ticket —
+   * inline in `mentions.service.ts` `backlinks()`, again inline in
+   * `search.controller.ts`, and nowhere at all in the two relation-chip readers
+   * that leaked a guest's denied database's record titles. All three call sites
+   * now go through this one.
+   */
+  async visibleDatabaseIds(membership: Membership): Promise<Set<string> | null> {
+    const visibility = await this.guestVisibility(membership);
+    if (!visibility) return null;
+    const rows = await this.db.query.databases.findMany({
+      where: eq(databases.workspaceId, membership.workspaceId),
+      columns: { id: true, spaceId: true },
+    });
+    return new Set(
+      rows
+        .filter((d) => visibility.spaceIds.has(d.spaceId) || visibility.databaseIds.has(d.id))
+        .map((d) => d.id),
+    );
+  }
+
   assertRank(effective: EffectiveRole | null, min: EffectiveRole, what = 'resource') {
     if (effective === null) throw new NotFoundException(`${what} not found`);
     if (ACCESS_RANK[effective] < ACCESS_RANK[min]) {

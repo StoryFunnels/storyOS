@@ -29,6 +29,8 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { DomainEventsService } from '../events/domain-events.service';
 import { MentionsService } from '../mentions/mentions.service';
 import { AbuseFlagsService } from '../abuse/abuse-flags.service';
+import { AccessService } from '../access/access.service';
+import type { Membership } from '../workspaces/workspace-access.guard';
 
 type RecordRow = typeof records.$inferSelect;
 
@@ -79,6 +81,8 @@ export class RecordsService {
     private readonly mentions: MentionsService,
     private readonly abuseFlags: AbuseFlagsService,
     private readonly entitlements: EntitlementsService,
+    /** #469 — per-viewer database visibility for relation chips (attachLinks). */
+    private readonly access: AccessService,
   ) {}
 
   /**
@@ -159,8 +163,28 @@ export class RecordsService {
     };
   }
 
-  /** Fills relation-field values with {id, title} chips for a page of records (MN-018). */
-  async attachLinks(projected: ProjectedRecord[], defs: FieldDef[]): Promise<ProjectedRecord[]> {
+  /**
+   * Fills relation-field values with {id, title} chips for a page of records
+   * (MN-018).
+   *
+   * `membership` is the CALLER, optional and omitted by every internal/system
+   * use (title recompute, automations, migrations, agent packs) that must see
+   * every chip regardless of who eventually reads the result. Pass it from an
+   * actual HTTP request so a chip pointing at a database the caller cannot see
+   * is never attached (#469) — a guest granted "Wholesale Orders" but denied
+   * "Roasts" read the denied database's record titles through the relation
+   * chip on every order, on the query response, the CSV export (which reads
+   * these same chips, `export/csv.ts`), and the links endpoint. Lookup and
+   * rollup fields (`attachLookups`/`attachRollups` below) derive their linked
+   * ids from the SAME chips this attaches, so withholding a chip here also
+   * withholds the lookup value and zeroes the rollup for that relation — one
+   * fix point, not three.
+   */
+  async attachLinks(
+    projected: ProjectedRecord[],
+    defs: FieldDef[],
+    membership?: Membership,
+  ): Promise<ProjectedRecord[]> {
     const relationDefs = defs.filter((d) => d.type === 'relation');
     if (relationDefs.length === 0 || projected.length === 0) {
       // #391 — attachments do NOT need relations, so they must be resolved on
@@ -174,6 +198,21 @@ export class RecordsService {
     for (const def of relationDefs) {
       const relationId = def.config['relation_id'] as string;
       const side = def.config['side'] as 'a' | 'b';
+
+      if (membership) {
+        const relation = await this.db.query.relations.findFirst({ where: eq(relations.id, relationId) });
+        if (!relation) continue; // dangling — no chips
+        const targetDatabaseId = side === 'a' ? relation.databaseBId : relation.databaseAId;
+        const targetDb = await this.db.query.databases.findFirst({
+          where: eq(databases.id, targetDatabaseId),
+          columns: { id: true, spaceId: true },
+        });
+        // A caller who cannot read the target database gets no chips for this
+        // field at all — never a partial/redacted chip, an ABSENT one, exactly
+        // like the direct route already 404s rather than reveal a shape.
+        if (targetDb && (await this.access.effectiveForDatabase(membership, targetDb)) === null) continue;
+      }
+
       const myCol = side === 'a' ? recordLinks.fromRecordId : recordLinks.toRecordId;
       const otherCol = side === 'a' ? recordLinks.toRecordId : recordLinks.fromRecordId;
 
@@ -2071,23 +2110,23 @@ export class RecordsService {
     return row;
   }
 
-  async get(databaseId: string, recordId: string): Promise<ProjectedRecord> {
+  async get(databaseId: string, recordId: string, membership?: Membership): Promise<ProjectedRecord> {
     const [row, defs] = await Promise.all([
       this.getRow(databaseId, recordId),
       this.fieldDefs(databaseId),
     ]);
-    const [projected] = await this.attachLinks([this.project(row, defs)], defs);
+    const [projected] = await this.attachLinks([this.project(row, defs)], defs, membership);
     return projected!;
   }
 
   /** Resolve a record by its public per-database number (MN-087, pretty URLs). */
-  async getByNumber(databaseId: string, number: number): Promise<ProjectedRecord> {
+  async getByNumber(databaseId: string, number: number, membership?: Membership): Promise<ProjectedRecord> {
     const row = await this.db.query.records.findFirst({
       where: and(eq(records.databaseId, databaseId), eq(records.number, number), isNull(records.deletedAt)),
     });
     if (!row) throw new NotFoundException('Record not found');
     const defs = await this.fieldDefs(databaseId);
-    const [projected] = await this.attachLinks([this.project(row, defs)], defs);
+    const [projected] = await this.attachLinks([this.project(row, defs)], defs, membership);
     return projected!;
   }
 
@@ -3036,7 +3075,12 @@ export class RecordsService {
     };
   }
 
-  async query(databaseId: string, input: QueryRecordsInput, currentUserId: string) {
+  async query(
+    databaseId: string,
+    input: QueryRecordsInput,
+    currentUserId: string,
+    membership?: Membership,
+  ) {
     const defs = await this.fieldDefs(databaseId);
     const byApiName = new Map(defs.map((d) => [d.api_name, d]));
     // #351: overlay the canonical system-field registry so built-in columns
@@ -3138,14 +3182,18 @@ export class RecordsService {
     }
 
     return {
-      data: await this.attachLinks(page.map((r) => this.project(r, defs)), defs),
+      data: await this.attachLinks(page.map((r) => this.project(r, defs)), defs, membership),
       next_cursor: nextCursor,
       has_more: hasMore,
     };
   }
 
   /** Simple list: manual (position) order, optional q title search, keyset cursor. */
-  async list(databaseId: string, opts: { limit: number; cursor?: string; q?: string }) {
+  async list(
+    databaseId: string,
+    opts: { limit: number; cursor?: string; q?: string },
+    membership?: Membership,
+  ) {
     const defs = await this.fieldDefs(databaseId);
     const conditions = [eq(records.databaseId, databaseId), isNull(records.deletedAt)];
     if (opts.q) conditions.push(sql`${records.title} ILIKE ${'%' + opts.q + '%'}`);
@@ -3169,7 +3217,7 @@ export class RecordsService {
     const hasMore = rows.length > opts.limit;
     const lastRow = page[page.length - 1];
     return {
-      data: await this.attachLinks(page.map((r) => this.project(r, defs)), defs),
+      data: await this.attachLinks(page.map((r) => this.project(r, defs)), defs, membership),
       next_cursor: hasMore && lastRow ? encodeCursor(lastRow.position, lastRow.id) : null,
       has_more: hasMore,
     };

@@ -150,18 +150,11 @@ export class MentionsService {
    * same leak class as MN-202). Reuses the guest-visibility grant sets.
    */
   async backlinks(membership: Membership, targetRecordId: string) {
-    const visibility = await this.access.guestVisibility(membership);
-    let visibleDbIds: string[] | null = null;
-    if (visibility) {
-      const rows = await this.db.query.databases.findMany({
-        where: eq(databases.workspaceId, membership.workspaceId),
-        columns: { id: true, spaceId: true },
-      });
-      visibleDbIds = rows
-        .filter((d) => visibility.spaceIds.has(d.spaceId) || visibility.databaseIds.has(d.id))
-        .map((d) => d.id);
-      if (visibleDbIds.length === 0) return { data: [] };
-    }
+    // #469 — shared with the relation-chip readers (records.service.ts
+    // attachLinks, relations.service.ts listLinks) via AccessService, rather than
+    // computed inline here a second time.
+    const visibleDbIds = await this.access.visibleDatabaseIds(membership);
+    if (visibleDbIds && visibleDbIds.size === 0) return { data: [] };
 
     const rows = await this.db
       .select({
@@ -179,7 +172,7 @@ export class MentionsService {
           eq(recordMentions.targetRecordId, targetRecordId),
           eq(recordMentions.workspaceId, membership.workspaceId),
           isNull(records.deletedAt),
-          ...(visibleDbIds !== null ? [inArray(records.databaseId, visibleDbIds)] : []),
+          ...(visibleDbIds !== null ? [inArray(records.databaseId, [...visibleDbIds])] : []),
         ),
       )
       .orderBy(desc(recordMentions.createdAt))

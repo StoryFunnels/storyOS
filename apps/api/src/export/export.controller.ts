@@ -37,6 +37,7 @@ export class ExportController {
       databaseId,
       viewId,
       req.user.id,
+      req.membership,
     );
     reply.header('content-type', 'text/csv; charset=utf-8');
     reply.header('content-disposition', `attachment; filename="${csvFilename(databaseName, new Date())}"`);
