@@ -3319,3 +3319,300 @@ describe('#393 — a reader can tell that rules email, call APIs and post to Sla
     }
   });
 });
+
+/**
+ * #438 — MCP parity area 5: sources.
+ *
+ * These drive the REAL registerTools()-produced handlers against a fake API
+ * client. What they are actually protecting:
+ *
+ *  - The mapping is never GUESSED. discover_source_fields returns a proposal and
+ *    creates nothing; create_source applies a mapping it was handed.
+ *  - The external key must be one of the mapping's targets. Get that wrong and
+ *    every sync RE-CREATES instead of updating, which looks like success and
+ *    doubles the database — so it is checked on create AND on the update path,
+ *    where the two arguments can arrive independently.
+ *  - Field NAMES resolve to the same ids the app would have sent (the ticket's
+ *    "two creation paths must not produce subtly different rows"). Asserted on
+ *    the request BODY, which is what gets stored, not on the tool's response.
+ *  - delete_source is confirm-gated and never implies records are deleted.
+ */
+describe('sources: discover → propose → apply (#438)', () => {
+  const WORKSPACE = { id: 'ws-1', name: 'JCM Agency' };
+  const DATABASE = {
+    id: 'db-1',
+    name: 'Videos',
+    apiSlug: 'videos',
+    fields: [
+      { id: 'f-title', apiName: 'name', displayName: 'Name', type: 'title' },
+      { id: 'f-vid', apiName: 'video_id', displayName: 'Video ID', type: 'text' },
+      { id: 'f-pub', apiName: 'published_at', displayName: 'Published At', type: 'date' },
+      { id: 'f-extra', apiName: 'notes', displayName: 'Notes', type: 'text' },
+      { id: 'f-sys', apiName: 'created_at', displayName: 'Created at', type: 'created_at', isSystem: true },
+    ],
+  };
+  const SOURCE = {
+    id: 'src-1',
+    name: 'YouTube videos',
+    connection_id: 'conn-1',
+    provider_source: 'youtube.videos',
+    field_mapping: { video_id: 'f-vid', title: 'f-title' },
+  };
+
+  function fakeServer() {
+    const handlers = new Map<string, (args: unknown) => Promise<unknown>>();
+    return {
+      server: { registerTool: (n: string, _c: unknown, h: (args: unknown) => Promise<unknown>) => handlers.set(n, h) },
+      handlers,
+    };
+  }
+
+  function fakeClient(opts: { sources?: unknown[]; discoverKeys?: string[] } = {}) {
+    const posted: Array<{ path: string; body: unknown }> = [];
+    const patched: Array<{ path: string; body: unknown }> = [];
+    const deleted: string[] = [];
+    const GET = async (path: string) => {
+      if (path === '/api/v1/workspaces') return { data: [WORKSPACE] };
+      if (path === '/api/v1/workspaces/{ws}/databases') return { data: [DATABASE] };
+      if (path === '/api/v1/workspaces/{ws}/databases/{db}') return { data: DATABASE };
+      if (path === '/api/v1/workspaces/{ws}/databases/{db}/sources') {
+        return { data: { data: opts.sources ?? [SOURCE] } };
+      }
+      if (path === '/api/v1/workspaces/{ws}/databases/{db}/sources/providers') {
+        return { data: { data: [{ id: 'youtube.videos', supports_discover: false }] } };
+      }
+      if (path === '/api/v1/workspaces/{ws}/databases/{db}/sources/{id}/runs') {
+        return { data: { data: [{ id: 'run-1', status: 'ok', fetched: 3, created: 1, updated: 2, error: null }] } };
+      }
+      throw new Error(`unmocked GET ${path}`);
+    };
+    const POST = async (path: string, o: { body?: unknown }) => {
+      posted.push({ path, body: o?.body });
+      if (path === '/api/v1/workspaces/{ws}/databases/{db}/sources/discover') {
+        return { data: { keys: opts.discoverKeys ?? ['video_id', 'published_at', 'view_count'] } };
+      }
+      if (path === '/api/v1/workspaces/{ws}/databases/{db}/sources/{id}/sync-now') {
+        return { data: { id: 'run-9', status: 'ok', fetched: 3, created: 3, updated: 0, error: null } };
+      }
+      return { data: { id: 'src-new', ...(o?.body as Record<string, unknown>) } };
+    };
+    const PATCH = async (path: string, o: { body?: unknown }) => {
+      patched.push({ path, body: o?.body });
+      return { data: { id: 'src-1', ...(o?.body as Record<string, unknown>) } };
+    };
+    const DELETE = async (path: string) => {
+      deleted.push(path);
+      return { data: { deleted: true } };
+    };
+    return { client: { GET, POST, PATCH, DELETE } as never, posted, patched, deleted };
+  }
+
+  function reg(opts: Parameters<typeof fakeClient>[0] = {}) {
+    const { server, handlers } = fakeServer();
+    const fc = fakeClient(opts);
+    registerTools(server as never, { client: fc.client, baseUrl: 'http://x', token: 't' } as Ctx, {
+      scope: 'admin',
+      allowRunButton: true,
+    });
+    return { handlers, ...fc };
+  }
+
+  const call = async (h: (a: unknown) => Promise<unknown>, args: unknown) =>
+    (await h(args)) as { isError?: boolean; content: Array<{ text: string }> };
+
+  it('discover proposes a mapping by name, flags what it could not match, and creates NOTHING', async () => {
+    const { handlers, posted } = reg({ discoverKeys: ['video_id', 'published_at', 'view_count'] });
+    const res = await call(handlers.get('discover_source_fields')!, {
+      workspace: 'JCM Agency',
+      database: 'videos',
+      connection_id: 'conn-1',
+      provider_source: 'youtube.videos',
+    });
+    expect(res.isError).toBeUndefined();
+    const out = JSON.parse(res.content[0]!.text) as {
+      proposed_field_mapping: Record<string, string>;
+      unmatched_keys: string[];
+    };
+    expect(out.proposed_field_mapping).toEqual({ video_id: 'video_id', published_at: 'published_at' });
+    // No field is named anything like "view_count" — say so rather than inventing a target.
+    expect(out.unmatched_keys).toEqual(['view_count']);
+    // The ONLY write it may issue is the discover call itself.
+    expect(posted.map((p) => p.path)).toEqual(['/api/v1/workspaces/{ws}/databases/{db}/sources/discover']);
+  });
+
+  it('never proposes the same field for two different keys', async () => {
+    const { handlers } = reg({ discoverKeys: ['video_id', 'Video ID'] });
+    const res = await call(handlers.get('discover_source_fields')!, {
+      workspace: 'JCM Agency',
+      database: 'videos',
+      connection_id: 'conn-1',
+      provider_source: 'youtube.videos',
+    });
+    const out = JSON.parse(res.content[0]!.text) as { proposed_field_mapping: Record<string, string>; unmatched_keys: string[] };
+    expect(Object.values(out.proposed_field_mapping)).toEqual(['video_id']);
+    expect(out.unmatched_keys).toEqual(['Video ID']);
+  });
+
+  it('create_source sends the FIELD IDS the app would have sent, resolved from names', async () => {
+    const { handlers, posted } = reg();
+    const res = await call(handlers.get('create_source')!, {
+      workspace: 'JCM Agency',
+      database: 'videos',
+      name: 'YT',
+      connection_id: 'conn-1',
+      provider_source: 'youtube.videos',
+      field_mapping: { video_id: 'video_id', title: 'Name' },
+      external_key_field: 'Video ID',
+    });
+    expect(res.isError).toBeUndefined();
+    const body = posted.find((p) => p.path === '/api/v1/workspaces/{ws}/databases/{db}/sources')!.body as Record<string, unknown>;
+    // Names and display names alike land as ids — one stored shape, whichever surface created it.
+    expect(body.field_mapping).toEqual({ video_id: 'f-vid', title: 'f-title' });
+    expect(body.external_key_field_id).toBe('f-vid');
+  });
+
+  it('refuses an external key that is not one of the mapping targets, naming what the caller passed', async () => {
+    const { handlers, posted } = reg();
+    const res = await call(handlers.get('create_source')!, {
+      workspace: 'JCM Agency',
+      database: 'videos',
+      name: 'YT',
+      connection_id: 'conn-1',
+      provider_source: 'youtube.videos',
+      field_mapping: { title: 'Name' },
+      external_key_field: 'notes',
+    });
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toContain('not one of field_mapping');
+    expect(posted.filter((p) => p.path.endsWith('/sources'))).toEqual([]);
+  });
+
+  it('refuses an unknown field name instead of silently dropping the key', async () => {
+    const { handlers } = reg();
+    const res = await call(handlers.get('create_source')!, {
+      workspace: 'JCM Agency',
+      database: 'videos',
+      name: 'YT',
+      connection_id: 'conn-1',
+      provider_source: 'youtube.videos',
+      field_mapping: { video_id: 'no_such_field' },
+      external_key_field: 'video_id',
+    });
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toContain('No field matches "no_such_field"');
+  });
+
+  it('update_source is a true patch and refuses an empty change', async () => {
+    const { handlers, patched } = reg();
+    const ok = await call(handlers.get('update_source')!, {
+      workspace: 'JCM Agency',
+      database: 'videos',
+      source: 'YouTube videos',
+      status: 'paused',
+    });
+    expect(ok.isError).toBeUndefined();
+    expect(patched[0]!.body).toEqual({ status: 'paused' });
+
+    const empty = await call(handlers.get('update_source')!, {
+      workspace: 'JCM Agency',
+      database: 'videos',
+      source: 'src-1',
+    });
+    expect(empty.isError).toBe(true);
+    expect(empty.content[0]!.text).toContain('Nothing to update');
+  });
+
+  it('update_source catches an external key stranded by a mapping change', async () => {
+    // The API validates this pair on CREATE; on update they arrive independently,
+    // so changing only the mapping can leave the key pointing outside it.
+    const { handlers, patched } = reg();
+    const res = await call(handlers.get('update_source')!, {
+      workspace: 'JCM Agency',
+      database: 'videos',
+      source: 'src-1',
+      field_mapping: { title: 'Name' },
+      external_key_field: 'video_id',
+    });
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toContain('after this change');
+    expect(patched).toEqual([]);
+  });
+
+  it('refuses an ambiguous source name rather than picking one (MN-153)', async () => {
+    const { handlers } = reg({ sources: [SOURCE, { ...SOURCE, id: 'src-2' }] });
+    const res = await call(handlers.get('sync_source')!, {
+      workspace: 'JCM Agency',
+      database: 'videos',
+      source: 'YouTube videos',
+    });
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toContain('matches 2 sources');
+  });
+
+  it('delete_source requires the exact name and promises records are kept', async () => {
+    const { handlers, deleted } = reg();
+    const refused = await call(handlers.get('delete_source')!, {
+      workspace: 'JCM Agency',
+      database: 'videos',
+      source: 'src-1',
+      confirm: 'youtube videos',
+    });
+    expect(refused.isError).toBe(true);
+    expect(refused.content[0]!.text).toContain('Nothing was deleted');
+    expect(deleted).toEqual([]);
+
+    const done = await call(handlers.get('delete_source')!, {
+      workspace: 'JCM Agency',
+      database: 'videos',
+      source: 'src-1',
+      confirm: 'YouTube videos',
+    });
+    expect(done.isError).toBeUndefined();
+    expect(deleted).toHaveLength(1);
+    // The blast radius is stated in the RESULT, not only in the description.
+    expect(done.content[0]!.text).toContain('records it created');
+  });
+
+  it('sync_source returns the run, and list_source_runs surfaces failures', async () => {
+    const { handlers } = reg();
+    const run = await call(handlers.get('sync_source')!, { workspace: 'JCM Agency', database: 'videos', source: 'src-1' });
+    expect(JSON.parse(run.content[0]!.text)).toMatchObject({ status: 'ok', fetched: 3 });
+
+    const runs = await call(handlers.get('list_source_runs')!, { workspace: 'JCM Agency', database: 'videos', source: 'src-1' });
+    const rows = JSON.parse(runs.content[0]!.text) as Array<Record<string, unknown>>;
+    // `error` must be part of the shape an agent reads — a log of only successes
+    // cannot answer "I registered this and nothing arrived".
+    expect(rows[0]).toHaveProperty('error');
+  });
+
+  it('rejects a misspelled argument rather than dropping it (#343)', async () => {
+    const { handlers, posted } = reg();
+    const res = await call(handlers.get('create_source')!, {
+      workspace: 'JCM Agency',
+      database: 'videos',
+      name: 'YT',
+      connection_id: 'conn-1',
+      provider_source: 'youtube.videos',
+      field_mapping: { video_id: 'video_id' },
+      external_key_field: 'video_id',
+      schedul: 'day',
+    });
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toContain('has no argument named "schedul"');
+    expect(posted).toEqual([]);
+  });
+
+  it('advertises the source tools at write scope, and none of them at read scope', async () => {
+    const writes = ['create_source', 'update_source', 'delete_source', 'sync_source', 'discover_source_fields'];
+    const reads = ['list_source_providers', 'list_source_runs', 'list_youtube_channels'];
+
+    const w = fakeServer();
+    registerTools(w.server as never, { client: fakeClient().client, baseUrl: 'x', token: 't' } as Ctx, { scope: 'write', allowRunButton: true });
+    for (const t of [...writes, ...reads]) expect(w.handlers.has(t), `${t} at write scope`).toBe(true);
+
+    const r = fakeServer();
+    registerTools(r.server as never, { client: fakeClient().client, baseUrl: 'x', token: 't' } as Ctx, { scope: 'read', allowRunButton: true });
+    for (const t of writes) expect(r.handlers.has(t), `${t} must NOT be advertised at read scope`).toBe(false);
+    for (const t of reads) expect(r.handlers.has(t), `${t} at read scope`).toBe(true);
+  });
+});

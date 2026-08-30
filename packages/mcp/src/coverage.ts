@@ -196,10 +196,19 @@ export const DEFERRED: CoverageRule[] = [
    * rule, because the next reader trusts it. #406 is one real ticket whose body
    * carries the fourteen areas as sections; split it when an area is picked up.
    */
-  {
-    match: /\/(sources|sources\/.*)$/,
-    reason: '#406 — source (sync) configuration. `list_sources` is read-only; creating, reconfiguring and running a sync are not exposed.',
-  },
+  /*
+   * #406 area 5 (sources) was HERE and is now built — the provider catalog,
+   * field discovery, create/reconfigure/delete, sync-now and the run log.
+   * Deleted rather than commented out, for the reason the block above gives:
+   * the dead-rule check fails a rule that stops matching, which is how this
+   * file avoids becoming a list of things that used to be true.
+   *
+   * What did NOT move: connection credentials, still deferred below. A source
+   * is created by REFERENCE to a stored connection, so no secret passes through
+   * a tool argument — but an agent also has no way to look a connection id up,
+   * which is #491 and is written into create_source's description rather than
+   * left to be discovered by failure.
+   */
   {
     match: '/api/v1/workspaces/{ws}/webhooks',
     reason: '#406 — outbound webhook subscriptions and their delivery log.',
