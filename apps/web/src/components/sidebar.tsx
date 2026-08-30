@@ -28,6 +28,7 @@ import { EntityIcon, IconColorPicker } from '@/components/ui/icon-picker';
 import { TemplateGalleryDialog } from '@/components/template-gallery';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/components/ui/dialog';
+import { DescriptionDialogContent } from '@/components/description-dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -656,6 +657,11 @@ function SpaceSection({
   const [newDbOpen, setNewDbOpen] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [iconing, setIconing] = useState(false);
+  // #457 — its own menu item and its own dialog, NOT folded into the inline
+  // Rename. Rename is a single-line input that saves on blur; bolting a second
+  // field onto it is the change most likely to break its Escape-cancels /
+  // blur-saves behaviour, which the ticket names as must-keep.
+  const [describing, setDescribing] = useState(false);
 
   // Per-user, per-space collapse (MN-088) so a packed sidebar stays scannable.
   const collapseKey = `storyos:space-collapsed:${space.id}`;
@@ -1105,6 +1111,9 @@ function SpaceSection({
               </DropdownMenuTrigger>
               <DropdownMenuContent>
                 <DropdownMenuItem onSelect={() => setRenaming(true)}>Rename</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setDescribing(true)}>
+                  {space.description ? 'Edit description' : 'Add description'}
+                </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => setIconing(true)}>Icon & color</DropdownMenuItem>
                 {isAdmin && (
                   <DropdownMenuItem onSelect={() => setSharing(true)}>Manage access</DropdownMenuItem>
@@ -1168,6 +1177,19 @@ function SpaceSection({
       </div>
       <Dialog open={sharing} onOpenChange={setSharing}>
         {sharing && <ShareDialog ws={ws} scope={{ space_id: space.id }} scopeName={space.name} />}
+      </Dialog>
+      <Dialog open={describing} onOpenChange={setDescribing}>
+        {describing && (
+          <DescriptionDialogContent
+            name={space.name}
+            noun="space"
+            initial={space.description}
+            onSave={(description) => {
+              mutations.updateSpace.mutate({ id: space.id, description });
+              setDescribing(false);
+            }}
+          />
+        )}
       </Dialog>
       <Dialog open={iconing} onOpenChange={setIconing}>
         {iconing && (
@@ -1789,6 +1811,8 @@ function DatabaseRow({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [iconing, setIconing] = useState(false);
+  // #457 — see the note on the space row: a separate item, not folded into Rename.
+  const [describing, setDescribing] = useState(false);
   const [importing, setImporting] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [automating, setAutomating] = useState(false);
@@ -1897,6 +1921,10 @@ function DatabaseRow({
           contentClassName="w-56"
           actions={[
             { label: 'Rename', onSelect: () => setRenaming(true) },
+            {
+              label: db.description ? 'Edit description' : 'Add description',
+              onSelect: () => setDescribing(true),
+            },
             { label: 'Icon & color', onSelect: () => setIconing(true) },
             { label: 'Import CSV…', onSelect: () => setImporting(true) },
             { label: 'Sync from…', onSelect: () => setSyncing(true) },
@@ -1946,6 +1974,19 @@ function DatabaseRow({
       )}
       <Dialog open={sharing} onOpenChange={setSharing}>
         {sharing && <ShareDialog ws={ws} scope={{ database_id: db.id }} scopeName={db.name} />}
+      </Dialog>
+      <Dialog open={describing} onOpenChange={setDescribing}>
+        {describing && (
+          <DescriptionDialogContent
+            name={db.name}
+            noun="database"
+            initial={db.description}
+            onSave={(description) => {
+              mutations.updateDatabase.mutate({ id: db.id, description });
+              setDescribing(false);
+            }}
+          />
+        )}
       </Dialog>
       <Dialog open={iconing} onOpenChange={setIconing}>
         {iconing && (
