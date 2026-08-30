@@ -53,15 +53,22 @@ you.
 
 ### Setting one
 
-Today this is an **API and MCP capability, not a UI one.** There is no field in the app for typing
-a description; the app renders descriptions but has no editor for them. Set one with:
+- **Database or space** — its context menu (the sidebar row's `⋯`) has **Add description** (or
+  **Edit description**, once one exists), opening a small dialog.
+- **Workspace** — **Settings → General**, an inline field with its own Save. The workspace has no
+  context menu to hang a dialog on, so this is a page rather than a popover; the 200-character
+  limit, the trim, and clearing to `null` on an emptied box work identically to the dialog. Only an
+  admin can change it.
 
-- `create_database` / `update_database`, `create_space` / `update_space`, `update_workspace` over
-  MCP — all take `description`, and the update tools accept `null` to clear it.
-- The equivalent REST endpoints.
+Typing over 200 characters shows the overage in red and disables Save rather than silently cutting
+your sentence off; a box left as whitespace only clears to no description at all, the same as
+deleting the text.
 
-The best moment is **at creation**, whether you are clicking or an agent is building: you know the
-purpose then, and if you skip it the sentence is thrown away at the only point it existed.
+You can also set one over the API or MCP — `create_database` / `update_database`, `create_space` /
+`update_space`, `update_workspace` all take `description`, and the update tools accept `null` to
+clear it — which is the only way to set one **at creation**, since the create dialogs in the app
+don't have a description field yet. If you skip it there, add it afterwards from the menu or the
+General page; it is never thrown away.
 
 > **Not the record description.** A database also has `description_hidden` and `description_order`,
 > which configure the per-*record* description block — a versioned rich-text document that appears
