@@ -180,7 +180,8 @@ listed in [the section above](#what-a-webhook-triggered-rule-cannot-do).
 
 - **Attribution**: runs act as the rule's creator; activity shows their name on the changes.
 - **Loop guard**: an automation's own writes can trigger other rules **at most one more hop**
-  (depth 2). Deeper cascades are skipped and logged — a rule can never ping-pong forever.
+  (depth 2). Deeper cascades are skipped and logged — a rule can never ping-pong forever. One
+  narrow exception lets a countdown finish; see below.
 - **External actions are queued, not inline.** Email, API calls and agent runs are handed to a
   durable job runner rather than run during the record's save, so a slow or flaky endpoint retries
   with backoff instead of stalling the write or firing twice on a retry. The run log is where you
@@ -193,3 +194,55 @@ listed in [the section above](#what-a-webhook-triggered-rule-cannot-do).
 - **Dry run**: `POST …/automations/:id/test { record_id }` answers "would this run?" without writing.
 - **CSV imports do not fire automations** (mass-import safety, same choice as Airtable).
 - Scheduled rules process up to 500 matching records per tick and note truncation in the server log.
+
+## When a rule stops itself
+
+A rule whose actions change a record can trigger a rule again. StoryOS bounds that, and the run log
+tells you which bound you hit.
+
+### The ordinary limit: depth 2
+
+An automation's own writes get **one more hop** and no further. Anything deeper is skipped and
+logged, so a pair of rules cannot ping-pong forever and a rule cannot re-trigger itself endlessly.
+
+In the run log this reads:
+
+> `depth 2 — loop guard (rule "Escalate", watching field …); a self-trigger continues past depth 2
+> only while its watched number strictly decreases`
+
+The message names the rule and the field it watches, because "something stopped" without saying
+what is the version of this that costs you an afternoon.
+
+### The exception: a countdown is allowed to finish
+
+Depth 2 would break the most ordinary counting rule there is. *"When Remaining changes, set
+Remaining = {Remaining} - 1"* over a list of twenty items is a rule re-triggering itself nineteen
+times — and it is going somewhere, not looping.
+
+So a self-trigger is allowed to continue **while its watched number is strictly decreasing**. Four
+conditions, all required:
+
+1. The trigger is **record changes** — not created, not linked, not scheduled.
+2. It **watches a specific field**. A rule that fires on *any* change has no single number whose
+   descent could mean anything, so it gets the flat limit.
+3. That field's value is a **number**, before and after.
+4. The new value is **strictly less** than the old one.
+
+**Equal does not count.** A chain writing the same value over and over has stopped making progress
+and is still firing, which is the thing the guard exists to stop. Nor does a value that goes up, or
+a change to a non-number field — those fall back to depth 2.
+
+Each step is judged on its own, so a chain continues exactly as long as every step of it decreases.
+The moment one does not, the ordinary limit applies again.
+
+### The ceiling on the exception: 25
+
+Even a converging chain stops at **depth 25**:
+
+> `depth 25 — converging, but hit the absolute ceiling of 25`
+
+**25 is a working number, not a measured one** — enough for a countdown over a sprint's worth of
+items, far below anything that would strain an instance. If you hit it, the honest reading is that
+you are near the edge of what this exception was sized for, not that you have found a tuned
+threshold worth optimising against. A job that needs hundreds of steps wants **create many
+records** or a scheduled rule over a filter, not a self-triggering countdown.
