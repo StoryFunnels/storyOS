@@ -12,7 +12,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import {
   createRelationSchema,
@@ -183,6 +183,11 @@ export class LinksController {
 
   @Get()
   @ApiOperation({ summary: 'Linked records for a relation field ({id, title} chips)' })
+  @ApiParam({
+    name: 'field',
+    description:
+      "The relation field, by api_name (as query filters and value patches name fields) or by id. #458 — an unrecognised field is a 404, never a 500.",
+  })
   async list(
     @Req() req: WorkspaceRequest,
     @Param('db') db: string,
@@ -195,6 +200,11 @@ export class LinksController {
 
   @Post()
   @ApiOperation({ summary: 'Add links (409 when one-to-many already linked)' })
+  @ApiParam({
+    name: 'field',
+    description:
+      "The relation field, by api_name (as query filters and value patches name fields) or by id. #458 — an unrecognised field is a 404, never a 500.",
+  })
   async add(
     @Req() req: WorkspaceRequest,
     @Param('db') db: string,
@@ -215,6 +225,11 @@ export class LinksController {
 
   @Put()
   @ApiOperation({ summary: 'Replace all links for this record on this field' })
+  @ApiParam({
+    name: 'field',
+    description:
+      "The relation field, by api_name (as query filters and value patches name fields) or by id. #458 — an unrecognised field is a 404, never a 500.",
+  })
   async replace(
     @Req() req: WorkspaceRequest,
     @Param('db') db: string,
@@ -235,6 +250,11 @@ export class LinksController {
 
   @Delete()
   @ApiOperation({ summary: 'Remove specific links' })
+  @ApiParam({
+    name: 'field',
+    description:
+      "The relation field, by api_name (as query filters and value patches name fields) or by id. #458 — an unrecognised field is a 404, never a 500.",
+  })
   async remove(
     @Req() req: WorkspaceRequest,
     @Param('db') db: string,

@@ -6847,6 +6847,7 @@ export interface operations {
             path: {
                 db: string;
                 rec: string;
+                /** @description The relation field, by api_name (as query filters and value patches name fields) or by id. #458 — an unrecognised field is a 404, never a 500. */
                 field: string;
             };
             cookie?: never;
@@ -6868,6 +6869,7 @@ export interface operations {
             path: {
                 db: string;
                 rec: string;
+                /** @description The relation field, by api_name (as query filters and value patches name fields) or by id. #458 — an unrecognised field is a 404, never a 500. */
                 field: string;
             };
             cookie?: never;
@@ -6893,6 +6895,7 @@ export interface operations {
             path: {
                 db: string;
                 rec: string;
+                /** @description The relation field, by api_name (as query filters and value patches name fields) or by id. #458 — an unrecognised field is a 404, never a 500. */
                 field: string;
             };
             cookie?: never;
@@ -6918,6 +6921,7 @@ export interface operations {
             path: {
                 db: string;
                 rec: string;
+                /** @description The relation field, by api_name (as query filters and value patches name fields) or by id. #458 — an unrecognised field is a 404, never a 500. */
                 field: string;
             };
             cookie?: never;
@@ -8122,6 +8126,7 @@ export interface operations {
             path: {
                 db: string;
                 rec: string;
+                /** @description The button field, by api_name or by id (#458 — same resolver as the links routes; an unrecognised field is a 404, never a 500). */
                 field: string;
             };
             cookie?: never;
