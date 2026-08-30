@@ -367,6 +367,17 @@ export class MembersDbService {
    * by matching it — and it is not personal data on its own: it is an opaque
    * identifier whose account has already been destroyed. Dropping it would leave
    * an unreachable orphan row that a later backfill could duplicate.
+   *
+   * #463 — an admin can add ANY custom column to Members (it has no write
+   * protection, ADR-0017 §7 open question), and `records.service.ts` `update()`
+   * merges rather than replaces: a field this method's payload does not name is
+   * carried forward untouched. Vera reproduced a home address and phone number
+   * surviving byte-for-byte on a row titled "Deleted user". The safe default —
+   * and what criterion 3 of #463 asks for — is to clear every column this
+   * projection does not itself own, rather than lengthen a fixed list: that is
+   * the same defect one release later, the first time an admin adds a column.
+   * `enumerateCustomFieldApiNames` does the enumeration; each is set to `null`,
+   * which `records.service.ts:2154` already treats as "clear this field".
    */
   async erasePii(
     workspaceId: string,
@@ -388,6 +399,8 @@ export class MembersDbService {
     if (!database) return;
     const existing = await this.findMemberRow(database.id, userId);
     if (!existing) return;
+    const customFieldApiNames = await this.enumerateCustomFieldApiNames(database.id);
+    const clearCustomFields = Object.fromEntries(customFieldApiNames.map((apiName) => [apiName, null]));
     await this.records.update(
       workspaceId,
       database.id,
@@ -397,9 +410,48 @@ export class MembersDbService {
         email: anonymisedEmail,
         avatar: null,
         ...(alsoTombstone ? { active: false } : {}),
+        ...clearCustomFields,
       },
       SYSTEM_ACTOR,
     );
+  }
+
+  /**
+   * #463 — every field on the Members database this projection does NOT itself
+   * provision (`ensureMemberFields`'s `email` / `avatar` / `role` / `active` /
+   * `user_id`, plus the title field, which is never a values key). Anything else
+   * is a column an admin added by hand — Members has no write protection
+   * (ADR-0017 §7) — and it must not survive an erasure.
+   *
+   * Enumerated at erase time rather than hardcoded: a fixed list is the same
+   * bug again the next time an admin adds a column. Two kinds of field are
+   * excluded, neither because they hold PII an erasure must not touch, but
+   * because nulling them is either rejected or meaningless:
+   *   - `id` / `created_at` / `updated_at` / `created_by` (plus `title`, never
+   *     a values key) — `validateRecordValues` rejects these as read-only, so a
+   *     workspace cannot add a genuine custom field of these types anyway.
+   *   - `formula` / `lookup` / `rollup` — derived, not admin-entered; the
+   *     underlying source field is what could hold PII, and that field is
+   *     itself enumerated and cleared on its own turn through this same loop.
+   */
+  private async enumerateCustomFieldApiNames(databaseId: string): Promise<string[]> {
+    const OWNED_API_NAMES = new Set(['email', 'avatar', 'role', 'active', 'user_id']);
+    const NOT_CLEARABLE_TYPES = new Set([
+      'title',
+      'id',
+      'created_at',
+      'updated_at',
+      'created_by',
+      'formula',
+      'lookup',
+      'rollup',
+    ]);
+    const allFields = await this.db.query.fields.findMany({
+      where: eq(fieldsTable.databaseId, databaseId),
+    });
+    return allFields
+      .filter((f) => !OWNED_API_NAMES.has(f.apiName) && !NOT_CLEARABLE_TYPES.has(f.type))
+      .map((f) => f.apiName);
   }
 
   async tombstoneMembership(workspaceId: string, userId: string): Promise<void> {
