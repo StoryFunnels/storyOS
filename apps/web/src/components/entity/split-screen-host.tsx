@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
 import type { CSSProperties, ReactNode, RefObject } from 'react';
 import { ChevronsLeftRight, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen, X } from 'lucide-react';
@@ -15,6 +15,7 @@ import {
   ratioFromPointer,
   useSplitRatio,
 } from '@/lib/split-pane-ratio';
+import { usePathname } from 'next/navigation';
 import { RecordDetail, useRecordQuery } from './record-detail';
 import { SplitPanelProvider } from './split-panel-context';
 import type { SplitPanelApi } from './split-panel-context';
@@ -59,30 +60,75 @@ export interface PrimaryPaneControls {
   isMaximized: boolean;
 }
 
-function SplitHost({
-  ws,
-  renderPrimary,
-  primaryLabel,
-  primaryNumber,
-  primaryCloseLabel = 'Restore',
-  primaryFill = false,
-}: {
-  ws: string;
-  /** The left pane. Receives the pane controls when a split is open, and
-   *  `undefined` when it is not (so the plain full-width case is unchanged). */
-  renderPrimary: (controls?: PrimaryPaneControls) => ReactNode;
-  /** Spine text for the primary's left rail when it is docked (#325 — a rail that
-   *  can't tell you what it is defeats the purpose of docking). */
-  primaryLabel: string;
-  primaryNumber?: number | null;
-  primaryCloseLabel?: string;
-  /** The primary fills its pane and manages its own scrolling (a list surface),
-   *  rather than flowing in the pane's scroller (a record). Only affects the
-   *  height chain through the error boundary's wrapper element. */
-  primaryFill?: boolean;
-}) {
+/**
+ * #462 — how the page tells the host what its left pane IS, and how it gets the
+ * pane controls back.
+ *
+ * The host used to be mounted BY each page, so a page could hand both across as
+ * props. It now lives in the workspace layout (so the command palette, a sibling
+ * of `<main>`, is inside it and a search result can open a panel), which puts the
+ * host ABOVE the page instead of around it. Context is what crosses that gap: the
+ * page registers its rail label, and reads the collapse / maximize handlers for
+ * the pane it occupies.
+ *
+ * `controls` is `undefined` whenever no panel is open — the same signal the render
+ * prop used to carry, so a page renders exactly as it did before the split exists.
+ */
+interface SplitPrimary {
+  controls?: PrimaryPaneControls;
+  setLabel: (label: string, number?: number | null) => void;
+}
+
+const SplitPrimaryContext = createContext<SplitPrimary | null>(null);
+
+/** Registers what the primary pane's rail spine should say, for as long as this
+ *  component is mounted. Safe outside a host: it is then a no-op. */
+function useRegisterPrimaryLabel(label: string, number?: number | null) {
+  const primary = useContext(SplitPrimaryContext);
+  const setLabel = primary?.setLabel;
+  useEffect(() => {
+    setLabel?.(label, number ?? null);
+  }, [setLabel, label, number]);
+  return primary?.controls;
+}
+
+/**
+ * #462 — the state half of the host, mounted at the ROOT of the workspace layout.
+ *
+ * It renders no layout of its own; it owns the reducer and publishes the context.
+ * That placement is the whole point of this ticket: `useOpenRecord` reads the
+ * split from React context, so anything that can open a record has to be a
+ * DESCENDANT. #199 mounted the host around each page, which covered every in-page
+ * surface and missed the one thing that is not in a page — the command palette,
+ * rendered near the root of the layout as a sibling of everything else. Wrapping
+ * only `<main>` was not enough for the same reason.
+ *
+ * `SplitArea` below renders the panes, and goes where the panes belong (beside
+ * `<main>`). Two components rather than one because the provider has to sit higher
+ * in the tree than the thing it draws.
+ */
+export function SplitHost({ ws, children }: { ws: string; children: ReactNode }) {
   const isDesktop = useMediaQuery('(min-width: 768px)');
   const [state, dispatch] = useReducer(reduceSplit, undefined, emptySplitStack);
+  // What the primary pane is, as registered by whichever page is mounted (#462).
+  const [primary, setPrimary] = useState<{ label: string; number?: number | null }>({
+    label: 'This page',
+  });
+
+  /*
+   * #462 — the stack is dropped when the primary NAVIGATES, and that is
+   * deliberately not a new behaviour: before this ticket every page mounted its
+   * own host, so routing to another page unmounted the host and took the panels
+   * with it. Hoisting the host to the layout would have silently made a split
+   * survive navigation, which is a product decision nobody made. Resetting here
+   * keeps the observable behaviour exactly what it has always been, and leaves
+   * "should a panel outlive the page it was opened from?" open to be answered on
+   * purpose rather than inherited from a refactor.
+   */
+  const pathname = usePathname();
+  useEffect(() => {
+    dispatch({ type: 'reset' });
+  }, [pathname]);
 
   // Mobile fallback (plan §3.3): there is no split below `md`. If the viewport
   // shrinks under the breakpoint with panels open, drop the whole stack — the
@@ -108,17 +154,7 @@ function SplitHost({
   const view = selectSplitView(state);
   const showStack = isDesktop && state.panels.length > 0;
 
-  // #208: the primary + active panel show as a draggable pair. The divider only
-  // exists in that shared layout — when a pane is maximized or on a rail there's a
-  // single pane and the ratio is inert (the pane just fills with flex-1).
-  const containerRef = useRef<HTMLDivElement>(null);
-  const { ratio, setRatio, persist } = useSplitRatio();
-  const pairMode = !view.primaryOnRail && view.activePanel !== null;
-  // Primary pane gets a fixed basis (its share of the pair); the active pane keeps
-  // flex-1 and takes the rest. Outside pairMode, no override → flex-1 fills.
-  const primaryPaneStyle: CSSProperties | undefined = pairMode
-    ? { flexBasis: `${ratio * 100}%`, flexGrow: 0, flexShrink: 0 }
-    : undefined;
+  // #208's pane ratio lives in `SplitArea`, with the divider it drives.
 
   // #199 — ONE tree, in both the split and no-split cases. The primary is rendered
   // at the same position either way and is HIDDEN, never unmounted, when it docks
@@ -134,192 +170,247 @@ function SplitHost({
   // <main> exactly as it did, and no sticky header or `h-full` chain is disturbed
   // (MN-117 is explicit that moving the scroll container breaks both).
   const railed = showStack && view.primaryOnRail;
+
+  // The controls the page's own pane draws (#182), and the label setter it uses to
+  // name its rail — one object, memoised so registering a label does not re-render
+  // the whole page on every host render.
+  const primaryApi = useMemo<SplitPrimary>(
+    () => ({
+      controls: showStack
+        ? {
+            onCollapse: () => dispatch({ type: 'collapse', id: PRIMARY_ID }),
+            onToggleMaximize: () =>
+              dispatch(view.primaryMaximized ? { type: 'restore' } : { type: 'maximize', id: PRIMARY_ID }),
+            isMaximized: view.primaryMaximized,
+          }
+        : undefined,
+      setLabel: (label, number) => setPrimary({ label, number }),
+    }),
+    [showStack, view.primaryMaximized],
+  );
+
+  // Everything `SplitArea` needs to draw the panes. Internal to this module — the
+  // public contract stays `SplitPanelApi` (what opens a record) and `SplitPrimary`
+  // (what a page registers).
+  const area = useMemo<SplitAreaState>(
+    () => ({ ws, state, dispatch, view, showStack, railed, primary, controls: primaryApi.controls }),
+    [ws, state, view, showStack, railed, primary, primaryApi.controls],
+  );
+
   return (
     <SplitPanelProvider value={api}>
-      <div ref={containerRef} className={showStack ? 'flex h-full' : 'contents'}>
-        {/* Primary as a LEFT rail — collapsed independently (#183) or pushed aside
-            by a maximized panel (#167). Expand/close both bring it back. */}
-        {railed && (
-          <Rail
-            side="left"
-            icon={<PanelLeftOpen className="h-3.5 w-3.5 shrink-0" />}
-            label={primaryLabel}
-            number={primaryNumber}
-            closeLabel={primaryCloseLabel}
-            onExpand={() =>
-              dispatch(view.activePanelMaximized ? { type: 'restore' } : { type: 'expand', id: PRIMARY_ID })
-            }
-            onClose={() =>
-              dispatch(view.activePanelMaximized ? { type: 'restore' } : { type: 'close', id: PRIMARY_ID })
-            }
-          />
-        )}
-
-        {/* Primary pane — with the SAME collapse + maximize/restore controls as a
-            panel (#182). */}
-        <div
-          className={cn(
-            showStack ? 'min-w-0 flex-1 overflow-y-auto border-r border-border-default' : 'contents',
-            railed && 'hidden',
-          )}
-          style={showStack && !railed ? primaryPaneStyle : undefined}
-        >
-          {/*
-            #424 — the record pane renders every field type a database can hold, so
-            it is the widest surface for a bad value to reach: a relation whose
-            target was deleted, a formula whose type changed, an attachment field
-            pointed at a file that is gone. In split screen a throw here used to
-            take BOTH panes and the grid.
-          */}
-          <ErrorBoundary
-            label="This record"
-            className={!showStack ? 'contents' : primaryFill ? 'h-full' : undefined}
-          >
-            {renderPrimary(
-              showStack
-                ? {
-                    onCollapse: () => dispatch({ type: 'collapse', id: PRIMARY_ID }),
-                    onToggleMaximize: () =>
-                      dispatch(
-                        view.primaryMaximized ? { type: 'restore' } : { type: 'maximize', id: PRIMARY_ID },
-                      ),
-                    isMaximized: view.primaryMaximized,
-                  }
-                : undefined,
-            )}
-          </ErrorBoundary>
-        </div>
-
-        {/* #208: draggable divider between the two panes of the shared pair. */}
-        {showStack && pairMode && (
-          <SplitPaneDivider
-            ratio={ratio}
-            containerRef={containerRef}
-            onResize={setRatio}
-            onCommit={persist}
-          />
-        )}
-
-        {showStack && view.activePanel && (
-          <div className="min-w-0 flex-1 overflow-y-auto">
-            {/* Each pane gets its OWN boundary: in split screen, one broken record
-                must not cost the other one you were comparing it to. */}
-            <ErrorBoundary label="This record">
-              <RecordDetail
-                ws={ws}
-                db={view.activePanel.target.db}
-                rec={view.activePanel.target.rec}
-                onClose={() => dispatch({ type: 'close', id: view.activePanel!.id })}
-                onCollapse={() => dispatch({ type: 'collapse', id: view.activePanel!.id })}
-                isMaximized={view.activePanelMaximized}
-                onToggleMaximize={() =>
-                  dispatch(
-                    view.activePanelMaximized
-                      ? { type: 'restore' }
-                      : { type: 'maximize', id: view.activePanel!.id },
-                  )
-                }
-              />
-            </ErrorBoundary>
-          </div>
-        )}
-
-        {/* Collapsed panels dock to a RIGHT rail, in place (#182). */}
-        {showStack &&
-          view.rightRailPanels.map((panel) => (
-            <Rail
-              key={panel.id}
-              side="right"
-              icon={<ChevronsLeftRight className="h-3.5 w-3.5 shrink-0" />}
-              label={panel.target.title || 'Untitled'}
-              number={panel.target.number}
-              closeLabel="Close"
-              onExpand={() => dispatch({ type: 'expand', id: panel.id })}
-              onClose={() => dispatch({ type: 'close', id: panel.id })}
-            />
-          ))}
-      </div>
+      <SplitPrimaryContext.Provider value={primaryApi}>
+        <SplitAreaContext.Provider value={area}>{children}</SplitAreaContext.Provider>
+      </SplitPrimaryContext.Provider>
     </SplitPanelProvider>
   );
 }
 
+interface SplitAreaState {
+  ws: string;
+  state: ReturnType<typeof emptySplitStack>;
+  dispatch: (action: Parameters<typeof reduceSplit>[1]) => void;
+  view: ReturnType<typeof selectSplitView>;
+  showStack: boolean;
+  railed: boolean;
+  primary: { label: string; number?: number | null };
+  controls?: PrimaryPaneControls;
+}
+
+const SplitAreaContext = createContext<SplitAreaState | null>(null);
+
 /**
- * The record page's surface: `SplitHost` with the route's record as the primary
- * pane. Unchanged behaviour from #146 — the props the primary receives are exactly
- * the ones `RecordDetail` already took.
+ * #462 — the layout half of the host: the primary pane, the panels beside it, the
+ * rails and the divider. Placed where the panes belong (the row that holds
+ * `<main>`), while `SplitHost` sits higher and owns the state.
+ *
+ * Renders the primary alone when nothing is open, so a workspace with no panel is
+ * laid out exactly as it was before any of this existed.
+ */
+export function SplitArea({
+  renderPrimary,
+  primaryCloseLabel = 'Restore',
+}: {
+  /** The left pane. Receives the pane controls when a split is open, and
+   *  `undefined` when it is not (so the plain full-width case is unchanged). */
+  renderPrimary: (controls?: PrimaryPaneControls) => ReactNode;
+  primaryCloseLabel?: string;
+}) {
+  const area = useContext(SplitAreaContext);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const { ratio, setRatio, persist } = useSplitRatio();
+
+  // No host above us (a route outside the workspace layout): render the primary
+  // plainly. Never throw — a missing provider must degrade, not break the page.
+  if (!area) return <>{renderPrimary()}</>;
+
+  const { ws, view, showStack, railed, primary, controls, dispatch } = area;
+
+  // #208: the primary + active panel show as a draggable pair. The divider only
+  // exists in that shared layout — when a pane is maximized or on a rail there's a
+  // single pane and the ratio is inert (the pane just fills with flex-1).
+  const pairMode = !view.primaryOnRail && view.activePanel !== null;
+  const primaryPaneStyle: CSSProperties | undefined = pairMode
+    ? { flexBasis: `${ratio * 100}%`, flexGrow: 0, flexShrink: 0 }
+    : undefined;
+
+  return (
+    <div ref={containerRef} className={showStack ? 'flex min-h-0 min-w-0 flex-1' : 'contents'}>
+      {/* Primary as a LEFT rail — collapsed independently (#183) or pushed aside
+          by a maximized panel (#167). Expand/close both bring it back. */}
+      {railed && (
+        <Rail
+          side="left"
+          icon={<PanelLeftOpen className="h-3.5 w-3.5 shrink-0" />}
+          label={primary.label}
+          number={primary.number}
+          closeLabel={primaryCloseLabel}
+          onExpand={() =>
+            dispatch(view.activePanelMaximized ? { type: 'restore' } : { type: 'expand', id: PRIMARY_ID })
+          }
+          onClose={() =>
+            dispatch(view.activePanelMaximized ? { type: 'restore' } : { type: 'close', id: PRIMARY_ID })
+          }
+        />
+      )}
+
+      {/* Primary pane — with the SAME collapse + maximize/restore controls as a
+          panel (#182). */}
+      <div
+        className={cn(
+          // #462 — no `overflow-y-auto` here any more. When the host was mounted
+          // per page this div was the primary's scroller; now that it wraps
+          // <main>, <main> is the scroller again — which is what MN-117 requires
+          // ("main must be the scroll container, or every view's h-full/overflow
+          // -auto and sticky header attach to a scroller that never scrolls").
+          // Two nested scrollers here gave the page a dead outer one and detached
+          // every sticky table header inside it.
+          showStack ? 'flex min-h-0 min-w-0 flex-1 border-r border-border-default' : 'contents',
+          railed && 'hidden',
+        )}
+        style={showStack && !railed ? primaryPaneStyle : undefined}
+      >
+        {/*
+          #424 — the record pane renders every field type a database can hold, so
+          it is the widest surface for a bad value to reach: a relation whose
+          target was deleted, a formula whose type changed, an attachment field
+          pointed at a file that is gone. In split screen a throw here used to take
+          BOTH panes and the grid.
+        */}
+        <ErrorBoundary
+          label="This record"
+          className={showStack ? 'flex min-h-0 min-w-0 flex-1' : 'contents'}
+        >
+          {renderPrimary(controls)}
+        </ErrorBoundary>
+      </div>
+
+      {/* #208: draggable divider between the two panes of the shared pair. */}
+      {showStack && pairMode && (
+        <SplitPaneDivider ratio={ratio} containerRef={containerRef} onResize={setRatio} onCommit={persist} />
+      )}
+
+      {showStack && view.activePanel && (
+        <div className="min-w-0 flex-1 overflow-y-auto">
+          {/* Each pane gets its OWN boundary: in split screen, one broken record
+              must not cost the other one you were comparing it to. */}
+          <ErrorBoundary label="This record">
+            <RecordDetail
+              ws={ws}
+              db={view.activePanel.target.db}
+              rec={view.activePanel.target.rec}
+              onClose={() => dispatch({ type: 'close', id: view.activePanel!.id })}
+              onCollapse={() => dispatch({ type: 'collapse', id: view.activePanel!.id })}
+              isMaximized={view.activePanelMaximized}
+              onToggleMaximize={() =>
+                dispatch(
+                  view.activePanelMaximized
+                    ? { type: 'restore' }
+                    : { type: 'maximize', id: view.activePanel!.id },
+                )
+              }
+            />
+          </ErrorBoundary>
+        </div>
+      )}
+
+      {/* Collapsed panels dock to a RIGHT rail, in place (#182). */}
+      {showStack &&
+        view.rightRailPanels.map((panel) => (
+          <Rail
+            key={panel.id}
+            side="right"
+            icon={<ChevronsLeftRight className="h-3.5 w-3.5 shrink-0" />}
+            label={panel.target.title || 'Untitled'}
+            number={panel.target.number}
+            closeLabel="Close"
+            onExpand={() => dispatch({ type: 'expand', id: panel.id })}
+            onClose={() => dispatch({ type: 'close', id: panel.id })}
+          />
+        ))}
+    </div>
+  );
+}
+
+/**
+ * The record page's surface. Since #462 this no longer mounts a host — the host
+ * lives in the workspace layout — it registers what the primary pane is and draws
+ * the record with the controls the host hands back. Behaviour is unchanged from
+ * #146/#199: with nothing open, this renders exactly the `RecordDetail` it always
+ * did.
  */
 export function RecordSurface({ ws, db, rec }: { ws: string; db: string; rec: string }) {
   // #325: shares RecordDetail's query key, so this is the already-loaded record,
-  // not a second request. Only read for the collapsed rail's title spine.
+  // not a second request. Only read for the collapsed rail's title spine — the real
+  // record title, not the literal word "Record", because a docked primary was the
+  // only spine in the layout that couldn't tell you what it was, precisely when you
+  // need it, since docking is how you park a record to look at something else.
   const primary = useRecordQuery(ws, db, rec);
+  const controls = useRegisterPrimaryLabel(primary.data?.title || 'Untitled', primary.data?.number);
   return (
-    <SplitHost
+    <RecordDetail
       ws={ws}
-      // #325: the real record title, not the literal word "Record". Every RIGHT
-      // rail already showed its panel's title, so a docked primary was the only
-      // spine in the layout that couldn't tell you what it was — precisely when you
-      // need it, since docking is how you park a record to look at something else.
-      primaryLabel={primary.data?.title || 'Untitled'}
-      primaryNumber={primary.data?.number}
-      renderPrimary={(controls) => (
-        <RecordDetail
-          ws={ws}
-          db={db}
-          rec={rec}
-          onCollapse={controls?.onCollapse}
-          onToggleMaximize={controls?.onToggleMaximize}
-          isMaximized={controls?.isMaximized ?? false}
-        />
-      )}
+      db={db}
+      rec={rec}
+      onCollapse={controls?.onCollapse}
+      onToggleMaximize={controls?.onToggleMaximize}
+      isMaximized={controls?.isMaximized ?? false}
     />
   );
 }
 
 /**
- * #199 — a LIST surface that can open a record beside itself: My Work, a database
- * view, search results. Same host, same reducer, same provider; the primary pane is
- * the list instead of a record.
+ * #199 — a LIST surface that can open a record beside itself: My Work and the
+ * database views. Since #462 it, too, only consumes the layout's host.
  *
  * Two things differ from `RecordSurface`, both because a list is not a record:
  *   - The rail spine is the surface's own name ("My Work", the database name) — a
  *     list has no record title to borrow.
  *   - A list has no record header to hang the collapse / maximize controls on, so
- *     the host draws a thin control strip above it (`ListPaneChrome`) carrying the
- *     SAME three controls, from the same handlers. Criterion 3 of the ticket is that
- *     the list pane collapses to a rail like any other pane, and it does — via
+ *     it draws a thin control strip above itself (`ListPaneChrome`) carrying the
+ *     SAME three controls, from the same handlers. #199's criterion 3 is that the
+ *     list pane collapses to a rail like any other pane, and it does — via
  *     `PRIMARY_ID`, the same path the record page's primary uses.
  *
- * `children` is rendered inside the provider in BOTH the split and no-split cases,
- * so a list is never remounted when a panel opens or closes — remounting would
- * throw away scroll position and selection, which is exactly the "losing your
- * place" this ticket exists to fix.
+ * The element shape is the same with and without a split (`contents` when there is
+ * no panel), so the list lays out against `<main>` exactly as it did and is never
+ * remounted when a panel opens — remounting would throw away scroll position and
+ * selection, which is the "losing your place" #199 exists to fix.
  */
 export function ListSurface({
-  ws,
   label,
   children,
 }: {
-  ws: string;
   /** Name of the list for its docked rail's spine — "My Work", the database name. */
   label: string;
   children: ReactNode;
 }) {
+  const controls = useRegisterPrimaryLabel(label);
   return (
-    <SplitHost
-      ws={ws}
-      primaryLabel={label}
-      primaryCloseLabel="Restore"
-      primaryFill
-      renderPrimary={(controls) => (
-        // Same element shape with and without a split (see SplitHost) — `contents`
-        // when there is no panel, so the list lays out against <main> exactly as it
-        // did before this ticket and is never remounted when a panel opens.
-        <div className={controls ? 'flex h-full min-h-0 flex-col' : 'contents'}>
-          {controls && <ListPaneChrome label={label} controls={controls} />}
-          <div className={controls ? 'min-h-0 flex-1 overflow-y-auto' : 'contents'}>{children}</div>
-        </div>
-      )}
-    />
+    <div className={controls ? 'flex h-full min-h-0 flex-col' : 'contents'}>
+      {controls && <ListPaneChrome label={label} controls={controls} />}
+      <div className={controls ? 'min-h-0 flex-1 overflow-y-auto' : 'contents'}>{children}</div>
+    </div>
   );
 }
 

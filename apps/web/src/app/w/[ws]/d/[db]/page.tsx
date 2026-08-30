@@ -481,7 +481,7 @@ function DatabasePageSurface() {
   const { ws, db } = useParams<{ ws: string; db: string }>();
   const database = useDatabase(ws, db);
   return (
-    <ListSurface ws={ws} label={database.data?.name || 'Database'}>
+    <ListSurface label={database.data?.name || 'Database'}>
       <DatabasePageInner />
     </ListSurface>
   );
