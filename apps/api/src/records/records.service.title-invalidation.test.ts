@@ -114,6 +114,9 @@ function makeService(db: Db) {
     // an unlimited window keeps them honest either way (a 0 would silently
     // disable capture and make a future capture test pass for the wrong reason).
     { getLimits: vi.fn().mockResolvedValue({ historyRetentionDays: Infinity }) } as never,
+    // #469: these unit tests never exercise a guest-scoped call (membership is
+    // always omitted), so AccessService is never consulted.
+    { effectiveForDatabase: vi.fn() } as never,
   );
 }
 

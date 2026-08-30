@@ -53,25 +53,16 @@ export class SearchController {
     }));
   }
 
-  /** Databases the caller may see, or null for members/admins (= all). */
+  /**
+   * Databases the caller may see, or null for members/admins (= all).
+   *
+   * #469 — this used to compute the guest/space/database intersection inline,
+   * a second copy of the same logic mentions.service.ts also carried inline.
+   * Both now go through AccessService.visibleDatabaseIds.
+   */
   private async visibleDatabaseIds(req: WorkspaceRequest): Promise<string[] | null> {
-    const visibility = await this.access.guestVisibility(req.membership);
-    if (!visibility) return null;
-    const rows = await this.db.query.databases.findMany({
-      where: and(
-        eq(databases.workspaceId, req.membership.workspaceId),
-        visibility.spaceIds.size > 0 && visibility.databaseIds.size > 0
-          ? or(
-              inArray(databases.spaceId, [...visibility.spaceIds]),
-              inArray(databases.id, [...visibility.databaseIds]),
-            )
-          : visibility.spaceIds.size > 0
-            ? inArray(databases.spaceId, [...visibility.spaceIds])
-            : inArray(databases.id, [...visibility.databaseIds.size ? visibility.databaseIds : new Set([''])]),
-      ),
-      columns: { id: true },
-    });
-    return rows.map((r) => r.id);
+    const ids = await this.access.visibleDatabaseIds(req.membership);
+    return ids === null ? null : [...ids];
   }
 
   @Get('search')
@@ -209,6 +200,7 @@ export class SearchController {
       const projected = await this.recordsService.attachLinks(
         rows.map((r) => this.recordsService.project(r, defs)),
         defs,
+        req.membership,
       );
       const byId = new Map(projected.map((p) => [p.id, p]));
       groups.push({

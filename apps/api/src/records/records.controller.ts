@@ -75,7 +75,7 @@ export class RecordsController {
     @Query() query: ListRecordsQueryDto,
   ) {
     await this.assertDb(req, databaseId);
-    return this.recordsService.list(databaseId, query);
+    return this.recordsService.list(databaseId, query, req.membership);
   }
 
   @Post()
@@ -103,7 +103,7 @@ export class RecordsController {
     @Body() body: QueryRecordsDto,
   ) {
     await this.assertDb(req, databaseId);
-    return this.recordsService.query(databaseId, body, req.user.id);
+    return this.recordsService.query(databaseId, body, req.user.id, req.membership);
   }
 
   /**
@@ -201,7 +201,7 @@ export class RecordsController {
     await this.assertDb(req, databaseId);
     const n = Number.parseInt(number, 10);
     if (!Number.isInteger(n)) throw new NotFoundException('Record not found');
-    return this.recordsService.getByNumber(databaseId, n);
+    return this.recordsService.getByNumber(databaseId, n, req.membership);
   }
 
   @Get(':rec')
@@ -212,7 +212,7 @@ export class RecordsController {
     @Param('rec') recordId: string,
   ) {
     await this.assertDb(req, databaseId);
-    return this.recordsService.get(databaseId, recordId);
+    return this.recordsService.get(databaseId, recordId, req.membership);
   }
 
   @Patch(':rec')
