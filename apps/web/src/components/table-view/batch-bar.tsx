@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { DESTRUCTIVE_TOAST_MS, pushUndo } from '@/lib/undo';
 import { useQuery } from '@tanstack/react-query';
@@ -65,35 +65,81 @@ export function BatchBar({
   const [settingField, setSettingField] = useState<Field | null>(null);
 
   /**
-   * #479 — mount the editor on the NEXT frame, after the menu has finished
-   * closing. Not a cosmetic delay: it is the fix.
+   * #479 — the field the menu chose, not yet mounted. The editor for it mounts
+   * one COMMIT later, from the effect below.
    *
    * Five field types opened nothing at all — select, workflow, multi_select,
    * date, user — silently, with no error. Those are exactly the editors that
    * render inside a Radix Popover; text/number/email are plain inputs and were
-   * fine. Mounting the popover synchronously from `onSelect` put it on screen
-   * while the dropdown's FocusScope was still tearing down, and that teardown
-   * moves focus. The popover's own DismissableLayer saw focus land outside
-   * itself and dismissed immediately. Measured stack, bottom to top:
+   * fine. Mounting the popover synchronously from the menu's `onSelect` put it on
+   * screen while the dropdown's FocusScope was still tearing down, and that
+   * teardown moves focus. The popover's own DismissableLayer saw focus land
+   * outside itself and dismissed immediately. Measured stack, bottom to top:
    *
    *   FocusScope.useEffect -> handleFocusOut -> focus()
    *     -> DismissableLayer focusOutside -> onDismiss
    *     -> onOpenChange(false) -> OptionList.handleOpenChange -> onClose()
    *     -> setSettingField(null)
    *
-   * so the panel was added and removed in the same tick and no popper content
-   * was ever created. `onCloseAutoFocus` does not cover it — that governs where
-   * focus goes when the menu closes, not the focus-out the scope fires while it
-   * is still mounted.
+   * so the panel was added and removed in the same tick and no popper content was
+   * ever created. `onCloseAutoFocus` does not cover it — that governs where focus
+   * goes when the menu closes, not the focus-out the scope fires while it is still
+   * mounted. It was tried, it did not work, and it is deliberately not in this
+   * file: do not re-add it thinking it is the fix.
    *
-   * Waiting one frame means the menu's scope is gone before the popover exists,
-   * so there is no outside-focus for it to react to. The alternative — telling
-   * every popover editor to ignore focus-outside — would have changed the grid,
-   * where these same editors are used far more and already work.
+   * Deferring by one commit means the menu's scope is gone before the popover
+   * exists, so there is no outside-focus for it to react to.
+   *
+   * WHY AN EFFECT AND NOT `requestAnimationFrame`, which is what shipped first and
+   * was wrong: a hidden or backgrounded page does not run animation frames. In
+   * that state the callback never fires, the editor never mounts, and the click is
+   * silent again — the exact property #479's criterion 4 forbids, reintroduced by
+   * the fix for #479 itself. Vera caught it by measuring that a bare rAF scheduled
+   * in her (hidden) pane had not fired by the next call. Effects always run after
+   * their commit, visible or not, so this cannot fail that way.
    */
-  const openEditorFor = (field: Field) => {
-    requestAnimationFrame(() => setSettingField(field));
-  };
+  const [pendingField, setPendingField] = useState<Field | null>(null);
+  useEffect(() => {
+    if (!pendingField) return;
+    // A macrotask, so this lands after React has committed the menu's unmount AND
+    // after Radix's FocusScope cleanup has run. A passive effect is NOT late
+    // enough — measured: the promote fires, the editor mounts, and the teardown
+    // still dismisses it.
+    const open = setTimeout(() => {
+      setSettingField(pendingField);
+      setPendingField(null);
+    }, 0);
+    /*
+     * #479 criterion 4 — "a failing action can never again be SILENT. If an
+     * editor cannot be shown, the toolbar says so."
+     *
+     * The first fix removed the CAUSE and stopped there, and Vera was right that
+     * the criterion asks for the property as well: it says "independent of which
+     * types are affected". She then demonstrated it, which is the part that made
+     * this concrete — her pane runs with document.hidden, the original fix used
+     * requestAnimationFrame, a hidden page never runs animation frames, so the
+     * click did nothing and said nothing. The fix for #479 had reintroduced #479's
+     * defining property.
+     *
+     * This is the decidable version of the guarantee, not a timing heuristic. It
+     * does not try to judge whether a panel closed "too fast" — it asks one
+     * question with a definite answer: did the editor ever mount at all? Promotion
+     * clears `pendingField`, so a legitimate open (however fast the user then
+     * dismisses it) can never trip this. Only a promotion that never happened can.
+     */
+    const stuck = setTimeout(() => {
+      setPendingField((still) => {
+        if (!still) return null;
+        toast.error(`Could not open the editor for “${still.displayName}”`);
+        return null;
+      });
+    }, 2000);
+    return () => {
+      clearTimeout(open);
+      clearTimeout(stuck);
+    };
+  }, [pendingField]);
+
   const [linkingField, setLinkingField] = useState<Field | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -280,35 +326,9 @@ export function BatchBar({
               Set field ▾
             </button>
           </DropdownMenuTrigger>
-          {/*
-            #479 — `onCloseAutoFocus` is the whole fix, and it is worth saying why
-            a one-liner was the answer to "five field types open nothing".
-
-            Radix returns focus to a menu's trigger when the menu closes. Picking
-            a field mounts the editor for it, and the editors for select,
-            workflow, multi_select, date and user are Radix Popovers. The order is
-            the problem: the popover mounts first, THEN the menu restores focus to
-            the "Set field" button — which the popover's dismissable layer reads as
-            focus moving outside itself. It calls `onOpenChange(false)`, OptionList
-            forwards that to `onClose()`, this component's `onCancel` sets
-            `settingField` back to null, and the panel unmounts in the same tick it
-            appeared. Measured: the panel div is added and removed in one
-            MutationObserver batch, no popper content is ever created, and focus
-            lands on the trigger button immediately after.
-
-            text / number / email survived only because they render plain inputs
-            and have no dismissable layer to trigger.
-
-            Preventing the focus restore fixes the cause. Nothing about the shared
-            editors changes, so the grid — where these same editors are used far
-            more heavily and already work — is untouched.
-          */}
-          <DropdownMenuContent
-            className="max-h-64 overflow-y-auto"
-            onCloseAutoFocus={(e) => e.preventDefault()}
-          >
+          <DropdownMenuContent className="max-h-64 overflow-y-auto">
             {fields.map((field) => (
-              <DropdownMenuItem key={field.id} onSelect={() => openEditorFor(field)}>
+              <DropdownMenuItem key={field.id} onSelect={() => setPendingField(field)}>
                 {field.displayName}
               </DropdownMenuItem>
             ))}
