@@ -9,6 +9,7 @@ import { and, asc, eq, inArray, isNull, or } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import type { AutoLinkRules, RelationCardinality } from '@storyos/schemas';
 import { DB } from '../db/db.module';
+import { findFieldByRef } from '../fields/field-ref';
 import type { Db } from '../db/client';
 import { activityEvents, databases, fields, recordLinks, records, relations } from '../db/schema';
 import { slugify } from '../databases/databases.service';
@@ -437,10 +438,13 @@ export class RelationsService {
 
   // --- Links ---
 
-  private async resolveLinkContext(databaseId: string, recordId: string, fieldId: string) {
-    const field = await this.db.query.fields.findFirst({
-      where: and(eq(fields.id, fieldId), eq(fields.databaseId, databaseId), isNull(fields.deletedAt)),
-    });
+  /**
+   * #458 — `fieldRef` is the field's id OR its api_name, resolved by the one
+   * shared helper. It used to be an id only, and anything else reached the
+   * `uuid` column and came back as a 500 instead of this 404.
+   */
+  private async resolveLinkContext(databaseId: string, recordId: string, fieldRef: string) {
+    const field = await findFieldByRef(this.db, databaseId, fieldRef);
     if (!field || field.type !== 'relation') throw new NotFoundException('Relation field not found');
     const config = field.config as { relation_id: string; side: 'a' | 'b' };
     const relation = await this.db.query.relations.findFirst({

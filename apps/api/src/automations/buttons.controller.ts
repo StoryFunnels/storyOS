@@ -1,11 +1,11 @@
 import { Controller, Inject, NotFoundException, Param, Post, Req, UseGuards } from '@nestjs/common';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import { and, eq, isNull } from 'drizzle-orm';
 import type { AutomationAction } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { activityEvents, fields } from '../db/schema';
+import { activityEvents } from '../db/schema';
+import { findFieldByRef } from '../fields/field-ref';
 import { AuthGuard } from '../auth/auth.guard';
 import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import { RunButtonRoute } from '../auth/token-scope.guard';
@@ -28,18 +28,26 @@ export class ButtonsController {
 
   @RunButtonRoute()
   @Post('press')
+  @ApiParam({
+    name: 'field',
+    description:
+      'The button field, by api_name or by id (#458 — same resolver as the links routes; an unrecognised field is a 404, never a 500).',
+  })
   @Throttle({ default: { limit: 10, ttl: 10_000 } })
   @ApiOperation({ summary: 'Press a button field (editor+); actions run as the presser' })
   async press(
     @Req() req: WorkspaceRequest,
     @Param('db') databaseId: string,
     @Param('rec') recordId: string,
-    @Param('field') fieldId: string,
+    /** #458 — the button's id OR its api_name; same resolver the links routes use. */
+    @Param('field') fieldRef: string,
   ) {
     await this.databases.assertAccess(req.membership, databaseId, 'editor');
-    const field = await this.db.query.fields.findFirst({
-      where: and(eq(fields.id, fieldId), eq(fields.databaseId, databaseId), isNull(fields.deletedAt)),
-    });
+    // #458 — this route had the identical raw-param-into-uuid-column shape as
+    // the links routes, so an api_name (or any non-uuid) crashed with 22P02
+    // rather than reaching the NotFoundException below. Fixed here in the same
+    // change, through the same helper, rather than left to be found later.
+    const field = await findFieldByRef(this.db, databaseId, fieldRef);
     if (!field || field.type !== 'button') throw new NotFoundException('Button not found');
     const record = await this.recordsService.get(databaseId, recordId);
 
