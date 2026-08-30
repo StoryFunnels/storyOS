@@ -77,6 +77,48 @@ export interface TemplateRecordDef {
   links?: Array<{ relation: string; to: string }>;
 }
 
+/**
+ * #455 — a rule a pack ships pre-wired.
+ *
+ * `enabled` is the literal `false`, not `boolean`. A pack author who writes
+ * `enabled: true` fails to COMPILE rather than failing at review, which is the
+ * difference between a safety property and a convention. The installer passes
+ * this through, so there is no path — definition, review or install — by which
+ * a pack can switch on a rule in someone else's workspace.
+ */
+export interface TemplateAutomationDef {
+  /** The pack-local database key the rule lives on. */
+  database: string;
+  name: string;
+  /** Same shape the API takes; field refs are pack-local keys, resolved at install. */
+  trigger: Record<string, unknown>;
+  condition?: Record<string, unknown>;
+  actions: Array<Record<string, unknown>>;
+  /** Always false. Typed as the literal so an enabled pack rule cannot be written. */
+  enabled: false;
+  /**
+   * Provider descriptor ids this rule's actions need before it can be switched
+   * on — e.g. ['slack']. Surfaced at install and enforced on enable (#455).
+   */
+  requires_connections?: string[];
+}
+
+/**
+ * #455 — a source a pack expects, offered as a SUGGESTION.
+ *
+ * Installing a pack never creates a source. A source needs a connection the
+ * installing workspace may not have, and creating one that cannot authenticate
+ * produces a broken integration the user did not ask for and has to diagnose.
+ */
+export interface TemplateSuggestedSourceDef {
+  /** Provider descriptor id from the sources provider registry. */
+  provider: string;
+  /** What this source would bring in, in the pack's own words. */
+  description: string;
+  /** The pack-local database key it would populate. */
+  database?: string;
+}
+
 export interface TemplateDef {
   /** Markdown guide shipped with the pack (MN-053) — shown in the gallery. */
   guide?: string;
@@ -91,6 +133,10 @@ export interface TemplateDef {
   relations: TemplateRelationDef[];
   views: TemplateViewDef[];
   records: TemplateRecordDef[];
+  /** #455 — rules the pack ships, always installed disabled. */
+  automations?: TemplateAutomationDef[];
+  /** #455 — sources the pack expects. Never created; surfaced for the user to act on. */
+  suggested_sources?: TemplateSuggestedSourceDef[];
 }
 
 export interface IntentDef {

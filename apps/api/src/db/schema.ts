@@ -684,6 +684,16 @@ export const automations = pgTable(
     condition: jsonb('condition'),
     actions: jsonb('actions').notNull(),
     failureStreak: integer('failure_streak').notNull().default(0),
+    /**
+     * #455 — connection provider ids this rule needs before it may be enabled.
+     *
+     * Set by the pack installer from the pack's own declaration; empty for a
+     * hand-written rule, which keeps the guard from changing behaviour for
+     * every rule that already exists. Stored on the rule rather than derived
+     * from the actions at enable time so the requirement travels with the rule
+     * a pack shipped, and cannot drift as action types gain or lose providers.
+     */
+    requiresConnections: jsonb('requires_connections').notNull().default([]),
     nextDueAt: timestamp('next_due_at', { withTimezone: true }),
     createdBy: text('created_by'),
     /**

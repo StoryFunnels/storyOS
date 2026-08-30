@@ -11,6 +11,7 @@ import {
 import { and, desc, eq, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm';
 import type { AutomationAction } from '@storyos/schemas';
 import { DB } from '../db/db.module';
+import { missingConnections } from '../connections/missing-connections';
 import type { Db } from '../db/client';
 import { automationJobs, automationRuns, automations, databases, fields, records, relations, workspaces } from '../db/schema';
 import { compileFilter } from '../records/query-compiler';
@@ -224,6 +225,28 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
     }
     if (patch.condition) {
       await this.assertConditionCompiles(await this.conditionDbFor(databaseId, trigger), patch.condition, actorId);
+    }
+    /*
+     * #455 — a rule a pack shipped switched off may not be switched ON while
+     * the connection it needs is missing.
+     *
+     * The alternative is enabling into a runtime failure: the rule looks live,
+     * fires on the next matching record, and the only evidence is an error in
+     * the run log that the person who flipped the switch never sees. Refusing
+     * here names what is missing at the moment they can act on it.
+     *
+     * Scoped to what the rule DECLARES (empty for every hand-written rule), so
+     * this cannot change behaviour for rules that already exist.
+     */
+    if (patch.enabled === true) {
+      const required = (rule.requiresConnections as string[] | null) ?? [];
+      const missing = await missingConnections(this.db, workspaceId, required);
+      if (missing.length > 0) {
+        throw new UnprocessableEntityException(
+          `"${rule.name}" needs ${missing.join(' and ')} connected before it can be enabled. ` +
+            'Add the connection in Settings → Connections, then enable the rule.',
+        );
+      }
     }
     // Mint a hook identity the moment a rule becomes (or starts life as, via a
     // trigger patch) webhook_received and doesn't have one yet; clear it the

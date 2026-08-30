@@ -2,13 +2,15 @@ import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { eq, inArray } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { databases as databasesTable, records, workspaces } from '../db/schema';
+import { automations as automationsTable, databases as databasesTable, records, workspaces } from '../db/schema';
+import { missingConnections } from '../connections/missing-connections';
 import { DatabasesService } from '../databases/databases.service';
 import { FieldsService, OPTIONED_FIELD_TYPES, SINGLE_OPTION_FIELD_TYPES } from '../fields/fields.service';
 import { RecordsService } from '../records/records.service';
 import { RelationsService } from '../relations/relations.service';
 import { SpacesService } from '../workspaces/spaces.service';
 import { ViewsService } from '../views/views.service';
+import { AutomationsService } from '../automations/automations.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { INTENTS, TEMPLATES } from './definitions';
 import type { TemplateFilterDef } from './types';
@@ -38,6 +40,7 @@ export class TemplatesService {
     private readonly relationsService: RelationsService,
     private readonly recordsService: RecordsService,
     private readonly views: ViewsService,
+    private readonly automations: AutomationsService,
   ) {}
 
   list() {
@@ -270,14 +273,123 @@ export class TemplatesService {
       await this.trackSamples(membership.workspaceId, sampleIds);
     }
 
+    /*
+     * 5. Automations (#455) — always DISABLED.
+     *
+     * Same routine, same maps, same service layer as everything above; a pack's
+     * rules are not a second install path. `enabled: false` is passed
+     * explicitly here AND typed as the literal false on TemplateAutomationDef,
+     * so neither the definition nor this call site can switch a rule on in
+     * someone else's workspace.
+     *
+     * Not tracked as sample data: a rule is configuration, and "Remove sample
+     * data" must not silently delete the pack's rules along with its rows.
+     */
+    const automationIds: string[] = [];
+    for (const ruleDef of template.automations ?? []) {
+      const databaseId = dbIds.get(ruleDef.database);
+      if (!databaseId) {
+        notes.push(`Skipped automation "${ruleDef.name}" — it names an unknown database in this pack.`);
+        continue;
+      }
+      const rule = await this.automations.create(
+        membership.workspaceId,
+        databaseId,
+        {
+          name: ruleDef.name,
+          trigger: this.resolvePackRefs(ruleDef.trigger, ruleDef.database, fieldApi, fieldIds, optionIds) as never,
+          ...(ruleDef.condition
+            ? { condition: this.resolvePackRefs(ruleDef.condition, ruleDef.database, fieldApi, fieldIds, optionIds) }
+            : {}),
+          actions: ruleDef.actions.map(
+            (a) => this.resolvePackRefs(a, ruleDef.database, fieldApi, fieldIds, optionIds) as never,
+          ),
+          enabled: false,
+        },
+        actorId,
+      );
+      automationIds.push(rule.id);
+      // Persist the requirement on the rule so the enable guard enforces exactly
+      // what the pack declared, through the same helper that worded this note.
+      if (ruleDef.requires_connections?.length) {
+        await this.db
+          .update(automationsTable)
+          .set({ requiresConnections: ruleDef.requires_connections })
+          .where(eq(automationsTable.id, rule.id));
+      }
+      const missing = await missingConnections(this.db, membership.workspaceId, ruleDef.requires_connections);
+      notes.push(
+        missing.length > 0
+          ? `Installed "${ruleDef.name}" switched off. It needs ${missing.join(', ')} connected before it can be enabled.`
+          : `Installed "${ruleDef.name}" switched off — review it, then enable it yourself.`,
+      );
+    }
+
+    /*
+     * 6. Suggested sources (#455) — NOTHING is created.
+     *
+     * A source needs a connection this workspace may not have, and silently
+     * creating one that cannot authenticate hands the user a broken
+     * integration they never asked for and have to diagnose. So the pack's
+     * expectations are returned and noted, and the user decides.
+     */
+    const suggestedSources = (template.suggested_sources ?? []).map((source) => ({
+      provider: source.provider,
+      description: source.description,
+      database_id: source.database ? (dbIds.get(source.database) ?? null) : null,
+    }));
+    for (const source of template.suggested_sources ?? []) {
+      notes.push(`Suggested source "${source.provider}": ${source.description} (not created — connect it if you want it).`);
+    }
+
     return {
       applied: slug,
       space_id: spaceId,
       databases: Object.fromEntries(dbIds),
       fields: Object.fromEntries(fieldIds),
       sample_records: sampleIds.length,
+      automations: automationIds,
+      suggested_sources: suggestedSources,
       notes,
     };
+  }
+
+  /**
+   * #455 — turn a pack's symbolic field references into real ones.
+   *
+   * A pack definition names fields by their pack-local key, because the uuids
+   * do not exist until install. Trigger/condition/action objects are walked and
+   * any `field`/`field_id` key is swapped for the installed field's api_name or
+   * uuid, and any `{Field Key}` token in a string becomes `{Display Name}`.
+   * Everything else is passed through untouched, so a rule can use any action
+   * the engine already supports without this method knowing about it.
+   */
+  private resolvePackRefs(
+    value: unknown,
+    dbKey: string,
+    fieldApi: Map<string, string>,
+    fieldIds: Map<string, string>,
+    optionIds: Map<string, string>,
+  ): unknown {
+    if (Array.isArray(value)) {
+      return value.map((v) => this.resolvePackRefs(v, dbKey, fieldApi, fieldIds, optionIds));
+    }
+    if (value === null || typeof value !== 'object') return value;
+    const out: Record<string, unknown> = {};
+    for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+      if (key === 'field_id' && typeof raw === 'string') {
+        out[key] = fieldIds.get(`${dbKey}.${raw}`) ?? raw;
+      } else if (key === 'field' && typeof raw === 'string') {
+        out[key] = fieldApi.get(`${dbKey}.${raw}`) ?? raw;
+      } else if (key === 'database_id' && typeof raw === 'string') {
+        out[key] = raw;
+      } else if (key === 'value' && typeof raw === 'string') {
+        out[key] = optionIds.get(`${dbKey}.${raw}`) ?? raw;
+      } else {
+        out[key] = this.resolvePackRefs(raw, dbKey, fieldApi, fieldIds, optionIds);
+      }
+    }
+    return out;
   }
 
   private async trackSamples(workspaceId: string, ids: string[]) {

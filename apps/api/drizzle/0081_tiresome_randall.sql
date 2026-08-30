@@ -1,0 +1,1 @@
+ALTER TABLE "automations" ADD COLUMN "requires_connections" jsonb DEFAULT '[]'::jsonb NOT NULL;
