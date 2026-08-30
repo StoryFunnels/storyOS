@@ -643,6 +643,18 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   update_source: 'write',
   delete_source: 'write',
   sync_source: 'write',
+  /*
+   * #443 — outbound webhook subscriptions. WebhooksController is @MinRole('admin')
+   * for every route, including the reads ("a webhook holds a signing secret and
+   * makes the server send outbound requests carrying record data"), so all four
+   * mirror that ceiling rather than advertising a read a lower token cannot use.
+   *
+   * There is no create_webhook, and that is deliberate — see coverage.ts.
+   */
+  list_webhooks: 'admin',
+  update_webhook: 'admin',
+  delete_webhook: 'admin',
+  list_webhook_deliveries: 'admin',
   // #334: automation-rule CRUD. The AutomationsController is @RequiresScope('admin')
   // AND creator-gated on the database, so EVERY tool here — including the reads —
   // mirrors that ceiling: a read- or write-scoped token never even sees them, and
@@ -5893,6 +5905,173 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         return text(res.data ?? res);
       },
     ),
+  );
+
+  // ---- #443: outbound webhook subscriptions — manage and DEBUG them. ----
+  //
+  // The delivery log is the point. "I registered a webhook and nothing arrived"
+  // is the failure this area exists to make answerable, and a subscription can
+  // sit at enabled:true while failing every attempt.
+  //
+  // Creating one is NOT here: POST /webhooks mints and returns a live signing
+  // secret, which would land in a transcript, and it is returned exactly once —
+  // so redacting it would produce a webhook whose secret nobody can ever
+  // recover. Same landing as sources: make it in the app, manage it here.
+  // The reason lives in coverage.ts, which is where a future reader greps.
+
+  interface WebhookRow {
+    id: string;
+    url: string;
+    events?: string[];
+    enabled?: boolean;
+  }
+
+  /** Resolve a webhook by id or by its exact URL — a subscription has no name. */
+  async function resolveWebhook(wsId: string, ref: string): Promise<WebhookRow> {
+    const res = await unwrap<{ data?: WebhookRow[] }>(
+      client.GET('/api/v1/workspaces/{ws}/webhooks', { params: { path: { ws: wsId } } } as never),
+    );
+    const list = res.data ?? [];
+    const byId = list.find((w) => w.id === ref);
+    if (byId) return byId;
+    const byUrl = list.filter((w) => w.url === ref.trim());
+    if (byUrl.length === 1) return byUrl[0]!;
+    if (byUrl.length > 1) {
+      throw new Error(`${byUrl.length} webhooks point at "${ref}". Pass the webhook id from list_webhooks.`);
+    }
+    throw new Error(
+      `No webhook matches "${ref}" in this workspace. Known urls: ${list.map((w) => w.url).join(', ') || '(none)'}.`,
+    );
+  }
+
+  reg(
+    'list_webhooks',
+    {
+      title: 'List webhooks',
+      description:
+        'The workspace\'s outbound webhook subscriptions — url, which events each is subscribed to, whether it is enabled, and the last delivery\'s status/code/error. ' +
+        'Signing secrets are never returned here. ' +
+        'Note this is the standalone subscription surface; the usual way to call an external system is a send_webhook or http_request ACTION on an automation rule (see create_automation), which is reachable and unaffected by anything here. ' +
+        'Creating a subscription is not available over MCP — see delete_webhook and the note in list_webhook_deliveries.',
+      inputSchema: { workspace: z.string().describe('Workspace name or id.') },
+    },
+    handle<{ workspace: string }>(async ({ workspace }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<{ data?: unknown[] }>(
+        client.GET('/api/v1/workspaces/{ws}/webhooks', { params: { path: { ws: ws.id } } } as never),
+      );
+      return text(res.data ?? []);
+    }),
+  );
+
+  reg(
+    'list_webhook_deliveries',
+    {
+      title: 'List webhook deliveries',
+      description:
+        'Recent delivery ATTEMPTS for one webhook, newest first — event type, status, HTTP status_code, the error text when it failed, how many attempts it has taken and when the next retry is due. ' +
+        'This answers "I registered a webhook and nothing arrived": failures are recorded here with their reason, and a subscription can be enabled and failing every single attempt. ' +
+        'If this list is EMPTY, nothing was ever dispatched — check that list_webhooks shows the events you expected to be subscribed to, rather than assuming the receiver dropped it.',
+      inputSchema: {
+        workspace: z.string().describe('Workspace name or id.'),
+        webhook: z.string().describe('Webhook id, or its exact url (from list_webhooks).'),
+        limit: z.number().int().min(1).max(100).optional().describe('Max attempts to return (default 20, max 100).'),
+      },
+    },
+    handle<{ workspace: string; webhook: string; limit?: number }>(async ({ workspace, webhook, limit }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const hook = await resolveWebhook(ws.id, webhook);
+      const res = await unwrap<{ data?: unknown[] }>(
+        client.GET('/api/v1/workspaces/{ws}/webhooks/{id}/deliveries', {
+          params: { path: { ws: ws.id, id: hook.id }, query: { limit: String(limit ?? 20) } },
+        } as never),
+      );
+      const rows = res.data ?? [];
+      return text({
+        webhook: { id: hook.id, url: hook.url, enabled: hook.enabled, events: hook.events },
+        deliveries: rows,
+        ...(rows.length === 0
+          ? { note: 'No delivery attempt has ever been recorded for this webhook. Nothing was dispatched — check its `events` above against what actually happened, before suspecting the receiver.' }
+          : {}),
+      });
+    }),
+  );
+
+  reg(
+    'update_webhook',
+    {
+      title: 'Update webhook',
+      description:
+        'Change a webhook\'s url, its event subscriptions, or enable/disable it. A true patch — omitted arguments are left alone. ' +
+        'enabled:false is the safe way to stop deliveries: it keeps the subscription and its signing secret, so it can be turned back on. delete_webhook cannot be undone. ' +
+        'The url must be https on a public host (loopback and private addresses are refused, since a signed retried POST to an internal address is an SSRF probe). ' +
+        'Changing the url does NOT rotate the signing secret — the existing secret keeps being used, so a new receiver must be given the old secret to verify signatures.',
+      inputSchema: {
+        workspace: z.string().describe('Workspace name or id.'),
+        webhook: z.string().describe('Webhook id, or its exact url (from list_webhooks).'),
+        url: z.string().optional().describe('New https endpoint on a public host.'),
+        events: z
+          .array(z.enum(['record.created', 'record.updated', 'record.deleted', 'record.restored', 'relation.linked', 'relation.unlinked', 'comment.created']))
+          .optional()
+          .describe('REPLACES the whole subscription list (1–20 events), it does not add to it.'),
+        enabled: z.boolean().optional().describe('false pauses deliveries without discarding the subscription.'),
+      },
+    },
+    handle<{ workspace: string; webhook: string; url?: string; events?: string[]; enabled?: boolean }>(
+      async ({ workspace, webhook, url, events, enabled }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const hook = await resolveWebhook(ws.id, webhook);
+        const body: Record<string, unknown> = {};
+        if (url !== undefined) body.url = url;
+        if (events !== undefined) body.events = events;
+        if (enabled !== undefined) body.enabled = enabled;
+        if (Object.keys(body).length === 0) {
+          throw new Error('Nothing to update — pass at least one of url, events, enabled.');
+        }
+        const updated = await unwrap<unknown>(
+          client.PATCH('/api/v1/workspaces/{ws}/webhooks/{id}', {
+            params: { path: { ws: ws.id, id: hook.id } } as never,
+            body: body as never,
+          }),
+        );
+        return text(updated);
+      },
+    ),
+  );
+
+  reg(
+    'delete_webhook',
+    {
+      title: 'Delete webhook',
+      description:
+        'Delete a webhook subscription permanently, along with its signing secret. ' +
+        'THIS CANNOT BE UNDONE, and it cannot be re-created over MCP: minting a subscription returns a live signing secret, which is why create is not exposed here (#443) — a replacement has to be made in the app, and it gets a NEW secret that every receiver must be updated with. ' +
+        'To stop deliveries reversibly, use update_webhook with enabled:false instead. ' +
+        '`confirm` must equal the webhook\'s exact url.',
+      inputSchema: {
+        workspace: z.string().describe('Workspace name or id.'),
+        webhook: z.string().describe('Webhook id, or its exact url (from list_webhooks).'),
+        confirm: z.string().describe('The webhook\'s exact url, as a guard against deleting the wrong subscription.'),
+      },
+    },
+    handle<{ workspace: string; webhook: string; confirm: string }>(async ({ workspace, webhook, confirm }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const hook = await resolveWebhook(ws.id, webhook);
+      if (confirm !== hook.url) {
+        throw new Error(
+          `confirm must equal the webhook's exact url to delete it. Got "${confirm}", expected "${hook.url}". Nothing was deleted.`,
+        );
+      }
+      await unwrap<unknown>(
+        client.DELETE('/api/v1/workspaces/{ws}/webhooks/{id}', {
+          params: { path: { ws: ws.id, id: hook.id } } as never,
+        }),
+      );
+      return text({
+        deleted: { id: hook.id, url: hook.url },
+        secret: 'destroyed with the subscription — a replacement made in the app gets a new one',
+      });
+    }),
   );
 
   // ---- #334: automation-rule CRUD — build a complete workflow over MCP. ----

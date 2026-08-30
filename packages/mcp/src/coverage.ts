@@ -209,13 +209,54 @@ export const DEFERRED: CoverageRule[] = [
    * which is #491 and is written into create_source's description rather than
    * left to be discovered by failure.
    */
+  /*
+   * #443 — area 10 (webhooks) shipped its READ and MANAGE half: list_webhooks,
+   * list_webhook_deliveries, update_webhook, delete_webhook. Only CREATE is
+   * still deferred, and the rule below is narrowed to exactly that rather than
+   * deleted, so the coverage report cannot claim a parity this did not deliver.
+   */
   {
-    match: '/api/v1/workspaces/{ws}/webhooks',
-    reason: '#406 — outbound webhook subscriptions and their delivery log.',
+    match: 'POST /api/v1/workspaces/{ws}/webhooks',
+    reason:
+      /*
+       * Not the usual "not built yet". Creating a subscription MINTS a signing
+       * secret and returns it in the response body — `whsec_…`, generated in
+       * WebhooksService.create and, as its own comment says, "shown once at
+       * create, never listed". An MCP tool result is transcript, so this is the
+       * one endpoint in the area whose SUCCESS PATH leaks credential material.
+       *
+       * And it cannot be softened the obvious way: redacting the secret from the
+       * result would create a webhook whose secret nobody can ever recover,
+       * since no read path returns it. That is worse than not having the tool.
+       *
+       * Same landing as sources (#438) and connections: mint it in the app,
+       * manage and debug it over MCP. The capability an agent actually reaches
+       * for — "call my system when a record changes" — is NOT gated by this: a
+       * `send_webhook` / `http_request` action on an automation rule is fully
+       * reachable through create_automation.
+       */
+      "#443 — creating a subscription returns its live signing secret in the response body (shown once, never listed again), and a tool result is transcript. Redacting it is not an option: no read path can return it afterwards. Make the subscription in-app; list_webhooks / update_webhook / delete_webhook / list_webhook_deliveries manage and debug it. Outbound calls in general are reachable via create_automation's send_webhook action.",
   },
   {
     match: /\/automations\/\{id\}\/(test|last-payload|regenerate-hook)/,
-    reason: '#406 — automation dry-run, last received payload, and hook-token rotation. Rule CRUD is already covered.',
+    reason:
+      /*
+       * #443 asked whether this should MERGE with the webhook-subscription rule
+       * above. Decided: NO, keep them separate, because they point in opposite
+       * directions and one reason cannot be true of both.
+       *
+       * Above is OUTBOUND — StoryOS calling someone else's endpoint. This is
+       * INBOUND — a `webhook_received` trigger, i.e. someone else calling us:
+       * dry-running a rule, reading the last payload we RECEIVED, and rotating
+       * the token that authenticates the caller. A merged rule would have to
+       * describe both and would accurately describe neither, which is the
+       * "rule pointing at the wrong thing" failure #390 documents.
+       *
+       * They do share one property, noted here so the pair stays consistent if
+       * either moves: `regenerate-hook` mints a token, so it is deferred for the
+       * same secret-in-a-transcript reason as POST /webhooks above.
+       */
+      '#406 — automation dry-run, last received payload, and hook-token rotation. INBOUND (a webhook_received trigger), deliberately kept separate from the outbound-subscription rule above: one reason cannot describe both directions (#443 decided this rather than leaving two rules to drift). Rule CRUD is already covered; `regenerate-hook` additionally mints a token, so it carries the same secret-in-a-transcript objection.',
   },
   {
     match: /\/fields\/\{field\}\/usage$/,
