@@ -302,19 +302,31 @@ function compileNumber(def: FieldDef, op: FilterOp, value: unknown): SQL {
   }
 }
 
+/**
+ * #488 — every window here is half-open [from, to) and spans EXACTLY the number
+ * of days its name claims. `last_7_days` and `next_7_days` both INCLUDE today,
+ * which is what makes them symmetric: seven days ending today, seven days
+ * starting today.
+ *
+ * They were off by one: last_7_days was dayRange(-7, 1) and next_7_days
+ * dayRange(0, 8) — eight days each — and next_30_days was 31. Nobody counts
+ * the days a "next 7 days" view returns, which is the entire reason for using
+ * it instead of a manual range, so the error was invisible and inherited by
+ * every count, automation condition and screenshot downstream of it.
+ */
 const RELATIVE_RANGES: Record<RelativeDateRange, () => { from: Date; to: Date }> = {
   today: () => dayRange(0, 1),
   yesterday: () => dayRange(-1, 0),
   tomorrow: () => dayRange(1, 2),
-  last_7_days: () => dayRange(-7, 1),
-  next_7_days: () => dayRange(0, 8),
+  last_7_days: () => dayRange(-6, 1),
+  next_7_days: () => dayRange(0, 7),
   this_month: () => {
     const now = new Date();
     const from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
     const to = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
     return { from, to };
   },
-  next_30_days: () => dayRange(0, 31),
+  next_30_days: () => dayRange(0, 30),
 };
 
 function dayRange(fromOffsetDays: number, toOffsetDays: number): { from: Date; to: Date } {
@@ -334,11 +346,32 @@ function compileDate(def: FieldDef, op: FilterOp, value: unknown): SQL {
     const range = RELATIVE_RANGES[value as RelativeDateRange];
     if (!range) throw err(`"within" expects one of: ${Object.keys(RELATIVE_RANGES).join(', ')}`);
     const { from, to } = range();
+    // created_at/updated_at are real timestamp columns: compare Dates, no slicing.
     if (isTimestampCol) return sql`(${expr} >= ${from} AND ${expr} < ${to})`;
-    const fromStr = from.toISOString();
-    const toStr = to.toISOString();
-    // Stored ISO strings (date-only or full) compare lexicographically.
-    return sql`(${expr} >= ${fromStr.slice(0, 10)} AND ${expr} < ${toStr})`;
+    /*
+     * #488 — a date field's value is a STRING, so both bounds compare
+     * lexicographically, and both must therefore be sliced to 'YYYY-MM-DD'.
+     *
+     * Only `from` was. `to` kept its full ISO timestamp, and a 10-character
+     * date is a PREFIX of that timestamp — so it sorts BEFORE it:
+     *
+     *     '2026-09-07' < '2026-09-07T00:00:00.000Z'   ->  true
+     *
+     * which made the EXCLUSIVE upper bound include its own boundary day, and
+     * every relative range a day too wide. Measured before the fix, on a
+     * date-only field: today and yesterday spanned 2 days each, last_7_days
+     * and next_7_days 9, this_month 32.
+     *
+     * Slicing `to` rather than un-slicing `from` is the deliberate choice: a
+     * day boundary is a date, and comparing a stored 'YYYY-MM-DD' against a
+     * date keeps the comparison in one vocabulary. It is also correct for a
+     * date field that happens to store a full timestamp — '2026-09-06T10:00'
+     * is not < '2026-09-06', so the boundary day stays excluded, while
+     * '2026-09-05T23:00' < '2026-09-06' still falls inside.
+     */
+    const fromStr = from.toISOString().slice(0, 10);
+    const toStr = to.toISOString().slice(0, 10);
+    return sql`(${expr} >= ${fromStr} AND ${expr} < ${toStr})`;
   }
 
   if (typeof value !== 'string' || Number.isNaN(Date.parse(value))) {
