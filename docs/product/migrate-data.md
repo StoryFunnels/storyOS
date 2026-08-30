@@ -72,6 +72,11 @@ them, not the first.
 
 ### Re-importing: update instead of duplicate
 
+> **Not in the wizard yet.** The API supports everything below — a key column and its match/no-match
+> behavior — but the import wizard has no control for it. Every import through the app currently
+> creates, with no way to update existing records from a re-run. Building this over the API or MCP
+> is the only way to reach it today.
+
 Choose a **key column** and what to do when it matches an existing record:
 
 - **Update** the matching record (the default — it is why you set a key at all)
