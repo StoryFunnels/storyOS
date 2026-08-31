@@ -12,6 +12,7 @@ import { DB } from '../db/db.module';
 import { findFieldByRef } from '../fields/field-ref';
 import type { Db } from '../db/client';
 import { activityEvents, databases, fields, recordLinks, records, relations } from '../db/schema';
+import type { ChangeSource } from '../db/schema';
 import { slugify } from '../databases/databases.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { isComparableType } from './auto-link';
@@ -504,6 +505,7 @@ export class RelationsService {
     relation: Relation,
     record: { id: string; title: string },
     targets: Array<{ id: string; title: string }>,
+    source: ChangeSource = 'human',
   ) {
     const events = targets.flatMap((target) => [
       {
@@ -512,6 +514,7 @@ export class RelationsService {
         actorId,
         type,
         payload: { relation_id: relation.id, other: target },
+        source,
       },
       {
         workspaceId,
@@ -519,6 +522,7 @@ export class RelationsService {
         actorId,
         type,
         payload: { relation_id: relation.id, other: { id: record.id, title: record.title } },
+        source,
       },
     ]);
     if (events.length) await tx.insert(activityEvents).values(events);
@@ -546,6 +550,7 @@ export class RelationsService {
     fieldId: string,
     targetIds: string[],
     actorId: string,
+    source: ChangeSource = 'human',
   ) {
     const ctx = await this.resolveLinkContext(databaseId, recordId, fieldId);
     const targets = await this.loadTargets(ctx.targetDatabaseId, targetIds);
@@ -580,6 +585,7 @@ export class RelationsService {
         ctx.relation,
         { id: ctx.record.id, title: ctx.record.title },
         targets,
+        source,
       );
     });
     // MN-267: the dedicated Links API (this method) writes record_links directly,
@@ -619,6 +625,7 @@ export class RelationsService {
     fieldId: string,
     targetIds: string[],
     actorId: string,
+    source: ChangeSource = 'human',
   ) {
     const ctx = await this.resolveLinkContext(databaseId, recordId, fieldId);
     if (ctx.relation.cardinality === 'one_to_many' && ctx.side === 'a' && targetIds.length > 1) {
@@ -652,6 +659,7 @@ export class RelationsService {
           ctx.relation,
           { id: ctx.record.id, title: ctx.record.title },
           removedTargets,
+          source,
         );
       }
       if (targets.length) {
@@ -670,6 +678,7 @@ export class RelationsService {
           ctx.relation,
           { id: ctx.record.id, title: ctx.record.title },
           targets,
+          source,
         );
       }
     });
@@ -699,6 +708,7 @@ export class RelationsService {
     fieldId: string,
     targetIds: string[],
     actorId: string,
+    source: ChangeSource = 'human',
   ) {
     const ctx = await this.resolveLinkContext(databaseId, recordId, fieldId);
     const myCol = ctx.side === 'a' ? recordLinks.fromRecordId : recordLinks.toRecordId;
@@ -731,6 +741,7 @@ export class RelationsService {
           ctx.relation,
           { id: ctx.record.id, title: ctx.record.title },
           removedTargets,
+          source,
         );
       }
     });

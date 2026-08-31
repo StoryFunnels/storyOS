@@ -1662,6 +1662,9 @@ export class PacksService {
         values as Record<string, unknown>,
         membership.userId,
         0,
+        // #481 — seeded from the pack's own manifest template, not typed by the
+        // person installing it.
+        'automation',
       );
       known.set(norm(title), created.id);
       result.sample_records.push({ name: label, action: 'created', id: created.id });

@@ -248,6 +248,10 @@ export class TemplatesService {
           dbIds.get(dbKey)!,
           values,
           actorId,
+          0,
+          // #481 — seeded from the template's own manifest, not typed by the
+          // person applying it.
+          'automation',
         );
         sampleIds.push(created.id);
         if (recordDef.key) recordIds.set(recordDef.key, created.id);

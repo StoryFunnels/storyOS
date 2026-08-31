@@ -438,7 +438,16 @@ export class GithubService {
       limit: 1,
     } as never, actorId);
     if (existing.data[0]) {
-      await this.recordsService.update(membership.workspaceId, databaseId, existing.data[0].id, values, actorId);
+      // #481 — a GitHub webhook/sync write, never a person typing.
+      await this.recordsService.update(
+        membership.workspaceId,
+        databaseId,
+        existing.data[0].id,
+        values,
+        actorId,
+        0,
+        'automation',
+      );
       return { id: existing.data[0].id, created: false };
     }
     const created = await this.recordsService.create(
@@ -447,6 +456,7 @@ export class GithubService {
       { ...values, repo, number },
       actorId,
       0,
+      'automation',
     );
     return { id: created.id, created: true };
   }

@@ -9,6 +9,7 @@ import sharp from 'sharp';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { activityEvents, attachments, fields, records } from '../db/schema';
+import type { ChangeSource } from '../db/schema';
 import { env } from '../config/env';
 import { getStorage } from './storage';
 
@@ -65,6 +66,7 @@ export class AttachmentsService {
     file: { filename: string; mime: string; data: Buffer },
     actorId: string,
     fieldId?: string,
+    source: ChangeSource = 'human',
   ) {
     if (fieldId) await this.assertAttachmentField(recordId, fieldId);
     if (file.data.length > env().ATTACHMENT_MAX_BYTES) {
@@ -115,6 +117,7 @@ export class AttachmentsService {
       actorId,
       type: 'attachment.added',
       payload: { filename: file.filename, size: file.data.length, field_id: fieldId ?? null },
+      source,
     });
 
     return {

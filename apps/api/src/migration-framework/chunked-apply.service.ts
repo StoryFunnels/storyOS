@@ -41,6 +41,8 @@ export class ChunkedApplyService {
       if (batch.length === 0) continue;
       const created = await this.recordsService.createBatch(workspaceId, databaseId, batch, actorId, 0, {
         suppressAutomations: true,
+        // #481 — a migration/import apply, never a person typing each row.
+        source: 'automation',
       });
       created.forEach((r) => createdIds.push(r.id));
       options.onProgress?.({

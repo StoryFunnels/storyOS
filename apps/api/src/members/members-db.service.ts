@@ -329,10 +329,12 @@ export class MembersDbService {
     };
 
     const existing = await this.findMemberRow(database.id, userId);
+    // #481 — the Members projection is a system-driven mirror of better-auth,
+    // never a person typing (SYSTEM_ACTOR above is the same signal for actor).
     if (existing) {
-      await this.records.update(workspaceId, database.id, existing.id, values, SYSTEM_ACTOR);
+      await this.records.update(workspaceId, database.id, existing.id, values, SYSTEM_ACTOR, 0, 'automation');
     } else {
-      await this.records.create(workspaceId, database.id, values, SYSTEM_ACTOR);
+      await this.records.create(workspaceId, database.id, values, SYSTEM_ACTOR, 0, 'automation');
     }
   }
 
@@ -413,6 +415,8 @@ export class MembersDbService {
         ...clearCustomFields,
       },
       SYSTEM_ACTOR,
+      0,
+      'automation',
     );
   }
 
@@ -466,6 +470,8 @@ export class MembersDbService {
       existing.id,
       { active: false },
       SYSTEM_ACTOR,
+      0,
+      'automation',
     );
   }
 
@@ -629,6 +635,8 @@ export class MembersDbService {
         user_id: userId,
       },
       SYSTEM_ACTOR,
+      0,
+      'automation',
     );
   }
 

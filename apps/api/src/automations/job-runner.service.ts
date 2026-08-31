@@ -367,7 +367,13 @@ export class JobRunnerService implements OnModuleInit, OnModuleDestroy {
         outcome === 'succeeded'
           ? `Approved action executed successfully.${detail ? ` ${JSON.stringify(detail).slice(0, 300)}` : ''}`
           : `Approved action failed: ${sanitizeError(String(detail))}`;
-      await this.comments.create(job.workspaceId, recordId, [{ type: 'text', text: summary }], approval.decidedBy);
+      await this.comments.create(
+        job.workspaceId,
+        recordId,
+        [{ type: 'text', text: summary }],
+        approval.decidedBy,
+        'automation',
+      );
     } catch (error) {
       this.logger.warn(`approval outcome comment failed: ${String(error)}`);
     }

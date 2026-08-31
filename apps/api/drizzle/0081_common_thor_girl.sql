@@ -1,0 +1,1 @@
+ALTER TABLE "activity_events" ADD COLUMN "source" "change_source";

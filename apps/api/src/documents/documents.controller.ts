@@ -64,6 +64,7 @@ export class DocumentsController {
       body.content,
       body.expected_version,
       req.user.id,
+      req.auth?.source ?? 'human',
     );
   }
 }

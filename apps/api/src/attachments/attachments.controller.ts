@@ -86,6 +86,7 @@ export class AttachmentsController {
       { filename: file.filename, mime: file.mimetype, data },
       req.user.id,
       fieldId,
+      req.auth?.source ?? 'human',
     );
   }
 

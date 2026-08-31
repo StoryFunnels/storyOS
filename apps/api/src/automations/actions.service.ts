@@ -948,6 +948,7 @@ export class AutomationActionsService {
           values,
           ctx.actorId,
           ctx.depth ?? 0,
+          ctx.source ?? 'automation',
         );
         // MN-254: a webhook-triggered create_record has no source record to link
         // back to — skip the link rather than crash.
@@ -959,6 +960,7 @@ export class AutomationActionsService {
             action.link_via_relation_field_id,
             [ctx.record.id],
             ctx.actorId,
+            ctx.source ?? 'automation',
           );
         }
         effects.push({
@@ -983,6 +985,7 @@ export class AutomationActionsService {
             values,
             ctx.actorId,
             ctx.depth ?? 0,
+            ctx.source ?? 'automation',
           );
           createdCount += 1;
           if (action.link_via_relation_field_id && ctx.record) {
@@ -993,6 +996,7 @@ export class AutomationActionsService {
               action.link_via_relation_field_id,
               [ctx.record.id],
               ctx.actorId,
+              ctx.source ?? 'automation',
             );
           }
         }
@@ -1010,6 +1014,7 @@ export class AutomationActionsService {
           record.id,
           [{ type: 'text', text }],
           ctx.actorId,
+          'automation',
         );
         effects.push({ type: 'add_comment', record_id: record.id, summary: 'Commented' });
       } else if (action.type === 'notify_user') {

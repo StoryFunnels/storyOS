@@ -36,7 +36,16 @@ export class ExternalIdUpsertService {
     );
     const match = existing.data[0];
     if (match) {
-      await this.recordsService.update(membership.workspaceId, databaseId, match.id, values, actorId);
+      // #481 — an external-source sync upsert, never a person typing.
+      await this.recordsService.update(
+        membership.workspaceId,
+        databaseId,
+        match.id,
+        values,
+        actorId,
+        0,
+        'automation',
+      );
       return { id: match.id, updated: true };
     }
     const created = await this.recordsService.create(
@@ -45,6 +54,7 @@ export class ExternalIdUpsertService {
       { ...values, [identityField]: identityValue },
       actorId,
       0,
+      'automation',
     );
     return { id: created.id, updated: false };
   }
