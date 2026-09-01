@@ -1084,21 +1084,38 @@ function SpaceSection({
             }}
           />
         ) : (
-          <button
-            className="flex min-w-0 flex-1 items-center gap-1 text-left text-[11px] font-medium uppercase tracking-wider text-faint hover:text-muted"
-            onClick={toggleCollapsed}
-            onPointerDown={(e) => e.stopPropagation()}
-            title={collapsed ? 'Expand' : 'Collapse'}
-          >
-            <ChevronRight
-              className={cn('h-3 w-3 shrink-0 transition-transform', !collapsed && 'rotate-90')}
-            />
-            {space.icon && <EntityIcon icon={space.icon} color={space.color} fallback={null} className="text-[13px]" />}
-            <span className="truncate">{space.name}</span>
-            {collapsed && databases.length > 0 && (
-              <span className="ml-1 text-faint/70">{databases.length}</span>
-            )}
-          </button>
+          <>
+            {/* #449 — the caret is a SEPARATE control from the link, per #382's
+                precedent on database rows: "the caret is a separate control from
+                the link. Clicking the [row] name must still open it... expanding
+                is a different intent and gets its own hit target." The space
+                header used to be one <button> doing both; now the caret alone
+                toggles collapse and the name navigates to the space's own page,
+                which did not exist before #449. */}
+            <button
+              type="button"
+              className="flex shrink-0 items-center text-faint hover:text-muted"
+              onClick={toggleCollapsed}
+              onPointerDown={(e) => e.stopPropagation()}
+              aria-label={collapsed ? `Expand ${space.name}` : `Collapse ${space.name}`}
+              aria-expanded={!collapsed}
+            >
+              <ChevronRight
+                className={cn('h-3 w-3 shrink-0 transition-transform', !collapsed && 'rotate-90')}
+              />
+            </button>
+            <Link
+              href={`/w/${ws}/s/${space.id}`}
+              className="flex min-w-0 flex-1 items-center gap-1 text-left text-[11px] font-medium uppercase tracking-wider text-faint hover:text-muted"
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              {space.icon && <EntityIcon icon={space.icon} color={space.color} fallback={null} className="text-[13px]" />}
+              <span className="truncate">{space.name}</span>
+              {collapsed && databases.length > 0 && (
+                <span className="ml-1 text-faint/70">{databases.length}</span>
+              )}
+            </Link>
+          </>
         )}
         {canEdit && (
           <span className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
