@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import posthog from 'posthog-js';
 import { useMutation, useQuery } from '@tanstack/react-query';
@@ -161,13 +162,23 @@ export default function BillingPage() {
             limit={b.limits.automationRunsPerMonth}
           />
           <UsageRow
-            label="Members"
+            label="Billable seats"
             used={b.usage.billableSeats}
             limit={b.limits.includedSeats}
             suffix={
               b.limits.includedSeats !== null && b.usage.billableSeats >= b.limits.includedSeats
-                ? '— next member adds $12/mo'
+                ? '— next seat adds $12/mo'
                 : undefined
+            }
+            caption={
+              <>
+                Admins, members, and guests with edit access or higher. Viewer and commenter guests,
+                and pending invites, don&apos;t count — see{' '}
+                <Link href={`/w/${ws}/settings/members`} className="underline hover:text-ink">
+                  Members
+                </Link>{' '}
+                for everyone with access.
+              </>
             }
           />
         </Section>
@@ -198,7 +209,22 @@ function Section({ title, description, children }: { title: string; description?
 }
 
 /** `limit === null` means unlimited (self-host/enterprise) — no bar, just the count. */
-function UsageRow({ label, used, limit, suffix }: { label: string; used: number; limit: number | null; suffix?: string }) {
+function UsageRow({
+  label,
+  used,
+  limit,
+  suffix,
+  caption,
+}: {
+  label: string;
+  used: number;
+  limit: number | null;
+  suffix?: string;
+  /** #489 — a correct-but-terse label still leaves "why is this lower than the members
+   *  page" unanswered. Always visible, not a hover-only tooltip, since the reading that
+   *  sends someone to support is the one where they never thought to hover. */
+  caption?: React.ReactNode;
+}) {
   const pct = limit ? Math.min(100, Math.round((used / limit) * 100)) : 0;
   const over80 = limit !== null && pct >= 80;
   return (
@@ -217,6 +243,7 @@ function UsageRow({ label, used, limit, suffix }: { label: string; used: number;
           />
         </div>
       )}
+      {caption && <p className="mt-1 text-[12px] text-faint">{caption}</p>}
     </div>
   );
 }
