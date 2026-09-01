@@ -8,6 +8,7 @@ import { eq } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { activityEvents, documents } from '../db/schema';
+import type { ChangeSource } from '../db/schema';
 import { MentionsService } from '../mentions/mentions.service';
 
 const MAX_BYTES = 2 * 1024 * 1024;
@@ -57,6 +58,7 @@ export class DocumentsService {
     content: unknown,
     expectedVersion: number,
     actorId: string,
+    source: ChangeSource = 'human',
   ) {
     const size = Buffer.byteLength(JSON.stringify(content ?? null));
     if (size > MAX_BYTES) {
@@ -98,6 +100,7 @@ export class DocumentsService {
         actorId,
         type: 'document.edited',
         payload: {},
+        source,
       });
       return { record_id: recordId, content: saved!.content, version: saved!.version, updated_at: saved!.updatedAt };
     });

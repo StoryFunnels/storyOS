@@ -64,6 +64,10 @@ export class ActivityService {
           payload: event.payload,
           changes,
           created_at: event.createdAt,
+          // #481 — null on every row written before this column existed, or on
+          // a call site not yet threading a source (never defaulted to
+          // 'human': see activity_events.source's own comment).
+          source: event.source,
         };
       }),
       next_cursor:

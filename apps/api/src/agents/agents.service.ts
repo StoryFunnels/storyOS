@@ -18,6 +18,7 @@ import {
   records as recordsTable,
   selectOptions,
 } from '../db/schema';
+import type { ChangeSource } from '../db/schema';
 import { DatabasesService } from '../databases/databases.service';
 import { FieldsService } from '../fields/fields.service';
 import { RecordsService } from '../records/records.service';
@@ -965,6 +966,7 @@ export class AgentsService implements OnModuleInit {
       // Run lineage: an agent's own writes inherit the triggering event's depth,
       // so a write-back that re-triggers is bounded by the max-depth counter.
       input.depth ?? 0,
+      'agent',
     );
     if (blockedBeforeExecution) return run;
 
@@ -1306,7 +1308,7 @@ export class AgentsService implements OnModuleInit {
       { type: 'text', text: `🤖 Delegated to ${agentName} — ${status}. ` },
       { type: 'record', record_id: run.id, database_id: runsDbId },
     ];
-    await this.comments.create(workspaceId, recordId, body, actorId).catch(() => undefined);
+    await this.comments.create(workspaceId, recordId, body, actorId, 'agent').catch(() => undefined);
   }
 
   // ── Approval gates (#210, ADR-0010 §4) ──────────────────────────────────────
@@ -1679,6 +1681,7 @@ export class AgentsService implements OnModuleInit {
       human_gate?: boolean;
       enabled?: boolean;
     },
+    source: ChangeSource = 'human',
   ): Promise<ProjectedRecord> {
     const { agentsDb, triggersDb } = await this.ensurePack(membership);
     const agentRecord = await this.resolveAgent(agentsDb.id, input.agent);
@@ -1699,6 +1702,7 @@ export class AgentsService implements OnModuleInit {
       },
       membership.userId,
       0,
+      source,
     );
   }
 }

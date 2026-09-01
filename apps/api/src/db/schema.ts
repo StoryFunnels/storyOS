@@ -907,6 +907,16 @@ export const activityEvents = pgTable(
     /** Contract-grade type names — this table is the future webhook outbox (ADR-0004). */
     type: text('type').notNull(),
     payload: jsonb('payload').notNull().default({}),
+    /**
+     * #481 — WHAT kind of actor made this write, same vocabulary
+     * `record_field_changes.source` already uses. Deliberately NULLABLE with NO
+     * default: every row written before this column existed genuinely has no
+     * source, and a `NOT NULL DEFAULT 'human'` would retcon every historical
+     * automation/agent write into a false claim about a person — the exact bug
+     * this column exists to fix, applied retroactively to the whole table. Null
+     * reads honestly as "not captured"; it must never be treated as 'human'.
+     */
+    source: changeSource('source'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('activity_record_created_idx').on(t.recordId, t.createdAt)],

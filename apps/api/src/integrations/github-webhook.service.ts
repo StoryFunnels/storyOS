@@ -485,6 +485,9 @@ export class GithubWebhookService {
         pullRecordId,
         { [BACKLINK_COMMENT_API]: commentId },
         membership.userId,
+        0,
+        // #481 — a GitHub webhook delivery, never a person typing.
+        'automation',
       );
     } catch (error) {
       this.logger.warn(`github backlink for ${repo}#${prNumber} failed: ${String(error)}`);
@@ -642,6 +645,8 @@ export class GithubWebhookService {
       recordId,
       { [stateField.apiName]: option.id },
       actorId,
+      0,
+      'automation',
     );
     return option.label;
   }

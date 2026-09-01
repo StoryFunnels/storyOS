@@ -78,6 +78,7 @@ export class RecordVersionsController {
       recordId,
       versionId,
       req.user.id,
+      req.auth?.source ?? 'human',
     );
   }
 }

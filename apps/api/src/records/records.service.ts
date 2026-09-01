@@ -1790,6 +1790,7 @@ export class RecordsService {
     record: { id: string; title: string },
     plans: LinkPlan[],
     replace: boolean,
+    source: ChangeSource = 'human',
   ): Promise<Array<{ relationId: string; fieldId: string; otherDatabaseId: string; otherRecordIds: string[] }>> {
     const affected: Array<{ relationId: string; fieldId: string; otherDatabaseId: string; otherRecordIds: string[] }> = [];
     for (const plan of plans) {
@@ -1825,6 +1826,7 @@ export class RecordsService {
               actorId,
               type: 'relation.linked',
               payload: { relation_id: plan.relationId, other: target },
+              source,
             },
             {
               workspaceId,
@@ -1832,6 +1834,7 @@ export class RecordsService {
               actorId,
               type: 'relation.linked',
               payload: { relation_id: plan.relationId, other: { id: record.id, title: record.title } },
+              source,
             },
           ]),
         );
@@ -1865,8 +1868,12 @@ export class RecordsService {
     input: Record<string, unknown>,
     actorId: string | null,
     depth = 0,
+    /** #481 — same contract as update()'s `source`: defaults to 'human' so a
+     *  caller that hasn't been updated yet still succeeds, but every write
+     *  site that KNOWS its real source should pass it explicitly. */
+    source: ChangeSource = 'human',
   ): Promise<ProjectedRecord> {
-    const [created] = await this.createBatch(workspaceId, databaseId, [input], actorId, depth);
+    const [created] = await this.createBatch(workspaceId, databaseId, [input], actorId, depth, { source });
     return created!;
   }
 
@@ -1881,6 +1888,7 @@ export class RecordsService {
     databaseId: string,
     recordId: string,
     actorId: string,
+    source: ChangeSource = 'human',
   ): Promise<ProjectedRecord> {
     const src = await this.get(databaseId, recordId);
     const defs = await this.fieldDefs(databaseId);
@@ -1893,7 +1901,7 @@ export class RecordsService {
       const v = src.values[def.api_name];
       if (v !== undefined && v !== null) input[def.api_name] = v;
     }
-    const created = await this.create(workspaceId, databaseId, input, actorId, 0);
+    const created = await this.create(workspaceId, databaseId, input, actorId, 0, source);
 
     // Copy links: single references (one_to_many side a) and many-to-many; skip owned collections.
     for (const def of defs.filter((d) => d.type === 'relation')) {
@@ -1986,8 +1994,9 @@ export class RecordsService {
     inputs: Array<Record<string, unknown>>,
     actorId: string | null,
     depth = 0,
-    options: { suppressAutomations?: boolean } = {},
+    options: { suppressAutomations?: boolean; source?: ChangeSource } = {},
   ): Promise<ProjectedRecord[]> {
+    const source: ChangeSource = options.source ?? 'human';
     const defs = await this.fieldDefs(databaseId);
     /*
      * #203 — field defaults are applied BEFORE validation, so a default goes
@@ -2065,12 +2074,13 @@ export class RecordsService {
           actorId,
           type: 'record.created',
           payload: { title: row.title },
+          source,
         })),
       );
       for (const [i, row] of inserted.entries()) {
         const plans = linkPlans[i]!;
         if (plans.length) {
-          const linked = await this.writeLinks(tx as unknown as Db, workspaceId, actorId, row, plans, false);
+          const linked = await this.writeLinks(tx as unknown as Db, workspaceId, actorId, row, plans, false, source);
           if (linked.length) linkedRelationsByIndex.set(i, linked);
         }
       }
@@ -2239,6 +2249,7 @@ export class RecordsService {
           actorId,
           type: 'record.updated',
           payload: { diff },
+          source,
         });
         // MN-231: snapshot the FULL pre-write state (not just the diff) so a
         // later restore can write it straight back without replaying a chain
@@ -2304,6 +2315,7 @@ export class RecordsService {
           { id: next!.id, title: next!.title },
           linkPlans,
           true,
+          source,
         );
       }
       return next!;
@@ -2669,6 +2681,7 @@ export class RecordsService {
     recordId: string,
     versionId: string,
     actorId: string,
+    source: ChangeSource = 'human',
   ): Promise<ProjectedRecord> {
     const version = await this.db.query.recordVersions.findFirst({
       where: and(eq(recordVersions.id, versionId), eq(recordVersions.recordId, recordId)),
@@ -2709,6 +2722,7 @@ export class RecordsService {
         actorId,
         type: 'record.updated',
         payload: { diff, restored_from_version_id: versionId },
+        source,
       });
       return next!;
     });
@@ -2750,6 +2764,7 @@ export class RecordsService {
     recordId: string,
     input: { before_record_id?: string; after_record_id?: string; values?: Record<string, unknown> },
     actorId: string,
+    source: ChangeSource = 'human',
   ): Promise<ProjectedRecord> {
     await this.getRow(databaseId, recordId);
 
@@ -2798,7 +2813,7 @@ export class RecordsService {
     }
 
     if (input.values && Object.keys(input.values).length > 0) {
-      return this.update(workspaceId, databaseId, recordId, input.values, actorId);
+      return this.update(workspaceId, databaseId, recordId, input.values, actorId, 0, source);
     }
     return this.get(databaseId, recordId);
   }
@@ -2824,6 +2839,7 @@ export class RecordsService {
     recordId: string,
     actorId: string,
     depth = 0,
+    source: ChangeSource = 'human',
   ) {
     await this.getRow(databaseId, recordId);
     await this.db.transaction(async (tx) => {
@@ -2834,6 +2850,7 @@ export class RecordsService {
         actorId,
         type: 'record.deleted',
         payload: {},
+        source,
       });
     });
     this.domainEvents.emit({
@@ -2854,12 +2871,13 @@ export class RecordsService {
     recordIds: string[],
     input: Record<string, unknown>,
     actorId: string,
+    source: ChangeSource = 'human',
   ) {
     const failed: Array<{ record_id: string; message: string }> = [];
     let updated = 0;
     for (const recordId of recordIds) {
       try {
-        await this.update(workspaceId, databaseId, recordId, input, actorId);
+        await this.update(workspaceId, databaseId, recordId, input, actorId, 0, source);
         updated++;
       } catch (error) {
         failed.push({
@@ -2871,7 +2889,13 @@ export class RecordsService {
     return { updated, failed };
   }
 
-  async batchDelete(workspaceId: string, databaseId: string, recordIds: string[], actorId: string) {
+  async batchDelete(
+    workspaceId: string,
+    databaseId: string,
+    recordIds: string[],
+    actorId: string,
+    source: ChangeSource = 'human',
+  ) {
     const rows = await this.db.query.records.findMany({
       where: and(eq(records.databaseId, databaseId), inArray(records.id, recordIds), isNull(records.deletedAt)),
       columns: { id: true },
@@ -2881,7 +2905,7 @@ export class RecordsService {
       await this.db.transaction(async (tx) => {
         await tx.update(records).set({ deletedAt: new Date() }).where(inArray(records.id, ids));
         await tx.insert(activityEvents).values(
-          ids.map((id) => ({ workspaceId, recordId: id, actorId, type: 'record.deleted', payload: {} })),
+          ids.map((id) => ({ workspaceId, recordId: id, actorId, type: 'record.deleted', payload: {}, source })),
         );
       });
       ids.forEach((recordId) =>
@@ -2898,7 +2922,13 @@ export class RecordsService {
     return { deleted: ids.length, record_ids: ids };
   }
 
-  async batchRestore(workspaceId: string, databaseId: string, recordIds: string[], actorId: string) {
+  async batchRestore(
+    workspaceId: string,
+    databaseId: string,
+    recordIds: string[],
+    actorId: string,
+    source: ChangeSource = 'human',
+  ) {
     const rows = await this.db.query.records.findMany({
       where: and(eq(records.databaseId, databaseId), inArray(records.id, recordIds), isNotNull(records.deletedAt)),
       columns: { id: true },
@@ -2908,14 +2938,20 @@ export class RecordsService {
       await this.db.transaction(async (tx) => {
         await tx.update(records).set({ deletedAt: null }).where(inArray(records.id, ids));
         await tx.insert(activityEvents).values(
-          ids.map((id) => ({ workspaceId, recordId: id, actorId, type: 'record.restored', payload: {} })),
+          ids.map((id) => ({ workspaceId, recordId: id, actorId, type: 'record.restored', payload: {}, source })),
         );
       });
     }
     return { restored: ids.length };
   }
 
-  async restore(workspaceId: string, databaseId: string, recordId: string, actorId: string) {
+  async restore(
+    workspaceId: string,
+    databaseId: string,
+    recordId: string,
+    actorId: string,
+    source: ChangeSource = 'human',
+  ) {
     const row = await this.db.query.records.findFirst({
       where: and(
         eq(records.id, recordId),
@@ -2932,6 +2968,7 @@ export class RecordsService {
         actorId,
         type: 'record.restored',
         payload: {},
+        source,
       });
     });
     const defs = await this.fieldDefs(databaseId);

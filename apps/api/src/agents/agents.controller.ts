@@ -72,7 +72,7 @@ export class AgentsController {
   @Post('triggers')
   @ApiOperation({ summary: 'Bind an agent to a state on a database; returns the binding record' })
   createTrigger(@Req() req: WorkspaceRequest, @Body() body: CreateAgentTriggerDto) {
-    return this.agents.createBinding(req.membership, body);
+    return this.agents.createBinding(req.membership, body, req.auth?.source ?? 'human');
   }
 
   /**

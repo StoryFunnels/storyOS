@@ -9,6 +9,7 @@ import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { activityEvents, comments, databases, memberships, records, user } from '../db/schema';
+import type { ChangeSource } from '../db/schema';
 import { env } from '../config/env';
 import { EmailService } from '../mail/email.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -162,6 +163,7 @@ export class CommentsService {
     recordId: string,
     body: CommentBody,
     authorId: string,
+    source: ChangeSource = 'human',
   ) {
     const { mentions } = await this.validateBody(workspaceId, body);
 
@@ -176,6 +178,7 @@ export class CommentsService {
         actorId: authorId,
         type: 'comment.created',
         payload: { comment_id: comment!.id },
+        source,
       });
       return comment!;
     });

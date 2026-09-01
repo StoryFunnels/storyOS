@@ -51,12 +51,18 @@ export class ButtonsController {
     if (!field || field.type !== 'button') throw new NotFoundException('Button not found');
     const record = await this.recordsService.get(databaseId, recordId);
 
+    const source = req.auth?.source ?? 'human';
     const config = field.config as { actions: AutomationAction[] };
+    // #481 — "actions run as the presser": the button's OWN provenance is
+    // whoever/whatever pressed it, not 'automation' just because it's config-
+    // driven like a rule. Threaded into ActionContext so every action this
+    // press runs (set_values, create_record, …) carries the same source.
     const effects = await this.actions.execute(config.actions, {
       workspaceId: req.membership.workspaceId,
       databaseId,
       record,
       actorId: req.user.id,
+      source,
     });
 
     await this.db.insert(activityEvents).values({
@@ -65,6 +71,7 @@ export class ButtonsController {
       actorId: req.user.id,
       type: 'button.pressed',
       payload: { button: field.displayName, effects },
+      source,
     });
     return { pressed: true, effects };
   }

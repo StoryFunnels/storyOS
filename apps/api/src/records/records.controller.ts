@@ -91,6 +91,8 @@ export class RecordsController {
       databaseId,
       body.values,
       req.user.id,
+      0,
+      req.auth?.source ?? 'human',
     );
   }
 
@@ -141,6 +143,8 @@ export class RecordsController {
       databaseId,
       body.records.map((r) => r.values),
       req.user.id,
+      0,
+      { source: req.auth?.source ?? 'human' },
     );
     return { data: created };
   }
@@ -159,6 +163,7 @@ export class RecordsController {
       body.record_ids,
       body.values,
       req.user.id,
+      req.auth?.source ?? 'human',
     );
   }
 
@@ -170,7 +175,13 @@ export class RecordsController {
     @Body() body: BatchRecordIdsDto,
   ) {
     await this.assertDb(req, databaseId, 'editor');
-    return this.recordsService.batchDelete(req.membership.workspaceId, databaseId, body.record_ids, req.user.id);
+    return this.recordsService.batchDelete(
+      req.membership.workspaceId,
+      databaseId,
+      body.record_ids,
+      req.user.id,
+      req.auth?.source ?? 'human',
+    );
   }
 
   @Post('batch-restore')
@@ -181,7 +192,13 @@ export class RecordsController {
     @Body() body: BatchRecordIdsDto,
   ) {
     await this.assertDb(req, databaseId, 'editor');
-    return this.recordsService.batchRestore(req.membership.workspaceId, databaseId, body.record_ids, req.user.id);
+    return this.recordsService.batchRestore(
+      req.membership.workspaceId,
+      databaseId,
+      body.record_ids,
+      req.user.id,
+      req.auth?.source ?? 'human',
+    );
   }
 
   @Get('trash')
@@ -265,6 +282,8 @@ export class RecordsController {
       databaseId,
       recordId,
       req.user.id,
+      0,
+      req.auth?.source ?? 'human',
     );
   }
 
@@ -281,6 +300,7 @@ export class RecordsController {
       databaseId,
       recordId,
       req.user.id,
+      req.auth?.source ?? 'human',
     );
   }
 
@@ -320,6 +340,7 @@ export class RecordsController {
       recordId,
       body,
       req.user.id,
+      req.auth?.source ?? 'human',
     );
   }
 
@@ -336,6 +357,7 @@ export class RecordsController {
       databaseId,
       recordId,
       req.user.id,
+      req.auth?.source ?? 'human',
     );
   }
 }

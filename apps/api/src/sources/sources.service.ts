@@ -718,11 +718,12 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
       if (Object.keys(input).length === 0) continue;
 
       const existingId = existingByExtVal.get(extVal);
+      // #481 — an external-source sync run, never a person typing.
       if (existingId) {
-        await this.recordsService.update(workspaceId, targetDatabaseId, existingId, input, actorId, 1);
+        await this.recordsService.update(workspaceId, targetDatabaseId, existingId, input, actorId, 1, 'automation');
         stats.updated += 1;
       } else {
-        const created = await this.recordsService.create(workspaceId, targetDatabaseId, input, actorId, 1);
+        const created = await this.recordsService.create(workspaceId, targetDatabaseId, input, actorId, 1, 'automation');
         existingByExtVal.set(extVal, created.id);
         stats.created += 1;
       }

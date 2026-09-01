@@ -91,6 +91,7 @@ export class CommentsController {
       recordId,
       body.body as CommentBody,
       req.user.id,
+      req.auth?.source ?? 'human',
     );
   }
 
