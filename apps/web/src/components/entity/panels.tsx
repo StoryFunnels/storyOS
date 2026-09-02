@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useDateFormat } from '@/lib/preferences';
 import { Bot, HelpCircle, Paperclip, Send, Terminal, Trash2, Workflow } from 'lucide-react';
 import { toast } from 'sonner';
@@ -486,31 +486,57 @@ interface Backlink {
   database_name: string;
 }
 
+/** #513 — the paged shape #512 shipped: total is the TRUE count, not the
+ *  length of any one page; has_more/next_cursor follow the same keyset
+ *  convention inbox-panel.tsx already uses for notifications. */
+interface BacklinksPage {
+  data: Backlink[];
+  total: number;
+  has_more: boolean;
+  next_cursor: string | null;
+}
+
 /**
  * "Mentioned in" (MN-205): the records whose document #-mentions this one. A one-way
  * mention is half a relation — this is the other half, so you can traverse back. The
  * list is permission-scoped server-side (a title you can't open never appears here).
+ *
+ * #513 — #512 paged the endpoint (it silently truncated at 100 with no total and
+ * no way to reach the rest). Mirrors inbox-panel.tsx's useInfiniteQuery +
+ * "Load more" pattern for the same {data, next_cursor} cursor shape, rather than
+ * inventing a second pagination convention.
  */
 export function MentionedIn({ ws, db, rec }: { ws: string; db: string; rec: string }) {
-  const backlinks = useQuery({
+  const backlinks = useInfiniteQuery({
     queryKey: ['backlinks', ws, db, rec],
-    queryFn: async () => {
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam }) => {
+      const query: Record<string, string> = {};
+      if (pageParam) query.cursor = pageParam;
       const { data, error } = await api.GET(
         '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/backlinks',
-        { params: { path: { ws, db, rec } } },
+        { params: { path: { ws, db, rec }, query } } as never,
       );
       if (error) throw error;
-      return (data as unknown as { data: Backlink[] }).data;
+      return data as unknown as BacklinksPage;
     },
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
   });
 
-  const items = backlinks.data ?? [];
+  const pages = backlinks.data?.pages ?? [];
+  const items = pages.flatMap((p) => p.data);
+  // #513 — MUST KEEP WORKING: zero backlinks (or the query not yet resolved)
+  // renders nothing at all, not an empty heading with a zero.
   if (items.length === 0) return null;
+  const total = pages[0]!.total;
 
   return (
     <div className="mt-6">
       <h2 className="mb-2 text-[12px] font-medium uppercase tracking-wider text-muted">
-        Mentioned in
+        Mentioned in{' '}
+        {/* #513 — the TRUE total from the server, not items.length (which is
+            only how many pages have been loaded so far). */}
+        <span className="normal-case tracking-normal text-faint">({total})</span>
       </h2>
       <ul className="flex flex-col gap-1">
         {items.map((b) => (
@@ -525,6 +551,16 @@ export function MentionedIn({ ws, db, rec }: { ws: string; db: string; rec: stri
           </li>
         ))}
       </ul>
+      {backlinks.hasNextPage && (
+        <button
+          type="button"
+          onClick={() => backlinks.fetchNextPage()}
+          disabled={backlinks.isFetchingNextPage}
+          className="w-full py-2 text-center text-[12px] text-muted hover:bg-hover disabled:opacity-50"
+        >
+          {backlinks.isFetchingNextPage ? 'Loading…' : 'Load more'}
+        </button>
+      )}
     </div>
   );
 }
