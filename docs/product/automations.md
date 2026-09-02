@@ -35,6 +35,11 @@ Eleven actions, all available to buttons and rules alike.
 Every action supports the `@me` / `@today` / `@now` tokens and `{Field Name}` interpolation.
 A rule carries between 1 and 10 actions.
 
+> **Three different things are called "webhook" here.** *Send a webhook* (above) and *webhook
+> received* (below) are per-rule, one action or trigger in a chain of many. A **webhook
+> subscription** — Settings → Webhooks, its own signing secret and delivery log — is a separate,
+> workspace-wide feature with no rule involved. See [webhooks.md](webhooks.md).
+
 ## Computing a number
 
 Setting a **number** field, a token expression is **evaluated, not substituted**. So
