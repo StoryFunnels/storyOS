@@ -415,7 +415,20 @@ export const records = pgTable(
      * Rollup is NOT materialized here yet — see docs/architecture/record-storage.md.
      */
     computedValues: jsonb('computed_values').notNull().default({}),
-    /** Fractional-index rank, one per database (ADR-0005). */
+    /**
+     * Fractional-index rank, one per database (ADR-0005).
+     *
+     * #480/#487 — collated "C" (plain byte order) in the database, by a raw
+     * migration (0082) rather than this builder: drizzle-orm 0.45's `text()`
+     * has no `.collate()` option to express it here, so `db:generate` would
+     * never emit it and there is nothing to keep in sync between this line
+     * and the migration. The fractional-indexing library assumes byte-order
+     * comparison; the database's default collation (en_US.UTF-8 on the
+     * instance this was measured on) disagreed with it, so `ORDER BY position`
+     * returned a different order than the keys were generated in, and a
+     * `lastPosition()` read anchored new keys off the wrong "maximum",
+     * producing outright duplicates across a multi-chunk bulk create.
+     */
     position: text('position').notNull().default('a0'),
     createdBy: text('created_by'),
     updatedBy: text('updated_by'),
