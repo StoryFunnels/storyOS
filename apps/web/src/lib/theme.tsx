@@ -34,18 +34,28 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [preference, setPreferenceState] = useState<ThemePreference>('system');
   const [resolved, setResolved] = useState<ResolvedTheme>('light');
 
-  // Adopt the value the pre-paint script already applied, so state matches the DOM.
-  useEffect(() => {
-    const stored = (localStorage.getItem(THEME_STORAGE_KEY) as ThemePreference | null) ?? 'system';
-    setPreferenceState(stored);
-    setResolved(resolve(stored));
-  }, []);
-
   const apply = useCallback((pref: ThemePreference) => {
     const r = resolve(pref);
     document.documentElement.setAttribute('data-theme', r);
     setResolved(r);
   }, []);
+
+  // #511 — this must call apply(), not just setResolved(). The pre-paint script
+  // (THEME_INIT_SCRIPT) sets the DOM attribute before hydration so there's no
+  // flash, and this effect used to assume that already happened and only
+  // synced React state to match. When the script doesn't end up applying the
+  // attribute (reproduced live, script present in <head>), state and DOM
+  // permanently disagree: every CSS-driven surface reads the DOM attribute and
+  // stays light, while the handful of components that read the React context
+  // directly (BlockNoteView's theme prop) go dark — a broken-looking split on
+  // the very first render. Calling apply() here makes the DOM write the ONE
+  // thing this effect does, self-healing regardless of whether the pre-paint
+  // script fired, rather than adding a second writer for the same value.
+  useEffect(() => {
+    const stored = (localStorage.getItem(THEME_STORAGE_KEY) as ThemePreference | null) ?? 'system';
+    setPreferenceState(stored);
+    apply(stored);
+  }, [apply]);
 
   const setPreference = useCallback(
     (p: ThemePreference) => {
