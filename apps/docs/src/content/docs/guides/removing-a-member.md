@@ -1,4 +1,9 @@
-# Removing a member, and GDPR requests
+---
+title: Removing a member, and GDPR requests
+description: Remove, Export, and Erase are three different actions in Settings → Members — offboarding, subject access, and irreversible erasure.
+sidebar:
+  order: 5
+---
 
 Settings → Members → a member's row, admin only. Three different actions, not one "delete member"
 button, because they answer three different requests.

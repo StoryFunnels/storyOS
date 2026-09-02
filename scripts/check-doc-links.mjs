@@ -18,8 +18,11 @@ walk('.');
 
 // Site-absolute links (/foo/bar/) are Starlight route URLs, not repo file paths:
 // extensionless, slug-based, resolved by the docs site. Validate them against the
-// Starlight content root instead of the filesystem-relative path.
+// Starlight content root instead of the filesystem-relative path. A link that DOES
+// carry a file extension (an image, most often) is a static asset served straight
+// from apps/docs/public/ rather than a content route, so it's checked there instead.
 const DOCS_ROOT = 'apps/docs/src/content/docs';
+const PUBLIC_ROOT = 'apps/docs/public';
 // Routes generated at build time (not backed by a content file). starlight-openapi
 // renders the whole OpenAPI reference under `api/reference/*` from openapi.json
 // (see apps/docs/astro.config.mjs), so those pages have no .md source.
@@ -43,8 +46,11 @@ for (const file of mdFiles) {
   for (const match of text.matchAll(linkRe)) {
     const link = match[1];
     if (/^(https?:|mailto:)/.test(link)) continue;
+    const isAsset = /\.[a-zA-Z0-9]+$/.test(link.split('?')[0].split('#')[0]) && !/\.mdx?$/.test(link);
     const ok = link.startsWith('/')
-      ? docsRouteExists(link)
+      ? isAsset
+        ? existsSync(join(PUBLIC_ROOT, link.replace(/^\/+/, '')))
+        : docsRouteExists(link)
       : existsSync(normalize(join(dirname(file), link)));
     if (!ok) {
       console.error(`BROKEN: ${file} -> ${link}`);

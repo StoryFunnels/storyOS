@@ -56,6 +56,13 @@ export default defineConfig({
           label: 'Guides',
           items: [
             { label: 'Share a portal with a client', slug: 'guides/client-portals' },
+            { label: 'Creating a workspace', slug: 'guides/creating-a-workspace' },
+            { label: 'Migrating your data', slug: 'guides/migrate-data' },
+            { label: 'Migrate from Linear', slug: 'guides/migrate-from-linear' },
+            { label: 'Removing a member, and GDPR', slug: 'guides/removing-a-member' },
+            { label: 'Keyboard shortcuts', slug: 'guides/keyboard-shortcuts' },
+            { label: 'Webhooks', slug: 'guides/webhooks' },
+            { label: 'Sources', slug: 'guides/sources' },
           ],
         },
         {
@@ -70,6 +77,7 @@ export default defineConfig({
         {
           label: 'Concepts',
           items: [
+            { label: 'Workspaces, spaces & databases', slug: 'concepts/workspaces-spaces-databases' },
             { label: 'Databases & fields', slug: 'concepts/databases-and-fields' },
             { label: 'Relations', slug: 'concepts/relations' },
             { label: 'Lookups & rollups', slug: 'concepts/lookups-and-rollups' },
@@ -78,6 +86,11 @@ export default defineConfig({
             { label: 'Automations & buttons', slug: 'concepts/automations' },
             { label: 'Access & roles', slug: 'concepts/access-and-roles' },
             { label: 'Data model reference', slug: 'concepts/data-model' },
+            { label: 'Files & attachments', slug: 'concepts/attachments' },
+            { label: 'Record history', slug: 'concepts/record-history' },
+            { label: 'Dashboards', slug: 'concepts/dashboards' },
+            { label: 'Organising the sidebar', slug: 'concepts/organising-the-sidebar' },
+            { label: 'Tyron, the in-app assistant', slug: 'concepts/tyron' },
           ],
         },
         {

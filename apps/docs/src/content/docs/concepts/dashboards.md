@@ -1,4 +1,9 @@
-# Dashboards
+---
+title: Dashboards
+description: A view made of number tiles and charts on a grid, drawing on one database or several — with targets, per-block sources, and access-aware rendering.
+sidebar:
+  order: 12
+---
 
 A dashboard is a view made of **number tiles** and **charts**, arranged on a grid. Unlike every
 other view type it does not render rows of one database — it can measure several.
@@ -61,8 +66,7 @@ a row is a tile's natural height. Both persist per dashboard, for everyone who o
 the dashboard's layout, not your personal one.
 
 Tiles and charts sit on **one shared sequence**, which is the point: a chart can sit *beside* the
-number it explains. Previously every chart rendered below every tile, as a structural consequence
-rather than a choice.
+number it explains.
 
 Two things worth knowing:
 
@@ -71,17 +75,13 @@ Two things worth knowing:
 - **On a narrow screen every block becomes full width** and spans are ignored. A 6-column block on
   a phone would otherwise be half a screen wide.
 
-A dashboard that has never been arranged renders in creation order at the default size, exactly as
-it did before arranging existed.
-
 ## Giving a number a target
 
 *"383"* is not information. *"383, against a target of 400"* is.
 
 A tile can carry a **target** and show progress against it. You also state the **direction** —
 whether higher is better, or whether the target is a limit — and that is a choice you make, never
-something the dashboard infers. More revenue is good; more overdue invoices is not. Colouring by
-size alone would be confidently wrong half the time.
+something the dashboard infers. More revenue is good; more overdue invoices is not.
 
 - **Higher is better**: at or above the target reads as good.
 - **The target is a limit**: below it reads as good, above it reads as bad.
@@ -109,8 +109,6 @@ wherever you have edit access.
 
 - **Deleting a dashboard** removes its tiles and charts. **The records they measured are not
   touched** — a dashboard only ever reads.
-- **Deleting a folder** moves everything inside it back to the space root. Nothing inside a folder
-  is deleted with it.
 - **A database's views keep the last-one rule**: a database must always have at least one view, so
   its final view cannot be deleted. Space-level dashboards have no such rule — a space can have
   none.

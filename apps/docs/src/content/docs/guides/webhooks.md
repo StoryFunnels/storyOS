@@ -1,10 +1,15 @@
-# Webhooks
+---
+title: Webhooks
+description: An outbound subscription — StoryOS calls a URL you name whenever something happens, with a signing secret shown once and a delivery log.
+sidebar:
+  order: 7
+---
 
 An outbound subscription: StoryOS calls a URL you name whenever something happens, so another
 tool finds out without polling.
 
 This is a different feature from an automation's **Send a webhook** action (see
-[automations.md](automations.md)). That one fires from a single rule, on the record that
+[automations](/concepts/automations/)). That one fires from a single rule, on the record that
 triggered it. A webhook subscription is workspace-wide (or scoped to one database), fires on
 whichever event types you pick, and exists on its own — no rule required.
 

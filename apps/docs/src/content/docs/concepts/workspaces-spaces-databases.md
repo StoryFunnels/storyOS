@@ -1,4 +1,9 @@
-# Workspaces, spaces and databases
+---
+title: Workspaces, spaces and databases
+description: The three levels of container, which question each answers, and how to give any of them a one-line description.
+sidebar:
+  order: 0
+---
 
 Three levels of container. Most tools have some version of this and give you no help deciding
 what goes where, so here is the short answer first, then the reasoning.
@@ -23,12 +28,15 @@ not for separate projects.
 
 A named area of work inside a workspace, holding databases, dashboards, documents and folders.
 Spaces are how a workspace stays navigable once it has more than a dozen databases. They carry an
-icon and a colour, so the sidebar is scannable rather than a list of similar words.
+icon and a colour, so the sidebar is scannable rather than a list of similar words. See
+[organising the sidebar](/concepts/organising-the-sidebar/) for how things move between spaces and
+folders.
 
 ## Database
 
-A table of records with typed fields, its own views, buttons and automation rules. This is where
-the actual work lives.
+A table of records with typed fields, its own [views](/concepts/views/), buttons and
+[automation rules](/concepts/automations/). This is where the actual work lives — see
+[databases & fields](/concepts/databases-and-fields/) for the field types it can hold.
 
 ## Every level can say what it is for
 

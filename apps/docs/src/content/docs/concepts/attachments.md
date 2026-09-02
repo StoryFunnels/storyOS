@@ -1,4 +1,9 @@
-# Files and attachments
+---
+title: Files & attachments
+description: The record's file bag versus an attachment field — two different places a file can live, and which one you actually want.
+sidebar:
+  order: 9
+---
 
 There are two places a file can live on a record, and they answer different questions.
 
@@ -32,14 +37,13 @@ that gets shown.
 **Uploading is its own step.** A file goes into a field by being uploaded to that field. Setting
 the field's value can then reorder or remove what is already there, but it cannot pull in a file
 that was uploaded somewhere else — pointing a field at a stranger's attachment is refused, and the
-error says to upload through the field instead.
-
-That may read as fussy; it is what stops a file appearing in two records at once and being deleted
-out from under one of them.
+error says to upload through the field instead. That is what stops a file appearing in two records
+at once and being deleted out from under one of them.
 
 ## Limits and formats
 
-- **20 MB per file** by default. Self-hosters can change this (`ATTACHMENT_MAX_BYTES`).
+- **20 MB per file** by default. Self-hosters can change this (`ATTACHMENT_MAX_BYTES`) — see the
+  [self-hosting attachments guide](/self-hosting/attachments/) for storage configuration.
 - **Images get a thumbnail**; other files do not. A card knows in advance whether a thumbnail
   exists, so you get an honest placeholder rather than a broken image.
 - Any file type. StoryOS does not interpret the contents.
@@ -49,8 +53,7 @@ out from under one of them.
 - **CSV import cannot create an attachment field.** A cell is text and a file is not, so an import
   that "created" one would give you a column that is empty for every row. Import the records
   first, add the field, then upload.
-- **A file is data.** Deleting an attachment destroys the only copy — there is no trash for it, and
-  Tyron treats it as a real delete rather than housekeeping.
+- **A file is data.** Deleting an attachment destroys the only copy — there is no trash for it.
 
 ## Over the API and MCP
 
