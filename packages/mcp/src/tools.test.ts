@@ -3922,3 +3922,65 @@ describe('unknown top-level arguments are rejected over the real transport (#450
     expect(res.isError).toBeUndefined();
   });
 });
+
+/**
+ * #491 — an agent obtains a connection_id without a human reading a uuid out
+ * of the app. The load-bearing assertion is what is NOT in the response: no
+ * secret, no write-half tool advertised — asserted on data, not description.
+ */
+describe('list_connections: the read half only (#491)', () => {
+  const WORKSPACE = { id: 'ws-1', name: 'JCM Agency' };
+  const CONNECTIONS = [
+    { id: 'conn-1', provider: 'google', name: 'YouTube', status: 'active', scopes: ['youtube.readonly'], last_ok_at: '2026-01-01T00:00:00Z', error_count_24h: 0 },
+  ];
+
+  function harness() {
+    const handlers = new Map<string, (a: unknown) => Promise<unknown>>();
+    const server = { registerTool: (n: string, _c: unknown, h: (a: unknown) => Promise<unknown>) => handlers.set(n, h) };
+    const client = {
+      GET: async (path: string) => {
+        if (path === '/api/v1/workspaces') return { data: [WORKSPACE] };
+        if (path === '/api/v1/workspaces/{ws}/connections') return { data: { data: CONNECTIONS } };
+        throw new Error(`unmocked GET ${path}`);
+      },
+    } as never;
+    registerTools(server as never, { client, baseUrl: 'x', token: 't' } as Ctx, { scope: 'admin', allowRunButton: true });
+    return handlers;
+  }
+
+  it('returns connections with no auth material of any kind, asserted on the response body', async () => {
+    const handlers = harness();
+    const res = (await handlers.get('list_connections')!({ workspace: 'JCM Agency' })) as { content: Array<{ text: string }> };
+    const body = res.content[0]!.text;
+    expect(body).toContain('conn-1');
+    expect(/secret|token|password|client_secret|api_key/i.test(body)).toBe(false);
+  });
+
+  it('exposes no write-half tool at any scope — creating or removing a connection stays out (coverage.ts)', () => {
+    for (const scope of ['read', 'write', 'admin'] as const) {
+      const handlers = new Map<string, unknown>();
+      const server = { registerTool: (n: string, _c: unknown, h: unknown) => handlers.set(n, h) };
+      registerTools(server as never, { client: {} as never, baseUrl: 'x', token: 't' } as Ctx, { scope, allowRunButton: true });
+      for (const t of ['create_connection', 'delete_connection', 'test_connection', 'resume_connection']) {
+        expect(handlers.has(t), `${t} must not exist at ${scope} scope`).toBe(false);
+      }
+    }
+  });
+
+  it('is reachable at read scope, matching ConnectionsController.list\'s own @RequiresScope(read)', () => {
+    const handlers = new Map<string, unknown>();
+    const server = { registerTool: (n: string, _c: unknown, h: unknown) => handlers.set(n, h) };
+    registerTools(server as never, { client: {} as never, baseUrl: 'x', token: 't' } as Ctx, { scope: 'read', allowRunButton: true });
+    expect(handlers.has('list_connections')).toBe(true);
+  });
+
+  it('create_source\'s description points at list_connections instead of claiming the gap #491 exists to close', () => {
+    const descriptions = new Map<string, string>();
+    const server = {
+      registerTool: (n: string, c: { description?: string }) => descriptions.set(n, c.description ?? ''),
+    };
+    registerTools(server as never, { client: {} as never, baseUrl: 'x', token: 't' } as Ctx, { scope: 'admin', allowRunButton: true });
+    expect(descriptions.get('create_source')).toContain('list_connections');
+    expect(descriptions.get('create_source')).not.toContain('no MCP tool that lists connections');
+  });
+});

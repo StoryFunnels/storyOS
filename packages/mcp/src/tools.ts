@@ -634,6 +634,9 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
    * mutation is `write` (the controller additionally requires `creator` on the
    * database, which the API enforces and this cannot loosen).
    */
+  // #491 — mirrors ConnectionsController.list's own @RequiresScope('read').
+  // Every other connections route stays admin-or-unreachable; see coverage.ts.
+  list_connections: 'read',
   list_sources: 'read',
   list_source_providers: 'read',
   list_source_runs: 'read',
@@ -5436,6 +5439,34 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     }),
   );
 
+  // ---- #491: read what is already connected, so create_source has a connection_id
+  // to reach for without a human reading a uuid out of the app. ----
+  //
+  // The write half of connections stays deliberately unreachable — creating,
+  // deleting, testing, resuming and the OAuth start redirect all hold a
+  // credential decision (coverage.ts). This is the read half only: the same
+  // shape as list_sources already exposing what a database syncs from, without
+  // the auth material. `present()` on the API side never includes a secret —
+  // asserted on the response body, not just claimed here.
+  reg(
+    'list_connections',
+    {
+      title: 'List connections',
+      description:
+        'The accounts already connected to this workspace — id, provider, a human name, status, scopes and recent health (last_ok_at, error_count_24h). NO credential or token is ever included; auth material never leaves the app. ' +
+        'This is where a connection_id for create_source comes from when the target database has no source yet (list_sources only shows connections already IN USE). ' +
+        'Connecting a NEW account is not available over MCP — a connect flow needs a live credential, which must never pass through a tool argument or land in a transcript. Connect it in the app (Settings → Connections), then reference it here by id.',
+      inputSchema: { workspace: z.string().describe('Workspace name or id.') },
+    },
+    handle<{ workspace: string }>(async ({ workspace }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<{ data?: unknown[] }>(
+        client.GET('/api/v1/workspaces/{ws}/connections', { params: { path: { ws: ws.id } } } as never),
+      );
+      return text(res.data ?? []);
+    }),
+  );
+
   reg(
     'list_sources',
     {
@@ -5444,7 +5475,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         'The scheduled syncs feeding this database from an external provider — provider, schedule, status, field_mapping, connection_id and last_sync_at for each. ' +
         'Use this to diagnose data freshness ("is this database still syncing?") before trusting its records as current. ' +
         'Configuring a source IS reachable over MCP (#438): list_source_providers → discover_source_fields → create_source, then sync_source and list_source_runs. ' +
-        'This is also the only place an existing connection_id is readable — see create_source.',
+        'For a connection_id: this shows one already IN USE by a source; list_connections (#491) shows every connected account, including ones with no source yet.',
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
         database: z.string().describe('Database name, api slug, or id.'),
@@ -5674,7 +5705,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       title: 'Create source',
       description:
         'Configure a scheduled sync from an external provider INTO this database, and start it running. ' +
-        'CREDENTIALS NEVER PASS THROUGH THIS TOOL: connect the account once in the app (Settings → Connections) and reference it by `connection_id`. There is no MCP tool that lists connections yet (#491), so today a connection_id comes from list_sources on a database that already syncs, or from a human. ' +
+        'CREDENTIALS NEVER PASS THROUGH THIS TOOL: connect the account once in the app (Settings → Connections) and reference it by `connection_id` — get one from list_connections (#491), or from list_sources if the target database already has a source. ' +
         'Run list_source_providers then discover_source_fields first — `field_mapping` should be a mapping somebody has looked at, not a guess. ' +
         'field_mapping maps the provider\'s external keys to fields in THIS database, and takes field names or ids ("Comment text" or a uuid). Keys you leave out are simply not stored. ' +
         'external_key_field is the field holding the provider\'s stable id; it MUST be one of field_mapping\'s targets, and it is what makes the next sync update a record rather than duplicate it. ' +
