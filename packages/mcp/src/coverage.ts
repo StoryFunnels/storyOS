@@ -167,11 +167,6 @@ export const EXCLUDED: CoverageRule[] = [
       '#491 — connect (POST), disconnect (DELETE), re-test, resume-after-circuit-break and the OAuth start redirect all touch a stored credential or hand one to a third party. `list_connections` covers the read half; this is deliberately still refused.',
   },
   {
-    match: '/api/v1/workspaces/{ws}/connections/providers',
-    reason:
-      '#507 — the catalog of what COULD be connected, split out of #491, which only answered "what is already connected" (list_connections). Genuinely open, not decided against — filed rather than left as an implicit gap in this rule.',
-  },
-  {
     match: /^GET (\/|\/healthz|\/api\/v1\/auth\/providers)$/,
     reason: 'Instance root, liveness probe and sign-in configuration. Infrastructure, not workspace capability.',
   },

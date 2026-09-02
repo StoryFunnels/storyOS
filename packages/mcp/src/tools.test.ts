@@ -3984,3 +3984,65 @@ describe('list_connections: the read half only (#491)', () => {
     expect(descriptions.get('create_source')).not.toContain('no MCP tool that lists connections');
   });
 });
+
+/**
+ * #507 — the provider CATALOG (what could be connected), a different question
+ * from #491's list_connections (what already is). Split out precisely because
+ * #491's acceptance criteria never asked for this, and building it there would
+ * have been the scope creep #438's narrow-fix precedent warned against.
+ */
+describe('list_connection_providers: what COULD be connected (#507)', () => {
+  const WORKSPACE = { id: 'ws-1', name: 'JCM Agency' };
+  const PROVIDERS = [
+    { id: 'slack', label: 'Slack', auth_kind: 'oauth', tier: 'oauth_managed', availability: 'connectable' },
+    { id: 'github', label: 'GitHub', auth_kind: 'oauth', tier: 'oauth_managed', availability: 'operator_config' },
+  ];
+
+  function harness() {
+    const handlers = new Map<string, (a: unknown) => Promise<unknown>>();
+    const server = { registerTool: (n: string, _c: unknown, h: (a: unknown) => Promise<unknown>) => handlers.set(n, h) };
+    const client = {
+      GET: async (path: string) => {
+        if (path === '/api/v1/workspaces') return { data: [WORKSPACE] };
+        if (path === '/api/v1/workspaces/{ws}/connections/providers') return { data: { data: PROVIDERS } };
+        throw new Error(`unmocked GET ${path}`);
+      },
+    } as never;
+    registerTools(server as never, { client, baseUrl: 'x', token: 't' } as Ctx, { scope: 'admin', allowRunButton: true });
+    return handlers;
+  }
+
+  const call = async (h: (a: unknown) => Promise<unknown>, a: unknown) =>
+    (await h(a)) as { isError?: boolean; content: Array<{ text: string }> };
+
+  it('returns the catalog with no auth material of any kind', async () => {
+    const handlers = harness();
+    const res = await call(handlers.get('list_connection_providers')!, { workspace: 'JCM Agency' });
+    expect(res.isError).toBeUndefined();
+    expect(res.content[0]!.text).toContain('slack');
+    expect(res.content[0]!.text).toContain('operator_config');
+    expect(/secret|token|password|client_secret|api_key/i.test(res.content[0]!.text)).toBe(false);
+  });
+
+  it('is reachable at read scope, matching the controller\'s own @RequiresScope(read)', () => {
+    const handlers = new Map<string, unknown>();
+    const server = { registerTool: (n: string, _c: unknown, h: unknown) => handlers.set(n, h) };
+    registerTools(server as never, { client: {} as never, baseUrl: 'x', token: 't' } as Ctx, { scope: 'read', allowRunButton: true });
+    expect(handlers.has('list_connection_providers')).toBe(true);
+  });
+
+  it('refuses an unknown argument, same as every other tool (#450)', async () => {
+    const handlers = harness();
+    const res = await call(handlers.get('list_connection_providers')!, { workspace: 'JCM Agency', includeSecrets: true });
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toContain('has no argument named "includeSecrets"');
+  });
+
+  it('describes itself as distinct from list_connections, not a synonym for it', () => {
+    const descriptions = new Map<string, string>();
+    const server = { registerTool: (n: string, c: { description?: string }) => descriptions.set(n, c.description ?? '') };
+    registerTools(server as never, { client: {} as never, baseUrl: 'x', token: 't' } as Ctx, { scope: 'admin', allowRunButton: true });
+    expect(descriptions.get('list_connection_providers')).toContain('list_connections');
+    expect(descriptions.get('list_connection_providers')).toContain('what CAN be connected');
+  });
+});
