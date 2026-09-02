@@ -1,11 +1,16 @@
-# Sources
+---
+title: Sources
+description: A scheduled sync from an external provider — YouTube, Shopify, Apify, social engagement — that upserts into a database on its own, plus its MCP tools.
+sidebar:
+  order: 8
+---
 
 A source is a scheduled sync: StoryOS pulls from an external provider — YouTube, Shopify, Apify,
 or a social platform's engagement — and upserts the result into one of your databases, on its own
 schedule, without a rule or a script.
 
-This is different from [CSV import](migrate-data.md), which is a one-time file. A source keeps
-running.
+This is different from [CSV import](/guides/migrate-data/), which is a one-time file. A source
+keeps running.
 
 ## Setting one up
 

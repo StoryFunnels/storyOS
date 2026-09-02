@@ -1,4 +1,9 @@
-# Record history
+---
+title: Record history
+description: Every field change is logged with who it's for and what actually made it — human, agent, automation, or MCP.
+sidebar:
+  order: 10
+---
 
 Every field change on a record is logged: what changed, from what to what, who it was for, and
 **what made the change**.
@@ -30,12 +35,6 @@ Agents never appear as actors and never accumulate a permission surface of their
 So "Ada changed Status to Done · automation" is not a contradiction. It means a rule Ada owns
 fired, and the change is hers in the sense that matters for permissions and accountability.
 
-## Why it matters
-
-Before this, every row said *human* — including rows written by automations and by MCP — because
-the column existed and nothing ever wrote a non-default value. History that says everything was
-typed is worse than history with no source column at all, because it reads as an answer.
-
 ## Where the label comes from
 
 It is **derived from how the request authenticated**, never claimed by the caller:
@@ -47,8 +46,7 @@ It is **derived from how the request authenticated**, never claimed by the calle
 
 That last one is the interesting case. The label lives on the **token row**, not in a request
 header, precisely because a header is forgeable by any client — and provenance that its own
-subject can claim is not provenance. Tyron mints a fresh, per-turn token marked as an agent's, so
-Tyron's writes badge as **agent**, while still being attributed to the member who asked.
+subject can claim is not provenance.
 
 ## One thing to know if you use the API
 

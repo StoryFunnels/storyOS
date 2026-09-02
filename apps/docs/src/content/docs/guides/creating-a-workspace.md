@@ -1,8 +1,13 @@
-# Creating a workspace
+---
+title: Creating a workspace
+description: The pick-a-starting-point screen after signup — Business Packs, starting empty, and what happens once you choose.
+sidebar:
+  order: 2
+---
 
 The first screen after signing up asks for two things: a name, and a starting point.
 
-![Create workspace screen with a name typed in and no starting point chosen yet](../assets/create-workspace-empty.png)
+![Create workspace screen with a name typed in and no starting point chosen yet](/images/create-workspace-empty.png)
 
 ## What you choose from
 
@@ -27,7 +32,7 @@ Once you pick, the button names your choice back to you — *"Create workspace f
 agency"*, or *"Create workspace with Support Inbox"* — so you confirm what is about to happen
 rather than pressing a generic Create and finding out afterwards.
 
-![Create workspace screen with the "Running an agency" pack selected, and the button reading Create workspace for running an agency](../assets/create-workspace-pack-selected.png)
+![Create workspace screen with the "Running an agency" pack selected, and the button reading Create workspace for running an agency](/images/create-workspace-pack-selected.png)
 
 ## If the packs do not load
 

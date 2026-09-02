@@ -1,4 +1,9 @@
-# Tyron, the in-app assistant
+---
+title: Tyron, the in-app assistant
+description: An AI assistant that acts as you, inside your workspace — what it does on its own, what it asks first, and what it refuses outright.
+sidebar:
+  order: 14
+---
 
 Tyron works inside your workspace: it can read your databases and change them, acting as you.
 
@@ -115,8 +120,8 @@ reads as a malfunction.
 ### It needs approval
 
 Anything that **leaves the workspace and reaches a person** — sending an email or a message,
-posting, running a button or a skill that could do either — goes through the approval gate the
-product already has for automations. It is the same gate, not a second one.
+posting, running a button or a skill that could do either — goes through the same approval gate
+[automations](/concepts/automations/) already have. It is the same gate, not a second one.
 
 Order matters here: outward-facing is checked **before** the delete rules, so *"delete these and
 tell the client"* cannot be reduced to a plain delete confirmation and slip past the gate.
@@ -171,5 +176,5 @@ permissions of its own.
 
 What Tyron's writes *do* carry is a separate source label of `agent`, so record history can
 distinguish a change you typed from one that was generated for you. Those are two different
-questions and history keeps two different answers. See
-[Record history](record-history.md) for how that works.
+questions and history keeps two different answers. See [record history](/concepts/record-history/)
+for how that works.

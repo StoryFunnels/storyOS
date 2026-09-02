@@ -1,7 +1,12 @@
-# Migrating your data
+---
+title: Migrating your data
+description: Import CSV with relation matching, a dry run, and update-instead-of-duplicate re-imports — the whole migration path in one page.
+sidebar:
+  order: 3
+---
 
-StoryOS imports CSV — and the reference tool exports every database to CSV, including relation columns as
-**target names**. That pair is the whole migration path.
+StoryOS imports CSV — and the reference tool exports every database to CSV, including relation
+columns as **target names**. That pair is the whole migration path.
 
 ## Export from your current tool
 
@@ -112,12 +117,12 @@ existing data is reported per row** rather than picking one of the matches silen
 Comments, files and automation rules do not come across. Rich-text formatting is lost in the
 export rather than the import — a CSV cell is plain text by the time StoryOS sees it.
 
-## Worked example (JCM)
+## Worked example
 
-1. Install the **Client Work** pack → Clients/Contacts/Projects/Tasks with relations wired.
-   (Optional now — an import can create the relations itself — but starting from a pack still
-   saves choosing every field type by hand.)
-2. Export your four source databases to CSV.
+1. Install a starter pack with the databases you need, relations already wired. (Optional now —
+   an import can create the relations itself — but starting from a pack still saves choosing every
+   field type by hand.)
+2. Export your source databases to CSV.
 3. Import `clients.csv` into Clients (Name → title, Status → existing select…).
 4. Import `projects.csv` into Projects; map the `Client` column to the Client relation.
 5. Import `tasks.csv` into Tasks; map `Project` to the Project relation, `State` to the

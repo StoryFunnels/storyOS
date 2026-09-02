@@ -1,4 +1,9 @@
-# Organising the sidebar
+---
+title: Organising the sidebar
+description: Databases, documents, and views share the sidebar and one set of moves — drag, folders, and who sees what.
+sidebar:
+  order: 13
+---
 
 The sidebar is the list of things you navigate to. Three kinds of thing live in it, and you
 arrange them the same way.
@@ -60,4 +65,5 @@ Access works in two layers, and they answer different questions:
 - **Each source is the room.** A dashboard drawing on three databases shows you only the parts you
   can read — the rest renders as an explicit no-access state rather than a zero.
 
-So putting a view in a space you share does not hand anyone the data behind it.
+So putting a view in a space you share does not hand anyone the data behind it. See
+[access & roles](/concepts/access-and-roles/) for the full guest-scoping model.

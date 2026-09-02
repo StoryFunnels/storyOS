@@ -1,4 +1,9 @@
-# Migrate from Linear
+---
+title: Migrate from Linear
+description: A one-shot, idempotent import via the Linear GraphQL API — teams become spaces, issues, sprints, and projects with a full field mapping table.
+sidebar:
+  order: 4
+---
 
 StoryOS imports your Linear workspace in one shot via the Linear GraphQL API — no CSV
 gymnastics, no webhooks. Each team becomes a space shaped like our **Dev Project** pack.
@@ -44,6 +49,5 @@ records in place instead of duplicating them.
 
 ## Limits
 
-- First 250 issues, 50 cycles and 50 projects per team per run. Re-running after
-  archiving old issues in Linear is the workaround for bigger teams until
-  pagination lands.
+First 250 issues, 50 cycles and 50 projects per team per run. Re-running after archiving old
+issues in Linear is the workaround for bigger teams until pagination lands.

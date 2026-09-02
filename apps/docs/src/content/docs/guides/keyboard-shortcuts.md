@@ -1,4 +1,9 @@
-# Keyboard shortcuts
+---
+title: Keyboard shortcuts
+description: Every shortcut StoryOS has, and three ways to find them again without this page.
+sidebar:
+  order: 6
+---
 
 Every shortcut StoryOS has, and three ways to find them again without this page.
 
@@ -30,9 +35,9 @@ Any of the three opens the same overlay, and the overlay renders the keys for *y
 
 ⇧, Enter and Esc read the same on every platform — only the modifier changes.
 
-Tyron is on **⌘J**, not ⌘K, because the command palette has owned ⌘K since long before Tyron
-existed and moving it would have broken a binding people already have. The palette carries an
-**Ask Tyron** entry, so ⌘K still reaches Tyron in one more keystroke.
+[Tyron](/concepts/tyron/) is on **⌘J**, not ⌘K, because the command palette has owned ⌘K since
+long before Tyron existed and moving it would have broken a binding people already have. The
+palette carries an **Ask Tyron** entry, so ⌘K still reaches Tyron in one more keystroke.
 
 ## When a shortcut deliberately does nothing
 
@@ -57,11 +62,9 @@ differs, so the modifier is never sniffed to decide what a key does, only to dec
 If the platform cannot be detected (during server rendering, before the page hydrates), the app
 shows the Mac form and corrects it the moment it loads.
 
----
-
-> **If you are editing this page:** do not hardcode ⌘. Every shortcut hint here must name both
-> forms — "⌘K (Ctrl+K on Windows and Linux)" — or be written with an explicit note like the one
-> above the table. Showing a Windows reader ⌘ teaches them a shortcut that does nothing, which is
-> worse than teaching them nothing: it costs a try, and then trust. That was the actual bug behind
-> #396, and it survived an earlier pass unnoticed because only the *display* was wrong while the
-> binding layer was already correct.
+<!--
+If you are editing this page: do not hardcode ⌘. Every shortcut hint here must name both forms —
+"⌘K (Ctrl+K on Windows and Linux)" — or be written with an explicit note like the one above the
+table. Showing a Windows reader ⌘ teaches them a shortcut that does nothing, which is worse than
+teaching them nothing: it costs a try, and then trust.
+-->
