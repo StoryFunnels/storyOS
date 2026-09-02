@@ -8,7 +8,7 @@ import {
 import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { accessGrants, databases, memberships, spaces, views } from '../db/schema';
+import { accessGrants, databases, memberships, records, spaces, views } from '../db/schema';
 import { notDeleted } from '../db/soft-delete';
 import type { Membership } from '../workspaces/workspace-access.guard';
 
@@ -48,6 +48,8 @@ export const ACCESS_RANK: Record<EffectiveRole, number> = {
 export interface GrantInput {
   space_id?: string;
   database_id?: string;
+  /** #472 — third scope: one specific record. */
+  record_id?: string;
   role: GrantRole;
 }
 
@@ -107,6 +109,33 @@ export class AccessService {
     for (const grant of grants) {
       if (grant.databaseId === database.id || grant.spaceId === database.spaceId) {
         if (!best || ACCESS_RANK[grant.role] > ACCESS_RANK[best]) best = grant.role;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * #472 — effective role for one RECORD: the max of a matching space grant, a
+   * matching database grant (both via `effectiveForDatabase`) and a matching
+   * RECORD grant — "highest grant wins" extended to the third scope, not a
+   * separate rule. A guest with no space/database grant at all can still reach
+   * a record they hold a direct record-scoped grant on; one who already has a
+   * database grant is unaffected (their existing rank wins if it's higher).
+   */
+  async effectiveForRecord(
+    membership: Membership,
+    record: { id: string; databaseId: string; spaceId: string },
+  ): Promise<EffectiveRole | null> {
+    const fromDatabase = await this.effectiveForDatabase(membership, {
+      id: record.databaseId,
+      spaceId: record.spaceId,
+    });
+    if (membership.role !== 'guest') return fromDatabase;
+    const grants = await this.guestGrants(membership);
+    let best = fromDatabase;
+    for (const grant of grants) {
+      if (grant.recordId === record.id && (!best || ACCESS_RANK[grant.role] > ACCESS_RANK[best])) {
+        best = grant.role;
       }
     }
     return best;
@@ -252,10 +281,9 @@ export class AccessService {
   // --- Grants management (admin) ---
 
   private async validateScope(workspaceId: string, input: GrantInput) {
-    const hasSpace = Boolean(input.space_id);
-    const hasDb = Boolean(input.database_id);
-    if (hasSpace === hasDb) {
-      throw new UnprocessableEntityException('Provide exactly one of space_id / database_id');
+    const scopeCount = [input.space_id, input.database_id, input.record_id].filter(Boolean).length;
+    if (scopeCount !== 1) {
+      throw new UnprocessableEntityException('Provide exactly one of space_id / database_id / record_id');
     }
     if (input.space_id) {
       const space = await this.db.query.spaces.findFirst({
@@ -273,6 +301,24 @@ export class AccessService {
       });
       if (!database) throw new NotFoundException('Database not found');
     }
+    if (input.record_id) {
+      // #472 — a record's workspace isn't denormalized onto the row, so this
+      // joins through its (live) database the same way every other
+      // record-scoped lookup in this codebase resolves workspace ownership.
+      const [row] = await this.db
+        .select({ id: records.id })
+        .from(records)
+        .innerJoin(databases, eq(databases.id, records.databaseId))
+        .where(
+          and(
+            eq(records.id, input.record_id),
+            eq(databases.workspaceId, workspaceId),
+            isNull(records.deletedAt),
+            notDeleted(databases.deletedAt),
+          ),
+        );
+      if (!row) throw new NotFoundException('Record not found');
+    }
   }
 
   async listGrants(workspaceId: string, userId?: string) {
@@ -287,6 +333,7 @@ export class AccessService {
         user_id: g.userId,
         space_id: g.spaceId,
         database_id: g.databaseId,
+        record_id: g.recordId,
         role: g.role,
       })),
     };
@@ -309,6 +356,16 @@ export class AccessService {
      * rows — reads took a max and failed safe, but revoke then removed only one
      * of them and reported success while access silently persisted.
      */
+    const upsertTarget = input.space_id
+      ? [accessGrants.userId, accessGrants.spaceId]
+      : input.database_id
+        ? [accessGrants.userId, accessGrants.databaseId]
+        : [accessGrants.userId, accessGrants.recordId];
+    const upsertTargetWhere = input.space_id
+      ? sql`${accessGrants.spaceId} IS NOT NULL`
+      : input.database_id
+        ? sql`${accessGrants.databaseId} IS NOT NULL`
+        : sql`${accessGrants.recordId} IS NOT NULL`;
     const [row] = await this.db
       .insert(accessGrants)
       .values({
@@ -316,16 +373,13 @@ export class AccessService {
         userId: input.user_id,
         spaceId: input.space_id,
         databaseId: input.database_id,
+        recordId: input.record_id,
         role: input.role,
         createdBy,
       })
       .onConflictDoUpdate({
-        target: input.space_id
-          ? [accessGrants.userId, accessGrants.spaceId]
-          : [accessGrants.userId, accessGrants.databaseId],
-        targetWhere: input.space_id
-          ? sql`${accessGrants.spaceId} IS NOT NULL`
-          : sql`${accessGrants.databaseId} IS NOT NULL`,
+        target: upsertTarget,
+        targetWhere: upsertTargetWhere,
         set: { role: input.role, updatedAt: new Date() },
       })
       .returning();
@@ -352,7 +406,9 @@ export class AccessService {
 
     const sameScope = grant.spaceId
       ? eq(accessGrants.spaceId, grant.spaceId)
-      : eq(accessGrants.databaseId, grant.databaseId!);
+      : grant.databaseId
+        ? eq(accessGrants.databaseId, grant.databaseId)
+        : eq(accessGrants.recordId, grant.recordId!);
     const gone = await this.db
       .delete(accessGrants)
       .where(

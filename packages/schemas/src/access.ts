@@ -13,23 +13,34 @@ export const grantRoleSchema = z.enum([
 ]);
 export type GrantRoleInput = z.infer<typeof grantRoleSchema>;
 
+/** #472 — exactly one of the three scopes, the general form (a 2-way XOR
+ * doesn't extend to three by chaining `!==`). */
+function exactlyOneScope(v: { space_id?: string; database_id?: string; record_id?: string }): boolean {
+  return [v.space_id, v.database_id, v.record_id].filter(Boolean).length === 1;
+}
+
 export const grantScopeSchema = z
   .object({
     space_id: z.uuid().optional(),
     database_id: z.uuid().optional(),
+    /** #472 — third scope: one specific record. */
+    record_id: z.uuid().optional(),
     role: grantRoleSchema,
   })
-  .refine((v) => Boolean(v.space_id) !== Boolean(v.database_id), {
-    message: 'provide exactly one of space_id / database_id',
+  .refine(exactlyOneScope, {
+    message: 'provide exactly one of space_id / database_id / record_id',
     path: ['space_id'],
   });
 
-export const createGrantSchema = z.object({
-  user_id: z.string().min(1),
-  space_id: z.uuid().optional(),
-  database_id: z.uuid().optional(),
-  role: grantRoleSchema,
-}).refine((v) => Boolean(v.space_id) !== Boolean(v.database_id), {
-  message: 'provide exactly one of space_id / database_id',
-  path: ['space_id'],
-});
+export const createGrantSchema = z
+  .object({
+    user_id: z.string().min(1),
+    space_id: z.uuid().optional(),
+    database_id: z.uuid().optional(),
+    record_id: z.uuid().optional(),
+    role: grantRoleSchema,
+  })
+  .refine(exactlyOneScope, {
+    message: 'provide exactly one of space_id / database_id / record_id',
+    path: ['space_id'],
+  });
