@@ -221,6 +221,7 @@ export class LinksController {
       body.record_ids,
       req.user.id,
       req.auth?.source ?? 'human',
+      req.membership,
     );
   }
 
@@ -247,6 +248,7 @@ export class LinksController {
       body.record_ids,
       req.user.id,
       req.auth?.source ?? 'human',
+      req.membership,
     );
   }
 
@@ -273,6 +275,7 @@ export class LinksController {
       body.record_ids,
       req.user.id,
       req.auth?.source ?? 'human',
+      req.membership,
     );
   }
 }

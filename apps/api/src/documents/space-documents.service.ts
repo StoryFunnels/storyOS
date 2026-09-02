@@ -3,8 +3,10 @@ import { and, asc, desc, eq, isNull } from 'drizzle-orm';
 import { normalizeIconInput } from '@storyos/schemas/icons';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { spaceDocuments, spaceFolders, spaces } from '../db/schema';
+import { spaceDocuments, spaceFolders } from '../db/schema';
 import { extractText } from './documents.service';
+import { AccessService } from '../access/access.service';
+import type { Membership } from '../workspaces/workspace-access.guard';
 
 const MAX_BYTES = 2 * 1024 * 1024;
 
@@ -13,7 +15,10 @@ const MAX_BYTES = 2 * 1024 * 1024;
  * concurrency mirrors record descriptions. */
 @Injectable()
 export class SpaceDocumentsService {
-  constructor(@Inject(DB) private readonly db: Db) {}
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    private readonly access: AccessService,
+  ) {}
 
   private project(row: typeof spaceDocuments.$inferSelect) {
     return {
@@ -30,21 +35,21 @@ export class SpaceDocumentsService {
   }
 
   /**
-   * #291 — a PERSONAL space is reachable only by its owner, admins included.
+   * #238 — this used to check ONLY personal-space ownership (via a raw spaces
+   * lookup) and never consulted AccessService at all: any active member OR
+   * guest, including one holding zero grants anywhere, could create/read/edit/
+   * delete a standalone document in ANY non-personal space, and personal-space
+   * privacy (#291 — private from admins too) was unenforced on every route
+   * except `create`. `AccessService.assertSpace` already does exactly what
+   * this needs — the #291 personal check AND the grant-based space check — so
+   * this delegates rather than re-implementing a second, incomplete copy.
    *
-   * 404s rather than 403s, matching the convention elsewhere: a distinguishable
-   * "forbidden" would confirm that a given person has a personal space and that a
-   * particular document id lives in it, which is itself the disclosure.
+   * `min = 'viewer'` for reads, `'editor'` for writes, matching the space-owned
+   * (dashboard) view rules in `SpaceViewsService` — a document is space content,
+   * not schema, so it doesn't need `creator`.
    */
-  private async assertSpace(workspaceId: string, spaceId: string, actorUserId: string) {
-    const space = await this.db.query.spaces.findFirst({
-      where: and(eq(spaces.id, spaceId), eq(spaces.workspaceId, workspaceId)),
-      columns: { id: true, personal: true, ownerUserId: true },
-    });
-    if (!space) throw new NotFoundException('Space not found');
-    if (space.personal && space.ownerUserId !== actorUserId) {
-      throw new NotFoundException('Space not found');
-    }
+  private async assertSpace(membership: Membership, spaceId: string, min: 'viewer' | 'editor') {
+    await this.access.assertSpace(membership, spaceId, min);
   }
 
   private async row(workspaceId: string, docId: string) {
@@ -55,8 +60,8 @@ export class SpaceDocumentsService {
     return row;
   }
 
-  async list(workspaceId: string, spaceId: string, actorUserId: string) {
-    await this.assertSpace(workspaceId, spaceId, actorUserId);
+  async list(membership: Membership, spaceId: string) {
+    await this.assertSpace(membership, spaceId, 'viewer');
     const rows = await this.db.query.spaceDocuments.findMany({
       where: and(eq(spaceDocuments.spaceId, spaceId), isNull(spaceDocuments.deletedAt)),
       orderBy: [asc(spaceDocuments.position), asc(spaceDocuments.createdAt)],
@@ -68,8 +73,8 @@ export class SpaceDocumentsService {
     return rows.map((r) => ({ id: r.id, space_id: r.spaceId, folder_id: r.folderId, title: r.title, icon: r.icon }));
   }
 
-  async create(workspaceId: string, spaceId: string, input: { title?: string; icon?: string }, actorId: string) {
-    await this.assertSpace(workspaceId, spaceId, actorId);
+  async create(membership: Membership, spaceId: string, input: { title?: string; icon?: string }, actorId: string) {
+    await this.assertSpace(membership, spaceId, 'editor');
     const [last] = await this.db
       .select({ position: spaceDocuments.position })
       .from(spaceDocuments)
@@ -84,7 +89,7 @@ export class SpaceDocumentsService {
     const [row] = await this.db
       .insert(spaceDocuments)
       .values({
-        workspaceId,
+        workspaceId: membership.workspaceId,
         spaceId,
         title,
         icon,
@@ -95,12 +100,14 @@ export class SpaceDocumentsService {
     return this.project(row!);
   }
 
-  async get(workspaceId: string, docId: string) {
-    return this.project(await this.row(workspaceId, docId));
+  async get(membership: Membership, docId: string) {
+    const existing = await this.row(membership.workspaceId, docId);
+    await this.assertSpace(membership, existing.spaceId, 'viewer');
+    return this.project(existing);
   }
 
   async update(
-    workspaceId: string,
+    membership: Membership,
     docId: string,
     input: {
       title?: string;
@@ -111,7 +118,8 @@ export class SpaceDocumentsService {
       folder_id?: string | null;
     },
   ) {
-    const existing = await this.row(workspaceId, docId);
+    const existing = await this.row(membership.workspaceId, docId);
+    await this.assertSpace(membership, existing.spaceId, 'editor');
     const patch: Partial<typeof spaceDocuments.$inferInsert> = {};
     if (input.folder_id !== undefined) {
       if (input.folder_id !== null) {
@@ -159,8 +167,9 @@ export class SpaceDocumentsService {
     return this.project(row!);
   }
 
-  async remove(workspaceId: string, docId: string) {
-    await this.row(workspaceId, docId);
+  async remove(membership: Membership, docId: string) {
+    const existing = await this.row(membership.workspaceId, docId);
+    await this.assertSpace(membership, existing.spaceId, 'editor');
     await this.db.update(spaceDocuments).set({ deletedAt: new Date() }).where(eq(spaceDocuments.id, docId));
     return { deleted: docId };
   }

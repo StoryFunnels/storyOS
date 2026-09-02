@@ -36,30 +36,30 @@ export class SpaceDocumentsController {
   @Get('spaces/:space/documents')
   @ApiOperation({ summary: 'Standalone documents in a space (MN-095)' })
   async list(@Req() req: WorkspaceRequest, @Param('space') space: string) {
-    return { data: await this.docs.list(req.membership.workspaceId, space, req.user.id) };
+    return { data: await this.docs.list(req.membership, space) };
   }
 
   @Post('spaces/:space/documents')
   @ApiOperation({ summary: 'Create a standalone document in a space' })
   async create(@Req() req: WorkspaceRequest, @Param('space') space: string, @Body() body: CreateSpaceDocDto) {
-    return this.docs.create(req.membership.workspaceId, space, body, req.user.id);
+    return this.docs.create(req.membership, space, body, req.user.id);
   }
 
   @Get('documents/:doc')
   @ApiOperation({ summary: 'A standalone document (BlockNote content + version)' })
   async get(@Req() req: WorkspaceRequest, @Param('doc') doc: string) {
-    return this.docs.get(req.membership.workspaceId, doc);
+    return this.docs.get(req.membership, doc);
   }
 
   @Patch('documents/:doc')
   @ApiOperation({ summary: 'Update title/icon/content — 409 on version conflict' })
   async update(@Req() req: WorkspaceRequest, @Param('doc') doc: string, @Body() body: UpdateSpaceDocDto) {
-    return this.docs.update(req.membership.workspaceId, doc, body);
+    return this.docs.update(req.membership, doc, body);
   }
 
   @Delete('documents/:doc')
   @ApiOperation({ summary: 'Delete a standalone document' })
   async remove(@Req() req: WorkspaceRequest, @Param('doc') doc: string) {
-    return this.docs.remove(req.membership.workspaceId, doc);
+    return this.docs.remove(req.membership, doc);
   }
 }
