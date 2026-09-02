@@ -139,6 +139,16 @@ export const spaces = pgTable(
     /** Plain text like `createdBy` — the auth `user` table isn't in this schema, and
      *  #291 requires an EXPLICIT hard delete on member removal, not a DB cascade. */
     ownerUserId: text('owner_user_id'),
+    /**
+     * #453 — structural soft-delete. Same shape as `fields`/`records`/
+     * `spaceDocuments`/`comments`: nullable, no default, no companion
+     * `deletedBy`. Deleting a space marks this instead of removing the row, and
+     * cascades the same mark onto every live database/view/document beneath it
+     * (see `SpacesService.remove`) — so nothing under a soft-deleted space is
+     * silently orphaned-but-live. Every read filters via `notDeleted()`
+     * (`apps/api/src/db/soft-delete.ts`), the ONE place this predicate lives.
+     */
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
     ...timestamps,
   },
   (t) => [
@@ -284,6 +294,8 @@ export const databases = pgTable(
      * whatever you like. Mirrors `fields.isSystem`.
      */
     isSystem: boolean('is_system').notNull().default(false),
+    /** #453 — structural soft-delete; see the identical note on `spaces.deletedAt` above. */
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
     ...timestamps,
   },
   (t) => [uniqueIndex('databases_space_slug_uq').on(t.spaceId, t.apiSlug)],
@@ -371,6 +383,8 @@ export const views = pgTable(
      * null = an ordinary shared view (every view today).
      */
     ownerUserId: text('owner_user_id'),
+    /** #453 — structural soft-delete; see the identical note on `spaces.deletedAt` above. */
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
     ...timestamps,
   },
   (t) => [

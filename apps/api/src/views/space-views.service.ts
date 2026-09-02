@@ -9,6 +9,7 @@ import { and, asc, desc, eq, inArray, or } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { databases, spaceFolders, spaces, views } from '../db/schema';
+import { notDeleted } from '../db/soft-delete';
 import { AccessService } from '../access/access.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 
@@ -47,7 +48,7 @@ export class SpaceViewsService {
      * decide what is actually in it.
      */
     const space = await this.db.query.spaces.findFirst({
-      where: and(eq(spaces.id, spaceId), eq(spaces.workspaceId, membership.workspaceId)),
+      where: and(eq(spaces.id, spaceId), eq(spaces.workspaceId, membership.workspaceId), notDeleted(spaces.deletedAt)),
       columns: { id: true, personal: true, ownerUserId: true },
     });
     // 404 rather than an empty list: never confirm a space exists to someone who
@@ -59,7 +60,11 @@ export class SpaceViewsService {
     if (visible !== null && !visible.has(spaceId)) throw new NotFoundException('Space not found');
 
     const dbRows = await this.db.query.databases.findMany({
-      where: and(eq(databases.spaceId, spaceId), eq(databases.workspaceId, membership.workspaceId)),
+      where: and(
+        eq(databases.spaceId, spaceId),
+        eq(databases.workspaceId, membership.workspaceId),
+        notDeleted(databases.deletedAt),
+      ),
       columns: { id: true, spaceId: true },
     });
     const dbIds = dbRows.map((d) => d.id);
@@ -73,6 +78,7 @@ export class SpaceViewsService {
         // view placed in a folder is still personal, so this must be applied
         // here and not only on the database page.
         this.access.notOthersPersonalView(membership),
+        notDeleted(views.deletedAt),
       ),
       orderBy: [asc(views.position), asc(views.createdAt)],
     });
@@ -113,7 +119,7 @@ export class SpaceViewsService {
    */
   private async assertVisibleSpace(membership: Membership, spaceId: string) {
     const space = await this.db.query.spaces.findFirst({
-      where: and(eq(spaces.id, spaceId), eq(spaces.workspaceId, membership.workspaceId)),
+      where: and(eq(spaces.id, spaceId), eq(spaces.workspaceId, membership.workspaceId), notDeleted(spaces.deletedAt)),
       columns: { id: true, personal: true, ownerUserId: true },
     });
     if (!space) throw new NotFoundException('Space not found');
@@ -191,7 +197,9 @@ export class SpaceViewsService {
    * resolves either, so one route can serve both and no URL had to change.
    */
   async getById(membership: Membership, viewId: string) {
-    const view = await this.db.query.views.findFirst({ where: eq(views.id, viewId) });
+    const view = await this.db.query.views.findFirst({
+      where: and(eq(views.id, viewId), notDeleted(views.deletedAt)),
+    });
     if (!view) throw new NotFoundException('View not found');
     // #291 — another member's personal view is not merely hidden from lists.
     if (view.ownerUserId && view.ownerUserId !== membership.userId) {
@@ -201,7 +209,11 @@ export class SpaceViewsService {
       await this.assertVisibleSpace(membership, view.spaceId);
     } else if (view.databaseId) {
       const database = await this.db.query.databases.findFirst({
-        where: and(eq(databases.id, view.databaseId), eq(databases.workspaceId, membership.workspaceId)),
+        where: and(
+          eq(databases.id, view.databaseId),
+          eq(databases.workspaceId, membership.workspaceId),
+          notDeleted(databases.deletedAt),
+        ),
         columns: { id: true, spaceId: true },
       });
       if (!database) throw new NotFoundException('View not found');
@@ -248,7 +260,9 @@ export class SpaceViewsService {
    * make a space's only dashboard undeletable for a second reason.
    */
   async removeById(membership: Membership, viewId: string) {
-    const view = await this.db.query.views.findFirst({ where: eq(views.id, viewId) });
+    const view = await this.db.query.views.findFirst({
+      where: and(eq(views.id, viewId), notDeleted(views.deletedAt)),
+    });
     if (!view) throw new NotFoundException('View not found');
     if (view.ownerUserId && view.ownerUserId !== membership.userId) {
       throw new NotFoundException('View not found');
@@ -271,7 +285,7 @@ export class SpaceViewsService {
       throw new ForbiddenException('You need edit access to this space.');
     });
 
-    await this.db.delete(views).where(eq(views.id, viewId));
+    await this.db.update(views).set({ deletedAt: new Date() }).where(eq(views.id, viewId));
     return { deleted: viewId };
   }
 
@@ -280,7 +294,7 @@ export class SpaceViewsService {
     viewId: string,
     patch: { name?: string; config?: unknown; folder_id?: string | null },
   ) {
-    const view = await this.db.query.views.findFirst({ where: eq(views.id, viewId) });
+    const view = await this.db.query.views.findFirst({ where: and(eq(views.id, viewId), notDeleted(views.deletedAt)) });
     if (!view) throw new NotFoundException('View not found');
     if (view.ownerUserId && view.ownerUserId !== membership.userId) {
       throw new NotFoundException('View not found');
@@ -335,7 +349,7 @@ export class SpaceViewsService {
    * that comes out half-broken.
    */
   async moveToSpace(membership: Membership, viewId: string) {
-    const view = await this.db.query.views.findFirst({ where: eq(views.id, viewId) });
+    const view = await this.db.query.views.findFirst({ where: and(eq(views.id, viewId), notDeleted(views.deletedAt)) });
     if (!view) throw new NotFoundException('View not found');
     if (view.ownerUserId && view.ownerUserId !== membership.userId) {
       throw new NotFoundException('View not found');

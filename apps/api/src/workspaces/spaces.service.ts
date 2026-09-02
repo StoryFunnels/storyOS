@@ -1,12 +1,13 @@
 import { Inject, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import { normalizeIconInput } from '@storyos/schemas/icons';
 import { normalizeDescription } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { databases, spaces } from '../db/schema';
+import { databases, spaceDocuments, spaces, views } from '../db/schema';
+import { notDeleted } from '../db/soft-delete';
 import { AccessService } from '../access/access.service';
-import { slugify } from '../databases/databases.service';
+import { slugify, softDeleteDatabaseCascade } from '../databases/databases.service';
 import type { Membership } from './workspace-access.guard';
 
 @Injectable()
@@ -29,7 +30,7 @@ export class SpacesService {
     // admins. `visible === null` (admin/member "sees everything") is exactly the case
     // that would otherwise leak it, so the predicate is ANDed onto every branch.
     return this.db.query.spaces.findMany({
-      where: and(scope, this.access.notOthersPersonal(membership)),
+      where: and(scope, this.access.notOthersPersonal(membership), notDeleted(spaces.deletedAt)),
       orderBy: [asc(spaces.position)],
     });
   }
@@ -127,23 +128,25 @@ export class SpacesService {
    * no friction at all. A guard that only exists in one caller is not a guard;
    * it is a habit.
    *
-   * `spaces → databases → records` is a hard-delete cascade. Records carry
-   * `deletedAt` for the trash, but a cascade deletes the ROWS, so the trash
-   * cannot recover any of it.
-   *
-   * Empty spaces confirm without a typed name deliberately — see
-   * `deleteSpaceSchema`. Asking for ceremony where there is nothing to lose is
-   * how people learn to type the name without reading the sentence.
+   * #453 amended the mechanism, not the warning: `spaces → databases → records`
+   * used to be a hard-delete FK cascade, genuinely unrecoverable. Now every
+   * level is soft-deleted (the space, each database via the SAME
+   * `softDeleteDatabaseCascade` a direct database delete uses, and this
+   * space's own live views/documents) — the rows survive. The message below
+   * still says "cannot be undone" because that remains true from where a user
+   * stands: #453 is storage-only, there is no restore UI or endpoint yet for a
+   * database or space (that is #37's job), so nothing today lets anyone
+   * actually get it back.
    */
   async remove(workspaceId: string, spaceId: string, opts: { confirm?: string } = {}) {
     const space = await this.db.query.spaces.findFirst({
-      where: and(eq(spaces.id, spaceId), eq(spaces.workspaceId, workspaceId)),
+      where: and(eq(spaces.id, spaceId), eq(spaces.workspaceId, workspaceId), notDeleted(spaces.deletedAt)),
       columns: { id: true, name: true },
     });
     if (!space) throw new NotFoundException('Space not found');
 
     const contained = await this.db.query.databases.findMany({
-      where: eq(databases.spaceId, spaceId),
+      where: and(eq(databases.spaceId, spaceId), notDeleted(databases.deletedAt)),
       columns: { id: true, name: true },
     });
 
@@ -162,10 +165,26 @@ export class SpacesService {
       );
     }
 
-    const [gone] = await this.db
-      .delete(spaces)
-      .where(and(eq(spaces.id, spaceId), eq(spaces.workspaceId, workspaceId)))
-      .returning();
+    const gone = await this.db.transaction(async (tx) => {
+      const now = new Date();
+      for (const db of contained) {
+        await softDeleteDatabaseCascade(tx, db.id, now);
+      }
+      await tx
+        .update(views)
+        .set({ deletedAt: now })
+        .where(and(eq(views.spaceId, spaceId), isNull(views.deletedAt)));
+      await tx
+        .update(spaceDocuments)
+        .set({ deletedAt: now })
+        .where(and(eq(spaceDocuments.spaceId, spaceId), isNull(spaceDocuments.deletedAt)));
+      const [row] = await tx
+        .update(spaces)
+        .set({ deletedAt: now })
+        .where(and(eq(spaces.id, spaceId), eq(spaces.workspaceId, workspaceId)))
+        .returning();
+      return row;
+    });
     if (!gone) throw new NotFoundException('Space not found');
     return { deleted: true, databases_deleted: contained.length };
   }

@@ -4,6 +4,7 @@ import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { activityEvents, databases, fields, records, selectOptions, spaces } from '../db/schema';
+import { notDeleted } from '../db/soft-delete';
 import { AuthGuard } from '../auth/auth.guard';
 import { AccessService } from '../access/access.service';
 import { RecordsService } from '../records/records.service';
@@ -129,6 +130,7 @@ export class SearchController {
       where: and(
         eq(databases.workspaceId, workspaceId),
         sql`${databases.name} ILIKE ${pattern}`,
+        notDeleted(databases.deletedAt),
         ...(visible !== null ? [inArray(databases.id, visible)] : []),
       ),
       columns: { id: true, name: true, icon: true },
@@ -138,7 +140,11 @@ export class SearchController {
     let spaceRows: Array<{ id: string; name: string; icon: string | null }> = [];
     if (visible === null) {
       spaceRows = await this.db.query.spaces.findMany({
-        where: and(eq(spaces.workspaceId, workspaceId), sql`${spaces.name} ILIKE ${pattern}`),
+        where: and(
+          eq(spaces.workspaceId, workspaceId),
+          sql`${spaces.name} ILIKE ${pattern}`,
+          notDeleted(spaces.deletedAt),
+        ),
         columns: { id: true, name: true, icon: true },
         limit: 5,
       });
@@ -166,6 +172,7 @@ export class SearchController {
     const dbRows = await this.db.query.databases.findMany({
       where: and(
         eq(databases.workspaceId, req.membership.workspaceId),
+        notDeleted(databases.deletedAt),
         ...(visible !== null ? [inArray(databases.id, visible)] : []),
       ),
       columns: { id: true, name: true, icon: true, color: true },

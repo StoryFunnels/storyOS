@@ -338,7 +338,7 @@ export class ViewsService {
     const config = defaultBoardGroupBy(input.type, input.config, live);
     await this.validateConfig(databaseId, input.type, config);
     const siblings = await this.db.query.views.findMany({
-      where: eq(views.databaseId, databaseId),
+      where: and(eq(views.databaseId, databaseId), isNull(views.deletedAt)),
       columns: { position: true },
     });
     const [view] = await this.db
@@ -362,7 +362,7 @@ export class ViewsService {
     patch: { name?: string; config?: ViewConfig; position?: number; folder_id?: string | null },
   ) {
     const view = await this.db.query.views.findFirst({
-      where: and(eq(views.id, viewId), eq(views.databaseId, databaseId)),
+      where: and(eq(views.id, viewId), eq(views.databaseId, databaseId), isNull(views.deletedAt)),
     });
     if (!view) throw new NotFoundException('View not found');
     if (patch.config) await this.validateConfig(databaseId, view.type, patch.config);
@@ -387,13 +387,13 @@ export class ViewsService {
   /** Clone a view with its full config, named "<name> copy", next to the original (MN-241). */
   async duplicate(databaseId: string, viewId: string) {
     const source = await this.db.query.views.findFirst({
-      where: and(eq(views.id, viewId), eq(views.databaseId, databaseId)),
+      where: and(eq(views.id, viewId), eq(views.databaseId, databaseId), isNull(views.deletedAt)),
     });
     if (!source) throw new NotFoundException('View not found');
 
     // Place right after the source; shift later siblings down to make room.
     const siblings = await this.db.query.views.findMany({
-      where: eq(views.databaseId, databaseId),
+      where: and(eq(views.databaseId, databaseId), isNull(views.deletedAt)),
       columns: { id: true, position: true },
     });
     const target = source.position + 1;
@@ -423,7 +423,7 @@ export class ViewsService {
   /** Make a view the database's default; exactly one default per database (MN-241). */
   async setDefault(databaseId: string, viewId: string) {
     const view = await this.db.query.views.findFirst({
-      where: and(eq(views.id, viewId), eq(views.databaseId, databaseId)),
+      where: and(eq(views.id, viewId), eq(views.databaseId, databaseId), isNull(views.deletedAt)),
     });
     if (!view) throw new NotFoundException('View not found');
 
@@ -441,13 +441,15 @@ export class ViewsService {
     });
   }
 
-  /** Every database keeps ≥1 view (C7). */
+  /** Every database keeps ≥1 view (C7). #453: soft-deletes rather than removing the row. */
   async remove(databaseId: string, viewId: string) {
-    const all = await this.db.query.views.findMany({ where: eq(views.databaseId, databaseId) });
+    const all = await this.db.query.views.findMany({
+      where: and(eq(views.databaseId, databaseId), isNull(views.deletedAt)),
+    });
     const removed = all.find((v) => v.id === viewId);
     if (!removed) throw new NotFoundException('View not found');
     if (all.length <= 1) throw new ConflictException('A database must keep at least one view');
-    await this.db.delete(views).where(eq(views.id, viewId));
+    await this.db.update(views).set({ deletedAt: new Date() }).where(eq(views.id, viewId));
     // Keep exactly one default: if we removed the default, promote the first remaining view.
     if (removed.isDefault) {
       const next = all

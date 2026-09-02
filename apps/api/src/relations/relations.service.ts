@@ -13,6 +13,7 @@ import { findFieldByRef } from '../fields/field-ref';
 import type { Db } from '../db/client';
 import { activityEvents, databases, fields, recordLinks, records, relations } from '../db/schema';
 import type { ChangeSource } from '../db/schema';
+import { notDeleted } from '../db/soft-delete';
 import { slugify } from '../databases/databases.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { isComparableType } from './auto-link';
@@ -69,6 +70,8 @@ export class RelationsService {
       where: and(
         eq(databases.workspaceId, membership.workspaceId),
         inArray(databases.id, [input.database_a_id, input.database_b_id]),
+        // #453: a soft-deleted database is not a valid relation target.
+        notDeleted(databases.deletedAt),
       ),
     });
     const dbA = dbs.find((d) => d.id === input.database_a_id);
@@ -300,10 +303,11 @@ export class RelationsService {
 
     const dbIds = [...new Set(rows.flatMap((r) => [r.databaseAId, r.databaseBId]))];
     const dbRows = await this.db.query.databases.findMany({
-      // No soft-delete column on `databases` — a deleted database is a real
-      // delete and its relations cascade with it, so a missing row here means
-      // the edge is already gone. Filtered below rather than joined away.
-      where: inArray(databases.id, dbIds),
+      // #453: `databases` now carries `deletedAt`, so a soft-deleted database's
+      // relations are filtered here explicitly — the row is no longer removed
+      // by an FK cascade, so a missing row would mean something else entirely
+      // (the database's own workspace deletion, which really does cascade).
+      where: and(inArray(databases.id, dbIds), notDeleted(databases.deletedAt)),
       columns: { id: true, name: true, spaceId: true },
     });
     const byId = new Map(dbRows.map((d) => [d.id, d]));

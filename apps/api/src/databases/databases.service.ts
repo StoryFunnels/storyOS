@@ -6,13 +6,34 @@ import { normalizeIconInput } from '@storyos/schemas/icons';
 import { resolveDatabaseColor, randomDatabaseColor } from '../common/database-color';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { databases, fields, recordLinks, relations, selectOptions, spaces, views } from '../db/schema';
+import { databases, fields, recordLinks, records, relations, selectOptions, spaces, views } from '../db/schema';
+import { notDeleted } from '../db/soft-delete';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { AccessService } from '../access/access.service';
 import type { EffectiveRole } from '../access/access.service';
 import { cleanViewConfig } from '../views/views.service';
 import { presentFieldConfig } from '../common/webhook-headers';
 import { normalizeDescription, type ViewConfig } from '@storyos/schemas';
+
+/** The transaction type `db.transaction(async (tx) => ...)` hands its callback. */
+type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
+
+/**
+ * #453 — one documented rule, used by both `DatabasesService.remove()` and
+ * `SpacesService.remove()` (a space's databases go through this same path,
+ * never a second copy of it): soft-deleting a database marks the database row
+ * AND cascades the same mark onto its own live fields/records/views. Nothing
+ * is hard-deleted, and nothing is left live-but-orphaned under a row that
+ * reads now treat as gone. Only rows with `deletedAt IS NULL` are touched, so
+ * this never disturbs something already in that table's own trash (extending
+ * its retention window would be a bug, not a no-op).
+ */
+export async function softDeleteDatabaseCascade(tx: Tx, databaseId: string, now: Date): Promise<void> {
+  await tx.update(databases).set({ deletedAt: now }).where(and(eq(databases.id, databaseId), isNull(databases.deletedAt)));
+  await tx.update(fields).set({ deletedAt: now }).where(and(eq(fields.databaseId, databaseId), isNull(fields.deletedAt)));
+  await tx.update(records).set({ deletedAt: now }).where(and(eq(records.databaseId, databaseId), isNull(records.deletedAt)));
+  await tx.update(views).set({ deletedAt: now }).where(and(eq(views.databaseId, databaseId), isNull(views.deletedAt)));
+}
 
 export function slugify(name: string): string {
   return (
@@ -66,7 +87,11 @@ export class DatabasesService {
     min: EffectiveRole,
   ): Promise<{ database: typeof databases.$inferSelect; my_access: EffectiveRole }> {
     const database = await this.db.query.databases.findFirst({
-      where: and(eq(databases.id, databaseId), eq(databases.workspaceId, membership.workspaceId)),
+      where: and(
+        eq(databases.id, databaseId),
+        eq(databases.workspaceId, membership.workspaceId),
+        notDeleted(databases.deletedAt),
+      ),
     });
     if (!database) throw new NotFoundException('Database not found');
     const effective = await this.access.effectiveForDatabase(membership, database);
@@ -95,6 +120,11 @@ export class DatabasesService {
     const taken = new Set(
       (
         await this.db.query.databases.findMany({
+          // #453: `databases_space_slug_uq` is a whole-table unique index, not a
+          // partial one over live rows — a soft-deleted database's slug is NOT
+          // actually free at the database level, so this must keep seeing it as
+          // taken too, or the insert below fails the constraint after this
+          // check said it was safe.
           where: eq(databases.spaceId, spaceId),
           columns: { apiSlug: true },
         })
@@ -123,7 +153,7 @@ export class DatabasesService {
   async list(membership: Membership) {
     const visibility = await this.access.guestVisibility(membership);
     const rows = await this.db.query.databases.findMany({
-      where: eq(databases.workspaceId, membership.workspaceId),
+      where: and(eq(databases.workspaceId, membership.workspaceId), notDeleted(databases.deletedAt)),
       orderBy: [asc(databases.position)],
     });
     const spaceSlugMap = await this.spaceSlugs(membership.workspaceId);
@@ -168,7 +198,11 @@ export class DatabasesService {
          * this is the cheap moment to close it — the alternative is #292
          * shipping a leak on day one through a path nobody thought to re-check.
          */
-        where: and(eq(views.databaseId, databaseId), this.access.notOthersPersonalView(membership)),
+        where: and(
+          eq(views.databaseId, databaseId),
+          this.access.notOthersPersonalView(membership),
+          notDeleted(views.deletedAt),
+        ),
         orderBy: [asc(views.position)],
       }),
     ]);
@@ -467,7 +501,18 @@ export class DatabasesService {
     return updated!;
   }
 
-  /** Hard delete (v1 decision) — cascade wipes fields/records/views. */
+  /**
+   * #453 — soft delete: marks `deletedAt` on this database and cascades the
+   * same mark onto its own live fields/records/views (`softDeleteDatabaseCascade`,
+   * the ONE rule for what happens to a soft-deleted database's children — see
+   * that function's comment). No FK cascade fires any more since the row
+   * itself is never removed, so the cascade above is what used to be implicit.
+   *
+   * Severing relations is a DIFFERENT concept and unchanged: the paired
+   * fields/links on the OTHER database, and the relation row itself, are still
+   * genuinely deleted — soft-delete is about this database's own rows, not
+   * about relation metadata that has nowhere restorable to live.
+   */
   async remove(
     membership: Membership,
     databaseId: string,
@@ -491,7 +536,7 @@ export class DatabasesService {
     await this.db.transaction(async (tx) => {
       if (touching.length > 0) {
         // Remove the paired fields living on OTHER databases (this db's own
-        // fields cascade with the database row).
+        // fields are marked deleted below, not removed).
         const fieldIds = touching.flatMap((r) => [r.fieldAId, r.fieldBId]);
         await tx.delete(recordLinks).where(
           inArray(
@@ -507,7 +552,7 @@ export class DatabasesService {
           ),
         );
       }
-      await tx.delete(databases).where(eq(databases.id, databaseId));
+      await softDeleteDatabaseCascade(tx, databaseId, new Date());
     });
     return { deleted: true, severed_relations: touching.length };
   }

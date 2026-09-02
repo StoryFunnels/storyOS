@@ -4,6 +4,7 @@ import type { FilterNode } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { fields, userPreferences, views } from '../db/schema';
+import { notDeleted } from '../db/soft-delete';
 import { assertFilterFieldsLive, cleanFilterNode } from '../views/views.service';
 import { DEFAULT_PREFERENCES, mergePreferences, type UserPreferences } from './preferences.constants';
 
@@ -55,7 +56,7 @@ export class PreferencesService {
    * every other view-scoped endpoint uses (ViewsService). */
   private async liveView(databaseId: string, viewId: string) {
     const view = await this.db.query.views.findFirst({
-      where: and(eq(views.id, viewId), eq(views.databaseId, databaseId)),
+      where: and(eq(views.id, viewId), eq(views.databaseId, databaseId), notDeleted(views.deletedAt)),
     });
     if (!view) throw new NotFoundException('View not found');
     return view;
