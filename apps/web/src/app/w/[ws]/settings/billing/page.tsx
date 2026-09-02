@@ -97,6 +97,26 @@ export default function BillingPage() {
   if (!billing.data) return null;
   const b = billing.data;
 
+  // #490 — `enabled` reflects whether Stripe is configured on this instance at
+  // all (billing.controller.ts's own comment). The settings nav already hides
+  // this link when it's false (layout.tsx), so anyone here arrived by direct
+  // navigation — a bookmark, a shared link. Matches referrals/page.tsx's
+  // identical pattern for the identical reason, per Otto's ruling on this
+  // ticket: an explicit unavailable state, not a 404 or a page that pretends
+  // this feature doesn't exist. The four CTAs below never render at all in
+  // this branch — not disabled, absent — so there is no enabled-looking
+  // control that cannot work.
+  if (!b.enabled) {
+    return (
+      <div className="mx-auto max-w-3xl p-4 sm:p-8">
+        <h1 className="mb-1 text-lg font-semibold text-ink">Billing</h1>
+        <p className="text-[13px] text-muted">
+          Billing is a cloud feature and isn’t available on this self-hosted instance.
+        </p>
+      </div>
+    );
+  }
+
   const trialDaysLeft = b.trialEndsAt
     ? Math.max(0, Math.ceil((new Date(b.trialEndsAt).getTime() - Date.now()) / 86_400_000))
     : null;
