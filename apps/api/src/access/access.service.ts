@@ -9,6 +9,7 @@ import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { accessGrants, databases, memberships, spaces, views } from '../db/schema';
+import { notDeleted } from '../db/soft-delete';
 import type { Membership } from '../workspaces/workspace-access.guard';
 
 /** ADR-0007: graded access. admin/member are workspace-wide fast paths. */
@@ -124,7 +125,7 @@ export class AccessService {
     // at the space at all, which made every personal space readable by every member
     // and admin by construction.
     const space = await this.db.query.spaces.findFirst({
-      where: eq(spaces.id, spaceId),
+      where: and(eq(spaces.id, spaceId), notDeleted(spaces.deletedAt)),
       columns: { personal: true, ownerUserId: true },
     });
     if (space && !this.canSeePersonal(membership, space)) return null;
@@ -143,7 +144,11 @@ export class AccessService {
   /** Asserts a space role, 404-ing rather than leaking existence (MN-124). */
   async assertSpace(membership: Membership, spaceId: string, min: EffectiveRole) {
     const space = await this.db.query.spaces.findFirst({
-      where: and(eq(spaces.id, spaceId), eq(spaces.workspaceId, membership.workspaceId)),
+      where: and(
+        eq(spaces.id, spaceId),
+        eq(spaces.workspaceId, membership.workspaceId),
+        notDeleted(spaces.deletedAt),
+      ),
     });
     if (!space) throw new NotFoundException('Space not found');
     const effective = await this.effectiveForSpace(membership, spaceId);
@@ -171,7 +176,7 @@ export class AccessService {
     const result = new Set(visibility.spaceIds);
     if (visibility.databaseIds.size > 0) {
       const rows = await this.db.query.databases.findMany({
-        where: inArray(databases.id, [...visibility.databaseIds]),
+        where: and(inArray(databases.id, [...visibility.databaseIds]), notDeleted(databases.deletedAt)),
         columns: { spaceId: true },
       });
       rows.forEach((r) => result.add(r.spaceId));
@@ -193,7 +198,7 @@ export class AccessService {
     const visibility = await this.guestVisibility(membership);
     if (!visibility) return null;
     const rows = await this.db.query.databases.findMany({
-      where: eq(databases.workspaceId, membership.workspaceId),
+      where: and(eq(databases.workspaceId, membership.workspaceId), notDeleted(databases.deletedAt)),
       columns: { id: true, spaceId: true },
     });
     return new Set(
@@ -254,13 +259,17 @@ export class AccessService {
     }
     if (input.space_id) {
       const space = await this.db.query.spaces.findFirst({
-        where: and(eq(spaces.id, input.space_id), eq(spaces.workspaceId, workspaceId)),
+        where: and(eq(spaces.id, input.space_id), eq(spaces.workspaceId, workspaceId), notDeleted(spaces.deletedAt)),
       });
       if (!space) throw new NotFoundException('Space not found');
     }
     if (input.database_id) {
       const database = await this.db.query.databases.findFirst({
-        where: and(eq(databases.id, input.database_id), eq(databases.workspaceId, workspaceId)),
+        where: and(
+          eq(databases.id, input.database_id),
+          eq(databases.workspaceId, workspaceId),
+          notDeleted(databases.deletedAt),
+        ),
       });
       if (!database) throw new NotFoundException('Database not found');
     }
