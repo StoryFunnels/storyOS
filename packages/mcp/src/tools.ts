@@ -634,9 +634,11 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
    * mutation is `write` (the controller additionally requires `creator` on the
    * database, which the API enforces and this cannot loosen).
    */
-  // #491 — mirrors ConnectionsController.list's own @RequiresScope('read').
-  // Every other connections route stays admin-or-unreachable; see coverage.ts.
+  // #491/#507 — both mirror ConnectionsController's own @RequiresScope('read')
+  // for their routes. The write half (connect/disconnect/test/resume/oauth
+  // start) stays unreachable at any scope; see coverage.ts.
   list_connections: 'read',
+  list_connection_providers: 'read',
   list_sources: 'read',
   list_source_providers: 'read',
   list_source_runs: 'read',
@@ -5471,6 +5473,31 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       const ws = await resolveWorkspace(client, workspace);
       const res = await unwrap<{ data?: unknown[] }>(
         client.GET('/api/v1/workspaces/{ws}/connections', { params: { path: { ws: ws.id } } } as never),
+      );
+      return text(res.data ?? []);
+    }),
+  );
+
+  // ---- #507: what COULD be connected, not what already is. ----
+  //
+  // A different question from list_connections (#491), and one #491 was never
+  // asked to answer: this instance's catalog of connectable provider TYPES —
+  // useful for "does this workspace support connecting to X" or recommending a
+  // provider correctly, without an ability to act on it (nobody can create a
+  // connection over MCP either way — that stays credential-gated below).
+  reg(
+    'list_connection_providers',
+    {
+      title: 'List connection providers',
+      description:
+        'The catalog of provider TYPES this StoryOS instance can connect (Slack, GitHub, a raw API key, etc.) — id, label, auth_kind, its access `tier`, and whether it is actually connectable RIGHT NOW on this deployment (`availability`: connectable / operator_config — a self-managed operator has not set the env var yet / cloud_only — hosted-only, off here). ' +
+        'This answers "what CAN be connected", not "what IS" — see list_connections (#491) for the accounts already connected. Nothing here can be acted on: connecting a NEW account is not available over MCP (a connect flow needs a live credential, which must never pass through a tool argument or land in a transcript) — this only tells you whether it is worth directing a human to go do it.',
+      inputSchema: { workspace: z.string().describe('Workspace name or id.') },
+    },
+    handle<{ workspace: string }>(async ({ workspace }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<{ data?: unknown[] }>(
+        client.GET('/api/v1/workspaces/{ws}/connections/providers', { params: { path: { ws: ws.id } } } as never),
       );
       return text(res.data ?? []);
     }),
