@@ -59,6 +59,19 @@ export interface OntologyRelation {
 const NODE_R = 15; // px radius of a main node's circle
 const SATELLITE_R = 8; // px radius of a cross-space satellite node
 
+/**
+ * #449 AC10 — "readable at 20 databases / 40 relations. If the diagram is
+ * not, ship the matrix or grouped-list form instead... rather than shipping
+ * a hairball." Vera's merge-gate review built the ticket's own exact fixture
+ * (20 databases, 28 relations) and confirmed the circular diagram genuinely
+ * overlaps at that scale (73 text nodes packed into an 882×882 canvas) — not
+ * a subjective call, a measured one. This threshold sits below where that
+ * broke and above every fixture that rendered cleanly during development (up
+ * to 5 databases): past it, each node gets too little arc room for its two
+ * lines of label plus its share of edge labels to stay apart.
+ */
+const DIAGRAM_NODE_LIMIT = 10;
+
 export function SpaceOntology({
   ws,
   spaceId,
@@ -75,6 +88,7 @@ export function SpaceOntology({
   spaceNameById: Map<string, string>;
 }) {
   const router = useRouter();
+  const openDatabase = (id: string) => router.push(`/w/${ws}/d/${id}`);
 
   const layout = useMemo(
     () => computeLayout(databases, relations, spaceId, spaceNameById),
@@ -92,7 +106,17 @@ export function SpaceOntology({
     );
   }
 
-  const openDatabase = (id: string) => router.push(`/w/${ws}/d/${id}`);
+  if (databases.length > DIAGRAM_NODE_LIMIT) {
+    return (
+      <OntologyList
+        databases={databases}
+        relations={relations}
+        spaceId={spaceId}
+        spaceNameById={spaceNameById}
+        onOpenDatabase={openDatabase}
+      />
+    );
+  }
   // #449 — "clicking an edge opens the relation config" has no existing
   // deep-link target: there is no /relations/{id} route, and the field editor
   // opens only from inside a database's own table view with no query-param
@@ -213,6 +237,96 @@ export function SpaceOntology({
       </svg>
     </div>
   );
+}
+
+/**
+ * #449 AC10's fallback: a grouped list, one entry per database in this space,
+ * each followed by its relations as plain sentences — "Field → Database.Field
+ * (cardinality)", the same information the diagram's edge labels carry, just
+ * laid out top-to-bottom instead of packed onto a shared canvas. Text wraps
+ * and scrolls; it cannot overlap itself the way node/edge labels sharing one
+ * fixed-size SVG can. No node-count ceiling of its own — that is the point.
+ */
+function OntologyList({
+  databases,
+  relations,
+  spaceId,
+  spaceNameById,
+  onOpenDatabase,
+}: {
+  databases: OntologyDatabase[];
+  relations: OntologyRelation[];
+  spaceId: string;
+  spaceNameById: Map<string, string>;
+  onOpenDatabase: (id: string) => void;
+}) {
+  const dbIds = new Set(databases.map((d) => d.id));
+  const byDatabase = new Map<string, OntologyRelation[]>();
+  for (const d of databases) byDatabase.set(d.id, []);
+  for (const r of relations) {
+    // A same-space relation is listed once, under its "a" side, to avoid
+    // showing the same sentence twice under two different databases.
+    if (byDatabase.has(r.a.database_id)) byDatabase.get(r.a.database_id)!.push(r);
+    else if (byDatabase.has(r.b.database_id)) byDatabase.get(r.b.database_id)!.push(r);
+  }
+
+  const sorted = [...databases].sort((a, b) => a.name.localeCompare(b.name));
+
+  return (
+    <div className="rounded-[var(--radius-card)] border border-border-default bg-card divide-y divide-border-default">
+      {sorted.map((d) => {
+        const dRelations = byDatabase.get(d.id) ?? [];
+        return (
+          <div key={d.id} className="p-3">
+            <button
+              type="button"
+              onClick={() => onOpenDatabase(d.id)}
+              className="flex items-center gap-2 text-left hover:underline"
+            >
+              <EntityIcon icon={d.icon} color={d.color} fallback={<DatabaseIcon className="h-3.5 w-3.5" />} />
+              <span className="text-[13px] font-medium text-ink">{d.name}</span>
+              <span className="text-[12px] text-faint">
+                {d.recordCounter ?? 0} {pluralNoun(databaseNoun(d.name), d.recordCounter ?? 0)}
+              </span>
+            </button>
+            {dRelations.length > 0 && (
+              <ul className="mt-1.5 flex flex-col gap-1 pl-6">
+                {dRelations.map((r) => (
+                  <li key={r.id} className="text-[12px] text-muted">
+                    {relationSentence(r, d.id, spaceId, dbIds, spaceNameById)}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Same sentence shape as the diagram's edge title: field on each side, the
+ *  cardinality, and — for a self-relation or a cross-space one — a marker
+ *  that would otherwise be implicit in the diagram's own drawing (a loop
+ *  shape, a dashed satellite). Text has neither, so it says so instead. */
+function relationSentence(
+  r: OntologyRelation,
+  localId: string,
+  spaceId: string,
+  dbIds: Set<string>,
+  spaceNameById: Map<string, string>,
+): string {
+  const cardinality = r.cardinality.replace(/_/g, '-');
+  if (r.self_relation) {
+    return `${r.a.field_name ?? '?'} / ${r.b.field_name ?? '?'} (self, ${cardinality})`;
+  }
+  const local = r.a.database_id === localId ? r.a : r.b;
+  const far = r.a.database_id === localId ? r.b : r.a;
+  const farInThisSpace = far.space_id === spaceId || dbIds.has(far.database_id);
+  const farLabel = farInThisSpace
+    ? far.database_name
+    : `${far.database_name} (in ${(far.space_id && spaceNameById.get(far.space_id)) || 'another space'})`;
+  return `${local.field_name ?? '?'} → ${farLabel}.${far.field_name ?? '?'} (${cardinality})`;
 }
 
 interface LayoutNode {
