@@ -63,6 +63,7 @@ export default defineConfig({
             { label: 'Keyboard shortcuts', slug: 'guides/keyboard-shortcuts' },
             { label: 'Webhooks', slug: 'guides/webhooks' },
             { label: 'Sources', slug: 'guides/sources' },
+            { label: 'Sync with Google Calendar', slug: 'guides/google-calendar-sync' },
           ],
         },
         {
