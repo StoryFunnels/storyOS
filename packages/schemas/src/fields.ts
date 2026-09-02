@@ -581,6 +581,18 @@ export function fieldDefaultValue(
     // change how every downstream formatter reads that column.
     return cfg['include_time'] === true ? now.toISOString() : now.toISOString().slice(0, 10);
   }
+  if (type === 'select' || type === 'workflow') {
+    // #475 — a record created with no state is silently unfindable by the
+    // filter every queue runs (`state has [<option>]`), while remaining
+    // visible to an unfiltered page-through: created successfully, invisible
+    // to the only query anyone runs, no signal on either side that anything
+    // is wrong. `default` is an OPTION ID, validated against the field's real
+    // options when it is SET (fields.service.ts create/update), not here —
+    // this resolver only reads what was already validated, same as every
+    // other type it handles.
+    const def = cfg['default'];
+    return typeof def === 'string' && def.length > 0 ? def : undefined;
+  }
   return undefined;
 }
 

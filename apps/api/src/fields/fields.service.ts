@@ -193,6 +193,22 @@ export class FieldsService {
     // No prior config to preserve against on create — this only strips any stray
     // presence flags so a `{ __keep: true }` never lands in storage (#249).
     const config = restoreFieldConfig(input.config ?? {}, {});
+    /*
+     * #475 — a select/workflow `default` is given here by OPTION LABEL, not id:
+     * the options this field will have don't exist yet, so there is no id to
+     * name. Validated against the options THIS SAME REQUEST is about to create;
+     * resolved to the real id once they exist, inside the transaction below.
+     */
+    let pendingDefaultLabel: string | undefined;
+    if ((input.type === 'select' || input.type === 'workflow') && typeof config['default'] === 'string' && config['default']) {
+      pendingDefaultLabel = config['default'] as string;
+      if (!input.options?.some((o) => o.label === pendingDefaultLabel)) {
+        throw new UnprocessableEntityException(
+          "default must match the label of one of this field's options",
+        );
+      }
+      delete config['default'];
+    }
     const siblings = await this.db.query.fields.findMany({
       where: and(eq(fields.databaseId, databaseId), eq(fields.isSystem, false)),
       columns: { position: true },
@@ -212,18 +228,33 @@ export class FieldsService {
         })
         .returning();
 
+      let finalField = field!;
       if (OPTIONED_FIELD_TYPES.has(input.type) && input.options && input.options.length > 0) {
-        await tx.insert(selectOptions).values(
-          input.options.map((option, i) => ({
-            fieldId: field!.id,
-            label: option.label,
-            color: option.color ?? 'gray',
-            icon: option.icon ?? null, // #202
-            position: i,
-          })),
-        );
+        const optionRows = await tx
+          .insert(selectOptions)
+          .values(
+            input.options.map((option, i) => ({
+              fieldId: field!.id,
+              label: option.label,
+              color: option.color ?? 'gray',
+              icon: option.icon ?? null, // #202
+              position: i,
+            })),
+          )
+          .returning();
+        if (pendingDefaultLabel) {
+          const match = optionRows.find((o) => o.label === pendingDefaultLabel);
+          if (match) {
+            const [updated] = await tx
+              .update(fields)
+              .set({ config: { ...config, default: match.id } })
+              .where(eq(fields.id, field!.id))
+              .returning();
+            finalField = updated!;
+          }
+        }
       }
-      return this.withOptions(tx as unknown as Db, field!);
+      return this.withOptions(tx as unknown as Db, finalField);
     });
     await this.backfillFormulaField(databaseId, created);
     await this.backfillRollupField(databaseId, created);
@@ -443,6 +474,20 @@ export class FieldsService {
     }
     if (!FieldsService.LOOKUPABLE.has(targetField.type)) {
       throw new UnprocessableEntityException(`Cannot look up ${targetField.type} fields`);
+    }
+  }
+
+  /**
+   * #475 — a select/workflow field's `default`, if present, must name a real
+   * option of THIS field. Checked at configure time so `fieldDefaultValue`
+   * (packages/schemas/src/fields.ts) can trust whatever it finds in storage,
+   * the same contract every other type's default already relies on.
+   */
+  private assertSelectDefaultOption(config: Record<string, unknown>, optionIds: ReadonlySet<string>): void {
+    const def = config['default'];
+    if (def === undefined || def === null) return;
+    if (typeof def !== 'string' || !optionIds.has(def)) {
+      throw new UnprocessableEntityException('default must be the id of one of this field\'s options');
     }
   }
 
@@ -705,6 +750,22 @@ export class FieldsService {
       // The stored sort key was computed under the OLD config — recompute it,
       // for the same reason a recompiled formula is re-materialized below.
       rollupConfigChanged = JSON.stringify(merged) !== JSON.stringify(field.config);
+    } else if ((field.type === 'select' || field.type === 'workflow') && patch.config !== undefined) {
+      // #475 — unlike create(), the field's options already exist by the time
+      // anyone PATCHes its config, so `default` is validated by id here, not
+      // by label.
+      const restored = restoreFieldConfig(patch.config, field.config);
+      const merged = { ...(field.config as Record<string, unknown>), ...restored };
+      const optionIds = new Set(
+        (
+          await this.db.query.selectOptions.findMany({
+            where: eq(selectOptions.fieldId, fieldId),
+            columns: { id: true },
+          })
+        ).map((o) => o.id),
+      );
+      this.assertSelectDefaultOption(merged, optionIds);
+      nextConfig = merged;
     } else {
       const restored = patch.config ? restoreFieldConfig(patch.config, field.config) : undefined;
       nextConfig = restored ? { ...(field.config as object), ...restored } : undefined;
@@ -986,6 +1047,19 @@ export class FieldsService {
         }
       }
       await tx.delete(selectOptions).where(eq(selectOptions.id, optionId));
+
+      // #475 — a field's `default` cannot be left naming an option that no
+      // longer exists: fieldDefaultValue trusts config.default is real, and a
+      // dangling one would prefill new records with an id that resolves to
+      // nothing. Reassigned records get the same replacement default gets;
+      // otherwise the default is simply cleared, never left dangling.
+      const config = field.config as Record<string, unknown>;
+      if (config['default'] === optionId) {
+        await tx
+          .update(fields)
+          .set({ config: input.reassign_to ? { ...config, default: input.reassign_to } : { ...config, default: undefined } })
+          .where(eq(fields.id, fieldId));
+      }
     });
 
     return { deleted: true, records_cleared: input.reassign_to ? 0 : count };
