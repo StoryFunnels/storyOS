@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useDateFormat } from '@/lib/preferences';
-import { Paperclip, Send, Trash2 } from 'lucide-react';
+import { Bot, HelpCircle, Paperclip, Send, Terminal, Trash2, Workflow } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCreateBlockNote } from '@blocknote/react';
 import { BlockNoteView } from '@blocknote/mantine';
@@ -361,6 +361,13 @@ interface ActivityEntry {
   payload: Record<string, unknown>;
   changes?: Array<{ field: string; from: unknown; to: unknown }>;
   created_at: string;
+  // #481/#496 — WHO made the write (`actor`) and WHAT kind of thing made it
+  // (`source`). null means genuinely not captured (every row written before
+  // #481 shipped, or an insert site its enumeration missed) — rendered as its
+  // own explicit "source not recorded" badge below, never silently folded
+  // into 'human'. That silent fold is the single most likely way to get this
+  // wrong, per #481's own acceptance criteria.
+  source: 'human' | 'agent' | 'automation' | 'mcp' | null;
 }
 
 const EVENT_LABELS: Record<string, string> = {
@@ -373,6 +380,44 @@ const EVENT_LABELS: Record<string, string> = {
   'document.edited': 'edited the description',
   'attachment.added': 'added an attachment',
 };
+
+/**
+ * #496 — a badge distinguishing WHAT made a write, next to the actor name.
+ * 'human' renders nothing: it is the default the reader already assumes, and
+ * marking every ordinary edit would bury the exceptions it exists to surface.
+ * null is NOT folded into that same "no badge" treatment — it gets its own
+ * faint, explicitly-labelled badge, so a row with genuinely missing source
+ * data reads as "not recorded", not as an unmarked human edit.
+ */
+function SourceBadge({ source }: { source: ActivityEntry['source'] }) {
+  if (source === 'human') return null;
+  if (source === null) {
+    return (
+      <span
+        title="Source not recorded for this event"
+        className="inline-flex items-center gap-1 rounded-full border border-border-default px-1.5 py-0.5 text-[10px] text-faint"
+      >
+        <HelpCircle className="h-3 w-3" />
+        unknown source
+      </span>
+    );
+  }
+  const config: Record<'agent' | 'automation' | 'mcp', { icon: typeof Bot; label: string }> = {
+    agent: { icon: Bot, label: 'agent' },
+    automation: { icon: Workflow, label: 'automation' },
+    mcp: { icon: Terminal, label: 'MCP' },
+  };
+  const { icon: Icon, label } = config[source];
+  return (
+    <span
+      title={`This event was made by ${label === 'MCP' ? 'an MCP client' : `an ${label}`}, not typed by a person`}
+      className="inline-flex items-center gap-1 rounded-full bg-accent-soft px-1.5 py-0.5 text-[10px] font-medium text-accent"
+    >
+      <Icon className="h-3 w-3" />
+      {label}
+    </span>
+  );
+}
 
 export function ActivityPanel({ ws, db, rec }: { ws: string; db: string; rec: string }) {
   const dates = useDateFormat();
@@ -403,6 +448,7 @@ export function ActivityPanel({ ws, db, rec }: { ws: string; db: string; rec: st
           </span>
           <span className="text-ink-secondary">
             <span className="font-medium text-ink">{event.actor?.name ?? 'Someone'}</span>{' '}
+            <SourceBadge source={event.source} />{' '}
             {event.type === 'record.updated' && event.changes ? (
               <>
                 changed{' '}
