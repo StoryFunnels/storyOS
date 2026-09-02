@@ -62,13 +62,19 @@ imports, and everything else in it survives.
 
 ### If the import fails anyway
 
-**A failed import leaves the database as it was.** Anything the run created — records first, then
-the fields it added — is undone.
+**Anything the run created is undone** — records first, then the fields it added — so a failed
+create-only import leaves the database as it was.
 
-This matters more than it sounds. Schema changes and record writes are not one transaction, by
-design, so that a large file does not hold a transaction open from beginning to end. Without the
-undo, a failed run would leave its new fields behind and your retry would collide with them, with
-no way out from inside the product.
+**Updates are different: they are not rolled back.** A create can be undone because the record
+did not exist before; an update overwrites a row that did, and nothing keeps the value it
+overwrote. If your import is set to update existing records and it fails partway through, the
+rows it already updated stay updated — only the newly created rows disappear. The wizard tells
+you this at the point you choose to update.
+
+This still matters for the create half. Schema changes and record writes are not one transaction,
+by design, so that a large file does not hold a transaction open from beginning to end. Without
+the undo, a failed run would leave its new fields behind and your retry would collide with them,
+with no way out from inside the product.
 
 ### The failure message names the cell
 
@@ -77,12 +83,7 @@ them, not the first.
 
 ### Re-importing: update instead of duplicate
 
-> **Not in the wizard yet.** The API supports everything below — a key column and its match/no-match
-> behavior — but the import wizard has no control for it. Every import through the app currently
-> creates, with no way to update existing records from a re-run. Building this over the API or MCP
-> is the only way to reach it today.
-
-Choose a **key column** and what to do when it matches an existing record:
+In the mapping step, choose a **key column** and what to do when it matches an existing record:
 
 - **Update** the matching record (the default — it is why you set a key at all)
 - **Skip** it
