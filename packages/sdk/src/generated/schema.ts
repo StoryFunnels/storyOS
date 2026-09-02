@@ -896,7 +896,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Records whose document mentions this one ("Mentioned in") — MN-205 */
+        /** Records whose document mentions this one ("Mentioned in") — MN-205, paged (#512) */
         get: operations["MentionsController_backlinks"];
         put?: never;
         post?: never;
@@ -6540,7 +6540,10 @@ export interface operations {
     };
     MentionsController_backlinks: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
             header?: never;
             path: {
                 db: string;
