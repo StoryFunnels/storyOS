@@ -30,6 +30,21 @@ interface DryRun {
   new_fields: Array<{ display_name: string; type: string }>;
   warnings: Array<{ row: number; column: string; message: string }>;
   warnings_total: number;
+  /** #378 — present only when a key column is set; counts a plain create-only
+   *  run never needs. */
+  will_update?: number;
+  will_skip?: number;
+}
+
+/** #378 — how an incoming row relates to a record that already exists,
+ *  mirroring UpsertOptions on the server (import.service.ts). Undefined
+ *  means create-only — the only behaviour possible before this ticket, and
+ *  still the default: choosing a key column is opt-in. */
+interface Upsert {
+  column: string;
+  match_field_id?: string;
+  on_match: 'update' | 'skip' | 'create';
+  on_no_match: 'create' | 'skip';
 }
 
 /**
@@ -78,11 +93,14 @@ export class ImportError extends Error {
   }
 }
 
-async function post(ws: string, db: string, file: File, mapping: unknown, dryRun: boolean) {
+async function post(ws: string, db: string, file: File, mapping: unknown, dryRun: boolean, upsert?: Upsert) {
   const form = new FormData();
   form.append('mapping', JSON.stringify(mapping));
   form.append('dry_run', String(dryRun));
   form.append('file', file);
+  // #378 — omitted entirely for a create-only run, matching the server's own
+  // "absent = create-only, the previous behaviour" contract (import.controller.ts).
+  if (upsert) form.append('upsert', JSON.stringify(upsert));
   const res = await fetch(`${API_URL}/api/v1/workspaces/${ws}/databases/${db}/import`, {
     method: 'POST',
     credentials: 'include',
@@ -154,8 +172,21 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
   const [sampleRows, setSampleRows] = useState<string[][]>([]);
   const [mapping, setMapping] = useState<Map<string, Destination>>(new Map());
   const [dryRun, setDryRun] = useState<DryRun | null>(null);
-  const [result, setResult] = useState<{ created: number; warnings_total: number } | null>(null);
+  const [result, setResult] = useState<{ created: number; updated: number; skipped: number; warnings_total: number } | null>(
+    null,
+  );
   const [busy, setBusy] = useState(false);
+  /** #378 — '' means create-only, the default and the only choice before this
+   *  ticket. Set once, in the mapping step, applied to both the dry run and
+   *  the commit — a key chosen for the check and dropped for the real run
+   *  would report numbers that do not match what actually happened. */
+  const [upsertColumn, setUpsertColumn] = useState('');
+  const [upsertMatchField, setUpsertMatchField] = useState<string | undefined>(undefined);
+  const [onMatch, setOnMatch] = useState<Upsert['on_match']>('update');
+  const [onNoMatch, setOnNoMatch] = useState<Upsert['on_no_match']>('create');
+  const upsert: Upsert | undefined = upsertColumn
+    ? { column: upsertColumn, match_field_id: upsertMatchField, on_match: onMatch, on_no_match: onNoMatch }
+    : undefined;
   /**
    * #373 — kept in STATE, not only in a toast. A toast cannot be scrolled when
    * many rows fail and cannot be selected, and people paste these into support
@@ -235,7 +266,7 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
     setBusy(true);
     setFailure(null);
     try {
-      setDryRun(await post(ws, db, file!, mappingArray(), true));
+      setDryRun(await post(ws, db, file!, mappingArray(), true, upsert));
     } catch (error) {
       const err = error instanceof ImportError ? error : new ImportError((error as Error).message);
       setFailure(err);
@@ -249,11 +280,12 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
     setBusy(true);
     setFailure(null);
     try {
-      const res = await post(ws, db, file!, mappingArray(), false);
+      const res = await post(ws, db, file!, mappingArray(), false, upsert);
       setResult(res);
       void qc.invalidateQueries();
       posthog.capture('csv_import_completed', {
         records_created: res.created,
+        records_updated: res.updated,
         warnings_total: res.warnings_total,
       });
     } catch (error) {
@@ -320,6 +352,87 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
               Map each column — <span className="text-ink">{inferred.length} columns</span>. Exactly one must be
               the record title.
             </p>
+
+            {/* #378 — opt-in key matching. Absent by default: the overwhelming
+                majority of imports are still plain create-only, and this must
+                render identically to before when no key column is chosen. */}
+            <div className="flex flex-col gap-2 rounded-[var(--radius-card)] border border-border-default bg-canvas p-3 text-[13px]">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-ink-secondary">Match existing records by</span>
+                <select
+                  aria-label="Key column"
+                  className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                  value={upsertColumn}
+                  onChange={(e) => setUpsertColumn(e.target.value)}
+                >
+                  <option value="">nothing — always create new records</option>
+                  {inferred.map((c) => (
+                    <option key={c.column} value={c.column}>
+                      {c.column}
+                    </option>
+                  ))}
+                </select>
+                {upsertColumn && (
+                  <>
+                    <span className="text-ink-secondary">against</span>
+                    <select
+                      aria-label="Match on which field"
+                      className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                      value={upsertMatchField ?? ''}
+                      onChange={(e) => setUpsertMatchField(e.target.value || undefined)}
+                    >
+                      <option value="">the record title</option>
+                      {(database.data?.fields ?? [])
+                        .filter((f) => MATCHABLE.has(f.type) && f.type !== 'title')
+                        .map((f) => (
+                          <option key={f.id} value={f.id}>
+                            {f.displayName}
+                          </option>
+                        ))}
+                    </select>
+                  </>
+                )}
+              </div>
+              {upsertColumn && (
+                <>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-ink-secondary">If a row matches:</span>
+                    <select
+                      aria-label="If a row matches"
+                      className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                      value={onMatch}
+                      onChange={(e) => setOnMatch(e.target.value as Upsert['on_match'])}
+                    >
+                      <option value="update">Update it</option>
+                      <option value="skip">Skip it</option>
+                      <option value="create">Create a new record anyway</option>
+                    </select>
+                    <span className="text-ink-secondary">If it doesn&apos;t match:</span>
+                    <select
+                      aria-label="If a row doesn't match"
+                      className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                      value={onNoMatch}
+                      onChange={(e) => setOnNoMatch(e.target.value as Upsert['on_no_match'])}
+                    >
+                      <option value="create">Create it</option>
+                      <option value="skip">Skip it</option>
+                    </select>
+                  </div>
+                  {/* #478 AC — the one place a user makes an irreversible choice;
+                      the risk is stated here, not left in a docs page they may
+                      not have read. import.service.ts:718-724: an update has no
+                      before-image, so a failed import cannot undo it the way a
+                      failed create-only import can. */}
+                  {onMatch === 'update' && (
+                    <p className="text-[12px] text-warning">
+                      If this import fails partway through, newly created records are automatically
+                      removed — but any records already updated stay updated. Only creates roll back.
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+
             {/*
               The clip must land BETWEEN rows, never through one: a half-row reads
               as a rendering bug, a clean edge reads as "scroll me". #333 learned
@@ -476,7 +589,12 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
           <>
             <div className="rounded-[var(--radius-card)] border border-border-default bg-canvas p-4">
               <p className="text-[14px] font-medium text-ink">
-                {dryRun.will_create} of {dryRun.rows} rows will import
+                {/* #378 — a create-only run (no key column) shows the original
+                    sentence unchanged; update/skip counts only appear once
+                    they mean something. */}
+                {upsertColumn
+                  ? `${dryRun.will_create} will create, ${dryRun.will_update ?? 0} will update, ${dryRun.will_skip ?? 0} will skip — of ${dryRun.rows} rows`
+                  : `${dryRun.will_create} of ${dryRun.rows} rows will import`}
                 {dryRun.new_fields.length > 0 && ` · ${dryRun.new_fields.length} new fields`}
                 {dryRun.warnings_total > 0 && ` · ${dryRun.warnings_total} warnings`}
               </p>
@@ -495,7 +613,11 @@ export function ImportWizard({ ws, db, onDone }: { ws: string; db: string; onDon
 
         {step === 4 && result && (
           <div className="rounded-[var(--radius-card)] border border-border-default bg-canvas p-4 text-center">
-            <p className="text-[15px] font-semibold text-ink">Imported {result.created} records 🎉</p>
+            <p className="text-[15px] font-semibold text-ink">
+              {upsertColumn
+                ? `Created ${result.created}, updated ${result.updated}, skipped ${result.skipped} 🎉`
+                : `Imported ${result.created} records 🎉`}
+            </p>
             {result.warnings_total > 0 && (
               <p className="mt-1 text-[12px] text-muted">{result.warnings_total} cells were dropped with warnings.</p>
             )}
