@@ -36,8 +36,19 @@
  * and is stated by `get_started` — the tool an agent is told to call first — so
  * it is visible both before and during a session rather than only in release
  * notes nobody reads while writes are failing.
+ *
+ * ## 2 → 3 (#450, #508)
+ *
+ * #450 changed `reg()` to register `z.object(shape).catchall(z.unknown())`
+ * with the SDK instead of a bare shape, so an unrecognized top-level argument
+ * survives the SDK's own pre-handler parse and reaches `rejectUnknownArgs`
+ * instead of being silently stripped. No individual argument's name, type or
+ * meaning changed — but the ADVERTISED schema shape changed for all 139 tools
+ * (catchall/`additionalProperties` semantics), and a stale-connected client's
+ * call that used to silently half-succeed now gets a loud refusal instead.
+ * That is exactly the class of change this constant exists to signal.
  */
-export const TOOL_SCHEMA_VERSION = 2;
+export const TOOL_SCHEMA_VERSION = 3;
 
 /** Package version, kept separate from the schema version it carries. */
 const PACKAGE_VERSION = '0.1.0';
