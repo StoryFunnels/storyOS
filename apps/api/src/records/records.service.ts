@@ -30,6 +30,8 @@ import { DomainEventsService } from '../events/domain-events.service';
 import { MentionsService } from '../mentions/mentions.service';
 import { AbuseFlagsService } from '../abuse/abuse-flags.service';
 import { AccessService } from '../access/access.service';
+import type { EffectiveRole } from '../access/access.service';
+import { notDeleted } from '../db/soft-delete';
 import type { Membership } from '../workspaces/workspace-access.guard';
 
 type RecordRow = typeof records.$inferSelect;
@@ -2118,6 +2120,40 @@ export class RecordsService {
     });
     if (!row) throw new NotFoundException('Record not found');
     return row;
+  }
+
+  /**
+   * #472 — record-scoped access grants. `RecordsController`'s ordinary guard
+   * (`DatabasesService.assertAccess`) only ever checks the space/database
+   * grant; a guest holding NOTHING there but a direct grant on this ONE
+   * record would 404 before this ticket. This is the record-aware check for
+   * the three routes the ticket actually asks for — read and write of the
+   * named record — via `AccessService.effectiveForRecord`, which itself
+   * folds in the space/database result too ("highest grant wins" unchanged,
+   * just extended to a third scope rather than replaced).
+   */
+  async assertRecordAccess(
+    membership: Membership,
+    databaseId: string,
+    recordId: string,
+    min: EffectiveRole,
+  ): Promise<void> {
+    const database = await this.db.query.databases.findFirst({
+      where: and(eq(databases.id, databaseId), eq(databases.workspaceId, membership.workspaceId), notDeleted(databases.deletedAt)),
+      columns: { id: true, spaceId: true },
+    });
+    if (!database) throw new NotFoundException('Database not found');
+    const record = await this.db.query.records.findFirst({
+      where: and(eq(records.id, recordId), eq(records.databaseId, databaseId), isNull(records.deletedAt)),
+      columns: { id: true },
+    });
+    if (!record) throw new NotFoundException('Record not found');
+    const effective = await this.access.effectiveForRecord(membership, {
+      id: recordId,
+      databaseId: database.id,
+      spaceId: database.spaceId,
+    });
+    this.access.assertRank(effective, min, 'Record');
   }
 
   async get(databaseId: string, recordId: string, membership?: Membership): Promise<ProjectedRecord> {

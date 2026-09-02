@@ -589,6 +589,13 @@
       "when": 1788376925922,
       "tag": "0083_structural_soft_delete",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1788389334243,
+      "tag": "0084_record_scoped_grants",
+      "breakpoints": true
     }
   ]
 }

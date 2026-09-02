@@ -3753,6 +3753,8 @@ export interface components {
                 space_id?: string;
                 /** Format: uuid */
                 database_id?: string;
+                /** Format: uuid */
+                record_id?: string;
                 /** @enum {string} */
                 role: "viewer" | "commenter" | "contributor" | "editor" | "creator";
             }[];
@@ -3787,6 +3789,8 @@ export interface components {
             space_id?: string;
             /** Format: uuid */
             database_id?: string;
+            /** Format: uuid */
+            record_id?: string;
             /** @enum {string} */
             role: "viewer" | "commenter" | "contributor" | "editor" | "creator";
         };

@@ -185,8 +185,10 @@ export const accessGrants = pgTable(
       .references(() => workspaces.id, { onDelete: 'cascade' }),
     userId: text('user_id').notNull(),
     /**
-     * Exactly one of spaceId/databaseId — now enforced by a CHECK, not just the
-     * service (MN-125). Highest grant wins.
+     * Exactly one of spaceId/databaseId/recordId — enforced by a CHECK, not just
+     * the service (MN-125, widened by #472). Highest grant wins across all three:
+     * `AccessService.effectiveForRecord` takes the max rank among a matching
+     * space grant, a matching database grant, and a matching record grant.
      */
     spaceId: uuid('space_id').references(() => spaces.id, { onDelete: 'cascade' }),
     /**
@@ -194,6 +196,13 @@ export const accessGrants = pgTable(
      * database being deleted — a dangling row that could match a recycled id.
      */
     databaseId: uuid('database_id').references(() => databases.id, { onDelete: 'cascade' }),
+    /**
+     * #472 — record-scoped grants. Same MN-125 lesson applied on arrival rather
+     * than learned again: a real FK (a dangling grant matching a recycled record
+     * id is exactly the databaseId bug repeating a third time), cascaded so
+     * deleting the record removes its grants rather than orphaning them.
+     */
+    recordId: uuid('record_id').references(() => records.id, { onDelete: 'cascade' }),
     role: accessRole('role').notNull(),
     createdBy: text('created_by'),
     ...timestamps,
@@ -215,8 +224,21 @@ export const accessGrants = pgTable(
     uniqueIndex('access_grants_user_database_uq')
       .on(t.userId, t.databaseId)
       .where(sql`${t.databaseId} IS NOT NULL`),
-    /** The scope XOR the service always claimed, now actually enforced. */
-    check('access_grants_scope_xor', sql`(${t.spaceId} IS NULL) <> (${t.databaseId} IS NULL)`),
+    /** #472 — third scope, matching the two above exactly. */
+    uniqueIndex('access_grants_user_record_uq')
+      .on(t.userId, t.recordId)
+      .where(sql`${t.recordId} IS NOT NULL`),
+    /**
+     * #472 — widened from "exactly one of two" to "exactly one of three". The
+     * `(a IS NULL) <> (b IS NULL)` idiom the two-column version used only
+     * expresses exactly-one-of-two; it doesn't extend to three columns by
+     * chaining more `<>`s (that tests parity, not "exactly one"), so this
+     * counts non-null columns instead — the general form.
+     */
+    check(
+      'access_grants_scope_xor',
+      sql`(CASE WHEN ${t.spaceId} IS NULL THEN 0 ELSE 1 END) + (CASE WHEN ${t.databaseId} IS NULL THEN 0 ELSE 1 END) + (CASE WHEN ${t.recordId} IS NULL THEN 0 ELSE 1 END) = 1`,
+    ),
   ],
 );
 

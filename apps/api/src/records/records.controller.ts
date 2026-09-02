@@ -228,7 +228,7 @@ export class RecordsController {
     @Param('db') databaseId: string,
     @Param('rec') recordId: string,
   ) {
-    await this.assertDb(req, databaseId);
+    await this.recordsService.assertRecordAccess(req.membership, databaseId, recordId, 'viewer');
     return this.recordsService.get(databaseId, recordId, req.membership);
   }
 
@@ -240,7 +240,7 @@ export class RecordsController {
     @Param('rec') recordId: string,
     @Body() body: UpdateRecordDto,
   ) {
-    await this.assertDb(req, databaseId, 'contributor');
+    await this.recordsService.assertRecordAccess(req.membership, databaseId, recordId, 'contributor');
     return this.recordsService.update(
       req.membership.workspaceId,
       databaseId,
@@ -276,7 +276,7 @@ export class RecordsController {
     @Param('db') databaseId: string,
     @Param('rec') recordId: string,
   ) {
-    await this.assertDb(req, databaseId, 'editor');
+    await this.recordsService.assertRecordAccess(req.membership, databaseId, recordId, 'editor');
     return this.recordsService.softDelete(
       req.membership.workspaceId,
       databaseId,

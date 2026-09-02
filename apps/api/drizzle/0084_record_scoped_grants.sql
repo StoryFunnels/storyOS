@@ -1,0 +1,5 @@
+ALTER TABLE "access_grants" DROP CONSTRAINT "access_grants_scope_xor";--> statement-breakpoint
+ALTER TABLE "access_grants" ADD COLUMN "record_id" uuid;--> statement-breakpoint
+ALTER TABLE "access_grants" ADD CONSTRAINT "access_grants_record_id_records_id_fk" FOREIGN KEY ("record_id") REFERENCES "public"."records"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+CREATE UNIQUE INDEX "access_grants_user_record_uq" ON "access_grants" USING btree ("user_id","record_id") WHERE "access_grants"."record_id" IS NOT NULL;--> statement-breakpoint
+ALTER TABLE "access_grants" ADD CONSTRAINT "access_grants_scope_xor" CHECK ((CASE WHEN "access_grants"."space_id" IS NULL THEN 0 ELSE 1 END) + (CASE WHEN "access_grants"."database_id" IS NULL THEN 0 ELSE 1 END) + (CASE WHEN "access_grants"."record_id" IS NULL THEN 0 ELSE 1 END) = 1);
