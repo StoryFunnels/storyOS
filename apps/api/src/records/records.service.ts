@@ -18,7 +18,7 @@ import type { ChangeSource } from '../db/schema';
 import type { QueryRecordsInput } from '@storyos/schemas';
 import { compileFilter, cursorCondition, filterReferencedFields, sortExpr } from './query-compiler';
 import type { CompilerContext, SortSpec } from './query-compiler';
-import { keyBetween, keysAfter } from './rank';
+import { keyBetween, keysAfter, keysBetween } from './rank';
 import { diffSnapshots } from './record-diff';
 import { EntitlementsService } from '../billing/entitlements.service';
 import { summarizeChanges } from './record-change-summary';
@@ -2816,6 +2816,65 @@ export class RecordsService {
       return this.update(workspaceId, databaseId, recordId, input.values, actorId, 0, source);
     }
     return this.get(databaseId, recordId);
+  }
+
+  /**
+   * #487 — repair records whose `position` collided with another record's,
+   * written before the collation fix (migration 0082) stopped new collisions
+   * from happening. `lastPosition()` anchored a new batch's keys off the row
+   * the DATABASE thought was greatest, under the wrong collation — so a
+   * multi-chunk bulk create could hand out keys a later chunk had already
+   * used, leaving two records sharing one position with no gap between them.
+   *
+   * Walks the database's records ordered by (position, number, id), and
+   * re-keys every row PAST THE FIRST in a tied group into the gap between the
+   * shared key and whatever the next DISTINCT key is (or open-ended, for the
+   * last group in the table). The first member of a tie keeps its key
+   * untouched. Tiebreak is `number` rather than `createdAt`: every record in
+   * one bulk-create shares the same insert timestamp (createdAt cannot
+   * distinguish them), but `number` is allocated atomically in array order
+   * (createBatch's `firstNumber + i`) and so is the one column that actually
+   * encodes which row of a tied group came first. A tied group never had a
+   * real order to preserve — sharing a key is precisely the absence of one —
+   * so lowest-number-first is the closest honest proxy for original intent
+   * available, not an arbitrary pick.
+   *
+   * Bounds for every group are read from the ORIGINAL (pre-repair) position
+   * values before any write happens, so groups never see each other's new
+   * keys and cannot be regenerated into overlapping ranges.
+   *
+   * Idempotent: a second run against already-distinct positions finds no
+   * groups and changes nothing. Returns the number of rows re-keyed.
+   */
+  async repairDuplicatePositions(databaseId: string): Promise<number> {
+    const rows = await this.db.query.records.findMany({
+      where: eq(records.databaseId, databaseId),
+      orderBy: [asc(records.position), asc(records.number), asc(records.id)],
+      columns: { id: true, position: true },
+    });
+    const updates: Array<{ id: string; position: string }> = [];
+    let i = 0;
+    while (i < rows.length) {
+      let j = i + 1;
+      while (j < rows.length && rows[j]!.position === rows[i]!.position) j++;
+      const groupSize = j - i;
+      if (groupSize > 1) {
+        const lowerBound = rows[i]!.position;
+        const upperBound = j < rows.length ? rows[j]!.position : null;
+        const newKeys = await keysBetween(lowerBound, upperBound, groupSize - 1);
+        for (let k = 1; k < groupSize; k++) {
+          updates.push({ id: rows[i + k]!.id, position: newKeys[k - 1]! });
+        }
+      }
+      i = j;
+    }
+    if (updates.length === 0) return 0;
+    await this.db.transaction(async (tx) => {
+      for (const u of updates) {
+        await tx.update(records).set({ position: u.position }).where(eq(records.id, u.id));
+      }
+    });
+    return updates.length;
   }
 
   /** Rewrites all positions with fresh evenly-spaced keys (key-length exhaustion). */

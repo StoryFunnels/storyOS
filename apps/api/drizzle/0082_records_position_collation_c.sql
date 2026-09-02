@@ -1,0 +1,11 @@
+-- Custom SQL migration file, put your code below! --
+-- #480/#487 — records.position stores fractional-indexing keys (ADR-0005),
+-- generated assuming plain byte-order comparison. Left at the database's
+-- default collation (en_US.UTF-8 on the instance this was measured on),
+-- ORDER BY position disagrees with the order the keys were generated in —
+-- proven directly: "a8 a9 aa aA ab aB ac aC" under en_US.UTF-8 vs the correct
+-- "a8 a9 aA aB aC aa ab ac" under "C". "C" collation is plain byte order,
+-- matching what the fractional-indexing library (and JS's default string
+-- comparison) already assumes — the seven INTEGER position columns elsewhere
+-- in the schema are untouched; this is the one TEXT one.
+ALTER TABLE "records" ALTER COLUMN "position" TYPE text COLLATE "C";
