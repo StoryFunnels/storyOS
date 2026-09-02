@@ -36,8 +36,28 @@ export interface FieldPlan {
   ambiguousWith?: string[];
 }
 
-/** Types that can never receive a value — the same set the matcher already
- * refuses, imported rather than restated. */
+/**
+ * Types that can never receive a value.
+ *
+ * #477 — this comment used to claim this list was "imported rather than
+ * restated" from column-match.ts's matcher. It was not; it is a second,
+ * hand-maintained copy that had already drifted (missing `relation` and
+ * `attachment`, the exact gap #477 found and fixed in column-match.ts).
+ *
+ * It genuinely CANNOT just import that set now that it's correct: `relation`
+ * belongs in column-match.ts's set because a bare CSV string can never be a
+ * relation value, but `writable` here (below) also gates the
+ * `source.sourceType === 'relation'` branch, which deliberately WANTS
+ * relation-typed destinations — a copied relation's value already IS a
+ * resolved reference, not a raw string, so a relation destination is exactly
+ * the valid target for a relation source. Importing column-match.ts's set
+ * verbatim would silently break relation-to-relation copying.
+ *
+ * `attachment` has no such conflict and arguably belongs here too, but
+ * whether `sourceType === 'attachment'` copying is even exercised anywhere,
+ * and what shape its value takes, is not established — recording that as an
+ * open question on #477 rather than guessing at a fix here.
+ */
 const UNWRITABLE = new Set(['lookup', 'rollup', 'formula', 'button']);
 
 /**
