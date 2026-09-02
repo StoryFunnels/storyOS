@@ -151,10 +151,25 @@ export const EXCLUDED: CoverageRule[] = [
     reason:
       'Credential-bearing third-party configuration (Slack tokens, GitHub installations, Linear keys) and provider-specific surfaces such as submitting PR reviews. Storing or rotating someone else\'s credential, and speaking on their behalf on another platform, are separate trust decisions from working inside StoryOS.',
   },
+  /*
+   * #491 — narrowed from the whole `/connections` surface to its credential
+   * -bearing half. GET (list) moved to `list_connections`: `present()` on the
+   * API side never returns a secret, so no read path here can leak one — the
+   * same shape as `list_sources` already exposing what is connected. What
+   * stays deferred is everything that STORES, ROTATES or TESTS someone's
+   * credential, or hands one to a third party (the OAuth start redirect):
+   * that trust decision is unchanged from before #491.
+   */
   {
-    match: '/api/v1/workspaces/{ws}/connections',
+    match:
+      /^(POST|DELETE) \/api\/v1\/workspaces\/\{ws\}\/connections(\/\{id\}\/(test|resume)|\/\{id\})?$|^GET \/api\/v1\/workspaces\/\{ws\}\/connections\/oauth\/\{provider\}\/start$/,
     reason:
-      'Connection credentials — the same trust decision as integrations. `list_sources` already exposes what is connected, without the auth material.',
+      '#491 — connect (POST), disconnect (DELETE), re-test, resume-after-circuit-break and the OAuth start redirect all touch a stored credential or hand one to a third party. `list_connections` covers the read half; this is deliberately still refused.',
+  },
+  {
+    match: '/api/v1/workspaces/{ws}/connections/providers',
+    reason:
+      '#507 — the catalog of what COULD be connected, split out of #491, which only answered "what is already connected" (list_connections). Genuinely open, not decided against — filed rather than left as an implicit gap in this rule.',
   },
   {
     match: /^GET (\/|\/healthz|\/api\/v1\/auth\/providers)$/,
