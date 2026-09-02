@@ -21,6 +21,7 @@ config.
 | `text` | Single- or multi-line (`{multiline}`). |
 | `number` | Precision + format (`plain` / `percent` / `currency`). |
 | `select` / `multi_select` | Options are first-class rows with stable IDs (see below). |
+| `workflow` | A single-select-like canonical status — see below. **At most one per database.** |
 | `date` | Optionally includes a time (`{include_time}`). |
 | `checkbox` | Boolean. |
 | `user` | A person; single or multi. |
@@ -29,16 +30,40 @@ config.
 | `lookup`, `rollup` | Derived from a relation — see [lookups & rollups](/concepts/lookups-and-rollups/). |
 | `formula` | Computed from other fields — see [formulas](/concepts/formulas/). |
 | `button` | Runs actions on click — see [automations & buttons](/concepts/automations/). |
-| `created_at`, `updated_at`, `created_by` | System, read-only. |
+| `created_at`, `updated_at`, `created_by` | System, read-only. Filterable and sortable like any other field, with the operators each type supports. |
 
 ## Select options are first-class
 
-Options for `select` / `multi_select` fields are **real rows with stable IDs**, never inline
-strings. Records store option **ids**, which means:
+Options for `select` / `multi_select` / `workflow` fields are **real rows with stable IDs**, never
+inline strings. Records store option **ids**, which means:
 
 - Renaming an option is instant and O(1) — every record updates at once.
 - Kanban column order is just option order.
 - Deleting an option is an explicit, counted operation (with an optional "reassign to option X").
+
+**An option can carry an icon** (from a curated icon set, not a free-typed emoji) in addition to
+its colour, and the colour palette is not limited to the classic handful — pick whichever reads
+right for that value.
+
+## The Workflow field: one canonical status
+
+A **Workflow** field is a `select` in every respect — same coloured options, same storage — with
+one rule enforced by the server: **a database may have at most one.** Trying to add a second is
+refused, naming the existing one, rather than letting two "status" columns drift against each
+other. Reach for a plain `select` for any other list of choices; reach for Workflow specifically
+for the one field a view, an automation, or an agent should treat as *the* state of a record.
+
+## The title field: free text or computed
+
+Every database's built-in title field starts as **free text** — you type it, like any other text
+field. You can switch it to **Computed**: a template expression, written in the same editor a
+formula field uses, that's compiled and materialized into the title on every create and update.
+Once computed, the title is **read-only** — direct writes to it are ignored, the same way a
+formula field ignores a direct write.
+
+The template can reference the record's own fields, and — through a lookup — a related record's
+fields too, so a title can read "Acme — Website Refresh" pulling the client's name across a
+relation. It recomputes automatically as the fields it depends on change.
 
 ## Field lifecycle
 
