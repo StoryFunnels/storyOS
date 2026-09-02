@@ -1,5 +1,5 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { Inject, Injectable, UnprocessableEntityException } from '@nestjs/common';
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { comments, databases, documents, fields, records, recordMentions } from '../db/schema';
@@ -148,14 +148,42 @@ export class MentionsService {
    * "Mentioned in": the records whose document mentions this one, scoped to what the
    * caller can actually see (a guest must not learn a title through a backlink — the
    * same leak class as MN-202). Reuses the guest-visibility grant sets.
+   *
+   * #512 — used to be a bare `.limit(100)` with no total and no cursor, so an
+   * 11th+ page of mentions was simply invisible: the response looked complete
+   * whether there were 3 backlinks or 300. Paged now with the SAME keyset-cursor
+   * convention `runs.service.ts` already uses ((created_at, id) tuple compare,
+   * `has_more`/`next_cursor`) — not a new style, and not `records.service.ts`'s
+   * position-based one, since there is no position here, only recency.
+   *
+   * `visibleDbIds` scoping is unconditional on every page: it is part of the
+   * WHERE clause the cursor is layered onto, not a page-one-only filter, so a
+   * guest cannot page past it — the exact class of regression a paging change
+   * risks (#469 unified this same check for the relation-chip readers).
    */
-  async backlinks(membership: Membership, targetRecordId: string) {
+  async backlinks(membership: Membership, targetRecordId: string, opts: { limit?: number; cursor?: string } = {}) {
+    const limit = Math.min(Math.max(opts.limit ?? 100, 1), 200);
     // #469 — shared with the relation-chip readers (records.service.ts
     // attachLinks, relations.service.ts listLinks) via AccessService, rather than
     // computed inline here a second time.
     const visibleDbIds = await this.access.visibleDatabaseIds(membership);
-    if (visibleDbIds && visibleDbIds.size === 0) return { data: [] };
+    if (visibleDbIds && visibleDbIds.size === 0) return { data: [], total: 0, has_more: false, next_cursor: null };
 
+    const scopeConditions = [
+      eq(recordMentions.targetRecordId, targetRecordId),
+      eq(recordMentions.workspaceId, membership.workspaceId),
+      isNull(records.deletedAt),
+      ...(visibleDbIds !== null ? [inArray(records.databaseId, [...visibleDbIds])] : []),
+    ];
+
+    const [totalRow] = await this.db
+      .select({ total: sql<number>`count(*)::int` })
+      .from(recordMentions)
+      .innerJoin(records, eq(records.id, recordMentions.sourceRecordId))
+      .where(and(...scopeConditions));
+    const total = totalRow?.total ?? 0;
+
+    const cursor = opts.cursor ? decodeBacklinksCursor(opts.cursor) : null;
     const rows = await this.db
       .select({
         id: records.id,
@@ -163,21 +191,52 @@ export class MentionsService {
         number: records.number,
         database_id: records.databaseId,
         database_name: databases.name,
+        mention_id: recordMentions.id,
+        mention_created_at: recordMentions.createdAt,
       })
       .from(recordMentions)
       .innerJoin(records, eq(records.id, recordMentions.sourceRecordId))
       .innerJoin(databases, eq(databases.id, records.databaseId))
       .where(
         and(
-          eq(recordMentions.targetRecordId, targetRecordId),
-          eq(recordMentions.workspaceId, membership.workspaceId),
-          isNull(records.deletedAt),
-          ...(visibleDbIds !== null ? [inArray(records.databaseId, [...visibleDbIds])] : []),
+          ...scopeConditions,
+          ...(cursor
+            ? [sql`(${recordMentions.createdAt}, ${recordMentions.id}) < (${cursor.createdAt}::timestamptz, ${cursor.id}::uuid)`]
+            : []),
         ),
       )
-      .orderBy(desc(recordMentions.createdAt))
-      .limit(100);
+      .orderBy(desc(recordMentions.createdAt), desc(recordMentions.id))
+      .limit(limit + 1);
 
-    return { data: rows };
+    const page = rows.slice(0, limit);
+    const hasMore = rows.length > limit;
+    const last = page[page.length - 1];
+
+    return {
+      data: page.map((r) => ({ id: r.id, title: r.title, number: r.number, database_id: r.database_id, database_name: r.database_name })),
+      total,
+      has_more: hasMore,
+      next_cursor:
+        hasMore && last ? encodeBacklinksCursor({ createdAt: last.mention_created_at.toISOString(), id: last.mention_id }) : null,
+    };
+  }
+}
+
+interface BacklinksCursor {
+  createdAt: string;
+  id: string;
+}
+
+function encodeBacklinksCursor(cursor: BacklinksCursor): string {
+  return Buffer.from(JSON.stringify(cursor)).toString('base64url');
+}
+
+function decodeBacklinksCursor(raw: string): BacklinksCursor {
+  try {
+    const parsed = JSON.parse(Buffer.from(raw, 'base64url').toString()) as Partial<BacklinksCursor>;
+    if (typeof parsed.createdAt !== 'string' || typeof parsed.id !== 'string') throw new Error();
+    return { createdAt: parsed.createdAt, id: parsed.id };
+  } catch {
+    throw new UnprocessableEntityException('Invalid cursor');
   }
 }

@@ -2008,19 +2008,28 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List backlinks',
       description:
-        'Records whose description document MENTIONS this record — the "Mentioned in" list. This is prose cross-referencing, NOT relation links: use get_record (or describe_database for the relation fields) for structural links, and this to find where a record is being talked about.',
-      inputSchema: { workspace: z.string(), database: z.string(), record: z.string().describe('Record uuid or public number.') },
+        'Records whose description document MENTIONS this record — the "Mentioned in" list. This is prose cross-referencing, NOT relation links: use get_record (or describe_database for the relation fields) for structural links, and this to find where a record is being talked about. #512: paged like query_records — total is the true count (not just this page), pass next_cursor back to get the rest.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        record: z.string().describe('Record uuid or public number.'),
+        limit: z.number().int().min(1).max(200).optional().describe('Default 100.'),
+        cursor: z.string().optional().describe('next_cursor from a previous call.'),
+      },
     },
-    handle<{ workspace: string; database: string; record: string }>(async ({ workspace, database, record }) => {
-      const ws = await resolveWorkspace(client, workspace);
-      const db = await resolveDatabase(client, ws.id, database);
-      const rec = await resolveRecordId(ws.id, db.id, record);
-      const res = await unwrap<unknown>(
-        client.GET('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/backlinks', { params: { path: { ws: ws.id, db: db.id, rec } } }),
-      );
-      const body = res as { data?: unknown };
-      return text({ record: rec, mentioned_in: body.data ?? res });
-    }),
+    handle<{ workspace: string; database: string; record: string; limit?: number; cursor?: string }>(
+      async ({ workspace, database, record, limit, cursor }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const rec = await resolveRecordId(ws.id, db.id, record);
+        const res = await unwrap<{ data: unknown[]; total: number; has_more: boolean; next_cursor: string | null }>(
+          client.GET('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/backlinks', {
+            params: { path: { ws: ws.id, db: db.id, rec }, query: { limit, cursor } as never },
+          }),
+        );
+        return text({ record: rec, mentioned_in: res.data, total: res.total, has_more: res.has_more, next_cursor: res.next_cursor });
+      },
+    ),
   );
 
   reg(
