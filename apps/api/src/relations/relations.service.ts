@@ -532,6 +532,24 @@ export class RelationsService {
     if (events.length) await tx.insert(activityEvents).values(events);
   }
 
+  /**
+   * #238 — addLinks/replaceLinks/removeLinks checked `editor` on the record's
+   * OWN database (LinksController.assertDb) but never on the relation's OTHER
+   * side. A guest with editor on database A could link database A's record to
+   * arbitrary ids in database B they hold no grant on at all, and the response
+   * (via listLinks) then echoed back database B's record titles — the same
+   * leak class #469 closed for the read side, reopened here on the write side.
+   */
+  private async assertTargetAccess(membership: Membership, targetDatabaseId: string) {
+    const targetDb = await this.db.query.databases.findFirst({
+      where: eq(databases.id, targetDatabaseId),
+      columns: { id: true, spaceId: true },
+    });
+    if (!targetDb || (await this.access.effectiveForDatabase(membership, targetDb)) === null) {
+      throw new NotFoundException('Database not found');
+    }
+  }
+
   private async loadTargets(targetDatabaseId: string, ids: string[]) {
     const targets = await this.db.query.records.findMany({
       where: and(
@@ -555,8 +573,10 @@ export class RelationsService {
     targetIds: string[],
     actorId: string,
     source: ChangeSource = 'human',
+    membership?: Membership,
   ) {
     const ctx = await this.resolveLinkContext(databaseId, recordId, fieldId);
+    if (membership) await this.assertTargetAccess(membership, ctx.targetDatabaseId);
     const targets = await this.loadTargets(ctx.targetDatabaseId, targetIds);
 
     if (ctx.relation.cardinality === 'one_to_many' && ctx.side === 'a') {
@@ -630,8 +650,10 @@ export class RelationsService {
     targetIds: string[],
     actorId: string,
     source: ChangeSource = 'human',
+    membership?: Membership,
   ) {
     const ctx = await this.resolveLinkContext(databaseId, recordId, fieldId);
+    if (targetIds.length && membership) await this.assertTargetAccess(membership, ctx.targetDatabaseId);
     if (ctx.relation.cardinality === 'one_to_many' && ctx.side === 'a' && targetIds.length > 1) {
       throw new ConflictException('This record can link to only one target (one-to-many)');
     }
@@ -713,8 +735,10 @@ export class RelationsService {
     targetIds: string[],
     actorId: string,
     source: ChangeSource = 'human',
+    membership?: Membership,
   ) {
     const ctx = await this.resolveLinkContext(databaseId, recordId, fieldId);
+    if (membership) await this.assertTargetAccess(membership, ctx.targetDatabaseId);
     const myCol = ctx.side === 'a' ? recordLinks.fromRecordId : recordLinks.toRecordId;
     const otherCol = ctx.side === 'a' ? recordLinks.toRecordId : recordLinks.fromRecordId;
 
