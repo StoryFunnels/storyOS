@@ -765,8 +765,35 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     // rejectUnknownArgs is: no tool gets to be the strict one, and a client that
     // stringifies arguments works uniformly instead of on whichever tools
     // happened to declare only strings.
-    const coerced = { ...config, inputSchema: coerceInputSchema(config.inputSchema) };
-    server.registerTool(name as string, coerced as never, rejectUnknownArgs(name, coerced, handler) as never);
+    const shape = coerceInputSchema(config.inputSchema) as Record<string, unknown>;
+    // rejectUnknownArgs needs the RAW SHAPE to know which keys are valid, so it
+    // is wrapped against `shape`, never against `sdkInputSchema` below.
+    const wrapped = rejectUnknownArgs(name, { ...config, inputSchema: shape }, handler);
+    /*
+     * #450 — this cast to a ZodObject().catchall(z.unknown()) is the actual fix,
+     * not decoration.
+     *
+     * McpServer.validateToolInput() parses the RAW client arguments against
+     * this schema BEFORE our handler (and rejectUnknownArgs, which wraps it) is
+     * ever invoked. Handed a plain shape — `{ workspace: z.string(), ... }` —
+     * the SDK builds its own `z.object(shape)` with Zod's DEFAULT behaviour:
+     * strip unknown keys. So `create_relation({ field_a_name: 'Next', ... })`
+     * had `field_a_name` deleted before rejectUnknownArgs's `given` object ever
+     * contained it — the exact silent-discard #374 exists to stop, just moved
+     * one layer up to where that defense could not see it. Confirmed against
+     * the real transport (Client+Server over InMemoryTransport, not the direct
+     * -handler-call stub every existing test used): an unknown top-level key
+     * on ANY tool was swallowed this way, not only create_relation's.
+     *
+     * `.catchall(z.unknown())` tells the SDK's parse to keep an unrecognized
+     * key in its output instead of stripping it, so it reaches rejectUnknownArgs
+     * intact and gets our existing, specific error message (names the bad key
+     * AND every valid one) instead of Zod's own terse "Unrecognized key" dump —
+     * or, before this fix, instead of silent success.
+     */
+    const keys = Object.keys(shape);
+    const sdkInputSchema = keys.length ? z.object(shape as z.ZodRawShape).catchall(z.unknown()) : shape;
+    server.registerTool(name as string, { ...config, inputSchema: sdkInputSchema } as never, wrapped as never);
   };
   reg(
     'get_started',
@@ -3357,6 +3384,12 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       title: 'Create relation',
       description:
         'Link two databases with a relation field on each side. one_to_many: each record in `database` links to ONE record in `related_database`, and each related record gets MANY back — e.g. database=Tasks, related_database=Projects means each task has one project and each project has many tasks. many_to_many: both sides link to many. Use the space/database form for names that exist in more than one space. ' +
+        // #450 — the API's own request body uses `cardinality`, `field_a_name`
+        // and `field_b_name` (relations.service.ts). This tool's arguments are
+        // named differently on purpose (`type`, `field_name`, `reverse_field_name`
+        // — see below), and a caller guessing the API's names instead of these
+        // gets an explicit "no argument named" error, never a silent default.
+        'Argument names here (`type`, `field_name`, `reverse_field_name`) are NOT the same as the underlying API request body\'s (`cardinality`, `field_a_name`, `field_b_name`) — use the ones in this tool\'s schema, not the API\'s. There is no cardinality "flip": what you pass as `type` is exactly what is stored. ' +
         // #344: a self-relation IS supported, with names you choose, and you can
         // have several of them — none of which this description said, so the
         // Parent/Sub-items defaults read like a hard-wired special case.

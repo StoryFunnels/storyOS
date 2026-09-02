@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { brandIconSlug, setIconName } from '@storyos/schemas/icons';
 import { filterOpSchema, queryRecordsSchema } from '@storyos/schemas';
 import { buildIconCatalog, coerceStringified, coerceInputSchema, FILTER_GUIDE, ICON_PARAM_DESCRIPTION, mapFilterValues, OPS_BY_FIELD_TYPE, registerTools } from './tools.js';
@@ -1275,9 +1277,15 @@ describe('add_field accepts type: workflow (#337)', () => {
       scope: 'admin',
       allowRunButton: true,
     });
-    const schema = configs.get(tool)?.inputSchema as Record<string, Parsable> | undefined;
-    if (!schema?.[key]) throw new Error(`${tool} has no input field "${key}"`);
-    return schema[key];
+    const registered = configs.get(tool)?.inputSchema as unknown as { shape?: unknown } | undefined;
+    // #450 — reg() now registers `z.object(shape).catchall(z.unknown())` (so an
+    // unknown top-level key survives the SDK's own parse and reaches
+    // rejectUnknownArgs, instead of being silently stripped before it). That is
+    // a ZodObject, not the raw shape this helper used to index directly — unwrap
+    // via `.shape`, which Zod exposes on both.
+    const unwrapped = (registered?.shape ?? registered) as Record<string, Parsable> | undefined;
+    if (!unwrapped?.[key]) throw new Error(`${tool} has no input field "${key}"`);
+    return unwrapped[key];
   }
 
   it('lists workflow among the field types', () => {
@@ -3778,5 +3786,139 @@ describe('webhooks: manage and debug, never mint (#443)', () => {
     // A missing create_webhook must not recreate that wrong conclusion.
     expect(descriptions.get('list_webhooks')).toContain('create_automation');
     expect(descriptions.get('delete_webhook')).toContain('cannot be undone'.toUpperCase());
+  });
+});
+
+/**
+ * #450 — an unknown/misnamed top-level argument must be REFUSED over the REAL
+ * MCP wire, not just by the handler function in isolation.
+ *
+ * Root cause: McpServer.validateToolInput() parses the client's raw arguments
+ * against the tool's schema BEFORE our handler (and the rejectUnknownArgs
+ * wrapper around it) ever runs. Handed a bare shape, the SDK builds its own
+ * `z.object(shape)` with Zod's DEFAULT behaviour — silently STRIP unknown keys
+ * — so `create_relation({ field_a_name: 'Next', ... })` had `field_a_name`
+ * deleted before rejectUnknownArgs's input object ever contained it. #374's
+ * whole defense was unreachable at this layer for every tool, not just this one.
+ *
+ * Every OTHER test in this file drives a stub `registerTool` that captures the
+ * raw handler and calls it directly — which is exactly how this bug hid from
+ * #374's own tests: that stub never exercises the SDK's own parse step. These
+ * tests instead run a REAL McpServer connected to a REAL Client over
+ * InMemoryTransport, so the schema the SDK actually parses against is the one
+ * under test.
+ */
+describe('unknown top-level arguments are rejected over the real transport (#450)', () => {
+  const WORKSPACE = { id: 'ws-1', name: 'JCM Agency' };
+  const DATABASE_A = { id: 'db-a', name: 'Issues', apiSlug: 'issues', fields: [] };
+  const DATABASE_B = { id: 'db-b', name: 'Agents', apiSlug: 'agents', fields: [] };
+
+  function fakeCtx(): Ctx {
+    const client = {
+      GET: async (path: string) => {
+        if (path === '/api/v1/workspaces') return { data: [WORKSPACE] };
+        if (path === '/api/v1/workspaces/{ws}/databases') return { data: [DATABASE_A, DATABASE_B] };
+        throw new Error(`unmocked GET ${path}`);
+      },
+      POST: async (path: string, o: { body?: unknown }) => {
+        if (path === '/api/v1/workspaces/{ws}/relations') {
+          return { data: { id: 'rel-1', ...(o?.body as Record<string, unknown>) } };
+        }
+        throw new Error(`unmocked POST ${path}`);
+      },
+    } as never;
+    return { client, baseUrl: 'x', token: 't' };
+  }
+
+  async function connectedClient() {
+    const server = new McpServer({ name: 'test', version: '0.0.0' });
+    registerTools(server, fakeCtx(), { scope: 'admin', allowRunButton: true });
+    const client = new Client({ name: 'probe', version: '0.0.0' });
+    const [t1, t2] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(t1), client.connect(t2)]);
+    return client;
+  }
+
+  it('refuses the exact #450 repro: field_a_name / field_b_name / cardinality all at once', async () => {
+    const client = await connectedClient();
+    const res = (await client.callTool({
+      name: 'create_relation',
+      arguments: {
+        workspace: 'JCM Agency',
+        database: 'Issues',
+        related_database: 'Agents',
+        field_a_name: 'Next',
+        field_b_name: 'Queue',
+        cardinality: 'many_to_one',
+      },
+    })) as { isError?: boolean; content: Array<{ text: string }> };
+    expect(res.isError).toBe(true);
+    // All three bad names are named — none silently vanished into a default.
+    expect(res.content[0]!.text).toContain('"field_a_name"');
+    expect(res.content[0]!.text).toContain('"field_b_name"');
+    expect(res.content[0]!.text).toContain('"cardinality"');
+    expect(res.content[0]!.text).toContain('Valid arguments: workspace, database, related_database, type, field_name, reverse_field_name');
+  });
+
+  it('refuses a single misspelled argument on a different tool (create_source), proving the fix is not create_relation-specific', async () => {
+    const client = await connectedClient();
+    const res = (await client.callTool({
+      name: 'create_source',
+      arguments: {
+        workspace: 'JCM Agency',
+        database: 'Issues',
+        name: 'x',
+        connection_id: 'c',
+        provider_source: 'youtube.videos',
+        field_mapping: {},
+        external_key_field: 'x',
+        schedul: 'day',
+      },
+    })) as { isError?: boolean; content: Array<{ text: string }> };
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toContain('has no argument named "schedul"');
+  });
+
+  it('still accepts a call using the CORRECT argument names, over the same real transport', async () => {
+    const client = await connectedClient();
+    const res = (await client.callTool({
+      name: 'create_relation',
+      arguments: {
+        workspace: 'JCM Agency',
+        database: 'Issues',
+        related_database: 'Agents',
+        field_name: 'Next',
+        reverse_field_name: 'Queue',
+        type: 'one_to_many',
+      },
+    })) as { isError?: boolean; content: Array<{ text: string }> };
+    expect(res.isError).toBeUndefined();
+    const body = JSON.parse(res.content[0]!.text) as Record<string, unknown>;
+    // The exact ticket #450 request — Next / Queue — actually lands.
+    expect(body.field_a_name).toBe('Next');
+    expect(body.field_b_name).toBe('Queue');
+    expect(body.cardinality).toBe('one_to_many');
+  });
+
+  it('an empty-shape tool (no arguments declared) still connects and runs', async () => {
+    const client = await connectedClient();
+    const res = (await client.callTool({ name: 'get_started', arguments: {} })) as {
+      isError?: boolean;
+      content: Array<{ text: string }>;
+    };
+    expect(res.isError).toBeUndefined();
+    expect(res.content[0]!.text.length).toBeGreaterThan(0);
+  });
+
+  it('a legitimate extra MCP protocol field (_meta) is not treated as an unknown argument', async () => {
+    const client = await connectedClient();
+    // The MCP client protocol itself can attach _meta to a call; rejectUnknownArgs
+    // already special-cased this — confirm it survives over the real transport too.
+    const res = (await client.callTool({
+      name: 'create_relation',
+      arguments: { workspace: 'JCM Agency', database: 'Issues', related_database: 'Agents' },
+      _meta: { progressToken: 1 },
+    })) as { isError?: boolean };
+    expect(res.isError).toBeUndefined();
   });
 });
