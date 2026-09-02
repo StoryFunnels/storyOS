@@ -34,8 +34,17 @@ There is also a **Move to…** entry in each row's `⋯` menu, for when dragging
 Create a folder in a space and put anything in it. A folder can hold databases, documents and
 views together — they are not separate lists.
 
+**A folder's `⋯` menu:** Rename, Icon, New database, New document, Delete — wherever you have edit
+access. A folder has no colour of its own (only databases and spaces do), so its icon picker is
+icon-only.
+
+**Create straight into a folder** rather than creating at the space root and dragging it in
+afterwards — **New database** and **New document** are right there on the folder menu. An empty
+folder offers the same two as buttons instead of a dead-end "Empty" label, since there is nothing
+to drag yet.
+
 **Deleting a folder does not delete what is inside it.** Everything in it moves back to the space
-root. Renaming and deleting both live in the folder row's `⋯` menu, wherever you have edit access.
+root — the confirmation names how many items and says so.
 
 ## Databases start collapsed
 
