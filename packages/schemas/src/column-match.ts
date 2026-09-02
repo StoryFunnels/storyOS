@@ -18,8 +18,54 @@
  * look obvious and are easy to get subtly wrong.
  */
 
-/** Types that cannot receive an imported value, so must never be auto-matched. */
-const UNWRITABLE = new Set(['lookup', 'rollup', 'formula', 'button']);
+/**
+ * Types that cannot receive an imported value, so must never be auto-matched.
+ *
+ * #477 — audited against every member of the `field_type` enum
+ * (apps/api/src/db/schema.ts), not just extended with the one type that was
+ * reported. A raw CSV cell is always a plain string (or, for a multi-value
+ * column, an array of strings); a type belongs here exactly when
+ * `validateRecordValues` (record-values.ts) rejects THAT shape outright,
+ * regardless of content — never because a value might fail to parse.
+ *
+ *   id / created_at / updated_at / created_by — read-only. Rejected verbatim
+ *     ("is read-only") before any coercion is attempted.
+ *   lookup / rollup / formula / button — computed. Already here; unchanged.
+ *   relation — the type that was reported. A relation value is a list of
+ *     record ids/numbers (`relations: 'collect'` mode), never a bare string;
+ *     a plain CSV cell fails with "expected an array of record ids or
+ *     numbers" on every row, which is exactly the defect Nadia found.
+ *   attachment — found by this audit, not previously reported. An
+ *     attachment value is an array of attachment ids the upload endpoint
+ *     already created; `coerce()`'s attachment case rejects anything that
+ *     isn't already such an array with "expected an array of attachment
+ *     ids" — the identical shape of failure as relation, just never noticed
+ *     because no database happens to have two fields sharing a name the way
+ *     the "Roast" relation did.
+ *
+ * Deliberately NOT here, because each of these DOES accept a plain string
+ * and can succeed depending on its content — the set is about the type
+ * shape, not about every value of that type parsing:
+ *   title — the record name; a plain string is exactly its native value.
+ *   text, rich_text, number, checkbox, date, url, email, color — ordinary
+ *     scalars `coerce()` parses a string into.
+ *   select, multi_select, workflow — resolved against the field's own
+ *     option labels (or create a new option), which a CSV cell often names.
+ *   user — resolved against the workspace directory by id, email or name,
+ *     any of which a CSV cell can already be.
+ */
+export const UNWRITABLE_FIELD_TYPES = new Set([
+  'id',
+  'created_at',
+  'updated_at',
+  'created_by',
+  'lookup',
+  'rollup',
+  'formula',
+  'button',
+  'relation',
+  'attachment',
+]);
 
 export interface MatchableField {
   id: string;
@@ -54,7 +100,7 @@ export function matchExistingField(
   const candidates = fields.filter((f) => {
     // A value cannot be written into a computed field, so matching one would
     // pre-select a destination that is guaranteed to fail.
-    if (UNWRITABLE.has(f.type)) return false;
+    if (UNWRITABLE_FIELD_TYPES.has(f.type)) return false;
     // Both names: a CSV exported from StoryOS carries api_names, one typed by a
     // human carries something closer to the display name.
     return normalizeColumnKey(f.displayName) === key || (f.apiName ? normalizeColumnKey(f.apiName) === key : false);
