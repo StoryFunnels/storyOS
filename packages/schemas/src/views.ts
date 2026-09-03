@@ -277,6 +277,10 @@ export const viewConfigSchema = z.object({
             help: z.string().max(500).optional(),
             /** #263 — show this field only when an EARLIER answer matches. */
             visible_when: formVisibilityRuleSchema.optional(),
+            /** #500 — `required` above only bites when this also holds (or is
+             *  unset). Same rule shape and evaluator as `visible_when` — see
+             *  form-visibility.ts's header comment for why that's one shape, not two. */
+            required_when: formVisibilityRuleSchema.optional(),
           }),
         )
         .default([]),

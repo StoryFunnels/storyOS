@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import {
+  isFormFieldVisible,
   visibleFormFields,
   type FormVisibilityRule,
   type PublicFormVisibilityRule,
@@ -41,6 +42,8 @@ interface FormFieldCfg {
   help?: string;
   /** #263 — show this field only when an earlier answer matches. */
   visible_when?: FormVisibilityRule;
+  /** #500 — `required` only bites when this also holds (or is unset). */
+  required_when?: FormVisibilityRule;
 }
 
 /**
@@ -220,13 +223,21 @@ export class FormsService {
     // rather than merely intended, and it makes a rule cycle impossible by
     // construction (a field can never control itself or anything before it).
     const visibleWhenByField = new Map<string, PublicFormVisibilityRule>();
+    // #500 — `required_when` is translated by the exact same earlier-only rule,
+    // since it's the same rule shape gating a different thing (required, not shown).
+    const requiredWhenByField = new Map<string, PublicFormVisibilityRule>();
     const seenApiNames = new Set<string>();
-    for (const f of chosen) {
-      const rule = cfgById.get(f.id)?.visible_when;
+    const translateEarlierRule = (rule: FormVisibilityRule | undefined): PublicFormVisibilityRule | undefined => {
       const controller = rule ? chosen.find((c) => c.id === rule.field_id) : undefined;
-      if (rule && controller && seenApiNames.has(controller.apiName)) {
-        visibleWhenByField.set(f.id, { field: controller.apiName, op: rule.op, value: rule.value });
-      }
+      if (!rule || !controller || !seenApiNames.has(controller.apiName)) return undefined;
+      return { field: controller.apiName, op: rule.op, value: rule.value };
+    };
+    for (const f of chosen) {
+      const cfg = cfgById.get(f.id);
+      const visibleWhen = translateEarlierRule(cfg?.visible_when);
+      if (visibleWhen) visibleWhenByField.set(f.id, visibleWhen);
+      const requiredWhen = translateEarlierRule(cfg?.required_when);
+      if (requiredWhen) requiredWhenByField.set(f.id, requiredWhen);
       seenApiNames.add(f.apiName);
     }
 
@@ -251,6 +262,8 @@ export class FormsService {
         // dangling reference the renderer can't evaluate would hide the field
         // forever. Dropping only the DANGLING case, not merely-unconfigured ones.
         visible_when: visibleWhenByField.get(f.id),
+        // #500 — same dangling/forward-reference dropping as visible_when above.
+        required_when: requiredWhenByField.get(f.id),
         options: optsByField.get(f.id),
         relation: f.type === 'relation' ? relationInfoByField.get(f.id) : undefined,
         members: f.type === 'user' ? workspaceMembers : undefined,
@@ -317,8 +330,13 @@ export class FormsService {
     // — but only for fields the submitter could actually SEE. A required field
     // hidden by its own rule would otherwise make the form unsubmittable, which
     // is the obvious way conditional forms break.
+    // #500 — `required` alone is no longer the full story: a field's own
+    // required_when (the SAME evaluator visibility already trusts) can turn its
+    // required-ness off even while the field itself stays visible. Independently
+    // re-derived here rather than trusting a client claim, same reasoning as
+    // `visible` above.
     const missing = visible
-      .filter((f) => f.required)
+      .filter((f) => f.required && isFormFieldVisible(f.required_when, values))
       .filter((f) => {
         const v = values[f.api_name];
         return v == null || v === '' || (Array.isArray(v) && v.length === 0);

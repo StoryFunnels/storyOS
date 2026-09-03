@@ -4234,6 +4234,13 @@ export interface components {
                             op: "eq" | "neq" | "is_empty" | "not_empty" | "in";
                             value?: unknown;
                         };
+                        required_when?: {
+                            /** Format: uuid */
+                            field_id: string;
+                            /** @enum {string} */
+                            op: "eq" | "neq" | "is_empty" | "not_empty" | "in";
+                            value?: unknown;
+                        };
                     }[];
                     public_token?: string;
                     /**
@@ -4391,6 +4398,13 @@ export interface components {
                             op: "eq" | "neq" | "is_empty" | "not_empty" | "in";
                             value?: unknown;
                         };
+                        required_when?: {
+                            /** Format: uuid */
+                            field_id: string;
+                            /** @enum {string} */
+                            op: "eq" | "neq" | "is_empty" | "not_empty" | "in";
+                            value?: unknown;
+                        };
                     }[];
                     public_token?: string;
                     /**
@@ -4538,6 +4552,13 @@ export interface components {
                         label?: string;
                         help?: string;
                         visible_when?: {
+                            /** Format: uuid */
+                            field_id: string;
+                            /** @enum {string} */
+                            op: "eq" | "neq" | "is_empty" | "not_empty" | "in";
+                            value?: unknown;
+                        };
+                        required_when?: {
                             /** Format: uuid */
                             field_id: string;
                             /** @enum {string} */

@@ -12,6 +12,8 @@ export interface FormFieldCfg {
   help?: string;
   /** #263 — show this field only when an earlier answer matches. */
   visible_when?: FormVisibilityRule;
+  /** #500 — `required` above only bites when this also holds (or is unset). */
+  required_when?: FormVisibilityRule;
 }
 
 /**

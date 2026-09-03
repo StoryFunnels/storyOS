@@ -693,11 +693,24 @@ function SortableFormField({
             <input
               type="checkbox"
               checked={cfg.required ?? false}
-              onChange={(e) => onPatch({ required: e.target.checked || undefined })}
+              onChange={(e) => onPatch({ required: e.target.checked || undefined, required_when: e.target.checked ? cfg.required_when : undefined })}
             />
             Required
           </label>
+          {/* #500 — narrows WHEN "Required" above actually applies; only meaningful
+              once Required is checked, so hidden otherwise rather than shown-but-inert. */}
+          {cfg.required && (
+            <VisibilityRuleRow
+              label="Require only when"
+              emptyText="Always required — only a field below another one can depend on it."
+              rule={cfg.required_when}
+              earlierFields={earlierFields}
+              onChange={(required_when) => onPatch({ required_when })}
+            />
+          )}
           <VisibilityRuleRow
+            label="Show only when"
+            emptyText="Always shown — only a field below another one can depend on it."
             rule={cfg.visible_when}
             earlierFields={earlierFields}
             onChange={(visible_when) => onPatch({ visible_when })}
@@ -718,20 +731,23 @@ function SortableFormField({
  * silently never match — the worst kind of broken, because the builder looks fine.
  */
 function VisibilityRuleRow({
+  label,
+  emptyText,
   rule,
   earlierFields,
   onChange,
 }: {
+  /** #500 — this same rule-row renders both "Show only when" (visible_when) and
+   * "Require only when" (required_when); only the label and the empty-state
+   * copy differ between the two uses. */
+  label: string;
+  emptyText: string;
   rule: FormVisibilityRule | undefined;
   earlierFields: Field[];
   onChange: (rule: FormVisibilityRule | undefined) => void;
 }) {
   if (earlierFields.length === 0) {
-    return (
-      <p className="text-[11px] text-faint">
-        Always shown — only a field below another one can depend on it.
-      </p>
-    );
+    return <p className="text-[11px] text-faint">{emptyText}</p>;
   }
   const controller = earlierFields.find((f) => f.id === rule?.field_id);
   const needsValue = rule ? rule.op === 'eq' || rule.op === 'neq' : false;
@@ -740,7 +756,7 @@ function VisibilityRuleRow({
 
   return (
     <div className="flex flex-col gap-1 rounded border border-border-default bg-card p-1.5">
-      <span className="text-[11px] font-medium uppercase tracking-wider text-faint">Show only when</span>
+      <span className="text-[11px] font-medium uppercase tracking-wider text-faint">{label}</span>
       <select
         className={select}
         value={rule?.field_id ?? ''}
@@ -748,7 +764,7 @@ function VisibilityRuleRow({
           onChange(e.target.value ? { field_id: e.target.value, op: 'not_empty' } : undefined)
         }
       >
-        <option value="">Always show</option>
+        <option value="">Always</option>
         {earlierFields.map((f) => (
           <option key={f.id} value={f.id}>
             {f.displayName}
