@@ -1883,6 +1883,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/databases/{db}/records/copy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Copy records into another database (map -> dry-run -> apply). dry_run (default true) returns the field mapping and any blocking fields without writing anything. */
+        post: operations["CopyRecordController_copy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/buttons/{field}/press": {
         parameters: {
             query?: never;
@@ -4710,6 +4727,13 @@ export interface components {
                     [key: string]: unknown;
                 }[];
             };
+        };
+        CopyRecordDto: {
+            record_ids: string[];
+            target_database_id: string;
+            skip?: string[];
+            /** @default true */
+            dry_run: boolean;
         };
         CreateAutomationDto: {
             name: string;
@@ -8489,6 +8513,29 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    CopyRecordController_copy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CopyRecordDto"];
+            };
+        };
         responses: {
             201: {
                 headers: {

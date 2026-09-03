@@ -24,6 +24,7 @@ import { UsersModule } from './users/users.module';
 import { SearchModule } from './search/search.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { ImportModule } from './import/import.module';
+import { CopyRecordModule } from './copy-record/copy-record.module';
 import { AutomationsModule } from './automations/automations.module';
 import { ConnectionsModule } from './connections/connections.module';
 import { RunsModule } from './runs/runs.module';
@@ -107,6 +108,7 @@ import { DeploymentModule } from './deployment/deployment.module';
     SearchModule,
     NotificationsModule,
     ImportModule,
+    CopyRecordModule,
     AutomationsModule,
     ConnectionsModule,
     CalendarSyncModule,

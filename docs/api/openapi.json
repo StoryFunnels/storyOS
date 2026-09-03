@@ -5009,6 +5009,45 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/databases/{db}/records/copy": {
+      "post": {
+        "operationId": "CopyRecordController_copy",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CopyRecordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Copy records into another database (map -> dry-run -> apply). dry_run (default true) returns the field mapping and any blocking fields without writing anything.",
+        "tags": [
+          "records"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/buttons/{field}/press": {
       "post": {
         "operationId": "ButtonsController_press",
@@ -12300,6 +12339,35 @@
         },
         "required": [
           "body"
+        ]
+      },
+      "CopyRecordDto": {
+        "type": "object",
+        "properties": {
+          "record_ids": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "target_database_id": {
+            "type": "string"
+          },
+          "skip": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "dry_run": {
+            "default": true,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "record_ids",
+          "target_database_id"
         ]
       },
       "CreateAutomationDto": {
