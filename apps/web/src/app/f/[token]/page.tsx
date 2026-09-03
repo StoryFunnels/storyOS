@@ -2,7 +2,7 @@
 
 import { use, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { visibleFormFields, type PublicFormVisibilityRule } from '@storyos/schemas';
+import { isFormFieldVisible, visibleFormFields, type PublicFormVisibilityRule } from '@storyos/schemas';
 import { OptionChip } from '@/components/table-view/cells';
 import type { SelectOption } from '@/components/table-view/use-table-data';
 
@@ -28,6 +28,9 @@ interface FormField {
    * api_name so it lines up with `values`, and evaluated by the SAME shared
    * `visibleFormFields` the server runs on submit. */
   visible_when?: PublicFormVisibilityRule;
+  /** #500 — `required` above only bites when this also holds (or is unset).
+   * Same shape and evaluator as `visible_when`. */
+  required_when?: PublicFormVisibilityRule;
 }
 interface FormDef {
   title: string;
@@ -133,21 +136,28 @@ export default function PublicFormPage({ params }: { params: Promise<{ token: st
           <h1 className="text-xl font-semibold text-neutral-900">{def!.title}</h1>
           {def!.description && <p className="mt-1 text-sm text-neutral-500">{def!.description}</p>}
         </div>
-        {visibleFormFields(def!.fields, values).map((f) => (
-          <label key={f.field_id} className="flex flex-col gap-1.5">
-            <span className="text-[13px] font-medium text-neutral-800">
-              {f.label}
-              {f.required && <span className="ml-0.5 text-red-500">*</span>}
-            </span>
-            <Input
-              token={token}
-              field={f}
-              value={values[f.api_name]}
-              onChange={(v) => setValues((p) => ({ ...p, [f.api_name]: v }))}
-            />
-            {f.help && <span className="text-[12px] text-neutral-400">{f.help}</span>}
-          </label>
-        ))}
+        {visibleFormFields(def!.fields, values).map((f) => {
+          // #500 — `required` alone is no longer the full story: `required_when`
+          // (the SAME evaluator that already gates visibility) can turn a field's
+          // required-ness off even while it stays visible.
+          const requiredNow = f.required && isFormFieldVisible(f.required_when, values);
+          return (
+            <label key={f.field_id} className="flex flex-col gap-1.5">
+              <span className="text-[13px] font-medium text-neutral-800">
+                {f.label}
+                {requiredNow && <span className="ml-0.5 text-red-500">*</span>}
+              </span>
+              <Input
+                token={token}
+                field={f}
+                required={requiredNow}
+                value={values[f.api_name]}
+                onChange={(v) => setValues((p) => ({ ...p, [f.api_name]: v }))}
+              />
+              {f.help && <span className="text-[12px] text-neutral-400">{f.help}</span>}
+            </label>
+          );
+        })}
         {/* Honeypot — hidden from humans; bots fill it. */}
         <input
           type="text"
@@ -205,11 +215,16 @@ function PublicOptionToggle({
 function Input({
   token,
   field,
+  required,
   value,
   onChange,
 }: {
   token: string;
   field: FormField;
+  /** #500 — the CALLER's currently-evaluated required-ness, not `field.required`
+   * directly: a field can be configured required and still not be required right
+   * now if its `required_when` condition doesn't hold. */
+  required: boolean;
   value: unknown;
   onChange: (v: unknown) => void;
 }) {
@@ -290,7 +305,7 @@ function Input({
         className={`${base} min-h-24`}
         value={(value as string) ?? ''}
         onChange={(e) => onChange(e.target.value)}
-        required={field.required}
+        required={required}
       />
     );
   }
@@ -301,7 +316,7 @@ function Input({
       className={base}
       value={(value as string) ?? ''}
       onChange={(e) => onChange(t === 'number' ? (e.target.value === '' ? undefined : Number(e.target.value)) : e.target.value)}
-      required={field.required}
+      required={required}
     />
   );
 }
