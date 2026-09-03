@@ -32,6 +32,27 @@ icon and a colour, so the sidebar is scannable rather than a list of similar wor
 [organising the sidebar](/concepts/organising-the-sidebar/) for how things move between spaces and
 folders.
 
+### Opening a space
+
+Click a space's name in the sidebar (the caret still just collapses it) and it opens its own page:
+
+- **Identity** — icon, name, and its [description](#every-level-can-say-what-it-is-for) if it has
+  one.
+- **Access** — three groups: workspace members, space-level grants, and database-scoped grants
+  within the space. A guest sees an honest one-line explanation instead of this section, since the
+  underlying endpoints refuse a non-member anyway — never a silently empty section or a doomed
+  "Manage access" button.
+- **Ontology** — a diagram of the space's databases and the relations between them: nodes for
+  databases, edges for relations, self-relations fanned out so their labels don't collide, and a
+  cross-space relation drawn as a dashed satellite node naming the other space.
+- **Contents** — a plain list, for when the sidebar is collapsed and you need the same information
+  without it.
+
+**Access here follows the same door-and-room rule as everywhere else.** A space you cannot see
+doesn't render this page at all ("Nothing here you can access, or this space does not exist.");
+inside a space you *can* see, each database on the ontology diagram is independently gated —
+one you cannot read is simply absent, no node, no placeholder, no count.
+
 ## Database
 
 A table of records with typed fields, its own [views](/concepts/views/), buttons and
