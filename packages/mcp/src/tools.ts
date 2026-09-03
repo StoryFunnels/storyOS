@@ -694,6 +694,7 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   create_database: 'admin',
   update_database: 'admin',
   delete_database: 'admin',
+  duplicate_database: 'admin',
   add_field: 'admin',
   update_field: 'admin',
   delete_field: 'admin',
@@ -4121,6 +4122,40 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           client.PATCH('/api/v1/workspaces/{ws}/databases/{db}', {
             params: { path: { ws: ws.id, db: db.id } } as never,
             body: body as never,
+          }),
+        );
+        return text(res);
+      },
+    ),
+  );
+
+  reg(
+    'duplicate_database',
+    {
+      title: 'Duplicate database',
+      description:
+        "Copy a database's schema — fields (including select/multi-select/workflow options with their colours), views and self-relations — into a new, fully independent database in the same space. Formulas and filtered views keep working in the copy (api_names are preserved; only internal ids are fresh). A relation to a DIFFERENT database can't come along (it would point at nothing in the copy) and is reported as skipped, along with any lookup/rollup that depended on it. Pass include_records to also copy up to 50 rows (option values remapped to the copy's own options); relation/user/attachment-valued cells are never copied. Automations, agents and other databases' data never move.",
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        name: z.string().optional().describe('Name for the copy. Defaults to "<source> copy", disambiguated if that name is taken.'),
+        include_records: z.boolean().optional().describe('Copy up to 50 records along with the schema. Default false (schema only).'),
+      },
+    },
+    handle<{ workspace: string; database: string; name?: string; include_records?: boolean }>(
+      async ({ workspace, database, name, include_records }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const res = await unwrap<{
+          id: string;
+          name: string;
+          records_copied: number;
+          skipped_relations: string[];
+          skipped_derived_fields: Array<{ name: string; reason: string }>;
+        }>(
+          client.POST('/api/v1/workspaces/{ws}/databases/{db}/duplicate', {
+            params: { path: { ws: ws.id, db: db.id } } as never,
+            body: { name, include_records: include_records ?? false } as never,
           }),
         );
         return text(res);

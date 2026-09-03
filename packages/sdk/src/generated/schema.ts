@@ -3430,6 +3430,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/databases/{db}/duplicate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Duplicate a database — schema, or schema + records (#266) */
+        post: operations["DatabaseDuplicateController_duplicate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/favorites": {
         parameters: {
             query?: never;
@@ -5059,6 +5076,11 @@ export interface components {
             /** @default [] */
             screenshots: string[];
             manifest?: unknown;
+        };
+        DuplicateDatabaseDto: {
+            name?: string;
+            /** @default false */
+            include_records: boolean;
         };
         FavoriteDto: {
             /** @enum {string} */
@@ -10366,6 +10388,29 @@ export interface operations {
         requestBody?: never;
         responses: {
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    DatabaseDuplicateController_duplicate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DuplicateDatabaseDto"];
+            };
+        };
+        responses: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
