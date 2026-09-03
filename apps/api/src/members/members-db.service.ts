@@ -295,6 +295,25 @@ export class MembersDbService {
   }
 
   /**
+   * #494 — the subject-access export's own copy of "find this person's
+   * Members row", read-only. GdprService.export() had no way to reach this
+   * row at all: it is excluded from workspace export by design (this
+   * database's whole content IS personal data), so a data subject's export
+   * never showed the one row an admin can freely add columns to — the visible
+   * half of the gap #463 fixed the erasure half of. Returns every column the
+   * projection owns (name/email/avatar/role/active) plus whatever custom
+   * columns an admin has added, or null if the Members database or this
+   * person's row doesn't exist (e.g. provisioning never ran).
+   */
+  async getOwnRowForExport(workspaceId: string, userId: string): Promise<Record<string, unknown> | null> {
+    const database = await this.findMembersDb(workspaceId);
+    if (!database) return null;
+    const row = await this.findMemberRow(database.id, userId);
+    if (!row) return null;
+    return { id: row.id, title: row.title, ...row.values };
+  }
+
+  /**
    * Upsert the Member row for one membership (invite accepted / user joins, or a
    * role change). Ensures the database exists first, so the owner's very first
    * membership provisions the whole thing. Idempotent: an existing row is
