@@ -683,6 +683,7 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   delete_records: 'write',
   restore_records: 'write',
   duplicate_record: 'write',
+  copy_records: 'write',
   move_record: 'write',
   update_comment: 'write',
   delete_comment: 'write',
@@ -1745,6 +1746,38 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       const detail = await getDetail(ws.id, db.id);
       return text({ duplicated_from: rec, record: await readRecord(detail, ws.id, db.id, created.id) });
     }),
+  );
+
+  reg(
+    'copy_records',
+    {
+      title: 'Copy records to another database',
+      description:
+        '#521 — copy one or more records into a DIFFERENT database (unlike duplicate_record, which copies within the same one). Fields are auto-matched by name; a field that carries a value and has no match in the destination BLOCKS the copy rather than silently dropping it — call with dry_run:true (the default) first to see the field mapping and any blocking fields, resolve them with `skip`, then call again with dry_run:false to actually create the records.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string().describe('Source database.'),
+        records: z.array(z.string()).min(1).describe('Record uuids or public numbers to copy.'),
+        target_database: z.string().describe('Destination database.'),
+        skip: z.array(z.string()).optional().describe('Source field api_names to skip explicitly — resolves a blocking field.'),
+        dry_run: z.boolean().optional().describe('Default true: preview the mapping and any blocking fields without writing anything.'),
+      },
+    },
+    handle<{ workspace: string; database: string; records: string[]; target_database: string; skip?: string[]; dry_run?: boolean }>(
+      async ({ workspace, database, records, target_database, skip, dry_run }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const targetDb = await resolveDatabase(client, ws.id, target_database);
+        const recordIds = await Promise.all(records.map((r) => resolveRecordId(ws.id, db.id, r)));
+        const result = await unwrap<unknown>(
+          client.POST('/api/v1/workspaces/{ws}/databases/{db}/records/copy', {
+            params: { path: { ws: ws.id, db: db.id } },
+            body: { record_ids: recordIds, target_database_id: targetDb.id, skip, dry_run: dry_run ?? true } as never,
+          }),
+        );
+        return text(result);
+      },
+    ),
   );
 
   reg(
