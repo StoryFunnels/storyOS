@@ -368,3 +368,50 @@ describe('BillingService — checkout/portal redirect URLs include the workspace
     expect(params.return_url).toBe('http://localhost:3000/w/ws1/settings/billing?status=portal_return');
   });
 });
+
+/**
+ * #510 — startTrial() does no Stripe I/O of its own (pure local write), so
+ * unlike checkout/portal it never naturally hit StripeService.client's throw;
+ * on a billing-disabled instance it silently wrote a fake pro/trialing row.
+ */
+describe('BillingService.startTrial — #510: refuses when billing is not configured', () => {
+  it('throws (and writes nothing) when StripeService reports disabled', async () => {
+    const { db, upserts } = makeDb({ subscriptionRow: undefined });
+    const disabledStripe = {
+      client: {},
+      assertEnabled: vi.fn(() => {
+        throw new Error('Billing is not configured on this instance.');
+      }),
+    } as unknown as StripeService;
+    const svc = new BillingService(db, disabledStripe, accessStub, aiCreditsStub, referralsStub);
+
+    await expect(svc.startTrial('ws1')).rejects.toThrow('Billing is not configured');
+    expect(disabledStripe.assertEnabled).toHaveBeenCalled();
+    expect(upserts).toEqual([]);
+  });
+
+  it('MUST KEEP WORKING: still starts a real 30-day Pro trial on a normal (billing-enabled) deployment', async () => {
+    const { db, upserts } = makeDb({ subscriptionRow: undefined });
+    const enabledStripe = { client: {}, assertEnabled: vi.fn() } as unknown as StripeService;
+    const svc = new BillingService(db, enabledStripe, accessStub, aiCreditsStub, referralsStub);
+
+    await svc.startTrial('ws1');
+
+    expect(enabledStripe.assertEnabled).toHaveBeenCalled();
+    expect(upserts).toHaveLength(1);
+    expect(upserts[0]).toMatchObject({ workspaceId: 'ws1', plan: 'pro', status: 'trialing' });
+  });
+
+  it('MUST KEEP WORKING: is idempotent — an existing trial/subscription short-circuits before the guard matters', async () => {
+    const { db, upserts } = makeDb({
+      subscriptionRow: { plan: 'pro', status: 'trialing', trialEndsAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 10) },
+    });
+    const enabledStripe = { client: {}, assertEnabled: vi.fn() } as unknown as StripeService;
+    const svc = new BillingService(db, enabledStripe, accessStub, aiCreditsStub, referralsStub);
+
+    const status = await svc.startTrial('ws1');
+
+    expect(status.plan).toBe('pro');
+    expect(upserts).toEqual([]);
+  });
+});

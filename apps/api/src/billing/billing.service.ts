@@ -261,6 +261,11 @@ export class BillingService {
    * already exists is a no-op that returns the current status.
    */
   async startTrial(workspaceId: string): Promise<BillingStatus> {
+    // #510 — startTrial does no Stripe I/O of its own (pure local write), so
+    // unlike checkout/portal it never naturally hits StripeService.client's
+    // throw; without this it silently wrote a fake pro/trialing row on a
+    // deployment with billing switched off.
+    this.stripe.assertEnabled();
     const current = await this.getStatus(workspaceId);
     if (current.plan !== 'free' || current.trialEndsAt) return current;
 
