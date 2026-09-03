@@ -49,3 +49,8 @@ for you to see rather than guessing one blind.
 **The connection itself is created in the app, not over MCP.** `create_source` takes a
 `connection_id` — never a secret — so no credential can land in a tool argument or a transcript.
 Connect the provider under Settings → Connections first; a source only ever references it by id.
+
+Two read-only tools answer the two questions an agent needs before it can name a `connection_id`:
+`list_connections` (what's **already** connected in this workspace, and its id) and
+`list_connection_providers` (what **could** be connected — every provider type this instance
+supports, its auth kind, and whether it's actually available here). Neither returns a secret.
