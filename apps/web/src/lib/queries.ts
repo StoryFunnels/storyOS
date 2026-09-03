@@ -27,6 +27,16 @@ export interface DatabaseSummary {
   /** #400 — the one-line purpose. Null/absent is the normal state. */
   description?: string | null;
 }
+// #524 — hand-typed because the API's OpenAPI doc has no response schema for
+// this endpoint (see duplicateDatabase mutation below); matches
+// PacksService.duplicateDatabase's actual return type verbatim.
+export interface DuplicateDatabaseResult {
+  id: string;
+  name: string;
+  records_copied: number;
+  skipped_relations: string[];
+  skipped_derived_fields: Array<{ name: string; reason: string }>;
+}
 export interface WorkspaceInfo {
   id: string;
   name: string;
@@ -192,6 +202,20 @@ export function useSidebarMutations(ws: string) {
             // The typed-name confirm already covers the destructive intent;
             // relations into a deleted database cannot outlive it.
             body: { confirm, sever_relations: true },
+          }),
+        ),
+      onSuccess: invalidate,
+    }),
+    // #524 — the controller has no @ApiResponse decorator, so the generated
+    // SDK types this response `never`; the real shape is PacksService
+    // .duplicateDatabase's own return type, hand-typed here the same way
+    // deleteDatabase's `unknown` result is above.
+    duplicateDatabase: useMutation({
+      mutationFn: async ({ id, name, include_records }: { id: string; name?: string; include_records?: boolean }) =>
+        unwrap<DuplicateDatabaseResult>(
+          await api.POST('/api/v1/workspaces/{ws}/databases/{db}/duplicate', {
+            params: { path: { ws, db: id } },
+            body: { name, include_records },
           }),
         ),
       onSuccess: invalidate,

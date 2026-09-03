@@ -1958,6 +1958,7 @@ function DatabaseRow({
   onToggle?: () => void;
 }) {
   const mutations = useSidebarMutations(ws);
+  const router = useRouter();
   const [renaming, setRenaming] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [sharing, setSharing] = useState(false);
@@ -2072,6 +2073,30 @@ function DatabaseRow({
           contentClassName="w-56"
           actions={[
             { label: 'Rename', onSelect: () => setRenaming(true) },
+            {
+              // #524 — fires immediately, no dialog and no name prompt, matching
+              // the view/record duplicate precedent (view-tab.tsx) rather than
+              // the typed-confirm pattern below: this isn't destructive, so
+              // there's nothing to guard against.
+              label: 'Duplicate',
+              onSelect: () =>
+                mutations.duplicateDatabase.mutate(
+                  { id: db.id },
+                  {
+                    onError: () => toast.error('Could not duplicate the database'),
+                    onSuccess: (result) => {
+                      for (const name of result.skipped_relations) {
+                        toast.info(`"${name}" was not carried over — it relates to a database outside this copy`);
+                      }
+                      for (const field of result.skipped_derived_fields) {
+                        toast.info(`"${field.name}" was not carried over — ${field.reason}`);
+                      }
+                      toast.success(`Duplicated as "${result.name}"`);
+                      router.push(`/w/${ws}/d/${result.id}`);
+                    },
+                  },
+                ),
+            },
             {
               label: db.description ? 'Edit description' : 'Add description',
               onSelect: () => setDescribing(true),
