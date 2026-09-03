@@ -709,6 +709,12 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   create_relation: 'admin',
   delete_relation: 'admin',
   create_space: 'admin',
+  // #520 — both write only for the calling identity and are invisible to
+  // everyone else (personal-space.md §1), the same reasoning set_personal_filter
+  // and watch_record already get — a `write`, not an admin act, even though
+  // create_view/create_space (their SHARED counterparts) are admin.
+  get_or_create_personal_space: 'write',
+  create_personal_view: 'write',
   // #400/#397 — both PATCH endpoints already existed and neither had a tool, so
   // a description was settable over HTTP and not over MCP. Same admin ceiling as
   // their controllers (`@MinRole('admin')` on the workspace, `@RequiresScope('admin')`
@@ -2894,6 +2900,42 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
   );
 
   reg(
+    'create_personal_view',
+    {
+      title: 'Create personal view',
+      description:
+        '#520 — a view owned by ME, invisible to everyone else including admins: a private lens over a shared database\'s data, not a private copy (deleting a record through it deletes it for everyone). Needs only read access to the database, unlike create_view. No folder placement — a personal view is never in the shared sidebar folder tree.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        name: z.string(),
+        type: z.enum(VIEW_TYPES),
+        group_by: z.string().optional().describe('board: field to group columns by — a select, a single user, or the single side of a one-to-many relation (one column per related record).'),
+        card_fields: z.array(z.string()).optional().describe('Fields shown on cards / chips.'),
+        date_field: z.string().optional().describe('calendar: the date field.'),
+        start_date_field: z.string().optional().describe('timeline: start date field.'),
+        end_date_field: z.string().optional().describe('timeline: end date field.'),
+        filters: z.any().optional().describe('Filter AST by field api_name — same shape as query_records (see get_started).'),
+        sorts: z.array(z.object({ field: z.string(), direction: z.enum(['asc', 'desc']).optional() })).optional().describe('Sort keys by field api_name.'),
+      },
+    },
+    handle<{ workspace: string; database: string; name: string; type: string } & ViewOpts>(
+      async ({ workspace, database, name, type, ...rest }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const detail = await getDetail(ws.id, db.id);
+        const view = await unwrap<unknown>(
+          client.POST('/api/v1/workspaces/{ws}/databases/{db}/views/personal', {
+            params: { path: { ws: ws.id, db: db.id } },
+            body: { name, type, config: buildViewConfig(detail, type, rest) } as never,
+          }),
+        );
+        return text(view);
+      },
+    ),
+  );
+
+  reg(
     'update_view',
     {
       title: 'Update view',
@@ -3922,6 +3964,25 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         return text(space);
       },
     ),
+  );
+
+  reg(
+    'get_or_create_personal_space',
+    {
+      title: 'Get or create my personal space',
+      description:
+        "#520 — MY OWN personal space: private, including from admins, holds only documents and views (never databases). Idempotent — lazily provisioned on first call, returns the same space on every later call for this identity.",
+      inputSchema: { workspace: z.string() },
+    },
+    handle<{ workspace: string }>(async ({ workspace }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const space = await unwrap<unknown>(
+        client.POST('/api/v1/workspaces/{ws}/spaces/personal', {
+          params: { path: { ws: ws.id } } as never,
+        }),
+      );
+      return text(space);
+    }),
   );
 
   reg(

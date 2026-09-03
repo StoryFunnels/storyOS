@@ -331,8 +331,21 @@ export class ViewsService {
     databaseId: string,
     input: { name: string; type: ViewType; config: ViewConfig; folder_id?: string | null },
     createdBy: string,
+    /**
+     * #520 — set only by createPersonal(). A personal view is a private
+     * WINDOW onto this database's shared data (schema.ts's own note on
+     * `ownerUserId`, mirroring personal-space.md §"Deleting through a
+     * personal view") — it still needs a databaseId like any other view,
+     * just flagged private, never folder-placed (no shared folder tree of
+     * its own to belong to).
+     */
+    ownerUserId?: string,
   ) {
-    await this.assertFolderInSameSpace(databaseId, input.folder_id);
+    if (ownerUserId) {
+      if (input.folder_id) throw new UnprocessableEntityException('A personal view cannot be placed in a folder.');
+    } else {
+      await this.assertFolderInSameSpace(databaseId, input.folder_id);
+    }
     // #181: default a Board's group-by to the database's workflow field when one
     // exists and the caller didn't pick one (validation then runs on the result).
     const live = await this.liveFields(databaseId);
@@ -346,15 +359,30 @@ export class ViewsService {
       .insert(views)
       .values({
         databaseId,
-        folderId: input.folder_id ?? null,
+        folderId: ownerUserId ? null : (input.folder_id ?? null),
         name: input.name,
         type: input.type,
         config,
         position: Math.max(-1, ...siblings.map((v) => v.position)) + 1,
         createdBy,
+        ownerUserId,
       })
       .returning();
     return view!;
+  }
+
+  /**
+   * #520 — create a view owned by the caller rather than shared. `createdBy`
+   * and `ownerUserId` are the same person: authorship and privacy happen to
+   * coincide for a personal view, but they're separate columns (createdBy is
+   * never a privacy signal — see the column's own doc comment in schema.ts).
+   */
+  async createPersonal(
+    databaseId: string,
+    input: { name: string; type: ViewType; config: ViewConfig },
+    ownerUserId: string,
+  ) {
+    return this.create(databaseId, input, ownerUserId, ownerUserId);
   }
 
   async update(

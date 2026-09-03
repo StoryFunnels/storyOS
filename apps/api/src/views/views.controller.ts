@@ -13,6 +13,11 @@ import { ViewsService } from './views.service';
 class CreateViewDto extends createZodDto(createViewSchema) {}
 class UpdateViewDto extends createZodDto(updateViewSchema) {}
 
+// #520 — no folder_id: a personal view is never folder-placed (see
+// ViewsService.create's ownerUserId branch).
+const createPersonalViewSchema = createViewSchema.omit({ folder_id: true });
+class CreatePersonalViewDto extends createZodDto(createPersonalViewSchema) {}
+
 const shareViewSchema = z.object({
   visible_field_api_names: z.array(z.string()).optional(),
   include_relation_api_names: z.array(z.string()).optional(),
@@ -45,6 +50,24 @@ export class ViewsController {
   ) {
     await this.assertDb(req, databaseId);
     return this.viewsService.create(databaseId, body, req.user.id);
+  }
+
+  /**
+   * #520 — a personal view doesn't touch the shared schema, so it needs only
+   * read access to the database, not editor (unlike `create` above). `write`
+   * overrides the class's `admin` default — a personal view is the caller's
+   * own content, not a schema/management change.
+   */
+  @Post('personal')
+  @RequiresScope('write')
+  @ApiOperation({ summary: 'Create a view owned by me (private, never shared) over this database' })
+  async createPersonal(
+    @Req() req: WorkspaceRequest,
+    @Param('db') databaseId: string,
+    @Body() body: CreatePersonalViewDto,
+  ) {
+    await this.databases.assertAccess(req.membership, databaseId, 'viewer');
+    return this.viewsService.createPersonal(databaseId, body, req.user.id);
   }
 
   @Patch(':view')

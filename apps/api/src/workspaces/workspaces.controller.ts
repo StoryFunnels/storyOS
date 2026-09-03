@@ -101,6 +101,19 @@ export class WorkspaceController {
     return this.spaces.create(req.membership.workspaceId, body);
   }
 
+  /**
+   * #520 — idempotent: the caller's OWN personal space, lazily provisioned on
+   * first use. No @MinRole/@RequiresScope override — unlike creating a
+   * shared space, this grants nothing beyond what every active membership
+   * (including a guest) already implicitly has: a private area nobody else
+   * can reach (personal-space.md §1).
+   */
+  @Post('spaces/personal')
+  @ApiOperation({ summary: "Get or create the caller's personal space" })
+  getOrCreatePersonalSpace(@Req() req: WorkspaceRequest) {
+    return this.spaces.getOrCreatePersonal(req.membership.workspaceId, req.user.id);
+  }
+
   @RequiresScope('admin')
   @Patch('spaces/:space')
   @MinRole('member')
