@@ -134,6 +134,28 @@ jobs:
           ssh -i deploy_key -o StrictHostKeyChecking=accept-new deploy@${{ secrets.STAGING_HOST }} bash -s <<'EOF'
           set -euo pipefail
           cd ~/storyOS
+
+          # Reclaim BEFORE the pull, not after. On 2026-09-02 this host filled up and
+          # every deploy failed for 25 hours at `git pull` with "No space left on
+          # device" — while the prune that would have freed it sat at the END of this
+          # script, unreachable. A cleanup step that only runs on the happy path cannot
+          # rescue the unhappy one. The first failures even LOOKED like a credential
+          # problem ("could not read Username for https://github.com"), because a git
+          # that cannot write falls back to prompting.
+          echo "--- disk before"; df -h / | tail -1
+          # Images and build cache only. NEVER --volumes: the postgres data lives in one.
+          docker image prune -af --filter "until=168h" || true
+          docker builder prune -af --filter "until=168h" || true
+          echo "--- disk after"; df -h / | tail -1
+
+          # Fail early and legibly if still critically full, rather than dying mid-pull
+          # with an error that points at the wrong thing.
+          used=$(df --output=pcent / | tail -1 | tr -dc '0-9')
+          if [ "${used:-0}" -ge 95 ]; then
+            echo "::error::staging disk still ${used}% full after prune — deploy aborted before it could fail confusingly"
+            exit 1
+          fi
+
           git pull --ff-only
           if grep -q '^IMAGE_TAG=' .env; then
             sed -i 's/^IMAGE_TAG=.*/IMAGE_TAG=${{ github.sha }}/' .env
