@@ -32,6 +32,22 @@ export class StripeService {
 
   /** The client, or a 503 — use in request paths that require billing to be live. */
   get client(): Stripe {
+    return this.ensureEnabled();
+  }
+
+  /**
+   * Refuse a billing mutation when this instance has no Stripe configured —
+   * same 503 `client` already throws, extracted so a mutation with no Stripe
+   * I/O of its own (e.g. BillingService.startTrial, #510) still gets the
+   * guard instead of needing one invented from scratch. `client`'s callers
+   * (checkout/portal, via ensureCustomer) get this for free already; this is
+   * the explicit form for callers that never touch `client`.
+   */
+  assertEnabled(): void {
+    this.ensureEnabled();
+  }
+
+  private ensureEnabled(): Stripe {
     if (!this.stripe) {
       throw new ServiceUnavailableException('Billing is not configured on this instance.');
     }
