@@ -35,9 +35,39 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
   // thing that has to give way, and it is owned by this layout.
   const { state: tyronState } = useTyronPanel();
 
+  /**
+   * #486 — the actual root cause, found by reading useSession() itself
+   * (better-auth's react-store.mjs), not just this component: it calls
+   * `useSyncExternalStore(subscribe, get, get)` — the SAME getter for the
+   * client snapshot and the server snapshot. `getServerSnapshot` exists so a
+   * hook can hand back a value that is STABLE for the whole hydration pass,
+   * matching whatever the server actually rendered; passing `get` for both
+   * throws that guarantee away; React calls it again on the client during
+   * hydration, and by then the store may already hold the resolved session
+   * (nanostores can settle before this component's ref initializer runs), so
+   * the "server snapshot" React hydrates against on the client is not
+   * actually what the server sent. That timing is exactly why this reproduced
+   * on /d/{db} and not /w/{ws} before this fix: a heavier page gives the
+   * async session check more wall-clock time to resolve before hydration
+   * reaches this component, not a difference in what either route renders.
+   *
+   * This is third-party code (node_modules), not ours to patch. The house-
+   * side fix is the standard one for exactly this class of bug: never trust
+   * session state before the component has mounted at least once. `mounted`
+   * starts false on both server and client — genuinely identical, no store
+   * involved — and flips true only inside an effect, which never runs during
+   * SSR and never runs during hydration itself (effects fire strictly after
+   * the commit). So the FIRST client render is forced to agree with the
+   * server regardless of how fast useSession's store resolves; the swap to
+   * real content happens on the render *after* that, which is an ordinary
+   * post-hydration update, not a hydration diff, and warns about nothing.
+   */
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   useEffect(() => {
-    if (!isPending && !session) router.replace('/login');
-  }, [isPending, session, router]);
+    if (mounted && !isPending && !session) router.replace('/login');
+  }, [mounted, isPending, session, router]);
 
   // Navigating (tapping a sidebar link) closes the mobile drawer so the
   // destination is immediately visible instead of hidden behind it.
@@ -45,9 +75,7 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
     setMobileOpen(false);
   }, [pathname]);
 
-  if (isPending || !session) {
-    return <main className="flex min-h-screen items-center justify-center text-muted">Loading…</main>;
-  }
+  const authed = mounted && !isPending && !!session;
 
   return (
     /*
@@ -64,6 +92,15 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
         view's h-full/overflow-auto and sticky header attach to a scroller that
         never scrolls and the chrome scrolls away with the document (MN-117). */}
     <div className="flex h-screen overflow-hidden">
+      {!authed ? (
+        // #486 — same element type (`<div>`, inside the same unconditional
+        // shell) on both passes; only its own children differ, which is not a
+        // structural mismatch. An unauthenticated visitor still sees this and
+        // is still redirected by the effect above; an authed one sees it for
+        // one frame at most, same as before.
+        <div className="flex flex-1 items-center justify-center text-muted">Loading…</div>
+      ) : (
+        <>
       {/* Mobile-only backdrop — tapping it closes the drawer, same as the X. */}
       {mobileOpen && (
         <div
@@ -152,6 +189,8 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
       <QuickAddFab />
       <UndoHotkey />
       <StoryOSToaster />
+        </>
+      )}
     </div>
     </SplitHost>
   );

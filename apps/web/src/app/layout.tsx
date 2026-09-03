@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 import { Figtree } from 'next/font/google';
+import Script from 'next/script';
 import { Providers } from './providers';
 import { THEME_INIT_SCRIPT } from '@/lib/theme';
 import './globals.css';
@@ -43,8 +44,15 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className={figtree.variable} suppressHydrationWarning>
       <head>
-        {/* Resolve + apply the saved theme before paint so there's no light flash (#30). */}
-        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+        {/* Resolve + apply the saved theme before paint so there's no light flash
+            (#30). next/script's beforeInteractive strategy, not a raw <script> tag —
+            #486: React warns "Encountered a script tag while rendering React
+            component" for the latter, because a plain <script> in the declarative
+            tree is not how React expects a script to get onto the page. Script is
+            built for exactly this "must run before hydration, in <head>" case; it
+            still ends up as inline JS in <head> before paint, so the no-flash
+            behaviour is unchanged. */}
+        <Script id="theme-init" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>
       <body className="font-sans">
         <Providers>{children}</Providers>
