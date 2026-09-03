@@ -8,11 +8,20 @@ sidebar:
 Every field change on a record is logged: what changed, from what to what, who it was for, and
 **what made the change**.
 
-> **Where you can see this today.** The source label is recorded on every change and returned by
-> `GET /workspaces/{ws}/databases/{db}/records/{rec}/versions/changes` (and by the MCP
-> `get_history` tool). The record's in-app **activity panel does not show it yet** — it reads a
-> different endpoint and renders only the actor and the field change. So this page describes an
-> API-level field, not something you can currently read off the screen.
+The source label is recorded on every change and returned by
+`GET /workspaces/{ws}/databases/{db}/records/{rec}/versions/changes` (and by the MCP
+`get_history` tool), and it now renders in the record's **activity panel** too, as a small badge
+next to the actor's name.
+
+**`human` renders no badge at all.** It's the default a reader already assumes, and marking every
+ordinary edit would bury the exceptions the badge exists to surface — `agent`, `automation` and
+`mcp` each get their own labelled badge.
+
+**A row with no source recorded gets its own explicit badge, never a silent fold into `human`.**
+Anything written before this tracking shipped, or from an insert site an early rollout missed, has
+`source: null` — and shows as *"Source not recorded"* rather than reading as an ordinary human
+edit. Treating "unknown" and "human" as the same badge is the single easiest way to get this
+wrong, so the two stay visually distinct.
 
 ## Two different questions
 
