@@ -42,6 +42,27 @@ const MAX_MEMBERS_SCAN = 500;
  *  text, never a membership fk). */
 const SYSTEM_ACTOR = 'system:members-projection';
 
+/** The per-database unique index on `(database_id, api_name)` (schema.ts). */
+const FIELDS_API_NAME_UNIQUE_CONSTRAINT = 'fields_database_api_name_uq';
+
+/**
+ * #529 — True iff `err` is a Postgres unique-violation (SQLSTATE 23505) raised
+ * by the named constraint. `ensureField` reads-then-inserts, so two concurrent
+ * calls for the same field can both see "not found" and race to create it;
+ * the loser trips this index. Same shape, same fix, as
+ * `databases.service.ts`'s `isSlugUniqueViolation` — matched on `code` AND
+ * `constraint` so an unrelated 23505 is never swallowed, walking `.cause`
+ * since drizzle wraps the driver's error.
+ */
+function isFieldApiNameUniqueViolation(err: unknown): boolean {
+  for (let cur: unknown = err; cur != null; cur = (cur as { cause?: unknown }).cause) {
+    if (typeof cur !== 'object') break;
+    const e = cur as { code?: unknown; constraint?: unknown };
+    if (e.code === '23505' && e.constraint === FIELDS_API_NAME_UNIQUE_CONSTRAINT) return true;
+  }
+  return false;
+}
+
 /**
  * A Members-database row resolved for a better-auth user id — the shape a
  * caller reads when traversing a `user`-typed field (e.g. `assignee`) to the
@@ -271,7 +292,17 @@ export class MembersDbService {
     const existing = await this.db.query.fields.findFirst({
       where: and(eq(fieldsTable.databaseId, databaseId), eq(fieldsTable.apiName, apiName)),
     });
-    if (!existing) await this.fields.create(databaseId, spec);
+    if (existing) return;
+    try {
+      await this.fields.create(databaseId, spec);
+    } catch (err) {
+      // #529 — a concurrent ensureField call for the SAME field won the race
+      // between our read and our insert. The desired end state (the field
+      // exists) already holds, so this is success, not an error — mirrors
+      // databases.service.ts's isSlugUniqueViolation for the identical shape.
+      if (isFieldApiNameUniqueViolation(err)) return;
+      throw err;
+    }
   }
 
   /** label → option id for the Role select field, for writing the role value. */
