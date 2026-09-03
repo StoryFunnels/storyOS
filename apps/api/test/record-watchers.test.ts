@@ -3,6 +3,8 @@ import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './helpers/app';
 import { authed, signUpUser } from './helpers/users';
 import { summarizeChanges } from '../src/records/record-change-summary';
+import { EmailService } from '../src/mail/email.service';
+import type { MailMessage } from '../src/mail/mail-driver';
 
 /**
  * #236 — per-record watch/subscribe. A watcher (not necessarily an assignee or
@@ -19,6 +21,7 @@ let stateApi: string;
 let todoId: string;
 let doneId: string;
 let notesApi: string;
+const sentEmails: MailMessage[] = [];
 
 function as(token: string, method: string, url: string, payload?: unknown) {
   return app.inject({ method: method as never, url: `/api/v1${url}`, headers: authed(token), payload: payload as never });
@@ -60,6 +63,11 @@ beforeAll(async () => {
   });
   const token = new URL(invite.json().accept_url).searchParams.get('token')!;
   await as(watcher.token, 'POST', '/invites/accept', { token });
+
+  // #273 — capture what would have gone out over email, mirroring
+  // email.service.test.ts's driver-swap (never a real network send in tests).
+  const emailService = app.get(EmailService);
+  emailService.driver = { name: 'test-capture', send: async (message: MailMessage) => sentEmails.push(message) };
 });
 
 afterAll(async () => {
@@ -131,6 +139,67 @@ describe('record watch/subscribe (#236)', () => {
     });
     const after = recordChanged((await as(watcher.token, 'GET', `/workspaces/${wsId}/notifications`)).json().data).length;
     expect(after).toBe(before);
+  });
+});
+
+describe('record watch/subscribe — email delivery (#273)', () => {
+  it('emails a watcher the change summary and a deep link, and still delivers the in-app notification (#236 must keep working)', async () => {
+    const rec = (await as(admin.token, 'POST', `/workspaces/${wsId}/databases/${dbId}/records`, {
+      values: { name: 'Mail me', [stateApi]: todoId },
+    })).json();
+    await as(watcher.token, 'POST', `/workspaces/${wsId}/databases/${dbId}/records/${rec.id}/watch`);
+    sentEmails.length = 0;
+
+    await as(admin.token, 'PATCH', `/workspaces/${wsId}/databases/${dbId}/records/${rec.id}`, {
+      values: { [stateApi]: doneId },
+    });
+
+    const mail = sentEmails.find((m) => m.to === watcher.email);
+    expect(mail, JSON.stringify(sentEmails)).toBeTruthy();
+    expect(mail!.subject).toContain('Mail me');
+    expect(mail!.text).toContain('Status');
+    expect(mail!.text).toContain('Todo');
+    expect(mail!.text).toContain('Done');
+    expect(mail!.text).toContain(`/r/${rec.id}`);
+
+    // #236's in-app leg is unaffected by adding the email leg.
+    const notifs = (await as(watcher.token, 'GET', `/workspaces/${wsId}/notifications`)).json();
+    expect(recordChanged(notifs.data).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('does not email the watcher when their "record_changed" toggle is off, but the in-app notification is unaffected', async () => {
+    await as(watcher.token, 'PATCH', '/users/me/preferences', { notifications: { record_changed: false } });
+    try {
+      const rec = (await as(admin.token, 'POST', `/workspaces/${wsId}/databases/${dbId}/records`, {
+        values: { name: 'No mail', [stateApi]: todoId },
+      })).json();
+      await as(watcher.token, 'POST', `/workspaces/${wsId}/databases/${dbId}/records/${rec.id}/watch`);
+      sentEmails.length = 0;
+
+      await as(admin.token, 'PATCH', `/workspaces/${wsId}/databases/${dbId}/records/${rec.id}`, {
+        values: { [stateApi]: doneId },
+      });
+
+      expect(sentEmails.find((m) => m.to === watcher.email)).toBeUndefined();
+      const notifs = (await as(watcher.token, 'GET', `/workspaces/${wsId}/notifications`)).json();
+      expect(recordChanged(notifs.data).length).toBeGreaterThanOrEqual(1);
+    } finally {
+      await as(watcher.token, 'PATCH', '/users/me/preferences', { notifications: { record_changed: true } });
+    }
+  });
+
+  it('never emails the actor about their own change', async () => {
+    const rec = (await as(admin.token, 'POST', `/workspaces/${wsId}/databases/${dbId}/records`, {
+      values: { name: 'Self edit, no mail', [stateApi]: todoId },
+    })).json();
+    await as(admin.token, 'POST', `/workspaces/${wsId}/databases/${dbId}/records/${rec.id}/watch`);
+    sentEmails.length = 0;
+
+    await as(admin.token, 'PATCH', `/workspaces/${wsId}/databases/${dbId}/records/${rec.id}`, {
+      values: { [notesApi]: 'self edit' },
+    });
+
+    expect(sentEmails.find((m) => m.to === admin.email)).toBeUndefined();
   });
 });
 

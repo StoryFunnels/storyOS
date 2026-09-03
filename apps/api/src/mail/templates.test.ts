@@ -39,6 +39,38 @@ describe('renderEmail — branded HTML (MN-147)', () => {
     expect(email.html).toContain('https://app.storyos.dev/r/rec1');
   });
 
+  it('renders a record-changed email naming the actor, the record, and the change summary, with an "Open the record" button', () => {
+    const email = renderEmail({
+      kind: 'record-changed',
+      to: 'watcher@example.com',
+      actorName: 'Ada Lovelace',
+      recordTitle: 'Q3 roadmap',
+      summary: 'Status: Todo → Done',
+      url: 'https://app.storyos.dev/r/rec1',
+    });
+    expect(email.subject).toBe('Ada Lovelace updated "Q3 roadmap"');
+    expect(email.html).toContain('Ada Lovelace');
+    expect(email.html).toContain('Q3 roadmap');
+    expect(email.html).toContain('Status: Todo → Done');
+    expect(email.html).toContain('Open the record');
+    expect(email.text).toContain('Status: Todo → Done');
+    expect(email.text).toContain('https://app.storyos.dev/r/rec1');
+    expect(email.html).toContain('https://app.storyos.dev/r/rec1');
+  });
+
+  it('renders a record-changed email with an empty summary without a dangling colon (a change with nothing summarizable still watches)', () => {
+    const email = renderEmail({
+      kind: 'record-changed',
+      to: 'watcher@example.com',
+      actorName: 'Ada Lovelace',
+      recordTitle: 'Q3 roadmap',
+      summary: '',
+      url: 'https://app.storyos.dev/r/rec1',
+    });
+    expect(email.text).not.toContain(':\n\n');
+    expect(email.text).toContain('Ada Lovelace updated "Q3 roadmap".');
+  });
+
   it('renders the better-auth email-verification email with a "Confirm your email" button', () => {
     const email = renderEmail({
       kind: 'verify-email',
@@ -137,6 +169,19 @@ describe('renderEmail — branded HTML (MN-147)', () => {
       actorName: 'Ada',
       recordTitle: 'Q3 <script>alert(1)</script>',
       excerpt: '<img src=x onerror=alert(1)> look at this',
+      url: 'https://app.storyos.dev/r/rec1',
+    });
+    expect(email.html).not.toContain('<script>');
+    expect(email.html).not.toContain('<img src=x');
+  });
+
+  it('escapes untrusted display names/titles/summaries in the record-changed email', () => {
+    const email = renderEmail({
+      kind: 'record-changed',
+      to: 'watcher@example.com',
+      actorName: 'Ada',
+      recordTitle: 'Q3 <script>alert(1)</script>',
+      summary: '<img src=x onerror=alert(1)> Status changed',
       url: 'https://app.storyos.dev/r/rec1',
     });
     expect(email.html).not.toContain('<script>');

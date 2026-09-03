@@ -14,6 +14,17 @@ export type EmailInput =
       excerpt: string;
       url: string;
     }
+  | {
+      /** #273 — a watcher's `record_changed` notification, mailed. */
+      kind: 'record-changed';
+      to: string;
+      actorName: string;
+      recordTitle: string;
+      /** `RecordsService.renderChangeSummary`'s output — "Field: a → b · …",
+       *  possibly empty (a change with nothing summarizable still watches). */
+      summary: string;
+      url: string;
+    }
   | { kind: 'verify-email'; to: string; url: string }
   | { kind: 'reset-password'; to: string; url: string }
   | {
