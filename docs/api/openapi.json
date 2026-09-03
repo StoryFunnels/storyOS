@@ -3084,6 +3084,88 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/databases/{db}/views/{view}/share": {
+      "post": {
+        "operationId": "ViewsController_share",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "view",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShareViewDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Publish a read-only public link for this view, or update its allowlist (#264)",
+        "tags": [
+          "views"
+        ]
+      },
+      "delete": {
+        "operationId": "ViewsController_unshare",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "view",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Revoke a view's public link — takes effect immediately (#264)",
+        "tags": [
+          "views"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/databases/{db}/views/{view}/personal-filter": {
       "get": {
         "operationId": "PersonalFilterController_get",
@@ -3386,6 +3468,38 @@
         "summary": "Move a database-level dashboard into its space (#306)",
         "tags": [
           "views"
+        ]
+      }
+    },
+    "/api/v1/public/views/{token}": {
+      "get": {
+        "operationId": "PublicViewsController_get",
+        "parameters": [
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Public view definition + one page of records (link/public access only)",
+        "tags": [
+          "public"
         ]
       }
     },
@@ -10374,6 +10488,32 @@
                   }
                 }
               },
+              "share": {
+                "type": "object",
+                "properties": {
+                  "public_token": {
+                    "type": "string",
+                    "maxLength": 64
+                  },
+                  "visible_field_api_names": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "include_relation_api_names": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "indexable": {
+                    "default": false,
+                    "type": "boolean"
+                  }
+                }
+              },
               "column_widths": {
                 "type": "object",
                 "additionalProperties": {
@@ -10885,6 +11025,32 @@
                   }
                 }
               },
+              "share": {
+                "type": "object",
+                "properties": {
+                  "public_token": {
+                    "type": "string",
+                    "maxLength": 64
+                  },
+                  "visible_field_api_names": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "include_relation_api_names": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "indexable": {
+                    "default": false,
+                    "type": "boolean"
+                  }
+                }
+              },
               "column_widths": {
                 "type": "object",
                 "additionalProperties": {
@@ -10903,6 +11069,26 @@
             "format": "uuid",
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
             "nullable": true
+          }
+        }
+      },
+      "ShareViewDto": {
+        "type": "object",
+        "properties": {
+          "visible_field_api_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "include_relation_api_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "indexable": {
+            "type": "boolean"
           }
         }
       },
