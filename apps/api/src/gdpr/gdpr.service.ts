@@ -30,6 +30,9 @@ import {
   workspaceFiles,
 } from '../db/schema';
 
+/** The transaction type `db.transaction(async (tx) => ...)` hands its callback. */
+type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
+
 /**
  * GDPR data-subject tooling (MN-233): export everything held about a user and
  * erase/anonymize them. Identity is a tombstone — the `user` row's PII is wiped
@@ -108,6 +111,43 @@ export class GdprService {
         });
     }
     return refs;
+  }
+
+  /**
+   * #493 — the one piece of "does erasure reach every isSystem database"
+   * that's actually fixable without inventing content-scanning: a `user`-type
+   * field (system OR admin-added, on ANY database in the workspace — the
+   * Agentic OS pack included, if one is ever added there) is a real,
+   * structurally-identifiable reference to a specific person, unlike free
+   * text. `userFieldReferences` already finds every hit for the EXPORT path;
+   * this clears them for erasure, generalizing #463's "enumerate and null"
+   * past Members to every database at once — a narrower, more principled fix
+   * than three more copies of the same patch. Leaves the value's OTHER
+   * elements alone on a multi-user field (an array), and never touches
+   * `createdBy`/`updatedBy` or free-text content — both deliberately excluded
+   * everywhere else in this file, for the same audit-lineage reason.
+   */
+  private async clearUserFieldReferences(
+    tx: Tx,
+    refs: { record_id: string; database_id: string; field_id: string }[],
+    userId: string,
+  ): Promise<number> {
+    let cleared = 0;
+    for (const ref of refs) {
+      const [row] = await tx
+        .select({ values: records.values })
+        .from(records)
+        .where(eq(records.id, ref.record_id));
+      if (!row) continue;
+      const values = { ...(row.values as Record<string, unknown>) };
+      const current = values[ref.field_id];
+      values[ref.field_id] = Array.isArray(current)
+        ? current.filter((v) => v !== userId)
+        : null;
+      await tx.update(records).set({ values }).where(eq(records.id, ref.record_id));
+      cleared++;
+    }
+    return cleared;
   }
 
   /**
@@ -357,6 +397,11 @@ export class GdprService {
       columns: { workspaceId: true },
     });
 
+    // #493 — fetched before the transaction, same pattern as `allMemberships`
+    // above; the actual clearing happens inside it, alongside everything else
+    // this erasure touches.
+    const userFieldRefs = await this.userFieldReferences(workspaceId, userId);
+
     const result = await this.db.transaction(async (tx) => {
       const existing = await tx.query.user.findFirst({
         where: eq(user.id, userId),
@@ -448,6 +493,8 @@ export class GdprService {
           .returning()
       ).length;
 
+      const userFieldsCleared = await this.clearUserFieldReferences(tx, userFieldRefs, userId);
+
       return {
         anonymized: true,
         already_anonymized: alreadyAnon,
@@ -464,6 +511,7 @@ export class GdprService {
           access_grants: grants,
           favorites: favs,
           notifications: notifs,
+          user_field_references: userFieldsCleared,
         },
       };
     });
