@@ -8032,6 +8032,45 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/databases/{db}/duplicate": {
+      "post": {
+        "operationId": "DatabaseDuplicateController_duplicate",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DuplicateDatabaseDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Duplicate a database — schema, or schema + records (#266)",
+        "tags": [
+          "databases"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/favorites": {
       "get": {
         "operationId": "FavoritesController_list",
@@ -13807,6 +13846,20 @@
         "required": [
           "vertical"
         ]
+      },
+      "DuplicateDatabaseDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "include_records": {
+            "default": false,
+            "type": "boolean"
+          }
+        }
       },
       "FavoriteDto": {
         "type": "object",
