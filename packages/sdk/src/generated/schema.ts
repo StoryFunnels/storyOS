@@ -125,6 +125,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/spaces/personal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Get or create the caller's personal space */
+        post: operations["WorkspaceController_getOrCreatePersonalSpace"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/spaces/{space}": {
         parameters: {
             query?: never;
@@ -1127,6 +1144,23 @@ export interface paths {
         put?: never;
         /** Create a saved view (config validated against live fields) */
         post: operations["ViewsController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/views/personal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create a view owned by me (private, never shared) over this database */
+        post: operations["ViewsController_createPersonal"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4209,6 +4243,161 @@ export interface components {
             /** Format: uuid */
             folder_id?: string | null;
         };
+        CreatePersonalViewDto__schema0: {
+            field: string;
+            /** @enum {string} */
+            op: "eq" | "neq" | "contains" | "gt" | "gte" | "lt" | "lte" | "before" | "after" | "within" | "has" | "has_none" | "is_empty" | "not_empty";
+            value?: unknown;
+            disabled?: boolean;
+            pinned?: boolean;
+            label?: string;
+            icon?: string;
+        } | {
+            and: components["schemas"]["CreatePersonalViewDto__schema0"][];
+        } | {
+            or: components["schemas"]["CreatePersonalViewDto__schema0"][];
+        };
+        CreatePersonalViewDto: {
+            name: string;
+            /** @enum {string} */
+            type: "table" | "board" | "calendar" | "gallery" | "list" | "feed" | "timeline" | "form" | "dashboard";
+            config?: {
+                filters?: components["schemas"]["CreatePersonalViewDto__schema0"];
+                /** @default [] */
+                sorts: {
+                    field: string;
+                    /**
+                     * @default asc
+                     * @enum {string}
+                     */
+                    direction: "asc" | "desc";
+                }[];
+                /** @enum {string} */
+                sorts_nulls?: "first" | "last";
+                /** @default [] */
+                hidden_field_ids: string[];
+                /** Format: uuid */
+                group_by_field_id?: string;
+                /** @enum {string} */
+                group_by_granularity?: "week" | "month" | "quarter" | "year";
+                /** Format: uuid */
+                color_by_field_id?: string;
+                /** @default [] */
+                card_field_ids: string[];
+                /** @enum {string} */
+                card_size?: "small" | "medium" | "large";
+                /** @enum {string} */
+                column_sort?: "natural" | "alpha" | "count";
+                hide_empty_groups?: boolean;
+                hide_empty_no_value_group?: boolean;
+                /** Format: uuid */
+                cover_field_id?: string;
+                /** Format: uuid */
+                date_field_id?: string;
+                /** Format: uuid */
+                start_date_field_id?: string;
+                /** Format: uuid */
+                end_date_field_id?: string;
+                /** Format: uuid */
+                baseline_start_date_field_id?: string;
+                /** Format: uuid */
+                baseline_end_date_field_id?: string;
+                /** @default [] */
+                dashboard_tiles: {
+                    /** Format: uuid */
+                    id: string;
+                    /** @default  */
+                    label: string;
+                    /** @enum {string} */
+                    op: "count" | "sum" | "avg" | "min" | "max";
+                    field_api_name?: string;
+                    filter?: components["schemas"]["CreatePersonalViewDto__schema0"];
+                    /** Format: uuid */
+                    database_id?: string;
+                    layout?: {
+                        order: number;
+                        w: number;
+                        h: number;
+                    };
+                    comparison?: {
+                        target?: number;
+                        /**
+                         * @default up
+                         * @enum {string}
+                         */
+                        direction: "up" | "down";
+                    };
+                }[];
+                /** @default [] */
+                dashboard_widgets: {
+                    /** Format: uuid */
+                    id: string;
+                    /** @enum {string} */
+                    type: "bar" | "line" | "pie" | "grouped_table";
+                    /** @default  */
+                    title: string;
+                    group_by_field_api_name?: string;
+                    /**
+                     * @default {
+                     *       "op": "count"
+                     *     }
+                     */
+                    measure: {
+                        /** @enum {string} */
+                        op: "count" | "sum" | "avg" | "min" | "max";
+                        field_api_name?: string;
+                    };
+                    filter?: components["schemas"]["CreatePersonalViewDto__schema0"];
+                    /** Format: uuid */
+                    database_id?: string;
+                    layout?: {
+                        order: number;
+                        w: number;
+                        h: number;
+                    };
+                }[];
+                form?: {
+                    title?: string;
+                    description?: string;
+                    submit_text?: string;
+                    /** @default [] */
+                    fields: {
+                        /** Format: uuid */
+                        field_id: string;
+                        required?: boolean;
+                        label?: string;
+                        help?: string;
+                        visible_when?: {
+                            /** Format: uuid */
+                            field_id: string;
+                            /** @enum {string} */
+                            op: "eq" | "neq" | "is_empty" | "not_empty" | "in";
+                            value?: unknown;
+                        };
+                    }[];
+                    public_token?: string;
+                    /**
+                     * @default members
+                     * @enum {string}
+                     */
+                    access: "members" | "link" | "public";
+                    success_message?: string;
+                    /** Format: uri */
+                    redirect_url?: string;
+                };
+                share?: {
+                    public_token?: string;
+                    visible_field_api_names?: string[];
+                    /** @default [] */
+                    include_relation_api_names: string[];
+                    /** @default false */
+                    indexable: boolean;
+                };
+                column_widths?: {
+                    [key: string]: number;
+                };
+            };
+        };
         UpdateViewDto__schema0: {
             field: string;
             /** @enum {string} */
@@ -5362,6 +5551,23 @@ export interface operations {
                 "application/json": components["schemas"]["CreateSpaceDto"];
             };
         };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    WorkspaceController_getOrCreatePersonalSpace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             201: {
                 headers: {
@@ -7037,6 +7243,29 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["CreateViewDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ViewsController_createPersonal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePersonalViewDto"];
             };
         };
         responses: {

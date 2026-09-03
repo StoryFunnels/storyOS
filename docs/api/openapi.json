@@ -209,6 +209,26 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/spaces/personal": {
+      "post": {
+        "operationId": "WorkspaceController_getOrCreatePersonalSpace",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get or create the caller's personal space",
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/spaces/{space}": {
       "patch": {
         "operationId": "WorkspaceController_updateSpace",
@@ -2923,6 +2943,45 @@
           }
         ],
         "summary": "Create a saved view (config validated against live fields)",
+        "tags": [
+          "views"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/views/personal": {
+      "post": {
+        "operationId": "ViewsController_createPersonal",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePersonalViewDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create a view owned by me (private, never shared) over this database",
         "tags": [
           "views"
         ]
@@ -10527,6 +10586,551 @@
             "format": "uuid",
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
             "nullable": true
+          }
+        },
+        "required": [
+          "name",
+          "type"
+        ]
+      },
+      "CreatePersonalViewDto__schema0": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "field": {
+                "type": "string",
+                "minLength": 1
+              },
+              "op": {
+                "type": "string",
+                "enum": [
+                  "eq",
+                  "neq",
+                  "contains",
+                  "gt",
+                  "gte",
+                  "lt",
+                  "lte",
+                  "before",
+                  "after",
+                  "within",
+                  "has",
+                  "has_none",
+                  "is_empty",
+                  "not_empty"
+                ]
+              },
+              "value": {},
+              "disabled": {
+                "type": "boolean"
+              },
+              "pinned": {
+                "type": "boolean"
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 120
+              },
+              "icon": {
+                "type": "string",
+                "maxLength": 40
+              }
+            },
+            "required": [
+              "field",
+              "op"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "and": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CreatePersonalViewDto__schema0"
+                }
+              }
+            },
+            "required": [
+              "and"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "or": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CreatePersonalViewDto__schema0"
+                }
+              }
+            },
+            "required": [
+              "or"
+            ]
+          }
+        ]
+      },
+      "CreatePersonalViewDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "table",
+              "board",
+              "calendar",
+              "gallery",
+              "list",
+              "feed",
+              "timeline",
+              "form",
+              "dashboard"
+            ]
+          },
+          "config": {
+            "type": "object",
+            "properties": {
+              "filters": {
+                "$ref": "#/components/schemas/CreatePersonalViewDto__schema0"
+              },
+              "sorts": {
+                "default": [],
+                "maxItems": 3,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "field": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "direction": {
+                      "default": "asc",
+                      "type": "string",
+                      "enum": [
+                        "asc",
+                        "desc"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "field"
+                  ]
+                }
+              },
+              "sorts_nulls": {
+                "type": "string",
+                "enum": [
+                  "first",
+                  "last"
+                ]
+              },
+              "hidden_field_ids": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
+              },
+              "group_by_field_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "group_by_granularity": {
+                "type": "string",
+                "enum": [
+                  "week",
+                  "month",
+                  "quarter",
+                  "year"
+                ]
+              },
+              "color_by_field_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "card_field_ids": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
+              },
+              "card_size": {
+                "type": "string",
+                "enum": [
+                  "small",
+                  "medium",
+                  "large"
+                ]
+              },
+              "column_sort": {
+                "type": "string",
+                "enum": [
+                  "natural",
+                  "alpha",
+                  "count"
+                ]
+              },
+              "hide_empty_groups": {
+                "type": "boolean"
+              },
+              "hide_empty_no_value_group": {
+                "type": "boolean"
+              },
+              "cover_field_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "date_field_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "start_date_field_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "end_date_field_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "baseline_start_date_field_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "baseline_end_date_field_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "dashboard_tiles": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "label": {
+                      "default": "",
+                      "type": "string",
+                      "maxLength": 100
+                    },
+                    "op": {
+                      "type": "string",
+                      "enum": [
+                        "count",
+                        "sum",
+                        "avg",
+                        "min",
+                        "max"
+                      ]
+                    },
+                    "field_api_name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 100
+                    },
+                    "filter": {
+                      "$ref": "#/components/schemas/CreatePersonalViewDto__schema0"
+                    },
+                    "database_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "layout": {
+                      "type": "object",
+                      "properties": {
+                        "order": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "w": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 12
+                        },
+                        "h": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 6
+                        }
+                      },
+                      "required": [
+                        "order",
+                        "w",
+                        "h"
+                      ]
+                    },
+                    "comparison": {
+                      "type": "object",
+                      "properties": {
+                        "target": {
+                          "type": "number"
+                        },
+                        "direction": {
+                          "default": "up",
+                          "type": "string",
+                          "enum": [
+                            "up",
+                            "down"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "op"
+                  ]
+                }
+              },
+              "dashboard_widgets": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "bar",
+                        "line",
+                        "pie",
+                        "grouped_table"
+                      ]
+                    },
+                    "title": {
+                      "default": "",
+                      "type": "string",
+                      "maxLength": 100
+                    },
+                    "group_by_field_api_name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 100
+                    },
+                    "measure": {
+                      "default": {
+                        "op": "count"
+                      },
+                      "type": "object",
+                      "properties": {
+                        "op": {
+                          "type": "string",
+                          "enum": [
+                            "count",
+                            "sum",
+                            "avg",
+                            "min",
+                            "max"
+                          ]
+                        },
+                        "field_api_name": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 100
+                        }
+                      },
+                      "required": [
+                        "op"
+                      ]
+                    },
+                    "filter": {
+                      "$ref": "#/components/schemas/CreatePersonalViewDto__schema0"
+                    },
+                    "database_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "layout": {
+                      "type": "object",
+                      "properties": {
+                        "order": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "w": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 12
+                        },
+                        "h": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 6
+                        }
+                      },
+                      "required": [
+                        "order",
+                        "w",
+                        "h"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "type"
+                  ]
+                }
+              },
+              "form": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  "description": {
+                    "type": "string",
+                    "maxLength": 2000
+                  },
+                  "submit_text": {
+                    "type": "string",
+                    "maxLength": 50
+                  },
+                  "fields": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "field_id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "required": {
+                          "type": "boolean"
+                        },
+                        "label": {
+                          "type": "string",
+                          "maxLength": 100
+                        },
+                        "help": {
+                          "type": "string",
+                          "maxLength": 500
+                        },
+                        "visible_when": {
+                          "type": "object",
+                          "properties": {
+                            "field_id": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "op": {
+                              "type": "string",
+                              "enum": [
+                                "eq",
+                                "neq",
+                                "is_empty",
+                                "not_empty",
+                                "in"
+                              ]
+                            },
+                            "value": {}
+                          },
+                          "required": [
+                            "field_id",
+                            "op"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "field_id"
+                      ]
+                    }
+                  },
+                  "public_token": {
+                    "type": "string",
+                    "maxLength": 64
+                  },
+                  "access": {
+                    "default": "members",
+                    "type": "string",
+                    "enum": [
+                      "members",
+                      "link",
+                      "public"
+                    ]
+                  },
+                  "success_message": {
+                    "type": "string",
+                    "maxLength": 500
+                  },
+                  "redirect_url": {
+                    "type": "string",
+                    "maxLength": 500,
+                    "format": "uri"
+                  }
+                }
+              },
+              "share": {
+                "type": "object",
+                "properties": {
+                  "public_token": {
+                    "type": "string",
+                    "maxLength": 64
+                  },
+                  "visible_field_api_names": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "include_relation_api_names": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "indexable": {
+                    "default": false,
+                    "type": "boolean"
+                  }
+                }
+              },
+              "column_widths": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "number"
+                }
+              }
+            }
           }
         },
         "required": [

@@ -74,6 +74,54 @@ export class SpacesService {
     return space!;
   }
 
+  /**
+   * #520 — idempotent get-or-create for the CALLER's own personal space.
+   * Nothing else provisions one (confirmed: no create() path accepts
+   * personal/ownerUserId), so this is the one place a personal space comes
+   * into existence — lazily, on first use, rather than at signup/invite time.
+   *
+   * Races the `spaces_workspace_owner_uq` partial unique index (one personal
+   * space per user per workspace) rather than checking-then-inserting: two
+   * concurrent first-uses insert, one wins, the loser's insert is swallowed
+   * by the bare onConflictDoNothing() (matches ensureCustomer's shape in
+   * billing.service.ts) and both re-read the same winning row.
+   */
+  async getOrCreatePersonal(workspaceId: string, userId: string) {
+    const existing = await this.db.query.spaces.findFirst({
+      where: and(
+        eq(spaces.workspaceId, workspaceId),
+        eq(spaces.ownerUserId, userId),
+        eq(spaces.personal, true),
+        notDeleted(spaces.deletedAt),
+      ),
+    });
+    if (existing) return existing;
+
+    await this.db
+      .insert(spaces)
+      .values({
+        workspaceId,
+        name: 'Personal',
+        // Deterministic per user, so a losing racer's insert collides on
+        // EITHER unique index for the exact same reason a winner would —
+        // no target named, so onConflictDoNothing() swallows both.
+        slug: `personal-${userId}`,
+        personal: true,
+        ownerUserId: userId,
+      })
+      .onConflictDoNothing();
+
+    const row = await this.db.query.spaces.findFirst({
+      where: and(
+        eq(spaces.workspaceId, workspaceId),
+        eq(spaces.ownerUserId, userId),
+        eq(spaces.personal, true),
+        notDeleted(spaces.deletedAt),
+      ),
+    });
+    return row!;
+  }
+
   async update(
     workspaceId: string,
     spaceId: string,
