@@ -1185,6 +1185,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/databases/{db}/views/{view}/share": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publish a read-only public link for this view, or update its allowlist (#264) */
+        post: operations["ViewsController_share"];
+        /** Revoke a view's public link — takes effect immediately (#264) */
+        delete: operations["ViewsController_unshare"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/databases/{db}/views/{view}/personal-filter": {
         parameters: {
             query?: never;
@@ -1252,6 +1270,23 @@ export interface paths {
         put?: never;
         /** Move a database-level dashboard into its space (#306) */
         post: operations["SpaceViewsController_moveToSpace"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/views/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Public view definition + one page of records (link/public access only) */
+        get: operations["PublicViewsController_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -4159,6 +4194,14 @@ export interface components {
                     /** Format: uri */
                     redirect_url?: string;
                 };
+                share?: {
+                    public_token?: string;
+                    visible_field_api_names?: string[];
+                    /** @default [] */
+                    include_relation_api_names: string[];
+                    /** @default false */
+                    indexable: boolean;
+                };
                 column_widths?: {
                     [key: string]: number;
                 };
@@ -4306,6 +4349,14 @@ export interface components {
                     /** Format: uri */
                     redirect_url?: string;
                 };
+                share?: {
+                    public_token?: string;
+                    visible_field_api_names?: string[];
+                    /** @default [] */
+                    include_relation_api_names: string[];
+                    /** @default false */
+                    indexable: boolean;
+                };
                 column_widths?: {
                     [key: string]: number;
                 };
@@ -4313,6 +4364,11 @@ export interface components {
             position?: number;
             /** Format: uuid */
             folder_id?: string | null;
+        };
+        ShareViewDto: {
+            visible_field_api_names?: string[];
+            include_relation_api_names?: string[];
+            indexable?: boolean;
         };
         SetPersonalFilterDto__schema0: {
             field: string;
@@ -7076,6 +7132,50 @@ export interface operations {
             };
         };
     };
+    ViewsController_share: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                view: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ShareViewDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ViewsController_unshare: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                view: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     PersonalFilterController_get: {
         parameters: {
             query?: never;
@@ -7255,6 +7355,27 @@ export interface operations {
         requestBody?: never;
         responses: {
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PublicViewsController_get: {
+        parameters: {
+            query: {
+                cursor: string;
+            };
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };

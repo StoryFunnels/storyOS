@@ -570,6 +570,8 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   set_personal_filter: 'write',
   duplicate_view: 'admin',
   set_default_view: 'admin',
+  share_view: 'admin',
+  unshare_view: 'admin',
   create_space_view: 'admin',
   update_space_view: 'admin',
   delete_space_view: 'admin',
@@ -4935,6 +4937,72 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         }),
       );
       return text({ default_view: v.name, id: v.id, applies_to: 'everyone in this workspace' });
+    }),
+  );
+
+  reg(
+    'share_view',
+    {
+      title: 'Publish a view to a public read-only link',
+      description:
+        "Publish a saved view (or update an already-published one's allowlist) to a public, unauthenticated read-only link for clients or stakeholders — the API half only; there is no web page for the link yet. Nothing leaks beyond what you name here: pass visible_field_api_names to allowlist columns (omit for the view's own non-hidden fields), include_relation_api_names to let specific relation fields travel as {id, title, number} chips only — never the linked record's other fields (omit or leave empty and NO related data travels at all, which is the safe default). A rollup, formula or lookup is NEVER exposed unless visible_field_api_names explicitly names it, even if it isn't hidden — it can read data the visitor never sees. Re-sharing an already-published view keeps the same link; only a database-owned view (not a dashboard) can be published.",
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        view: z.string().describe('View name or id (from describe_database).'),
+        visible_field_api_names: z.array(z.string()).optional().describe("Field api_names to expose. Omit for the view's own non-hidden fields. A rollup/formula/lookup must be named here explicitly or it never appears."),
+        include_relation_api_names: z.array(z.string()).optional().describe('Relation field api_names allowed to travel, as id/title/number chips only. Omit or [] = no related data leaves.'),
+        indexable: z.boolean().optional().describe('Allow search engines to index the link. Default false (noindex).'),
+      },
+    },
+    handle<{
+      workspace: string;
+      database: string;
+      view: string;
+      visible_field_api_names?: string[];
+      include_relation_api_names?: string[];
+      indexable?: boolean;
+    }>(async ({ workspace, database, view, visible_field_api_names, include_relation_api_names, indexable }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const detail = await getDetail(ws.id, db.id);
+      const v = resolveView(detail, view);
+      const res = await unwrap<{ token: string }>(
+        client.POST('/api/v1/workspaces/{ws}/databases/{db}/views/{view}/share', {
+          params: { path: { ws: ws.id, db: db.id, view: v.id } } as never,
+          body: { visible_field_api_names, include_relation_api_names, indexable } as never,
+        }),
+      );
+      return text({
+        published: true,
+        token: res.token,
+        note: 'No public web page for this token exists yet (#264 ships the API first) — this confirms the link is live at the API level.',
+      });
+    }),
+  );
+
+  reg(
+    'unshare_view',
+    {
+      title: 'Revoke a view\'s public link',
+      description: 'Take a published view back offline. The link 404s immediately — no cache, no grace window.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        view: z.string().describe('View name or id (from describe_database).'),
+      },
+    },
+    handle<{ workspace: string; database: string; view: string }>(async ({ workspace, database, view }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const detail = await getDetail(ws.id, db.id);
+      const v = resolveView(detail, view);
+      await unwrap(
+        client.DELETE('/api/v1/workspaces/{ws}/databases/{db}/views/{view}/share', {
+          params: { path: { ws: ws.id, db: db.id, view: v.id } } as never,
+        }),
+      );
+      return text({ unpublished: true });
     }),
   );
 

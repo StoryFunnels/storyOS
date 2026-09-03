@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
+import { z } from 'zod';
 import { createViewSchema, updateViewSchema } from '@storyos/schemas';
 import { AuthGuard } from '../auth/auth.guard';
 import { RequiresScope } from '../auth/token-scope.guard';
@@ -11,6 +12,13 @@ import { ViewsService } from './views.service';
 
 class CreateViewDto extends createZodDto(createViewSchema) {}
 class UpdateViewDto extends createZodDto(updateViewSchema) {}
+
+const shareViewSchema = z.object({
+  visible_field_api_names: z.array(z.string()).optional(),
+  include_relation_api_names: z.array(z.string()).optional(),
+  indexable: z.boolean().optional(),
+});
+class ShareViewDto extends createZodDto(shareViewSchema) {}
 
 @ApiTags('views')
 @ApiBearerAuth()
@@ -82,5 +90,28 @@ export class ViewsController {
   ) {
     await this.assertDb(req, databaseId);
     return this.viewsService.remove(databaseId, viewId);
+  }
+
+  @Post(':view/share')
+  @ApiOperation({ summary: 'Publish a read-only public link for this view, or update its allowlist (#264)' })
+  async share(
+    @Req() req: WorkspaceRequest,
+    @Param('db') databaseId: string,
+    @Param('view') viewId: string,
+    @Body() body: ShareViewDto,
+  ) {
+    await this.assertDb(req, databaseId);
+    return this.viewsService.share(databaseId, viewId, body);
+  }
+
+  @Delete(':view/share')
+  @ApiOperation({ summary: 'Revoke a view\'s public link — takes effect immediately (#264)' })
+  async unshare(
+    @Req() req: WorkspaceRequest,
+    @Param('db') databaseId: string,
+    @Param('view') viewId: string,
+  ) {
+    await this.assertDb(req, databaseId);
+    return this.viewsService.unshare(databaseId, viewId);
   }
 }

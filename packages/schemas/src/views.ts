@@ -290,6 +290,30 @@ export const viewConfigSchema = z.object({
     })
     .optional(),
   /**
+   * Public read-only sharing (#264) — mirrors `form` above: presence of
+   * `public_token` is what makes a view reachable at `GET /public/views/:token`,
+   * minted/cleared only through `POST`/`DELETE .../views/:view/share` (never
+   * hand-set through the ordinary view PATCH, unlike a form's token — publishing
+   * a view is a deliberate act with an explicit field/relation allowlist, not a
+   * value a client could accidentally carry over from a duplicate).
+   *
+   * `visible_field_api_names` undefined = the view's own non-hidden fields
+   * (`hidden_field_ids`, inverted) — EXCEPT a computed field (rollup/formula/
+   * lookup), which is never exposed by that default: a rollup/formula can read
+   * data the public visitor cannot see, so it is opt-in only, requires an
+   * EXPLICIT allowlist that names it. `include_relation_api_names` defaults to
+   * empty on purpose — the whole point of this ticket is that related records do
+   * NOT travel unless the publisher says so.
+   */
+  share: z
+    .object({
+      public_token: z.string().max(64).optional(),
+      visible_field_api_names: z.array(z.string()).optional(),
+      include_relation_api_names: z.array(z.string()).default([]),
+      indexable: z.boolean().default(false),
+    })
+    .optional(),
+  /**
    * Column widths come from a resize drag, so they arrive as fractional pixels
    * (247.5) and can overshoot the sane range. Round + clamp rather than reject:
    * a stray pixel must never fail the whole view save (#78) — which auto-save

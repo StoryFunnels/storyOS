@@ -5,6 +5,7 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { randomBytes } from 'node:crypto';
 import { and, eq, isNull } from 'drizzle-orm';
 import type { ViewConfig, ViewType } from '@storyos/schemas';
 import { SYSTEM_FIELDS } from '@storyos/schemas';
@@ -368,11 +369,22 @@ export class ViewsService {
     if (patch.config) await this.validateConfig(databaseId, view.type, patch.config);
     await this.assertFolderInSameSpace(databaseId, patch.folder_id);
 
+    // #264 — `share` is service-owned (minted/cleared only by ViewsService's
+    // own `share`/`unshare`, never accepted from a client body — see the
+    // schema's own comment). `config` here REPLACES the row wholesale, so an
+    // ordinary filter/sort edit through today's UI — which knows nothing
+    // about `share` — would otherwise silently unpublish a shared view the
+    // moment anything else about it changed. Carried forward regardless of
+    // what `patch.config` contains.
+    const config = patch.config
+      ? { ...patch.config, share: (view.config as ViewConfig | null)?.share }
+      : patch.config;
+
     const [updated] = await this.db
       .update(views)
       .set({
         name: patch.name,
-        config: patch.config,
+        config,
         position: patch.position,
         // #347: `undefined` leaves placement alone (drizzle skips it); an explicit
         // `null` moves the view back under its database. The two must stay
@@ -458,5 +470,64 @@ export class ViewsService {
       await this.db.update(views).set({ isDefault: true }).where(eq(views.id, next.id));
     }
     return { deleted: true };
+  }
+
+  /**
+   * #264 — publish (or re-configure) a view's public read-only link. Idempotent
+   * on the token: re-sharing an already-published view keeps the SAME token
+   * (a share dialog editing the allowlist must not invalidate a link someone
+   * already has) and just updates the allowlist/indexing.
+   *
+   * Only a database-owned view can be published — a dashboard (#306, no
+   * `databaseId`) has no single set of records or fields to allowlist, and
+   * "records via the view's own filter+sorts" (this ticket's whole mechanism)
+   * presupposes exactly one.
+   */
+  async share(
+    databaseId: string,
+    viewId: string,
+    input: { visible_field_api_names?: string[]; include_relation_api_names?: string[]; indexable?: boolean },
+  ): Promise<{ token: string }> {
+    const view = await this.db.query.views.findFirst({
+      where: and(eq(views.id, viewId), eq(views.databaseId, databaseId), isNull(views.deletedAt)),
+    });
+    if (!view) throw new NotFoundException('View not found');
+
+    const live = await this.liveFields(databaseId);
+    const liveApiNames = new Set(live.map((f) => f.apiName));
+    for (const name of input.visible_field_api_names ?? []) {
+      if (!liveApiNames.has(name)) {
+        throw new UnprocessableEntityException(`unknown field "${name}" in visible_field_api_names`);
+      }
+    }
+    const relationApiNames = new Set(live.filter((f) => f.type === 'relation').map((f) => f.apiName));
+    for (const name of input.include_relation_api_names ?? []) {
+      if (!relationApiNames.has(name)) {
+        throw new UnprocessableEntityException(`"${name}" is not a relation field on this database`);
+      }
+    }
+
+    const currentConfig = (view.config ?? {}) as ViewConfig;
+    const token = currentConfig.share?.public_token ?? randomBytes(24).toString('base64url');
+    const share = {
+      public_token: token,
+      visible_field_api_names: input.visible_field_api_names,
+      include_relation_api_names: input.include_relation_api_names ?? [],
+      indexable: input.indexable ?? false,
+    };
+    await this.db.update(views).set({ config: { ...currentConfig, share } }).where(eq(views.id, viewId));
+    return { token };
+  }
+
+  /** #264 — revoke: the token stops resolving immediately (no cache, no grace window). */
+  async unshare(databaseId: string, viewId: string): Promise<{ unshared: true }> {
+    const view = await this.db.query.views.findFirst({
+      where: and(eq(views.id, viewId), eq(views.databaseId, databaseId), isNull(views.deletedAt)),
+    });
+    if (!view) throw new NotFoundException('View not found');
+    const config = { ...(view.config as ViewConfig) };
+    delete config.share;
+    await this.db.update(views).set({ config }).where(eq(views.id, viewId));
+    return { unshared: true };
   }
 }
