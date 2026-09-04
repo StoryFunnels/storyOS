@@ -18,12 +18,13 @@ import { ConnectionsService } from '../connections/connections.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { defaultConnectionFetcher } from '../connections/providers/types';
 import type { ConnectionFetcher } from '../connections/providers/types';
-import { DEFAULT_SOURCE_RECURRENCE } from '@storyos/schemas';
-import type { SourceRecurrence } from '@storyos/schemas';
+import { DEFAULT_SOURCE_RECURRENCE, sourceConflictPolicySchema } from '@storyos/schemas';
+import type { SourceConflictPolicy, SourceFieldMapping, SourceRecurrence } from '@storyos/schemas';
 import { SOURCE_PROVIDER_REGISTRY, SourceSyncError, isProviderEnabled } from './providers';
 import { listChannels } from './providers/youtube';
 import type { SourceProviderDescriptor, SourceSyncContext } from './providers';
 import { isRecurrenceDue, scheduleFromRecurrence } from './recurrence';
+import { mappedFieldIds, normalizeFieldMapping } from './field-mapping';
 
 type SourceRow = typeof sources.$inferSelect;
 
@@ -45,13 +46,21 @@ const QUOTA_BUDGET_BY_CONNECTION_PROVIDER: Record<string, () => number> = {
  * it from the validated result on every create.
  */
 const WRITE_BACK_CONFIG_KEY = 'write_back';
+/** #280 — same reasoning, same reserved-key treatment, as WRITE_BACK_CONFIG_KEY. */
+const CONFLICT_POLICY_CONFIG_KEY = 'conflict_policy';
+const DEFAULT_CONFLICT_POLICY: SourceConflictPolicy = 'external_wins';
 
-function splitWriteBack(
+function splitReservedConfig(
   config: Record<string, unknown>,
-  fallback = false,
-): { providerConfig: Record<string, unknown>; writeBack: boolean } {
-  const { [WRITE_BACK_CONFIG_KEY]: raw, ...providerConfig } = config;
-  return { providerConfig, writeBack: raw === undefined ? fallback : raw === true };
+  fallback: { writeBack?: boolean; conflictPolicy?: SourceConflictPolicy } = {},
+): { providerConfig: Record<string, unknown>; writeBack: boolean; conflictPolicy: SourceConflictPolicy } {
+  const { [WRITE_BACK_CONFIG_KEY]: rawWriteBack, [CONFLICT_POLICY_CONFIG_KEY]: rawPolicy, ...providerConfig } = config;
+  const parsedPolicy = sourceConflictPolicySchema.safeParse(rawPolicy);
+  return {
+    providerConfig,
+    writeBack: rawWriteBack === undefined ? (fallback.writeBack ?? false) : rawWriteBack === true,
+    conflictPolicy: parsedPolicy.success ? parsedPolicy.data : (fallback.conflictPolicy ?? DEFAULT_CONFLICT_POLICY),
+  };
 }
 
 /**
@@ -106,6 +115,10 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
         supports_discover: Boolean(p.discover),
         // #279 — write-back capability, same Boolean(p.x) shape as supports_discover.
         supports_push: Boolean(p.push),
+        // #280 — so the "Sync from…" conflict-policy selector can grey out
+        // newest_wins with a reason, rather than a silent omission that
+        // reads as a missing feature.
+        supports_newest_wins: Boolean(p.supportsNewestWins?.()),
         config_schema: zodShapeToFormSpec(p.configSchema),
       })),
     };
@@ -160,7 +173,7 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
       provider_source: row.providerSource,
       config: row.config as Record<string, unknown>,
       target_database_id: row.targetDatabaseId,
-      field_mapping: row.fieldMapping as Record<string, string>,
+      field_mapping: row.fieldMapping as SourceFieldMapping,
       external_key_field_id: row.externalKeyFieldId,
       schedule: row.schedule,
       recurrence: (row.recurrence as SourceRecurrence | null) ?? null,
@@ -196,7 +209,7 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
       connection_id: string;
       provider_source: string;
       config: Record<string, unknown>;
-      field_mapping: Record<string, string>;
+      field_mapping: SourceFieldMapping;
       external_key_field_id: string;
       schedule?: string;
       recurrence?: SourceRecurrence;
@@ -205,14 +218,15 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
   ) {
     const descriptor = this.requireEnabledProvider(input.provider_source);
     const connection = await this.requireConnectionForProvider(workspaceId, input.connection_id, descriptor);
-    const { providerConfig, writeBack } = splitWriteBack(input.config ?? {});
+    const { providerConfig, writeBack, conflictPolicy } = splitReservedConfig(input.config ?? {});
     const parsedConfig = descriptor.configSchema.safeParse(providerConfig);
     if (!parsedConfig.success) {
       throw new BadRequestException(`Invalid config for "${descriptor.id}": ${parsedConfig.error.message}`);
     }
-    if (!Object.values(input.field_mapping).includes(input.external_key_field_id)) {
+    if (!mappedFieldIds(input.field_mapping).includes(input.external_key_field_id)) {
       throw new BadRequestException('external_key_field_id must be one of field_mapping\'s target fields');
     }
+    this.assertConflictPolicySupported(descriptor, conflictPolicy);
 
     // #340 — daily is the default for a NEW source. A recurrence, when given,
     // drives scheduling; `schedule` is stored as its coarse shadow so the
@@ -229,7 +243,11 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
         connectionId: connection.id,
         name: input.name,
         providerSource: descriptor.id,
-        config: { ...parsedConfig.data, [WRITE_BACK_CONFIG_KEY]: writeBack },
+        config: {
+          ...parsedConfig.data,
+          [WRITE_BACK_CONFIG_KEY]: writeBack,
+          [CONFLICT_POLICY_CONFIG_KEY]: conflictPolicy,
+        },
         targetDatabaseId: databaseId,
         fieldMapping: input.field_mapping,
         externalKeyFieldId: input.external_key_field_id,
@@ -241,6 +259,17 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
       })
       .returning();
     return this.present(row!);
+  }
+
+  /** #280 — newest_wins needs a comparable external timestamp; a provider
+   * that never declared one must refuse it rather than silently comparing
+   * incomparable clocks. */
+  private assertConflictPolicySupported(descriptor: SourceProviderDescriptor, policy: SourceConflictPolicy): void {
+    if (policy === 'newest_wins' && !descriptor.supportsNewestWins?.()) {
+      throw new UnprocessableEntityException(
+        `"${descriptor.id}" has no comparable external timestamp — newest_wins is not available for this provider`,
+      );
+    }
   }
 
   private async requireConnectionForProvider(
@@ -274,7 +303,7 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
       name: string;
       connection_id: string;
       config: Record<string, unknown>;
-      field_mapping: Record<string, string>;
+      field_mapping: SourceFieldMapping;
       external_key_field_id: string;
       schedule: string;
       recurrence: SourceRecurrence;
@@ -283,28 +312,40 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
   ) {
     const row = await this.requireRow(databaseId, id);
     const descriptor = this.requireProvider(row.providerSource);
-    // #279 — a caller editing ordinary provider config (the only shape today's
-    // UI sends) carries the existing write_back setting forward untouched,
-    // rather than silently un-write-backing a source the moment anything else
-    // about it changes — the same "wholesale replace wipes a framework-owned
-    // key" trap #264 hit on views.config, applied here before it could repeat.
-    const existingWriteBack = (row.config as Record<string, unknown>)?.[WRITE_BACK_CONFIG_KEY] === true;
+    // #279/#280 — a caller editing ordinary provider config (the only shape
+    // today's UI sends) carries the existing write_back/conflict_policy
+    // settings forward untouched, rather than silently resetting them the
+    // moment anything else about the config changes — the same "wholesale
+    // replace wipes a framework-owned key" trap #264 hit on views.config,
+    // applied here before it could repeat. Each key is carried forward
+    // independently: the caller may explicitly change one without mentioning
+    // the other.
+    const existing = row.config as Record<string, unknown>;
+    const existingWriteBack = existing?.[WRITE_BACK_CONFIG_KEY] === true;
+    const existingPolicyParsed = sourceConflictPolicySchema.safeParse(existing?.[CONFLICT_POLICY_CONFIG_KEY]);
+    const existingPolicy = existingPolicyParsed.success ? existingPolicyParsed.data : DEFAULT_CONFLICT_POLICY;
     const nextConfig = input.config
       ? {
           ...input.config,
           [WRITE_BACK_CONFIG_KEY]: Object.prototype.hasOwnProperty.call(input.config, WRITE_BACK_CONFIG_KEY)
             ? input.config[WRITE_BACK_CONFIG_KEY] === true
             : existingWriteBack,
+          [CONFLICT_POLICY_CONFIG_KEY]: Object.prototype.hasOwnProperty.call(input.config, CONFLICT_POLICY_CONFIG_KEY)
+            ? (sourceConflictPolicySchema.safeParse(input.config[CONFLICT_POLICY_CONFIG_KEY]).success
+                ? input.config[CONFLICT_POLICY_CONFIG_KEY]
+                : existingPolicy)
+            : existingPolicy,
         }
-      : (row.config as Record<string, unknown>);
+      : existing;
     if (input.config) {
-      const { providerConfig } = splitWriteBack(nextConfig);
+      const { providerConfig, conflictPolicy } = splitReservedConfig(nextConfig);
       const parsed = descriptor.configSchema.safeParse(providerConfig);
       if (!parsed.success) throw new BadRequestException(`Invalid config for "${descriptor.id}": ${parsed.error.message}`);
+      this.assertConflictPolicySupported(descriptor, conflictPolicy);
     }
-    const nextMapping = input.field_mapping ?? (row.fieldMapping as Record<string, string>);
+    const nextMapping = input.field_mapping ?? (row.fieldMapping as SourceFieldMapping);
     const nextKeyFieldId = input.external_key_field_id ?? row.externalKeyFieldId;
-    if (!Object.values(nextMapping).includes(nextKeyFieldId)) {
+    if (!mappedFieldIds(nextMapping).includes(nextKeyFieldId)) {
       throw new BadRequestException('external_key_field_id must be one of field_mapping\'s target fields');
     }
     if (input.connection_id) {
@@ -500,7 +541,7 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
 
     const defs = await this.recordsService.fieldDefs(source.targetDatabaseId);
     const apiNameByFieldId = new Map(defs.map((d) => [d.id, d.api_name]));
-    const fieldMapping = source.fieldMapping as Record<string, string>;
+    const fieldMapping = source.fieldMapping as SourceFieldMapping;
     const stats = { fetched: 0, created: 0, updated: 0 };
     const actorId = source.createdBy ?? 'source-sync';
 
@@ -679,7 +720,7 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
       await this.upsertBatch(
         source.workspaceId,
         source.targetDatabaseId,
-        source.fieldMapping as Record<string, string>,
+        source.fieldMapping as SourceFieldMapping,
         source.externalKeyFieldId,
         apiNameByFieldId,
         source.createdBy ?? 'shopify-webhook',
@@ -698,11 +739,17 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
    * never including an unmapped api_name in `input` is sufficient: a field a
    * human or agent wrote that has no counterpart in fieldMapping is never
    * touched, on this sync or any later one.
+   *
+   * #280 — direction is an ADDITIONAL restriction on top of that guarantee,
+   * never a widening: a field mapped `out` is skipped here exactly like an
+   * unmapped one, so a pull can never write it. A field mapped `in` or `both`
+   * (or a legacy bare-uuid entry, which normalizeFieldMapping treats as `in`)
+   * behaves exactly as every field did before this ticket.
    */
   private async upsertBatch(
     workspaceId: string,
     targetDatabaseId: string,
-    fieldMapping: Record<string, string>,
+    fieldMapping: SourceFieldMapping,
     externalKeyFieldId: string,
     apiNameByFieldId: Map<string, string>,
     actorId: string,
@@ -710,7 +757,11 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
     stats: { created: number; updated: number },
   ): Promise<void> {
     if (items.length === 0) return;
-    const externalKeyExternalName = Object.entries(fieldMapping).find(([, fieldId]) => fieldId === externalKeyFieldId)?.[0];
+    const normalized = normalizeFieldMapping(fieldMapping);
+    const pullable = Object.fromEntries(
+      Object.entries(normalized).filter(([, entry]) => entry.direction === 'in' || entry.direction === 'both'),
+    );
+    const externalKeyExternalName = Object.entries(normalized).find(([, entry]) => entry.fieldId === externalKeyFieldId)?.[0];
     if (!externalKeyExternalName) return;
 
     const externalValues = items
@@ -745,9 +796,9 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
       const extVal = String(rawExtVal);
 
       const input: Record<string, unknown> = {};
-      for (const [externalKey, fieldId] of Object.entries(fieldMapping)) {
+      for (const [externalKey, entry] of Object.entries(pullable)) {
         if (item[externalKey] === undefined) continue;
-        const apiName = apiNameByFieldId.get(fieldId);
+        const apiName = apiNameByFieldId.get(entry.fieldId);
         if (!apiName) continue; // field mapping pointed at a field that no longer exists
         input[apiName] = item[externalKey];
       }

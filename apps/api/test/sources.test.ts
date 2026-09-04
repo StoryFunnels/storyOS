@@ -519,3 +519,238 @@ describe('sources framework — write-back push framework (#279, slice A)', () =
     expect(turnedOff.json().config.write_back).toBe(false);
   });
 });
+
+describe('sources framework — write-back B: per-field direction + conflict policy (#280)', () => {
+  it('listProviders surfaces supports_newest_wins, false for every provider today (none declares it)', async () => {
+    const { dbId } = await setupDatabaseAndConnection('SupportsNewestWins');
+    const res = await inject('GET', `/workspaces/${wsId}/databases/${dbId}/sources/providers`);
+    expect(res.statusCode, res.body).toBe(200);
+    const youtubeComments = res.json().data.find((p: { id: string }) => p.id === 'youtube.comments');
+    expect(youtubeComments.supports_newest_wins).toBe(false);
+  });
+
+  it('conflict_policy defaults to external_wins and round-trips an explicit value through create()', async () => {
+    const { dbId, connectionId } = await setupDatabaseAndConnection('ConflictDefault');
+    void connectionId;
+    const source = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/sources`)).json().data[0];
+    expect(source.config.conflict_policy).toBe('external_wins');
+  });
+
+  it('newest_wins is rejected at create() for a provider that never declared supportsNewestWins', async () => {
+    const spaceId = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
+    const dbId = (await inject('POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name: 'NewestWinsRejected DB' })).json().id;
+    const field = async (display_name: string, type: string) => {
+      const res = await inject('POST', `/workspaces/${wsId}/databases/${dbId}/fields`, { display_name, type, config: {} });
+      return res.json().id as string;
+    };
+    const commentId = await field('Comment Id', 'text');
+
+    process.env.GOOGLE_CLIENT_ID = 'test-google-client-id';
+    process.env.GOOGLE_CLIENT_SECRET = 'test-google-client-secret';
+    const start = await inject('GET', `/workspaces/${wsId}/connections/oauth/google/start`);
+    const state = new URL(String(start.headers.location)).searchParams.get('state')!;
+    await app.inject({
+      method: 'GET',
+      url: `/api/v1/connections/oauth/callback?state=${encodeURIComponent(state)}&code=good-code-NewestWinsRejected`,
+    });
+    const connectionId = (await inject('GET', `/workspaces/${wsId}/connections`)).json().data.find(
+      (c: { provider: string }) => c.provider === 'google',
+    ).id;
+
+    const created = await inject('POST', `/workspaces/${wsId}/databases/${dbId}/sources`, {
+      name: 'Newest wins rejected',
+      connection_id: connectionId,
+      provider_source: 'youtube.comments',
+      config: { conflict_policy: 'newest_wins' },
+      field_mapping: { comment_id: commentId },
+      external_key_field_id: commentId,
+      schedule: '15m',
+    });
+    expect(created.statusCode).toBe(422);
+  });
+
+  it('conflict_policy is preserved independently of write_back on a config PATCH that mentions neither (#264-class carry-forward)', async () => {
+    const { dbId, connectionId } = await setupDatabaseAndConnection('ConflictCarryForward');
+    void connectionId;
+    const sourceId = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/sources`)).json().data[0].id;
+
+    const withPolicy = await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/sources/${sourceId}`, {
+      config: { write_back: true, conflict_policy: 'storyos_wins' },
+    });
+    expect(withPolicy.statusCode, withPolicy.body).toBe(200);
+    expect(withPolicy.json().config).toEqual(expect.objectContaining({ write_back: true, conflict_policy: 'storyos_wins' }));
+
+    // An unrelated config edit that mentions NEITHER reserved key must carry
+    // both forward untouched — the same trap as write_back alone, now with
+    // two independent reserved keys that must not clobber each other.
+    const unrelated = await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/sources/${sourceId}`, {
+      config: {},
+    });
+    expect(unrelated.statusCode, unrelated.body).toBe(200);
+    expect(unrelated.json().config).toEqual(expect.objectContaining({ write_back: true, conflict_policy: 'storyos_wins' }));
+  });
+
+  it('a legacy bare-uuid field_mapping (every pre-#280 source) behaves byte-identically: sync still writes every mapped field', async () => {
+    commentPages = [{ items: [thread('c70', 'v1', '2026-08-01T00:00:00Z', 'legacy shape', 7)] }];
+    commentPageIndex = 0;
+    const { dbId, sourceId } = await setupDatabaseAndConnection('LegacyMappingShape');
+
+    // setupDatabaseAndConnection's field_mapping is already the pre-#280 bare-uuid
+    // shape — confirm the stored source kept it that way (no implicit upgrade).
+    const stored = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/sources`)).json().data[0];
+    expect(typeof stored.field_mapping.comment_id).toBe('string');
+
+    const run = await inject('POST', `/workspaces/${wsId}/databases/${dbId}/sources/${sourceId}/sync-now`);
+    expect(run.json()).toEqual(expect.objectContaining({ status: 'ok', fetched: 1, created: 1 }));
+
+    const records = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/records?limit=200`)).json().data;
+    expect(records).toHaveLength(1);
+    expect(records[0].values.likes).toBe(7); // every mapped field still written, exactly as before #280
+  });
+
+  it('direction "out": a pull never writes a field mapped out-only, even though the emitted item carries a value for it', async () => {
+    commentPages = [{ items: [thread('c80', 'v1', '2026-08-02T00:00:00Z', 'out only test', 99)] }];
+    commentPageIndex = 0;
+
+    const spaceId = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
+    const dbId = (await inject('POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name: 'OutOnly DB' })).json().id;
+    const field = async (display_name: string, type: string) => {
+      const res = await inject('POST', `/workspaces/${wsId}/databases/${dbId}/fields`, { display_name, type, config: {} });
+      return { id: res.json().id as string, apiName: res.json().apiName as string };
+    };
+    const commentId = await field('Comment Id', 'text');
+    const likeCount = await field('Likes', 'number');
+
+    process.env.GOOGLE_CLIENT_ID = 'test-google-client-id';
+    process.env.GOOGLE_CLIENT_SECRET = 'test-google-client-secret';
+    const start = await inject('GET', `/workspaces/${wsId}/connections/oauth/google/start`);
+    const state = new URL(String(start.headers.location)).searchParams.get('state')!;
+    await app.inject({
+      method: 'GET',
+      url: `/api/v1/connections/oauth/callback?state=${encodeURIComponent(state)}&code=good-code-OutOnly`,
+    });
+    const connectionId = (await inject('GET', `/workspaces/${wsId}/connections`)).json().data.find(
+      (c: { provider: string }) => c.provider === 'google',
+    ).id;
+
+    const created = await inject('POST', `/workspaces/${wsId}/databases/${dbId}/sources`, {
+      name: 'Out only',
+      connection_id: connectionId,
+      provider_source: 'youtube.comments',
+      config: {},
+      field_mapping: {
+        comment_id: commentId.id,
+        like_count: { field_id: likeCount.id, direction: 'out' },
+      },
+      external_key_field_id: commentId.id,
+      schedule: '15m',
+    });
+    expect(created.statusCode, created.body).toBe(201);
+    const sourceId = created.json().id as string;
+
+    const run = await inject('POST', `/workspaces/${wsId}/databases/${dbId}/sources/${sourceId}/sync-now`);
+    expect(run.json()).toEqual(expect.objectContaining({ status: 'ok', fetched: 1, created: 1 }));
+
+    const records = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/records?limit=200`)).json().data;
+    expect(records).toHaveLength(1);
+    // like_count is present in the emitted item (99) AND present in the mapping
+    // (so it's not simply "unmapped") — direction:out must still block the write.
+    expect(records[0].values[likeCount.apiName]).toBeFalsy();
+  });
+
+  it('direction "both": a mapped field with direction both is written by a pull exactly like "in"', async () => {
+    commentPages = [{ items: [thread('c90', 'v1', '2026-08-03T00:00:00Z', 'both test', 55)] }];
+    commentPageIndex = 0;
+
+    const spaceId = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
+    const dbId = (await inject('POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name: 'BothDirection DB' })).json().id;
+    const field = async (display_name: string, type: string) => {
+      const res = await inject('POST', `/workspaces/${wsId}/databases/${dbId}/fields`, { display_name, type, config: {} });
+      return { id: res.json().id as string, apiName: res.json().apiName as string };
+    };
+    const commentId = await field('Comment Id', 'text');
+    const likeCount = await field('Likes', 'number');
+
+    process.env.GOOGLE_CLIENT_ID = 'test-google-client-id';
+    process.env.GOOGLE_CLIENT_SECRET = 'test-google-client-secret';
+    const start = await inject('GET', `/workspaces/${wsId}/connections/oauth/google/start`);
+    const state = new URL(String(start.headers.location)).searchParams.get('state')!;
+    await app.inject({
+      method: 'GET',
+      url: `/api/v1/connections/oauth/callback?state=${encodeURIComponent(state)}&code=good-code-BothDirection`,
+    });
+    const connectionId = (await inject('GET', `/workspaces/${wsId}/connections`)).json().data.find(
+      (c: { provider: string }) => c.provider === 'google',
+    ).id;
+
+    const created = await inject('POST', `/workspaces/${wsId}/databases/${dbId}/sources`, {
+      name: 'Both direction, conflict policy set together',
+      connection_id: connectionId,
+      provider_source: 'youtube.comments',
+      config: { conflict_policy: 'storyos_wins' },
+      field_mapping: {
+        comment_id: commentId.id,
+        like_count: { field_id: likeCount.id, direction: 'both' },
+      },
+      external_key_field_id: commentId.id,
+      schedule: '15m',
+    });
+    expect(created.statusCode, created.body).toBe(201);
+    expect(created.json().config.conflict_policy).toBe('storyos_wins');
+    const sourceId = created.json().id as string;
+
+    const run = await inject('POST', `/workspaces/${wsId}/databases/${dbId}/sources/${sourceId}/sync-now`);
+    expect(run.json()).toEqual(expect.objectContaining({ status: 'ok', fetched: 1, created: 1 }));
+
+    const records = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/records?limit=200`)).json().data;
+    expect(records).toHaveLength(1);
+    expect(records[0].values[likeCount.apiName]).toBe(55); // both == in for the pull side
+  });
+
+  it('external_key_field_id validation still resolves through an object-form mapping entry', async () => {
+    const spaceId = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
+    const dbId = (await inject('POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name: 'KeyFieldObjectForm DB' })).json().id;
+    const field = async (display_name: string, type: string) => {
+      const res = await inject('POST', `/workspaces/${wsId}/databases/${dbId}/fields`, { display_name, type, config: {} });
+      return res.json().id as string;
+    };
+    const commentId = await field('Comment Id', 'text');
+
+    process.env.GOOGLE_CLIENT_ID = 'test-google-client-id';
+    process.env.GOOGLE_CLIENT_SECRET = 'test-google-client-secret';
+    const start = await inject('GET', `/workspaces/${wsId}/connections/oauth/google/start`);
+    const state = new URL(String(start.headers.location)).searchParams.get('state')!;
+    await app.inject({
+      method: 'GET',
+      url: `/api/v1/connections/oauth/callback?state=${encodeURIComponent(state)}&code=good-code-KeyFieldObjectForm`,
+    });
+    const connectionId = (await inject('GET', `/workspaces/${wsId}/connections`)).json().data.find(
+      (c: { provider: string }) => c.provider === 'google',
+    ).id;
+
+    // external_key_field_id points at a field whose mapping entry uses the
+    // OBJECT form (direction: 'both') — mappedFieldIds must still find it.
+    const created = await inject('POST', `/workspaces/${wsId}/databases/${dbId}/sources`, {
+      name: 'Key field via object-form entry',
+      connection_id: connectionId,
+      provider_source: 'youtube.comments',
+      config: {},
+      field_mapping: { comment_id: { field_id: commentId, direction: 'both' } },
+      external_key_field_id: commentId,
+      schedule: '15m',
+    });
+    expect(created.statusCode, created.body).toBe(201);
+
+    // A field NOT present in the mapping at all is still rejected.
+    const rejected = await inject('POST', `/workspaces/${wsId}/databases/${dbId}/sources`, {
+      name: 'Key field missing from mapping',
+      connection_id: connectionId,
+      provider_source: 'youtube.comments',
+      config: {},
+      field_mapping: { comment_id: { field_id: commentId, direction: 'both' } },
+      external_key_field_id: '00000000-0000-0000-0000-000000000000',
+      schedule: '15m',
+    });
+    expect(rejected.statusCode).toBe(400);
+  });
+});
