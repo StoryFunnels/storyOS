@@ -172,6 +172,18 @@ what lets a no-code tool call the endpoint with nothing but a URL.
 - **CSV imports do not fire automations** (mass-import safety).
 - Scheduled rules process up to 500 matching records per tick and note truncation in the server log.
 
+## Building a rule over MCP
+
+`list_automations`, `get_automation`, `create_automation`, `update_automation`, `delete_automation`
+let an agent author a complete rule end to end — trigger, condition, and all 1–10 actions — not
+only trigger it or read its run history. All five are **admin-scoped only**: a read- or
+write-scoped token never sees them, matching the same restriction the app's own rule editor sits
+behind. `delete_automation` requires an explicit `confirm`.
+
+These tools call the **same validation the in-app rule editor uses**, so there's no second,
+looser path to an inconsistent rule — an unresolvable field or connection reference comes back as
+a structured error, never a 500.
+
 ## When a rule stops itself
 
 A rule whose actions change a record can trigger a rule again. StoryOS bounds that, and the run log
