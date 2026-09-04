@@ -1,7 +1,8 @@
+import { UnprocessableEntityException } from '@nestjs/common';
 import { z } from 'zod';
 import { shopifyGraphql } from '../../connections/providers/shopify';
 import type { ShopifyAuth } from '../../connections/providers/shopify';
-import type { SourceProviderDescriptor, SourceSyncContext } from './types';
+import type { PushResult, SourceProviderDescriptor, SourcePushContext, SourceSyncContext } from './types';
 
 /**
  * #333 — the Shopify **product-catalogue** source: three read providers that
@@ -230,6 +231,65 @@ const COLLECTIONS_QUERY = `query Collections($cursor: String) {
   }
 }`;
 
+// ── write-back (#281, product scalars only — see the module doc for why) ───
+
+const PRODUCT_UPDATE_MUTATION = `mutation ProductUpdate($input: ProductInput!) {
+  productUpdate(input: $input) {
+    product { id }
+    userErrors { field message }
+  }
+}`;
+
+/**
+ * #281 — the pushable product scalars, mapProduct()'s external keys minus the
+ * ones that are read-only/computed on Shopify's side (product_id, handle,
+ * inventory_total, image_url(s), storefront_url, admin_url). Variant/price
+ * write-back is explicitly a follow-up (#281's AC) — a different Shopify
+ * resource (`productVariants`), not something this mutation can reach.
+ */
+const PUSHABLE_PRODUCT_KEYS = new Set(['title', 'status', 'vendor', 'product_type', 'tags']);
+
+/** `values` (external-key-keyed, per SourcePushContext's contract) → Shopify's
+ * `ProductInput` shape. `tags` round-trips through the same comma-joined
+ * string `mapProduct`/`tagsOf` store it as on the pull side — split back into
+ * the array Shopify's input expects. Anything outside PUSHABLE_PRODUCT_KEYS is
+ * silently ignored rather than erroring: `values` is engine-controlled
+ * (WriteBackSubscriber only sends `out`/`both`-mapped, changed keys), so an
+ * unrecognized key here would mean a future mapping addition, not caller error. */
+function productInputFrom(externalKey: string, values: Record<string, unknown>): Record<string, unknown> {
+  const input: Record<string, unknown> = { id: externalKey };
+  for (const [key, value] of Object.entries(values)) {
+    if (!PUSHABLE_PRODUCT_KEYS.has(key)) continue;
+    if (key === 'tags') {
+      input.tags = typeof value === 'string' ? value.split(',').map((t) => t.trim()).filter(Boolean) : [];
+    } else if (key === 'product_type') {
+      input.productType = value ?? '';
+    } else {
+      input[key] = value ?? '';
+    }
+  }
+  return input;
+}
+
+async function pushProduct(ctx: SourcePushContext): Promise<PushResult> {
+  const auth = authOf(ctx.auth);
+  const input = productInputFrom(ctx.externalKey, ctx.values);
+  const data = await shopifyGraphql<{
+    productUpdate: { product: { id: string } | null; userErrors: Array<{ field?: string[]; message: string }> };
+  }>(ctx.fetcher, auth, PRODUCT_UPDATE_MUTATION, { input });
+  const errors = data.productUpdate?.userErrors ?? [];
+  // Shopify answers 200 with userErrors for a REJECTED mutation (bad status
+  // value, invalid tag, etc) — shopifyGraphql only inspects top-level
+  // `errors`, so this body-level array must be checked here too, exactly the
+  // same "200 doesn't mean success" lesson shopifyGraphql itself documents.
+  if (errors.length > 0) {
+    throw new UnprocessableEntityException(
+      `Shopify rejected the product update: ${errors.map((e) => e.message).filter(Boolean).join('; ') || 'unknown error'}`,
+    );
+  }
+  return { stats: { shopify_product_id: data.productUpdate?.product?.id ?? ctx.externalKey } };
+}
+
 // ── providers ───────────────────────────────────────────────────────────────
 
 /** Resolve the store host once per sync so mapped admin/storefront URLs are
@@ -255,6 +315,10 @@ export const shopifyProductsProvider: SourceProviderDescriptor = {
       (node) => mapProduct(shopDomain, node),
     );
   },
+  // #281 — product scalars only (title/status/vendor/product_type/tags); see
+  // PUSHABLE_PRODUCT_KEYS. Gated by `write_back` on the source itself (#279)
+  // and by direction (#280) — this being defined is necessary, not sufficient.
+  push: pushProduct,
 };
 
 export const shopifyVariantsProvider: SourceProviderDescriptor = {
