@@ -39,6 +39,20 @@ Any of the three opens the same overlay, and the overlay renders the keys for *y
 long before Tyron existed and moving it would have broken a binding people already have. The
 palette carries an **Ask Tyron** entry, so ⌘K still reaches Tyron in one more keystroke.
 
+## What ⌘K shows you
+
+**An empty box shows your recently-visited records** — not search results, since there's nothing
+to search yet. Start typing and it switches to ranked results.
+
+**Results are ranked by relevance, not just recency.** An exact title match comes first, then a
+match at the start of the title, then a match at a word boundary ("plan" matching *Launch plan*),
+then a bare substring anywhere in the title ("plan" inside *Unplanned*). Ties within the same tier
+go to the shorter title, then whichever was updated more recently — so typing a title you already
+know lands it first, instead of it being buried under whatever you touched an hour ago.
+
+You can also create a new record directly from the palette, without opening the target database
+first.
+
 ## When a shortcut deliberately does nothing
 
 Three rules, and each of them is protecting you rather than misfiring:
