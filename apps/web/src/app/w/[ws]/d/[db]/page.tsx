@@ -25,6 +25,7 @@ import { ListSurface } from '@/components/entity/split-screen-host';
 import { EntityIconChip, IconColorPicker } from '@/components/ui/icon-picker';
 import { ViewToolbar } from '@/components/views/view-toolbar';
 import { ViewTab } from '@/components/views/view-tab';
+import { ShareViewDialog } from '@/components/views/share-view-dialog';
 import {
   EMPTY_CONFIG,
   queryBodyFromConfig,
@@ -66,6 +67,9 @@ function DatabasePageInner() {
   const queryBody = useMemo(() => queryBodyFromConfig(config, personalFilter), [config, personalFilter]);
 
   const viewSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  // #527 — the view being published/managed, or null when the dialog is closed.
+  const [sharingViewId, setSharingViewId] = useState<string | null>(null);
+  const sharingView = views.find((v) => v.id === sharingViewId);
 
   // Drag-to-reorder the canonical field order from the "Hide fields" panel (#338)
   // — the same field.position the table columns use, so both surfaces agree.
@@ -147,6 +151,10 @@ function DatabasePageInner() {
                   mutations={viewMutations}
                   onNavigate={() => router.replace(`/w/${ws}/d/${db}?view=${view.id}`)}
                   onDuplicated={(id) => router.replace(`/w/${ws}/d/${db}?view=${id}`)}
+                  // #527/#555 — the public page only knows how to render a
+                  // table today; board/dashboard public rendering needs
+                  // backend support that doesn't exist yet (#555).
+                  onShare={view.type === 'table' ? () => setSharingViewId(view.id) : undefined}
                   onDelete={async () => {
                     if (
                       !(await confirm({
@@ -179,6 +187,15 @@ function DatabasePageInner() {
           </div>
         )}
       </div>
+      {sharingView && database.data && (
+        <ShareViewDialog
+          open
+          onOpenChange={(o) => !o && setSharingViewId(null)}
+          view={sharingView}
+          fields={database.data.fields}
+          mutations={viewMutations}
+        />
+      )}
 
       {/*
         #400 — the purpose line, rendered ONLY when there is one.

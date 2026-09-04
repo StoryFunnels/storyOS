@@ -15,6 +15,7 @@ import {
   Newspaper,
   Pencil,
   Pin,
+  Share2,
   Table2,
   Trash2,
 } from 'lucide-react';
@@ -62,6 +63,7 @@ export function ViewTab({
   onNavigate,
   onDelete,
   onDuplicated,
+  onShare,
 }: {
   view: ViewSummary;
   isActive: boolean;
@@ -71,6 +73,9 @@ export function ViewTab({
   onNavigate: () => void;
   onDelete: () => void;
   onDuplicated: (id: string) => void;
+  /** #527 — absent for view types the public page can't render yet (#555:
+   *  board/dashboard need backend support the public endpoint doesn't have). */
+  onShare?: () => void;
 }) {
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(view.name);
@@ -170,6 +175,20 @@ export function ViewTab({
               <DropdownMenuItem onSelect={() => mutations.setDefaultView.mutate(view.id)}>
                 <Check className="mr-2 h-3.5 w-3.5" />
                 Set as default
+              </DropdownMenuItem>
+            )}
+            {/*
+              #527 — never offered for a PERSONAL view (view.ownerUserId set):
+              a personal view is a private window onto shared data, and #554
+              found the server's own share/unshare guard does not check
+              ownership at all. Hiding this is a client-side courtesy only —
+              it does not fix #554 — but there's no reason to make the gap
+              easier to hit from the UI while the real fix is still open.
+            */}
+            {onShare && !view.ownerUserId && (
+              <DropdownMenuItem onSelect={onShare}>
+                <Share2 className="mr-2 h-3.5 w-3.5" />
+                Share…
               </DropdownMenuItem>
             )}
             {canDelete && (
