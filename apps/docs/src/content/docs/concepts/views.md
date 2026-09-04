@@ -127,6 +127,24 @@ roadmap you can actually reschedule by dragging.
 - **Everything is computed in UTC**, so two people in different timezones see the same card in the
   same column.
 
+## Sharing a view publicly
+
+A view can be published to a **public, read-only URL** — no sign-in required to view it — with an
+explicit allowlist of which fields travel. Nothing is exposed by default:
+
+- **Only the fields you name appear.** A computed field (rollup, lookup, or formula) is included
+  only when explicitly allowlisted — never automatically, even though it would otherwise render
+  normally to a signed-in viewer.
+- **Related records don't travel along by default.** Sharing a view doesn't hand out the data
+  behind its relations just because a relation field happens to be on the allowlist.
+- **The link's token is the only credential** — the same posture as a [public
+  form](/guides/client-portals/). Anyone who has the link can view; nobody without it can guess
+  their way in.
+
+**No web page or share-dialog UI exists yet.** This is reachable over the API
+(`POST`/`DELETE .../views/{view}/share`, `GET /public/views/{token}`) and MCP (`share_view`,
+`unshare_view`) only — there's no button in the app to click yet.
+
 ## An empty view versus a broken one
 
 If a view cannot load its records it says so, with an error and a retry. It does **not** render as
