@@ -566,6 +566,7 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
    */
   get_view: 'read',
   list_space_views: 'read',
+  list_personal_views: 'read',
   get_personal_filter: 'read',
   set_personal_filter: 'write',
   duplicate_view: 'admin',
@@ -5182,6 +5183,25 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       const res = await unwrap<unknown>(
         client.GET('/api/v1/workspaces/{ws}/spaces/{space}/views', {
           params: { path: { ws: ws.id, space: spaceId } } as never,
+        }),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'list_personal_views',
+    {
+      title: 'List my personal views',
+      description:
+        "#551 — every PERSONAL view I own, across the whole workspace (not scoped to one database or space). A personal view is invisible to everyone else, including admins, and is only otherwise reachable per-database — this is the one call that lists all of mine at once, for a workspace-wide 'my personal views' surface.",
+      inputSchema: { workspace: z.string() },
+    },
+    handle<{ workspace: string }>(async ({ workspace }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/views/personal', {
+          params: { path: { ws: ws.id } } as never,
         }),
       );
       return text(res);
