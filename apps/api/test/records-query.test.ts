@@ -130,10 +130,9 @@ describe('records query engine (MN-012)', () => {
   });
 
   it('date before/after/within relative ranges', async () => {
-    expect(await titles({ filter: { field: 'due', op: 'within', value: 'next_7_days' } })).toEqual([
-      'Beta',
-      'Gamma',
-    ]);
+    // #523 — next_7_days is exclusive of today; Beta (due today) belongs to
+    // "today", not "next 7 days". Only Gamma (due in 5 days) matches.
+    expect(await titles({ filter: { field: 'due', op: 'within', value: 'next_7_days' } })).toEqual(['Gamma']);
     const today = new Date().toISOString().slice(0, 10);
     expect(await titles({ filter: { field: 'due', op: 'before', value: today } })).toEqual(['Delta']);
   });

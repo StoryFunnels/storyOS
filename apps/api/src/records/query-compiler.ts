@@ -304,29 +304,39 @@ function compileNumber(def: FieldDef, op: FilterOp, value: unknown): SQL {
 
 /**
  * #488 — every window here is half-open [from, to) and spans EXACTLY the number
- * of days its name claims. `last_7_days` and `next_7_days` both INCLUDE today,
- * which is what makes them symmetric: seven days ending today, seven days
- * starting today.
+ * of days its name claims.
  *
- * They were off by one: last_7_days was dayRange(-7, 1) and next_7_days
- * dayRange(0, 8) — eight days each — and next_30_days was 31. Nobody counts
- * the days a "next 7 days" view returns, which is the entire reason for using
- * it instead of a manual range, so the error was invisible and inherited by
- * every count, automation condition and screenshot downstream of it.
+ * #523 — `last_7_days` and `next_7_days` (and `next_30_days`) are NOT symmetric
+ * around today: `last_N_days` is inclusive of today (today-(N-1) .. today,
+ * "the week so far"), while `next_N_days` is EXCLUSIVE of today (today+1 ..
+ * today+N, "what's coming"). #488 made both windows exactly N days long but
+ * left them both including today, so a record dated today matched BOTH — two
+ * people looking at "last 7 days" and "next 7 days" side by side would each
+ * reasonably believe the other didn't cover it. `today` already exists as its
+ * own single-day filter, so a `next` window claiming it too was the anomaly;
+ * `last` keeping it is deliberate and unchanged; this decision applies once to
+ * every `next_N_days` variant, not per N.
+ *
+ * They were off by one before #488: last_7_days was dayRange(-7, 1) and
+ * next_7_days dayRange(0, 8) — eight days each — and next_30_days was 31.
+ * Nobody counts the days a "next 7 days" view returns, which is the entire
+ * reason for using it instead of a manual range, so the error was invisible
+ * and inherited by every count, automation condition and screenshot
+ * downstream of it.
  */
 const RELATIVE_RANGES: Record<RelativeDateRange, () => { from: Date; to: Date }> = {
   today: () => dayRange(0, 1),
   yesterday: () => dayRange(-1, 0),
   tomorrow: () => dayRange(1, 2),
   last_7_days: () => dayRange(-6, 1),
-  next_7_days: () => dayRange(0, 7),
+  next_7_days: () => dayRange(1, 8),
   this_month: () => {
     const now = new Date();
     const from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
     const to = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
     return { from, to };
   },
-  next_30_days: () => dayRange(0, 30),
+  next_30_days: () => dayRange(1, 31),
 };
 
 function dayRange(fromOffsetDays: number, toOffsetDays: number): { from: Date; to: Date } {
