@@ -114,6 +114,64 @@ export class SpaceViewsService {
   }
 
   /**
+   * #551 — every PERSONAL view the caller owns, across the whole workspace,
+   * for the Personal sidebar section (#292): a personal view is only ever
+   * database-owned (schema.ts's own note on `ownerUserId` — it never gets
+   * `spaceId`), so unlike `listForSpace` there is no dashboard/null-database
+   * case to carry along.
+   *
+   * Scoped to `ownerUserId` directly rather than `notOthersPersonalView` —
+   * that predicate answers "not someone ELSE's", which still admits every
+   * shared view; this answers "mine", the narrower question this endpoint
+   * actually asks.
+   */
+  async listPersonal(membership: Membership) {
+    const rows = await this.db.query.views.findMany({
+      where: and(eq(views.ownerUserId, membership.userId), notDeleted(views.deletedAt)),
+      orderBy: [desc(views.createdAt)],
+    });
+    if (rows.length === 0) return [];
+
+    // Scoped to THIS workspace's databases — ownerUserId is a global user id,
+    // not per-workspace, so a personal view living in a different workspace
+    // must never leak in here just because the same person owns it there too.
+    const dbIds = [...new Set(rows.map((v) => v.databaseId).filter((id): id is string => id !== null))];
+    const dbRows = await this.db.query.databases.findMany({
+      where: and(
+        inArray(databases.id, dbIds),
+        eq(databases.workspaceId, membership.workspaceId),
+        notDeleted(databases.deletedAt),
+      ),
+      columns: { id: true, name: true, spaceId: true },
+    });
+    const dbById = new Map(dbRows.map((d) => [d.id, d]));
+
+    // AC3 — a personal view over a database the caller has since lost access
+    // to is EXCLUDED, not flagged: the same "never confirm what you can't see"
+    // rule `listForSpace` already applies to a space, applied here to a
+    // database. Only a guest can actually fail this (effectiveForDatabase
+    // never consults grants for an admin/member — ADR-0009).
+    const readable = new Set<string>();
+    for (const database of dbRows) {
+      const role = await this.access.effectiveForDatabase(membership, database);
+      if (role) readable.add(database.id);
+    }
+
+    return rows
+      .filter((v) => v.databaseId !== null && readable.has(v.databaseId))
+      .map((v) => {
+        const database = dbById.get(v.databaseId!)!;
+        return {
+          id: v.id,
+          name: v.name,
+          type: v.type,
+          database_id: database.id,
+          database_name: database.name,
+        };
+      });
+  }
+
+  /**
    * #306 — the same door as `listForSpace`, factored out so create/get/move
    * cannot drift from list. Returns the space row once the viewer is cleared.
    */

@@ -3508,6 +3508,26 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/views/personal": {
+      "get": {
+        "operationId": "SpaceViewsController_listPersonal",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "My own personal views across the workspace, for the Personal sidebar section (#551)",
+        "tags": [
+          "views"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/views/{view}": {
       "get": {
         "operationId": "SpaceViewsController_get",

@@ -202,6 +202,82 @@ describe('#520 — provisioning endpoints: get-or-create personal space, create 
   });
 });
 
+describe('#551 — list a member\'s personal views across the workspace', () => {
+  it('returns every personal view the caller owns across MULTIPLE databases, and never another user\'s', async () => {
+    const secondDb = (
+      await as(admin.token, 'POST', `/workspaces/${wsId}/databases`, { space_id: sharedSpace, name: 'Second DB' })
+    ).json().id;
+
+    await as(owner.token, 'POST', `/workspaces/${wsId}/databases/${sharedDb}/views/personal`, {
+      name: 'Owner Lens A',
+      type: 'table',
+      config: {},
+    });
+    await as(owner.token, 'POST', `/workspaces/${wsId}/databases/${secondDb}/views/personal`, {
+      name: 'Owner Lens B',
+      type: 'table',
+      config: {},
+    });
+
+    // A different member's OWN personal view — must never appear in owner's list.
+    const other = await signUpUser(app, 'PersonalListOther');
+    await db.insert(memberships).values({
+      workspaceId: wsId,
+      userId: (await as(other.token, 'GET', '/me')).json().id,
+      role: 'member',
+    });
+    await as(other.token, 'POST', `/workspaces/${wsId}/databases/${sharedDb}/views/personal`, {
+      name: 'Other User Lens',
+      type: 'table',
+      config: {},
+    });
+
+    const res = await as(owner.token, 'GET', `/workspaces/${wsId}/views/personal`);
+    expect(res.statusCode, res.body).toBe(200);
+    const rows = res.json().data as Array<{ name: string; database_id: string; database_name: string }>;
+    const names = rows.map((r) => r.name);
+    expect(names).toContain('Owner Lens A');
+    expect(names).toContain('Owner Lens B');
+    expect(names, 'never another user\'s personal view').not.toContain('Other User Lens');
+
+    const lensA = rows.find((r) => r.name === 'Owner Lens A')!;
+    expect(lensA.database_id).toBe(sharedDb);
+    expect(lensA.database_name).toBe('Shared Tasks');
+    const lensB = rows.find((r) => r.name === 'Owner Lens B')!;
+    expect(lensB.database_id).toBe(secondDb);
+  });
+
+  it('an admin never sees another member\'s personal views through this endpoint either (#291 — no bypass)', async () => {
+    const res = await as(admin.token, 'GET', `/workspaces/${wsId}/views/personal`);
+    expect(res.statusCode, res.body).toBe(200);
+    const names = (res.json().data as Array<{ name: string }>).map((r) => r.name);
+    expect(names).not.toContain('Owner Lens A');
+  });
+
+  it('AC3 — excludes a personal view whose database no longer exists, rather than erroring', async () => {
+    const tempDb = (
+      await as(admin.token, 'POST', `/workspaces/${wsId}/databases`, { space_id: sharedSpace, name: 'Temp DB' })
+    ).json().id;
+    await as(owner.token, 'POST', `/workspaces/${wsId}/databases/${tempDb}/views/personal`, {
+      name: 'Temp Lens',
+      type: 'table',
+      config: {},
+    });
+
+    const before = (await as(owner.token, 'GET', `/workspaces/${wsId}/views/personal`)).json().data as Array<{
+      name: string;
+    }>;
+    expect(before.map((r) => r.name)).toContain('Temp Lens');
+
+    const del = await as(admin.token, 'DELETE', `/workspaces/${wsId}/databases/${tempDb}`, { confirm: 'Temp DB' });
+    expect(del.statusCode, del.body).toBe(200);
+
+    const after = await as(owner.token, 'GET', `/workspaces/${wsId}/views/personal`);
+    expect(after.statusCode, after.body).toBe(200);
+    expect((after.json().data as Array<{ name: string }>).map((r) => r.name)).not.toContain('Temp Lens');
+  });
+});
+
 describe('#291 member removal — hard delete, but ONLY personal rows', () => {
   it('removing the member deletes their personal space and personal views, and NOT the shared records those views pointed at', async () => {
     // A personal view over the SHARED database — the exact shape that must not take
