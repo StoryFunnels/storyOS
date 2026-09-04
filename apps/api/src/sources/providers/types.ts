@@ -109,6 +109,17 @@ export interface SourceProviderDescriptor {
   /** External keys a fresh config would emit, for the mapping UI's first
    * "here's what you'll get" preview before any sync has run. */
   discover?(auth: unknown, config: Record<string, unknown>, fetcher: ConnectionFetcher): Promise<{ keys: string[] }>;
+  /**
+   * #280 — true iff every item this provider emits carries a comparable
+   * external timestamp, the one thing `newest_wins` needs to mean anything.
+   * Absent means false (the safe default: comparing incomparable clocks
+   * would be worse than refusing the policy), unlike most optional
+   * capabilities here which default to "on" when unset — this one inverts
+   * that because claiming a capability a provider never declared would be
+   * the widening direction, not the narrowing one every other default here
+   * chooses.
+   */
+  supportsNewestWins?(): boolean;
   sync(ctx: SourceSyncContext): Promise<{
     cursor: Record<string, unknown>;
     /** Provider-owned run metadata that isn't a fetched/created/updated count

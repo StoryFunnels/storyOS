@@ -5761,12 +5761,22 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
   // that is #491, and `create_source` says so rather than leaving it to be
   // discovered by failure.
 
+  /** #280 — a mapping entry as the API stores it: the legacy bare field id
+   * (direction `in`), or `{field_id, direction}` for `out`/`both`. */
+  type ApiFieldMappingEntry = string | { field_id: string; direction?: string };
+
   interface SourceRow {
     id: string;
     name: string;
     connection_id: string;
     provider_source: string;
-    field_mapping?: Record<string, string>;
+    field_mapping?: Record<string, ApiFieldMappingEntry>;
+  }
+
+  /** The field id out of an entry, regardless of shape — for the
+   * external_key_field membership checks, which don't care about direction. */
+  function mappingEntryFieldId(entry: ApiFieldMappingEntry): string {
+    return typeof entry === 'string' ? entry : entry.field_id;
   }
 
   /** Name-or-id resolution for a source (MN-076 convention), scoped to one database. */
@@ -5805,14 +5815,28 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     return f.id;
   }
 
-  /** Map a caller's `{ externalKey: fieldNameOrId }` onto the API's `{ externalKey: fieldId }`. */
-  function resolveFieldMapping(detail: DatabaseDetail, mapping: Record<string, unknown>): Record<string, string> {
-    const out: Record<string, string> = {};
+  /** Map a caller's `{ externalKey: fieldNameOrId | {field, direction} }` onto
+   * the API's `{ externalKey: fieldId | {field_id, direction} }` (#280). A bare
+   * string stays a bare string — the API's own permanent shorthand for `in`,
+   * not something this tool needs to upgrade. */
+  function resolveFieldMapping(
+    detail: DatabaseDetail,
+    mapping: Record<string, unknown>,
+  ): Record<string, ApiFieldMappingEntry> {
+    const out: Record<string, ApiFieldMappingEntry> = {};
     for (const [key, ref] of Object.entries(mapping)) {
-      if (typeof ref !== 'string') {
-        throw new Error(`field_mapping["${key}"] must be a field name or id, got ${JSON.stringify(ref)}.`);
+      if (typeof ref === 'string') {
+        out[key] = resolveAnyFieldId(detail, ref);
+        continue;
       }
-      out[key] = resolveAnyFieldId(detail, ref);
+      if (ref && typeof ref === 'object' && 'field' in ref && typeof (ref as { field: unknown }).field === 'string') {
+        const { field, direction } = ref as { field: string; direction?: string };
+        out[key] = direction !== undefined ? { field_id: resolveAnyFieldId(detail, field), direction } : { field_id: resolveAnyFieldId(detail, field) };
+        continue;
+      }
+      throw new Error(
+        `field_mapping["${key}"] must be a field name/id, or { field, direction }, got ${JSON.stringify(ref)}.`,
+      );
     }
     return out;
   }
@@ -5960,8 +5984,9 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         'Configure a scheduled sync from an external provider INTO this database, and start it running. ' +
         'CREDENTIALS NEVER PASS THROUGH THIS TOOL: connect the account once in the app (Settings → Connections) and reference it by `connection_id` — get one from list_connections (#491), or from list_sources if the target database already has a source. ' +
         'Run list_source_providers then discover_source_fields first — `field_mapping` should be a mapping somebody has looked at, not a guess. ' +
-        'field_mapping maps the provider\'s external keys to fields in THIS database, and takes field names or ids ("Comment text" or a uuid). Keys you leave out are simply not stored. ' +
-        'external_key_field is the field holding the provider\'s stable id; it MUST be one of field_mapping\'s targets, and it is what makes the next sync update a record rather than duplicate it. ' +
+        'field_mapping maps the provider\'s external keys to fields in THIS database. A value is either a field name/id ("Comment text" or a uuid, meaning pull-only — the common case) or { field, direction } where direction is "in" (pull, default), "out" (push-only — never overwritten by a sync) or "both". Keys you leave out are simply not stored. ' +
+        'external_key_field is the field holding the provider\'s stable id; it MUST be one of field_mapping\'s targets (any direction), and it is what makes the next sync update a record rather than duplicate it. ' +
+        'config.conflict_policy controls what wins when both sides changed: "external_wins" (default — a pull overwrites a local edit), "storyos_wins", or "newest_wins" (only for a provider whose config_schema entry lists supports_newest_wins). ' +
         'Defaults to a daily sync when neither schedule nor recurrence is given. The source is created active — call sync_source to run it immediately instead of waiting for the schedule.',
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
@@ -5972,15 +5997,23 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .describe('Id of the stored connection to sync through. NOT a credential — see this tool\'s description for where it comes from.'),
         provider_source: z.string().describe('Provider id from list_source_providers, e.g. "youtube.comments".'),
         field_mapping: z
-          .record(z.string(), z.string())
-          .describe('{ "provider_external_key": "field name or id" }. Start from discover_source_fields\' proposed_field_mapping.'),
+          .record(
+            z.string(),
+            z.union([
+              z.string(),
+              z.object({ field: z.string(), direction: z.enum(['in', 'out', 'both']).optional() }),
+            ]),
+          )
+          .describe(
+            '{ "provider_external_key": "field name or id" } for a pull-only mapping (the common case), or { "provider_external_key": { field, direction } } — direction "in" (default), "out" (push-only, never overwritten by a sync), or "both". Start from discover_source_fields\' proposed_field_mapping.',
+          ),
         external_key_field: z
           .string()
           .describe('Field (name or id) holding the provider\'s stable id. Must be one of field_mapping\'s target fields.'),
         config: z
           .record(z.string(), z.any())
           .optional()
-          .describe('Provider config; shape is in list_source_providers\' config_schema.'),
+          .describe('Provider config; shape is in list_source_providers\' config_schema. May also set conflict_policy: "external_wins" (default) | "storyos_wins" | "newest_wins".'),
         schedule: z
           .enum(['15m', 'hour', 'day'])
           .optional()
@@ -5997,7 +6030,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       name: string;
       connection_id: string;
       provider_source: string;
-      field_mapping: Record<string, string>;
+      field_mapping: Record<string, unknown>;
       external_key_field: string;
       config?: Record<string, unknown>;
       schedule?: string;
@@ -6011,11 +6044,12 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       /*
        * The API enforces this too (400). Catching it here costs nothing and
        * answers with the field NAMES the caller used, rather than making them
-       * match uuids by eye to find out which one they meant.
+       * match uuids by eye to find out which one they meant. Direction doesn't
+       * matter for this check — the key field just has to be SOME target.
        */
-      if (!Object.values(mapping).includes(externalKeyFieldId)) {
+      if (!Object.values(mapping).some((entry) => mappingEntryFieldId(entry) === externalKeyFieldId)) {
         throw new Error(
-          `external_key_field "${a.external_key_field}" is not one of field_mapping's target fields (${Object.values(a.field_mapping).join(', ')}). ` +
+          `external_key_field "${a.external_key_field}" is not one of field_mapping's target fields. ` +
             'The external key must be a field the provider actually writes to, or a re-sync cannot match an existing record.',
         );
       }
@@ -6052,10 +6086,21 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         source: z.string().describe('Source name or id (from list_sources).'),
         name: z.string().optional().describe('New human label.'),
         connection_id: z.string().optional().describe('Point the source at a different stored connection.'),
-        config: z.record(z.string(), z.any()).optional().describe('Replacement provider config.'),
+        config: z
+          .record(z.string(), z.any())
+          .optional()
+          .describe('Replacement provider config. May include conflict_policy: "external_wins" (default) | "storyos_wins" | "newest_wins".'),
         field_mapping: z
-          .record(z.string(), z.string())
-          .describe('{ "provider_external_key": "field name or id" } — the COMPLETE mapping, which replaces the existing one.')
+          .record(
+            z.string(),
+            z.union([
+              z.string(),
+              z.object({ field: z.string(), direction: z.enum(['in', 'out', 'both']).optional() }),
+            ]),
+          )
+          .describe(
+            '{ "provider_external_key": "field name or id" } or { "provider_external_key": { field, direction } } (direction "in"/"out"/"both") — the COMPLETE mapping, which replaces the existing one.',
+          )
           .optional(),
         external_key_field: z.string().optional().describe('Field (name or id) holding the provider\'s stable id.'),
         schedule: z.enum(['15m', 'hour', 'day']).optional().describe('Coarse cadence.'),
@@ -6076,7 +6121,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       name?: string;
       connection_id?: string;
       config?: Record<string, unknown>;
-      field_mapping?: Record<string, string>;
+      field_mapping?: Record<string, unknown>;
       external_key_field?: string;
       schedule?: string;
       recurrence?: Record<string, unknown>;
@@ -6102,11 +6147,16 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
          * The API's create path enforces "external key must be one of the
          * mapping's targets"; on update the two arrive independently, so a
          * caller changing only one can strand the pair. Check against the
-         * EFFECTIVE post-patch pair (new value, else the stored one).
+         * EFFECTIVE post-patch pair (new value, else the stored one) —
+         * direction doesn't matter here, only which field ids are targeted.
          */
-        const effectiveMapping = (body.field_mapping as Record<string, string>) ?? src.field_mapping ?? {};
+        const effectiveMapping = (body.field_mapping as Record<string, ApiFieldMappingEntry>) ?? src.field_mapping ?? {};
         const effectiveKey = (body.external_key_field_id as string) ?? undefined;
-        if (effectiveKey && Object.keys(effectiveMapping).length && !Object.values(effectiveMapping).includes(effectiveKey)) {
+        if (
+          effectiveKey &&
+          Object.keys(effectiveMapping).length &&
+          !Object.values(effectiveMapping).some((entry) => mappingEntryFieldId(entry) === effectiveKey)
+        ) {
           throw new Error(
             'external_key_field is not one of field_mapping\'s target fields after this change. ' +
               'Send field_mapping and external_key_field together when either one moves, or the source loses its ability to match an existing record on re-sync.',

@@ -5191,7 +5191,15 @@ export interface components {
                 [key: string]: unknown;
             };
             field_mapping: {
-                [key: string]: string;
+                [key: string]: string | {
+                    /** Format: uuid */
+                    field_id: string;
+                    /**
+                     * @default in
+                     * @enum {string}
+                     */
+                    direction: "in" | "out" | "both";
+                };
             };
             /** Format: uuid */
             external_key_field_id: string;
@@ -5222,7 +5230,15 @@ export interface components {
                 [key: string]: unknown;
             };
             field_mapping?: {
-                [key: string]: string;
+                [key: string]: string | {
+                    /** Format: uuid */
+                    field_id: string;
+                    /**
+                     * @default in
+                     * @enum {string}
+                     */
+                    direction: "in" | "out" | "both";
+                };
             };
             /** Format: uuid */
             external_key_field_id?: string;
