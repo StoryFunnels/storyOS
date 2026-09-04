@@ -109,3 +109,43 @@ describe('global search (MN-048)', () => {
     expect(recent.json().records.length).toBeGreaterThanOrEqual(1);
   });
 });
+
+describe('#516 — search places (database results) get #178\'s space/colour enrichment', () => {
+  it('a database place carries space_name and database_color, same shape as a record hit', async () => {
+    const res = await inject(admin.token, 'GET', `/workspaces/${wsId}/search?q=secret`);
+    expect(res.statusCode, res.body).toBe(200);
+    const place = res.json().places.find((p: { kind: string; name: string }) => p.kind === 'database' && p.name === 'Secret Plans');
+    expect(place).toBeDefined();
+    expect(place.space_name).toBe('Secret');
+    expect(place).toHaveProperty('database_color'); // nullable when the db has no colour set
+  });
+
+  it('distinguishes two same-named databases in two different spaces by space_name (the exact regression)', async () => {
+    const spaceC = (await inject(admin.token, 'POST', `/workspaces/${wsId}/spaces`, { name: 'Client A' })).json();
+    const spaceD = (await inject(admin.token, 'POST', `/workspaces/${wsId}/spaces`, { name: 'Client B' })).json();
+    await inject(admin.token, 'POST', `/workspaces/${wsId}/databases`, { space_id: spaceC.id, name: 'Projects Twins' });
+    await inject(admin.token, 'POST', `/workspaces/${wsId}/databases`, { space_id: spaceD.id, name: 'Projects Twins' });
+
+    const res = await inject(admin.token, 'GET', `/workspaces/${wsId}/search?q=Projects Twins`);
+    const hits = res.json().places.filter((p: { kind: string; name: string }) => p.kind === 'database' && p.name === 'Projects Twins');
+    expect(hits).toHaveLength(2);
+    const spaceNames = hits.map((h: { space_name: string }) => h.space_name).sort();
+    expect(spaceNames).toEqual(['Client A', 'Client B']); // indistinguishable before this fix
+  });
+
+  it('MUST KEEP WORKING: a space place is unaffected — no space-of-a-space concept added', async () => {
+    const res = await inject(admin.token, 'GET', `/workspaces/${wsId}/search?q=secret`);
+    const spacePlace = res.json().places.find((p: { kind: string }) => p.kind === 'space');
+    expect(spacePlace).toBeDefined();
+    expect(spacePlace).not.toHaveProperty('space_name');
+    expect(spacePlace).not.toHaveProperty('database_color');
+  });
+
+  it('MUST KEEP WORKING: guest visibility scoping on database places still applies with the new join', async () => {
+    const res = await inject(guest.token, 'GET', `/workspaces/${wsId}/search?q=secret`);
+    expect(res.statusCode, res.body).toBe(200);
+    // The guest has no grant on the "Secret" space — the database place must not
+    // leak through just because the join now reaches its space row.
+    expect(res.json().places.some((p: { name: string }) => p.name === 'Secret Plans')).toBe(false);
+  });
+});
