@@ -126,16 +126,28 @@ export class SearchController {
       )
       .limit(15);
 
-    const databaseRows = await this.db.query.databases.findMany({
-      where: and(
-        eq(databases.workspaceId, workspaceId),
-        sql`${databases.name} ILIKE ${pattern}`,
-        notDeleted(databases.deletedAt),
-        ...(visible !== null ? [inArray(databases.id, visible)] : []),
-      ),
-      columns: { id: true, name: true, icon: true },
-      limit: 5,
-    });
+    const databaseRows = await this.db
+      .select({
+        id: databases.id,
+        name: databases.name,
+        icon: databases.icon,
+        // #516 — the same #178 enrichment recordRows already carries (the owning
+        // space's name + the database's colour), so two same-named databases in
+        // different spaces read distinctly instead of two identical "Database" rows.
+        database_color: databases.color,
+        space_name: spaces.name,
+      })
+      .from(databases)
+      .innerJoin(spaces, eq(spaces.id, databases.spaceId))
+      .where(
+        and(
+          eq(databases.workspaceId, workspaceId),
+          sql`${databases.name} ILIKE ${pattern}`,
+          notDeleted(databases.deletedAt),
+          ...(visible !== null ? [inArray(databases.id, visible)] : []),
+        ),
+      )
+      .limit(5);
 
     let spaceRows: Array<{ id: string; name: string; icon: string | null }> = [];
     if (visible === null) {
