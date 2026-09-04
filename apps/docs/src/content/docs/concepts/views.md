@@ -32,6 +32,25 @@ same query you'd send from code or an agent:
 References to deleted fields are dropped defensively at read time, so a view never breaks when
 schema changes.
 
+### Building a filter
+
+- **Nested And/Or groups** — a condition can itself be a group, so "State is Urgent AND (Owner is
+  me OR Owner is unset)" is one filter, not a workaround.
+- **Global vs Personal scope** — a Global filter is part of the saved view, so everyone who opens
+  it sees the same thing. A **Personal** filter layers on top of the shared one, for you only, and
+  can only *narrow* what Global already shows — it's ANDed in at query time, never a way to see
+  something the view's Global filter excludes.
+- **A dynamic "Me"** value on any user field (including `created_by`/`updated_by`) — pick **Me**
+  instead of naming yourself, and the same shared view resolves to "assigned to whoever is
+  looking" for every person who opens it, per-viewer, at the backend.
+- **Rich value pickers** — select/multi-select/user fields get searchable, removable chips instead
+  of a raw list; dates get the same calendar picker as everywhere else in the app, with **Today**
+  and **Clear**.
+
+**Not built:** per-database tabs for filtering across several databases at once. A view models
+exactly one database, and the filter format has no shape for "this condition applies only when
+browsing database B" — it isn't a missing UI control, it's an unmodelled case.
+
 ## Record ordering
 
 Manual order (table default and within-column kanban order) is stored as a fractional index per
@@ -45,6 +64,18 @@ at**. Every column a table draws can be hidden; there is no column you are stuck
 
 The choice is part of the view, so it survives a reload and everyone looking at that view sees the
 same columns. Want them for yourself only? Make your own view.
+
+## Filtering, sorting and hiding from the column header
+
+A table column's own header menu carries filter and sort — not only the toolbar. Sort cycles
+ascending → descending → clear on repeated clicks. Drag the column header itself to reorder
+columns.
+
+**A filtered column shows a glyph on its own header**, always visible rather than only on hover,
+because an active filter is state you need to see at a glance, not something to discover by
+hunting. Its menu carries **Clear filter on this field**, and **Hide field** — which writes the
+same hidden-fields list the toolbar's Fields panel owns, so hiding a column from the header and
+from the toolbar can never disagree about which columns are actually hidden.
 
 ## Field order: the grid and the record panel
 
@@ -81,6 +112,20 @@ the real work off-screen.
 different question from *"an epic with no issues"* — the ungrouped column is usually the triage
 pile, which makes it the most important one on the board. Sweeping it away along with the empty
 real groups would be the obvious implementation and the wrong one.
+
+## Board columns from a date field
+
+Group a board by a **date** field instead of a select, and its columns become periods — week,
+month, quarter, or year, your choice. Dragging a card into a different column **changes the
+record's date** to land back in that column — the difference between a static report and a
+roadmap you can actually reschedule by dragging.
+
+- **Columns come from your data, not a fixed calendar range.** Two records three years apart don't
+  produce three years of empty monthly columns between them.
+- **Dragging a card writes a date that re-buckets into the column you dropped it in** — a card
+  never jumps to a different column the instant you release it.
+- **Everything is computed in UTC**, so two people in different timezones see the same card in the
+  same column.
 
 ## An empty view versus a broken one
 
