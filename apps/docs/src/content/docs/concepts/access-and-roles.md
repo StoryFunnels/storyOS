@@ -44,6 +44,18 @@ either, whether they resolve to a paid role or not. The billing page names exact
 its own caption, with a link to Members, precisely so the two numbers can be reconciled rather
 than left to look like a discrepancy.
 
+## Pending invitations
+
+An invite that hasn't been accepted shows a **Pending** badge on Settings → Members, with
+**Resend invitation** and **Revoke**.
+
+**Resending mints a fresh link — the old one stops working.** It's not a reminder email pointing
+at the same URL; the invite's token and its 7-day expiry both reset, so a stale copy of the
+original link left in an old email thread no longer gets anyone in.
+
+**Throttled to one resend per minute**, per invite — a repeat click inside that window is refused
+with a plain "wait a minute" message rather than silently sending twice.
+
 ## Sharing beyond a space: access grants
 
 Space scoping decides which **spaces** a guest can see at all. **Access grants** are the finer
