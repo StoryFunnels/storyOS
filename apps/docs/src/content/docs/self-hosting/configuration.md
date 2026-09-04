@@ -28,6 +28,24 @@ Never commit your real `.env` — it holds secrets. The repo ships an `.env.exam
 | `ATTACHMENT_MAX_BYTES`                                             | `20971520` (20 MB)                | Per-file upload cap.                                                                                                                                                                                 |
 | `RATE_LIMIT_PER_MINUTE`                                            | `300`                             | Per token/session.                                                                                                                                                                                   |
 
+## Integrations: what's available self-hosted
+
+One codebase, no crippled edition — but a handful of integrations genuinely can't work the same
+way on your own instance as on StoryOS Cloud, and the Connections/Integrations gallery says so
+plainly rather than showing a Connect button that fails. Every provider falls into one of three
+tiers:
+
+| Tier | Examples | Self-hosted |
+|---|---|---|
+| **API key / token** | Apify, Resend, SMTP, a generic HTTP connection, bring-your-own-AI over MCP | Works identically everywhere — nothing StoryOS-specific to configure. |
+| **OAuth, needs a verified app** | Google (YouTube, Calendar) | Cloud uses StoryOS's own verified OAuth app. Self-hosted: bring your **own** OAuth app via `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` (or the matching env pair for other providers) — an operator, one-time setup, never a per-user prompt. Unconfigured, the gallery shows **"you can turn this on"**, not a broken button. |
+| **Cloud-hosted only** | Managed StoryOS AI, the hosted MCP OAuth connector | Genuinely cloud-only — nothing to configure, because the thing being offered (StoryOS's own infrastructure) doesn't exist on your instance by definition. |
+
+The reason for the middle tier: an OAuth app's redirect URI and platform verification are tied to
+one domain. StoryOS's own verified Google app is scoped to `app.storyos.dev` — it can't also work
+for your instance, so a self-hosted deployment needing that provider registers its own app instead
+of asking every end user to.
+
 ## Auth
 
 StoryOS uses [better-auth](https://better-auth.com) mounted inside the API for email/password
