@@ -42,6 +42,7 @@ import { SIDEBAR_INDENT_PX, SidebarRow, type SidebarDepth } from '@/components/s
 import { SidebarViewRow, type SidebarView } from '@/components/sidebar-view-row';
 import { SidebarRowMenu } from '@/components/sidebar-row-menu';
 import { openTyron } from '@/lib/tyron-panel';
+import { PersonalSection } from '@/components/personal-section';
 
 interface Favorite {
   target_type: 'record' | 'database';
@@ -227,6 +228,9 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
 
       <nav className="flex-1 overflow-y-auto p-2">
         <FavoritesSection ws={ws} />
+        {/* #292 — separate from the shared Spaces tree below: it can't be
+            shared, moved into a folder, or deleted like a space can. */}
+        <PersonalSection ws={ws} />
         <div className="mb-0.5 mt-1 flex items-center justify-between px-2">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-faint">Spaces</span>
           {(spaces.data ?? []).length > 0 && (
