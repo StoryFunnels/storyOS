@@ -24,6 +24,17 @@ workspace, and nothing crosses between two of them. If you are wondering whether
 workspace, the test is whether the *people* differ — separate workspaces are for separate groups,
 not for separate projects.
 
+### Taking everything out
+
+**Settings → Export**, admin only. Downloads a single `.zip` with every space, database, field
+schema, record, the relation graph, and every attachment's actual file — streamed rather than
+built in memory first, so it works the same way on a large workspace as a small one. StoryOS is
+built with no lock-in: this is the whole workspace, not a sample.
+
+**System databases (Members and the rest of the Agentic OS pack) are not included** — their
+content is either personal data or internal machinery, not the work product this export exists to
+hand you.
+
 ## Space
 
 A named area of work inside a workspace, holding databases, dashboards, documents and folders.

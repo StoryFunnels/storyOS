@@ -39,6 +39,25 @@ Database `⋯` menu → **Sync from…**.
 - **Deleting a source does not delete the records it created.** It stops the sync; what already
   landed in the database stays.
 
+## Three providers worth knowing in more detail
+
+**YouTube** is template-first: Settings → Integrations → YouTube offers three ready-made
+databases (Videos, Comments, Metrics) instead of asking you to build one and map fields by hand.
+Pick a template and it creates the database *and* attaches the matching source in one step. It
+syncs the **connected account's own channel** — there's no channel picker for the common case.
+
+**Shopify** provisions its whole catalogue at once: **Create the product catalogue** builds three
+linked databases — Products, Variants, Collections — with the variant→product and
+collection→product relations already wired, rather than three separate sources you'd otherwise
+set up and relate by hand. Once connected, product and collection changes in Shopify also arrive
+by **webhook** in real time, on top of the regular schedule — you don't wait for the next sync
+tick to see a price change.
+
+**Social engagement** (Meta Page comments, X mentions, LinkedIn organization engagement) pulls
+comments and mentions from those platforms into a database on the same schedule as any other
+source. **This is ingest only** — it brings activity in; it does not post, reply, or otherwise
+write back to the platform.
+
 ## Managing one over the API or MCP
 
 `list_source_providers`, `discover_source_fields`, `create_source`, `update_source`,
