@@ -117,26 +117,29 @@ afterAll(async () => {
 });
 
 describe('#488 — relative date ranges span exactly what they say', () => {
-  it('next_7_days is seven days, and its far edge is today+6 not today+7', async () => {
+  it('next_7_days is seven days, exclusive of today (#523): today+1 through today+7', async () => {
     const matched = await matchedDates('next_7_days');
-    expect(matched, 'today+7 is the eighth day and must be excluded').not.toContain(day(7));
-    expect(matched).toEqual(seededBetween(0, 6));
+    expect(matched, 'today itself belongs to "today", not "next 7 days"').not.toContain(day(0));
+    expect(matched, 'today+8 is the eighth day and must be excluded').not.toContain(day(8));
+    expect(matched).toEqual(seededBetween(1, 7));
   });
 
   it('last_7_days is seven days, and it does NOT reach into tomorrow', async () => {
     // The half nobody could observe: Nadia had no record on tomorrow, so the
     // backward window's upper bound leaking a day was invisible in her data.
+    // #523 — last_N_days stays INCLUSIVE of today; only next_N_days moved.
     const matched = await matchedDates('last_7_days');
     expect(matched, 'tomorrow must not appear in "last 7 days"').not.toContain(day(1));
     expect(matched, 'today-7 is the eighth day back and must be excluded').not.toContain(day(-7));
     expect(matched).toEqual(seededBetween(-6, 0));
   });
 
-  it('next_30_days is thirty days, ending today+29', async () => {
+  it('next_30_days is thirty days, exclusive of today (#523): today+1 through today+30', async () => {
     const matched = await matchedDates('next_30_days');
-    expect(matched).toContain(day(29));
-    expect(matched, 'today+30 is the 31st day and must be excluded').not.toContain(day(30));
-    expect(matched).toEqual(seededBetween(0, 29));
+    expect(matched, 'today itself belongs to "today", not "next 30 days"').not.toContain(day(0));
+    expect(matched).toContain(day(30));
+    expect(matched, 'today+31 is the 31st day and must be excluded').not.toContain(day(31));
+    expect(matched).toEqual(seededBetween(1, 30));
   });
 
   it('today matches today ONLY — not today and tomorrow', async () => {
@@ -199,5 +202,31 @@ describe('#488 — relative date ranges span exactly what they say', () => {
     const matched = res.json().data.map((r: { title: string }) => r.title).sort();
     expect(matched, 'a timestamp window must not reach into tomorrow either').not.toContain(day(1));
     expect(matched).toEqual(seededBetween(-6, 0));
+  });
+});
+
+describe('#523 — the relative-date family partitions cleanly around today', () => {
+  it("today's record appears in last_7_days but NOT in next_7_days — the exact reported overlap", async () => {
+    const last = await matchedDates('last_7_days');
+    const next = await matchedDates('next_7_days');
+    expect(last, 'last_7_days stays inclusive of today').toContain(day(0));
+    expect(next, 'next_7_days is now exclusive of today — this is the fix').not.toContain(day(0));
+    // No day is claimed by both windows.
+    expect(last.filter((d) => next.includes(d))).toEqual([]);
+  });
+
+  it("today's record appears in last_7_days but NOT in next_30_days either", async () => {
+    const last = await matchedDates('last_7_days');
+    const next30 = await matchedDates('next_30_days');
+    expect(last).toContain(day(0));
+    expect(next30).not.toContain(day(0));
+  });
+
+  it('this_month is unaffected by the next-N-days exclusivity change (a different boundary concept)', async () => {
+    // #523 AC 6 — this_month was never measured against the overlap question;
+    // it isn't a "next N days" window at all (it's calendar-month, inclusive
+    // of today by construction), so confirm today still falls inside it.
+    const matched = await matchedDates('this_month');
+    expect(matched).toContain(day(0));
   });
 });
