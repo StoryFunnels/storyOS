@@ -93,6 +93,7 @@ export default defineConfig({
             { label: 'Dashboards', slug: 'concepts/dashboards' },
             { label: 'Organising the sidebar', slug: 'concepts/organising-the-sidebar' },
             { label: 'Tyron, the in-app assistant', slug: 'concepts/tyron' },
+            { label: 'Agent runs', slug: 'concepts/agent-runs' },
           ],
         },
         {
