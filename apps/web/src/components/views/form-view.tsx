@@ -818,7 +818,9 @@ function VisibilityRuleRow({
   );
 }
 
-function CopyRow({ label, value, onCopy }: { label: string; value: string; onCopy: () => void }) {
+/** #527 — exported so the view-share dialog reuses the exact same Link/Embed
+ *  row instead of a second copy-to-clipboard implementation. */
+export function CopyRow({ label, value, onCopy }: { label: string; value: string; onCopy: () => void }) {
   return (
     <div className="flex items-center gap-2">
       <span className="w-12 shrink-0 text-muted">{label}</span>

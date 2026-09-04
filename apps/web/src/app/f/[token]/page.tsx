@@ -6,7 +6,12 @@ import { isFormFieldVisible, visibleFormFields, type PublicFormVisibilityRule } 
 import { OptionChip } from '@/components/table-view/cells';
 import type { SelectOption } from '@/components/table-view/use-table-data';
 
-const API = process.env.NEXT_PUBLIC_API_URL || '';
+// #526 — matches lib/api.ts's own fallback exactly. Without one, a dev
+// checkout with no .env.local silently resolves every fetch below to a
+// RELATIVE path (hitting the Next.js server itself, not the API), and the
+// resulting 404 renders as "Form not found" — indistinguishable from a
+// genuinely bad token.
+const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
 interface FormField {
   field_id: string;

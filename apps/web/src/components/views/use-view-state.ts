@@ -49,6 +49,23 @@ export interface ViewConfig {
   /** #227 — optional baseline (planned) pair drawn behind the primary bar. */
   baseline_start_date_field_id?: string;
   baseline_end_date_field_id?: string;
+  /**
+   * #264/#527 — a public read-only link for this view. Server-minted and
+   * immutable across allowlist edits (ViewsService.share never rotates an
+   * existing token) — NEVER set this via the ordinary view PATCH/`onPatch`;
+   * the server silently strips a client-supplied `share` from that path on
+   * purpose (views.service.ts), so the only way to change it is the
+   * dedicated share/unshare mutations below.
+   */
+  share?: {
+    public_token?: string;
+    /** undefined = the view's own non-hidden fields, except rollup/lookup/
+     *  formula, which need explicit naming (never exposed by default). */
+    visible_field_api_names?: string[];
+    /** Empty by default — no related data travels unless named. */
+    include_relation_api_names?: string[];
+    indexable?: boolean;
+  };
   /** Form (MN-094, MN-101). */
   form?: {
     title?: string;
@@ -98,6 +115,15 @@ export interface ViewSummary {
   config: ViewConfig;
   isDefault?: boolean;
   position?: number;
+  /**
+   * #520/#527 — set only for a PERSONAL view (a private window onto shared
+   * data, never visible to anyone else — not even admins). The share dialog
+   * uses this to hide the Publish control entirely for a personal view: the
+   * database-editor access `share`/`unshare` check server-side does NOT
+   * itself verify ownership (see #554), so this is a client-side guard only,
+   * not the actual fix — it just makes the gap harder to hit by accident.
+   */
+  ownerUserId?: string | null;
 }
 
 export const EMPTY_CONFIG: ViewConfig = {
@@ -279,6 +305,46 @@ export function useViewMutations(ws: string, db: string) {
       },
       onSuccess: invalidate,
       onError: () => toast.error('Could not set the default view'),
+    }),
+    /**
+     * #527 — the ONLY way to set/change a view's public link. Never route this
+     * through the ordinary view PATCH/`onPatch`: the server silently strips a
+     * client-supplied `config.share` from that path so a plain config edit can
+     * never accidentally unpublish (or publish) a view (views.service.ts).
+     * Re-sharing an already-published view keeps the SAME token server-side —
+     * this call is also how the allowlist/indexable flags get edited later.
+     */
+    shareView: useMutation({
+      mutationFn: async ({
+        id,
+        visible_field_api_names,
+        include_relation_api_names,
+        indexable,
+      }: {
+        id: string;
+        visible_field_api_names?: string[];
+        include_relation_api_names?: string[];
+        indexable?: boolean;
+      }) => {
+        const { data, error } = await api.POST('/api/v1/workspaces/{ws}/databases/{db}/views/{view}/share', {
+          params: { path: { ws, db, view: id } } as never,
+          body: { visible_field_api_names, include_relation_api_names, indexable } as never,
+        } as never);
+        if (error) throw error;
+        return data as unknown as { token: string };
+      },
+      onSuccess: invalidate,
+      onError: () => toast.error('Could not publish the view'),
+    }),
+    unshareView: useMutation({
+      mutationFn: async (id: string) => {
+        const { error } = await api.DELETE('/api/v1/workspaces/{ws}/databases/{db}/views/{view}/share', {
+          params: { path: { ws, db, view: id } } as never,
+        } as never);
+        if (error) throw error;
+      },
+      onSuccess: invalidate,
+      onError: () => toast.error('Could not stop sharing the view'),
     }),
     // Drag-to-reorder the view tabs → writes each moved view's position (MN-221).
     // The DB page renders views in position order, so persisting the new indexes
