@@ -39,8 +39,15 @@ export interface SourcePushContext {
   /** The value stored at the source's `external_key_field_id` — identifies
    * WHICH remote entity this record's change goes to. */
   externalKey: string;
-  /** The record's current values, keyed by the field's `api_name` (the same
-   * boundary convention every other write path uses). */
+  /**
+   * The fields being pushed, keyed by the PROVIDER'S OWN external key — the
+   * same vocabulary `sync()`'s emitted items and `field_mapping`'s keys use,
+   * never a StoryOS field id or api_name. Only `out`/`both`-mapped fields
+   * whose value actually changed this write are included (#280/#281); the
+   * caller (`WriteBackSubscriber`) does the field_mapping translation in both
+   * directions, so a provider's `push()` never needs to know a StoryOS field
+   * exists, mirroring how `sync()` never needs to know one either.
+   */
   values: Record<string, unknown>;
 }
 
