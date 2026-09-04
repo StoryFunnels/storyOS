@@ -405,6 +405,7 @@ export function RecordDetail({
           <RecordActions
             ws={ws}
             db={db}
+            dbName={database.data?.name ?? ''}
             rec={recordId}
             readOnly={readOnly}
             canCreate={schemaEditable}

@@ -12,6 +12,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useConfirm } from '@/components/ui/confirm-dialog';
+import { CopyToDialog } from '@/components/entity/copy-to-dialog';
 import { CellEditor, cellToText } from './cells';
 import { useFieldMutations } from './field-dialog-shared';
 import type { Field, RecordRow } from './use-table-data';
@@ -141,6 +142,7 @@ export function BatchBar({
   }, [pendingField]);
 
   const [linkingField, setLinkingField] = useState<Field | null>(null);
+  const [copyToOpen, setCopyToOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
   // MN-294: same resolver table-view.tsx's own copy actions use, so a user-field
@@ -358,6 +360,7 @@ export function BatchBar({
           </DropdownMenuTrigger>
           <DropdownMenuContent>
             {canDelete && <DropdownMenuItem onSelect={() => void duplicateAll()}>Duplicate</DropdownMenuItem>}
+            <DropdownMenuItem onSelect={() => setCopyToOpen(true)}>Copy to…</DropdownMenuItem>
             <DropdownMenuItem onSelect={() => void copyTsv()}>Copy as TSV</DropdownMenuItem>
             <DropdownMenuItem onSelect={exportCsv}>Export CSV</DropdownMenuItem>
             {buttonFields.map((field) => (
@@ -412,6 +415,14 @@ export function BatchBar({
             onCancel={() => setLinkingField(null)}
           />
         )}
+        <CopyToDialog
+          ws={ws}
+          db={db}
+          dbName={database.data?.name ?? ''}
+          recordIds={selected}
+          open={copyToOpen}
+          onOpenChange={setCopyToOpen}
+        />
       </div>
     </div>
   );
