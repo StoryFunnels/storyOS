@@ -70,6 +70,16 @@ A table of records with typed fields, its own [views](/concepts/views/), buttons
 [automation rules](/concepts/automations/). This is where the actual work lives — see
 [databases & fields](/concepts/databases-and-fields/) for the field types it can hold.
 
+### Duplicating a database
+
+A database's `⋯` menu has **Duplicate** — one click, no dialog, no name to type first. It copies
+the **schema only** by default (fields, views, buttons, automations), not the records in it, and
+takes you straight to the new copy.
+
+A relation pointing at a database outside the copy, or a formula/lookup/rollup that depends on
+one, can't come along unchanged — StoryOS tells you exactly what it skipped and why, rather than
+silently producing a database that looks complete but is quietly missing pieces.
+
 ## Every level can say what it is for
 
 Each of the three carries an optional one-line **description** — plain text, not a rich-text
