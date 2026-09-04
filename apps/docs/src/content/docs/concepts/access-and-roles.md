@@ -35,6 +35,15 @@ Guests are invited to one or more specific [spaces](/getting-started/concepts/):
 This is what lets you drop a client into their project space to check status and leave comments,
 while every other client's work stays invisible.
 
+## Who counts toward billing
+
+**Settings → Billing** shows **Billable seats** — admins and members always count; a guest counts
+only once their grant reaches `contributor` or higher. **A viewer or commenter guest is free**,
+whatever the total member count on the Members page looks like — pending invites don't count
+either, whether they resolve to a paid role or not. The billing page names exactly this rule in
+its own caption, with a link to Members, precisely so the two numbers can be reconciled rather
+than left to look like a discrepancy.
+
 ## Sharing beyond a space: access grants
 
 Space scoping decides which **spaces** a guest can see at all. **Access grants** are the finer

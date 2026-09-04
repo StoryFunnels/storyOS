@@ -124,3 +124,10 @@ General page; it is never thrown away.
 > which configure the per-*record* description block — a versioned rich-text document that appears
 > on each record. That is a different feature that happens to share a prefix. This page is about the
 > database's own one-line purpose.
+
+## Deleting a database, view, or space
+
+Treat it as permanent. The data isn't destroyed the instant you confirm — StoryOS marks it rather
+than erasing the row outright — but there is **no restore feature for any of the three**, so
+there's nothing you can click to bring one back. That's a different guarantee from deleting a
+*record*, which genuinely does go to a trash you can restore from.
