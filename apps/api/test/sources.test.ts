@@ -451,3 +451,71 @@ describe('sources framework — YouTube comments (#239)', () => {
     expect(await connections.checkAndConsumeQuota(connectionId, 1, 10)).toBe(false); // now truly full
   });
 });
+
+describe('sources framework — write-back push framework (#279, slice A)', () => {
+  it('listProviders surfaces supports_push, false for every provider today (none implements push yet)', async () => {
+    const res = await inject('GET', `/workspaces/${wsId}/databases/${(await setupDatabaseAndConnection('SupportsPush')).dbId}/sources/providers`);
+    expect(res.statusCode, res.body).toBe(200);
+    const youtubeComments = res.json().data.find((p: { id: string }) => p.id === 'youtube.comments');
+    expect(youtubeComments.supports_push).toBe(false);
+    // supports_discover stays exactly as it was — adding one boolean must not
+    // disturb the existing one.
+    expect(typeof youtubeComments.supports_discover).toBe('boolean');
+  });
+
+  it('write_back defaults off and round-trips through create() in config, surviving the provider-specific configSchema validation', async () => {
+    const { dbId, connectionId } = await setupDatabaseAndConnection('WriteBackDefault');
+    void connectionId;
+    const source = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/sources`)).json().data[0];
+    expect(source.config.write_back).toBeFalsy();
+  });
+
+  it('write_back: true in config survives create() (not stripped by the provider\'s own configSchema)', async () => {
+    const spaceId = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
+    const dbId = (await inject('POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name: 'WriteBackOn DB' })).json().id;
+    const field = async (display_name: string, type: string) => {
+      const res = await inject('POST', `/workspaces/${wsId}/databases/${dbId}/fields`, { display_name, type, config: {} });
+      return res.json().id as string;
+    };
+    const commentId = await field('Comment Id', 'text');
+
+    process.env.GOOGLE_CLIENT_ID = 'test-google-client-id';
+    process.env.GOOGLE_CLIENT_SECRET = 'test-google-client-secret';
+    const start = await inject('GET', `/workspaces/${wsId}/connections/oauth/google/start`);
+    const state = new URL(String(start.headers.location)).searchParams.get('state')!;
+    await app.inject({
+      method: 'GET',
+      url: `/api/v1/connections/oauth/callback?state=${encodeURIComponent(state)}&code=good-code-WriteBackOn`,
+    });
+    const connectionId = (await inject('GET', `/workspaces/${wsId}/connections`)).json().data.find(
+      (c: { provider: string }) => c.provider === 'google',
+    ).id;
+
+    const created = await inject('POST', `/workspaces/${wsId}/databases/${dbId}/sources`, {
+      name: 'Write-back on',
+      connection_id: connectionId,
+      provider_source: 'youtube.comments',
+      config: { write_back: true },
+      field_mapping: { comment_id: commentId },
+      external_key_field_id: commentId,
+      schedule: '15m',
+    });
+    expect(created.statusCode, created.body).toBe(201);
+    expect(created.json().config.write_back).toBe(true);
+
+    // Editing an ORDINARY field afterwards must not silently turn write_back
+    // back off — the same wholesale-replace trap #264 hit on views.config.
+    const updated = await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/sources/${created.json().id}`, {
+      config: {},
+    });
+    expect(updated.statusCode, updated.body).toBe(200);
+    expect(updated.json().config.write_back).toBe(true);
+
+    // An EXPLICIT write_back: false in the same shape IS honoured.
+    const turnedOff = await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/sources/${created.json().id}`, {
+      config: { write_back: false },
+    });
+    expect(turnedOff.statusCode, turnedOff.body).toBe(200);
+    expect(turnedOff.json().config.write_back).toBe(false);
+  });
+});

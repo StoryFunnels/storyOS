@@ -28,6 +28,29 @@ export interface SourceSyncContext {
 }
 
 /**
+ * #279 — one record's worth of work handed to a provider's `push()`. Mirrors
+ * `SourceSyncContext`'s shape deliberately (auth/config/fetcher), swapping
+ * the paginated read loop for a single write target.
+ */
+export interface SourcePushContext {
+  auth: unknown;
+  config: Record<string, unknown>;
+  fetcher: ConnectionFetcher;
+  /** The value stored at the source's `external_key_field_id` — identifies
+   * WHICH remote entity this record's change goes to. */
+  externalKey: string;
+  /** The record's current values, keyed by the field's `api_name` (the same
+   * boundary convention every other write path uses). */
+  values: Record<string, unknown>;
+}
+
+export interface PushResult {
+  /** Provider-owned metadata about the push, stored verbatim on the run row —
+   * same contract as `sync()`'s `stats`. Omit for nothing to show. */
+  stats?: Record<string, unknown>;
+}
+
+/**
  * A provider's `sync()` throws this instead of a plain `Error` when a run
  * must be recorded as `'error'` AND the cursor still needs to change — e.g.
  * MN-262's Apify provider clearing a stuck `pending_run_id` once its overall
@@ -93,6 +116,14 @@ export interface SourceProviderDescriptor {
      * verbatim on the run row (`source_runs.stats`). Omit for nothing to show. */
     stats?: Record<string, unknown>;
   }>;
+  /**
+   * #279 (write-back, slice A) — push a local record's change back to the
+   * external system. Optional: absent means pull-only, true of every
+   * provider today. Even when a provider defines this, THIS slice never
+   * calls it outside a provider's own tests — `WriteBackSubscriber` only
+   * logs what would be pushed (see its own doc comment for why).
+   */
+  push?(ctx: SourcePushContext): Promise<PushResult>;
 }
 
 /**

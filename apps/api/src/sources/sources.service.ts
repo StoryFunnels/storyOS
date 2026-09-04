@@ -36,6 +36,25 @@ const QUOTA_BUDGET_BY_CONNECTION_PROVIDER: Record<string, () => number> = {
 };
 
 /**
+ * #279 — the write-back gate. Lives in `config` rather than a real column
+ * (the ticket's own lane note: `config` is jsonb, so this needs no drizzle
+ * migration, and only one may be in flight across all open PRs at once).
+ * A framework-owned key, not a provider one, so it must be split out before
+ * `descriptor.configSchema.safeParse()` — a provider's own schema (e.g.
+ * shopify's `z.object({})`) knows nothing about it and would otherwise strip
+ * it from the validated result on every create.
+ */
+const WRITE_BACK_CONFIG_KEY = 'write_back';
+
+function splitWriteBack(
+  config: Record<string, unknown>,
+  fallback = false,
+): { providerConfig: Record<string, unknown>; writeBack: boolean } {
+  const { [WRITE_BACK_CONFIG_KEY]: raw, ...providerConfig } = config;
+  return { providerConfig, writeBack: raw === undefined ? fallback : raw === true };
+}
+
+/**
  * #239 — the Sources framework: a source is a scheduled sync that upserts
  * external items into a normal database by an external key. NOT a workflow —
  * once data lands as records, views/automations/MCP just work.
@@ -85,6 +104,8 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
         // #221: so a caller creating a database for this source can brand it.
         icon: p.icon ?? null,
         supports_discover: Boolean(p.discover),
+        // #279 — write-back capability, same Boolean(p.x) shape as supports_discover.
+        supports_push: Boolean(p.push),
         config_schema: zodShapeToFormSpec(p.configSchema),
       })),
     };
@@ -184,7 +205,8 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
   ) {
     const descriptor = this.requireEnabledProvider(input.provider_source);
     const connection = await this.requireConnectionForProvider(workspaceId, input.connection_id, descriptor);
-    const parsedConfig = descriptor.configSchema.safeParse(input.config ?? {});
+    const { providerConfig, writeBack } = splitWriteBack(input.config ?? {});
+    const parsedConfig = descriptor.configSchema.safeParse(providerConfig);
     if (!parsedConfig.success) {
       throw new BadRequestException(`Invalid config for "${descriptor.id}": ${parsedConfig.error.message}`);
     }
@@ -207,7 +229,7 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
         connectionId: connection.id,
         name: input.name,
         providerSource: descriptor.id,
-        config: parsedConfig.data,
+        config: { ...parsedConfig.data, [WRITE_BACK_CONFIG_KEY]: writeBack },
         targetDatabaseId: databaseId,
         fieldMapping: input.field_mapping,
         externalKeyFieldId: input.external_key_field_id,
@@ -261,9 +283,23 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
   ) {
     const row = await this.requireRow(databaseId, id);
     const descriptor = this.requireProvider(row.providerSource);
-    const nextConfig = input.config ?? (row.config as Record<string, unknown>);
+    // #279 — a caller editing ordinary provider config (the only shape today's
+    // UI sends) carries the existing write_back setting forward untouched,
+    // rather than silently un-write-backing a source the moment anything else
+    // about it changes — the same "wholesale replace wipes a framework-owned
+    // key" trap #264 hit on views.config, applied here before it could repeat.
+    const existingWriteBack = (row.config as Record<string, unknown>)?.[WRITE_BACK_CONFIG_KEY] === true;
+    const nextConfig = input.config
+      ? {
+          ...input.config,
+          [WRITE_BACK_CONFIG_KEY]: Object.prototype.hasOwnProperty.call(input.config, WRITE_BACK_CONFIG_KEY)
+            ? input.config[WRITE_BACK_CONFIG_KEY] === true
+            : existingWriteBack,
+        }
+      : (row.config as Record<string, unknown>);
     if (input.config) {
-      const parsed = descriptor.configSchema.safeParse(nextConfig);
+      const { providerConfig } = splitWriteBack(nextConfig);
+      const parsed = descriptor.configSchema.safeParse(providerConfig);
       if (!parsed.success) throw new BadRequestException(`Invalid config for "${descriptor.id}": ${parsed.error.message}`);
     }
     const nextMapping = input.field_mapping ?? (row.fieldMapping as Record<string, string>);
