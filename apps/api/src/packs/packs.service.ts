@@ -538,8 +538,32 @@ export class PacksService {
       if (relation.from === source.name) relation.from = targetName;
       if (relation.to === source.name) relation.to = targetName;
     }
+    // #525 — this rename loop covered views/derived_fields/automations/
+    // sample_records/relations but missed states and triggers, so a database
+    // with a workflow-state select field bound to an agent trigger failed
+    // install() validation entirely ("a state/trigger refers to a database
+    // ... that the plan does not declare") before collision detection was
+    // even reached. `states` is a SEPARATE manifest section from `databases`
+    // — a select field used as a trigger's state gets pulled out of its
+    // database's plain field list into `states` (export()'s own comment on
+    // ADR-0010 §5), so it carries its own `database` name to rename.
+    for (const state of manifest.states) if (state.database === source.name) state.database = targetName;
+    for (const trigger of manifest.triggers) if (trigger.database === source.name) trigger.database = targetName;
 
-    const result = await this.install(membership, manifest);
+    // #525 — a duplicate's agent triggers name Agents that already exist in
+    // THIS SAME workspace by construction (the source database's own
+    // bindings, exported by name per exportAgents/#161's identity scheme).
+    // computeCollisions has no way to know that; it sees a live Agent with
+    // this name and — correctly, for a genuine external pack — calls it a
+    // collision requiring a person's decision. That decision isn't real
+    // here: ArchitectService.buildAgents already reuses an existing Agent by
+    // name (applyResolutions' 'reuse' branch for agents is a no-op that
+    // relies entirely on that), so every agent collision in a same-workspace
+    // duplicate is pre-resolved to 'reuse' rather than left to 409.
+    const agentResolutions: PackInstallResolutions = Object.fromEntries(
+      manifest.agents.map((a) => [a.name, { action: 'reuse' as const }]),
+    );
+    const result = await this.install(membership, manifest, agentResolutions);
 
     // #266.3 — a duplicate is not an installed pack; strip the provenance
     // `install()` always writes. Cascades to pack_install_items.

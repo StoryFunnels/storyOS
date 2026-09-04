@@ -258,3 +258,54 @@ describe('records: include_records copies rows with remapped values; default is 
     expect(copyRecords).toHaveLength(0);
   });
 });
+
+/**
+ * #525 — an agent trigger binding (what the UI groups under "Buttons &
+ * automations") names an Agent that, for a same-workspace duplicate, is BY
+ * CONSTRUCTION the same live Agent the source database already points at.
+ * The generic pack-collision machinery has no way to know that and used to
+ * 409, treating it exactly like an external pack colliding with an unrelated
+ * same-named Agent.
+ */
+describe('#525 — duplicating a database whose "Buttons & automations" reference an existing Agent', () => {
+  it('succeeds instead of 409ing, and reuses the SAME agent rather than duplicating it', async () => {
+    await as('POST', `/workspaces/${wsId}/agents/ensure`);
+    const agentsDbId = (await as('GET', `/workspaces/${wsId}/databases`))
+      .json()
+      .find((d: { name: string }) => d.name === 'Agents').id;
+    const agent = (
+      await as('POST', `/workspaces/${wsId}/databases/${agentsDbId}/records`, { values: { name: 'Triage Bot' } })
+    ).json();
+
+    const dbId = (await as('POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name: 'Issues' })).json().id;
+    const status = (
+      await as('POST', `/workspaces/${wsId}/databases/${dbId}/fields`, {
+        display_name: 'Status',
+        type: 'select',
+        options: [{ label: 'Triage' }, { label: 'Done' }],
+      })
+    ).json();
+    const triageOption = status.options.find((o: { label: string }) => o.label === 'Triage').id;
+
+    const trigger = await as('POST', `/workspaces/${wsId}/agents/triggers`, {
+      agent: agent.id,
+      database_id: dbId,
+      state_field_id: status.id,
+      state_option_id: triageOption,
+    });
+    expect(trigger.statusCode, `trigger create failed: ${trigger.body}`).toBe(201);
+
+    const dup = await as('POST', `/workspaces/${wsId}/databases/${dbId}/duplicate`, {});
+    expect(dup.statusCode, `duplicate must not 409: ${dup.body}`).toBeLessThan(300);
+
+    // Exactly one "Triage Bot" agent exists afterward — reused, not cloned.
+    const agentRecords = (await as('GET', `/workspaces/${wsId}/databases/${agentsDbId}/records`)).json().data;
+    expect(agentRecords.filter((r: { title: string }) => r.title === 'Triage Bot')).toHaveLength(1);
+  });
+
+  it('MUST KEEP WORKING: a database with no automations/agent references still duplicates cleanly (#266)', async () => {
+    const dbId = (await as('POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name: 'Plain' })).json().id;
+    const dup = await as('POST', `/workspaces/${wsId}/databases/${dbId}/duplicate`, {});
+    expect(dup.statusCode, dup.body).toBeLessThan(300);
+  });
+});
