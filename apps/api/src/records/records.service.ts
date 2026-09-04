@@ -30,6 +30,7 @@ import { DomainEventsService } from '../events/domain-events.service';
 import { MentionsService } from '../mentions/mentions.service';
 import { AbuseFlagsService } from '../abuse/abuse-flags.service';
 import { AccessService } from '../access/access.service';
+import { WatcherEmailService } from './watcher-email.service';
 import type { EffectiveRole } from '../access/access.service';
 import { notDeleted } from '../db/soft-delete';
 import type { Membership } from '../workspaces/workspace-access.guard';
@@ -85,6 +86,10 @@ export class RecordsService {
     private readonly entitlements: EntitlementsService,
     /** #469 — per-viewer database visibility for relation chips (attachLinks). */
     private readonly access: AccessService,
+    /** #273 — mails a watcher's record_changed notification; split out rather
+     *  than injecting EmailService/PreferencesService directly into an
+     *  already-large service (see watcher-email.service.ts's own doc). */
+    private readonly watcherEmail: WatcherEmailService,
   ) {}
 
   /**
@@ -2482,9 +2487,17 @@ export class RecordsService {
     // #236 — anyone WATCHING this record hears about ANY change (not only
     // assignees on a select change), carrying a "what changed" summary. Never
     // fails the write.
-    await this.notifyWatchers(workspaceId, databaseId, recordId, actorId, defs, before, merged, diff).catch(() =>
-      undefined,
-    );
+    await this.notifyWatchers(
+      workspaceId,
+      databaseId,
+      recordId,
+      actorId,
+      updated.title,
+      defs,
+      before,
+      merged,
+      diff,
+    ).catch(() => undefined);
     return this.project(updated, defs);
   }
 
@@ -2524,6 +2537,7 @@ export class RecordsService {
     databaseId: string,
     recordId: string,
     actorId: string,
+    recordTitle: string,
     defs: FieldDef[],
     before: Record<string, unknown>,
     after: Record<string, unknown>,
@@ -2545,6 +2559,17 @@ export class RecordsService {
       ),
       defs,
     );
+
+    // #273 — mailed alongside the in-app notify below; a separate lookup
+    // (mirrors `comments.service.ts`'s `notifyMentions`) rather than
+    // threading the actor's name through every `update()` call site.
+    const actor = await this.db.query.user.findFirst({
+      where: eq(user.id, actorId),
+      columns: { name: true },
+    });
+    await this.watcherEmail
+      .notify(workspaceId, recordId, recordTitle, actor?.name ?? null, summary, recipients)
+      .catch(() => undefined);
 
     await this.notificationsService.notify({
       workspaceId,

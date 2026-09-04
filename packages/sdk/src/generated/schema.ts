@@ -1025,6 +1025,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/users/me/avatar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Set my avatar (multipart field "file", png/jpeg/webp ≤1MB) */
+        post: operations["UsersController_upload"];
+        /** Remove my avatar (falls back to initials) */
+        delete: operations["UsersController_remove"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/{id}/avatar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Serve a user avatar (session required) */
+        get: operations["UsersController_serve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/me/preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** My preferences (defaults applied) */
+        get: operations["PreferencesController_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update my preferences (deep-merged) */
+        patch: operations["PreferencesController_update"];
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/relations": {
         parameters: {
             query?: never;
@@ -1325,59 +1378,6 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
-        trace?: never;
-    };
-    "/api/v1/users/me/avatar": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Set my avatar (multipart field "file", png/jpeg/webp ≤1MB) */
-        post: operations["UsersController_upload"];
-        /** Remove my avatar (falls back to initials) */
-        delete: operations["UsersController_remove"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/users/{id}/avatar": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Serve a user avatar (session required) */
-        get: operations["UsersController_serve"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/users/me/preferences": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** My preferences (defaults applied) */
-        get: operations["PreferencesController_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /** Update my preferences (deep-merged) */
-        patch: operations["PreferencesController_update"];
         trace?: never;
     };
     "/api/v1/workspaces/{ws}/databases/{db}/export/csv": {
@@ -4069,6 +4069,64 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        PreferencesPatchDto: {
+            notifications?: {
+                assigned?: boolean;
+                mentioned?: boolean;
+                commented?: boolean;
+                state_changed?: boolean;
+                record_changed?: boolean;
+            };
+            regional?: {
+                /** @enum {string} */
+                dateFormat?: "system" | "MDY" | "DMY" | "YMD";
+                /** @enum {string} */
+                timeFormat?: "system" | "12h" | "24h";
+                /** @enum {string} */
+                firstDayOfWeek?: "system" | "sunday" | "monday" | "saturday";
+            };
+            myWork?: {
+                [key: string]: {
+                    group_by_field_id?: string;
+                    color_by_field_id?: string;
+                    hidden_field_ids?: string[];
+                    filters?: {
+                        and: {
+                            field: string;
+                            op: string;
+                            value?: unknown;
+                            disabled?: boolean;
+                            pinned?: boolean;
+                            label?: string;
+                            icon?: string;
+                        }[];
+                    } | {
+                        or: {
+                            field: string;
+                            op: string;
+                            value?: unknown;
+                            disabled?: boolean;
+                            pinned?: boolean;
+                            label?: string;
+                            icon?: string;
+                        }[];
+                    };
+                    sorts?: {
+                        field: string;
+                        /** @enum {string} */
+                        direction: "asc" | "desc";
+                    }[];
+                    /** @enum {string} */
+                    sorts_nulls?: "first" | "last";
+                };
+            };
+            github?: {
+                login?: string | null;
+            };
+            activation?: {
+                dismissedWorkspaces?: string[];
+            };
+        };
         CreateRelationDto: {
             /** Format: uuid */
             database_a_id: string;
@@ -4625,62 +4683,6 @@ export interface components {
             config?: unknown;
             /** Format: uuid */
             folder_id?: string | null;
-        };
-        PreferencesPatchDto: {
-            notifications?: {
-                assigned?: boolean;
-                mentioned?: boolean;
-                commented?: boolean;
-            };
-            regional?: {
-                /** @enum {string} */
-                dateFormat?: "system" | "MDY" | "DMY" | "YMD";
-                /** @enum {string} */
-                timeFormat?: "system" | "12h" | "24h";
-                /** @enum {string} */
-                firstDayOfWeek?: "system" | "sunday" | "monday" | "saturday";
-            };
-            myWork?: {
-                [key: string]: {
-                    group_by_field_id?: string;
-                    color_by_field_id?: string;
-                    hidden_field_ids?: string[];
-                    filters?: {
-                        and: {
-                            field: string;
-                            op: string;
-                            value?: unknown;
-                            disabled?: boolean;
-                            pinned?: boolean;
-                            label?: string;
-                            icon?: string;
-                        }[];
-                    } | {
-                        or: {
-                            field: string;
-                            op: string;
-                            value?: unknown;
-                            disabled?: boolean;
-                            pinned?: boolean;
-                            label?: string;
-                            icon?: string;
-                        }[];
-                    };
-                    sorts?: {
-                        field: string;
-                        /** @enum {string} */
-                        direction: "asc" | "desc";
-                    }[];
-                    /** @enum {string} */
-                    sorts_nulls?: "first" | "last";
-                };
-            };
-            github?: {
-                login?: string | null;
-            };
-            activation?: {
-                dismissedWorkspaces?: string[];
-            };
         };
         CreateWebhookDto: {
             /** Format: uri */
@@ -7007,6 +7009,97 @@ export interface operations {
             };
         };
     };
+    UsersController_upload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    UsersController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    UsersController_serve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PreferencesController_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PreferencesController_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreferencesPatchDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     RelationsController_list: {
         parameters: {
             query: {
@@ -7648,97 +7741,6 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    UsersController_upload: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    UsersController_remove: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    UsersController_serve: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    PreferencesController_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    PreferencesController_update: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PreferencesPatchDto"];
-            };
-        };
         responses: {
             200: {
                 headers: {

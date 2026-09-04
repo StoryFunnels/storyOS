@@ -231,6 +231,40 @@ function renderMention(
   return { subject, text, html };
 }
 
+/** #273 — a watcher's `record_changed`, mailed. `summary` is `RecordsService.
+ *  renderChangeSummary`'s own "Field: a → b · …" string, possibly empty. */
+function renderRecordChanged(
+  actorName: string,
+  recordTitle: string,
+  summary: string,
+  url: string,
+): RenderedEmail {
+  const safeActor = escapeHtml(actorName);
+  const safeTitle = escapeHtml(recordTitle);
+  const safeSummary = escapeHtml(summary);
+  const subject = `${actorName} updated "${recordTitle}"`;
+  const text = [
+    `${actorName} updated "${recordTitle}"${summary ? `:\n\n${summary}` : '.'}`,
+    '',
+    `Open: ${url}`,
+  ].join('\n');
+  const html = renderBrandedEmail({
+    heading: `${safeActor} updated a record you're watching`,
+    preheader: `${safeActor} updated "${safeTitle}"`,
+    bodyHtml: `
+      <p style="margin: 0 0 12px;">Hi there,</p>
+      <p style="margin: 0 0 12px;"><strong>${safeActor}</strong> updated "<strong>${safeTitle}</strong>"${
+        summary
+          ? ':</p>' +
+            `<p class="eo-muted" style="margin: 0 0 12px; padding: 12px; background: ${LIGHT.pageBg}; border-radius: 8px; color: ${LIGHT.textMuted};">${safeSummary}</p>`
+          : '.</p>'
+      }
+    `,
+    cta: { label: 'Open the record', url },
+  });
+  return { subject, text, html };
+}
+
 function renderVerifyEmail(url: string): RenderedEmail {
   const subject = 'Confirm your email';
   const text = [
@@ -331,6 +365,8 @@ export function renderEmail(input: EmailInput): RenderedEmail {
       return renderInvite(input.role, input.acceptUrl, input.workspaceName);
     case 'mention':
       return renderMention(input.actorName, input.recordTitle, input.excerpt, input.url);
+    case 'record-changed':
+      return renderRecordChanged(input.actorName, input.recordTitle, input.summary, input.url);
     case 'verify-email':
       return renderVerifyEmail(input.url);
     case 'reset-password':

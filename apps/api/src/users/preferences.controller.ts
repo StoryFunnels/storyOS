@@ -11,6 +11,11 @@ const notificationTogglesSchema = z
     assigned: z.boolean(),
     mentioned: z.boolean(),
     commented: z.boolean(),
+    state_changed: z.boolean(),
+    // #273 — email opt-out for a watched record's `record_changed` notification;
+    // was already in UserPreferences/DEFAULT_PREFERENCES but never settable
+    // through this endpoint, so the toggle silently no-opped (dropped by zod).
+    record_changed: z.boolean(),
   })
   .partial();
 
