@@ -21,6 +21,12 @@ A view still belongs to its database, wherever you put it. Those are two differe
 to it"* is something people rearrange weekly. Moving a view around the sidebar never changes what
 it shows or who owns it, and deleting a database still takes its views with it wherever they sit.
 
+## Reordering spaces
+
+Drag a space by its row to move it up or down the sidebar's top level, the same drag-and-drop
+every other row in the sidebar uses. This is the space's own position, independent of what's
+inside it — reordering a space never touches the order of its databases, documents or folders.
+
 ## Moving things
 
 **Drag it.** Any of the three kinds, into a folder, out of one, or between folders.
