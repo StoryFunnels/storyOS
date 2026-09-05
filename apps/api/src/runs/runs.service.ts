@@ -137,6 +137,7 @@ export class RunsService {
         durationMs: automationRuns.durationMs,
         createdAt: automationRuns.createdAt,
         triggerRecordId: automationRuns.triggerRecordId,
+        selectionRank: automationRuns.selectionRank,
         ruleName: automations.name,
         trigger: automations.trigger,
         databaseId: automations.databaseId,
@@ -194,6 +195,9 @@ export class RunsService {
         error: r.error,
         started_at: r.createdAt.toISOString(),
         duration_ms: r.durationMs,
+        // #392 — this record's 1-based rank in its rule's top-N selection,
+        // null for every run that isn't a sorted scheduled selection.
+        selection_rank: r.selectionRank,
         action_summary: summaryByRun.get(r.id) ?? [],
       })),
       next_cursor:

@@ -15,6 +15,12 @@ import { SYSTEM_FIELDS, SYSTEM_FIELD_BY_API_NAME } from '@storyos/schemas/system
 // Type-only — erased at compile time, so unlike a value import this does NOT pull
 // the zod-bearing barrel into the bundle (see note above).
 import type { FilterOp } from '@storyos/schemas';
+// #392 — a plain number mirrored from packages/schemas/src/query.ts's own
+// AUTOMATION_TOP_N_LIMIT_CEILING, not imported: importing a VALUE (rather
+// than a type) from the zod-bearing @storyos/schemas barrel inlines the whole
+// module graph into this bundle and breaks the MCP Docker image (see this
+// file's own note by the @storyos/schemas/colors import below).
+const AUTOMATION_TOP_N_LIMIT_CEILING = 200;
 // Subpath, not the barrel (see note above) — colors.ts is pure data with no zod
 // import, but reaching it through the index would inline the whole zod-bearing
 // barrel and the mcp image would fail to boot. It did, on this branch, in CI.
@@ -6648,6 +6654,11 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         'TEMPLATE TOKENS usable in any templated field: {Field Name} for the triggering record · {linked.Field Name} for the record that ' +
         'was just linked/unlinked (record_linked triggers) · {changesSummary} renders "State: Urgent → Done" · {index} inside create_records. ' +
         'Field/relation/person names and select labels resolve server-side; describe_database first. ' +
+        'A `schedule` trigger only, ADDITIONALLY, can carry `sort`/`limit` to act on a TOP-N SET instead of every condition-matching ' +
+        'record — "top 5 by engagement" rather than "every post over some threshold". `sort` reuses query_records\' sort shape (field ' +
+        'api_name + direction, max 3 keys); ties break deterministically by record id. `limit` is capped — see this tool\'s limit ' +
+        'description for the ceiling. Rejected on every other trigger, since "top N" has no meaning for a rule firing on one record. ' +
+        'get_runs\' selection_rank on each run shows the leaderboard position that got a record selected. ' +
         'The API validates the whole rule and returns a structured error for any bad reference. Rules are enabled by default.',
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
@@ -6661,10 +6672,33 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .describe('Optional filter AST (same shape as query_records) — the rule only runs on records that match. Not allowed on webhook_received.'),
         enabled: z.boolean().optional().describe('Start enabled (default true).'),
         approver: z.string().optional().describe('User id who approves this rule\'s require_approval actions (defaults to the rule owner).'),
+        sort: z
+          .array(z.object({ field: z.string(), direction: z.enum(['asc', 'desc']) }))
+          .max(3)
+          .optional()
+          .describe('Schedule-only top-N ordering — sort keys by field api_name, same shape as query_records\' sorts. Rejected on any other trigger.'),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(AUTOMATION_TOP_N_LIMIT_CEILING)
+          .optional()
+          .describe(`Schedule-only top-N count, capped at ${AUTOMATION_TOP_N_LIMIT_CEILING}. Rejected on any other trigger.`),
       },
     },
-    handle<{ workspace: string; database: string; name: string; trigger: unknown; actions: unknown; condition?: unknown; enabled?: boolean; approver?: string }>(
-      async ({ workspace, database, name, trigger, actions, condition, enabled, approver }) => {
+    handle<{
+      workspace: string;
+      database: string;
+      name: string;
+      trigger: unknown;
+      actions: unknown;
+      condition?: unknown;
+      enabled?: boolean;
+      approver?: string;
+      sort?: Array<{ field: string; direction: 'asc' | 'desc' }>;
+      limit?: number;
+    }>(
+      async ({ workspace, database, name, trigger, actions, condition, enabled, approver, sort, limit }) => {
         const ws = await resolveWorkspace(client, workspace);
         const db = await resolveDatabase(client, ws.id, database);
         const detail = await getDetail(ws.id, db.id);
@@ -6678,6 +6712,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         if (condition !== undefined && condition !== null) body.condition = mapFilterValues(detail, condition);
         if (enabled !== undefined) body.enabled = enabled;
         if (approver !== undefined) body.approverId = approver;
+        if (sort !== undefined) body.sort = sort;
+        if (limit !== undefined) body.limit = limit;
         const row = await unwrap<AutomationRow>(
           client.POST('/api/v1/workspaces/{ws}/databases/{db}/automations', {
             params: { path: { ws: ws.id, db: db.id } },
@@ -6704,6 +6740,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         // rule created in the UI, because the write side dropped it. Say it is kept.
         'action\'s optional `condition`. Replacing a trigger replaces it WHOLE — read it with get_automation first and pass back ' +
         'the parts you want to keep (direction included), or they are dropped. Pass condition: null to clear a condition. ' +
+        'sort/limit (schedule-only top-N, see create_automation) — pass null to CLEAR either one; omit to leave unchanged. ' +
         'Re-validated the same way.',
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
@@ -6715,10 +6752,36 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         condition: z.any().optional().describe('Replacement filter AST, or null to clear it.'),
         enabled: z.boolean().optional().describe('Enable (true) or disable (false) the rule.'),
         approver: z.string().nullable().optional().describe('Approver user id, or null to revert to the rule owner.'),
+        sort: z
+          .array(z.object({ field: z.string(), direction: z.enum(['asc', 'desc']) }))
+          .max(3)
+          .nullable()
+          .optional()
+          .describe('Schedule-only top-N ordering (see create_automation), or null to clear it.'),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(AUTOMATION_TOP_N_LIMIT_CEILING)
+          .nullable()
+          .optional()
+          .describe('Schedule-only top-N count (see create_automation), or null to clear it.'),
       },
     },
-    handle<{ workspace: string; database: string; automation: string; name?: string; trigger?: unknown; actions?: unknown; condition?: unknown; enabled?: boolean; approver?: string | null }>(
-      async ({ workspace, database, automation, name, trigger, actions, condition, enabled, approver }) => {
+    handle<{
+      workspace: string;
+      database: string;
+      automation: string;
+      name?: string;
+      trigger?: unknown;
+      actions?: unknown;
+      condition?: unknown;
+      enabled?: boolean;
+      approver?: string | null;
+      sort?: Array<{ field: string; direction: 'asc' | 'desc' }> | null;
+      limit?: number | null;
+    }>(
+      async ({ workspace, database, automation, name, trigger, actions, condition, enabled, approver, sort, limit }) => {
         const ws = await resolveWorkspace(client, workspace);
         const db = await resolveDatabase(client, ws.id, database);
         const detail = await getDetail(ws.id, db.id);
@@ -6734,6 +6797,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           body.condition = condition === null ? null : mapFilterValues(detail, parseStructuredParam(condition, 'condition'));
         if (enabled !== undefined) body.enabled = enabled;
         if (approver !== undefined) body.approverId = approver;
+        if (sort !== undefined) body.sort = sort;
+        if (limit !== undefined) body.limit = limit;
         const row = await unwrap<AutomationRow>(
           client.PATCH('/api/v1/workspaces/{ws}/databases/{db}/automations/{id}', {
             params: { path: { ws: ws.id, db: db.id, id: automation } },

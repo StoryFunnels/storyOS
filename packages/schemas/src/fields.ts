@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { PALETTE } from './colors';
 import { webhookUrlSchema } from './webhooks';
-import { filterSchema } from './query';
+import { AUTOMATION_TOP_N_LIMIT_CEILING, filterSchema, sortSchema } from './query';
 
 /** Field types a user can create. title/system/relation types are managed elsewhere. */
 export const creatableFieldTypeSchema = z.enum([
@@ -530,27 +530,68 @@ export const automationTriggerSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('webhook_received') }),
 ]);
 
-export const createAutomationSchema = z.object({
-  name: z.string().trim().min(1).max(100),
-  trigger: automationTriggerSchema,
-  condition: z.unknown().optional(),
-  actions: z.array(actionSchema).min(1).max(10),
-  enabled: z.boolean().default(true),
-  /** MN-255: who approves a `require_approval` action this rule fires — a
-   * user id, defaulting to the rule's own creator (the "rule owner") when
-   * omitted. */
-  approverId: z.string().optional(),
-});
+/**
+ * #392 — a SCHEDULED rule's top-N selection: reuses the exact sort spec views
+ * and record queries already share (query.ts's sortSchema), so this is never
+ * a second ordering language. `limit` is optional independently of `sort` —
+ * "just cap it at N, whatever order they come in" is a legitimate (if odd)
+ * request — but `sort` without any real leaderboard use is equally legal;
+ * the pairing isn't enforced because neither half implies the other.
+ * Record-triggered rules don't get this at all: "top five" is meaningless
+ * for a rule that fires on one record, so both fields are rejected outside
+ * a `schedule` trigger (enforced here for a same-call trigger, and against
+ * the EFFECTIVE stored trigger in AutomationsService for a partial update
+ * that changes neither).
+ */
+export const automationSortSchema = z.array(sortSchema).max(3);
+export const automationLimitSchema = z.number().int().min(1).max(AUTOMATION_TOP_N_LIMIT_CEILING);
 
-export const updateAutomationSchema = z.object({
-  name: z.string().trim().min(1).max(100).optional(),
-  trigger: automationTriggerSchema.optional(),
-  condition: z.unknown().nullable().optional(),
-  actions: z.array(actionSchema).min(1).max(10).optional(),
-  enabled: z.boolean().optional(),
-  /** MN-255: nullable so a rule can revert to defaulting the rule owner. */
-  approverId: z.string().nullable().optional(),
-});
+export const createAutomationSchema = z
+  .object({
+    name: z.string().trim().min(1).max(100),
+    trigger: automationTriggerSchema,
+    condition: z.unknown().optional(),
+    actions: z.array(actionSchema).min(1).max(10),
+    enabled: z.boolean().default(true),
+    /** MN-255: who approves a `require_approval` action this rule fires — a
+     * user id, defaulting to the rule's own creator (the "rule owner") when
+     * omitted. */
+    approverId: z.string().optional(),
+    sort: automationSortSchema.optional(),
+    limit: automationLimitSchema.optional(),
+  })
+  .superRefine((val, ctx) => {
+    if (val.trigger.type !== 'schedule' && (val.sort || val.limit !== undefined)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['sort'],
+        message: 'sort/limit (top-N selection) are only available on a schedule trigger',
+      });
+    }
+  });
+
+export const updateAutomationSchema = z
+  .object({
+    name: z.string().trim().min(1).max(100).optional(),
+    trigger: automationTriggerSchema.optional(),
+    condition: z.unknown().nullable().optional(),
+    actions: z.array(actionSchema).min(1).max(10).optional(),
+    enabled: z.boolean().optional(),
+    /** MN-255: nullable so a rule can revert to defaulting the rule owner. */
+    approverId: z.string().nullable().optional(),
+    /** null clears a previously-set sort/limit; omit to leave unchanged. */
+    sort: automationSortSchema.nullable().optional(),
+    limit: automationLimitSchema.nullable().optional(),
+  })
+  .superRefine((val, ctx) => {
+    if (val.trigger && val.trigger.type !== 'schedule' && (val.sort || val.limit)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['sort'],
+        message: 'sort/limit (top-N selection) are only available on a schedule trigger',
+      });
+    }
+  });
 
 /**
  * #203 — the value a field prefills onto a NEW record, or `undefined` when it

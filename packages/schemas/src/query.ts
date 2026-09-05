@@ -154,6 +154,18 @@ export const sortSchema = z.object({
 });
 
 /**
+ * #392 — the hard ceiling on a scheduled automation's top-N `limit`, declared
+ * here (not in the automations service) so there is exactly one place to
+ * read it, same precedent as `sorts`' own `.max(3)` below. "Top 10,000" is
+ * not a way to make a rule act on effectively everything.
+ *
+ * MIRRORED (not imported) in packages/mcp/src/tools.ts as a plain literal —
+ * that file cannot import a VALUE from this zod-bearing package without
+ * breaking the MCP Docker bundle (see its own comment). Keep both in sync.
+ */
+export const AUTOMATION_TOP_N_LIMIT_CEILING = 200;
+
+/**
  * Whole-query control (MN-252 UI) for where NULL sort values land — applies
  * uniformly across every key in `sorts`, not per key (the UI exposes it as a
  * single "Empty values: Top / Bottom" toggle, not a per-row setting).

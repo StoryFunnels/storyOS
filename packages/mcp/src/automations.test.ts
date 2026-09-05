@@ -223,6 +223,44 @@ describe('annotate + readableAutomation (#334)', () => {
     expect(JSON.stringify(out)).not.toContain('whin_supersecret');
     expect(JSON.stringify(out)).not.toContain('lastHookPayload');
   });
+
+  it('#392 — surfaces sort/limit (schedule-only top-N) in the curated read shape', () => {
+    const row = {
+      id: 'r1',
+      name: 'Top 5',
+      enabled: true,
+      trigger: { type: 'schedule', every: 'day' },
+      condition: null,
+      actions: [],
+      failureStreak: 0,
+      nextDueAt: null,
+      createdBy: 'user-1',
+      hookToken: null,
+      sort: [{ field: 'engagement', direction: 'desc' as const }],
+      topNLimit: 5,
+    };
+    const out = readableAutomation(row, detail);
+    expect(out.sort).toEqual([{ field: 'engagement', direction: 'desc' }]);
+    expect(out.limit).toBe(5);
+  });
+
+  it('#392 — sort/limit both null for a rule that never set them', () => {
+    const row = {
+      id: 'r1',
+      name: 'Plain',
+      enabled: true,
+      trigger: { type: 'record_created' },
+      condition: null,
+      actions: [],
+      failureStreak: 0,
+      nextDueAt: null,
+      createdBy: 'user-1',
+      hookToken: null,
+    };
+    const out = readableAutomation(row, detail);
+    expect(out.sort).toBeNull();
+    expect(out.limit).toBeNull();
+  });
 });
 
 // ============ Integration: the real tool handlers over a fake API client ============
@@ -243,6 +281,8 @@ interface Row {
   nextDueAt: string | null;
   createdBy: string | null;
   hookToken: string | null;
+  sort?: unknown;
+  topNLimit?: number | null;
 }
 
 function makeCtx(store: Row[]) {
@@ -282,6 +322,8 @@ function makeCtx(store: Row[]) {
         nextDueAt: null,
         createdBy: 'user-1',
         hookToken: parsed.trigger.type === 'webhook_received' ? 'tok-xyz' : null,
+        sort: parsed.sort ?? null,
+        topNLimit: parsed.limit ?? null,
       };
       store.push(row);
       return { data: row };
@@ -433,6 +475,44 @@ describe('automation tools end-to-end (#334)', () => {
     });
     expect(res.isError).toBeFalsy();
     expect(store[0]!.trigger).toMatchObject({ type: 'schedule', every: 'week' });
+  });
+
+  it('#392 — create_automation supports sort+limit (top-N) on a schedule trigger', async () => {
+    const store: Row[] = [];
+    const { server, handlers } = fakeServer();
+    registerTools(server, makeCtx(store));
+    const { res, json } = await call(handlers, 'create_automation', {
+      workspace: 'Eng',
+      database: 'eng/issues',
+      name: 'Promote the winners',
+      trigger: { type: 'schedule', every: 'day', at: '09:00' },
+      sort: [{ field: 'engagement', direction: 'desc' }],
+      limit: 5,
+      actions: [{ type: 'add_comment', body_template: 'Top performer!' }],
+    });
+    expect(res.isError).toBeFalsy();
+    expect(store[0]!.sort).toEqual([{ field: 'engagement', direction: 'desc' }]);
+    expect(store[0]!.topNLimit).toBe(5);
+    const out = json();
+    expect(out.sort).toEqual([{ field: 'engagement', direction: 'desc' }]);
+    expect(out.limit).toBe(5);
+  });
+
+  it('#392 — sort/limit are rejected on a non-schedule trigger, surfaced as isError not a throw', async () => {
+    const store: Row[] = [];
+    const { server, handlers } = fakeServer();
+    registerTools(server, makeCtx(store));
+    const { res } = await call(handlers, 'create_automation', {
+      workspace: 'Eng',
+      database: 'eng/issues',
+      name: 'Invalid top-N',
+      trigger: { type: 'record_created' },
+      sort: [{ field: 'engagement', direction: 'desc' }],
+      limit: 5,
+      actions: [{ type: 'add_comment', body_template: 'x' }],
+    });
+    expect(res.isError).toBe(true);
+    expect(store).toHaveLength(0);
   });
 
   it('surfaces an invalid field reference as a structured isError, not a throw/500', async () => {
