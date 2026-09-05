@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
-import { API_URL } from '@/lib/api';
+import { SERVER_API_URL } from '@/lib/api';
 
 /**
  * Public, pre-signup Business Pack preview (#272).
@@ -35,7 +35,12 @@ interface PackPublicPreview {
 }
 
 async function getPack(slug: string): Promise<PackPublicPreview | null> {
-  const res = await fetch(`${API_URL}/api/v1/public/packs/registry/${encodeURIComponent(slug)}`, {
+  // #566 — drive-by: this was API_URL (the client-facing var), which is ''
+  // in a same-origin docker deploy. That's fine for the browser (resolved
+  // relative to the page) but a server-side fetch from this Node process has
+  // no page to resolve against and would throw. SERVER_API_URL is always an
+  // absolute, container-reachable address.
+  const res = await fetch(`${SERVER_API_URL}/api/v1/public/packs/registry/${encodeURIComponent(slug)}`, {
     cache: 'no-store',
   });
   if (!res.ok) return null;
