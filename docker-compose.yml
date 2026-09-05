@@ -122,6 +122,17 @@ services:
       # Also exposed at runtime for server-side capture (posthog-node).
       NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN: ${NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN:-}
       NEXT_PUBLIC_POSTHOG_HOST: ${NEXT_PUBLIC_POSTHOG_HOST:-https://us.i.posthog.com}
+      # #566 — the public origin, for next/metadata's metadataBase (og:image/
+      # twitter:image on every page; a shared /v/[token] link is the first
+      # page whose whole purpose is to be unfurled, which is what turned this
+      # long-standing gap into a real defect).
+      WEB_URL: ${WEB_URL:-http://localhost:3000}
+      # #566 — a server-side (Node) fetch from inside THIS container to the api
+      # service, e.g. generateMetadata resolving a public view's token. Always
+      # the compose-internal address, regardless of API_URL/NEXT_PUBLIC_API_URL
+      # (same-origin's '' is relative and only resolvable by a BROWSER) —
+      # mirrors the mcp service's own STORYOS_URL default below.
+      API_INTERNAL_URL: ${API_INTERNAL_URL:-http://api:3001}
     depends_on:
       - api
 

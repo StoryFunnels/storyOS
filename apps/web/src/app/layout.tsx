@@ -13,6 +13,12 @@ const figtree = Figtree({
 });
 
 export const metadata: Metadata = {
+  // #566 — unset before this meant Next fell back to 'http://localhost:3000'
+  // for resolving og:image/twitter:image on EVERY page, so a shared link's
+  // unfurl preview pointed at the reader's own machine. `WEB_URL` is the
+  // existing public-origin var (docker-compose.yml), already passed to the
+  // mcp service for the same reason — reused here, not a second source of truth.
+  metadataBase: new URL(process.env.WEB_URL ?? 'http://localhost:3000'),
   title: { default: 'StoryOS — the open-source work OS', template: '%s · StoryOS' },
   description:
     'Open-source, self-hostable work OS: user-defined relational databases, boards, calendars, automations and formulas. Free forever.',
