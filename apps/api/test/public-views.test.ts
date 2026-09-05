@@ -298,3 +298,31 @@ describe('MUST KEEP WORKING: an unpublished view is unaffected for signed-in use
     expect(before.views[0].config.share).toBeUndefined();
   });
 });
+
+describe('#559 — the authenticated database GET reflects a just-published view\'s share config', () => {
+  it('GET .../databases/:db immediately shows config.share.public_token matching what share() returned — no stale read', async () => {
+    const dbId = (await as('POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name: 'Reflects Share' })).json().id;
+    const dbDetail = await (await as('GET', `/workspaces/${wsId}/databases/${dbId}`)).json();
+    const viewId = dbDetail.views[0].id;
+
+    const share = await as('POST', `/workspaces/${wsId}/databases/${dbId}/views/${viewId}/share`, { indexable: true });
+    expect(share.statusCode, share.body).toBeLessThan(300);
+    const token = share.json().token;
+    expect(token).toBeTruthy();
+
+    // The exact gap: cleanViewConfig() (called from GET .../databases/:db)
+    // rebuilds config key-by-key and had never listed `share`, so this came
+    // back undefined even though the row itself (and the public page) were
+    // both already correct.
+    const after = await (await as('GET', `/workspaces/${wsId}/databases/${dbId}`)).json();
+    const view = after.views.find((v: { id: string }) => v.id === viewId);
+    expect(view.config.share).toBeDefined();
+    expect(view.config.share.public_token).toBe(token);
+    expect(view.config.share.indexable).toBe(true);
+
+    // Unshare must be reflected immediately too — no stale "still published" read.
+    await as('DELETE', `/workspaces/${wsId}/databases/${dbId}/views/${viewId}/share`);
+    const afterUnshare = await (await as('GET', `/workspaces/${wsId}/databases/${dbId}`)).json();
+    expect(afterUnshare.views.find((v: { id: string }) => v.id === viewId).config.share).toBeUndefined();
+  });
+});

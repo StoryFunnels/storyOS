@@ -464,4 +464,26 @@ describe('cleanViewConfig — no schema key is silently dropped on read', () => 
     const dropped = idKeys.filter((k) => out[k] !== LIVE);
     expect(dropped, `cleanViewConfig dropped these live keys: ${dropped.join(', ')}`).toEqual([]);
   });
+
+  /**
+   * #559 — the id-key guard above didn't (and still doesn't, by design — these
+   * aren't *_field_id keys) cover `form`/`share`, which is exactly how `share`
+   * fell into this same trap unnoticed: it was added to viewConfigSchema after
+   * cleanViewConfig's explicit key list was written, and the id-key guard's own
+   * list never claimed to cover it. A second, narrower guard for the "opaque
+   * object minted by its own write path" keys, so the NEXT one of these doesn't
+   * repeat the gap either.
+   */
+  it('round-trips opaque, write-path-owned object keys (form, share) verbatim', () => {
+    const opaqueKeys = ['form', 'share'] as const;
+    const config = { ...BASE, filters: undefined } as unknown as Record<string, unknown>;
+    for (const k of opaqueKeys) config[k] = { marker: k };
+
+    const out = cleanViewConfig(config as unknown as ViewConfig, new Set(), new Set()) as unknown as Record<
+      string,
+      unknown
+    >;
+    const dropped = opaqueKeys.filter((k) => JSON.stringify(out[k]) !== JSON.stringify({ marker: k }));
+    expect(dropped, `cleanViewConfig dropped these keys: ${dropped.join(', ')}`).toEqual([]);
+  });
 });
