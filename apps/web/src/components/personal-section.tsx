@@ -339,130 +339,140 @@ export function PersonalSection({ ws }: { ws: string }) {
     return () => clearTimeout(t);
   }, [pendingViewDialog]);
 
+  const newMenu = (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button type="button" title="New…" className="rounded p-0.5 text-faint hover:bg-hover hover:text-muted">
+          <Plus className="h-3.5 w-3.5" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        <DropdownMenuItem disabled={!canCreateDoc} onSelect={() => createDoc.mutate()}>
+          <FileText className="mr-2 h-3.5 w-3.5" /> New document
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => setPendingViewDialog(true)}>
+          <Table2 className="mr-2 h-3.5 w-3.5" /> New view…
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
+  const newViewDialog = (
+    <NewPersonalViewDialog
+      ws={ws}
+      open={viewDialogOpen}
+      onOpenChange={setViewDialogOpen}
+      onCreate={(databaseId, name, type) => createView.mutate({ databaseId, name, type })}
+    />
+  );
+
+  /**
+   * #570 — the empty state used to be a permanent card: the privacy
+   * paragraph, "Nothing here yet" copy, and two full create buttons,
+   * rendered every time for a feature most workspaces haven't touched yet.
+   * Mira's recommendation (approved by Ievgen, ticket #570): collapse to the
+   * SAME compact "label + New…" row the non-empty header already uses, with
+   * the privacy sentence moved to a hover tooltip (still "at the point of
+   * use" per the ADR, just not permanently rendered) instead of a standing
+   * paragraph. Reclaims ~6 rows for the Spaces tree below it.
+   */
+  if (isEmpty) {
+    return (
+      <div className="mb-2">
+        <div
+          className="flex items-center justify-between rounded px-2 py-[3px] hover:bg-hover"
+          title="Only you can see this. If your account is removed, this content is deleted with it."
+        >
+          <span className="flex items-center gap-2 text-[13px] text-ink-secondary">
+            <Lock className="h-3.5 w-3.5 text-faint" />
+            Personal
+          </span>
+          {newMenu}
+        </div>
+        {newViewDialog}
+      </div>
+    );
+  }
+
   return (
     <div className="mb-2">
       <div className="mb-0.5 flex items-center justify-between px-2">
         <span className="text-[11px] font-semibold uppercase tracking-wider text-faint">Personal</span>
-        {!isEmpty && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                title="New…"
-                className="rounded p-0.5 text-faint hover:bg-hover hover:text-muted"
-              >
-                <Plus className="h-3.5 w-3.5" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
-              <DropdownMenuItem disabled={!canCreateDoc} onSelect={() => createDoc.mutate()}>
-                <FileText className="mr-2 h-3.5 w-3.5" /> New document
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => setPendingViewDialog(true)}>
-                <Table2 className="mr-2 h-3.5 w-3.5" /> New view…
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
+        {newMenu}
       </div>
       {/*
         #292 / docs/architecture/personal-space.md §1 — "say so at the point of
         use", verbatim. The ADR calls a wording drift here a support incident,
         so this sentence must change in the same PR as the ADR if it ever needs
-        to change at all, not independently.
+        to change at all, not independently. #570 only removed this paragraph
+        from the EMPTY state (moved to a tooltip there) — once there's real
+        content the section isn't a chrome-heavy card anymore, so the standing
+        sentence stays here unchanged.
       */}
       <p className="mb-1.5 flex items-start gap-1 px-2 text-[11px] leading-snug text-faint">
         <Lock className="mt-0.5 h-3 w-3 shrink-0" />
         <span>Only you can see this. If your account is removed, this content is deleted with it.</span>
       </p>
-      {isEmpty ? (
-        <div className="px-2 pb-1">
-          <p className="mb-1.5 text-[12px] text-muted">Nothing here yet — draft a doc or a view only you can see.</p>
-          <div className="flex flex-col items-start gap-1">
-            <button
-              type="button"
-              onClick={() => createDoc.mutate()}
-              disabled={!canCreateDoc}
-              className="flex items-center gap-1.5 rounded px-1.5 py-1 text-[12px] text-muted hover:bg-hover hover:text-ink disabled:opacity-40"
-            >
-              <Plus className="h-3.5 w-3.5" /> New document
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewDialogOpen(true)}
-              className="flex items-center gap-1.5 rounded px-1.5 py-1 text-[12px] text-muted hover:bg-hover hover:text-ink"
-            >
-              <Table2 className="h-3.5 w-3.5" /> New view…
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-0.5">
-          {docItems.map((doc) => (
-            <SidebarRow key={doc.id} depth={1}>
-              <Link href={`/w/${ws}/doc/${doc.id}`} className="flex min-w-0 flex-1 items-center gap-2 text-ink-secondary">
-                <FileText className="h-3.5 w-3.5 shrink-0 text-faint" />
-                <span className="truncate">{doc.title || 'Untitled'}</span>
+      <div className="flex flex-col gap-0.5">
+        {docItems.map((doc) => (
+          <SidebarRow key={doc.id} depth={1}>
+            <Link href={`/w/${ws}/doc/${doc.id}`} className="flex min-w-0 flex-1 items-center gap-2 text-ink-secondary">
+              <FileText className="h-3.5 w-3.5 shrink-0 text-faint" />
+              <span className="truncate">{doc.title || 'Untitled'}</span>
+            </Link>
+            <SidebarRowMenu
+              label={doc.title || 'Untitled'}
+              actions={[
+                {
+                  label: 'Delete',
+                  danger: true,
+                  onSelect: async () => {
+                    const ok = await confirm({
+                      title: `Delete "${doc.title || 'Untitled'}"?`,
+                      confirmLabel: 'Delete',
+                      danger: true,
+                    });
+                    if (ok) deleteDoc.mutate(doc.id);
+                  },
+                },
+              ]}
+            />
+          </SidebarRow>
+        ))}
+        {viewItems.map((v) => {
+          const Icon = VIEW_ICON[v.type as keyof typeof VIEW_ICON] ?? Table2;
+          return (
+            <SidebarRow key={v.id} depth={1}>
+              <Link
+                href={`/w/${ws}/d/${v.database_id}?view=${v.id}`}
+                className="flex min-w-0 flex-1 items-center gap-2 text-ink-secondary"
+              >
+                <Icon className="h-3.5 w-3.5 shrink-0 text-faint" />
+                <span className="truncate">{v.name}</span>
+                {v.database_name && <span className="shrink-0 truncate text-[11px] text-faint">· {v.database_name}</span>}
               </Link>
               <SidebarRowMenu
-                label={doc.title || 'Untitled'}
+                label={v.name}
                 actions={[
                   {
                     label: 'Delete',
                     danger: true,
                     onSelect: async () => {
                       const ok = await confirm({
-                        title: `Delete "${doc.title || 'Untitled'}"?`,
+                        title: `Delete "${v.name}"?`,
                         confirmLabel: 'Delete',
                         danger: true,
                       });
-                      if (ok) deleteDoc.mutate(doc.id);
+                      if (ok) deleteView.mutate(v);
                     },
                   },
                 ]}
               />
             </SidebarRow>
-          ))}
-          {viewItems.map((v) => {
-            const Icon = VIEW_ICON[v.type as keyof typeof VIEW_ICON] ?? Table2;
-            return (
-              <SidebarRow key={v.id} depth={1}>
-                <Link
-                  href={`/w/${ws}/d/${v.database_id}?view=${v.id}`}
-                  className="flex min-w-0 flex-1 items-center gap-2 text-ink-secondary"
-                >
-                  <Icon className="h-3.5 w-3.5 shrink-0 text-faint" />
-                  <span className="truncate">{v.name}</span>
-                  {v.database_name && <span className="shrink-0 truncate text-[11px] text-faint">· {v.database_name}</span>}
-                </Link>
-                <SidebarRowMenu
-                  label={v.name}
-                  actions={[
-                    {
-                      label: 'Delete',
-                      danger: true,
-                      onSelect: async () => {
-                        const ok = await confirm({
-                          title: `Delete "${v.name}"?`,
-                          confirmLabel: 'Delete',
-                          danger: true,
-                        });
-                        if (ok) deleteView.mutate(v);
-                      },
-                    },
-                  ]}
-                />
-              </SidebarRow>
-            );
-          })}
-        </div>
-      )}
-      <NewPersonalViewDialog
-        ws={ws}
-        open={viewDialogOpen}
-        onOpenChange={setViewDialogOpen}
-        onCreate={(databaseId, name, type) => createView.mutate({ databaseId, name, type })}
-      />
+          );
+        })}
+      </div>
+      {newViewDialog}
     </div>
   );
 }
