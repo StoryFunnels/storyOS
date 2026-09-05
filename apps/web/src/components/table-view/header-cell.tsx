@@ -82,6 +82,14 @@ export function HeaderCell({
   const startRef = useRef<{ x: number; width: number } | null>(null);
   const [dialog, setDialog] = useState<'edit' | 'change-type' | null>(null);
   const deleteField = useDeleteField({ ws, db, field, onDone: () => setDialog(null) });
+  // #492 — this used to gate the WHOLE menu's visibility, conflating two
+  // different questions: "can I run destructive schema ops on this field"
+  // (still exactly this) and "does this column get a menu at all" (now
+  // `hasMenu`, below the per-item flags it depends on). A system field
+  // answers the first "no" and the second "yes, a reduced one" — the same
+  // shape `canConfigureTitle` already gives the title field, generalised
+  // rather than copied a third time (the drift this codebase has shipped at
+  // least six times: #375/#380/#383/#399/#408/#422).
   const canManage = !readOnly && field.type !== 'title' && !field.isSystem;
   // MN-131: the title field isn't a normal managed field (no delete/change-type),
   // but its name mode (free text ⇆ computed) is configured through the same edit
@@ -137,6 +145,17 @@ export function HeaderCell({
   const canSort = Boolean(
     config && onPatch && SORTABLE.has(field.type) && isSortableFormula(field, byApiName),
   );
+  // #492 — the trigger's own visibility: canManage (destructive ops) OR any of
+  // the already-independently-gated safe items. For an ordinary field this is
+  // identical to `canManage` alone (canFilter/canSort/canHide are never the
+  // ONLY true one there in practice, but even if they were, canManage is
+  // already true so the OR is a no-op) — the only field type this actually
+  // changes is `isSystem`, which is exactly this ticket's scope. readOnly
+  // still hides the menu entirely for every field, unchanged: canManage
+  // requires !readOnly, and canFilter/canSort/canHide are independent of
+  // readOnly today (a view-level permission, not a schema one) — same as
+  // before this change, not something this ticket alters.
+  const hasMenu = canManage || canFilter || canSort || canHide;
   const currentSort = config?.sorts.find((s) => s.field === field.apiName);
   const sortLabel = !currentSort
     ? 'Sort by this field'
@@ -238,7 +257,7 @@ export function HeaderCell({
           {pinned ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}
         </button>
       )}
-      {canManage && (
+      {hasMenu && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
@@ -252,8 +271,12 @@ export function HeaderCell({
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent>
-            <DropdownMenuItem onSelect={() => setDialog('edit')}>Edit field</DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => setDialog('change-type')}>Change type</DropdownMenuItem>
+            {/* #492 — Edit/Change-type/Delete are the three destructive schema
+                ops a system field genuinely must not offer (read_only per
+                system-fields.ts) — gated on canManage individually now, not by
+                the whole menu's presence. */}
+            {canManage && <DropdownMenuItem onSelect={() => setDialog('edit')}>Edit field</DropdownMenuItem>}
+            {canManage && <DropdownMenuItem onSelect={() => setDialog('change-type')}>Change type</DropdownMenuItem>}
             {field.type === 'relation' && onAddLookup && (
               <DropdownMenuItem onSelect={() => onAddLookup(field.id)}>Add field from linked records</DropdownMenuItem>
             )}
@@ -277,9 +300,11 @@ export function HeaderCell({
                 <EyeOff className="mr-2 h-3.5 w-3.5" /> Hide field
               </DropdownMenuItem>
             )}
-            <DropdownMenuItem className="text-error" onSelect={() => deleteField.mutate()}>
-              Delete field
-            </DropdownMenuItem>
+            {canManage && (
+              <DropdownMenuItem className="text-error" onSelect={() => deleteField.mutate()}>
+                Delete field
+              </DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       )}
