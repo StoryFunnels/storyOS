@@ -3246,39 +3246,7 @@ export class RecordsService {
     // database with its own `number` field) always wins and is never shadowed.
     for (const def of systemFieldDefsFor(byApiName.keys())) byApiName.set(def.api_name, def);
     const nullsFirst = input.nulls === 'first';
-
-    const SORTABLE = new Set([
-      'id', 'title', 'text', 'number', 'date', 'url', 'email', 'select', 'workflow',
-      // MN-267: rollup is now materialized too (recomputeRollupsForRelationField,
-      // invalidated via RollupInvalidationSubscriber on the related record's
-      // change or the relation's own link-set change) — reuses computed_values/
-      // fieldExpr()/the keyset cursor exactly like formula does (MN-260).
-      // #351: updated_by joins created_at/updated_at/created_by as a sortable
-      // system column (records.updated_by), via the registry-driven overlay above.
-      'checkbox', 'created_at', 'updated_at', 'created_by', 'updated_by', 'user', 'formula', 'rollup',
-    ]);
-    const sorts: SortSpec[] = input.sorts.map((s) => {
-      const def = byApiName.get(s.field);
-      if (!def) throw new UnprocessableEntityException(`unknown sort field "${s.field}"`);
-      if (!SORTABLE.has(def.type) || (def.type === 'user' && def.config['multi'] === true)) {
-        throw new UnprocessableEntityException(`cannot sort by ${def.type} field "${s.field}"`);
-      }
-      // MN-260/MN-267: a formula is only sortable if its materialized value can
-      // be trusted — i.e. it never (transitively) reaches a `lookup` field.
-      // `rollup` is no longer excluded here (see formulaDependsOnlyOnOwnRecord's
-      // doc comment) — it has real invalidation plumbing now, same as a formula
-      // referencing another formula.
-      // #300: first/last rollups are materialized and invalidated now, so the
-      // #286 refusal here is gone. The refusal was correct while the premise
-      // held — sorting by a value that was never stored orders the page by null
-      // and reads as a sort that was ignored.
-      if (def.type === 'formula' && !formulaDependsOnlyOnOwnRecord(def, byApiName)) {
-        throw new UnprocessableEntityException(
-          `cannot sort by formula field "${s.field}" — it depends on a related record (through a lookup), which isn't materialized yet`,
-        );
-      }
-      return { def, direction: s.direction };
-    });
+    const sorts: SortSpec[] = validateSorts(input.sorts, byApiName);
 
     const conditions: unknown[] = [eq(records.databaseId, databaseId), isNull(records.deletedAt)];
     if (input.q) conditions.push(sql`${records.title} ILIKE ${'%' + input.q + '%'}`);
@@ -3434,6 +3402,59 @@ function orderFormulasByDependency(formulaDefs: FieldDef[]): FieldDef[] {
  * formulas, and now through rollups too) and excludes it from
  * materialization/SORTABLE only if it ever reaches a lookup.
  */
+/**
+ * #392 — every field type query()'s sort accepts. Extracted to module scope
+ * (was a local inside query()) so validateSorts() below is the ONE place a
+ * sort spec is validated — a scheduled automation's top-N selection (#392)
+ * reuses this exact function rather than a second, drifting copy of the same
+ * rules (#375/#380/#383/#399/#408/#422's pattern).
+ */
+const SORTABLE_FIELD_TYPES = new Set([
+  'id', 'title', 'text', 'number', 'date', 'url', 'email', 'select', 'workflow',
+  // MN-267: rollup is now materialized too (recomputeRollupsForRelationField,
+  // invalidated via RollupInvalidationSubscriber on the related record's
+  // change or the relation's own link-set change) — reuses computed_values/
+  // fieldExpr()/the keyset cursor exactly like formula does (MN-260).
+  // #351: updated_by joins created_at/updated_at/created_by as a sortable
+  // system column (records.updated_by), via the registry-driven overlay above.
+  'checkbox', 'created_at', 'updated_at', 'created_by', 'updated_by', 'user', 'formula', 'rollup',
+]);
+
+/**
+ * Validate a caller's sort spec against a database's real fields, exactly as
+ * query() has always done, and resolve each to its FieldDef (#392). Throws
+ * UnprocessableEntityException naming the offending field — never a silent
+ * reorder or a silent drop, whether the caller is a saved view's query() or a
+ * scheduled automation's top-N selection.
+ */
+export function validateSorts(
+  sorts: Array<{ field: string; direction: 'asc' | 'desc' }>,
+  byApiName: Map<string, FieldDef>,
+): SortSpec[] {
+  return sorts.map((s) => {
+    const def = byApiName.get(s.field);
+    if (!def) throw new UnprocessableEntityException(`unknown sort field "${s.field}"`);
+    if (!SORTABLE_FIELD_TYPES.has(def.type) || (def.type === 'user' && def.config['multi'] === true)) {
+      throw new UnprocessableEntityException(`cannot sort by ${def.type} field "${s.field}"`);
+    }
+    // MN-260/MN-267: a formula is only sortable if its materialized value can
+    // be trusted — i.e. it never (transitively) reaches a `lookup` field.
+    // `rollup` is no longer excluded here (see formulaDependsOnlyOnOwnRecord's
+    // doc comment) — it has real invalidation plumbing now, same as a formula
+    // referencing another formula.
+    // #300: first/last rollups are materialized and invalidated now, so the
+    // #286 refusal here is gone. The refusal was correct while the premise
+    // held — sorting by a value that was never stored orders the page by null
+    // and reads as a sort that was ignored.
+    if (def.type === 'formula' && !formulaDependsOnlyOnOwnRecord(def, byApiName)) {
+      throw new UnprocessableEntityException(
+        `cannot sort by formula field "${s.field}" — it depends on a related record (through a lookup), which isn't materialized yet`,
+      );
+    }
+    return { def, direction: s.direction };
+  });
+}
+
 function formulaDependsOnlyOnOwnRecord(def: FieldDef, byApiName: Map<string, FieldDef>): boolean {
   const visited = new Set<string>();
   const walk = (ast: FormulaNode): boolean => {

@@ -750,6 +750,16 @@ export const automations = pgTable(
      * Defaults to `createdBy` (the rule owner) when null — see
      * ApprovalsService.approverFor(). */
     approverId: text('approver_id'),
+    /**
+     * #392 — a SCHEDULED rule's optional top-N selection: `sort` mirrors
+     * query.ts's sortSchema (`{field, direction}[]`, max 3), `topNLimit` its
+     * hard-ceiling-checked count. Both null for every rule that predates this
+     * (and for every non-schedule trigger, enforced at the service layer) —
+     * tickInner() falls back to its original unsorted `.limit(500)` exactly
+     * when both are null, so an existing rule's selection is unchanged.
+     */
+    sort: jsonb('sort'),
+    topNLimit: integer('top_n_limit'),
     ...timestamps,
   },
   (t) => [index('automations_database_idx').on(t.databaseId, t.enabled)],
@@ -777,6 +787,12 @@ export const automationRuns = pgTable(
     effects: jsonb('effects'),
     depth: integer('depth').notNull().default(0),
     durationMs: integer('duration_ms'),
+    /** #392 — this record's 1-based rank in its rule's top-N selection this
+     * tick (null for every run that isn't a sorted scheduled selection) —
+     * "why did it pick those" answered directly on the run row rather than
+     * requiring a re-derivation from the rule's current (possibly since-
+     * changed) sort spec. */
+    selectionRank: integer('selection_rank'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

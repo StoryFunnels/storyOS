@@ -223,6 +223,190 @@ describe('automations (MN-047)', () => {
   });
 });
 
+describe('#392 — scheduled rules can carry a sort + limit (top-N leaderboard)', () => {
+  let leaderDbId: string;
+  let engagementApi: string;
+
+  async function forceDueAndTick(ruleId: string) {
+    const { connectTestDb } = await import('./helpers/db');
+    const { db, pool } = connectTestDb();
+    const { automations } = await import('../src/db/schema');
+    const { eq } = await import('drizzle-orm');
+    await db.update(automations).set({ nextDueAt: new Date(Date.now() - 1000) }).where(eq(automations.id, ruleId));
+    await engine.tick();
+    await pool.end();
+  }
+
+  beforeAll(async () => {
+    leaderDbId = (await inject('POST', `/workspaces/${wsId}/databases`, {
+      space_id: (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id,
+      name: 'Leaderboard',
+    })).json().id;
+    const engagement = (await inject('POST', `/workspaces/${wsId}/databases/${leaderDbId}/fields`, {
+      display_name: 'Engagement', type: 'number', config: {},
+    })).json();
+    engagementApi = engagement.apiName;
+  });
+
+  it('a top-N rule comments on exactly the N highest-engagement records, ranked in order', async () => {
+    for (const engagement of [10, 90, 40, 90, 20]) {
+      await inject('POST', `/workspaces/${wsId}/databases/${leaderDbId}/records`, {
+        values: { name: `Post ${engagement}`, [engagementApi]: engagement },
+      });
+    }
+    const rule = (await inject('POST', `/workspaces/${wsId}/databases/${leaderDbId}/automations`, {
+      name: 'Promote the winners',
+      trigger: { type: 'schedule', every: 'day', at: '09:00' },
+      sort: [{ field: engagementApi, direction: 'desc' }],
+      limit: 3,
+      actions: [{ type: 'add_comment', body_template: 'Top performer!' }],
+    })).json();
+
+    await forceDueAndTick(rule.id);
+
+    const runs = (await inject('GET', `/workspaces/${wsId}/databases/${leaderDbId}/automations/${rule.id}/runs`)).json();
+    const okRuns = runs.data.filter((r: { status: string }) => r.status === 'ok');
+    expect(okRuns).toHaveLength(3); // exactly the limit, not every matching record
+    // Ranks are exactly 1..3, one each — "why did it pick those" answered directly.
+    expect(okRuns.map((r: { selectionRank: number }) => r.selectionRank).sort()).toEqual([1, 2, 3]);
+
+    const records = (await inject('GET', `/workspaces/${wsId}/databases/${leaderDbId}/records?limit=200`)).json().data;
+    for (const record of records) {
+      const comments = (
+        await inject('GET', `/workspaces/${wsId}/databases/${leaderDbId}/records/${record.id}/comments`)
+      ).json().data;
+      const shouldHaveWon = record.values[engagementApi] >= 40; // the top 3 of [10,90,40,90,20]
+      expect(comments.length > 0, `${record.title} (engagement ${record.values[engagementApi]})`).toBe(shouldHaveWon);
+    }
+  });
+
+  it('ties resolve deterministically by record id, and re-running picks the SAME records', async () => {
+    const tiedDb = (await inject('POST', `/workspaces/${wsId}/databases`, {
+      space_id: (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id,
+      name: 'Tied',
+    })).json().id;
+    const field = (await inject('POST', `/workspaces/${wsId}/databases/${tiedDb}/fields`, {
+      display_name: 'Score', type: 'number', config: {},
+    })).json();
+    // Six records tied for the top spot — "top 5" must pick exactly 5, deterministically.
+    for (let i = 0; i < 6; i++) {
+      await inject('POST', `/workspaces/${wsId}/databases/${tiedDb}/records`, {
+        values: { name: `Tied ${i}`, [field.apiName]: 100 },
+      });
+    }
+    const rule = (await inject('POST', `/workspaces/${wsId}/databases/${tiedDb}/automations`, {
+      name: 'Top 5 of a 6-way tie',
+      trigger: { type: 'schedule', every: 'day', at: '09:00' },
+      sort: [{ field: field.apiName, direction: 'desc' }],
+      limit: 5,
+      actions: [{ type: 'add_comment', body_template: 'Selected' }],
+    })).json();
+
+    await forceDueAndTick(rule.id);
+    const firstRuns = (await inject('GET', `/workspaces/${wsId}/databases/${tiedDb}/automations/${rule.id}/runs`)).json();
+    const firstPicks = firstRuns.data.filter((r: { status: string }) => r.status === 'ok').map((r: { triggerRecordId: string }) => r.triggerRecordId).sort();
+    expect(firstPicks).toHaveLength(5);
+
+    // Force due again — the SAME 5 must be picked (record id ASC tiebreak).
+    await forceDueAndTick(rule.id);
+    const secondRuns = (await inject('GET', `/workspaces/${wsId}/databases/${tiedDb}/automations/${rule.id}/runs`)).json();
+    const secondPicks = secondRuns.data
+      .filter((r: { status: string }) => r.status === 'ok')
+      .slice(0, 5)
+      .map((r: { triggerRecordId: string }) => r.triggerRecordId)
+      .sort();
+    expect(secondPicks).toEqual(firstPicks);
+  });
+
+  it('a sort field deleted after the rule was created fails LOUDLY — an errored run naming the field, nothing selected', async () => {
+    const volatileDb = (await inject('POST', `/workspaces/${wsId}/databases`, {
+      space_id: (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id,
+      name: 'Volatile',
+    })).json().id;
+    const field = (await inject('POST', `/workspaces/${wsId}/databases/${volatileDb}/fields`, {
+      display_name: 'Score', type: 'number', config: {},
+    })).json();
+    await inject('POST', `/workspaces/${wsId}/databases/${volatileDb}/records`, {
+      values: { name: 'Should not be touched', [field.apiName]: 50 },
+    });
+    const rule = (await inject('POST', `/workspaces/${wsId}/databases/${volatileDb}/automations`, {
+      name: 'Depends on a field about to vanish',
+      trigger: { type: 'schedule', every: 'day', at: '09:00' },
+      sort: [{ field: field.apiName, direction: 'desc' }],
+      limit: 5,
+      actions: [{ type: 'add_comment', body_template: 'Selected' }],
+    })).json();
+    await inject('DELETE', `/workspaces/${wsId}/databases/${volatileDb}/fields/${field.id}`);
+
+    await forceDueAndTick(rule.id);
+
+    const runs = (await inject('GET', `/workspaces/${wsId}/databases/${volatileDb}/automations/${rule.id}/runs`)).json();
+    expect(runs.data).toHaveLength(1);
+    expect(runs.data[0].status).toBe('error');
+    expect(runs.data[0].error).toContain(field.apiName); // names the field, not a generic failure
+    expect(runs.data[0].triggerRecordId).toBeNull(); // rule-level failure, not attributed to any one record
+  });
+
+  it('sort/limit are rejected on a record-triggered rule — top-N has no meaning for a single record', async () => {
+    const res = await inject('POST', `/workspaces/${wsId}/databases/${leaderDbId}/automations`, {
+      name: 'Invalid: top-N on record_created',
+      trigger: { type: 'record_created' },
+      sort: [{ field: engagementApi, direction: 'desc' }],
+      limit: 5,
+      actions: [{ type: 'add_comment', body_template: 'x' }],
+    });
+    expect(res.statusCode).toBe(422);
+  });
+
+  it('limit above the hard ceiling is rejected at create time', async () => {
+    const res = await inject('POST', `/workspaces/${wsId}/databases/${leaderDbId}/automations`, {
+      name: 'Invalid: limit over ceiling',
+      trigger: { type: 'schedule', every: 'day', at: '09:00' },
+      sort: [{ field: engagementApi, direction: 'desc' }],
+      limit: 100_000,
+      actions: [{ type: 'add_comment', body_template: 'x' }],
+    });
+    expect(res.statusCode).toBe(422);
+  });
+
+  it('patching sort/limit onto a rule whose STORED trigger is not schedule is rejected too', async () => {
+    const rule = (await inject('POST', `/workspaces/${wsId}/databases/${leaderDbId}/automations`, {
+      name: 'Plain record-created rule',
+      trigger: { type: 'record_created' },
+      actions: [{ type: 'add_comment', body_template: 'x' }],
+    })).json();
+    const res = await inject('PATCH', `/workspaces/${wsId}/databases/${leaderDbId}/automations/${rule.id}`, {
+      sort: [{ field: engagementApi, direction: 'desc' }],
+      limit: 3,
+    });
+    expect(res.statusCode).toBe(422);
+  });
+
+  it('MUST KEEP WORKING: a scheduled rule with no sort/limit behaves exactly as before — every matching record runs, unranked', async () => {
+    const plainDb = (await inject('POST', `/workspaces/${wsId}/databases`, {
+      space_id: (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id,
+      name: 'Plain schedule',
+    })).json().id;
+    for (let i = 0; i < 4; i++) {
+      await inject('POST', `/workspaces/${wsId}/databases/${plainDb}/records`, { values: { name: `Rec ${i}` } });
+    }
+    const rule = (await inject('POST', `/workspaces/${wsId}/databases/${plainDb}/automations`, {
+      name: 'No sort, no limit',
+      trigger: { type: 'schedule', every: 'day', at: '09:00' },
+      actions: [{ type: 'add_comment', body_template: 'Swept' }],
+    })).json();
+    expect(rule.sort ?? null).toBeNull();
+    expect(rule.topNLimit ?? null).toBeNull();
+
+    await forceDueAndTick(rule.id);
+
+    const runs = (await inject('GET', `/workspaces/${wsId}/databases/${plainDb}/automations/${rule.id}/runs`)).json();
+    const ok = runs.data.filter((r: { status: string }) => r.status === 'ok');
+    expect(ok).toHaveLength(4); // every record, not top-N
+    expect(ok.every((r: { selectionRank: number | null }) => r.selectionRank === null)).toBe(true);
+  });
+});
+
 describe('MN-168 — entitlements wiring for the automations engine', () => {
   /** Stripe is unset in tests (self-host mode) — spy on the real method, same
    *  technique as agent-runs.test.ts, to prove which code path calls it. */

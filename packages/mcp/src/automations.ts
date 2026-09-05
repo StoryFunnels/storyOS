@@ -286,6 +286,9 @@ export interface AutomationRow {
   nextDueAt?: string | null;
   createdBy?: string | null;
   hookToken?: string | null;
+  /** #392 — schedule-only top-N selection; null on every rule that doesn't use it. */
+  sort?: Array<{ field: string; direction: 'asc' | 'desc' }> | null;
+  topNLimit?: number | null;
   [k: string]: unknown;
 }
 
@@ -319,6 +322,9 @@ export function readableAutomation(
     failure_streak: row.failureStreak ?? 0,
     next_due_at: row.nextDueAt ?? null,
     created_by: row.createdBy ?? null,
+    // #392 — a schedule-only top-N selection; both null on every other rule.
+    sort: row.sort ?? null,
+    limit: row.topNLimit ?? null,
   };
   if (opts.lastRun !== undefined) out.last_run = opts.lastRun;
   if (row.hookToken && opts.workspaceSlug) {

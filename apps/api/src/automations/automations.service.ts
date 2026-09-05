@@ -8,15 +8,20 @@ import {
   OnModuleInit,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { and, desc, eq, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import type { AutomationAction } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { automationJobs, automationRuns, automations, databases, fields, records, relations, workspaces } from '../db/schema';
 import { compileFilter } from '../records/query-compiler';
 import type { FilterNode } from '@storyos/schemas';
-import { RecordsService } from '../records/records.service';
+import { RecordsService, validateSorts } from '../records/records.service';
 import type { ProjectedRecord } from '../records/records.service';
+import type { SortSpec } from '../records/query-compiler';
+import { sortExpr } from '../records/query-compiler';
+import { systemFieldDefsFor } from '@storyos/schemas';
+import type { FieldDef } from '@storyos/schemas';
 import { DomainEventsService } from '../events/domain-events.service';
 import type { DomainEvent } from '../events/domain-events.service';
 import { EntitlementsService } from '../billing/entitlements.service';
@@ -159,6 +164,8 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
       actions: AutomationAction[];
       enabled?: boolean;
       approverId?: string;
+      sort?: Array<{ field: string; direction: 'asc' | 'desc' }>;
+      limit?: number;
     },
     actorId: string,
     actorRole?: string,
@@ -177,6 +184,8 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
     if (input.condition) {
       await this.assertConditionCompiles(await this.conditionDbFor(databaseId, input.trigger), input.condition, actorId);
     }
+    this.assertTopNAllowed(input.trigger.type, input.sort, input.limit);
+    if (input.sort) validateSorts(input.sort, await this.sortableDefsFor(databaseId));
     const [rule] = await this.db
       .insert(automations)
       .values({
@@ -189,6 +198,8 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         approverId: input.approverId ?? null,
         createdBy: actorId,
         nextDueAt: input.trigger.type === 'schedule' ? this.nextDue(input.trigger) : null,
+        sort: input.sort ?? null,
+        topNLimit: input.limit ?? null,
         ...(input.trigger.type === 'webhook_received' ? this.mintHook() : {}),
       })
       .returning();
@@ -206,6 +217,8 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
       actions?: AutomationAction[];
       enabled?: boolean;
       approverId?: string | null;
+      sort?: Array<{ field: string; direction: 'asc' | 'desc' }> | null;
+      limit?: number | null;
     },
     actorId: string,
     actorRole?: string,
@@ -225,6 +238,16 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
     if (patch.condition) {
       await this.assertConditionCompiles(await this.conditionDbFor(databaseId, trigger), patch.condition, actorId);
     }
+    // #392 — check against the EFFECTIVE trigger (patch, else stored), so
+    // patching sort/limit onto a rule whose stored trigger already isn't
+    // schedule is rejected exactly like setting both in the same call.
+    const effectiveSort = (patch.sort === undefined ? rule.sort : patch.sort) as Array<{
+      field: string;
+      direction: 'asc' | 'desc';
+    }> | null;
+    const effectiveLimit = patch.limit === undefined ? rule.topNLimit : patch.limit;
+    this.assertTopNAllowed(trigger.type, effectiveSort, effectiveLimit);
+    if (patch.sort) validateSorts(patch.sort, await this.sortableDefsFor(databaseId));
     // Mint a hook identity the moment a rule becomes (or starts life as, via a
     // trigger patch) webhook_received and doesn't have one yet; clear it the
     // moment the trigger moves away, so a stale rule never keeps a live URL.
@@ -248,6 +271,8 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         // Re-enabling or editing resets the failure streak and reschedules.
         failureStreak: patch.enabled === true || patch.actions ? 0 : undefined,
         nextDueAt: trigger.type === 'schedule' ? this.nextDue(trigger) : null,
+        sort: patch.sort === undefined ? undefined : patch.sort,
+        topNLimit: patch.limit === undefined ? undefined : patch.limit,
         ...hookPatch,
       })
       .where(eq(automations.id, ruleId))
@@ -372,6 +397,43 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
       defs: new Map(defs.map((d) => [d.api_name, d])),
       currentUserId: actorId,
     });
+  }
+
+  /**
+   * #392 — the same field-def map query()'s sort validation resolves against
+   * (real fields + the system-field overlay), so a scheduled rule's `sort`
+   * is checked by the identical rule set a saved view's sort already is.
+   */
+  private async sortableDefsFor(databaseId: string): Promise<Map<string, FieldDef>> {
+    const defs = await this.recordsService.fieldDefs(databaseId);
+    const byApiName = new Map(defs.map((d) => [d.api_name, d]));
+    for (const def of systemFieldDefsFor(byApiName.keys())) byApiName.set(def.api_name, def);
+    return byApiName;
+  }
+
+  /**
+   * #392 — `sort`/`limit` (top-N selection) only make sense for a scheduled
+   * rule: a record-triggered rule fires on ONE record, so "top five" has no
+   * set to rank. The schema's superRefine already rejects this when trigger
+   * and sort/limit arrive in the SAME call; this covers the partial-update
+   * case a same-call check can't see — patching sort/limit onto a rule whose
+   * STORED trigger isn't schedule, without also changing the trigger.
+   */
+  private assertTopNAllowed(
+    effectiveTriggerType: string,
+    sort: Array<{ field: string; direction: 'asc' | 'desc' }> | null | undefined,
+    limit: number | null | undefined,
+  ): void {
+    // null/undefined both mean "nothing set" (or explicitly cleared) — only a
+    // REAL sort/limit value needs to be rejected on a non-schedule trigger,
+    // so clearing sort/limit while moving a rule AWAY from schedule is fine.
+    const hasSort = Boolean(sort && sort.length > 0);
+    const hasLimit = limit !== null && limit !== undefined;
+    if (effectiveTriggerType !== 'schedule' && (hasSort || hasLimit)) {
+      throw new UnprocessableEntityException(
+        'sort/limit (top-N selection) are only available on a schedule trigger',
+      );
+    }
   }
 
   /**
@@ -710,6 +772,10 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
     linkInfo?: LinkedTriggerInfo,
     /** #273 — before/after per changed field, for the {changesSummary} token. */
     changedValues?: Record<string, { from: unknown; to: unknown }>,
+    /** #392 — this record's 1-based rank in a scheduled rule's sorted top-N
+     * selection this tick; undefined for every other trigger and for an
+     * unsorted scheduled rule. */
+    selectionRank?: number,
   ) {
     const started = Date.now();
     // MN-253: pre-minted, like startHookRun's runId — actions.execute() needs
@@ -789,6 +855,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         status: 'running',
         depth,
         durationMs: 0,
+        selectionRank: selectionRank ?? null,
       });
       runRowInserted = true;
 
@@ -947,23 +1014,73 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
           where: eq(databases.id, rule.databaseId),
         });
         if (!database) continue;
-        // The condition IS the selection for scheduled rules.
+        // The condition IS the selection for scheduled rules; #392's sort +
+        // limit narrow and order that same selection into a top-N leaderboard.
         const defs = await this.recordsService.fieldDefs(rule.databaseId);
+        const byApiName = new Map(defs.map((d) => [d.api_name, d]));
+        for (const def of systemFieldDefsFor(byApiName.keys())) byApiName.set(def.api_name, def);
         const where = rule.condition
           ? compileFilter(rule.condition as FilterNode, {
-              defs: new Map(defs.map((d) => [d.api_name, d])),
+              defs: byApiName,
               currentUserId: rule.createdBy ?? '',
             })
           : undefined;
-        const targets = await this.db
-          .select({ id: records.id })
-          .from(records)
-          .where(and(eq(records.databaseId, rule.databaseId), isNull(records.deletedAt), where))
-          .limit(500);
-        if (targets.length === 500)
+
+        const ruleSort = rule.sort as Array<{ field: string; direction: 'asc' | 'desc' }> | null;
+        let orderBy: SQL[] | undefined;
+        if (ruleSort && ruleSort.length > 0) {
+          try {
+            const sorts: SortSpec[] = validateSorts(ruleSort, byApiName);
+            // #392 — deterministic tiebreak: record id, ascending, same tail
+            // RecordsService.query()'s own cursor sort already uses. Nulls
+            // land last regardless of direction, reusing query.ts's existing
+            // NULLS LAST default rather than inventing a leaderboard-specific
+            // nulls rule.
+            orderBy = [
+              ...sorts.map((s) =>
+                s.direction === 'asc' ? sql`${sortExpr(s.def)} ASC NULLS LAST` : sql`${sortExpr(s.def)} DESC NULLS LAST`,
+              ),
+              asc(records.id),
+            ];
+          } catch (error) {
+            // #392 — a renamed/deleted/retyped sort field fails LOUDLY: an
+            // explicit errored run naming the field, never a silent reorder
+            // or a silent no-op. Nothing is selected for this rule this tick.
+            await this.logRun(
+              rule.id,
+              database.workspaceId,
+              null,
+              'error',
+              (error as Error).message,
+              null,
+              0,
+              0,
+            );
+            continue;
+          }
+        }
+
+        const baseWhere = and(eq(records.databaseId, rule.databaseId), isNull(records.deletedAt), where);
+        const limit = orderBy ? (rule.topNLimit ?? 500) : 500;
+        const targets = orderBy
+          ? await this.db.select({ id: records.id }).from(records).where(baseWhere).orderBy(...orderBy).limit(limit)
+          : await this.db.select({ id: records.id }).from(records).where(baseWhere).limit(limit);
+        // The 500-truncation warning only applies to the legacy unsorted path
+        // — hitting a user-CHOSEN top-N limit is the rule working as intended,
+        // not a truncation.
+        if (!orderBy && targets.length === 500)
           this.logger.warn(`schedule ${rule.id}: truncated at 500 records`);
-        for (const target of targets) {
-          await this.runRule(rule.id, database.workspaceId, rule.databaseId, target.id, 0);
+        for (const [index, target] of targets.entries()) {
+          await this.runRule(
+            rule.id,
+            database.workspaceId,
+            rule.databaseId,
+            target.id,
+            0,
+            undefined,
+            undefined,
+            orderBy ? index + 1 : undefined,
+          );
         }
       } finally {
         await this.db.execute(sql`SELECT pg_advisory_unlock(hashtext(${rule.id}))`);
