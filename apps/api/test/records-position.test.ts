@@ -42,11 +42,11 @@ async function batchCreate(dbId: string, titles: string[]) {
 }
 
 /** Pages through the whole database (the list endpoint caps `limit` at 200). */
-async function readOrder(dbId: string): Promise<string[]> {
+async function readOrder(dbId: string, limit = 200): Promise<string[]> {
   const titles: string[] = [];
   let cursor: string | undefined;
   for (;;) {
-    const url = `/workspaces/${wsId}/databases/${dbId}/records?limit=200${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
+    const url = `/workspaces/${wsId}/databases/${dbId}/records?limit=${limit}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
     const res = await inject('GET', url);
     expect(res.statusCode, res.body).toBe(200);
     const body = res.json() as { data: Array<{ title: string }>; next_cursor: string | null; has_more: boolean };
@@ -97,6 +97,61 @@ describe('#480/#487 records.position collation', () => {
     // And the read-back order matches creation order end to end, across both
     // chunk boundaries — the #480 symptom, on exactly the #487 reproduction.
     expect(await readOrder(dbId)).toEqual(titles);
+  });
+
+  /**
+   * #518 — Vera reproduced infinite-scroll rows rendering in two cleanly-
+   * interleaved runs on a 201-record table (e.g. a jumbled 37-46 zipped with a
+   * clean ascending 15-35), and #480/#487's own migration comment names the
+   * EXACT stress case for a collation regression: mixed-case position keys
+   * ("a8 a9 aa aA ab aB ac aC" under the wrong collation vs "a8 a9 aA aB aC aa
+   * ab ac" under "C"). The existing tests above only exercise POSITIONS
+   * fractional-indexing itself generates (which happen to sort consistently
+   * either way in these small examples) — this one forces genuinely
+   * case-mixed keys directly and pages through with limit=50 (the API's
+   * default and a closer match to a real infinite-scroll page than the
+   * limit=200 helper default), across 5 page boundaries for 201 rows.
+   *
+   * Passing this does not prove #518 is fixed — it proves the SERVER'S
+   * cursor pagination is airtight for this exact stress case on current
+   * main (which already includes #480/#487's collation fix, confirmed via
+   * migration 0082 and this file's own describe title). If it passes and
+   * Vera's interleaving still reproduces live, AC #3's own decision rule
+   * points the remaining investigation at the CLIENT'S infinite-scroll
+   * fetch/merge logic under fast scroll — apps/web, outside this session.
+   */
+  it('#518 stress case: 201 records with deliberately mixed-case position keys page through with zero duplicates, zero gaps, correct order', async () => {
+    const dbId = await newDatabase('Mixed Case Positions 201');
+    const titles = Array.from({ length: 201 }, (_, i) => `Row ${String(i).padStart(3, '0')}`);
+    // The batch endpoint caps at 100 items per request (same chunking as the
+    // "no duplicate positions" test above).
+    const rows = [
+      ...(await batchCreate(dbId, titles.slice(0, 100))),
+      ...(await batchCreate(dbId, titles.slice(100, 200))),
+      ...(await batchCreate(dbId, titles.slice(200, 201))),
+    ];
+
+    // Overwrite every position with a "C"-collation-ordered but case-mixed
+    // key sequence — a0, a1, ..., a9, aA, aB, ..., aZ, aa, ab, ..., az, b0, ...
+    // (byte order: digits < uppercase < lowercase in ASCII/"C") so the CORRECT
+    // order is still exactly creation order, but a collation bug would
+    // scramble it exactly the way the migration comment describes.
+    // Most-significant part FIRST (the block counter), fastest-changing part
+    // LAST (the alphabet cycle) — ordinary place-value convention, so the
+    // string sort order matches creation order i under byte ("C") collation:
+    // "a000".."a009" (digits), "a00A".."a00Z" (upper), "a00a".."a00z" (lower),
+    // then "a010", etc. A locale-aware collation treats case as a SECONDARY
+    // key (near-equal primary weight for 'A'/'a'), which would interleave
+    // these blocks — exactly the stress case this test targets.
+    const alphabet = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+    for (const [i, row] of rows.entries()) {
+      const key = `a${String(Math.floor(i / alphabet.length)).padStart(2, '0')}${alphabet[i % alphabet.length]}`;
+      await db.update(records).set({ position: key }).where(eq(records.id, row.id));
+    }
+
+    const paged = await readOrder(dbId, 50);
+    expect(paged).toEqual(titles); // exact order, across 5 page boundaries (⌈201/50⌉)
+    expect(new Set(paged).size).toBe(201); // no duplicates smuggled across a boundary
   });
 
   it('single-record creation still places a new record last (same lastPosition anchor, not covered by a batch test)', async () => {
