@@ -145,6 +145,13 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
         <div className="min-w-0 flex-1">
           <WorkspaceSwitcher ws={ws} currentName={workspace.data?.name} />
         </div>
+        {/* #570 — the 7-item admin/account block used to sit permanently between
+            the Spaces tree and the bottom of the sidebar, squeezing the thing
+            people actually navigate all day. Moved here, behind a single icon in
+            the header row, matching Linear/Notion/Slack's pattern of keeping
+            account-level actions out of the persistent nav — nothing removed,
+            everything one click further. */}
+        <AccountMenu ws={ws} isAdmin={isAdmin} canEdit={canEdit} onSignOut={signOut} />
         {onCloseMobile && (
           <button
             type="button"
@@ -294,71 +301,84 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
 
         <HiddenSection spaces={hiddenSpaces} databases={hiddenDatabases} onUnhide={unhide} />
       </nav>
+    </aside>
+  );
+}
 
-      <div className="flex shrink-0 flex-col gap-0.5 border-t border-border-default p-2">
+/**
+ * #570 — the account/admin block (Settings & members, Integrations,
+ * Connections, Webhooks, API tokens, Keyboard shortcuts, Sign out) behind one
+ * icon in the header row, next to the workspace switcher. Previously a
+ * permanent 7-row block between the Spaces tree and the bottom of the
+ * sidebar; every item here is unchanged in reachability (still one click,
+ * just via a menu instead of a fixed row) — #396's "always visible" reasoning
+ * for Keyboard shortcuts was about discovery-to-effort ratio for a NEW user,
+ * which a `?`-hinted menu item preserves well enough, and #570 explicitly
+ * prioritizes the Spaces tree's room over that for every returning user.
+ */
+function AccountMenu({
+  ws,
+  isAdmin,
+  canEdit,
+  onSignOut,
+}: {
+  ws: string;
+  isAdmin: boolean;
+  canEdit: boolean;
+  onSignOut: () => void | Promise<void>;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          title="Settings & account"
+          className="flex h-11 w-11 shrink-0 items-center justify-center border-b border-l border-border-default text-faint hover:bg-hover hover:text-muted"
+        >
+          <Settings className="h-4 w-4" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-52">
         {isAdmin && (
           <>
-            <Link
-              href={`/w/${ws}/settings/members`}
-              className="flex items-center gap-2 rounded px-2 py-1 text-[13px] text-ink-secondary hover:bg-hover"
-            >
-              <Settings className="h-3.5 w-3.5" /> Settings & members
-            </Link>
-            <Link
-              href={`/w/${ws}/settings/integrations`}
-              className="flex items-center gap-2 rounded px-2 py-1 text-[13px] text-ink-secondary hover:bg-hover"
-            >
-              <Plug className="h-3.5 w-3.5" /> Integrations
-            </Link>
-            <Link
-              href={`/w/${ws}/settings/connections`}
-              className="flex items-center gap-2 rounded px-2 py-1 text-[13px] text-ink-secondary hover:bg-hover"
-            >
-              <Cable className="h-3.5 w-3.5" /> Connections
-            </Link>
-            <Link
-              href={`/w/${ws}/settings/webhooks`}
-              className="flex items-center gap-2 rounded px-2 py-1 text-[13px] text-ink-secondary hover:bg-hover"
-            >
-              <Webhook className="h-3.5 w-3.5" /> Webhooks
-            </Link>
+            <DropdownMenuItem asChild>
+              <Link href={`/w/${ws}/settings/members`}>
+                <Settings className="h-3.5 w-3.5" /> Settings & members
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link href={`/w/${ws}/settings/integrations`}>
+                <Plug className="h-3.5 w-3.5" /> Integrations
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link href={`/w/${ws}/settings/connections`}>
+                <Cable className="h-3.5 w-3.5" /> Connections
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link href={`/w/${ws}/settings/webhooks`}>
+                <Webhook className="h-3.5 w-3.5" /> Webhooks
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
           </>
         )}
         {canEdit && (
-          <Link
-            href={`/w/${ws}/settings/api`}
-            className="flex items-center gap-2 rounded px-2 py-1 text-[13px] text-ink-secondary hover:bg-hover"
-          >
-            <KeyRound className="h-3.5 w-3.5" /> API tokens
-          </Link>
+          <DropdownMenuItem asChild>
+            <Link href={`/w/${ws}/settings/api`}>
+              <KeyRound className="h-3.5 w-3.5" /> API tokens
+            </Link>
+          </DropdownMenuItem>
         )}
-        {/*
-          #396 — the persistent way in.
-
-          Of the options the ticket lists this is the highest ratio of discovery
-          to effort: always visible, costs one row, and sits where people already
-          look for meta controls. Explicitly NOT a one-time tour or a
-          coach-mark — those fire once, at the moment a new user has the least
-          room to absorb anything, and get dismissed.
-        */}
-        <button
-          type="button"
-          onClick={openShortcuts}
-          className="flex items-center gap-2 rounded px-2 py-1 text-[13px] text-ink-secondary hover:bg-hover"
-        >
+        <DropdownMenuItem onSelect={openShortcuts}>
           <Keyboard className="h-3.5 w-3.5" /> Keyboard shortcuts
           <span className="ml-auto text-[10px] text-faint">?</span>
-        </button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="justify-start"
-          onClick={() => void signOut()}
-        >
-          Sign out
-        </Button>
-      </div>
-    </aside>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => void onSignOut()}>Sign out</DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
