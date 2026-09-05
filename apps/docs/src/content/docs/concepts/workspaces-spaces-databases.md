@@ -56,6 +56,8 @@ Click a space's name in the sidebar (the caret still just collapses it) and it o
 - **Ontology** — a diagram of the space's databases and the relations between them: nodes for
   databases, edges for relations, self-relations fanned out so their labels don't collide, and a
   cross-space relation drawn as a dashed satellite node naming the other space.
+
+  ![An ontology diagram showing four databases with self-relations fanned out](/images/space-ontology-diagram.png)
 - **Contents** — a plain list, for when the sidebar is collapsed and you need the same information
   without it.
 
