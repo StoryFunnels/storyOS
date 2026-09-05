@@ -909,7 +909,17 @@ export function TableView({
                     fields={fields}
                     width={widthOf(field)}
                     readOnly={!schemaEditable}
-                    reorderable={schemaEditable}
+                    // #492 — a system field's position is fixed server-side
+                    // (fields.service.ts's update() refuses a position patch
+                    // for `isSystem` fields, same "schema is fixed" rule as
+                    // its name/type). Before this, the handle rendered anyway
+                    // — a drag visually succeeded, then reverted on the next
+                    // refetch, since table-view.tsx's own reorder mutation
+                    // already filtered system fields out of what it persists.
+                    // A draggable column whose move never sticks is worse
+                    // than one that plainly isn't draggable — disabling the
+                    // handle here matches what the server has always enforced.
+                    reorderable={schemaEditable && !field.isSystem}
                     config={config}
                     onPatch={onPatch}
                     onAddLookup={(id) => setAddingField({ type: 'lookup', relationId: id })}
