@@ -106,9 +106,32 @@ export function ShareDialog({
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['grants', ws] }),
   });
 
+  // #530/#564 — workspace-wide members (admin + member), grouped separately
+  // from guests below. Otto's ruling: individual-user grants only for v1, no
+  // role/team grouping layer (access_grants' enforcement surface has already
+  // leaked four times — #468/#469/#472/#474 — and a grouping abstraction on
+  // top multiplies that surface). Grouping here is purely presentational
+  // (Members vs Guests), not a new enforcement concept.
+  const workspaceMembers = (members.data ?? []).filter((m) => m.role !== 'guest');
+
   return (
     <DialogContent title={`Access to “${scopeName}”`}>
       <div className="flex flex-col gap-4">
+        {/*
+          #564 — the old line stated the policy and stopped: "No guest access
+          yet. Members and admins always have access." True, and kept below,
+          but a dead end — it never said what to do about it. Ievgen's decision
+          (recorded on #564): members stay workspace-wide by design (ADR-0009);
+          the answer to "I don't want this member in this space" is a GUEST
+          grant instead, and "I want them to contribute but not delete things"
+          is exactly what Contributor is for — named here, not left implicit.
+        */}
+        <p className="text-[13px] text-muted">
+          Members and admins always have access — that&rsquo;s fixed, not something to restrict here. To
+          give someone narrower access, invite them as a <span className="font-medium text-ink">guest</span> below
+          instead. Want them to add and edit records but never delete anything?{' '}
+          <span className="font-medium text-ink">Contributor</span> is that level.
+        </p>
         <FreeGuestTip
           dismissKey={`share-${scope.space_id ?? scope.database_id ?? scopeName}`}
           href={guestInviteHref({ ws, spaceId: scope.space_id })}
@@ -116,34 +139,54 @@ export function ShareDialog({
           Viewer and commenter access is free, always (never a paid seat) — invite your client or
           collaborator here rather than adding them as a member.
         </FreeGuestTip>
+
         <div className="flex flex-col gap-1.5">
-          {scopeGrants.length === 0 && (
-            <p className="text-[13px] text-muted">No guest access yet. Members and admins always have access.</p>
-          )}
-          {scopeGrants.map((grant) => (
-            <div
-              key={grant.id}
-              className="flex items-center justify-between rounded-[var(--radius-control)] border border-border-default bg-card px-3 py-2"
-            >
-              <span className="text-[13px] text-ink">{nameOf(grant.user_id)}</span>
-              <span className="flex items-center gap-2">
-                <select
-                  className="h-7 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
-                  value={grant.role}
-                  onChange={(e) => addGrant.mutate({ user_id: grant.user_id, role: e.target.value })}
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-faint">Members</span>
+          <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card">
+            {workspaceMembers.map((m) => (
+              <div
+                key={m.id}
+                className="flex items-center justify-between border-b border-border-default px-3 py-2 last:border-b-0"
+              >
+                <span className="truncate text-[13px] text-ink">{m.user.name}</span>
+                <span className="rounded-full bg-hover px-2 py-0.5 text-[11px] capitalize text-muted">{m.role}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-faint">Guests</span>
+          {scopeGrants.length === 0 ? (
+            <p className="text-[13px] text-muted">No guests have access to this yet — add one below.</p>
+          ) : (
+            <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card">
+              {scopeGrants.map((grant) => (
+                <div
+                  key={grant.id}
+                  className="flex items-center justify-between border-b border-border-default px-3 py-2 last:border-b-0"
                 >
-                  {GRANT_ROLES.map((r) => (
-                    <option key={r.value} value={r.value}>
-                      {r.value}
-                    </option>
-                  ))}
-                </select>
-                <button className="text-faint hover:text-error" onClick={() => removeGrant.mutate(grant.id)}>
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </span>
+                  <span className="truncate text-[13px] text-ink">{nameOf(grant.user_id)}</span>
+                  <span className="flex shrink-0 items-center gap-2">
+                    <select
+                      className="h-7 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+                      value={grant.role}
+                      onChange={(e) => addGrant.mutate({ user_id: grant.user_id, role: e.target.value })}
+                    >
+                      {GRANT_ROLES.map((r) => (
+                        <option key={r.value} value={r.value}>
+                          {r.value}
+                        </option>
+                      ))}
+                    </select>
+                    <button className="text-faint hover:text-error" onClick={() => removeGrant.mutate(grant.id)}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </span>
+                </div>
+              ))}
             </div>
-          ))}
+          )}
         </div>
 
         {guests.length > 0 ? (
