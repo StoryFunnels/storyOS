@@ -75,6 +75,8 @@ Two things worth knowing:
 - **On a narrow screen every block becomes full width** and spans are ignored. A 6-column block on
   a phone would otherwise be half a screen wide.
 
+![A dashboard with number tiles, a bar chart, a pie chart, and colour-coded progress bars against a target](/images/dashboard-tiles-charts.png)
+
 ## Giving a number a target
 
 *"383"* is not information. *"383, against a target of 400"* is.

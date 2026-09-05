@@ -9,6 +9,11 @@ Tyron works inside your workspace: it can read your databases and change them, a
 
 Open it from the sidebar, from the command palette, or with **⌘J** (Ctrl+J on Windows and Linux).
 
+![Tyron's squircle icon next to a member's round avatar](/images/tyron-squircle-avatar.png)
+
+Tyron's avatar is a **squircle** — every member avatar is round — so its messages and its edits
+never read as coming from a person.
+
 ## What it can do, and whose permissions it uses
 
 **Tyron acts as you.** It has your permissions and no others. If you cannot drop a database, you

@@ -36,6 +36,8 @@ schema changes.
 
 - **Nested And/Or groups** — a condition can itself be a group, so "State is Urgent AND (Owner is
   me OR Owner is unset)" is one filter, not a workaround.
+
+  ![The filter builder showing a top-level OR with a nested AND group inside it](/images/nested-filter-builder.png)
 - **Global vs Personal scope** — a Global filter is part of the saved view, so everyone who opens
   it sees the same thing. A **Personal** filter layers on top of the shared one, for you only, and
   can only *narrow* what Global already shows — it's ANDed in at query time, never a way to see
@@ -119,6 +121,8 @@ Group a board by a **date** field instead of a select, and its columns become pe
 month, quarter, or year, your choice. Dragging a card into a different column **changes the
 record's date** to land back in that column — the difference between a static report and a
 roadmap you can actually reschedule by dragging.
+
+![A board grouped by due date, with weekly columns holding real cards](/images/board-by-due-date.png)
 
 - **Columns come from your data, not a fixed calendar range.** Two records three years apart don't
   produce three years of empty monthly columns between them.

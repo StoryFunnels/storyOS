@@ -67,6 +67,11 @@ token; it does not tell you which program held it.
 `human` means a browser session and nothing else, so it is a reliable answer to "was a person at
 the keyboard" — which is the question the badge exists to answer.
 
+![An activity feed showing a plain human edit next to an MCP-badged record creation](/images/activity-source-badge.png)
+
+Above: a record created by a script authenticating with a personal access token — badged `mcp` —
+next to an ordinary edit made in the app, which carries no badge at all.
+
 ## What a change looks like
 
 Every change is stored **exactly as it was written** — a select's option id, not its label. That
