@@ -2147,6 +2147,7 @@ function DatabaseRow({
               separatorBefore: true,
               onSelect: () => hide('database', db.id),
             },
+            { label: 'Relations', href: `/w/${ws}/d/${db.id}/relations` },
             { label: 'Trash', href: `/w/${ws}/d/${db.id}/trash` },
             { label: 'Delete database', danger: true, onSelect: () => setConfirmingDelete(true) },
           ]}
