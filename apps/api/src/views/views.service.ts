@@ -134,6 +134,27 @@ export function cleanViewConfig(
         ? config.baseline_end_date_field_id
         : undefined,
     form: config.form,
+    /**
+     * #559 — `share` (#264/#536) was added to ViewConfig after this function's
+     * explicit key list was written, and fell into the exact trap the comments
+     * throughout this function already name: a key not listed here is silently
+     * stripped on every read, so a published view read back "Not published"
+     * forever, even though the stored row and the public /v/:token page (which
+     * reads the row directly, bypassing this function) were both correct.
+     *
+     * Passed through UNCONDITIONALLY, same as `form` immediately above — both
+     * are minted/cleared ONLY through their own dedicated write path
+     * (POST/DELETE .../share, never the ordinary view PATCH), which already
+     * validates `visible_field_api_names`/`include_relation_api_names` against
+     * live fields at write time (ViewsService.share). Re-validating those
+     * allowlists again here, against fields that may have changed since
+     * publish, is a real future edge case (a field named in an already-published
+     * allowlist gets deleted) but is a DIFFERENT question from this ticket's
+     * "the read path drops a key the write path stored correctly" bug — and
+     * `form` sets the precedent of not doing that revalidation on every read
+     * either.
+     */
+    share: config.share,
     // Dashboard tiles (MN-225 / #168): drop a tile that POINTS AT a field which
     // no longer exists — never one that simply hasn't been pointed anywhere yet.
     // #305: this used to require `field_api_name` for any non-count op, so
