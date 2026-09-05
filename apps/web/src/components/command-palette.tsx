@@ -10,6 +10,7 @@ import { useDatabases } from '@/lib/queries';
 import { EntityIcon } from '@/components/ui/icon-picker';
 import { useOpenRecord } from '@/components/entity/split-panel-context';
 import { recordSegment } from '@/lib/records';
+import { recordBreadcrumb } from '@/components/entity/mention-items';
 import { openTyron } from '@/lib/tyron-panel';
 import { OPEN_PALETTE_EVENT, openShortcuts, useShortcut } from '@/lib/shortcuts';
 import { cn } from '@/lib/utils';
@@ -31,6 +32,10 @@ interface PlaceHit {
   id: string;
   name: string;
   icon: string | null;
+  /** #516/#517 — only ever set for kind: 'database'; a space has no owning
+   *  space of its own to show a breadcrumb for. */
+  database_color?: string | null;
+  space_name?: string | null;
 }
 
 type Group = 'Records' | 'Create' | 'Places' | 'Actions';
@@ -211,7 +216,11 @@ export function CommandPalette() {
         group: 'Places',
         icon: <EntityIcon icon={place.icon} color={null} fallback={place.kind === 'database' ? <Database className="h-3.5 w-3.5" /> : <FolderOpen className="h-3.5 w-3.5" />} className="text-[13px]" />,
         label: place.name,
-        hint: place.kind === 'database' ? 'Database' : 'Space',
+        // #517 — a database place shows its owning space, matching the mentions
+        // picker's exact breadcrumb (recordBreadcrumb, mention-items.ts:82) so
+        // two same-named databases in different spaces read distinctly. A
+        // space place has no breadcrumb of its own — stays the literal 'Space'.
+        hint: place.kind === 'database' ? recordBreadcrumb(place.space_name ?? null, place.name) : 'Space',
         run: () => (place.kind === 'database' ? go(`/w/${ws}/d/${place.id}`) : go(`/w/${ws}`)),
       });
     }
