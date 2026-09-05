@@ -520,6 +520,16 @@ export class ViewsService {
       where: and(eq(views.id, viewId), eq(views.databaseId, databaseId), isNull(views.deletedAt)),
     });
     if (!view) throw new NotFoundException('View not found');
+    // #554 — a personal view (ownerUserId set) can NEVER be published, by
+    // anyone, including its own owner: personal space's whole premise
+    // (ADR-0017/#291) is invisibility to everyone else, and a public
+    // anonymous URL is a categorically stronger exposure than "visible only
+    // to me" — undermining the feature's promise even when the owner does it
+    // themselves. 404, not 403: a personal view is already invisible to
+    // everyone but its owner everywhere else in this codebase (it never
+    // appears in another member's view list), so this endpoint treats it the
+    // same way rather than confirming a personal view exists at this id.
+    if (view.ownerUserId) throw new NotFoundException('View not found');
 
     const live = await this.liveFields(databaseId);
     const liveApiNames = new Set(live.map((f) => f.apiName));
@@ -553,6 +563,11 @@ export class ViewsService {
       where: and(eq(views.id, viewId), eq(views.databaseId, databaseId), isNull(views.deletedAt)),
     });
     if (!view) throw new NotFoundException('View not found');
+    // #554 — deliberately NOT gated on ownerUserId, unlike share() above:
+    // revoking is the safe direction (it only REMOVES exposure), and a
+    // personal view published before this fix shipped (or by some future
+    // bug) must stay revocable through the normal API rather than becoming
+    // permanently stuck — the ticket's own rollout step needs exactly this.
     const config = { ...(view.config as ViewConfig) };
     delete config.share;
     await this.db.update(views).set({ config }).where(eq(views.id, viewId));
