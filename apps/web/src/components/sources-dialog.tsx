@@ -38,19 +38,40 @@ import {
  */
 const CALENDAR_POINTER_ID = '__google_calendar__';
 
+/** #280 — 'in' (pull only, the only shape before this ticket) / 'out' (push
+ * only) / 'both'. A bare field-id string is the permanent shorthand for 'in'
+ * (packages/schemas/src/sources.ts) — never deprecated, so both forms of
+ * `field_mapping`'s values are read here. */
+type SourceFieldDirection = 'in' | 'out' | 'both';
+type SourceConflictPolicy = 'external_wins' | 'storyos_wins' | 'newest_wins';
+type SourceFieldMappingEntry = string | { field_id: string; direction: SourceFieldDirection };
+
 interface SourceSummary {
   id: string;
   name: string;
   connection_id: string | null;
   provider_source: string;
   config: Record<string, unknown>;
-  field_mapping: Record<string, string>;
+  field_mapping: Record<string, SourceFieldMappingEntry>;
   external_key_field_id: string;
   schedule: '15m' | 'hour' | 'day';
   recurrence: SourceRecurrence | null;
   status: 'active' | 'paused' | 'error';
   last_sync_at: string | null;
   created_at: string;
+}
+
+const CONFLICT_POLICY_LABEL: Record<SourceConflictPolicy, string> = {
+  external_wins: 'The source wins — a pull overwrites local edits',
+  storyos_wins: 'StoryOS wins — a pull never overwrites a local edit',
+  newest_wins: 'Newest wins — whichever side changed more recently',
+};
+
+function mappingFieldId(entry: SourceFieldMappingEntry): string {
+  return typeof entry === 'string' ? entry : entry.field_id;
+}
+function mappingDirection(entry: SourceFieldMappingEntry): SourceFieldDirection {
+  return typeof entry === 'string' ? 'in' : entry.direction;
 }
 
 interface SourceRunSummary {
@@ -78,6 +99,13 @@ interface SourceProviderSummary {
   /** MN-262: this provider implements `discover()` — the dialog can offer a
    * "Discover fields" button instead of requiring a static field catalog. */
   supports_discover: boolean;
+  /** #280 — whether this provider exposes a comparable external timestamp;
+   * `newest_wins` is refused server-side (422) when this is false, so the
+   * conflict-policy picker disables it here rather than offering a dead
+   * choice. Not in sourceProviderDescriptorSchema (packages/schemas) — the
+   * service returns it ahead of the generated type, so it's read as `unknown`
+   * shaped by this hand-written interface, same as supports_discover already is. */
+  supports_newest_wins: boolean;
   config_schema: Record<string, { description: string | null; required: boolean; kind: ConfigFieldKind }>;
 }
 
@@ -250,8 +278,47 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
     calendarConnProvider?.availability_note,
   );
 
-  const [step, setStep] = useState<'list' | 'new' | 'runs'>('list');
+  const [step, setStep] = useState<'list' | 'new' | 'runs' | 'edit'>('list');
   const [runsFor, setRunsFor] = useState<SourceSummary | null>(null);
+
+  // --- #280: edit-mapping state (direction per field + conflict policy) ---
+  const [editingSource, setEditingSource] = useState<SourceSummary | null>(null);
+  const [editDirections, setEditDirections] = useState<Map<string, SourceFieldDirection>>(new Map());
+  const [editConflictPolicy, setEditConflictPolicy] = useState<SourceConflictPolicy>('external_wins');
+
+  function openEditMapping(s: SourceSummary) {
+    setEditingSource(s);
+    setEditDirections(new Map(Object.entries(s.field_mapping).map(([key, entry]) => [key, mappingDirection(entry)])));
+    const policy = s.config?.['conflict_policy'];
+    setEditConflictPolicy(policy === 'storyos_wins' || policy === 'newest_wins' ? policy : 'external_wins');
+    setStep('edit');
+  }
+
+  const editProvider = providers.data?.find((p) => p.id === editingSource?.provider_source);
+
+  const updateMapping = useMutation({
+    mutationFn: async () => {
+      if (!editingSource) return;
+      const field_mapping = Object.fromEntries(
+        Object.entries(editingSource.field_mapping).map(([key, entry]) => [
+          key,
+          { field_id: mappingFieldId(entry), direction: editDirections.get(key) ?? 'in' },
+        ]),
+      );
+      const { error } = await api.PATCH('/api/v1/workspaces/{ws}/databases/{db}/sources/{id}', {
+        params: { path: { ws, db, id: editingSource.id } },
+        body: { field_mapping, config: { ...editingSource.config, conflict_policy: editConflictPolicy } } as never,
+      } as never);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success('Mapping updated');
+      setStep('list');
+      setEditingSource(null);
+      void qc.invalidateQueries({ queryKey: ['sources', ws, db] });
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, 'Could not update the mapping')),
+  });
 
   // --- new-source wizard state ---
   const [name, setName] = useState('');
@@ -511,6 +578,89 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
         <div className="mt-4 flex justify-end">
           <Button variant="secondary" onClick={() => setStep('list')}>
             Back
+          </Button>
+        </div>
+      </DialogContent>
+    );
+  }
+
+  /** #280 — the mapping this ticket adds controls to. Deliberately does NOT
+   * let a row's destination field be reassigned or removed here: only
+   * direction (in/out/both) and the source-level conflict policy are new;
+   * remapping a destination stays the create wizard's job, matching the
+   * ticket's "must never widen what a pull can touch" scope. */
+  if (step === 'edit' && editingSource) {
+    const reason = !editProvider?.supports_newest_wins
+      ? `${editProvider?.label ?? 'This provider'} has no comparable external timestamp`
+      : null;
+    return (
+      <DialogContent title={`Edit mapping — "${editingSource.name}"`} className="max-w-2xl">
+        <div className="flex max-h-[75vh] flex-col gap-4 overflow-y-auto pr-1">
+          <p className="text-[13px] text-muted">
+            Direction controls whether this source only reads a field, only writes it back, or both. The external
+            key and each field&apos;s destination are set when the source is created and aren&apos;t changed here.
+          </p>
+          <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default">
+            {Object.entries(editingSource.field_mapping).map(([key, entry]) => {
+              const fieldId = mappingFieldId(entry);
+              const isKey = editingSource.external_key_field_id === fieldId;
+              const label = PROVIDER_FIELD_CATALOG[editingSource.provider_source]?.find((c) => c.key === key)?.label ?? key;
+              const fieldName = database.data?.fields.find((f) => f.id === fieldId)?.displayName ?? fieldId;
+              const direction = editDirections.get(key) ?? 'in';
+              return (
+                <div key={key} className="flex items-center gap-3 border-b border-border-default px-3 py-2 last:border-b-0">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[13px] font-medium text-ink">
+                      {label}
+                      {isKey && <span className="ml-1.5 text-[11px] font-normal text-faint">(external key)</span>}
+                    </p>
+                    <p className="truncate text-[11px] text-faint">→ {fieldName}</p>
+                  </div>
+                  <span className="inline-flex shrink-0 overflow-hidden rounded border border-border-default text-[10px] font-semibold uppercase leading-none">
+                    {(['in', 'out', 'both'] as const).map((d) => (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => setEditDirections((prev) => new Map(prev).set(key, d))}
+                        className={cn('px-1.5 py-1', direction === d ? 'bg-accent-soft text-ink' : 'text-faint hover:text-ink')}
+                      >
+                        {d}
+                      </button>
+                    ))}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label>If both sides changed</Label>
+            <select
+              className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+              value={editConflictPolicy}
+              onChange={(e) => setEditConflictPolicy(e.target.value as SourceConflictPolicy)}
+            >
+              {(Object.keys(CONFLICT_POLICY_LABEL) as SourceConflictPolicy[]).map((p) => (
+                <option key={p} value={p} disabled={p === 'newest_wins' && reason !== null}>
+                  {CONFLICT_POLICY_LABEL[p]}
+                  {p === 'newest_wins' && reason ? ` — ${reason}` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div className="mt-4 flex justify-between gap-2">
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setStep('list');
+              setEditingSource(null);
+            }}
+          >
+            Cancel
+          </Button>
+          <Button disabled={updateMapping.isPending} onClick={() => updateMapping.mutate()}>
+            {updateMapping.isPending ? 'Saving…' : 'Save'}
           </Button>
         </div>
       </DialogContent>
@@ -966,6 +1116,9 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
               <div className="flex shrink-0 items-center gap-1">
                 <Button variant="ghost" size="sm" onClick={() => syncNow.mutate(s.id)} disabled={syncNow.isPending}>
                   Sync now
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => openEditMapping(s)}>
+                  Edit mapping
                 </Button>
                 <Button
                   variant="ghost"
