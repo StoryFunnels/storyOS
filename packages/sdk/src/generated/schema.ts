@@ -4932,6 +4932,15 @@ export interface components {
             /** @default true */
             enabled: boolean;
             approverId?: string;
+            sort?: {
+                field: string;
+                /**
+                 * @default asc
+                 * @enum {string}
+                 */
+                direction: "asc" | "desc";
+            }[];
+            limit?: number;
         };
         UpdateAutomationDto: {
             name?: string;
@@ -5089,6 +5098,15 @@ export interface components {
             })[];
             enabled?: boolean;
             approverId?: string | null;
+            sort?: {
+                field: string;
+                /**
+                 * @default asc
+                 * @enum {string}
+                 */
+                direction: "asc" | "desc";
+            }[] | null;
+            limit?: number | null;
         };
         TestAutomationDto: {
             /** Format: uuid */
