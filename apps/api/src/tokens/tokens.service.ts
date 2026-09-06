@@ -1,10 +1,11 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import { createHash, randomBytes } from 'node:crypto';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import type { TokenScope } from '@storyos/schemas';
 import { apiTokens, memberships, type ChangeSource } from '../db/schema';
+import { resolveAgentIdentity } from '../agents/agent-identity';
 
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
 
@@ -29,6 +30,16 @@ export class TokensService {
      * signal went.
      */
     origin?: ChangeSource,
+    /**
+     * #541 — mints this token FOR a specific Agent record, so its writes
+     * resolve to "which agent" (auth.guard.ts), not just the 4-value
+     * `origin` enum. Only meaningful alongside `origin: 'agent'`; the guard
+     * re-verifies this id (and its owner) fresh on every request rather than
+     * trusting it's still valid at use time — this column is only ever the
+     * pointer minted here, never re-checked for existence at mint time
+     * either, since that check belongs where it's actually load-bearing.
+     */
+    agentId?: string,
   ) {
     // MN-122: a token is only meaningful for a workspace you're actually in.
     // Without this you could mint one for any uuid — it would grant nothing
@@ -42,6 +53,18 @@ export class TokensService {
       ),
     });
     if (!membership) throw new NotFoundException('Workspace not found');
+
+    // #541 — minting a token FOR an agent is itself a privileged act: only
+    // that agent's own owner, or a workspace admin, may do it. Otherwise any
+    // member could mint a credential that acts with another agent's (and
+    // hence potentially another PERSON's) authority.
+    if (agentId) {
+      const identity = await resolveAgentIdentity(this.db, workspaceId, agentId);
+      if (!identity) throw new NotFoundException('Agent not found');
+      if (identity.ownerId !== userId && membership.role !== 'admin') {
+        throw new ForbiddenException('Only this agent\'s owner or a workspace admin may mint a token for it');
+      }
+    }
 
     const secret = randomBytes(24).toString('base64url');
     const token = `mn_pat_${secret}`;
@@ -57,6 +80,7 @@ export class TokensService {
         // run_button lives in write scope but can be withheld even there (MN-134).
         allowRunButton: scope === 'read' ? false : allowRunButton,
         origin,
+        agentId,
       })
       .returning();
     // Plaintext returned exactly once (E1).
@@ -121,6 +145,8 @@ export class TokensService {
     allowRunButton: boolean;
     /** #357 — null for an ordinary PAT, which the guard reads as `mcp`. */
     origin: ChangeSource | null;
+    /** #541 — the pointer only; the guard resolves and verifies the live owner. */
+    agentId: string | null;
   } | null> {
     const row = await this.db.query.apiTokens.findFirst({
       where: and(eq(apiTokens.tokenHash, sha256(token)), isNull(apiTokens.revokedAt)),
@@ -139,6 +165,7 @@ export class TokensService {
       scope: row.scope,
       allowRunButton: row.allowRunButton,
       origin: row.origin,
+      agentId: row.agentId,
     };
   }
 }

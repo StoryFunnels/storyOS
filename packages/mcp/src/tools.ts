@@ -674,6 +674,7 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
    * approve call next to it.
    */
   get_agents: 'read',
+  list_agent_activity: 'read',
   get_run: 'read',
   get_run_quota: 'read',
   get_staged_action: 'read',
@@ -4783,6 +4784,33 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       const ws = await resolveWorkspace(client, workspace);
       const res = await unwrap<unknown>(
         client.GET('/api/v1/workspaces/{ws}/agents', { params: { path: { ws: ws.id } } as never }),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'list_agent_activity',
+    {
+      title: 'What an agent has done',
+      description:
+        '#541 — field changes + creation events attributed to ONE agent, in a date range (default: last 30 days). "Which agent, under whose authority, at what time" — the run each write happened via is NOT tracked yet for the common BYO-AI path (a known gap, not hidden here). Only writes made through a token minted FOR this agent show up; an ordinary token\'s writes never carry agent attribution.',
+      inputSchema: {
+        workspace: z.string(),
+        agent: z.string().describe("The agent record's uuid or public number (from get_agents/query_records)."),
+        from: z.string().optional().describe('ISO datetime, inclusive. Default: 30 days ago.'),
+        to: z.string().optional().describe('ISO datetime, inclusive. Default: now.'),
+      },
+    },
+    handle<{ workspace: string; agent: string; from?: string; to?: string }>(async ({ workspace, agent, from, to }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const query: Record<string, string> = {};
+      if (from) query.from = from;
+      if (to) query.to = to;
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/agents/{agent}/activity', {
+          params: { path: { ws: ws.id, agent }, query },
+        } as never),
       );
       return text(res);
     }),

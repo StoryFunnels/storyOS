@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
@@ -141,5 +141,21 @@ export class AgentsController {
   @ApiOperation({ summary: "A parked run's staged action and step log, or null if it isn't waiting" })
   getStagedAction(@Req() req: WorkspaceRequest, @Param('run') run: string) {
     return this.agents.getStagedAction(req.membership, run);
+  }
+
+  /**
+   * #541 — "which agent did this, at what time" for a date range, in bulk.
+   * `from`/`to` are ISO datetimes; both optional (default: last 30 days).
+   */
+  @Get(':agent/activity')
+  @ApiParam({ name: 'agent', description: "The agent record's uuid or public number" })
+  @ApiOperation({ summary: 'Field changes + activity events attributed to this agent, in a date range' })
+  getAgentActivity(
+    @Req() req: WorkspaceRequest,
+    @Param('agent') agent: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.agents.getAgentActivity(req.membership, agent, { from, to });
   }
 }

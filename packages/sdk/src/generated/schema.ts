@@ -3102,6 +3102,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/agents/{agent}/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Field changes + activity events attributed to this agent, in a date range */
+        get: operations["AgentsController_getAgentActivity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/architect/propose": {
         parameters: {
             query?: never;
@@ -4785,6 +4802,8 @@ export interface components {
             scope: "read" | "write" | "admin";
             /** @default true */
             allow_run_button: boolean;
+            /** Format: uuid */
+            agent_id?: string;
         };
         CommentBodyDto: {
             body: ({
@@ -10296,6 +10315,29 @@ export interface operations {
             path: {
                 /** @description The run record's uuid or public number */
                 run: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AgentsController_getAgentActivity: {
+        parameters: {
+            query: {
+                from: string;
+                to: string;
+            };
+            header?: never;
+            path: {
+                /** @description The agent record's uuid or public number */
+                agent: string;
             };
             cookie?: never;
         };
