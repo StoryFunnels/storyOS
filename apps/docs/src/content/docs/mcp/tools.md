@@ -33,6 +33,22 @@ Each write returns the resulting record; each `422` is surfaced verbatim.
 | `link_records` | Link a record to targets through a relation field. |
 | `add_comment` | Post a comment. |
 | `run_button` | Press a button field, running its automation actions. |
+| `copy_records` | Copy one or more records into a **different** database (unlike `duplicate_record`, same database). Fields auto-match by name; one with a value and no destination match **blocks** the copy. Call with `dry_run: true` (the default) to see the mapping and any blocking fields, resolve with `skip`, then call again with `dry_run: false`. |
+
+## Personal space
+
+A view or space owned by the **calling identity**, invisible to everyone else including admins —
+see [Personal space](/concepts/personal-space/) for what that guarantees.
+
+| Tool | What it does |
+|---|---|
+| `get_or_create_personal_space` | My own personal space. Idempotent — lazily provisioned on first call, returns the same space every time after. |
+| `create_personal_view` | A view over a **shared** database that only I can see (deleting a record through it still deletes it for everyone — it's a lens, not a private copy). Needs only read access, unlike `create_view`, and is never folder-placed. |
+
+**`create_personal_view` accepts `form` as a type; the web dialog doesn't offer it.** The app's own
+picker restricts to seven types for a reason stated in the UI (form and dashboard don't fit a
+private-lens framing) — that's a client-side choice, not an API restriction, so a form-type
+personal view is only reachable from here today.
 
 ## Build / schema
 
