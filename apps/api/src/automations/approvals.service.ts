@@ -3,7 +3,7 @@ import { and, desc, eq, lt } from 'drizzle-orm';
 import type { AutomationAction } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { approvals, automations } from '../db/schema';
+import { approvals, automations, sourceRuns } from '../db/schema';
 import { CommentsService } from '../comments/comments.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { JobRunnerService } from './job-runner.service';
@@ -11,13 +11,31 @@ import type { ActionEffect } from './actions.service';
 
 type ApprovalRow = typeof approvals.$inferSelect;
 
+/**
+ * #282 — a held write-back push (write-back.subscriber.ts). Deliberately NOT
+ * a member of `actionSchema`'s discriminated union in @storyos/schemas: that
+ * union is what the automation rule-builder renders pickers from, and this
+ * is never a step a human authors — it is constructed server-side only, by
+ * WriteBackSubscriber, and never parsed from client input. Widening
+ * `ApprovalActionSnapshot`/`CreateApprovalInput` below to accept this
+ * alongside `AutomationAction` reuses the SAME table/approve/reject/expire
+ * machinery (the whole point of this ticket) without exposing a system
+ * action as a user-authorable one.
+ */
+export interface WriteBackPushAction {
+  type: 'write_back_push';
+  source_id: string;
+  external_key: string;
+  values: Record<string, unknown>;
+}
+
 /** The FROZEN payload a gated action carries between "queued for approval"
  * and "approved" — `action` has every {Field}/{payload} token already
  * interpolated (actions.service.ts renders it before calling `create()`
  * below), and `ctx` is the same shape automation_jobs.payload.ctx already
  * uses so JobRunnerService's executors don't need a second code path. */
 export interface ApprovalActionSnapshot {
-  action: AutomationAction;
+  action: AutomationAction | WriteBackPushAction;
   ctx: { workspaceId: string; databaseId: string; recordId: string | null; actorId: string };
 }
 
@@ -29,7 +47,7 @@ export interface CreateApprovalInput {
   recordId: string | null;
   actionIndex: number;
   /** Already rendered — see ApprovalActionSnapshot's doc. */
-  action: AutomationAction;
+  action: AutomationAction | WriteBackPushAction;
   previewText: string;
   /** The rule's run actor (or the button-presser, when there's no rule) —
    * used as the approver only when no rule (and hence no owner) exists. */
@@ -199,8 +217,8 @@ export class ApprovalsService {
       return this.get(workspaceId, id);
     }
 
+    const snapshot = updated.actionSnapshot as ApprovalActionSnapshot;
     if (verdict === 'approved') {
-      const snapshot = updated.actionSnapshot as ApprovalActionSnapshot;
       await this.jobs.enqueue({
         workspaceId,
         ruleId: updated.ruleId,
@@ -210,6 +228,20 @@ export class ApprovalsService {
         payload: { action: snapshot.action, ctx: snapshot.ctx },
         idempotencyKey: `approval:${updated.id}`,
         approvalId: updated.id,
+      });
+    } else if (snapshot.action.type === 'write_back_push') {
+      // #282 AC — rejecting makes no outbound call (nothing enqueued above),
+      // but is still recorded in the source's own run log, not only as an
+      // approvals-table row: an append-only row per attempt (held/approved/
+      // rejected/failed each their own), never a row mutated in place.
+      const action = snapshot.action;
+      await this.db.insert(sourceRuns).values({
+        sourceId: action.source_id,
+        workspaceId,
+        startedAt: new Date(),
+        finishedAt: new Date(),
+        status: 'rejected',
+        stats: { pushed: false, external_key: action.external_key, pushed_keys: Object.keys(action.values), approval_id: updated.id, decided_by: actorId, reason: reason ?? null },
       });
     }
 

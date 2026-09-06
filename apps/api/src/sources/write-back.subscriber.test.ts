@@ -2,6 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Db } from '../db/client';
 import type { ConnectionsService } from '../connections/connections.service';
 import type { DomainEvent, DomainEventsService } from '../events/domain-events.service';
+import type { RecordsService } from '../records/records.service';
+import type { ApprovalsService } from '../automations/approvals.service';
+import type { JobRunnerService } from '../automations/job-runner.service';
 import { SOURCE_PROVIDER_REGISTRY } from './providers';
 import type { SourceProviderDescriptor } from './providers';
 import { WriteBackSubscriber } from './write-back.subscriber';
@@ -70,7 +73,13 @@ function buildSubscriber(opts: {
   const connectionsService = {
     getDecryptedAuth: vi.fn().mockResolvedValue({ auth: { token: 'fake' }, provider: 'google' }),
   } as unknown as ConnectionsService;
-  const subscriber = new WriteBackSubscriber(db, domainEvents, connectionsService);
+  // #282 — not exercised by these tests (they cover the non-gated push
+  // path, unchanged); real behavior for the approval-gated path is covered
+  // in write-back-approval-gate.test.ts.
+  const recordsService = { renderChangeSummary: vi.fn().mockResolvedValue('') } as unknown as RecordsService;
+  const approvalsService = { create: vi.fn() } as unknown as ApprovalsService;
+  const jobs = { registerExecutor: vi.fn() } as unknown as JobRunnerService;
+  const subscriber = new WriteBackSubscriber(db, domainEvents, connectionsService, recordsService, approvalsService, jobs);
   return { subscriber, inserted, connectionsService };
 }
 

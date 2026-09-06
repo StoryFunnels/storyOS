@@ -9,8 +9,24 @@ import { defaultConnectionFetcher } from '../connections/providers/types';
 import type { ConnectionFetcher } from '../connections/providers/types';
 import { DomainEventsService } from '../events/domain-events.service';
 import type { DomainEvent } from '../events/domain-events.service';
+import { RecordsService } from '../records/records.service';
+import { ApprovalsService } from '../automations/approvals.service';
+import type { WriteBackPushAction } from '../automations/approvals.service';
+import { JobRunnerService } from '../automations/job-runner.service';
+import type { JobHelpers } from '../automations/job-runner.service';
 import { normalizeFieldMapping } from './field-mapping';
 import { SOURCE_PROVIDER_REGISTRY } from './providers';
+
+/**
+ * #282 — "carry the existing automation depth guard's idea into the sync
+ * path and cap it": a push triggered by a pull that was itself triggered by
+ * a push must not ping-pong. `sources.service.ts`'s `upsertBatch()` already
+ * calls `recordsService.update(..., 1, 'automation')` for every ingested
+ * write, so a pull-caused `record_updated` arrives here at depth 1, not 0 —
+ * same MAX_DEPTH=2 convention automations.service.ts uses, so one push→pull
+ * round trip is still allowed but a second is refused and logged.
+ */
+const WRITE_BACK_MAX_DEPTH = 2;
 
 /**
  * #279/#281 (write-back) — a record owned by a `write_back`-enabled source
@@ -46,10 +62,17 @@ export class WriteBackSubscriber implements OnModuleInit {
     @Inject(DB) private readonly db: Db,
     private readonly domainEvents: DomainEventsService,
     private readonly connectionsService: ConnectionsService,
+    private readonly recordsService: RecordsService,
+    private readonly approvalsService: ApprovalsService,
+    private readonly jobs: JobRunnerService,
   ) {}
 
   onModuleInit(): void {
     this.domainEvents.subscribe((event) => this.handle(event));
+    // #282 — approved-via-gate pushes execute through the SAME job runner
+    // every automation action does, for free retry/backoff/breaker handling
+    // (job-runner.service.ts) rather than a second retry mechanism.
+    this.jobs.registerExecutor('write_back_push', (payload, helpers) => this.executeApprovedPush(payload, helpers));
   }
 
   private handle(event: DomainEvent): void {
@@ -75,7 +98,7 @@ export class WriteBackSubscriber implements OnModuleInit {
     let record: { values: unknown } | undefined;
 
     for (const source of candidates) {
-      const config = (source.config ?? {}) as { write_back?: boolean };
+      const config = (source.config ?? {}) as { write_back?: boolean; require_approval_for_push?: boolean };
       if (config.write_back !== true) continue;
 
       const descriptor = SOURCE_PROVIDER_REGISTRY.get(source.providerSource);
@@ -103,7 +126,121 @@ export class WriteBackSubscriber implements OnModuleInit {
         values[externalKeyName] = event.changedValues?.[entry.fieldId]?.to ?? recordValues[entry.fieldId];
       }
 
+      // #282 AC — ping-pong guard, checked per-candidate (not at the top of
+      // the function) so a source that WOULD have pushed still gets its own
+      // audit row naming the cap, rather than a silent early return.
+      if (event.depth >= WRITE_BACK_MAX_DEPTH) {
+        await this.db.insert(sourceRuns).values({
+          sourceId: source.id,
+          workspaceId: source.workspaceId,
+          startedAt: new Date(),
+          finishedAt: new Date(),
+          status: 'skipped_depth',
+          error: `depth cap (${WRITE_BACK_MAX_DEPTH}) reached at depth ${event.depth} — refusing to push to avoid a pull/push loop`,
+          stats: { pushed: false, external_key: externalKey, pushed_keys: Object.keys(values), depth: event.depth, max_depth: WRITE_BACK_MAX_DEPTH },
+        });
+        continue;
+      }
+
+      if (config.require_approval_for_push === true) {
+        await this.holdForApproval(source, event, pushable, recordValues, String(externalKey), values);
+        continue;
+      }
+
       await this.pushOne(source, event.recordId, externalKey, values);
+    }
+  }
+
+  /**
+   * #282 — the source opted into `require_approval_for_push`: reuse the
+   * SAME approvals machinery MN-255 built for automation actions
+   * (approvals.service.ts), never a second gate. The before→after preview
+   * text is `renderChangeSummary()` — its third caller (comments.service.ts
+   * and automations.service.ts's notify path are the other two), the same
+   * reuse-not-reinvent direction of travel #282's own grooming notes call out.
+   */
+  private async holdForApproval(
+    source: typeof sources.$inferSelect,
+    event: DomainEvent,
+    pushable: Array<[string, { fieldId: string }]>,
+    recordValues: Record<string, unknown>,
+    externalKey: string,
+    values: Record<string, unknown>,
+  ): Promise<void> {
+    const changedValuesByFieldId = Object.fromEntries(
+      pushable.map(([, entry]) => [
+        entry.fieldId,
+        { from: event.changedValues?.[entry.fieldId]?.from, to: event.changedValues?.[entry.fieldId]?.to ?? recordValues[entry.fieldId] },
+      ]),
+    );
+    const summary = await this.recordsService.renderChangeSummary(event.databaseId, changedValuesByFieldId);
+    const previewText = `Push to ${source.providerSource} (${source.name}): ${summary || 'field values changed'}`;
+
+    const action: WriteBackPushAction = { type: 'write_back_push', source_id: source.id, external_key: externalKey, values };
+    await this.approvalsService.create({
+      workspaceId: source.workspaceId,
+      databaseId: event.databaseId,
+      ruleId: null,
+      runId: null,
+      recordId: event.recordId,
+      actionIndex: 0,
+      action,
+      previewText,
+      requesterActorId: event.actorId ?? source.createdBy ?? 'system',
+    });
+
+    await this.db.insert(sourceRuns).values({
+      sourceId: source.id,
+      workspaceId: source.workspaceId,
+      startedAt: new Date(),
+      finishedAt: new Date(),
+      status: 'pending_approval',
+      stats: { pushed: false, external_key: externalKey, pushed_keys: Object.keys(values), diff: changedValuesByFieldId },
+    });
+  }
+
+  /** #282 — the JobRunnerService executor for an APPROVED write_back_push. */
+  private async executeApprovedPush(payload: Record<string, unknown>, helpers: JobHelpers): Promise<unknown> {
+    const action = (payload as { action: WriteBackPushAction }).action;
+    const source = await this.db.query.sources.findFirst({ where: eq(sources.id, action.source_id) });
+    if (!source) throw new Error(`write-back source ${action.source_id} no longer exists`);
+    const descriptor = SOURCE_PROVIDER_REGISTRY.get(source.providerSource);
+    if (!descriptor?.push || !source.connectionId) {
+      throw new Error(`source ${source.id} can no longer push (provider/connection changed since approval)`);
+    }
+
+    const startedAt = new Date();
+    const baseStats = { pushed: true, external_key: action.external_key, pushed_keys: Object.keys(action.values), approved: true };
+    try {
+      const { auth } = await helpers.connectionAuth(source.connectionId);
+      const result = await descriptor.push!({
+        auth,
+        config: (source.config ?? {}) as Record<string, unknown>,
+        fetcher: this.fetcher,
+        externalKey: action.external_key,
+        values: action.values,
+      });
+      await this.db.insert(sourceRuns).values({
+        sourceId: source.id,
+        workspaceId: source.workspaceId,
+        startedAt,
+        finishedAt: new Date(),
+        status: 'ok',
+        stats: { ...baseStats, ...result.stats },
+      });
+      return result;
+    } catch (err) {
+      const message = (err instanceof Error ? err.message : String(err)).slice(0, 500);
+      await this.db.insert(sourceRuns).values({
+        sourceId: source.id,
+        workspaceId: source.workspaceId,
+        startedAt,
+        finishedAt: new Date(),
+        status: 'error',
+        error: message,
+        stats: baseStats,
+      });
+      throw err;
     }
   }
 

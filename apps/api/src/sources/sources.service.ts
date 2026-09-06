@@ -48,18 +48,27 @@ const QUOTA_BUDGET_BY_CONNECTION_PROVIDER: Record<string, () => number> = {
 const WRITE_BACK_CONFIG_KEY = 'write_back';
 /** #280 — same reasoning, same reserved-key treatment, as WRITE_BACK_CONFIG_KEY. */
 const CONFLICT_POLICY_CONFIG_KEY = 'conflict_policy';
+/** #282 — same reasoning again: a framework-owned gate on write-back itself,
+ * not a provider config field, so it needs the same reserved-key split. */
+const REQUIRE_APPROVAL_CONFIG_KEY = 'require_approval_for_push';
 const DEFAULT_CONFLICT_POLICY: SourceConflictPolicy = 'external_wins';
 
 function splitReservedConfig(
   config: Record<string, unknown>,
-  fallback: { writeBack?: boolean; conflictPolicy?: SourceConflictPolicy } = {},
-): { providerConfig: Record<string, unknown>; writeBack: boolean; conflictPolicy: SourceConflictPolicy } {
-  const { [WRITE_BACK_CONFIG_KEY]: rawWriteBack, [CONFLICT_POLICY_CONFIG_KEY]: rawPolicy, ...providerConfig } = config;
+  fallback: { writeBack?: boolean; conflictPolicy?: SourceConflictPolicy; requireApprovalForPush?: boolean } = {},
+): { providerConfig: Record<string, unknown>; writeBack: boolean; conflictPolicy: SourceConflictPolicy; requireApprovalForPush: boolean } {
+  const {
+    [WRITE_BACK_CONFIG_KEY]: rawWriteBack,
+    [CONFLICT_POLICY_CONFIG_KEY]: rawPolicy,
+    [REQUIRE_APPROVAL_CONFIG_KEY]: rawRequireApproval,
+    ...providerConfig
+  } = config;
   const parsedPolicy = sourceConflictPolicySchema.safeParse(rawPolicy);
   return {
     providerConfig,
     writeBack: rawWriteBack === undefined ? (fallback.writeBack ?? false) : rawWriteBack === true,
     conflictPolicy: parsedPolicy.success ? parsedPolicy.data : (fallback.conflictPolicy ?? DEFAULT_CONFLICT_POLICY),
+    requireApprovalForPush: rawRequireApproval === undefined ? (fallback.requireApprovalForPush ?? false) : rawRequireApproval === true,
   };
 }
 
@@ -218,7 +227,7 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
   ) {
     const descriptor = this.requireEnabledProvider(input.provider_source);
     const connection = await this.requireConnectionForProvider(workspaceId, input.connection_id, descriptor);
-    const { providerConfig, writeBack, conflictPolicy } = splitReservedConfig(input.config ?? {});
+    const { providerConfig, writeBack, conflictPolicy, requireApprovalForPush } = splitReservedConfig(input.config ?? {});
     const parsedConfig = descriptor.configSchema.safeParse(providerConfig);
     if (!parsedConfig.success) {
       throw new BadRequestException(`Invalid config for "${descriptor.id}": ${parsedConfig.error.message}`);
@@ -247,6 +256,7 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
           ...parsedConfig.data,
           [WRITE_BACK_CONFIG_KEY]: writeBack,
           [CONFLICT_POLICY_CONFIG_KEY]: conflictPolicy,
+          [REQUIRE_APPROVAL_CONFIG_KEY]: requireApprovalForPush,
         },
         targetDatabaseId: databaseId,
         fieldMapping: input.field_mapping,
@@ -324,6 +334,7 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
     const existingWriteBack = existing?.[WRITE_BACK_CONFIG_KEY] === true;
     const existingPolicyParsed = sourceConflictPolicySchema.safeParse(existing?.[CONFLICT_POLICY_CONFIG_KEY]);
     const existingPolicy = existingPolicyParsed.success ? existingPolicyParsed.data : DEFAULT_CONFLICT_POLICY;
+    const existingRequireApproval = existing?.[REQUIRE_APPROVAL_CONFIG_KEY] === true;
     const nextConfig = input.config
       ? {
           ...input.config,
@@ -335,6 +346,11 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
                 ? input.config[CONFLICT_POLICY_CONFIG_KEY]
                 : existingPolicy)
             : existingPolicy,
+          // #282 — same carry-forward treatment as write_back above: an edit
+          // to some OTHER config key must not silently un-gate approval.
+          [REQUIRE_APPROVAL_CONFIG_KEY]: Object.prototype.hasOwnProperty.call(input.config, REQUIRE_APPROVAL_CONFIG_KEY)
+            ? input.config[REQUIRE_APPROVAL_CONFIG_KEY] === true
+            : existingRequireApproval,
         }
       : existing;
     if (input.config) {
