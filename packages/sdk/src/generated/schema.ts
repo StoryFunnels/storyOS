@@ -4120,6 +4120,8 @@ export interface components {
             values?: {
                 [key: string]: unknown;
             };
+            /** Format: uuid */
+            view_id?: string;
         };
         PreferencesPatchDto: {
             notifications?: {

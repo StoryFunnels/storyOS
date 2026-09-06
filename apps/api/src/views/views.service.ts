@@ -245,7 +245,35 @@ export function boardGroupError(
       ? null
       : 'board views can only group by the single side of a one-to-many relation — a many-to-many or the many side would put a card in several columns';
   }
+  // #498 — bins turn an otherwise-continuous number into single-valued buckets,
+  // same as a date's period does; unconfigured (no bins yet) stays refused
+  // rather than silently offering an unbounded, column-per-value board.
+  if (field.type === 'number') {
+    const bins = config['bins'];
+    return Array.isArray(bins) && bins.length > 0
+      ? null
+      : 'configure bins on this field before grouping a board by it';
+  }
+  // #499 — text and lookup are single-valued (one column per record), so the
+  // "would land in several columns" rule this function otherwise enforces does
+  // not rule them out. They ARE read-only for grouping though — see
+  // `boardGroupIsReadOnly` — so a card lands in a column but a drag can never
+  // change which one; that half is enforced by records.service.ts's `move()`.
+  if (field.type === 'text' || field.type === 'lookup') return null;
   return `board views cannot group by a "${field.type}" field — use a select, a single user, or a one-to-many relation`;
+}
+
+/**
+ * #499 — the single classification of "this board is grouped by something a
+ * drag can never write back to," shared by the client's non-draggable marking
+ * (`groupable-fields.ts`) and the server's write-guard on `move()`
+ * (`records.service.ts`) so the two can never drift the way #267/#272 did.
+ * Lookup is already refused by record-values.ts's general write validator
+ * (computed, never writable anywhere) — listed here too for defense in depth
+ * and so callers don't need to know that's a separate mechanism.
+ */
+export function boardGroupIsReadOnly(fieldType: string): boolean {
+  return fieldType === 'text' || fieldType === 'lookup';
 }
 
 /**

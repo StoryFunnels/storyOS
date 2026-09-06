@@ -109,3 +109,73 @@ describe('record move (MN-022)', () => {
     expect(res.statusCode).toBe(422);
   });
 });
+
+describe('#499 — a board grouped by text is read-only: a drag can reorder but never re-group', () => {
+  let notesApiName: string;
+  let textBoardViewId: string;
+  let selectBoardViewId: string;
+
+  beforeAll(async () => {
+    const notes = (
+      await inject('POST', `/workspaces/${wsId}/databases/${dbId}/fields`, {
+        display_name: 'Notes',
+        type: 'text',
+      })
+    ).json();
+    notesApiName = notes.apiName;
+
+    textBoardViewId = (
+      await inject('POST', `/workspaces/${wsId}/databases/${dbId}/views`, {
+        name: 'By notes',
+        type: 'board',
+        config: { group_by_field_id: notes.id },
+      })
+    ).json().id;
+
+    const dbRes = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}`)).json();
+    const stateFieldId = dbRes.fields.find((f: { apiName: string }) => f.apiName === stateApiName).id;
+
+    selectBoardViewId = (
+      await inject('POST', `/workspaces/${wsId}/databases/${dbId}/views`, {
+        name: 'By state',
+        type: 'board',
+        config: { group_by_field_id: stateFieldId },
+      })
+    ).json().id;
+  });
+
+  it('rejects a move whose values patch the text group field, when it names the view', async () => {
+    const res = await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records/${ids[0]}/move`, {
+      after_record_id: ids[1],
+      values: { [notesApiName]: 'moved into a new bucket' },
+      view_id: textBoardViewId,
+    });
+    expect(res.statusCode, res.body).toBe(422);
+    expect(res.body).toContain('can never change its group');
+  });
+
+  it('still allows a plain reposition with no values on that same board', async () => {
+    const res = await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records/${ids[0]}/move`, {
+      after_record_id: ids[1],
+      view_id: textBoardViewId,
+    });
+    expect(res.statusCode, res.body).toBe(201);
+  });
+
+  it('still allows writing the same field with no view_id named (an ordinary cell edit, not a kanban drop)', async () => {
+    const res = await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records/${ids[0]}/move`, {
+      after_record_id: ids[1],
+      values: { [notesApiName]: 'edited directly, not via a board drag' },
+    });
+    expect(res.statusCode, res.body).toBe(201);
+  });
+
+  it('is unaffected on a select-grouped board — the existing kanban-drop case keeps working', async () => {
+    const res = await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records/${ids[0]}/move`, {
+      after_record_id: ids[1],
+      values: { [stateApiName]: stateOptions[0]!.id },
+      view_id: selectBoardViewId,
+    });
+    expect(res.statusCode, res.body).toBe(201);
+  });
+});

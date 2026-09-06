@@ -295,6 +295,13 @@ export const moveRecordSchema = z
     after_record_id: z.uuid().optional(),
     /** Optional value patch applied atomically with the move (kanban drops). */
     values: z.record(z.string(), z.unknown()).optional(),
+    /**
+     * #499 — the board view a kanban drop came from, so the server can refuse
+     * a value patch to that view's group_by_field_id when it's read-only for
+     * grouping (text/lookup). Optional: a plain reorder (no `values`) or a
+     * move from anywhere else never needs it.
+     */
+    view_id: z.uuid().optional(),
   })
   .refine((v) => Boolean(v.before_record_id) !== Boolean(v.after_record_id) || (!v.before_record_id && !v.after_record_id && Boolean(v.values)), {
     message: 'provide exactly one of before_record_id / after_record_id (or only values)',
