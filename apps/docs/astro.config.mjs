@@ -96,6 +96,7 @@ export default defineConfig({
             { label: 'Organising the sidebar', slug: 'concepts/organising-the-sidebar' },
             { label: 'Tyron, the in-app assistant', slug: 'concepts/tyron' },
             { label: 'Agent runs', slug: 'concepts/agent-runs' },
+            { label: 'Split-screen panels', slug: 'concepts/split-screen' },
           ],
         },
         {
