@@ -1,7 +1,8 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { ConnectionsModule } from '../connections/connections.module';
 import { DatabasesModule } from '../databases/databases.module';
 import { RecordsModule } from '../records/records.module';
+import { AutomationsModule } from '../automations/automations.module';
 import { SourcesController } from './sources.controller';
 import { SourcesService } from './sources.service';
 import { WriteBackSubscriber } from './write-back.subscriber';
@@ -15,7 +16,9 @@ import { WriteBackSubscriber } from './write-back.subscriber';
  * EventsModule is @Global().
  */
 @Module({
-  imports: [DatabasesModule, RecordsModule, ConnectionsModule],
+  // #282 — forwardRef breaks the module-evaluation cycle this creates:
+  // SourcesModule -> AutomationsModule -> IntegrationsModule -> SourcesModule.
+  imports: [DatabasesModule, RecordsModule, ConnectionsModule, forwardRef(() => AutomationsModule)],
   controllers: [SourcesController],
   providers: [SourcesService, WriteBackSubscriber],
   exports: [SourcesService],
