@@ -145,9 +145,58 @@ explicit allowlist of which fields travel. Nothing is exposed by default:
   form](/guides/client-portals/). Anyone who has the link can view; nobody without it can guess
   their way in.
 
-**No web page or share-dialog UI exists yet.** This is reachable over the API
-(`POST`/`DELETE .../views/{view}/share`, `GET /public/views/{token}`) and MCP (`share_view`,
-`unshare_view`) only — there's no button in the app to click yet.
+**Table views only.** A board's group-by column or a dashboard's tiles and widgets have no single
+set of records to allowlist the way a table's rows do, so **Share…** doesn't appear on the tab
+menu for anything but a table view.
+
+**A personal view can never be published — not even by its own owner.** Personal space's whole
+premise is invisibility to everyone else, including admins; a public, anonymous URL is a
+categorically stronger exposure than "visible only to me," so the server refuses outright rather
+than adding a second permission branch to get right and maintain forever. It refuses as a plain
+**404**, the same way a personal view is already invisible to everyone but its owner everywhere
+else — the endpoint doesn't confirm one exists at that id. Revoking an already-published link
+(**Stop sharing**) stays open regardless, since removing exposure is always safe.
+
+### Publishing one
+
+A table view's **⋯ menu** carries **Share…**, opening a dialog with:
+
+- **Visible columns** — every field, checked by default except relations; a computed field
+  (rollup, lookup, formula) is labelled **(computed)** and can still be checked, since exposing it
+  is a decision you make, not something that happens by leaving it alone.
+- **Related records to include** — off by default, one checkbox per relation field. A related
+  record is its own data, not this view's, so including it is a second, separate decision.
+- **Allow search engines to index this page** — off by default.
+
+**Publish** mints the link and flips the dialog to a **Live** badge with a copyable **Link**
+(`/v/{token}`) and an **Embed** snippet (an `<iframe>` pointed at the same link with `?embed=1`,
+dropping the page's outer chrome for a cleaner in-page embed). Editing the allowlist and publishing
+again keeps the **same token**, so a link someone already has never breaks because you changed
+which columns show.
+
+Publish, reload, and reopen **Share…** and the dialog correctly reads **Live** with the working
+link. (An earlier build of this feature had `cleanViewConfig()` stripping a view's share config
+back out on every read, so the dialog always reread "Not published" regardless of what publish had
+actually done; fixed in #559.)
+
+### What a visitor sees
+
+A plain, unauthenticated page: the view's name, the database's name, a table of the allowlisted
+columns, and **Load more** if there's another page. An unpublished or unrecognised token reads
+*"This link doesn't exist or is no longer public"* — the same page a mistyped link produces, so a
+visitor can never tell "revoked" from "never existed."
+
+**Known gaps, today:**
+
+- **Column headers and cell values are best-effort.** The public payload carries a field's
+  `api_name` and `type` only — no display label, no select-option colors — so headers fall back to
+  a humanized api_name (`due_date` → "Due Date") and select/multi-select values show their raw
+  option id rather than a coloured label.
+- **The "Powered by StoryOS" footer always shows**, even on a paid plan — there's no plan-gated
+  hiding yet for a published view, unlike a public form.
+
+This is also reachable directly over the API (`POST`/`DELETE .../views/{view}/share`,
+`GET /public/views/{token}`) and MCP (`share_view`, `unshare_view`).
 
 ## An empty view versus a broken one
 
