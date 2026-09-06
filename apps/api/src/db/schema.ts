@@ -2198,3 +2198,66 @@ export const tyronMessages = pgTable(
   },
   (t) => [index('tyron_messages_thread_idx').on(t.threadId, t.createdAt)],
 );
+
+/**
+ * #534 — a named external party who can read their own slice of published
+ * portal content, WITHOUT a user account, an invitation flow, or a billable
+ * seat. Foundation table for the portal epic (#19); everything else in it
+ * binds to this entity. Identity and lifecycle ONLY — row scoping, magic-link
+ * delivery, branding, write-back, activity logging and entitlement are all
+ * filed as separate tickets and deliberately do not exist here yet.
+ *
+ * FIRST-CLASS TABLE, not a user-visible database — decided here, per the
+ * ticket's explicit ask to record why. A user-visible database would let a
+ * customer's own formula or automation touch this row, and this row IS a
+ * portal's access-control boundary: a recipient revoked by clearing `revokedAt`
+ * from a database view, or a token edited by a paste, is a security bug wearing
+ * a UI feature's clothes. Precedent for exactly this shape already exists in
+ * this schema — `access_grants` is a first-class table for the same reason
+ * (its own MN-125 comment). A read-only mirror INTO a user-visible database is
+ * still open for later (the epic's admin UI, #19), but the row of record — the
+ * thing that actually gates access — stays here, editable only through the API
+ * this ticket adds.
+ *
+ * Deliberately NOT a membership: a recipient never authenticates as a
+ * workspace member, never appears in `memberships`, and nothing in
+ * `AccessService.isBillable`/`billableUserIds` (schema.ts:43) can see it — so
+ * creating any number of recipients changes no seat count by construction,
+ * not by a check someone has to remember to add. This sits ALONGSIDE the guest
+ * tier (#238), not in place of it: guests are real, authenticated users for a
+ * client's own staff working IN the workspace; recipients are for the client
+ * themselves, reading OUT.
+ */
+export const portalRecipients = pgTable(
+  'portal_recipients',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    label: text('label').notNull(),
+    email: text('email'),
+    /**
+     * Opaque and unguessable by construction — `randomBytes(24)`, the same
+     * primitive `views.service.ts`'s public-view share token uses (#264/#527).
+     * Never derived from `label`, `id` or `createdAt`: deriving it from any of
+     * those would make a token guessable from public information.
+     */
+    token: text('token').notNull(),
+    /**
+     * Null = active. Revocation is a timestamp, not a delete: the row (and
+     * whatever it may end up scoped to, once #534's row-scoping sibling
+     * exists) stays addressable for audit, matching `records.deletedAt`'s
+     * soft-delete shape elsewhere in this schema. Every read path this ticket
+     * adds re-checks this column live, on every request — there is no cache
+     * and no session to expire, so revocation is immediate by construction
+     * rather than by a TTL someone picked.
+     */
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('portal_recipients_token_uq').on(t.token),
+    index('portal_recipients_workspace_idx').on(t.workspaceId),
+  ],
+);

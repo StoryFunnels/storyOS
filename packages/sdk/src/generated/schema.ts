@@ -1186,6 +1186,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/portal-recipients": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List portal recipients for this workspace */
+        get: operations["PortalRecipientsController_list"];
+        put?: never;
+        /** Create a portal recipient — never creates a user, never touches billable seats */
+        post: operations["PortalRecipientsController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/portal-recipients/{recipient}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke a recipient — every access path closes immediately, no cache/TTL */
+        post: operations["PortalRecipientsController_revoke"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/databases/{db}/views": {
         parameters: {
             query?: never;
@@ -4177,6 +4212,11 @@ export interface components {
         };
         ReplaceLinksDto: {
             record_ids: string[];
+        };
+        CreatePortalRecipientDto: {
+            label: string;
+            /** Format: email */
+            email?: string;
         };
         CreateViewDto__schema0: {
             field: string;
@@ -7413,6 +7453,63 @@ export interface operations {
         };
         responses: {
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PortalRecipientsController_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PortalRecipientsController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePortalRecipientDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PortalRecipientsController_revoke: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recipient: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };

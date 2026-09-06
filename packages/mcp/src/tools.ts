@@ -600,6 +600,11 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   list_members: 'read',
   list_grants: 'admin',
   list_invites: 'admin',
+  // #534 — a recipient's token is a standing credential to workspace content,
+  // same trust tier as a grant/invite (all three: 'admin').
+  list_portal_recipients: 'admin',
+  create_portal_recipient: 'admin',
+  revoke_portal_recipient: 'admin',
   get_my_work: 'read',
   set_favorite: 'write',
   list_notifications: 'read',
@@ -6858,5 +6863,72 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         return text({ deleted: true, affected });
       },
     ),
+  );
+
+  // #534 — portal recipients: a named external party who can read published
+  // content without a user account, an invitation, or a billable seat. This
+  // ticket ships identity and lifecycle only; row scoping (which content a
+  // recipient can see) is a separate ticket and does not exist yet.
+  reg(
+    'list_portal_recipients',
+    {
+      title: 'List portal recipients',
+      description:
+        'External parties (clients, not users) with standing access to this workspace\'s published portal content — no login, no seat. Read-only here.',
+      inputSchema: { workspace: z.string() },
+    },
+    handle<{ workspace: string }>(async ({ workspace }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/portal-recipients', { params: { path: { ws: ws.id } } as never }),
+      );
+      return text({ recipients: res });
+    }),
+  );
+
+  reg(
+    'create_portal_recipient',
+    {
+      title: 'Create a portal recipient',
+      description:
+        'Names a new external party for the portal (#534) — never creates a user, sends no invitation, and never counts toward billable seats. Returns an opaque token; what content it can reach is not yet wired to anything (row scoping ships separately).',
+      inputSchema: {
+        workspace: z.string(),
+        label: z.string().describe('Display name for this recipient, e.g. a client\'s company name.'),
+        email: z.string().optional().describe('Optional — for your own reference, not used for delivery yet.'),
+      },
+    },
+    handle<{ workspace: string; label: string; email?: string }>(async ({ workspace, label, email }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.POST('/api/v1/workspaces/{ws}/portal-recipients', {
+          params: { path: { ws: ws.id } },
+          body: { label, email } as never,
+        } as never),
+      );
+      return text({ recipient: res });
+    }),
+  );
+
+  reg(
+    'revoke_portal_recipient',
+    {
+      title: 'Revoke a portal recipient',
+      description:
+        'Closes a recipient\'s access immediately — no cache, no TTL. Irreversible as a token (a new recipient would need a new token); the row itself stays for audit.',
+      inputSchema: {
+        workspace: z.string(),
+        recipient: z.string().describe('Recipient id (from list_portal_recipients).'),
+      },
+    },
+    handle<{ workspace: string; recipient: string }>(async ({ workspace, recipient }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.POST('/api/v1/workspaces/{ws}/portal-recipients/{recipient}/revoke', {
+          params: { path: { ws: ws.id, recipient } },
+        } as never),
+      );
+      return text({ revoked: res });
+    }),
   );
 }
