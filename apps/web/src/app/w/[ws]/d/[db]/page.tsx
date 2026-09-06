@@ -12,18 +12,14 @@ import { DashboardView } from '@/components/views/dashboard-view';
 import { CalendarView } from '@/components/views/calendar-view';
 import { GalleryView } from '@/components/views/gallery-view';
 import { ListView } from '@/components/views/list-view';
-import {
-  boardGroupDisabledReason,
-  canGroupBoardBy,
-  listGroupDisabledReason,
-} from '@/components/views/groupable-fields';
+import { canGroupBoardBy } from '@/components/views/groupable-fields';
 import { FeedView } from '@/components/views/feed-view';
 import { TimelineView } from '@/components/views/timeline-view';
 import { FormView } from '@/components/views/form-view';
 import { TableView } from '@/components/table-view/table-view';
 import { ListSurface } from '@/components/entity/split-screen-host';
 import { EntityIconChip, IconColorPicker } from '@/components/ui/icon-picker';
-import { ViewToolbar } from '@/components/views/view-toolbar';
+import { GroupByFieldSelect, ViewToolbar } from '@/components/views/view-toolbar';
 import { ViewTab } from '@/components/views/view-tab';
 import { ShareViewDialog } from '@/components/views/share-view-dialog';
 import {
@@ -149,6 +145,7 @@ function DatabasePageInner() {
                   canManage={!readOnly}
                   canDelete={!readOnly && views.length > 1}
                   mutations={viewMutations}
+                  fields={database.data?.fields ?? []}
                   onNavigate={() => router.replace(`/w/${ws}/d/${db}?view=${view.id}`)}
                   onDuplicated={(id) => router.replace(`/w/${ws}/d/${db}?view=${id}`)}
                   // #527/#555 — the public page only knows how to render a
@@ -454,27 +451,13 @@ function NewViewDialog({
           {((type === 'board' && boardGroupFields.length > 0) || type === 'list') && (
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="group-by">Group by{type === 'list' ? ' (optional)' : ''}</Label>
-              <select
+              <GroupByFieldSelect
                 id="group-by"
-                className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-sm text-ink"
+                viewType={type === 'board' ? 'board' : 'list'}
+                fields={fields}
                 value={type === 'board' ? groupBy || boardDefaultGroupId || '' : groupBy}
-                onChange={(e) => setGroupBy(e.target.value)}
-              >
-                {type === 'list' && <option value="">None</option>}
-                {/* #225: every field is listed. One that can't group is disabled with
-                    the reason, because a silently-omitted field reads as a bug — that
-                    is literally how #267 and #272 were both reported. */}
-                {fields.map((f) => {
-                  const reason =
-                    type === 'board' ? boardGroupDisabledReason(f) : listGroupDisabledReason(f);
-                  return (
-                    <option key={f.id} value={f.id} disabled={reason !== null}>
-                      {f.displayName}
-                      {reason ? ` — ${reason}` : ''}
-                    </option>
-                  );
-                })}
-              </select>
+                onChange={setGroupBy}
+              />
             </div>
           )}
           <div className="flex justify-end gap-2">

@@ -46,6 +46,7 @@ import { API_URL, api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import type { Field } from '../table-view/use-table-data';
 import { fieldTypeIcon } from './field-type-icon';
+import { boardGroupDisabledReason, listGroupDisabledReason } from './groupable-fields';
 import { FieldsMenu } from './fields-menu';
 import type { FilterCondition, SortSpec, ViewConfig } from './use-view-state';
 import { useClearPersonalFilter, useSetPersonalFilter } from './use-view-state';
@@ -433,6 +434,51 @@ export function ColorByButton({
         ))}
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+/**
+ * #515 — the ONE group-by field picker, shared by the New View dialog and
+ * board-view.tsx's own reorder screen from #499's disabled-reason logic
+ * (`boardGroupDisabledReason`/`listGroupDisabledReason`). Extracted rather
+ * than a second inline copy, which is exactly the drift #375/#380/#383/#399/
+ * #408/#422 already shipped — Mira's grounding on #515 named this explicitly
+ * as required, not optional, for whichever surface re-groups an EXISTING view.
+ */
+export function GroupByFieldSelect({
+  viewType,
+  fields,
+  value,
+  onChange,
+  id,
+}: {
+  viewType: 'board' | 'list';
+  fields: Field[];
+  value: string;
+  onChange: (fieldId: string) => void;
+  id?: string;
+}) {
+  return (
+    <select
+      id={id}
+      className="h-9 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-sm text-ink"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      {viewType === 'list' && <option value="">None</option>}
+      {/* #225: every field is listed. One that can't group is disabled with the
+          reason, because a silently-omitted field reads as a bug — that is
+          literally how #267 and #272 were both reported. */}
+      {fields.map((f) => {
+        const reason = viewType === 'board' ? boardGroupDisabledReason(f) : listGroupDisabledReason(f);
+        return (
+          <option key={f.id} value={f.id} disabled={reason !== null}>
+            {f.displayName}
+            {reason ? ` — ${reason}` : ''}
+          </option>
+        );
+      })}
+    </select>
   );
 }
 
