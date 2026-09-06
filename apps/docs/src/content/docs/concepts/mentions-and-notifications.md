@@ -45,6 +45,36 @@ rich text `#`-mention this one, newest first, with the true total in the heading
   to you, the section doesn't render at all rather than showing an empty heading.
 - **Zero mentions** also renders nothing — no heading reading "(0)".
 
+## Watching a record for changes
+
+Mentions aren't the only thing that notifies. **Watching** a record gets you an email (and an
+in-app notification) whenever any of its fields change — not just when someone mentions or
+comments on it.
+
+There is no button for this in the app today — no bell, no "Watch" menu item anywhere on a
+record. `watch_record`, `unwatch_record`, and `list_watchers` exist only as [MCP tools](/mcp/tools/)
+and raw API calls, so right now watching is something an agent does on your behalf, not something
+you click. `watch_record` only subscribes the calling identity — an agent can't watch a record on
+someone else's behalf.
+
+When a watched record changes, the notification's body is a compact summary of exactly what
+changed — `Status: To Do → In Progress · Owner: (empty) → Lena` — capped at five fields, with
+"`· +N more`" appended if more than five changed in one save. Select and workflow fields show the
+option's **label** in that summary, not its id. The email links straight to the record.
+
+To keep a bulk edit from fanning out thousands of emails at once, **email delivery is capped at 50
+recipients per change** — the in-app notification isn't capped, only the email side. A rule's
+[automation](/concepts/automations/) actions can reference this same summary via a `{changesSummary}`
+token, for something like posting "Status: To Do → In Progress" into a Slack message when a record
+moves.
+
+This respects the same **notification preferences** as everything else on this page — turning off
+"record changed" for yourself stops the emails. That preference defaults to **on**, and the API
+enforces it correctly, but **Settings → Notifications has no toggle for it** — only the other four
+event types (assigned, mentioned, commented, state changed) have a row there today. Until that's
+added, turning it off means a direct API call (`PATCH` your notification preferences), not a
+Settings click.
+
 ## Over the API and MCP
 
 `GET .../records/{id}/backlinks` returns `{data, total, has_more, next_cursor}` — the same
