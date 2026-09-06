@@ -90,6 +90,7 @@ export default defineConfig({
             { label: 'Mentions and notifications', slug: 'concepts/mentions-and-notifications' },
             { label: 'Files & attachments', slug: 'concepts/attachments' },
             { label: 'Record history', slug: 'concepts/record-history' },
+            { label: 'Personal space', slug: 'concepts/personal-space' },
             { label: 'Dashboards', slug: 'concepts/dashboards' },
             { label: 'Organising the sidebar', slug: 'concepts/organising-the-sidebar' },
             { label: 'Tyron, the in-app assistant', slug: 'concepts/tyron' },
