@@ -14,7 +14,7 @@ import { EntityIcon, IconColorPicker } from '@/components/ui/icon-picker';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { ShareDialog } from '@/components/share-dialog';
-import { SpaceOntology } from '@/components/space-ontology';
+import { DIAGRAM_NODE_LIMIT, SpaceOntology } from '@/components/space-ontology';
 import type { OntologyRelation } from '@/components/space-ontology';
 import { databaseNoun, pluralNoun } from '@/lib/records';
 import { cn } from '@/lib/utils';
@@ -272,8 +272,14 @@ export default function SpacePage() {
       <section className="mb-8">
         <h2 className="mb-1 text-sm font-medium text-ink">Ontology</h2>
         <p className="mb-3 text-[13px] text-muted">
-          {spaceDatabases.length} {pluralNoun(databaseNoun('database'), spaceDatabases.length)}, drawn as nodes; a line
-          is a relation.
+          {/* #509 — SpaceOntology picks one of two renderings past DIAGRAM_NODE_LIMIT
+              (see its own #449 AC10 comment); this caption must describe whichever
+              one it actually picked, not always the diagram. */}
+          {spaceDatabases.length} {pluralNoun(databaseNoun('database'), spaceDatabases.length)},{' '}
+          {spaceDatabases.length > DIAGRAM_NODE_LIMIT
+            ? 'listed below, each with its relations as plain sentences'
+            : 'drawn as nodes; a line is a relation'}
+          .
         </p>
         <SpaceOntology
           ws={ws}
