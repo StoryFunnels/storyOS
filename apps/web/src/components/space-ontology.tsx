@@ -70,7 +70,7 @@ const SATELLITE_R = 8; // px radius of a cross-space satellite node
  * to 5 databases): past it, each node gets too little arc room for its two
  * lines of label plus its share of edge labels to stay apart.
  */
-const DIAGRAM_NODE_LIMIT = 10;
+export const DIAGRAM_NODE_LIMIT = 10;
 
 export function SpaceOntology({
   ws,
