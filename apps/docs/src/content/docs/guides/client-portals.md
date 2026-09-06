@@ -42,6 +42,27 @@ Only the fields you add to the form are accepted. Anything else a caller tries t
 so a public form can never write to columns you didn't expose.
 :::
 
+### Showing or requiring a field only when an earlier one matches
+
+Expand a field in the builder and it carries two independent rule rows:
+
+- **Show only when** — the field only appears once an earlier answer matches.
+- **Require only when** — narrows *when* **Required** applies; it only appears once you've
+  checked Required, since it means nothing otherwise.
+
+Both rows work the same way: pick an **earlier** field (a form field can only depend on one that
+comes before it — no forward references, no cycles), then a condition — **is answered**, **is
+empty**, **is** (with a value picker), or **is not**. A select or workflow field gets a dropdown of
+its own options rather than free text, since the stored value is the option id, not its label.
+
+**Enforcement is real, not cosmetic.** A field hidden by its own rule can't be submitted a value at
+all — the server refuses it, so a hand-crafted request can't bypass what the builder hides. A
+required field is only actually required while its own rule holds; leave **Require only when**
+unset and it's simply always required, same as before this existed.
+
+**Unchecking Required clears any "Require only when" rule with it**, rather than leaving an
+orphaned condition sitting in the form's saved config.
+
 ## 2. Give the client a scoped space
 
 [Spaces](/getting-started/concepts/) are the unit of guest access. The cleanest portal is **one
