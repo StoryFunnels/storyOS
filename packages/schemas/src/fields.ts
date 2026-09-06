@@ -77,10 +77,59 @@ export const OPTION_COLORS = PALETTE;
 
 
 export const textConfigSchema = z.object({ multiline: z.boolean().default(false) });
+
+/**
+ * #579 — per-FIELD config (Ievgen, 2026-09-05), not per-view: the same bins
+ * apply everywhere this field is grouped by.
+ *
+ * CHOSEN INTERPRETATION, flagged for web to confirm rather than assumed
+ * silently: bins are CONTIGUOUS, not merely non-overlapping — each bin's `max`
+ * must equal the next bin's `min` exactly, so every number either falls in
+ * exactly one bin or in nobody's board at all (no silent gap a record could
+ * fall through). `min`/`max` are both nullable to mean "unbounded on this
+ * side," and only the first bin may leave `min` null, only the last may leave
+ * `max` null — an unbounded gap in the MIDDLE would be indistinguishable from
+ * a mistake. Each bin's range is `[min, max)` — max exclusive — so a shared
+ * boundary value belongs to exactly one bin, never both or neither.
+ */
+export const numberBinSchema = z.object({
+  label: z.string().trim().min(1).max(60),
+  min: z.number().nullable(),
+  max: z.number().nullable(),
+});
+export const numberBinsSchema = z
+  .array(numberBinSchema)
+  .min(1)
+  .max(20)
+  .superRefine((bins, ctx) => {
+    bins.forEach((bin, i) => {
+      if (bin.min !== null && bin.max !== null && bin.min >= bin.max) {
+        ctx.addIssue({ code: 'custom', message: `bin ${i} ("${bin.label}"): min must be less than max`, path: [i, 'min'] });
+      }
+      if (bin.min === null && i !== 0) {
+        ctx.addIssue({ code: 'custom', message: `bin ${i} ("${bin.label}"): only the first bin may leave min unbounded`, path: [i, 'min'] });
+      }
+      if (bin.max === null && i !== bins.length - 1) {
+        ctx.addIssue({ code: 'custom', message: `bin ${i} ("${bin.label}"): only the last bin may leave max unbounded`, path: [i, 'max'] });
+      }
+      const prev = bins[i - 1];
+      if (prev && prev.max !== null && bin.min !== null && prev.max !== bin.min) {
+        ctx.addIssue({
+          code: 'custom',
+          message: `bin ${i} ("${bin.label}") must start exactly where bin ${i - 1} ("${prev.label}") ends — got ${bin.min}, expected ${prev.max}`,
+          path: [i, 'min'],
+        });
+      }
+    });
+  });
+export type NumberBin = z.infer<typeof numberBinSchema>;
+
 export const numberConfigSchema = z.object({
   precision: z.number().int().min(0).max(10).optional(),
   format: z.enum(['plain', 'percent', 'currency']).default('plain'),
   currency_code: z.string().length(3).optional(),
+  /** #579 — absent = not configured for board grouping yet (ungrouped/refused). */
+  bins: numberBinsSchema.optional(),
 });
 export const dateConfigSchema = z.object({
   include_time: z.boolean().default(false),

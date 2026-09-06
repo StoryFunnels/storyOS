@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { CreatableFieldType, FilterNode, FormulaFieldInfo, FormulaType, SystemFieldType } from '@storyos/schemas';
-import { activeFilter, FormulaError, formulaRefs, parseFormula, SYSTEM_FIELDS, systemFieldDefsFor, titleConfigSchema, typecheck } from '@storyos/schemas';
+import { activeFilter, FormulaError, formulaRefs, parseFormula, SYSTEM_FIELDS, systemFieldDefsFor, titleConfigSchema, numberConfigSchema, typecheck } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { fields, records, relations, selectOptions } from '../db/schema';
@@ -184,6 +184,12 @@ export class FieldsService {
     if (input.type === 'workflow') await this.assertNoExistingWorkflowField(databaseId);
     if (input.type === 'lookup') await this.assertLookupConfig(databaseId, input.config ?? {});
     if (input.type === 'rollup') await this.assertRollupConfig(databaseId, input.config ?? {});
+    // #579 — number was the one creatable type with NO server-side config
+    // validation at all (unlike select/lookup/rollup/formula, each re-validated
+    // above or below); a malformed `bins` array would have corrupted every
+    // board grouped by this field with a silent 200. assertNumberConfig closes
+    // this at both create() and update() — see the sibling call there.
+    if (input.type === 'number') this.assertNumberConfig(input.config ?? {});
     // MN-129: resolve the api_name before compiling, so a formula field can be
     // guarded against referencing its own (about-to-exist) field.
     const apiName = await this.uniqueApiName(databaseId, input.display_name);
@@ -463,6 +469,14 @@ export class FieldsService {
   }
 
   /** MN-040: the relation must live on this database; the target field on the related one. */
+  /** #579 — number's config (including `bins`, once configured) is a real shape, not free-form JSON. */
+  private assertNumberConfig(config: Record<string, unknown>) {
+    const result = numberConfigSchema.safeParse(config);
+    if (!result.success) {
+      throw new UnprocessableEntityException(result.error.issues[0]?.message ?? 'invalid number field config');
+    }
+  }
+
   private async assertLookupConfig(databaseId: string, config: Record<string, unknown>) {
     const targetApiName = config['target_field_api_name'] as string | undefined;
     const targetDbId = await this.resolveRelationTargetDb(databaseId, config['relation_field_id'] as string | undefined);
@@ -765,6 +779,13 @@ export class FieldsService {
         ).map((o) => o.id),
       );
       this.assertSelectDefaultOption(merged, optionIds);
+      nextConfig = merged;
+    } else if (field.type === 'number' && patch.config !== undefined) {
+      // #579 — closes the pre-existing generic-shallow-merge gap for this type
+      // (see the create()-side comment above for the full finding).
+      const restored = restoreFieldConfig(patch.config, field.config);
+      const merged = { ...(field.config as Record<string, unknown>), ...restored };
+      this.assertNumberConfig(merged);
       nextConfig = merged;
     } else {
       const restored = patch.config ? restoreFieldConfig(patch.config, field.config) : undefined;
