@@ -70,6 +70,10 @@ export function EditFieldDialog({
 
   const isSelect =
     field.type === 'select' || field.type === 'multi_select' || field.type === 'workflow';
+  // #504 — sourced from the live database query (not the `field` prop directly)
+  // so an option added/renamed/removed via LiveOptionsEditor's own mutations,
+  // just below, is reflected here without needing this dialog to remount.
+  const liveOptions = currentDb.data?.fields.find((f) => f.id === field.id)?.options ?? field.options;
   // Relations ARE deletable (via the relations API, handled in useDeleteField) —
   // deleting drops both paired fields, which needs creator on the OTHER database
   // too; only offer Delete when the user really can (#136).
@@ -126,6 +130,7 @@ export function EditFieldDialog({
           ws={ws}
           db={db}
           fields={(currentDb.data?.fields ?? []) as Field[]}
+          options={liveOptions}
         />
 
         {isSelect && (
