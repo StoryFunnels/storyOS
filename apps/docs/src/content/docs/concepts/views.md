@@ -168,18 +168,16 @@ A table view's **⋯ menu** carries **Share…**, opening a dialog with:
   record is its own data, not this view's, so including it is a second, separate decision.
 - **Allow search engines to index this page** — off by default.
 
-**Publish** mints the link, and is designed to flip the dialog to a **Live** badge with a copyable
-**Link** (`/v/{token}`) and an **Embed** snippet (an `<iframe>` pointed at the same link with
-`?embed=1`, dropping the page's outer chrome for a cleaner in-page embed). Editing the allowlist
-and publishing again is designed to keep the **same token**, so a link someone already has never
-breaks because you changed which columns show.
+**Publish** mints the link and flips the dialog to a **Live** badge with a copyable **Link**
+(`/v/{token}`) and an **Embed** snippet (an `<iframe>` pointed at the same link with `?embed=1`,
+dropping the page's outer chrome for a cleaner in-page embed). Editing the allowlist and publishing
+again keeps the **same token**, so a link someone already has never breaks because you changed
+which columns show.
 
-**Right now, none of that confirmation reaches you.** Publish genuinely works — the link is live —
-but the dialog goes on reading "Not published" whether you reload or not, and nothing else in the
-app (no toast, no other screen) ever shows the token either. If you need the actual link today,
-get it the one place it isn't stripped: call `POST .../views/{view}/share` yourself (or the MCP
-`share_view` tool) and read the `token` field off that call's own response, then build the link as
-`/v/{token}`.
+Publish, reload, and reopen **Share…** and the dialog correctly reads **Live** with the working
+link. (An earlier build of this feature had `cleanViewConfig()` stripping a view's share config
+back out on every read, so the dialog always reread "Not published" regardless of what publish had
+actually done; fixed in #559.)
 
 ### What a visitor sees
 
@@ -198,8 +196,7 @@ visitor can never tell "revoked" from "never existed."
   hiding yet for a published view, unlike a public form.
 
 This is also reachable directly over the API (`POST`/`DELETE .../views/{view}/share`,
-`GET /public/views/{token}`) and MCP (`share_view`, `unshare_view`) — which, today, is the only
-place `share_view`'s own `token` is trustworthy; see above.
+`GET /public/views/{token}`) and MCP (`share_view`, `unshare_view`).
 
 ## An empty view versus a broken one
 
