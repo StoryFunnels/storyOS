@@ -66,10 +66,36 @@ fail validation.
   changes") · *record linked or unlinked* through a relation · *schedule* (hourly / daily /
   weekly at HH:mm, server time) · *webhook received* (an inbound URL the outside world POSTs to).
 - Condition: any filter the [views](/concepts/views/) support; for scheduled rules the condition
-  **is the selection** — the rule runs over every matching record.
+  **is the selection** — the rule runs over every matching record, or the top/bottom N of them
+  when the rule also carries a sort (below).
 - Actions: the eleven above. Each action can also carry its **own** condition, checked against
   the record just before that action runs — so a rule can validate first and only then fire an
   email or an API call. A failed per-action condition skips that one action and the rest still run.
+
+## Acting on a leaderboard, not every match
+
+**API and MCP only — no rule-editor control for this yet.** A **scheduled** rule can carry a
+**sort** (up to 3 keys, the same sort spec a [view](/concepts/views/) uses) and a **limit** (capped
+at 200), turning "every record where State = Published" into "the top 5 of them, by engagement." A
+sort with no limit still orders the selection; a limit with no sort just caps it — neither implies
+the other.
+
+**Every other trigger rejects both fields outright.** "Top five" means nothing for a rule firing on
+one just-created or just-changed record, so `sort`/`limit` are refused on save — whether they arrive
+alongside the trigger or get patched onto a rule whose trigger already isn't `schedule`.
+
+- **Ties break on record id, ascending** — the same deterministic tail an ordinary paginated query
+  already uses. A record with no value on the sort field sorts **last**, regardless of ascending or
+  descending.
+- **A renamed, retyped, or deleted sort field fails loudly.** That tick's run is logged as an
+  **error** naming the field — never a silent reorder and never a silent no-op — and nothing runs
+  for that rule until the sort is fixed.
+- **A sort without an explicit limit still caps at 500** (the same ceiling an unsorted scheduled
+  rule already had) — 200 is the ceiling on a limit *you set*, not the default when you leave it
+  unset.
+- **Each selected record's rank is on its run row** (`selection_rank`, via `get_runs` or the
+  workspace-wide runs endpoint) — "why did it pick these five" reads directly off the log, not a
+  re-derivation from the rule's current sort.
 
 ## Sending email
 
