@@ -31,7 +31,10 @@ curl -s -X POST $API/api/v1/workspaces/$WS/databases/$DB/records/query \
 - **Operators per type** (full matrix in the [conventions](/api/conventions/)):
   `eq neq contains gt gte lt lte before after within has has_none is_empty not_empty`.
 - **`within`** accepts `today`, `yesterday`, `tomorrow`, `last_7_days`, `next_7_days`, `this_month`,
-  `next_30_days`.
+  `next_30_days`. The family partitions cleanly around today, so a record never matches two of
+  these at once: `last_N_days` is **inclusive** of today (today back through today−(N−1)), while
+  `next_N_days` is **exclusive** of today (tomorrow through today+N) — `today` itself is its own
+  filter and only ever matches that.
 - **User fields** accept the literal `"me"`.
 - **Cursors** — responses page with keyset cursors; pass `next_cursor` back as `cursor`.
 - **Relations** — relation fields return `[{id, title}]` chips; filter them with `has` / `is_empty`.
