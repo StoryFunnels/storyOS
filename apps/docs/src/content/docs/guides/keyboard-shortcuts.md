@@ -53,6 +53,10 @@ know lands it first, instead of it being buried under whatever you touched an ho
 You can also create a new record directly from the palette, without opening the target database
 first.
 
+**A database result shows a `Space › Database` breadcrumb underneath it** — so two databases with
+the same name (a common shape once you have a few client spaces) read as distinct rows instead of
+duplicates. A space result shows no breadcrumb; it doesn't need one.
+
 ## When a shortcut deliberately does nothing
 
 Three rules, and each of them is protecting you rather than misfiring:
