@@ -211,6 +211,13 @@ export const OPS_BY_FIELD_TYPE = {
   'number/id': ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'is_empty', 'not_empty'],
   date: ['eq', 'neq', 'before', 'after', 'within', 'is_empty', 'not_empty'],
   select: ['eq', 'neq', 'has', 'has_none', 'is_empty', 'not_empty'],
+  // #558 — a workflow field is single-select-shaped (query-compiler.ts's own
+  // comment: "a workflow value is a single option id — filtered exactly like
+  // select"), so it shares select's exact op list rather than getting its own.
+  // Absence from THIS table (not from query-compiler.ts, which already
+  // supported it) was the whole defect: nothing told a caller workflow was
+  // filterable at all.
+  workflow: ['eq', 'neq', 'has', 'has_none', 'is_empty', 'not_empty'],
   multi_select: ['has', 'has_none', 'is_empty', 'not_empty'],
   user: ['eq', 'neq', 'has', 'has_none', 'is_empty', 'not_empty'],
   // #391 — presence only, matching query-compiler.ts, which refuses everything
@@ -219,6 +226,32 @@ export const OPS_BY_FIELD_TYPE = {
   relation: ['has', 'has_none', 'is_empty', 'not_empty'],
   checkbox: ['eq', 'neq'],
 } satisfies Record<string, FilterOp[]>;
+
+/**
+ * A stored field's `type` string → its OPS_BY_FIELD_TYPE key, so describe_database
+ * can attach a per-field `ops` array (#558) without a second, driftable copy of
+ * the matrix. Only field types query-compiler.ts filters on a FIXED op set are
+ * listed — formula/rollup are filterable but their ops depend on the field's own
+ * config (a number-typed formula takes number ops, a date-typed one takes date
+ * ops), so a static entry here would be wrong as often as right; omitting `ops`
+ * for them is honest, "not statically known" rather than a guess. rich_text,
+ * color, button and lookup have no filter case in query-compiler.ts at all — no
+ * entry here matches current server behaviour exactly.
+ */
+const FIELD_TYPE_TO_OPS_KEY: Partial<Record<string, keyof typeof OPS_BY_FIELD_TYPE>> = {
+  text: 'text/url/email',
+  url: 'text/url/email',
+  email: 'text/url/email',
+  number: 'number/id',
+  date: 'date',
+  select: 'select',
+  workflow: 'workflow',
+  multi_select: 'multi_select',
+  user: 'user',
+  attachment: 'attachment',
+  relation: 'relation',
+  checkbox: 'checkbox',
+};
 
 function opsRow(label: keyof typeof OPS_BY_FIELD_TYPE, hint?: string): string {
   const ops = OPS_BY_FIELD_TYPE[label];
@@ -237,6 +270,10 @@ export const FILTER_GUIDE = [
   opsRow('number/id', 'value = a number'),
   opsRow('date', 'value = ISO string, or a relative token for "within"'),
   opsRow('select', 'value = option label or id; eq/neq auto-map to has/has_none'),
+  // #558 — was missing entirely; the canonical status field on every database
+  // (e.g. "state") is workflow-typed, so this was the single most commonly
+  // needed row absent from the cheat sheet.
+  opsRow('workflow', 'the canonical status field; same ops and auto-mapping as select'),
   opsRow('multi_select', 'value = [labels or ids]'),
   opsRow('user', 'value = "@me" or user id(s); eq/neq auto-map to has/has_none'),
   // #391 — presence only. Nobody filters on a file uuid; "posts with no cover"
@@ -278,6 +315,18 @@ function describeFields(db: DatabaseDetail) {
           ...(o.icon ? { icon: o.icon } : {}),
         }));
       if (f.relation) out.links_to = f.relation.target_database_name ?? f.relation.target_database_id;
+      /*
+       * #558 — system fields already carried `ops` (below); a user-defined
+       * field never did, so the schema advertised the OPTIONS you'd filter
+       * select/workflow by without ever saying whether you could. Omitted
+       * (not `ops: []`) for a type FIELD_TYPE_TO_OPS_KEY doesn't cover —
+       * `[]` would falsely read as "filterable, but nothing works"; omission
+       * honestly means "not statically known" (formula/rollup: depends on the
+       * field's own config) or "not filterable" (rich_text/color/button/lookup
+       * have no case in query-compiler.ts at all).
+       */
+      const opsKey = FIELD_TYPE_TO_OPS_KEY[f.type];
+      if (opsKey) out.ops = OPS_BY_FIELD_TYPE[opsKey];
       return out;
     });
   const system = SYSTEM_FIELDS.map((f) => ({
@@ -1027,8 +1076,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         'Count records in a database, or total/average a numeric field — computed in the database, ' +
         'returning one number. USE THIS FOR ANY "how many" QUESTION rather than fetching records and ' +
         'counting them: query_records is paginated, so counting its results gives you the size of one ' +
-        'page, not the total. Takes the same filter AST as query_records, so "how many are still open" ' +
-        'is one call.',
+        'page, not the total. Takes the same filter AST as query_records — select/workflow/user labels ' +
+        '("Done", not an option id) resolve the same way too — so "how many are still open" is one call.',
       inputSchema: {
         workspace: z.string(),
         database: z.string().describe('Database name, api slug, or id.'),
@@ -1045,10 +1094,21 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       async ({ workspace, database, op, field, filter, q }) => {
         const ws = await resolveWorkspace(client, workspace);
         const db = await resolveDatabase(client, ws.id, database);
+        /*
+         * #558 — query_records resolves select/workflow/user filter LABELS to
+         * option ids via mapFilterValues before sending; count_records sent
+         * `filter` straight through, so `{field:"state", op:"eq", value:"Done"}`
+         * — the exact shape get_started's cheat sheet tells a caller to use —
+         * reached the API as a literal label and 422'd with "unknown option id
+         * \"Done\"". Not workflow-specific: the same call failed identically for
+         * a plain `select` field. Fetching the schema costs one extra call only
+         * when a filter is actually present.
+         */
+        const detail = filter !== undefined ? await getDetail(ws.id, db.id) : undefined;
         const res = await unwrap<unknown>(
           client.POST('/api/v1/workspaces/{ws}/databases/{db}/records/aggregate', {
             params: { path: { ws: ws.id, db: db.id } },
-            body: { op: op ?? 'count', field, filter, q } as never,
+            body: { op: op ?? 'count', field, filter: detail ? mapFilterValues(detail, filter) : filter, q } as never,
           }),
         );
         return text(res);

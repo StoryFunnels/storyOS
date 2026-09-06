@@ -4046,3 +4046,205 @@ describe('list_connection_providers: what COULD be connected (#507)', () => {
     expect(descriptions.get('list_connection_providers')).toContain('what CAN be connected');
   });
 });
+
+/**
+ * #558 — a workflow field could not be counted/filtered over MCP.
+ *
+ * The real defect: query_records resolves select/workflow/user filter LABELS
+ * to option ids via mapFilterValues before sending; count_records sent
+ * `filter` straight through, unresolved. `{field:"state", op:"eq",
+ * value:"Done"}` — the exact shape get_started's own cheat sheet tells a
+ * caller to use — reached the API as a literal label and 422'd. NOT
+ * workflow-specific: the same call failed identically for a plain `select`
+ * field (asserted below), which is why the fix lives in count_records'
+ * filter handling, not in some workflow-only special case.
+ */
+describe('count_records resolves filter labels the same way query_records does (#558)', () => {
+  const WORKSPACE = { id: 'ws-1', name: 'JCM Agency' };
+  const DATABASE = {
+    id: 'db-1',
+    name: 'Issues',
+    apiSlug: 'issues',
+    fields: [
+      {
+        id: 'f-state',
+        apiName: 'state',
+        displayName: 'State',
+        type: 'workflow',
+        options: [
+          { id: 'opt-todo', label: 'ToDo' },
+          { id: 'opt-done', label: 'Done' },
+        ],
+      },
+      {
+        id: 'f-priority',
+        apiName: 'priority',
+        displayName: 'Priority',
+        type: 'select',
+        options: [{ id: 'opt-high', label: 'High' }],
+      },
+      { id: 'f-name', apiName: 'name', displayName: 'Name', type: 'title' },
+    ],
+  };
+
+  function harness() {
+    const posted: Array<{ path: string; body: unknown }> = [];
+    const handlers = new Map<string, (a: unknown) => Promise<unknown>>();
+    const server = { registerTool: (n: string, _c: unknown, h: (a: unknown) => Promise<unknown>) => handlers.set(n, h) };
+    const client = {
+      GET: async (path: string) => {
+        if (path === '/api/v1/workspaces') return { data: [WORKSPACE] };
+        if (path === '/api/v1/workspaces/{ws}/databases') return { data: [DATABASE] };
+        if (path === '/api/v1/workspaces/{ws}/databases/{db}') return { data: DATABASE };
+        throw new Error(`unmocked GET ${path}`);
+      },
+      POST: async (path: string, o: { body?: unknown }) => {
+        posted.push({ path, body: o?.body });
+        if (path === '/api/v1/workspaces/{ws}/databases/{db}/records/aggregate') {
+          return { data: { op: 'count', field: null, value: 42, filtered: (o?.body as Record<string, unknown>)?.filter !== undefined, exact: true } };
+        }
+        throw new Error(`unmocked POST ${path}`);
+      },
+    } as never;
+    registerTools(server as never, { client, baseUrl: 'x', token: 't' } as Ctx, { scope: 'admin', allowRunButton: true });
+    return { handlers, posted };
+  }
+
+  const call = async (h: (a: unknown) => Promise<unknown>, a: unknown) =>
+    (await h(a)) as { isError?: boolean; content: Array<{ text: string }> };
+
+  it('resolves a workflow field label to its option id before sending, and translates eq → has', async () => {
+    const { handlers, posted } = harness();
+    const res = await call(handlers.get('count_records')!, {
+      workspace: 'JCM Agency',
+      database: 'issues',
+      filter: { field: 'state', op: 'eq', value: 'Done' },
+    });
+    expect(res.isError).toBeUndefined();
+    const body = posted.find((p) => p.path.endsWith('/aggregate'))!.body as { filter: unknown };
+    expect(body.filter).toEqual({ field: 'state', op: 'has', value: ['opt-done'] });
+  });
+
+  it('fails identically for a plain select field before the fix would have — proving this is not workflow-specific', async () => {
+    const { handlers, posted } = harness();
+    const res = await call(handlers.get('count_records')!, {
+      workspace: 'JCM Agency',
+      database: 'issues',
+      filter: { field: 'priority', op: 'eq', value: 'High' },
+    });
+    expect(res.isError).toBeUndefined();
+    const body = posted.find((p) => p.path.endsWith('/aggregate'))!.body as { filter: unknown };
+    expect(body.filter).toEqual({ field: 'priority', op: 'has', value: ['opt-high'] });
+  });
+
+  it('accepts an already-correct option id unchanged (not just labels)', async () => {
+    const { handlers, posted } = harness();
+    await call(handlers.get('count_records')!, {
+      workspace: 'JCM Agency',
+      database: 'issues',
+      filter: { field: 'state', op: 'has', value: ['opt-done'] },
+    });
+    const body = posted.find((p) => p.path.endsWith('/aggregate'))!.body as { filter: unknown };
+    expect(body.filter).toEqual({ field: 'state', op: 'has', value: ['opt-done'] });
+  });
+
+  it('rejects an unknown option label with a clear error, same as query_records', async () => {
+    const { handlers } = harness();
+    const res = await call(handlers.get('count_records')!, {
+      workspace: 'JCM Agency',
+      database: 'issues',
+      filter: { field: 'state', op: 'eq', value: 'NoSuchStatus' },
+    });
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toContain('No option "NoSuchStatus" on field "state"');
+  });
+
+  it('does NOT fetch the schema when no filter is given — no cost for the common case', async () => {
+    const { handlers, posted } = harness();
+    const res = await call(handlers.get('count_records')!, { workspace: 'JCM Agency', database: 'issues' });
+    expect(res.isError).toBeUndefined();
+    // Only the aggregate POST — no describe/database-detail GET was needed.
+    expect(posted).toHaveLength(1);
+  });
+
+  it('is idempotent — calling it twice in a row returns the same result (#548: races and repetition are this lane\'s failure shape)', async () => {
+    const { handlers } = harness();
+    const first = await call(handlers.get('count_records')!, {
+      workspace: 'JCM Agency',
+      database: 'issues',
+      filter: { field: 'state', op: 'eq', value: 'Done' },
+    });
+    const second = await call(handlers.get('count_records')!, {
+      workspace: 'JCM Agency',
+      database: 'issues',
+      filter: { field: 'state', op: 'eq', value: 'Done' },
+    });
+    expect(first.content[0]!.text).toEqual(second.content[0]!.text);
+  });
+});
+
+describe('describe_database advertises an `ops` array per field, including workflow (#558)', () => {
+  const WORKSPACE = { id: 'ws-1', name: 'JCM Agency' };
+  const DATABASE = {
+    id: 'db-1',
+    name: 'Issues',
+    apiSlug: 'issues',
+    fields: [
+      { id: 'f-state', apiName: 'state', displayName: 'State', type: 'workflow', options: [{ id: 'o1', label: 'Done' }] },
+      { id: 'f-priority', apiName: 'priority', displayName: 'Priority', type: 'select', options: [{ id: 'o2', label: 'High' }] },
+      { id: 'f-notes', apiName: 'notes', displayName: 'Notes', type: 'rich_text' },
+      { id: 'f-cost', apiName: 'cost', displayName: 'Cost', type: 'formula', config: { result_type: 'number' } },
+    ],
+  };
+
+  function harness() {
+    const handlers = new Map<string, (a: unknown) => Promise<unknown>>();
+    const server = { registerTool: (n: string, _c: unknown, h: (a: unknown) => Promise<unknown>) => handlers.set(n, h) };
+    const client = {
+      GET: async (path: string) => {
+        if (path === '/api/v1/workspaces') return { data: [WORKSPACE] };
+        if (path === '/api/v1/workspaces/{ws}/databases') return { data: [DATABASE] };
+        if (path === '/api/v1/workspaces/{ws}/databases/{db}') return { data: DATABASE };
+        throw new Error(`unmocked GET ${path}`);
+      },
+    } as never;
+    registerTools(server as never, { client, baseUrl: 'x', token: 't' } as Ctx, { scope: 'admin', allowRunButton: true });
+    return handlers;
+  }
+
+  it('gives workflow the exact same ops as select', async () => {
+    const handlers = harness();
+    const res = (await handlers.get('describe_database')!({ workspace: 'JCM Agency', database: 'issues' })) as {
+      content: Array<{ text: string }>;
+    };
+    const detail = JSON.parse(res.content[0]!.text) as { fields: Array<Record<string, unknown>> };
+    const state = detail.fields.find((f) => f.api_name === 'state')!;
+    const priority = detail.fields.find((f) => f.api_name === 'priority')!;
+    expect(state.ops).toEqual(priority.ops);
+    expect(state.ops).toEqual(['eq', 'neq', 'has', 'has_none', 'is_empty', 'not_empty']);
+  });
+
+  it('omits `ops` (not an empty array) for a type with no statically-known filter behaviour', async () => {
+    const handlers = harness();
+    const res = (await handlers.get('describe_database')!({ workspace: 'JCM Agency', database: 'issues' })) as {
+      content: Array<{ text: string }>;
+    };
+    const detail = JSON.parse(res.content[0]!.text) as { fields: Array<Record<string, unknown>> };
+    // rich_text has no filter case in query-compiler.ts at all.
+    expect(detail.fields.find((f) => f.api_name === 'notes')!.ops).toBeUndefined();
+    // formula's ops depend on its own config (number vs date vs checkbox) — a
+    // static claim here would be wrong as often as right.
+    expect(detail.fields.find((f) => f.api_name === 'cost')!.ops).toBeUndefined();
+  });
+});
+
+describe('get_started\'s filter cheat-sheet documents workflow (#558)', () => {
+  it('includes a workflow row naming the same ops as select', async () => {
+    const handlers = new Map<string, (a: unknown) => Promise<unknown>>();
+    const server = { registerTool: (n: string, _c: unknown, h: (a: unknown) => Promise<unknown>) => handlers.set(n, h) };
+    registerTools(server as never, { client: {} as never, baseUrl: 'x', token: 't' } as Ctx, { scope: 'admin', allowRunButton: true });
+    const res = (await handlers.get('get_started')!({})) as { content: Array<{ text: string }> };
+    const intro = res.content[0]!.text;
+    expect(intro).toMatch(/workflow\s+:/);
+  });
+});
