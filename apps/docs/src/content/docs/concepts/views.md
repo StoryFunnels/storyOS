@@ -184,7 +184,12 @@ actually done; fixed in #559.)
 A plain, unauthenticated page: the view's name, the database's name, a table of the allowlisted
 columns, and **Load more** if there's another page. An unpublished or unrecognised token reads
 *"This link doesn't exist or is no longer public"* — the same page a mistyped link produces, so a
-visitor can never tell "revoked" from "never existed."
+visitor can never tell "revoked" from "never existed." That page answers a real HTTP **404**, not
+a 200 with a "not found" message on it — the distinction a browser hides but a link-unfurling bot
+(Slack, iMessage, Twitter/X) reads directly.
+
+**Sharing the link itself previews correctly** — the view's actual name and database, not a
+generic homepage title, and images resolve against your real domain rather than `localhost`.
 
 **Known gaps, today:**
 
