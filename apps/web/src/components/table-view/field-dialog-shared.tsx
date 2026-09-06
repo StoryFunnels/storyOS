@@ -345,6 +345,7 @@ export function ConfigEditor({
   ws,
   db,
   fields,
+  options,
 }: {
   type: string;
   config: Record<string, unknown>;
@@ -355,6 +356,10 @@ export function ConfigEditor({
   ws?: string;
   db?: string;
   fields?: Field[];
+  /** #504 — a select/workflow field's live options, for the default-option
+   * picker below. Only meaningful once the field (and its options) already
+   * exist, so omitted at create time — see the picker's own comment. */
+  options?: Array<{ id: string; label: string }>;
 }) {
   const set = (key: string, value: unknown) => onChange({ ...config, [key]: value });
 
@@ -503,6 +508,31 @@ export function ConfigEditor({
             ))}
           </select>
         </div>
+      </div>
+    );
+  }
+  // #504 — config.default (an option id) already works end-to-end server-side
+  // (fields.service.ts create/update, fieldDefaultValue()); this was the only
+  // place left with no control to set it. Edit-time only: a freshly-created
+  // field's options are still local drafts with no id yet (create() resolves
+  // a default by LABEL instead — see that PR's own note), a different enough
+  // shape that it's out of scope here rather than silently half-built.
+  if ((type === 'select' || type === 'workflow') && options) {
+    return (
+      <div className="flex flex-col gap-1.5">
+        <Label>Default option</Label>
+        <select
+          className="h-9 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-sm text-ink"
+          value={(config.default as string) ?? ''}
+          onChange={(e) => set('default', e.target.value || undefined)}
+        >
+          <option value="">None</option>
+          {options.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.label}
+            </option>
+          ))}
+        </select>
       </div>
     );
   }
