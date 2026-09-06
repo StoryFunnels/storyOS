@@ -32,6 +32,14 @@ config.
 | `button` | Runs actions on click — see [automations & buttons](/concepts/automations/). |
 | `created_at`, `updated_at`, `created_by` | System, read-only. Filterable and sortable like any other field, with the operators each type supports. |
 
+### A system field's reduced `⋯` menu
+
+`created_at` and `updated_at` get their own `⋯` on hover, same as every other column — but a
+reduced one: **Filter by this field, Sort by this field, Hide field**. No Edit field, Change type,
+or Delete field, because a system field is read-only and its position is fixed; there is nothing
+those three would do. There's also no drag handle — a system column's position can't be reordered,
+matching what the server has always enforced.
+
 ## Select options are first-class
 
 Options for `select` / `multi_select` / `workflow` fields are **real rows with stable IDs**, never
