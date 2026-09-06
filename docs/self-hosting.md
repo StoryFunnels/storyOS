@@ -224,3 +224,11 @@ model and restore order.
 ## The API
 
 Your instance serves its own docs at `{API_URL}/api/docs` and the raw spec at `{API_URL}/api/v1/openapi.json`. Create personal access tokens in the app under **API tokens** — see [api/guides/authentication.md](api/guides/authentication.md).
+
+### What commit is this deployment serving? (#553)
+
+`GET {API_URL}/` returns `commit_sha` and `build_time` for the running API process, alongside the existing health check. **Deliberately unauthenticated**: a commit sha of this (public, AGPL) repository is not a secret, and the moments this is most needed are exactly when something is misconfigured and you aren't sure what you're talking to — requiring auth would defeat most of the value.
+
+Both values are baked into the Docker image at *build* time (`docker/api.Dockerfile`'s `GIT_SHA`/`BUILD_TIME` build args, set from the CI checkout in `build-images.yml`), never read from a deploy-time `.env`. That distinction is the point: if a deploy fails to actually replace the running container, the old container keeps reporting its own (correct, old) sha rather than whatever the deploy script most recently wrote to disk. A self-built image (not pulled from GHCR) that doesn't pass these build args will report `null` for both — never a fabricated value.
+
+The web app answers the same question for itself, independently, since it's a separate deployable and may be at a different commit.

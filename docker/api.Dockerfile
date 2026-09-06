@@ -16,6 +16,15 @@ RUN pnpm install --frozen-lockfile --filter @storyos/api... --filter @storyos/co
 RUN pnpm --filter @storyos/schemas build && pnpm --filter @storyos/api build
 
 FROM base AS runtime
+# #553 — baked at IMAGE build time (build-images.yml passes --build-arg
+# GIT_SHA/BUILD_TIME from the CI checkout), never read from the host's
+# deploy-time .env: a value burned into this specific image can only ever
+# report what this specific image was actually built from, even if a later
+# deploy fails to swap the container running it.
+ARG GIT_SHA
+ARG BUILD_TIME
+ENV GIT_SHA=$GIT_SHA
+ENV BUILD_TIME=$BUILD_TIME
 ENV NODE_ENV=production
 COPY --from=build /app/package.json /app/pnpm-workspace.yaml /app/pnpm-lock.yaml /app/turbo.json ./
 COPY --from=build /app/packages/config/package.json packages/config/package.json
