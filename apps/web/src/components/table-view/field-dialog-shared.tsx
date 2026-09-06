@@ -524,7 +524,14 @@ export function ConfigEditor({
         <select
           className="h-9 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-sm text-ink"
           value={(config.default as string) ?? ''}
-          onChange={(e) => set('default', e.target.value || undefined)}
+          // #504 — must be `null`, not `undefined`: the save path JSON.stringifies
+          // the whole config, which silently DROPS an undefined key rather than
+          // sending it. A dropped key survives the server's shallow config merge
+          // (`{ ...field.config, ...restored }`) unchanged — "None" would visibly
+          // save yet leave the old default in place. Reproduced and reported by
+          // Vera; assertSelectDefaultOption already treats an explicit null as
+          // "clear, valid", so null is what needs to actually reach the request.
+          onChange={(e) => set('default', e.target.value || null)}
         >
           <option value="">None</option>
           {options.map((o) => (
