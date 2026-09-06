@@ -13,7 +13,8 @@ import { DB } from '../db/db.module';
 import { buildRenderContext, renderTypedValue } from '../activity/render-values';
 import { assertOwnedAttachments, loadAttachmentChips } from '../attachments/attachment-values';
 import type { Db } from '../db/client';
-import { activityEvents, databases, documents, fields, memberships, recordFieldChanges, recordLinks, recordVersions, recordWatchers, records, relations, selectOptions, user } from '../db/schema';
+import { activityEvents, databases, documents, fields, memberships, recordFieldChanges, recordLinks, recordVersions, recordWatchers, records, relations, selectOptions, user, views } from '../db/schema';
+import { boardGroupIsReadOnly } from '../views/views.service';
 import type { ChangeSource } from '../db/schema';
 import type { QueryRecordsInput } from '@storyos/schemas';
 import { compileFilter, cursorCondition, filterReferencedFields, sortExpr } from './query-compiler';
@@ -2823,11 +2824,33 @@ export class RecordsService {
     workspaceId: string,
     databaseId: string,
     recordId: string,
-    input: { before_record_id?: string; after_record_id?: string; values?: Record<string, unknown> },
+    input: { before_record_id?: string; after_record_id?: string; values?: Record<string, unknown>; view_id?: string },
     actorId: string,
     source: ChangeSource = 'human',
   ): Promise<ProjectedRecord> {
     await this.getRow(databaseId, recordId);
+
+    // #499 — a board grouped by a read-only-for-grouping field (text/lookup)
+    // renders cards in columns but a drag can never change which one: the
+    // client marks those columns non-draggable, and this is the same rule
+    // enforced server-side so a hand-crafted call can't do what the UI
+    // deliberately refuses to offer. Only checked when the caller names the
+    // view the drop came from — a plain reorder or an edit from elsewhere
+    // never sends `view_id` and is unaffected.
+    if (input.view_id && input.values) {
+      const view = await this.db.query.views.findFirst({ where: eq(views.id, input.view_id) });
+      const groupFieldId = (view?.config as { group_by_field_id?: string } | null)?.group_by_field_id;
+      if (view?.type === 'board' && groupFieldId) {
+        const groupField = await this.db.query.fields.findFirst({ where: eq(fields.id, groupFieldId) });
+        // Values are keyed by api_name (as everywhere else in the write path),
+        // not the field's id — resolve before checking.
+        if (groupField && groupField.apiName in input.values && boardGroupIsReadOnly(groupField.type)) {
+          throw new UnprocessableEntityException(
+            `this board is grouped by a "${groupField.type}" field — dragging a card can reorder it but can never change its group`,
+          );
+        }
+      }
+    }
 
     let newPosition: string | undefined;
     if (input.before_record_id || input.after_record_id) {

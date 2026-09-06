@@ -45,18 +45,50 @@ import type { Field, RecordRow } from '../table-view/use-table-data';
 import type { FilterNode, ViewConfig } from './use-view-state';
 import { queryBodyFromConfig } from './use-view-state';
 import { ViewQueryError } from './query-error';
+import { boardGroupIsReadOnly } from './groupable-fields';
 
 const NO_VALUE = '__none__';
+
+interface NumberBin {
+  label: string;
+  min: number | null;
+  max: number | null;
+}
+
+/** #498 — which configured bin a value falls in, `[min, max)`, max exclusive. */
+function binIndexFor(value: number, bins: NumberBin[]): number | null {
+  for (let i = 0; i < bins.length; i++) {
+    const bin = bins[i]!;
+    if ((bin.min === null || value >= bin.min) && (bin.max === null || value < bin.max)) return i;
+  }
+  return null;
+}
+
+/**
+ * #498 — a number written back by a drop must re-bucket into the SAME column
+ * it was dropped in (the same guarantee #307 gives dates via bucketStartISO).
+ * The bin's own floor always satisfies `[min, max)` for that bin by
+ * construction, so it's the one value guaranteed to resolve back to it.
+ */
+function representativeNumberForBin(bin: NumberBin): number {
+  if (bin.min !== null) return bin.min;
+  if (bin.max !== null) return bin.max - 1;
+  return 0;
+}
 
 export function BoardView({
   ws,
   db,
+  viewId,
   config,
   readOnly,
   personalFilter,
 }: {
   ws: string;
   db: string;
+  /** #499 — named on every move so the server can refuse a re-group write
+   * when this view's group field is read-only for grouping (text/lookup). */
+  viewId: string;
   config: ViewConfig;
   readOnly: boolean;
   /** #259 — narrows this view's results for the current viewer only. */
@@ -65,6 +97,9 @@ export function BoardView({
   const database = useDatabase(ws, db);
   const qc = useQueryClient();
   const groupField = database.data?.fields.find((f) => f.id === config.group_by_field_id);
+  // #499 — a card lands in the right column but can never be dragged to a
+  // different one: text/lookup grouping is single-valued, just not writable.
+  const groupIsReadOnly = groupField ? boardGroupIsReadOnly(groupField) : false;
   // #307 — period per column when grouping by a date. Month is the roadmap default;
   // an unset/legacy config therefore renders sensibly rather than not at all.
   const granularity: DateGranularity = isDateGranularity(config.group_by_granularity)
@@ -122,6 +157,18 @@ export function BoardView({
       if (groupField.type === 'relation') return (raw as LinkChip[] | undefined)?.[0]?.id ?? NO_VALUE;
       // #307: a date field groups into periods, so the column id is the bucket key.
       if (groupField.type === 'date') return dateBucketKey(raw, granularity) ?? NO_VALUE;
+      // #498: the column id is the bin's INDEX, not the raw number — several
+      // distinct numbers share one column, unlike every other groupable type.
+      if (groupField.type === 'number') {
+        const bins = (groupField.config?.['bins'] as NumberBin[] | undefined) ?? [];
+        const idx = typeof raw === 'number' ? binIndexFor(raw, bins) : null;
+        return idx === null ? NO_VALUE : String(idx);
+      }
+      // #499: text/lookup have no fixed option list — the value itself IS the
+      // column id, same shape as a select's option id.
+      if (groupField.type === 'text' || groupField.type === 'lookup') {
+        return raw === null || raw === undefined || raw === '' ? NO_VALUE : String(raw);
+      }
       return (raw as string | null | undefined) ?? NO_VALUE;
     },
     [groupField, granularity],
@@ -160,11 +207,33 @@ export function BoardView({
               label: m.user.name,
               color: OPTION_COLORS.gray!,
             }))
-          : (targets.data ?? []).map((t) => ({
-              id: t.id,
-              label: t.title || 'Untitled',
-              color: OPTION_COLORS.gray!,
-            }));
+          : groupField.type === 'number'
+            // #498 — one column per configured bin, in order. Unlike every other
+            // axis, the schema (not the data) is the source of truth for which
+            // columns exist: an empty bin is still a real, offered column.
+            ? ((groupField.config?.['bins'] as NumberBin[] | undefined) ?? []).map((bin, i) => ({
+                id: String(i),
+                label: bin.label,
+                color: OPTION_COLORS.gray!,
+              }))
+            : groupField.type === 'text' || groupField.type === 'lookup'
+              // #499 — no fixed option list, so columns come from whatever
+              // distinct values are actually present, same as #307's date axis.
+              ? Array.from(
+                  new Set(
+                    rows
+                      .map((r) => r.values[groupField.apiName])
+                      .filter((v): v is string | number => v !== null && v !== undefined && v !== ''),
+                  ),
+                )
+                  .map(String)
+                  .sort()
+                  .map((v) => ({ id: v, label: v, color: OPTION_COLORS.gray! }))
+              : (targets.data ?? []).map((t) => ({
+                  id: t.id,
+                  label: t.title || 'Untitled',
+                  color: OPTION_COLORS.gray!,
+                }));
 
     const buckets = new Map<string, RecordRow[]>();
     for (const def of defs) buckets.set(def.id, []);
@@ -178,7 +247,7 @@ export function BoardView({
         label:
           groupField.type === 'date'
             ? 'No date'
-            : groupField.type === 'select' || groupField.type === 'workflow'
+            : groupField.type === 'select' || groupField.type === 'workflow' || groupField.type === 'number'
               ? 'No value'
               : 'Unassigned',
         color: OPTION_COLORS.gray!,
@@ -257,7 +326,7 @@ export function BoardView({
       if (Object.keys(body).length === 0) return;
       const { error } = await api.POST(
         '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/move',
-        { params: { path: { ws, db, rec } }, body: body as never },
+        { params: { path: { ws, db, rec } }, body: { ...body, view_id: viewId } as never },
       );
       if (error) throw error;
     },
@@ -360,21 +429,30 @@ export function BoardView({
     const changesColumn = targetColumn !== currentColumn;
     if (!changesColumn && Object.keys(anchor).length === 0) return;
     if (readOnly) return;
+    // #499 — text/lookup grouping is read-only: a card may still be reordered
+    // within its own column (anchor-only), but never dragged into another.
+    if (changesColumn && groupIsReadOnly) return;
 
     // #307: dropping into a period column writes that period's FIRST day, which is
     // the only value that re-buckets into the same column (see date-buckets tests).
+    // #498: dropping into a bin column writes that bin's own floor — same
+    // "must re-resolve to the same column" guarantee, see representativeNumberForBin.
     const value =
       targetColumn === NO_VALUE
         ? null
         : groupField.type === 'date'
           ? bucketStartISO(targetColumn, granularity)
-          : targetColumn;
+          : groupField.type === 'number'
+            ? representativeNumberForBin(
+                ((groupField.config?.['bins'] as NumberBin[] | undefined) ?? [])[Number(targetColumn)]!,
+              )
+            : targetColumn;
     move.mutate({
       rec: recId,
       ...anchor,
       ...(changesColumn
         ? groupField.type === 'relation'
-          ? { link: value }
+          ? { link: value as string | null }
           : { values: { [groupField.apiName]: value } }
         : {}),
     });
@@ -411,12 +489,26 @@ export function BoardView({
             size={config.card_size ?? 'medium'}
             memberNames={memberNames} memberImages={memberImages}
             readOnly={readOnly}
+            dragDisabled={groupIsReadOnly}
             onOpen={openCard}
             onAdd={() =>
               createRecord.mutate(
                 {
                   name: 'Untitled',
-                  ...(column.id !== NO_VALUE ? { [groupField.apiName]: column.id } : {}),
+                  // #499 — lookup is never writable (even at create), so a new
+                  // card in a lookup column lands unassigned rather than erroring.
+                  ...(column.id !== NO_VALUE && groupField.type !== 'lookup'
+                    ? {
+                        [groupField.apiName]:
+                          groupField.type === 'number'
+                            ? representativeNumberForBin(
+                                ((groupField.config?.['bins'] as NumberBin[] | undefined) ?? [])[
+                                  Number(column.id)
+                                ]!,
+                              )
+                            : column.id,
+                      }
+                    : {}),
                 },
                 {
                   // Land on the new record so it can be named right away.
@@ -446,6 +538,7 @@ function BoardColumn({
   memberNames,
   memberImages,
   readOnly,
+  dragDisabled,
   onOpen,
   onAdd,
 }: {
@@ -455,6 +548,9 @@ function BoardColumn({
   memberNames: Map<string, string>;
   memberImages?: Map<string, string | null>;
   readOnly: boolean;
+  /** #499 — separate from `readOnly`: a text/lookup-grouped board has full
+   * write access otherwise, it just can never move a card between columns. */
+  dragDisabled: boolean;
   onOpen: (row: RecordRow, event: MouseEvent) => void;
   onAdd: () => void;
 }) {
@@ -500,7 +596,7 @@ function BoardColumn({
             cardFields={cardFields}
             size={size}
             memberNames={memberNames} memberImages={memberImages}
-            disabled={readOnly}
+            disabled={readOnly || dragDisabled}
             onOpen={(e) => onOpen(row, e)}
           />
         ))}

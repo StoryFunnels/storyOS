@@ -461,48 +461,51 @@ export function ConfigEditor({
     const format = (config.format as string) ?? 'plain';
     const precision = config.precision;
     return (
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="flex flex-col gap-1.5">
-          <Label>Format</Label>
-          <select
-            className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-sm text-ink"
-            value={format}
-            onChange={(e) => set('format', e.target.value)}
-          >
-            <option value="plain">Plain</option>
-            <option value="percent">Percent</option>
-            <option value="currency">Currency</option>
-          </select>
-        </div>
-        {format === 'currency' && (
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-end gap-3">
           <div className="flex flex-col gap-1.5">
-            <Label>Currency</Label>
-            <Input
-              className="w-20 uppercase"
-              placeholder="USD"
-              maxLength={3}
-              value={(config.currency_code as string) ?? ''}
-              onChange={(e) => set('currency_code', e.target.value.toUpperCase() || undefined)}
-            />
+            <Label>Format</Label>
+            <select
+              className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-sm text-ink"
+              value={format}
+              onChange={(e) => set('format', e.target.value)}
+            >
+              <option value="plain">Plain</option>
+              <option value="percent">Percent</option>
+              <option value="currency">Currency</option>
+            </select>
           </div>
-        )}
-        <div className="flex flex-col gap-1.5">
-          <Label>Decimals</Label>
-          <select
-            className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-sm text-ink"
-            value={precision === undefined ? 'auto' : String(precision)}
-            onChange={(e) =>
-              set('precision', e.target.value === 'auto' ? undefined : Number(e.target.value))
-            }
-          >
-            <option value="auto">Auto</option>
-            {[0, 1, 2, 3, 4].map((p) => (
-              <option key={p} value={p}>
-                {p}
-              </option>
-            ))}
-          </select>
+          {format === 'currency' && (
+            <div className="flex flex-col gap-1.5">
+              <Label>Currency</Label>
+              <Input
+                className="w-20 uppercase"
+                placeholder="USD"
+                maxLength={3}
+                value={(config.currency_code as string) ?? ''}
+                onChange={(e) => set('currency_code', e.target.value.toUpperCase() || undefined)}
+              />
+            </div>
+          )}
+          <div className="flex flex-col gap-1.5">
+            <Label>Decimals</Label>
+            <select
+              className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-sm text-ink"
+              value={precision === undefined ? 'auto' : String(precision)}
+              onChange={(e) =>
+                set('precision', e.target.value === 'auto' ? undefined : Number(e.target.value))
+              }
+            >
+              <option value="auto">Auto</option>
+              {[0, 1, 2, 3, 4].map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
+        <NumberBinsEditor bins={config.bins as NumberBin[] | undefined} onChange={(bins) => set('bins', bins)} />
       </div>
     );
   }
@@ -524,6 +527,146 @@ export function ConfigEditor({
     );
   }
   return null;
+}
+
+interface NumberBin {
+  label: string;
+  min: number | null;
+  max: number | null;
+}
+
+/**
+ * #498 — bins are how a number field groups a board: one column per bin, in
+ * order. The server (`numberBinsSchema`) requires them CONTIGUOUS — bin i+1's
+ * `min` must equal bin i's `max` exactly, `[min, max)` with max exclusive —
+ * rather than merely non-overlapping, so a number always falls in exactly one
+ * bin or in nobody's board at all.
+ *
+ * Editing every bin's both edges independently would let a user construct a
+ * gap or overlap the server then rejects with a confusing error. Instead this
+ * editor makes contiguity the ONLY representable state: you name each bin and
+ * set its upper edge; the next bin's floor is that edge, not a separate field.
+ * The first bin is always open on the low end, the last always open on the
+ * high end — matching the only two edges the schema allows to be unbounded.
+ */
+function NumberBinsEditor({ bins, onChange }: { bins: NumberBin[] | undefined; onChange: (bins: NumberBin[]) => void }) {
+  const configured = bins !== undefined && bins.length > 0;
+
+  if (!configured) {
+    return (
+      <div className="flex flex-col gap-1.5">
+        <Label>Board grouping</Label>
+        <p className="text-[13px] text-muted">
+          Not configured — a board can&rsquo;t group by this field until it has bins.
+        </p>
+        <button
+          type="button"
+          className="w-fit rounded-[var(--radius-control)] border border-border-default px-3 py-1.5 text-sm text-ink hover:bg-hover"
+          onClick={() =>
+            onChange([
+              { label: 'Low', min: null, max: 50 },
+              { label: 'High', min: 50, max: null },
+            ])
+          }
+        >
+          Configure bins
+        </button>
+      </div>
+    );
+  }
+
+  // Every bin but the last carries its own upper edge; the last is always
+  // open-ended, so only its label is editable.
+  const setLabel = (i: number, label: string) => {
+    const next = bins.slice();
+    next[i] = { ...next[i]!, label };
+    onChange(next);
+  };
+  const setEdge = (i: number, raw: string) => {
+    const value = raw === '' ? null : Number(raw);
+    if (raw !== '' && !Number.isFinite(value)) return;
+    const next = bins.slice();
+    next[i] = { ...next[i]!, max: value };
+    // The next bin's floor is THIS bin's new edge — contiguous by construction.
+    if (next[i + 1]) next[i + 1] = { ...next[i + 1]!, min: value };
+    onChange(next);
+  };
+  const addBin = () => {
+    // Insert a fresh bin just before the open-ended last one, splitting off
+    // its floor as the new bin's edge.
+    const last = bins[bins.length - 1]!;
+    const prevEdge = bins.length > 1 ? bins[bins.length - 2]!.max : null;
+    const newEdge = prevEdge === null ? 0 : prevEdge + 1;
+    onChange([
+      ...bins.slice(0, -1),
+      { label: 'New bin', min: last.min, max: newEdge },
+      { ...last, min: newEdge },
+    ]);
+  };
+  const removeBin = (i: number) => {
+    if (bins.length <= 1) return;
+    const removingLast = i === bins.length - 1;
+    const next = bins.slice(0, i).concat(bins.slice(i + 1));
+    if (removingLast) {
+      // The bin that's now last must become the open-ended end.
+      if (next.length > 0) next[next.length - 1] = { ...next[next.length - 1]!, max: null };
+    } else if (i > 0) {
+      // Re-stitch the seam: the bin that now follows the removed one takes
+      // over its floor, so the run stays contiguous.
+      next[i] = { ...next[i]!, min: bins[i - 1]!.max };
+    } else {
+      next[0] = { ...next[0]!, min: null };
+    }
+    onChange(next);
+  };
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label>Board grouping bins</Label>
+      <div className="flex flex-col gap-1.5">
+        {bins.map((bin, i) => {
+          const isLast = i === bins.length - 1;
+          return (
+            <div key={i} className="flex items-center gap-2">
+              <Input
+                className="flex-1"
+                placeholder="Label"
+                value={bin.label}
+                onChange={(e) => setLabel(i, e.target.value)}
+              />
+              <span className="text-[12px] text-faint">up to</span>
+              {isLast ? (
+                <span className="w-20 text-[13px] text-muted">everything else</span>
+              ) : (
+                <Input
+                  className="w-20"
+                  type="number"
+                  value={bin.max ?? ''}
+                  onChange={(e) => setEdge(i, e.target.value)}
+                />
+              )}
+              <button
+                type="button"
+                className="text-faint hover:text-error disabled:opacity-30"
+                disabled={bins.length <= 1}
+                onClick={() => removeBin(i)}
+                title="Remove bin"
+              >
+                ×
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      <button
+        type="button"
+        className="w-fit text-[13px] text-accent hover:underline"
+        onClick={addBin}
+      >
+        + Add bin
+      </button>
+    </div>
+  );
 }
 
 /**

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ViewConfig } from '@storyos/schemas';
-import { boardGroupError, cleanViewConfig, defaultBoardGroupBy } from './views.service';
+import { boardGroupError, boardGroupIsReadOnly, cleanViewConfig, defaultBoardGroupBy } from './views.service';
 
 /**
  * MN-258: cleanViewConfig's `cleanFilters` walk was already recursive (it has to
@@ -382,6 +382,42 @@ describe('boardGroupError — #307: a date field groups a board into periods', (
       new Set(),
     );
     expect(out.group_by_granularity).toBe('quarter');
+  });
+});
+
+describe('boardGroupError — #498/#499: number bins, text, lookup', () => {
+  it('rejects a number field with no bins configured', () => {
+    expect(boardGroupError({ type: 'number', config: {} }, null)).toContain('configure bins');
+    expect(boardGroupError({ type: 'number', config: { bins: [] } }, null)).toContain('configure bins');
+  });
+
+  it('accepts a number field once bins are configured', () => {
+    expect(
+      boardGroupError({ type: 'number', config: { bins: [{ label: 'Small', min: null, max: 10 }] } }, null),
+    ).toBeNull();
+  });
+
+  it('accepts text and lookup — single-valued, so groupable, even though read-only', () => {
+    expect(boardGroupError({ type: 'text', config: {} }, null)).toBeNull();
+    expect(boardGroupError({ type: 'lookup', config: {} }, null)).toBeNull();
+  });
+
+  it('still rejects rollup and formula — cut from #499\'s scope, not just "computed"', () => {
+    expect(boardGroupError({ type: 'rollup', config: {} }, null)).toContain('cannot group by');
+    expect(boardGroupError({ type: 'formula', config: {} }, null)).toContain('cannot group by');
+  });
+});
+
+describe('boardGroupIsReadOnly — #499: the classification move() and the client both key off', () => {
+  it('is true for exactly text and lookup', () => {
+    expect(boardGroupIsReadOnly('text')).toBe(true);
+    expect(boardGroupIsReadOnly('lookup')).toBe(true);
+  });
+
+  it('is false for every draggable-today type, and for rollup/formula (never reachable as a group field)', () => {
+    for (const t of ['select', 'workflow', 'date', 'user', 'relation', 'number', 'rollup', 'formula']) {
+      expect(boardGroupIsReadOnly(t)).toBe(false);
+    }
   });
 });
 

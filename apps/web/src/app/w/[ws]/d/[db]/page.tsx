@@ -237,7 +237,14 @@ function DatabasePageInner() {
 
       <div className="min-h-0 flex-1">
         {activeView?.type === 'board' ? (
-          <BoardView ws={ws} db={db} config={config} readOnly={readOnly} personalFilter={personalFilter} />
+          <BoardView
+            ws={ws}
+            db={db}
+            viewId={activeView.id}
+            config={config}
+            readOnly={readOnly}
+            personalFilter={personalFilter}
+          />
         ) : activeView?.type === 'calendar' ? (
           <CalendarView ws={ws} db={db} config={config} readOnly={readOnly} personalFilter={personalFilter} />
         ) : activeView?.type === 'gallery' ? (
