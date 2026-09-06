@@ -131,6 +131,35 @@ roadmap you can actually reschedule by dragging.
 - **Everything is computed in UTC**, so two people in different timezones see the same card in the
   same column.
 
+## Board columns from a number field
+
+A number field can group a board too, once it has **bins** — configure them from the field's Edit
+dialog (its `⋯` menu on the header). Each bin gets a label and an upper edge; bins are contiguous
+**by construction**, not by validation — editing one bin's edge is what sets the next bin's floor,
+so there's no separate field to get out of sync and no gap or overlap to reject. The first bin is
+always open at the bottom, the last always open at the top.
+
+- **Until bins are configured, the field can't be picked as a group-by** — the picker disables it
+  with "configure bins on this field first, from its ⋯ menu" rather than silently omitting it.
+- **Columns render in bin order**, by their label, not the raw numbers.
+- **Dropping a card into a bin's column writes that bin's own floor** — the same rule a date-grouped
+  board already uses for its bucket's first day, so a card lands back in the column you dropped it
+  in rather than bouncing to a neighbor.
+- **A record with no value, or a value outside every bin, gets its own placeholder column** — the
+  same "no value" shape every other group-by uses, not a second mechanism.
+
+## Board columns from text or a lookup
+
+A `text` or `lookup` field can group a board — one column per distinct value actually present in
+your records, not a column for every value that could theoretically exist. Grouping by a `rollup`
+or `formula` field isn't offered yet.
+
+**These groupings are read-only: cards can't be dragged to a different column at all.** The drag
+never starts — it's not that a drop is attempted and silently fails to save. There's nothing to
+configure for this; it follows automatically from the field type, because a lookup or a formula's
+value isn't something you'd write by moving a card, and this project treats a computed value the
+same way whether it's grouping a board or rendering a cell.
+
 ## Sharing a view publicly
 
 A view can be published to a **public, read-only URL** — no sign-in required to view it — with an
