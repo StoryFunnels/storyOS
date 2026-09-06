@@ -12,6 +12,7 @@ import { DatabasesModule } from './databases/databases.module';
 import { FieldsModule } from './fields/fields.module';
 import { RecordsModule } from './records/records.module';
 import { RelationsModule } from './relations/relations.module';
+import { PortalModule } from './portal/portal.module';
 import { ViewsModule } from './views/views.module';
 import { ExportModule } from './export/export.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
@@ -96,6 +97,7 @@ import { DeploymentModule } from './deployment/deployment.module';
     FieldsModule,
     RecordsModule,
     RelationsModule,
+    PortalModule,
     ViewsModule,
     ExportModule,
     WebhooksModule,

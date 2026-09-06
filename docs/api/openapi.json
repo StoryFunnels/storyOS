@@ -3009,6 +3009,83 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/portal-recipients": {
+      "post": {
+        "operationId": "PortalRecipientsController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePortalRecipientDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create a portal recipient — never creates a user, never touches billable seats",
+        "tags": [
+          "portal"
+        ]
+      },
+      "get": {
+        "operationId": "PortalRecipientsController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List portal recipients for this workspace",
+        "tags": [
+          "portal"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/portal-recipients/{recipient}/revoke": {
+      "post": {
+        "operationId": "PortalRecipientsController_revoke",
+        "parameters": [
+          {
+            "name": "recipient",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Revoke a recipient — every access path closes immediately, no cache/TTL",
+        "tags": [
+          "portal"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/databases/{db}/views": {
       "post": {
         "operationId": "ViewsController_create",
@@ -10313,6 +10390,24 @@
         },
         "required": [
           "record_ids"
+        ]
+      },
+      "CreatePortalRecipientDto": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+          }
+        },
+        "required": [
+          "label"
         ]
       },
       "CreateViewDto__schema0": {
