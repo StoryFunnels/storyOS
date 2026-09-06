@@ -7488,6 +7488,47 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/agents/{agent}/activity": {
+      "get": {
+        "operationId": "AgentsController_getAgentActivity",
+        "parameters": [
+          {
+            "name": "agent",
+            "required": true,
+            "in": "path",
+            "description": "The agent record's uuid or public number",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Field changes + activity events attributed to this agent, in a date range",
+        "tags": [
+          "agents"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/architect/propose": {
       "post": {
         "operationId": "ArchitectController_propose",
@@ -12422,6 +12463,11 @@
           "allow_run_button": {
             "default": true,
             "type": "boolean"
+          },
+          "agent_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           }
         },
         "required": [

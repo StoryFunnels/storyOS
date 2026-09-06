@@ -5,16 +5,18 @@ import {
   OnModuleInit,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { and, asc, eq, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, isNull, lte } from 'drizzle-orm';
 import { blocksToMarkdown, markdownToBlocks, TOKEN_SCOPE_RANK } from '@storyos/schemas';
 import type { AutomationAction, TokenScope } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import {
+  activityEvents,
   apiTokens,
   databases as databasesTable,
   fields as fieldsTable,
   memberships as membershipsTable,
+  recordFieldChanges,
   records as recordsTable,
   selectOptions,
 } from '../db/schema';
@@ -713,6 +715,85 @@ export class AgentsService implements OnModuleInit {
         TOKEN_SCOPE_RANK[currentScope] < TOKEN_SCOPE_RANK[staged.scope]
           ? currentScope
           : staged.scope,
+    };
+  }
+
+  /**
+   * #541 AC — "given any record change made by an agent, the API can answer:
+   * which agent, under whose authority, at what time" and "queryable in bulk
+   * for a date range." Reads `record_field_changes` (field-level edits) and
+   * `activity_events` (creates + relation/other events) filtered by this
+   * agent's id — both already carry `agentId`/`agentName` per-row (auth.guard
+   * .ts resolves and stamps them at request time), so no join back to the
+   * live agent record is needed and none of this is affected by a rename or
+   * delete since. `from`/`to` bound the query — required in effect by the
+   * bulk-use-case this exists for, defaulted to "last 30 days" if omitted so
+   * an empty query can't accidentally become "every row ever."
+   *
+   * Deliberately NOT "via which run": that link doesn't exist for the
+   * dominant BYO-AI/MCP write path today (agent-runtime.ts's own doc comment
+   * — the external client drives tools directly, never through a `Run`
+   * record) — a known, separate gap, not silently pretended away here.
+   */
+  async getAgentActivity(
+    membership: Membership,
+    agentRef: string,
+    range: { from?: string; to?: string } = {},
+  ) {
+    const { agentsDb } = await this.ensurePack(membership);
+    const agentRecord = await this.resolveAgent(agentsDb.id, agentRef);
+
+    const from = range.from ? new Date(range.from) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const to = range.to ? new Date(range.to) : new Date();
+
+    const [fieldChanges, events] = await Promise.all([
+      this.db.query.recordFieldChanges.findMany({
+        where: and(
+          eq(recordFieldChanges.workspaceId, membership.workspaceId),
+          eq(recordFieldChanges.agentId, agentRecord.id),
+          gte(recordFieldChanges.createdAt, from),
+          lte(recordFieldChanges.createdAt, to),
+        ),
+        orderBy: [desc(recordFieldChanges.createdAt)],
+        limit: 500,
+      }),
+      this.db.query.activityEvents.findMany({
+        where: and(
+          eq(activityEvents.workspaceId, membership.workspaceId),
+          eq(activityEvents.agentId, agentRecord.id),
+          gte(activityEvents.createdAt, from),
+          lte(activityEvents.createdAt, to),
+        ),
+        orderBy: [desc(activityEvents.createdAt)],
+        limit: 500,
+      }),
+    ]);
+
+    return {
+      agent: { id: agentRecord.id, name: agentRecord.title },
+      field_changes: fieldChanges.map((c) => ({
+        id: c.id,
+        record_id: c.recordId,
+        field_id: c.fieldId,
+        actor_user_id: c.actorUserId,
+        source: c.source,
+        agent_id: c.agentId,
+        agent_name: c.agentName,
+        old_value: c.oldValue,
+        new_value: c.newValue,
+        created_at: c.createdAt,
+      })),
+      events: events.map((e) => ({
+        id: e.id,
+        record_id: e.recordId,
+        actor_id: e.actorId,
+        type: e.type,
+        payload: e.payload,
+        source: e.source,
+        agent_id: e.agentId,
+        agent_name: e.agentName,
+        created_at: e.createdAt,
+      })),
     };
   }
 

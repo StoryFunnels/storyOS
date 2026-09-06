@@ -1879,8 +1879,15 @@ export class RecordsService {
      *  caller that hasn't been updated yet still succeeds, but every write
      *  site that KNOWS its real source should pass it explicitly. */
     source: ChangeSource = 'human',
+    /** #541 — see createBatch's `options.agentId`/`agentName` doc. */
+    agentId?: string,
+    agentName?: string,
   ): Promise<ProjectedRecord> {
-    const [created] = await this.createBatch(workspaceId, databaseId, [input], actorId, depth, { source });
+    const [created] = await this.createBatch(workspaceId, databaseId, [input], actorId, depth, {
+      source,
+      agentId,
+      agentName,
+    });
     return created!;
   }
 
@@ -2001,9 +2008,22 @@ export class RecordsService {
     inputs: Array<Record<string, unknown>>,
     actorId: string | null,
     depth = 0,
-    options: { suppressAutomations?: boolean; source?: ChangeSource } = {},
+    options: {
+      suppressAutomations?: boolean;
+      source?: ChangeSource;
+      /**
+       * #541 — set when `source: 'agent'` and the acting token was minted
+       * for a specific Agent record (auth.guard.ts resolves and verifies
+       * this fresh, per request — never trust a value from anywhere else).
+       * `agentName` is the snapshot to store, not a live name to re-resolve.
+       */
+      agentId?: string;
+      agentName?: string;
+    } = {},
   ): Promise<ProjectedRecord[]> {
     const source: ChangeSource = options.source ?? 'human';
+    const agentId = options.agentId;
+    const agentName = options.agentName;
     const defs = await this.fieldDefs(databaseId);
     /*
      * #203 — field defaults are applied BEFORE validation, so a default goes
@@ -2082,6 +2102,8 @@ export class RecordsService {
           type: 'record.created',
           payload: { title: row.title },
           source,
+          agentId,
+          agentName,
         })),
       );
       for (const [i, row] of inserted.entries()) {
@@ -2208,6 +2230,9 @@ export class RecordsService {
      * of "distinguish agent writes" and destroy the accountability trail.
      */
     source: ChangeSource = 'human',
+    /** #541 — see createBatch's `options.agentId`/`agentName` doc; same rule. */
+    agentId?: string,
+    agentName?: string,
   ): Promise<ProjectedRecord> {
     const defs = await this.fieldDefs(databaseId);
     const row = await this.getRow(databaseId, recordId);
@@ -2291,6 +2316,8 @@ export class RecordsService {
           type: 'record.updated',
           payload: { diff },
           source,
+          agentId,
+          agentName,
         });
         // MN-231: snapshot the FULL pre-write state (not just the diff) so a
         // later restore can write it straight back without replaying a chain
@@ -2343,6 +2370,8 @@ export class RecordsService {
              * badge was decorative: it rendered whatever the default said.
              */
             source,
+            agentId,
+            agentName,
           }));
           if (rows.length > 0) await tx.insert(recordFieldChanges).values(rows);
         }

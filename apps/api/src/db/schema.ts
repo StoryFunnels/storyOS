@@ -659,6 +659,18 @@ export const apiTokens = pgTable('api_tokens', {
    * pre-#357 behaviour, unchanged for every token that already exists.
    */
   origin: changeSource('origin'),
+  /**
+   * #541 — WHICH configured Agent (a record in the workspace's "Agents"
+   * database) this token acts on behalf of, if any. Deliberately NOT a
+   * foreign key: an Agent is an ordinary StoryOS record, soft-deletable (and,
+   * per this ticket's own AC, its historical attribution must survive that
+   * deletion) — a hard FK would either block the delete or cascade it into
+   * silently rewriting history, either of which this ticket exists to
+   * prevent. Resolved fresh from the AGENT'S CURRENT owner on every request
+   * (auth.guard.ts), never trusted from this column's stale snapshot alone —
+   * this is only the pointer, not the authority.
+   */
+  agentId: uuid('agent_id'),
   lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
   revokedAt: timestamp('revoked_at', { withTimezone: true }),
   ...timestamps,
@@ -982,9 +994,30 @@ export const activityEvents = pgTable(
      * reads honestly as "not captured"; it must never be treated as 'human'.
      */
     source: changeSource('source'),
+    /**
+     * #541 — WHICH configured Agent made this write, when `source = 'agent'`
+     * AND the acting token was minted for a specific Agent record
+     * (`api_tokens.agent_id`). Null for every human/automation/mcp write, and
+     * for an agent write whose token predates this ticket or wasn't
+     * agent-scoped — same honest-absence rule `source` itself already uses.
+     * No FK, same reason as `api_tokens.agent_id`: an Agent record can be
+     * soft-deleted and history must not be rewritten when that happens.
+     */
+    agentId: uuid('agent_id'),
+    /** #541 — the Agent's `title` AT WRITE TIME, denormalized. The whole point
+     * of AC "attribution survives rename/delete": `agentId` alone would still
+     * resolve to a NAME today by joining live, but a rename or delete would
+     * silently change what a HISTORICAL row appears to say. This snapshot is
+     * what makes the sentence "Agent X did this" permanently true regardless
+     * of what happens to the Agent record afterward. */
+    agentName: text('agent_name'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('activity_record_created_idx').on(t.recordId, t.createdAt)],
+  (t) => [
+    index('activity_record_created_idx').on(t.recordId, t.createdAt),
+    // #541 AC — "queryable in bulk for a date range" for one agent.
+    index('activity_agent_created_idx').on(t.agentId, t.createdAt),
+  ],
 );
 
 /**
@@ -1053,6 +1086,11 @@ export const recordFieldChanges = pgTable(
     fieldId: uuid('field_id'),
     actorUserId: text('actor_user_id'),
     source: changeSource('source').notNull().default('human'),
+    /** #541 — see activity_events.agent_id's doc comment; same rule, same
+     * "no FK, resolved fresh, snapshotted for history" reasoning. */
+    agentId: uuid('agent_id'),
+    /** #541 — see activity_events.agent_name's doc comment. */
+    agentName: text('agent_name'),
     /** null for a create, or for a field that had no previous value. */
     oldValue: jsonb('old_value'),
     newValue: jsonb('new_value'),
@@ -1065,6 +1103,8 @@ export const recordFieldChanges = pgTable(
     index('record_field_changes_db_field_created_idx').on(t.databaseId, t.fieldId, t.createdAt),
     // Retention pruning walks this one, per plan window.
     index('record_field_changes_ws_created_idx').on(t.workspaceId, t.createdAt),
+    // #541 AC — "queryable in bulk for a date range" for one agent.
+    index('record_field_changes_agent_created_idx').on(t.agentId, t.createdAt),
   ],
 );
 

@@ -93,6 +93,8 @@ export class RecordsController {
       req.user.id,
       0,
       req.auth?.source ?? 'human',
+      req.auth?.agentId,
+      req.auth?.agentName,
     );
   }
 
@@ -266,6 +268,8 @@ export class RecordsController {
        * write was human would be a lie in the direction that matters.
        */
       req.auth?.source ?? 'human',
+      req.auth?.agentId,
+      req.auth?.agentName,
     );
   }
 
