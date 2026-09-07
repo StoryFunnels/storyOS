@@ -54,8 +54,11 @@ Click a space's name in the sidebar (the caret still just collapses it) and it o
   underlying endpoints refuse a non-member anyway — never a silently empty section or a doomed
   "Manage access" button.
 - **Ontology** — a diagram of the space's databases and the relations between them: nodes for
-  databases, edges for relations, self-relations fanned out so their labels don't collide, and a
-  cross-space relation drawn as a dashed satellite node naming the other space.
+  databases, edges for relations, and a cross-space relation drawn as a dashed satellite node
+  naming the other space. **Anything that would otherwise land on the same spot fans out instead**
+  — self-relation loops, two relations between the same pair of databases, and two cross-space
+  satellites anchored to the same local node all spread apart rather than overlapping into
+  illegible stacked text.
 
   ![An ontology diagram showing four databases with self-relations fanned out](/images/space-ontology-diagram.png)
 - **Contents** — a plain list, for when the sidebar is collapsed and you need the same information
