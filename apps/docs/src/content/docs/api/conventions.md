@@ -22,7 +22,8 @@ GET|POST         /.../databases/:db/fields       PATCH|DELETE /fields/:field
 POST             /.../fields/:field/options      PATCH|DELETE per option
 POST             /workspaces/:ws/relations        DELETE /relations/:rel
 GET|POST         /.../databases/:db/records       (POST supports batch ≤100)
-GET|PATCH|DELETE /.../records/:rec
+GET|PATCH|DELETE /.../records/:rec                 (:rec is a uuid — see below for a public number)
+GET              /.../records/by-number/:number     ← resolve a public number to its record
 POST             /.../databases/:db/records/query          ← the workhorse
 POST             /.../records/:rec/move           { before_record_id? | after_record_id?, values? }
 GET|PUT          /.../records/:rec/links/:field   (list/replace) · POST add · DELETE remove
@@ -34,6 +35,13 @@ GET|POST         /.../databases/:db/views          PATCH|DELETE /views/:view
 POST             /workspaces/:ws/templates/:slug/apply
 GET|POST         /me/tokens                        DELETE /me/tokens/:id
 ```
+
+**A record's public number only resolves through `by-number/:number`.** Every write and read tool
+in the [MCP surface](/mcp/tools/) accepts "a uuid or public number" for `record` because it does
+this resolution for you — `get_record` given a plain number calls `by-number` first, then reads the
+result the same way it would a uuid. Calling `GET .../records/:rec` directly with a bare number
+instead of a uuid is not the same path and doesn't work; resolve the number to its uuid via
+`by-number` first if you're calling the raw API without the MCP layer in between.
 
 The complete, always-current list with schemas is the [API Reference](/api/reference/).
 
