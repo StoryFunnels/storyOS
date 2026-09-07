@@ -42,10 +42,13 @@ relation field to group by; **Calendar** and **Timeline** both need a date field
 Once created, a view lists in the Personal section next to your documents, each with its own icon,
 linking straight to `/w/{workspace}/d/{database}?view={id}`.
 
-## A permission gap worth knowing
+## Deleting your own personal view needs only viewer access
 
-**Creating a personal view needs only *viewer* access on its database; deleting one needs
-*editor*.** A member with view-only access to a database can create a private view over it, then
-find they can't delete it themselves — the delete call refuses with a 403, shown as an ordinary
-toast rather than a silent failure. Not yet resolved; if you hit it, an editor or admin on that
-database can remove the view on your behalf.
+Creating a personal view needs only **viewer** access on its database, and deleting your own
+matches that — you don't need editor access just to remove a lens nobody else can even see.
+Deleting anyone else's view, or a shared one, still needs editor, unchanged.
+
+**A database's "keep at least one view" rule only ever counts shared views.** That guarantee is
+about the database staying browsable for everyone — a personal view is invisible to everyone but
+its owner, so it was never part of that promise, and deleting your last personal view never blocks
+on it or gets treated as a candidate to replace the database's default.
