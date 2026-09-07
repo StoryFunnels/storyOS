@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  forwardRef,
   Inject,
   Injectable,
   NotFoundException,
@@ -12,8 +13,9 @@ import type { FieldDef, FilterNode } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import { buildRenderContext, renderTypedValue } from '../activity/render-values';
 import { assertOwnedAttachments, loadAttachmentChips } from '../attachments/attachment-values';
+import { AttachmentsService } from '../attachments/attachments.service';
 import type { Db } from '../db/client';
-import { activityEvents, databases, documents, fields, memberships, recordFieldChanges, recordLinks, recordVersions, recordWatchers, records, relations, selectOptions, user, views } from '../db/schema';
+import { activityEvents, comments, databases, documents, fields, memberships, recordFieldChanges, recordLinks, recordVersions, recordWatchers, records, relations, selectOptions, user, views } from '../db/schema';
 import { boardGroupIsReadOnly } from '../views/views.service';
 import type { ChangeSource } from '../db/schema';
 import type { QueryRecordsInput } from '@storyos/schemas';
@@ -91,6 +93,10 @@ export class RecordsService {
      *  than injecting EmailService/PreferencesService directly into an
      *  already-large service (see watcher-email.service.ts's own doc). */
     private readonly watcherEmail: WatcherEmailService,
+    /** #599 — copies a duplicated record's files; forwardRef breaks the cycle
+     *  (AttachmentsModule already imports RecordsModule for its own guards). */
+    @Inject(forwardRef(() => AttachmentsService))
+    private readonly attachmentsService: AttachmentsService,
   ) {}
 
   /**
@@ -1998,6 +2004,34 @@ export class RecordsService {
         .insert(documents)
         .values({ recordId: created.id, content: doc.content, contentText: doc.contentText, version: 1 });
     }
+
+    // #599 — the source record's comment thread history, copied onto the new
+    // record. A RAW insert, deliberately bypassing CommentsService.create():
+    // that method re-runs mention validation/notification, and nobody
+    // mentioned in the ORIGINAL thread should be pinged again just because
+    // the record got duplicated — the mention already fired once, and this
+    // is not new activity by the people it names. `authorId` is preserved
+    // from the source comment (thread history, not attributed to whoever
+    // duplicated the record); soft-deleted comments are not copied.
+    const sourceComments = await this.db.query.comments.findMany({
+      where: and(eq(comments.recordId, recordId), isNull(comments.deletedAt)),
+      orderBy: [asc(comments.createdAt)],
+    });
+    if (sourceComments.length) {
+      await this.db.insert(comments).values(
+        sourceComments.map((c) => ({
+          recordId: created.id,
+          authorId: c.authorId,
+          body: c.body,
+          mentions: c.mentions,
+        })),
+      );
+    }
+
+    // #599 — the source record's attachments (files), physically copied.
+    // See AttachmentsService.duplicateAll's own doc comment for why this is
+    // a real byte-for-byte storage copy rather than sharing storage keys.
+    await this.attachmentsService.duplicateAll(recordId, created.id);
 
     return this.get(databaseId, created.id);
   }

@@ -119,6 +119,9 @@ function makeService(db: Db) {
     { effectiveForDatabase: vi.fn() } as never,
     // #273: these unit tests never exercise notifyWatchers' email leg.
     { notify: vi.fn() } as never,
+    // #599: these unit tests never exercise duplicate(), so AttachmentsService
+    // is never consulted.
+    { duplicateAll: vi.fn() } as never,
   );
 }
 

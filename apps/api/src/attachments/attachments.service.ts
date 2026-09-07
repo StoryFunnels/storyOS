@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import sharp from 'sharp';
+import type { Readable } from 'node:stream';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { activityEvents, attachments, fields, records } from '../db/schema';
@@ -14,6 +15,18 @@ import { env } from '../config/env';
 import { getStorage } from './storage';
 
 const THUMB_WIDTH = 320;
+
+/** #599 — `StorageDriver.getStream` is the only read primitive; a physical
+ *  file copy needs the whole thing in memory to `put()` it back out under a
+ *  new key. Attachments are already capped by `ATTACHMENT_MAX_BYTES` on
+ *  upload, so this never buffers more than one upload's worth at a time. */
+async function streamToBuffer(stream: Readable): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
 
 @Injectable()
 export class AttachmentsService {
@@ -181,6 +194,57 @@ export class AttachmentsService {
       filename: row.filename,
       mime: variant === 'thumb' ? 'image/jpeg' : row.mime,
     };
+  }
+
+  /**
+   * #599 — copy every attachment on `sourceRecordId` onto `targetRecordId`
+   * (same database, via `RecordsService.duplicate()`). Each file's BYTES are
+   * physically copied to a NEW storage key under the new record/attachment
+   * id, never shared with the original's key: `remove()` above hard-deletes
+   * both the DB row and its storage objects, so two attachment rows pointing
+   * at the same key would mean deleting either one silently breaks the
+   * other's file. `uploadedBy` is preserved from the source row (thread
+   * history — who originally uploaded it — not the person who duplicated the
+   * record); no `attachment.added` activity event is emitted, since the
+   * event this generates for the new record is the duplication itself, not
+   * N separate upload actions nobody performed.
+   */
+  async duplicateAll(sourceRecordId: string, targetRecordId: string): Promise<void> {
+    const storage = getStorage();
+    const rows = await this.db.query.attachments.findMany({
+      where: eq(attachments.recordId, sourceRecordId),
+      orderBy: [desc(attachments.createdAt)],
+    });
+    for (const row of rows) {
+      const [created] = await this.db
+        .insert(attachments)
+        .values({
+          recordId: targetRecordId,
+          fieldId: row.fieldId,
+          filename: row.filename,
+          size: row.size,
+          mime: row.mime,
+          storageKey: 'pending',
+          uploadedBy: row.uploadedBy,
+        })
+        .returning();
+
+      const newKey = `${targetRecordId}/${created!.id}/original`;
+      await storage.put(newKey, await streamToBuffer(await storage.getStream(row.storageKey)), row.mime);
+
+      let newThumbKey: string | null = null;
+      if (row.thumbKey) {
+        newThumbKey = `${targetRecordId}/${created!.id}/thumb`;
+        await storage.put(newThumbKey, await streamToBuffer(await storage.getStream(row.thumbKey)), 'image/jpeg');
+      }
+
+      await this.db
+        .update(attachments)
+        .set({ storageKey: newKey, thumbKey: newThumbKey })
+        .where(eq(attachments.id, created!.id));
+
+      if (row.fieldId) await this.appendToField(targetRecordId, row.fieldId, created!.id);
+    }
   }
 
   /** Best-effort object deletion; record hard-deletes leave orphans for a future sweep (documented). */
