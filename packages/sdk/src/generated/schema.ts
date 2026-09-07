@@ -1265,7 +1265,7 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Delete a view (409 on the last one) */
+        /** Delete a view (409 on the last shared one) */
         delete: operations["ViewsController_remove"];
         options?: never;
         head?: never;

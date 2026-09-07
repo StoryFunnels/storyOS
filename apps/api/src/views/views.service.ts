@@ -530,21 +530,52 @@ export class ViewsService {
     });
   }
 
-  /** Every database keeps ≥1 view (C7). #453: soft-deletes rather than removing the row. */
+  /**
+   * #567 — the access level DELETE .../views/:view must require. A personal
+   * view (`ownerUserId` set) deleted by its OWNER needs only viewer access on
+   * the database, matching what `createPersonal` already requires to make
+   * one — a viewer-only member who made their own private lens must be able
+   * to remove it without needing an editor to do it for them, which would
+   * defeat the point of it being private. Every other case (a shared view,
+   * or a personal view someone other than its owner is somehow trying to
+   * delete) is unchanged: editor.
+   */
+  async deleteAccessLevel(databaseId: string, viewId: string, callerId: string): Promise<'viewer' | 'editor'> {
+    const view = await this.db.query.views.findFirst({
+      where: and(eq(views.id, viewId), eq(views.databaseId, databaseId), isNull(views.deletedAt)),
+      columns: { ownerUserId: true },
+    });
+    if (!view) throw new NotFoundException('View not found');
+    return view.ownerUserId === callerId ? 'viewer' : 'editor';
+  }
+
+  /**
+   * Every database keeps ≥1 SHARED view (C7). #453: soft-deletes rather than
+   * removing the row.
+   *
+   * #567 — "at least one view" is a promise about the database staying
+   * browsable for everyone, i.e. at least one SHARED view; a personal view
+   * is invisible to everyone but its owner (ADR-0017/#291) and was never
+   * part of that promise, so deleting one is never blocked by this count,
+   * and it is never a candidate for default-promotion below either.
+   */
   async remove(databaseId: string, viewId: string) {
     const all = await this.db.query.views.findMany({
       where: and(eq(views.databaseId, databaseId), isNull(views.deletedAt)),
     });
     const removed = all.find((v) => v.id === viewId);
     if (!removed) throw new NotFoundException('View not found');
-    if (all.length <= 1) throw new ConflictException('A database must keep at least one view');
+    if (!removed.ownerUserId) {
+      const sharedCount = all.filter((v) => !v.ownerUserId).length;
+      if (sharedCount <= 1) throw new ConflictException('A database must keep at least one view');
+    }
     await this.db.update(views).set({ deletedAt: new Date() }).where(eq(views.id, viewId));
-    // Keep exactly one default: if we removed the default, promote the first remaining view.
+    // Keep exactly one default: if we removed the default, promote the first remaining SHARED view.
     if (removed.isDefault) {
       const next = all
-        .filter((v) => v.id !== viewId)
-        .sort((a, b) => a.position - b.position)[0]!;
-      await this.db.update(views).set({ isDefault: true }).where(eq(views.id, next.id));
+        .filter((v) => v.id !== viewId && !v.ownerUserId)
+        .sort((a, b) => a.position - b.position)[0];
+      if (next) await this.db.update(views).set({ isDefault: true }).where(eq(views.id, next.id));
     }
     return { deleted: true };
   }
