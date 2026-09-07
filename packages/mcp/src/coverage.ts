@@ -167,8 +167,9 @@ export const EXCLUDED: CoverageRule[] = [
       '#491 — connect (POST), disconnect (DELETE), re-test, resume-after-circuit-break and the OAuth start redirect all touch a stored credential or hand one to a third party. `list_connections` covers the read half; this is deliberately still refused.',
   },
   {
-    match: /^GET (\/|\/healthz|\/api\/v1\/auth\/providers)$/,
-    reason: 'Instance root, liveness probe and sign-in configuration. Infrastructure, not workspace capability.',
+    match: /^GET (\/|\/healthz|\/api\/v1\/auth\/providers|\/api\/v1\/build-info)$/,
+    reason:
+      'Instance root, liveness probe, sign-in configuration, and build-info (#553 — "what commit is this deployment serving", reachable through /api/* since bare `/` is not — see docker/Caddyfile). Infrastructure, not workspace capability.',
   },
   {
     match: '/api/v1/referrals',
