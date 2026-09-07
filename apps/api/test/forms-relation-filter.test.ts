@@ -150,4 +150,37 @@ describe('public form relation-picker filter (#501)', () => {
     expect(res.statusCode, res.body).toBe(201);
     expect(res.json().title).toBe('Initech LLC');
   });
+
+  /**
+   * Vera's finding on PR #607 — the filter narrowed the SEARCH endpoint only.
+   * A crafted submit naming a filtered-out id directly (skipping the search
+   * step entirely) went straight through. Reproduces her exact repro:
+   * filter = Industry=Tech, anonymous POST submits Globex (Retail) directly.
+   */
+  it('rejects a direct submit naming a relation id the stored filter excludes (#607 security bypass)', async () => {
+    await setFormFilter({ field: industryFieldId, op: 'eq', value: techOptionId });
+    const res = await pub('POST', `/public/forms/${formToken}`, {
+      values: { company: [globexId] },
+    });
+    expect(res.statusCode, res.body).toBe(422);
+    const before = await as('GET', `/workspaces/${wsId}/databases/${companiesDb}/records/${globexId}`);
+    // No lead was linked to Globex — the rejected submission created nothing.
+    expect(before.statusCode).toBe(200);
+  });
+
+  it('accepts a direct submit naming a relation id that DOES satisfy the stored filter', async () => {
+    await setFormFilter({ field: industryFieldId, op: 'eq', value: techOptionId });
+    const res = await pub('POST', `/public/forms/${formToken}`, {
+      values: { company: [acmeId] },
+    });
+    expect(res.statusCode, res.body).toBe(201);
+  });
+
+  it('a filter referencing a field the target database no longer has does not block submission (same degrade as search)', async () => {
+    await setFormFilter({ field: 'does_not_exist_anymore', op: 'eq', value: 'x' });
+    const res = await pub('POST', `/public/forms/${formToken}`, {
+      values: { company: [globexId] },
+    });
+    expect(res.statusCode, res.body).toBe(201);
+  });
 });

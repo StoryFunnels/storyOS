@@ -16,8 +16,9 @@ import { BillingService } from '../billing/billing.service';
 import { resolveDatabaseColor } from '../common/database-color';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { databases, fields, memberships, relations, selectOptions, user, views } from '../db/schema';
+import { databases, fields, memberships, records, relations, selectOptions, user, views } from '../db/schema';
 import { RecordsService } from '../records/records.service';
+import { compileFilter } from '../records/query-compiler';
 import { cleanFilterNode } from '../views/views.service';
 
 /** Field types a public form can render/accept (MN-101, MN-224: relation + user). */
@@ -379,8 +380,65 @@ export class FormsService {
     const clean: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(values)) if (allowed.has(k)) clean[k] = v;
 
+    // #501 (Vera's AC5 finding) — a relation_filter narrows the SEARCH endpoint
+    // only; nothing stopped a crafted POST naming a filtered-out id directly,
+    // skipping the search step entirely. Re-derive the same filter here and
+    // reject any submitted id that doesn't satisfy it, server-side, before the
+    // record (and its link) is ever created.
+    await this.enforceRelationFilters(
+      def.fields.filter((f) => visibleNames.has(f.api_name)),
+      clean,
+    );
+
     // Anonymous author: createdBy/actor is null (renders as a deactivated user).
     const created = await this.records.create(database.workspaceId, database.id, clean, null);
     return { ok: true, id: created.id };
+  }
+
+  /**
+   * #501 — the write-path counterpart to `searchRelationCandidates`'s read-path
+   * narrowing. Re-derives each visible relation field's `relation_filter` the
+   * SAME way (cleaned against the target database's live fields) and rejects
+   * any submitted id that isn't both present in the target database and a
+   * match for the filter. A field with no filter, or one that cleans away to
+   * nothing (dangling reference), is left unrestricted — same degrade as the
+   * search path.
+   */
+  private async enforceRelationFilters(
+    visibleFields: Awaited<ReturnType<FormsService['getDefinition']>>['fields'],
+    clean: Record<string, unknown>,
+  ) {
+    for (const f of visibleFields) {
+      if (f.type !== 'relation' || !f.relation?.relation_filter) continue;
+      const raw = clean[f.api_name];
+      if (raw == null) continue;
+      const ids = (Array.isArray(raw) ? raw : [raw]).filter((v): v is string => typeof v === 'string');
+      if (!ids.length) continue;
+
+      const targetDefs = await this.records.fieldDefs(f.relation.target_database_id);
+      const liveApiNames = new Set(targetDefs.map((d) => d.api_name));
+      const cleaned = cleanFilterNode(f.relation.relation_filter, liveApiNames) as FilterNode | undefined;
+      if (!cleaned) continue;
+      const byApiName = new Map(targetDefs.map((d) => [d.api_name, d]));
+      const condition = compileFilter(cleaned, { defs: byApiName, currentUserId: '' });
+
+      const matches = await this.db
+        .select({ id: records.id })
+        .from(records)
+        .where(
+          and(
+            eq(records.databaseId, f.relation.target_database_id),
+            isNull(records.deletedAt),
+            inArray(records.id, ids),
+            condition,
+          ),
+        );
+      const matchedIds = new Set(matches.map((m) => m.id));
+      if (ids.some((id) => !matchedIds.has(id))) {
+        throw new UnprocessableEntityException(
+          `"${f.label ?? f.api_name}" contains a value that is not allowed`,
+        );
+      }
+    }
   }
 }
