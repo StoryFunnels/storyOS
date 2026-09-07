@@ -41,6 +41,15 @@ RUN pnpm install --frozen-lockfile --filter @storyos/web...
 RUN pnpm --filter @storyos/schemas build && pnpm --filter @storyos/sdk build && pnpm --filter @storyos/web build
 
 FROM node:22-bookworm-slim AS runtime
+# #553 — baked at IMAGE build time (build-images.yml passes --build-arg
+# GIT_SHA/BUILD_TIME from the CI checkout), never read from a deploy-time
+# .env — a value burned into this specific image can only ever report what
+# this specific image was actually built from, even if a later deploy fails
+# to swap the running container. Mirrors api.Dockerfile's identical pattern.
+ARG GIT_SHA
+ARG BUILD_TIME
+ENV GIT_SHA=$GIT_SHA
+ENV BUILD_TIME=$BUILD_TIME
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build /app/apps/web/.next/standalone ./
