@@ -4394,6 +4394,7 @@ export interface components {
                             op: "eq" | "neq" | "is_empty" | "not_empty" | "in";
                             value?: unknown;
                         };
+                        relation_filter?: components["schemas"]["CreateViewDto__schema0"];
                     }[];
                     public_token?: string;
                     /**
@@ -4559,6 +4560,7 @@ export interface components {
                             op: "eq" | "neq" | "is_empty" | "not_empty" | "in";
                             value?: unknown;
                         };
+                        relation_filter?: components["schemas"]["CreatePersonalViewDto__schema0"];
                     }[];
                     public_token?: string;
                     /**
@@ -4720,6 +4722,7 @@ export interface components {
                             op: "eq" | "neq" | "is_empty" | "not_empty" | "in";
                             value?: unknown;
                         };
+                        relation_filter?: components["schemas"]["UpdateViewDto__schema0"];
                     }[];
                     public_token?: string;
                     /**

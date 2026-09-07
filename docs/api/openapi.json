@@ -11042,6 +11042,9 @@
                             "field_id",
                             "op"
                           ]
+                        },
+                        "relation_filter": {
+                          "$ref": "#/components/schemas/CreateViewDto__schema0"
                         }
                       },
                       "required": [
@@ -11621,6 +11624,9 @@
                             "field_id",
                             "op"
                           ]
+                        },
+                        "relation_filter": {
+                          "$ref": "#/components/schemas/CreatePersonalViewDto__schema0"
                         }
                       },
                       "required": [
@@ -12180,6 +12186,9 @@
                             "field_id",
                             "op"
                           ]
+                        },
+                        "relation_filter": {
+                          "$ref": "#/components/schemas/UpdateViewDto__schema0"
                         }
                       },
                       "required": [

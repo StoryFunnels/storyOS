@@ -281,6 +281,15 @@ export const viewConfigSchema = z.object({
              *  unset). Same rule shape and evaluator as `visible_when` — see
              *  form-visibility.ts's header comment for why that's one shape, not two. */
             required_when: formVisibilityRuleSchema.optional(),
+            /**
+             * #501 — a relation field's picker offered every record in its
+             * target database with no way to narrow it. Only meaningful for
+             * `type: 'relation'` fields (server ignores it otherwise); the
+             * SAME filter AST every view's `filters` already uses, compiled
+             * against the relation's TARGET database (not this form's own
+             * database) at query time — see forms.service.ts.
+             */
+            relation_filter: filterSchema.optional(),
           }),
         )
         .default([]),

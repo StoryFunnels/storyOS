@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { useQuery } from '@tanstack/react-query';
-import { Copy, GripVertical, ListChecks, Plus, Share2, X } from 'lucide-react';
+import { Copy, GripVertical, ListChecks, ListFilter, Plus, Share2, X } from 'lucide-react';
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
@@ -17,6 +17,9 @@ import { Avatar } from '@/components/ui/avatar';
 import { useDatabase, useMembers, useRecordMutations } from '../table-view/use-table-data';
 import type { Field, SelectOption } from '../table-view/use-table-data';
 import type { ViewConfig } from './use-view-state';
+import { FilterBuilderPanel } from './view-toolbar';
+import { buildFilterGroup, filterConditions, filterConnector } from './filter-config';
+import type { FilterGroup, FilterNode } from './filter-config';
 import {
   FORM_FIELD_TYPES,
   patchFieldConfig,
@@ -176,6 +179,7 @@ export function FormView({
 
       {!readOnly && onPatch && fieldsSidebarOpen && (
         <FormFieldsSidebar
+          ws={ws}
           allFields={allFields}
           config={config}
           onPatch={onPatch}
@@ -543,11 +547,13 @@ function FormBuilder({
  * each one's required/label/help. Writes directly into config.form.fields.
  */
 function FormFieldsSidebar({
+  ws,
   allFields,
   config,
   onPatch,
   onClose,
 }: {
+  ws: string;
   allFields: Field[];
   config: ViewConfig;
   onPatch: (updates: Partial<ViewConfig>) => void;
@@ -605,6 +611,7 @@ function FormFieldsSidebar({
                 {selected.map((field, i) => (
                   <SortableFormField
                     key={field.id}
+                    ws={ws}
                     field={field}
                     cfg={cfgByField.get(field.id) ?? { field_id: field.id }}
                     /* #263 — only EARLIER fields can control this one. Passing the
@@ -642,12 +649,14 @@ function FormFieldsSidebar({
 }
 
 function SortableFormField({
+  ws,
   field,
   cfg,
   earlierFields,
   onRemove,
   onPatch,
 }: {
+  ws: string;
   field: Field;
   cfg: FormFieldCfg;
   /** #263 — the fields above this one; the only legal rule controllers. */
@@ -714,6 +723,71 @@ function SortableFormField({
             rule={cfg.visible_when}
             earlierFields={earlierFields}
             onChange={(visible_when) => onPatch({ visible_when })}
+          />
+          {/* #501 — narrows which TARGET-database records this relation's picker
+              offers. Only the relation itself has a target database to filter, so
+              this is the only field type this control makes sense for. */}
+          {field.type === 'relation' && field.relation && (
+            <RelationFilterRow
+              ws={ws}
+              targetDatabaseId={field.relation.target_database_id}
+              filter={cfg.relation_filter}
+              onChange={(relation_filter) => onPatch({ relation_filter })}
+            />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * #501 — reuses the SAME filter builder every view's own Filter panel uses
+ * (FilterBuilderPanel, view-toolbar.tsx), bound to the relation's TARGET
+ * database's fields rather than this form's own — a relation-picker filter
+ * narrows candidates FROM the far side, not records on this database.
+ */
+function RelationFilterRow({
+  ws,
+  targetDatabaseId,
+  filter,
+  onChange,
+}: {
+  ws: string;
+  targetDatabaseId: string;
+  filter: FilterNode | undefined;
+  onChange: (filter: FilterNode | undefined) => void;
+}) {
+  const targetDb = useDatabase(ws, targetDatabaseId);
+  const members = useMembers(ws, true);
+  const memberList = useMemo(
+    () => (members.data ?? []).map((m) => ({ id: m.user.id, name: m.user.name })),
+    [members.data],
+  );
+  const [open, setOpen] = useState(false);
+  const group = filter as FilterGroup | undefined;
+  const connector = filterConnector(group);
+  const nodes = filterConditions(group);
+  return (
+    <div className="flex flex-col gap-1">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1 text-[12px] text-muted hover:text-ink"
+      >
+        <ListFilter className="h-3 w-3" />
+        {nodes.length === 0 ? 'Filter candidates' : `${nodes.length} filter${nodes.length > 1 ? 's' : ''} on candidates`}
+      </button>
+      {open && (
+        <div className="rounded-[var(--radius-card)] border border-border-default bg-card">
+          <FilterBuilderPanel
+            fields={targetDb.data?.fields ?? []}
+            members={memberList}
+            ws={ws}
+            connector={connector}
+            nodes={nodes}
+            onNodesChange={(next) => onChange(buildFilterGroup(connector, next))}
+            onConnectorChange={(next) => onChange(buildFilterGroup(next, nodes))}
           />
         </div>
       )}

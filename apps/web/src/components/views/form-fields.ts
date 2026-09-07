@@ -1,4 +1,5 @@
 import type { FormVisibilityRule } from '@storyos/schemas';
+import type { FilterNode } from './filter-config';
 
 /**
  * Pure state logic for the form-fields sidebar builder (#224). Kept dependency-free
@@ -14,6 +15,9 @@ export interface FormFieldCfg {
   visible_when?: FormVisibilityRule;
   /** #500 — `required` above only bites when this also holds (or is unset). */
   required_when?: FormVisibilityRule;
+  /** #501 — narrows a relation field's picker; meaningful only for a
+   *  `type: 'relation'` field, compiled against its TARGET database. */
+  relation_filter?: FilterNode;
 }
 
 /**
