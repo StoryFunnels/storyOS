@@ -44,6 +44,8 @@ export interface TemplateSummary {
   category: 'agency' | 'creators' | 'dev' | 'marketing' | 'people';
   scope: 'pack' | 'database';
   guide?: string | null;
+  /** #585 — real installs across every workspace, never an estimate. */
+  install_count?: number;
   preview: TemplatePreview;
 }
 export interface TemplateIntent {
@@ -135,7 +137,7 @@ export function TemplateCard({
   selected,
   onClick,
 }: {
-  template: { slug: string; name: string; description: string };
+  template: { slug: string; name: string; description: string; install_count?: number };
   selected?: boolean;
   onClick: () => void;
 }) {
@@ -151,7 +153,17 @@ export function TemplateCard({
     >
       <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted" />
       <span>
-        <span className="block text-[13px] font-medium text-ink">{template.name}</span>
+        <span className="flex items-baseline gap-1.5">
+          <span className="block text-[13px] font-medium text-ink">{template.name}</span>
+          {/* #585 — a brand-new template with zero installs shows no badge at
+              all rather than an embarrassing "0 installs"; the badge only
+              ever appears once it has something real to say. */}
+          {Boolean(template.install_count) && (
+            <span className="shrink-0 text-[11px] text-faint">
+              {template.install_count} {template.install_count === 1 ? 'install' : 'installs'}
+            </span>
+          )}
+        </span>
         <span className="block text-[12px] text-muted">{template.description}</span>
       </span>
     </button>

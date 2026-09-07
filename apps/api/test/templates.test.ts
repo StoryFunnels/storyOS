@@ -231,4 +231,24 @@ describe('template registry (MN-033/035/036/037)', () => {
     const spaces = (await inject('GET', `/workspaces/${wsId}/spaces`)).json();
     expect(spaces.map((s: { name: string }) => s.name)).toContain('Globex Corp');
   });
+
+  /** #585 — the gallery's per-card install count: real, not estimated or back-filled. */
+  it('install_count reflects real installs and increments on apply, across workspaces', async () => {
+    const before = (await inject('GET', '/templates')).json();
+    const orgChartBefore = before.data.find((t: { slug: string }) => t.slug === 'org-chart').install_count;
+
+    const ws2 = (await inject('POST', '/workspaces', { name: 'Install Count WS' })).json().id;
+    const apply = await inject('POST', `/workspaces/${ws2}/templates/org-chart/apply`, {});
+    expect(apply.statusCode, apply.body).toBe(201);
+
+    const after = (await inject('GET', '/templates')).json();
+    const orgChartAfter = after.data.find((t: { slug: string }) => t.slug === 'org-chart').install_count;
+    expect(orgChartAfter).toBe(orgChartBefore + 1);
+
+    // Every template's count is a real number, never undefined/missing — a
+    // slug with zero rows in template_installs still reads as 0, not absent.
+    for (const t of after.data) {
+      expect(typeof t.install_count, `${t.slug} must have a numeric install_count`).toBe('number');
+    }
+  });
 });
