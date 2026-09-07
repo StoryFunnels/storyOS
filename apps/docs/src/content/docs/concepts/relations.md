@@ -27,6 +27,19 @@ Both directions are navigable by construction — there are no orphaned one-way 
 Self-relations (a database related to itself, e.g. Task → parent Task) and **cross-space**
 relations are both allowed.
 
+### More than one self-relation on the same database
+
+A database can hold **more than one** self-relation at once — a hierarchy (Parent/Sub-items,
+`one_to_many`) and a dependency graph (Blocked by/Blocks, `many_to_many`) coexist cleanly on the
+same database, each with its own cardinality. They're fully independent: linking through one never
+writes the other, and a record can be a parent of one record while blocked by a completely
+different one at the same time.
+
+**Name each side explicitly when you add a second self-relation.** Left unnamed, a self-relation
+defaults to the hierarchy names — Parent/Sub-items — since that's the shape a first, unnamed
+self-relation almost always means. A second one needs its own names (Blocked by/Blocks, Depends
+on/Dependency of, or your own), so it never quietly collides with the first as "Parent 2."
+
 ## Working with relations
 
 - In the UI, the relation picker is first-class — pick target records by title.
