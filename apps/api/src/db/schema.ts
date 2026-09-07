@@ -2310,3 +2310,57 @@ export const portalRecipients = pgTable(
     index('portal_recipients_workspace_idx').on(t.workspaceId),
   ],
 );
+
+/** #537 — did the request get content, or was it turned away (and why)? */
+export const portalAccessOutcome = pgEnum('portal_access_outcome', ['served', 'rejected']);
+
+/**
+ * #537 — one row per resolved-or-attempted portal-recipient access: "what did
+ * each client actually see and did". Deliberately NOT the same table as
+ * #454's workspace `activity_events` — a recipient isn't a workspace member
+ * and never appears in `memberships`, and this log's own visibility rule
+ * ("visible to workspace members who administer the portal, not to
+ * recipients themselves") is the opposite direction from an audit log a
+ * member reads about THEMSELVES; keeping them separate tables means neither
+ * has to carry a column or a visibility branch the other doesn't need.
+ *
+ * `recipientId` has NO cascade-on-delete concern: `portal_recipients` rows
+ * are never hard-deleted (revocation is `revokedAt`, per that table's own
+ * comment), so a revoked recipient's history survives by construction — the
+ * ticket's own AC — without this table doing anything special to preserve
+ * it. `viewId` has no FK at all, the same "no-FK decision" #454's
+ * `activity_events.actorId` and `record_field_changes.fieldId` already use:
+ * a later view deletion must never orphan-block or cascade-delete a
+ * historical access record, and a reader who wants the view's current name
+ * can resolve it live and fall back to "(deleted view)" exactly like a
+ * deleted field's name does in the audit log.
+ *
+ * PRIVACY BOUNDARY, decided on the ticket: no IP address, no user-agent
+ * string, by design — there is no column for either here, so there is
+ * nothing to accidentally start capturing later by adding one field to an
+ * existing row shape. The operator's actual question is "did they look",
+ * which needs neither.
+ */
+export const portalAccessLog = pgTable(
+  'portal_access_log',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    recipientId: uuid('recipient_id')
+      .notNull()
+      .references(() => portalRecipients.id, { onDelete: 'cascade' }),
+    /** The published view accessed. No FK — see the table's own doc comment. */
+    viewId: uuid('view_id').notNull(),
+    outcome: portalAccessOutcome('outcome').notNull(),
+    /** Why, when `outcome = 'rejected'`. Null for a served access. */
+    reason: text('reason'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('portal_access_log_recipient_idx').on(t.recipientId, t.createdAt),
+    index('portal_access_log_view_idx').on(t.viewId, t.createdAt),
+    index('portal_access_log_workspace_idx').on(t.workspaceId, t.createdAt),
+  ],
+);

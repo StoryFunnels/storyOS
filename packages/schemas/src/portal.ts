@@ -25,3 +25,26 @@ export const portalRecipientSchema = z.object({
   updated_at: z.iso.datetime(),
 });
 export type PortalRecipient = z.infer<typeof portalRecipientSchema>;
+
+/** #537 — did the request get content, or was it turned away (and why)? */
+export const portalAccessOutcomeSchema = z.enum(['served', 'rejected']);
+export type PortalAccessOutcome = z.infer<typeof portalAccessOutcomeSchema>;
+
+/**
+ * #537 — one recorded portal-recipient access, read shape. `recipient_label`
+ * and `view_name` are resolved at read time (never denormalized onto the log
+ * row itself) so a later rename shows up immediately; `view_name` falls back
+ * to "(deleted view)" the same way a deleted field's name does in #454's
+ * audit log, since `view_id` carries no FK (see schema.ts's own comment).
+ */
+export const portalAccessLogEntrySchema = z.object({
+  id: z.uuid(),
+  recipient_id: z.uuid(),
+  recipient_label: z.string(),
+  view_id: z.uuid(),
+  view_name: z.string(),
+  outcome: portalAccessOutcomeSchema,
+  reason: z.string().nullable(),
+  created_at: z.iso.datetime(),
+});
+export type PortalAccessLogEntry = z.infer<typeof portalAccessLogEntrySchema>;

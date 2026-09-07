@@ -6,6 +6,7 @@ import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { databases, views } from '../db/schema';
 import { notDeleted } from '../db/soft-delete';
+import { PortalActivityService } from '../portal/portal-activity.service';
 import { PortalRecipientsService } from '../portal/portal-recipients.service';
 import { RecordsService } from '../records/records.service';
 
@@ -49,6 +50,7 @@ export class PublicViewsService {
     private readonly records: RecordsService,
     private readonly portalRecipients: PortalRecipientsService,
     private readonly billing: BillingService,
+    private readonly portalActivity: PortalActivityService,
   ) {}
 
   /** Resolve a public token → its view + database + share config, or 404. */
@@ -100,14 +102,32 @@ export class PublicViewsService {
     const scopeFieldName = share.recipient_scope_field_api_name;
     let scopeCondition: FilterNode | undefined;
     const recipientScopeActive = Boolean(scopeFieldName);
+    // #537 — set only once a recipient token resolves to a REAL, known row.
+    // A garbage or revoked token never reaches this point (`resolveByToken`
+    // throws first, and can't tell "no such recipient" from "revoked" apart)
+    // — there is no recipientId to attribute an unresolvable attempt to, so
+    // it is never logged. That is a deliberate scoping decision: this log is
+    // "what each client did", not a generic hit log of unidentifiable
+    // requests.
+    let resolvedRecipient: { id: string } | undefined;
     if (scopeFieldName) {
       if (!opts.recipient) throw new ForbiddenException('recipient required');
       const recipient = await this.portalRecipients.resolveByToken(opts.recipient);
+      resolvedRecipient = recipient;
       // Defense in depth: a recipient token is only ever minted for one
       // workspace. This view's database is denormalized to its own
       // workspaceId, so a token from a DIFFERENT workspace is rejected here
       // even though `resolveByToken` alone can't know which view it's for.
-      if (recipient.workspaceId !== database.workspaceId) throw new ForbiddenException('invalid recipient');
+      if (recipient.workspaceId !== database.workspaceId) {
+        await this.portalActivity.record({
+          workspaceId: database.workspaceId,
+          recipientId: recipient.id,
+          viewId: view.id,
+          outcome: 'rejected',
+          reason: 'recipient belongs to a different workspace',
+        });
+        throw new ForbiddenException('invalid recipient');
+      }
 
       const scopeField = defs.find((f) => f.api_name === scopeFieldName);
       if (!scopeField) {
@@ -188,6 +208,20 @@ export class PublicViewsService {
     // plan change takes effect immediately without needing to re-share.
     const billingStatus = await this.billing.getStatus(database.workspaceId);
     const hideBranding = billingStatus.plan !== 'free';
+
+    // #537 — a resolved recipient reaching this point got a response, whether
+    // or not the fail-closed scope left it empty; "served" answers "did they
+    // look", not "did they see any rows". Fire-and-forget in spirit (record()
+    // itself never throws) but still awaited, so a slow write can't reorder
+    // ahead of the response it's logging.
+    if (resolvedRecipient) {
+      await this.portalActivity.record({
+        workspaceId: database.workspaceId,
+        recipientId: resolvedRecipient.id,
+        viewId: view.id,
+        outcome: 'served',
+      });
+    }
 
     return {
       view: { id: view.id, name: view.name, type: view.type },
