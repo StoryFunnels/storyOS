@@ -17,6 +17,9 @@ export interface PublicViewDef {
   database: { name: string };
   fields: PublicViewField[];
   indexable: boolean;
+  /** #609 — paid-plan white-label (#556), same computed field the public
+   * form page already reads via `FormDef.hide_branding`. */
+  hide_branding: boolean;
   records: { data: PublicRecord[]; next_cursor: string | null; has_more: boolean };
 }
 
@@ -119,7 +122,7 @@ export function PublicViewClient({
             {loadingMore ? 'Loading…' : 'Load more'}
           </button>
         )}
-        <p className="text-center text-[11px] text-neutral-400">Powered by StoryOS</p>
+        {!def.hide_branding && <p className="text-center text-[11px] text-neutral-400">Powered by StoryOS</p>}
       </div>
     </div>
   );
