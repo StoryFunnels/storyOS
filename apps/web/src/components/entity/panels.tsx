@@ -529,6 +529,23 @@ export function MentionedIn({ ws, db, rec }: { ws: string; db: string; rec: stri
   // renders nothing at all, not an empty heading with a zero.
   if (items.length === 0) return null;
   const total = pages[0]!.total;
+  // #484 — display-only grouping over whatever pages are already loaded; the
+  // server's rows/order/permission-scoping are untouched, so a group's count
+  // is only ever "how many of the loaded rows", not a second source of truth
+  // for the database's real total (that's the panel-wide `total` above, and
+  // it stays keyed to the endpoint's own count either way). Groups keep the
+  // order their database first appears in `items`, not re-sorted.
+  const groups: { databaseId: string; databaseName: string; items: Backlink[] }[] = [];
+  const groupByDbId = new Map<string, (typeof groups)[number]>();
+  for (const item of items) {
+    let group = groupByDbId.get(item.database_id);
+    if (!group) {
+      group = { databaseId: item.database_id, databaseName: item.database_name, items: [] };
+      groupByDbId.set(item.database_id, group);
+      groups.push(group);
+    }
+    group.items.push(item);
+  }
 
   return (
     <div className="mt-6">
@@ -538,19 +555,28 @@ export function MentionedIn({ ws, db, rec }: { ws: string; db: string; rec: stri
             only how many pages have been loaded so far). */}
         <span className="normal-case tracking-normal text-faint">({total})</span>
       </h2>
-      <ul className="flex flex-col gap-1">
-        {items.map((b) => (
-          <li key={b.id}>
-            <Link
-              href={`/w/${ws}/d/${b.database_id}/r/${b.id}`}
-              className="flex items-baseline gap-2 rounded px-2 py-1 text-[13px] hover:bg-hover"
-            >
-              <span className="truncate text-ink">{b.title || 'Untitled'}</span>
-              <span className="shrink-0 text-[11px] text-faint">{b.database_name}</span>
-            </Link>
-          </li>
+      <div className="flex flex-col gap-3">
+        {groups.map((group) => (
+          <div key={group.databaseId}>
+            <p className="mb-1 text-[11px] font-medium text-faint">
+              {group.databaseName} <span className="text-faint">({group.items.length})</span>
+            </p>
+            <ul className="flex flex-col gap-1">
+              {group.items.map((b) => (
+                <li key={b.id}>
+                  <Link
+                    href={`/w/${ws}/d/${b.database_id}/r/${b.id}`}
+                    className="flex items-baseline gap-2 rounded px-2 py-1 text-[13px] hover:bg-hover"
+                  >
+                    <span className="truncate text-ink">{b.title || 'Untitled'}</span>
+                    <span className="shrink-0 text-[11px] text-faint">{b.database_name}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
         ))}
-      </ul>
+      </div>
       {backlinks.hasNextPage && (
         <button
           type="button"
