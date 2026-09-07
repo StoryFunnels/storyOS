@@ -33,7 +33,8 @@ Each write returns the resulting record; each `422` is surfaced verbatim.
 | `link_records` | Link a record to targets through a relation field. |
 | `add_comment` | Post a comment. |
 | `run_button` | Press a button field, running its automation actions. |
-| `copy_records` | Copy one or more records into a **different** database (unlike `duplicate_record`, same database). Fields auto-match by name; one with a value and no destination match **blocks** the copy. Call with `dry_run: true` (the default) to see the mapping and any blocking fields, resolve with `skip`, then call again with `dry_run: false`. |
+| `duplicate_record` | Copy a record within the **same** database (unlike `copy_records`, a different one) — values, links, description, and its comment thread + attachments, all copied onto the new record. Owned one-to-many collections are NOT copied (a duplicated project doesn't clone its tasks). |
+| `copy_records` | Copy one or more records into a **different** database (unlike `duplicate_record`, same database). Fields auto-match by name; one with a value and no destination match **blocks** the copy. Call with `dry_run: true` (the default) to see the mapping and any blocking fields, resolve a row with `skip` (drop it) or `override` (send it to a specific destination field instead of the auto-match — or resolve an ambiguous relation by naming which candidate to use), then call again with `dry_run: false`. `override` is MCP/API-only — the web dialog's mapping is still read-only. |
 
 ## Personal space
 

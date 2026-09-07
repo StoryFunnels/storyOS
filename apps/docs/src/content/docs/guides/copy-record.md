@@ -30,10 +30,16 @@ Each source field gets one row, showing what StoryOS matched it to:
 Above the table: how many records **will create**, plus a warning count and a blocking count when
 either is non-zero.
 
-**Skip** is the one lever you have over a row today: check it to drop that field from the copy,
-which is also how you clear a blocking row and unblock Confirm. **The mapping itself is read-only**
-— you cannot manually repoint a field to a different destination, or resolve an ambiguous match
-yourself. That's a real, current limitation, not a missing button you overlooked.
+**Skip** is the one lever this dialog gives you: check it to drop that field from the copy, which
+is also how you clear a blocking row and unblock Confirm. **The dialog's own mapping is read-only**
+— you cannot manually repoint a field or resolve an ambiguous match from here. That's a real,
+current limitation of this specific screen, not a missing button you overlooked.
+
+The underlying API and MCP's `copy_records` tool can already do more than this dialog exposes: an
+`override` — source field to a specific destination field id — wins over the auto-match, and the
+same parameter resolves an ambiguous relation by naming exactly which candidate to use. If the
+dialog's read-only mapping is wrong for a field, an agent (or a direct API call) can remap it; the
+web dialog itself just doesn't have that control yet.
 
 ## Confirming
 
@@ -41,11 +47,23 @@ yourself. That's a real, current limitation, not a missing button you overlooked
 any warnings) and a button to jump straight to the new record (one) or the destination database
 (several).
 
-## Two limits worth knowing before you rely on this
+## One limit worth knowing before you rely on this
 
-- **No manual remap or ambiguous-relation picker yet.** The API this dialog calls only accepts
-  which rows to skip — not where to repoint one. If a field lands wrong or an ambiguous match
-  isn't what you meant, skip it and set it by hand afterward.
-- **The destination list isn't filtered to databases you can write to.** Picking one you only have
-  read access to fails at the dry-run step with an error, rather than being hidden from the picker
-  up front.
+**The destination list isn't filtered to databases you can write to.** Picking one you only have
+read access to fails at the dry-run step with an error, rather than being hidden from the picker
+up front.
+
+## Duplicating within the same database
+
+A record's `⋯` menu also has plain **Duplicate**, for when you want a copy *in the same database*
+— no destination picker, no mapping to review, one click.
+
+- Every scalar field value, its relation links (both single-reference and many-to-many), and its
+  description document all copy onto the new record. The title gets a **" (copy)"** suffix.
+- **Comments and attachments copy too** — the full thread history (skipping anything already
+  soft-deleted) and the actual files, byte-for-byte, not a shared reference to the originals.
+  Copied comments don't re-notify whoever was `@`-mentioned in them; that mention already happened
+  once, and duplicating a record isn't new activity from the people it names.
+- **What doesn't copy**: any *owned* one-to-many collection — a duplicated parent never takes the
+  original's children with it, since a child can only belong to one parent. `created_at`,
+  `updated_at`, and `created_by` are fresh on the copy rather than carried over.
