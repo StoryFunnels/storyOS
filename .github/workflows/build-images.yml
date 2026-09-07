@@ -58,6 +58,15 @@ jobs:
               NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL }}
               NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN=${{ vars.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN }}
               NEXT_PUBLIC_POSTHOG_HOST=${{ vars.NEXT_PUBLIC_POSTHOG_HOST }}
+              # #593 — an EXPLICIT empty value here would override the Dockerfile's
+              # own ARG default with "" (not fall through to it), and next build
+              # would crash on `new URL('')`. Falls back to staging's real origin —
+              # the only environment THIS job's image is verified against and
+              # auto-deployed to below (deploy-staging); "prod stays manual for
+              # now" per this same workflow's own comment, so it isn't yet built
+              # from this pipeline. Set the WEB_URL repo variable to override once
+              # prod also moves to a pulled GHCR image (docker-compose.prod.yml).
+              WEB_URL=${{ vars.WEB_URL || 'https://staging.storyos.dev' }}
     steps:
       - uses: actions/checkout@v4
 
