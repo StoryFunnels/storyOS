@@ -1,6 +1,7 @@
 import { ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, eq, sql } from 'drizzle-orm';
 import type { FilterNode, ViewConfig } from '@storyos/schemas';
+import { BillingService } from '../billing/billing.service';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { databases, views } from '../db/schema';
@@ -47,6 +48,7 @@ export class PublicViewsService {
     @Inject(DB) private readonly db: Db,
     private readonly records: RecordsService,
     private readonly portalRecipients: PortalRecipientsService,
+    private readonly billing: BillingService,
   ) {}
 
   /** Resolve a public token → its view + database + share config, or 404. */
@@ -182,6 +184,11 @@ export class PublicViewsService {
       return { id: record.id, title: record.title, number: record.number, values };
     });
 
+    // #556 — read-time, exactly like `FormsService`'s own hide_branding, so a
+    // plan change takes effect immediately without needing to re-share.
+    const billingStatus = await this.billing.getStatus(database.workspaceId);
+    const hideBranding = billingStatus.plan !== 'free';
+
     return {
       view: { id: view.id, name: view.name, type: view.type },
       database: { name: database.name },
@@ -189,6 +196,7 @@ export class PublicViewsService {
         .filter((f) => exposedApiNames.has(f.api_name) || relationApiNames.has(f.api_name))
         .map((f) => ({ api_name: f.api_name, type: f.type })),
       indexable: share.indexable ?? false,
+      hide_branding: hideBranding,
       records: { data: records, next_cursor: result.next_cursor, has_more: result.has_more },
     };
   }
