@@ -2364,3 +2364,26 @@ export const portalAccessLog = pgTable(
     index('portal_access_log_workspace_idx').on(t.workspaceId, t.createdAt),
   ],
 );
+
+/**
+ * One install of a built-in TEMPLATE (definitions.ts's 23 — a different
+ * registry from the Business Packs marketplace `pack_installs` above) — #585,
+ * the gallery's per-card install count. No FK to `workspaces`: unlike
+ * `pack_installs`, this row's only purpose is a durable count for social
+ * proof ("N installs" on the gallery, mirroring Teable's own pattern per the
+ * ticket), which must survive the installing workspace being deleted later —
+ * a template that helped 200 people start shouldn't read as 199 the day one
+ * of them closes their account. No uninstall tracking either: a template
+ * apply has no reverse action the way a pack install/uninstall pair does, so
+ * there is nothing to subtract.
+ */
+export const templateInstalls = pgTable(
+  'template_installs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    slug: text('slug').notNull(),
+    installedBy: text('installed_by').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('template_installs_slug_idx').on(t.slug)],
+);
