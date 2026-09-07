@@ -8,6 +8,7 @@ import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import {
   isFormFieldVisible,
   visibleFormFields,
+  type FilterNode,
   type FormVisibilityRule,
   type PublicFormVisibilityRule,
 } from '@storyos/schemas';
@@ -17,6 +18,7 @@ import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { databases, fields, memberships, relations, selectOptions, user, views } from '../db/schema';
 import { RecordsService } from '../records/records.service';
+import { cleanFilterNode } from '../views/views.service';
 
 /** Field types a public form can render/accept (MN-101, MN-224: relation + user). */
 const SUPPORTED = new Set([
@@ -44,6 +46,9 @@ interface FormFieldCfg {
   visible_when?: FormVisibilityRule;
   /** #500 — `required` only bites when this also holds (or is unset). */
   required_when?: FormVisibilityRule;
+  /** #501 — narrows a relation field's picker; compiled against the relation's
+   *  TARGET database (never this form's own) — see `searchRelationCandidates`. */
+  relation_filter?: FilterNode;
 }
 
 /**
@@ -160,6 +165,7 @@ export class FormsService {
         target_database_name: string | null;
         target_database_color: string | null;
         single: boolean;
+        relation_filter?: FilterNode;
       }
     >();
     const targetDbIds = new Set<string>();
@@ -176,6 +182,7 @@ export class FormsService {
         target_database_name: null,
         target_database_color: null,
         single,
+        relation_filter: cfgById.get(f.id)?.relation_filter,
       });
     }
     if (targetDbIds.size) {
@@ -290,8 +297,27 @@ export class FormsService {
 
   /** Candidate records for a public form's relation field (title search, MN-224). */
   async searchRelationCandidates(token: string, fieldId: string, q?: string) {
-    const { target_database_id } = await this.resolveRelationField(token, fieldId);
-    const page = await this.records.list(target_database_id, { limit: 20, q });
+    const { target_database_id, relation_filter } = await this.resolveRelationField(token, fieldId);
+    if (!relation_filter) {
+      const page = await this.records.list(target_database_id, { limit: 20, q });
+      return page.data.map((r) => ({ id: r.id, title: r.title, number: r.number }));
+    }
+    // #501 — narrows the picker to the form owner's stored filter, compiled
+    // against the TARGET database's live fields. Defensively cleaned first
+    // (same as a view's own `filters`, cleanFilterNode) so a field the target
+    // database has since dropped degrades to a narrower-but-working filter
+    // rather than throwing at a public, unauthenticated visitor.
+    const targetFields = await this.records.fieldDefs(target_database_id);
+    const liveApiNames = new Set(targetFields.map((f) => f.api_name));
+    const cleaned = cleanFilterNode(relation_filter, liveApiNames) as typeof relation_filter | undefined;
+    const page = await this.records.query(
+      target_database_id,
+      { filter: cleaned, sorts: [], q, limit: 20 },
+      // No signed-in visitor to resolve a "me" condition against — compileFilter
+      // only reads this for user/created_by/updated_by conditions, where it
+      // will simply never match a real id rather than crashing.
+      '',
+    );
     return page.data.map((r) => ({ id: r.id, title: r.title, number: r.number }));
   }
 
