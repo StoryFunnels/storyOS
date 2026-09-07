@@ -160,6 +160,22 @@ configure for this; it follows automatically from the field type, because a look
 value isn't something you'd write by moving a card, and this project treats a computed value the
 same way whether it's grouping a board or rendering a cell.
 
+## Changing what a board or list is grouped by
+
+A board or list view's own tab menu (**⋯ → Change grouping…**) lets you switch its group-by field
+after the fact — you're no longer stuck deleting and recreating the view to regroup it. The picker
+offers the same fields, in the same disabled-with-a-specific-reason shape, as choosing a group-by
+when you first create the view.
+
+- **Everything else about the view is preserved** — column order, hidden-empty settings, card
+  customization, filters. Regrouping changes one setting, not the whole view.
+- **Switching to or from a date field handles the [week/month/quarter/year
+  granularity](#board-columns-from-a-date-field) correctly**: choosing a date field offers it fresh,
+  and switching away from one clears the old granularity rather than leaving it to resurface if you
+  switch back to a date field later.
+- **A list's grouping is optional; a board's isn't** — a board always needs something to make
+  columns from, so Save stays disabled until you pick one.
+
 ## Sharing a view publicly
 
 A view can be published to a **public, read-only URL** — no sign-in required to view it — with an
