@@ -373,7 +373,7 @@ type LayoutEdge =
       localDatabaseId: string;
     };
 
-function computeLayout(
+export function computeLayout(
   databases: OntologyDatabase[],
   relations: OntologyRelation[],
   spaceId: string,
@@ -420,6 +420,18 @@ function computeLayout(
   // live, not in review. Each loop on the SAME node now claims its own angle
   // around it, spaced out as more accumulate.
   const loopIndexByNode = new Map<string, number>();
+  // #528 — the same two databases can carry more than one relation between
+  // them (e.g. Issues' Parent-task and Blocked-by both point at Issues…
+  // Issues, or two genuinely different tables with two separate relation
+  // fields). A label always drawn at the exact (pa+pb)/2 midpoint put a
+  // second one on the identical pixel — same collision loopIndexByNode
+  // already solves for self-relation loops, applied here to same-pair edges.
+  const pairIndexByKey = new Map<string, number>();
+  // #528 — likewise, two cross-space relations from the SAME local node both
+  // computed their satellite's angle from that node's position alone, so a
+  // second satellite (and its "in {space}" label) landed on the identical
+  // (x, y) as the first. Counted per LOCAL node, same fan-out shape as loops.
+  const satelliteIndexByNode = new Map<string, number>();
 
   for (const r of relations) {
     const cardinalityLabel = r.cardinality.replace(/_/g, '-');
@@ -467,6 +479,24 @@ function computeLayout(
       const pa = positions.get(r.a.database_id);
       const pb = positions.get(r.b.database_id);
       if (!pa || !pb) continue;
+      // Unordered so A→B and B→A relations between the same pair share one
+      // counter — it's the PAIR that collides, not the direction.
+      const pairKey = [r.a.database_id, r.b.database_id].sort().join('|');
+      const pairIndex = pairIndexByKey.get(pairKey) ?? 0;
+      pairIndexByKey.set(pairKey, pairIndex + 1);
+      const midX = (pa.x + pb.x) / 2;
+      const midY = (pa.y + pb.y) / 2;
+      // Fan successive labels off the midpoint along the line's PERPENDICULAR,
+      // alternating sides — same sign/step spread as loopIndexByNode's fan.
+      const dx = pb.x - pa.x;
+      const dy = pb.y - pa.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const perpX = -dy / len;
+      const perpY = dx / len;
+      const sign = pairIndex % 2 === 0 ? 1 : -1;
+      const step = Math.ceil(pairIndex / 2);
+      const spacing = 14;
+      const offset = sign * step * spacing;
       edges.push({
         kind: 'line',
         key: r.id,
@@ -474,8 +504,8 @@ function computeLayout(
         y1: pa.y,
         x2: pb.x,
         y2: pb.y,
-        labelX: (pa.x + pb.x) / 2,
-        labelY: (pa.y + pb.y) / 2 - 4,
+        labelX: midX + perpX * offset,
+        labelY: midY + perpY * offset - 4,
         // AC: "Edges carry cardinality and the field name on each side —
         // Issues — Epic → Epics reads as a sentence."
         label: `${r.a.database_name} — ${r.a.field_name} → ${r.b.database_name} (${cardinalityLabel})`,
@@ -498,7 +528,17 @@ function computeLayout(
     if (!p) continue;
     // Park the satellite just past the ring, on the ray from centre through the
     // local node — reads as "attached to this node, outside the circle".
-    const angle = Math.atan2(p.y - center, p.x - center);
+    const baseAngle = Math.atan2(p.y - center, p.x - center);
+    // #528 — a second cross-space relation from this SAME local node would
+    // otherwise reuse the identical ray, landing its satellite (and "in
+    // {space}" label) exactly on top of the first. Fan successive satellites
+    // a few degrees either side of the base ray instead.
+    const satIndex = satelliteIndexByNode.get(local.database_id) ?? 0;
+    satelliteIndexByNode.set(local.database_id, satIndex + 1);
+    const satSign = satIndex % 2 === 0 ? 1 : -1;
+    const satStep = Math.ceil(satIndex / 2);
+    const satSpreadDeg = 18;
+    const angle = baseAngle + (satSign * satStep * satSpreadDeg * Math.PI) / 180;
     const sx = center + (radius + 46) * Math.cos(angle);
     const sy = center + (radius + 46) * Math.sin(angle);
     const satelliteId = `${r.id}:${far.database_id}`;
