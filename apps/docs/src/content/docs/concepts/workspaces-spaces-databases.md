@@ -87,6 +87,22 @@ A relation pointing at a database outside the copy, or a formula/lookup/rollup t
 one, can't come along unchanged — StoryOS tells you exactly what it skipped and why, rather than
 silently producing a database that looks complete but is quietly missing pieces.
 
+### A database's own Relations page
+
+A database's `⋯` menu also has **Relations** — this database at the center, every database it
+relates to as a node around it, one line per relation, labelled with both fields' names and the
+cardinality. Click a related database to jump straight to it.
+
+**This page navigates; it doesn't edit.** **+ New relation** opens the exact same relation-creation
+dialog you'd reach from a field's own `⋯` menu — not a second, inline editor — and there's no way
+to rename, redirect, or change an existing relation's cardinality from here. That's deliberate:
+cardinality changes are destructive (many-to-one throws data away), and a second surface that also
+claims to edit relations is how the two would eventually disagree about what's true. Renaming or
+reshaping an existing relation still goes through the field editor, same as always.
+
+**Self-relations don't draw a spoke** — both sides point at the database that's already the
+center, so there's no separate node to draw a line to. They're simply not shown on this page.
+
 ## Every level can say what it is for
 
 Each of the three carries an optional one-line **description** — plain text, not a rich-text
