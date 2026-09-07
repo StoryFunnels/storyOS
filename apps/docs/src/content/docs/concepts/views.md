@@ -173,6 +173,10 @@ explicit allowlist of which fields travel. Nothing is exposed by default:
 - **The link's token is the only credential** — the same posture as a [public
   form](/guides/client-portals/). Anyone who has the link can view; nobody without it can guess
   their way in.
+- **A share can go further and become a portal**: naming a **recipient-scope field** turns one
+  open link into a per-client one, where every request must resolve to a real [portal
+  recipient](/concepts/portal-recipients/) and only that recipient's rows come back. This isn't in
+  the Share… dialog yet — a direct API call, same as the recipient itself.
 
 **Table views only.** A board's group-by column or a dashboard's tiles and widgets have no single
 set of records to allowlist the way a table's rows do, so **Share…** doesn't appear on the tab

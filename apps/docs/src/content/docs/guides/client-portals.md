@@ -123,8 +123,18 @@ A working agency portal is usually:
 The client sends work in through the form, watches it move on the board, and comments in place —
 while every other client's work stays invisible, and you never pay for the seat.
 
+## When a guest seat doesn't fit
+
+This guide's model — invite the client as a guest — is the right one when a handful of clients
+each need to work inside their own space. It stops fitting once you have dozens of clients who
+only ever need to read their own slice of one shared view: that many guest seats gets expensive
+fast, even at the free viewer/commenter tier's floor. [Portal
+recipients](/concepts/portal-recipients/) are the API/MCP-only alternative built for exactly that
+shape — a named external party with a revocable link, never a user, never a seat.
+
 ## Related
 
 - [Access & roles](/concepts/access-and-roles/) — the full role ladder and guest-scoping rules.
 - [Views](/concepts/views/) — filters, sorts, and the board/table/calendar/form view types.
+- [Portal recipients](/concepts/portal-recipients/) — the no-seat alternative for many read-only clients.
 - [Core concepts](/getting-started/concepts/) — where spaces, databases, and records fit.

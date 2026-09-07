@@ -97,6 +97,7 @@ export default defineConfig({
             { label: 'Tyron, the in-app assistant', slug: 'concepts/tyron' },
             { label: 'Agent runs', slug: 'concepts/agent-runs' },
             { label: 'Split-screen panels', slug: 'concepts/split-screen' },
+            { label: 'Portal recipients', slug: 'concepts/portal-recipients' },
           ],
         },
         {
