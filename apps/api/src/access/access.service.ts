@@ -115,6 +115,35 @@ export class AccessService {
   }
 
   /**
+   * #562 — `effectiveForDatabase`, batched across many databases in ONE grants
+   * fetch rather than one per row: `DatabasesService.list()` needs `my_access`
+   * per row for a write-access-only picker, and calling `effectiveForDatabase`
+   * per database would re-run `guestGrants`'s own DB query once per row for
+   * every guest viewer of the list. admin/member never touch the grants table
+   * at all (same workspace-wide fast path `effectiveForDatabase` takes), so
+   * the batching only matters for guests — but it's correct for every role.
+   */
+  async effectiveForDatabases(
+    membership: Membership,
+    databaseRows: ReadonlyArray<{ id: string; spaceId: string }>,
+  ): Promise<Map<string, EffectiveRole | null>> {
+    if (membership.role === 'admin') return new Map(databaseRows.map((d) => [d.id, 'admin' as const]));
+    if (membership.role === 'member') return new Map(databaseRows.map((d) => [d.id, 'creator' as const]));
+    const grants = await this.guestGrants(membership);
+    return new Map(
+      databaseRows.map((d) => {
+        let best: EffectiveRole | null = null;
+        for (const grant of grants) {
+          if (grant.databaseId === d.id || grant.spaceId === d.spaceId) {
+            if (!best || ACCESS_RANK[grant.role] > ACCESS_RANK[best]) best = grant.role;
+          }
+        }
+        return [d.id, best];
+      }),
+    );
+  }
+
+  /**
    * #472 — effective role for one RECORD: the max of a matching space grant, a
    * matching database grant (both via `effectiveForDatabase`) and a matching
    * RECORD grant — "highest grant wins" extended to the third scope, not a

@@ -156,20 +156,25 @@ export class DatabasesService {
       where: and(eq(databases.workspaceId, membership.workspaceId), notDeleted(databases.deletedAt)),
       orderBy: [asc(databases.position)],
     });
+    const visible = visibility
+      ? rows.filter((d) => visibility.databaseIds.has(d.id) || visibility.spaceIds.has(d.spaceId))
+      : rows;
     const spaceSlugMap = await this.spaceSlugs(membership.workspaceId);
-    const withRef = (d: (typeof rows)[number]) => {
+    // #562 — a write-access-only picker (e.g. #433's Copy-to dialog) needs
+    // per-row access without a click-to-find-out N+1: one batched grants
+    // fetch for the whole list, same EffectiveRole computation get() already
+    // does for a single database.
+    const myAccessByDatabaseId = await this.access.effectiveForDatabases(membership, visible);
+    return visible.map((d) => {
       const spaceSlug = spaceSlugMap.get(d.spaceId) ?? null;
       return {
         ...d,
         color: resolveDatabaseColor(d.id, d.color),
         spaceSlug,
         qualifiedSlug: spaceSlug ? `${spaceSlug}/${d.apiSlug}` : d.apiSlug,
+        my_access: myAccessByDatabaseId.get(d.id) ?? null,
       };
-    };
-    if (!visibility) return rows.map(withRef);
-    return rows
-      .filter((d) => visibility.databaseIds.has(d.id) || visibility.spaceIds.has(d.spaceId))
-      .map(withRef);
+    });
   }
 
   /** Full introspection payload: database + live fields + views + my_access (E4, ADR-0007). */
