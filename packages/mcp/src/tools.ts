@@ -763,6 +763,10 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   update_database: 'admin',
   delete_database: 'admin',
   duplicate_database: 'admin',
+  // #37 — same ceiling as delete_database/delete_space/delete_view: restoring
+  // a structural deletion is exactly as sensitive as making it.
+  list_databases_trash: 'admin',
+  restore_database: 'admin',
   add_field: 'admin',
   update_field: 'admin',
   delete_field: 'admin',
@@ -771,6 +775,9 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   create_view: 'admin',
   update_view: 'admin',
   delete_view: 'admin',
+  // #37
+  list_views_trash: 'admin',
+  restore_view: 'admin',
   reorder_views: 'admin',
   create_relation: 'admin',
   delete_relation: 'admin',
@@ -789,6 +796,9 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   // #416 — admin, and destructive: the API refuses it without the typed name
   // whenever the space still holds databases (#417).
   delete_space: 'admin',
+  // #37
+  list_spaces_trash: 'admin',
+  restore_space: 'admin',
   update_workspace: 'admin',
   // #394 — schema building. Same admin ceiling as create_database, and the
   // ArchitectController is admin-gated for the same reason: building a workflow
@@ -3134,7 +3144,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'delete_view',
     {
       title: 'Delete view',
-      description: 'Delete a view (409 if it is the last view on the database).',
+      description: '#37 — soft delete: recoverable via restore_view (see list_views_trash). 409 if it is the last shared view on the database.',
       inputSchema: { workspace: z.string(), database: z.string(), view: z.string() },
     },
     handle<{ workspace: string; database: string; view: string }>(async ({ workspace, database, view }) => {
@@ -3145,6 +3155,46 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       const res = await unwrap<unknown>(
         client.DELETE('/api/v1/workspaces/{ws}/databases/{db}/views/{view}', {
           params: { path: { ws: ws.id, db: db.id, view: v.id } } as never,
+        }),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'list_views_trash',
+    {
+      title: 'List deleted views',
+      description: '#37 — deleted views on this database. Call before restore_view — a deleted view no longer resolves by name via list_views/get_database.',
+      inputSchema: { workspace: z.string(), database: z.string() },
+    },
+    handle<{ workspace: string; database: string }>(async ({ workspace, database }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const trash = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/databases/{db}/views/trash', { params: { path: { ws: ws.id, db: db.id } } }),
+      );
+      return text({ views: trash, restore_with: 'restore_view' });
+    }),
+  );
+
+  reg(
+    'restore_view',
+    {
+      title: 'Restore view',
+      description: '#37 — bring a deleted view back (see list_views_trash for the id). Only for a view deleted on its own; a view that went with its whole database or space comes back via restore_database/restore_space instead.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        view: z.string().describe('View id (from list_views_trash) — a deleted view has no live name to resolve by.'),
+      },
+    },
+    handle<{ workspace: string; database: string; view: string }>(async ({ workspace, database, view }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const res = await unwrap<unknown>(
+        client.POST('/api/v1/workspaces/{ws}/databases/{db}/views/{view}/restore', {
+          params: { path: { ws: ws.id, db: db.id, view } } as never,
         }),
       );
       return text(res);
@@ -4158,7 +4208,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Delete space',
       description:
-        'Permanently delete a space AND every database and record inside it. Irreversible — the trash cannot recover any of it. Guardrail: `confirm` must equal the space name exactly, the same rule delete_database enforces for a smaller action. An empty space needs no confirm.',
+        '#453/#37 — soft delete: the space, every database and record inside it. Recoverable via restore_space (see list_spaces_trash) as long as it stays undone — this tool does not warn "irreversible" the way it used to, because it no longer is one. Guardrail: `confirm` must equal the space name exactly, the same rule delete_database enforces for a smaller action. An empty space needs no confirm.',
       inputSchema: {
         workspace: z.string(),
         space: z.string().describe('Space name, slug or id.'),
@@ -4190,6 +4240,40 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           }),
         ),
       );
+    }),
+  );
+
+  reg(
+    'list_spaces_trash',
+    {
+      title: 'List deleted spaces',
+      description: '#37 — deleted spaces in this workspace. Call before restore_space — a deleted space no longer resolves by name anywhere else.',
+      inputSchema: { workspace: z.string() },
+    },
+    handle<{ workspace: string }>(async ({ workspace }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const trash = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/spaces/trash', { params: { path: { ws: ws.id } } } as never),
+      );
+      return text({ spaces: trash, restore_with: 'restore_space' });
+    }),
+  );
+
+  reg(
+    'restore_space',
+    {
+      title: 'Restore space',
+      description: '#37 — bring a deleted space back, along with every database (and its fields/records/views) that was deleted WITH it (see list_spaces_trash for the id). A database independently deleted BEFORE the space was deleted stays in trash — restore that separately via restore_database.',
+      inputSchema: { workspace: z.string(), space: z.string().describe('Space id (from list_spaces_trash) — a deleted space has no live name/slug to resolve by.') },
+    },
+    handle<{ workspace: string; space: string }>(async ({ workspace, space }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.POST('/api/v1/workspaces/{ws}/spaces/{space}/restore', {
+          params: { path: { ws: ws.id, space } } as never,
+        }),
+      );
+      return text(res);
     }),
   );
 
@@ -4239,7 +4323,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'delete_database',
     {
       title: 'Delete database',
-      description: 'Permanently delete a database and all its records (irreversible). Guardrail: `confirm` must equal the database name exactly. Set sever_relations to also drop relations pointing at it.',
+      description: '#453/#37 — soft delete: the database and all its records. Recoverable via restore_database (see list_databases_trash), unless sever_relations is set — that part IS irreversible (it hard-deletes the relation and its paired field on the other database, along with every link). Guardrail: `confirm` must equal the database name exactly.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -4260,6 +4344,40 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         return text(res ?? { deleted: true });
       },
     ),
+  );
+
+  reg(
+    'list_databases_trash',
+    {
+      title: 'List deleted databases',
+      description: '#37 — deleted databases in this workspace. Call before restore_database — a deleted database no longer resolves by name anywhere else.',
+      inputSchema: { workspace: z.string() },
+    },
+    handle<{ workspace: string }>(async ({ workspace }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const trash = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/databases/trash', { params: { path: { ws: ws.id } } } as never),
+      );
+      return text({ databases: trash, restore_with: 'restore_database' });
+    }),
+  );
+
+  reg(
+    'restore_database',
+    {
+      title: 'Restore database',
+      description: '#37 — bring a deleted database back, along with whatever fields/records/views were deleted with it (see list_databases_trash for the id). A record independently trashed BEFORE the database was deleted stays in trash — restore that separately via restore_records.',
+      inputSchema: { workspace: z.string(), database: z.string().describe('Database id (from list_databases_trash) — a deleted database has no live name/slug to resolve by.') },
+    },
+    handle<{ workspace: string; database: string }>(async ({ workspace, database }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.POST('/api/v1/workspaces/{ws}/databases/{db}/restore', {
+          params: { path: { ws: ws.id, db: database } } as never,
+        }),
+      );
+      return text(res);
+    }),
   );
 
   reg(

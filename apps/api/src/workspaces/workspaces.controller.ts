@@ -93,6 +93,16 @@ export class WorkspaceController {
     return this.spaces.list(req.membership);
   }
 
+  // #37 — registered BEFORE 'spaces/:space' below, same route-ordering
+  // reason as DatabasesController.listTrash: a literal 'trash' segment must
+  // win over the wildcard :space param route.
+  @Get('spaces/trash')
+  @MinRole('admin')
+  @ApiOperation({ summary: 'Deleted spaces in this workspace (admin)' })
+  listSpacesTrash(@Req() req: WorkspaceRequest) {
+    return this.spaces.listTrash(req.membership.workspaceId);
+  }
+
   @RequiresScope('admin')
   @Post('spaces')
   @MinRole('member')
@@ -141,6 +151,18 @@ export class WorkspaceController {
     // #417 — the typed-name guard is enforced in the service, so every caller
     // (HTTP, MCP, a script) meets it. See SpacesService.remove.
     return this.spaces.remove(req.membership.workspaceId, spaceId, { confirm: body?.confirm });
+  }
+
+  // #37 — admin-only: a soft-deleted space has no live grants context to run
+  // the usual graded ladder against (assertSpace's own lookup filters
+  // deletedAt IS NULL, same as every other read path) — see
+  // DatabasesController.restore's identical reasoning.
+  @RequiresScope('admin')
+  @Post('spaces/:space/restore')
+  @MinRole('admin')
+  @ApiOperation({ summary: 'Restore a deleted space, its cascade-deleted databases, and their fields/records/views (admin)' })
+  restoreSpace(@Req() req: WorkspaceRequest, @Param('space') spaceId: string) {
+    return this.spaces.restore(req.membership.workspaceId, spaceId);
   }
 
   // --- Members ---

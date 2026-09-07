@@ -47,6 +47,16 @@ export class DatabasesController {
     return this.databases.create(req.membership, body);
   }
 
+  // #37 — registered BEFORE ':db' below: a literal 'trash' segment must win
+  // over the wildcard :db param route, or Nest would treat "trash" as a
+  // database id and this would never be reached.
+  @Get('trash')
+  @MinRole('admin')
+  @ApiOperation({ summary: 'Deleted databases in this workspace (admin)' })
+  listTrash(@Req() req: WorkspaceRequest) {
+    return this.databases.listTrash(req.membership.workspaceId);
+  }
+
   @Get(':db')
   @ApiOperation({ summary: 'Database with live fields and views (schema introspection)' })
   get(@Req() req: WorkspaceRequest, @Param('db') databaseId: string) {
@@ -85,5 +95,18 @@ export class DatabasesController {
   ) {
     await this.databases.assertAccess(req.membership, databaseId, 'creator');
     return this.databases.remove(req.membership, databaseId, body.confirm, body.sever_relations);
+  }
+
+  // #37 — admin-only: the bug this ticket fixes is literally "an admin
+  // cannot restore", and a soft-deleted database has no live grants context
+  // to run the usual graded access ladder against (assertAccess's own lookup
+  // filters deletedAt IS NULL, same as every other read path), so this does
+  // not attempt to reuse it.
+  @RequiresScope('admin')
+  @Post(':db/restore')
+  @MinRole('admin')
+  @ApiOperation({ summary: 'Restore a deleted database, and whatever fields/records/views were deleted with it (admin)' })
+  restore(@Req() req: WorkspaceRequest, @Param('db') databaseId: string) {
+    return this.databases.restore(req.membership.workspaceId, databaseId);
   }
 }

@@ -6,7 +6,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, isNull } from 'drizzle-orm';
 import type { ViewConfig, ViewType } from '@storyos/schemas';
 import { SYSTEM_FIELDS } from '@storyos/schemas';
 import { DB } from '../db/db.module';
@@ -578,6 +578,32 @@ export class ViewsService {
       if (next) await this.db.update(views).set({ isDefault: true }).where(eq(views.id, next.id));
     }
     return { deleted: true };
+  }
+
+  /** #37 — deleted views on this database, for the trash view. Cascade-deleted
+   *  views (their database or space was deleted, not the view itself) belong
+   *  to the DATABASE's/SPACE's own restore, not here — this database's own
+   *  `assertDb` access check already 404s before reaching this method if the
+   *  database itself is currently deleted, so that case never surfaces here. */
+  async listTrash(databaseId: string) {
+    const rows = await this.db.query.views.findMany({
+      where: and(eq(views.databaseId, databaseId), isNotNull(views.deletedAt)),
+      orderBy: [desc(views.deletedAt)],
+    });
+    return rows.map((v) => ({ id: v.id, name: v.name, type: v.type, deleted_at: v.deletedAt }));
+  }
+
+  /** #37 — undo `remove()` above. A single view's own deletion is never
+   *  cascaded onto anything else, so restoring it is just clearing its own
+   *  `deletedAt` — no timestamp-matching needed (contrast
+   *  `restoreDatabaseCascade`, which restores several tables at once). */
+  async restore(databaseId: string, viewId: string) {
+    const view = await this.db.query.views.findFirst({
+      where: and(eq(views.id, viewId), eq(views.databaseId, databaseId), isNotNull(views.deletedAt)),
+    });
+    if (!view) throw new NotFoundException('View not found in trash');
+    await this.db.update(views).set({ deletedAt: null }).where(eq(views.id, viewId));
+    return { restored: true, id: viewId };
   }
 
   /**
