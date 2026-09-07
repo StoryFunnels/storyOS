@@ -648,6 +648,7 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
    */
   list_members: 'read',
   list_grants: 'admin',
+  list_audit_log: 'admin',
   list_invites: 'admin',
   // #534 — a recipient's token is a standing credential to workspace content,
   // same trust tier as a grant/invite (all three: 'admin').
@@ -5477,6 +5478,36 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       );
       return text({ grants: res, note: 'Read-only — grants are changed in-app.' });
     }),
+  );
+
+  reg(
+    'list_audit_log',
+    {
+      title: 'Workspace-wide audit log',
+      description:
+        '#454 — "who changed or deleted what, and when" across every user in the workspace, filterable by actor/entity/date range (default: last 30 days). Reads the SAME activity_events/record_field_changes tables list_comments/get_history read per-record, just workspace-wide. A removed member still appears by name (the no-FK design). KNOWN GAP: structural deletions of a database, view or space are NOT captured here yet — only record-level create/update/delete/restore. Read-only.',
+      inputSchema: {
+        workspace: z.string(),
+        actor: z.string().optional().describe('Narrow to one user id (from list_members).'),
+        entity: z.string().optional().describe('Narrow to one record id.'),
+        from: z.string().optional().describe('ISO datetime, inclusive. Default: 30 days ago.'),
+        to: z.string().optional().describe('ISO datetime, inclusive. Default: now.'),
+      },
+    },
+    handle<{ workspace: string; actor?: string; entity?: string; from?: string; to?: string }>(
+      async ({ workspace, actor, entity, from, to }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const query: Record<string, string> = {};
+        if (actor) query.actor = actor;
+        if (entity) query.entity = entity;
+        if (from) query.from = from;
+        if (to) query.to = to;
+        const res = await unwrap<unknown>(
+          client.GET('/api/v1/workspaces/{ws}/audit-log', { params: { path: { ws: ws.id }, query } } as never),
+        );
+        return text(res);
+      },
+    ),
   );
 
   reg(
