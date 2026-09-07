@@ -91,3 +91,18 @@ is exactly the moment you start doubting the history.
 
 A previous version can be restored (`POST …/versions/{version}/restore`). The restore is itself a
 change and appears in the log like any other, badged by whatever made it.
+
+## Workspace-wide: the admin audit log
+
+Everything above is scoped to one record. `GET /workspaces/{ws}/audit-log` (the MCP
+`list_audit_log` tool) reads the **same** underlying data — admin-only, across every user and
+every record in the workspace, filterable by actor, by one entity, and by date range (default: the
+last 30 days).
+
+- **No web page for this yet** — API and MCP only.
+- **A removed member still appears by name** on their historical rows, the same no-FK design this
+  whole page is built on.
+- **Known, stated gap: structural deletions aren't captured.** Deleting a database, a view, or a
+  space doesn't yet write a row here — only record-level create/update/delete/restore does. "Who
+  deleted this record" is answerable today; "who deleted this database" isn't yet, and that's a
+  named, separate piece of work, not an oversight quietly worked around.
