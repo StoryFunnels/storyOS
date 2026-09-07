@@ -20,7 +20,13 @@ export class PortalRecipientsService {
     const token = randomBytes(24).toString('base64url');
     const [row] = await this.db
       .insert(portalRecipients)
-      .values({ workspaceId, label: input.label, email: input.email ?? null, token })
+      .values({
+        workspaceId,
+        label: input.label,
+        email: input.email ?? null,
+        linkedRecordId: input.linked_record_id ?? null,
+        token,
+      })
       .returning();
     return row!;
   }

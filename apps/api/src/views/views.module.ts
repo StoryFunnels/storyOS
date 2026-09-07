@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AccessModule } from '../access/access.module';
 import { DatabasesModule } from '../databases/databases.module';
+import { PortalModule } from '../portal/portal.module';
 import { RecordsModule } from '../records/records.module';
 import { WorkspacesModule } from '../workspaces/workspaces.module';
 import { UsersModule } from '../users/users.module';
@@ -21,7 +22,9 @@ import { ViewsService } from './views.service';
   // list when one database is unreadable.
   // RecordsModule (#264): PublicViewsService reads a published view's records
   // through the same RecordsService.query every signed-in read uses.
-  imports: [WorkspacesModule, DatabasesModule, RecordsModule, UsersModule, AccessModule],
+  // PortalModule (#535): PublicViewsService resolves a recipient-scope token
+  // through PortalRecipientsService.resolveByToken.
+  imports: [WorkspacesModule, DatabasesModule, RecordsModule, UsersModule, AccessModule, PortalModule],
   controllers: [ViewsController, PersonalFilterController, SpaceViewsController, PublicViewsController],
   providers: [ViewsService, SpaceViewsService, PublicViewsService],
   exports: [ViewsService, SpaceViewsService],

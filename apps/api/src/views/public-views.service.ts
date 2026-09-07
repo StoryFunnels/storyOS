@@ -1,10 +1,11 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, eq, sql } from 'drizzle-orm';
-import type { ViewConfig } from '@storyos/schemas';
+import type { FilterNode, ViewConfig } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { databases, views } from '../db/schema';
 import { notDeleted } from '../db/soft-delete';
+import { PortalRecipientsService } from '../portal/portal-recipients.service';
 import { RecordsService } from '../records/records.service';
 
 /** Field types whose config can read data the public visitor is never shown —
@@ -12,6 +13,19 @@ import { RecordsService } from '../records/records.service';
  *  one. Never exposed by the "non-hidden fields" default; only when
  *  `visible_field_api_names` EXPLICITLY names them (#264's "subtle hole"). */
 const COMPUTED_TYPES = new Set(['rollup', 'lookup', 'formula']);
+
+/**
+ * #535 — a recipient-scope condition that can never match any real row. Used
+ * when the resolving recipient has no usable value for the scope field (a
+ * relation rule but no `linked_record_id`, or a text/email rule but no
+ * `email`). Emptying the result set this way — rather than dropping the
+ * condition — is what keeps the default fail-CLOSED: "no scoping value" must
+ * read as "see nothing", never as "see everything". Filters on the built-in
+ * `id` (public-number) system field, which every database has regardless of
+ * the scope field's own type — a record number is never negative, so `-1`
+ * matches nothing while staying a valid, always-compilable condition.
+ */
+const IMPOSSIBLE_CONDITION: FilterNode = { field: 'id', op: 'eq', value: -1 };
 
 /**
  * Public (unauthenticated) read of a published view (#264). Mirrors
@@ -32,6 +46,7 @@ export class PublicViewsService {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly records: RecordsService,
+    private readonly portalRecipients: PortalRecipientsService,
   ) {}
 
   /** Resolve a public token → its view + database + share config, or 404. */
@@ -67,22 +82,67 @@ export class PublicViewsService {
    * Stripping happens here, on the way OUT of the service, never left to the
    * client — the response body is the actual security boundary.
    */
-  async getPublicView(token: string, opts: { cursor?: string }) {
+  async getPublicView(token: string, opts: { cursor?: string; recipient?: string }) {
     const { view, share, database } = await this.resolve(token);
     const config = (view.config ?? {}) as ViewConfig;
 
     const defs = await this.records.fieldDefs(database.id);
+
+    // #535 — a recipient-scope rule turns this from an open share link into a
+    // portal: every request MUST resolve to a specific recipient, and that
+    // recipient's rows are ANDed onto the view's own filter server-side. There
+    // is no client-suppliable filter/sort/pagination on this endpoint at all
+    // (only `cursor`, which is opaque and re-derived from THIS query), so
+    // there is no tampering surface to close beyond resolving the token
+    // itself correctly.
+    const scopeFieldName = share.recipient_scope_field_api_name;
+    let scopeCondition: FilterNode | undefined;
+    const recipientScopeActive = Boolean(scopeFieldName);
+    if (scopeFieldName) {
+      if (!opts.recipient) throw new ForbiddenException('recipient required');
+      const recipient = await this.portalRecipients.resolveByToken(opts.recipient);
+      // Defense in depth: a recipient token is only ever minted for one
+      // workspace. This view's database is denormalized to its own
+      // workspaceId, so a token from a DIFFERENT workspace is rejected here
+      // even though `resolveByToken` alone can't know which view it's for.
+      if (recipient.workspaceId !== database.workspaceId) throw new ForbiddenException('invalid recipient');
+
+      const scopeField = defs.find((f) => f.api_name === scopeFieldName);
+      if (!scopeField) {
+        // The view's own scope rule names a field that no longer exists
+        // (deleted after the rule was set). Fail closed, not open.
+        scopeCondition = IMPOSSIBLE_CONDITION;
+      } else if (scopeField.type === 'relation') {
+        scopeCondition = recipient.linkedRecordId
+          ? { field: scopeFieldName, op: 'has', value: [recipient.linkedRecordId] }
+          : IMPOSSIBLE_CONDITION;
+      } else {
+        scopeCondition = recipient.email ? { field: scopeFieldName, op: 'eq', value: recipient.email } : IMPOSSIBLE_CONDITION;
+      }
+    }
+
     const hiddenIds = new Set(config.hidden_field_ids ?? []);
     const defaultVisible = defs.filter((f) => !hiddenIds.has(f.id)).map((f) => f.api_name);
     const explicitAllowlist = share.visible_field_api_names;
     const requestedNames = new Set(explicitAllowlist ?? defaultVisible);
 
-    const relationApiNames = new Set(share.include_relation_api_names ?? []);
+    // #535, the #469-regression AC: a relation column pointing at out-of-scope
+    // rows must expose NO title/id/preview, and the same holds for a
+    // lookup/rollup computed over them — a rollup must never become an oracle
+    // over another recipient's data. Reconciling per-relation scoping with the
+    // row filter is exactly the "right filter, leaking traversal" shape #469
+    // was, and #495 was closed Will Not Do trying to patch it client-side. The
+    // conservative, provably-correct answer: while a recipient-scope rule is
+    // active, NO relation/lookup/rollup/formula field is exposed at all,
+    // regardless of `include_relation_api_names` or an explicit
+    // `visible_field_api_names` allowlist naming one.
+    const relationApiNames = recipientScopeActive ? new Set<string>() : new Set(share.include_relation_api_names ?? []);
     const exposedApiNames = new Set(
       defs
         .filter((f) => {
           if (!requestedNames.has(f.api_name)) return false;
-          if (f.type === 'relation') return false; // handled separately, below
+          if (f.type === 'relation') return false; // handled separately, above
+          if (recipientScopeActive && COMPUTED_TYPES.has(f.type)) return false;
           // A computed field is exposed ONLY when an explicit allowlist named
           // it — never by the "non-hidden fields" default, since it can read
           // data the visitor was never shown.
@@ -92,10 +152,16 @@ export class PublicViewsService {
         .map((f) => f.api_name),
     );
 
+    const filter: FilterNode | undefined = scopeCondition
+      ? config.filters
+        ? { and: [config.filters, scopeCondition] }
+        : scopeCondition
+      : config.filters;
+
     const result = await this.records.query(
       database.id,
       {
-        filter: config.filters,
+        filter,
         sorts: config.sorts ?? [],
         nulls: config.sorts_nulls,
         limit: 50,

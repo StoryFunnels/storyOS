@@ -563,7 +563,12 @@ export class ViewsService {
   async share(
     databaseId: string,
     viewId: string,
-    input: { visible_field_api_names?: string[]; include_relation_api_names?: string[]; indexable?: boolean },
+    input: {
+      visible_field_api_names?: string[];
+      include_relation_api_names?: string[];
+      indexable?: boolean;
+      recipient_scope_field_api_name?: string;
+    },
   ): Promise<{ token: string }> {
     const view = await this.db.query.views.findFirst({
       where: and(eq(views.id, viewId), eq(views.databaseId, databaseId), isNull(views.deletedAt)),
@@ -593,6 +598,21 @@ export class ViewsService {
         throw new UnprocessableEntityException(`"${name}" is not a relation field on this database`);
       }
     }
+    // #535 — the recipient-scope rule only makes sense against a relation (to
+    // e.g. a Clients database) or a text-ish field a recipient's email can
+    // match; anything else (a checkbox, a number, a computed field) has no
+    // sensible "does this recipient's identity equal this field" comparison.
+    if (input.recipient_scope_field_api_name) {
+      const scopeField = live.find((f) => f.apiName === input.recipient_scope_field_api_name);
+      if (!scopeField) {
+        throw new UnprocessableEntityException(`unknown field "${input.recipient_scope_field_api_name}" in recipient_scope_field_api_name`);
+      }
+      if (!['relation', 'text', 'email', 'title'].includes(scopeField.type)) {
+        throw new UnprocessableEntityException(
+          `"${input.recipient_scope_field_api_name}" (${scopeField.type}) cannot be a recipient-scope field — must be relation, text, email, or title`,
+        );
+      }
+    }
 
     const currentConfig = (view.config ?? {}) as ViewConfig;
     const token = currentConfig.share?.public_token ?? randomBytes(24).toString('base64url');
@@ -601,6 +621,7 @@ export class ViewsService {
       visible_field_api_names: input.visible_field_api_names,
       include_relation_api_names: input.include_relation_api_names ?? [],
       indexable: input.indexable ?? false,
+      recipient_scope_field_api_name: input.recipient_scope_field_api_name,
     };
     await this.db.update(views).set({ config: { ...currentConfig, share } }).where(eq(views.id, viewId));
     return { token };
