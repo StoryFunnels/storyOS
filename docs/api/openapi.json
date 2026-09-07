@@ -15,6 +15,20 @@
         ]
       }
     },
+    "/api/v1/build-info": {
+      "get": {
+        "operationId": "AppController_buildInfo",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "App"
+        ]
+      }
+    },
     "/healthz": {
       "get": {
         "operationId": "HealthController_check",
