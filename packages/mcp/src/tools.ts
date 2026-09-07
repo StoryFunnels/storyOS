@@ -655,6 +655,8 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   list_portal_recipients: 'admin',
   create_portal_recipient: 'admin',
   revoke_portal_recipient: 'admin',
+  // #537 — same tier as list_audit_log: a workspace-wide activity read, admin-only.
+  list_portal_activity: 'admin',
   get_my_work: 'read',
   set_favorite: 'write',
   list_notifications: 'read',
@@ -7048,6 +7050,30 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         } as never),
       );
       return text({ revoked: res });
+    }),
+  );
+
+  reg(
+    'list_portal_activity',
+    {
+      title: 'Portal recipient activity log',
+      description:
+        '#537 — "what each client actually saw and did": every recipient-scoped portal access, filterable by recipient and/or published view. served = they got content (even if a fail-closed scope left it empty — this answers "did they look", not "did they see rows"); rejected = turned away, with a reason. A revoked recipient\'s history survives. No IP address or user-agent is ever recorded, by design. A garbage or expired token has no resolvable recipient to attribute an attempt to, so it is never logged here. Read-only.',
+      inputSchema: {
+        workspace: z.string(),
+        recipient: z.string().optional().describe('Narrow to one recipient id (from list_portal_recipients).'),
+        view: z.string().optional().describe('Narrow to one published view id.'),
+      },
+    },
+    handle<{ workspace: string; recipient?: string; view?: string }>(async ({ workspace, recipient, view }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const query: Record<string, string> = {};
+      if (recipient) query.recipient = recipient;
+      if (view) query.view = view;
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/portal-activity', { params: { path: { ws: ws.id }, query } } as never),
+      );
+      return text(res);
     }),
   );
 }
