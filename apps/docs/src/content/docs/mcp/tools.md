@@ -71,6 +71,12 @@ personal view is only reachable from here today.
   clickable web-app link for that record, e.g. `https://app.storyos.dev/w/{workspace_id}/d/{database_id}/r/{title-slug}-{number}`
   (falls back to the record's uuid when it has no public number yet). Use `get_links` for a
   database or view link, or to resolve a batch of record links in one call.
+- **A `workflow` field (the canonical status column on almost every database) filters exactly like
+  `select`** over MCP — `describe_database` returns its own `ops` array so you don't have to guess,
+  and `query_records` / `count_records` accept either an option's label or its id, translating
+  `eq`/`neq` to `has`/`has_none` for you. See the [operator × type
+  matrix](/api/conventions/#operator--type-matrix) for the raw API's own shape, which wants the
+  option **id** only — the label resolution above is an MCP-side convenience.
 
 For the concepts these tools operate on, see [databases & fields](/concepts/databases-and-fields/),
 [relations](/concepts/relations/), and [views](/concepts/views/).

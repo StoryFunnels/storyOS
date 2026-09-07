@@ -60,17 +60,23 @@ Limits: nesting depth ≤ 3, ≤ 50 conditions, `limit` ≤ 200, `expand` one le
 
 ## Operator × type matrix
 
-| Op | text/url/email | number | date | checkbox | select | multi_select | user | relation |
-|---|---|---|---|---|---|---|---|---|
-| `eq` / `neq` | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ | — |
-| `contains` | ✅ | — | — | — | — | — | — | — |
-| `gt` `gte` `lt` `lte` | — | ✅ | — | — | — | — | — | — |
-| `before` / `after` / `within` | — | — | ✅ | — | — | — | — | — |
-| `has` / `has_none` | — | — | — | — | ✅ | ✅ | ✅ | ✅ (record ids) |
-| `is_empty` / `not_empty` | ✅ | ✅ | ✅ | — | ✅ | ✅ | ✅ | ✅ |
+| Op | text/url/email | number | date | checkbox | select | workflow | multi_select | user | relation |
+|---|---|---|---|---|---|---|---|---|---|
+| `eq` / `neq` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ | — |
+| `contains` | ✅ | — | — | — | — | — | — | — | — |
+| `gt` `gte` `lt` `lte` | — | ✅ | — | — | — | — | — | — | — |
+| `before` / `after` / `within` | — | — | ✅ | — | — | — | — | — | — |
+| `has` / `has_none` | — | — | — | — | ✅ | ✅ | ✅ | ✅ | ✅ (record ids) |
+| `is_empty` / `not_empty` | ✅ | ✅ | ✅ | — | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 `within` accepts relative ranges (`today`, `next_7_days`, `this_month`, …). User filters accept the
 literal `"me"`, resolved server-side. An invalid op-for-type returns `422`.
+
+**A `workflow` field filters exactly like `select`** — same ops, same option-**id** values (not
+labels; the MCP tools resolve a label to its id for you, the raw API always wants the id). It's
+easy to miss precisely because it's identical to `select` rather than its own thing — see the
+[MCP tools](/mcp/tools/) page for how `describe_database` and `query_records`/`count_records`
+make this discoverable and filterable by label over MCP.
 
 ## Pagination
 
