@@ -10,6 +10,9 @@ const EVENTS: { key: keyof UserPreferences['notifications']; label: string; desc
   { key: 'mentioned', label: 'Mentions', description: 'Someone @mentions you in a comment.' },
   { key: 'commented', label: 'Comments', description: 'A new comment on a record you follow.' },
   { key: 'state_changed', label: 'Status changes', description: 'A status/priority change on a record you’re assigned to.' },
+  // #591 — the API already enforced this opt-out (watcher-email.service.ts);
+  // this row was simply never added when the toggle shipped.
+  { key: 'record_changed', label: 'Record changes', description: 'Any change to a record you watch — not just status.' },
 ];
 
 export default function NotificationsPage() {
