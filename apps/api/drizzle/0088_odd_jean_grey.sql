@@ -1,0 +1,2 @@
+ALTER TABLE "portal_recipients" ADD COLUMN "linked_record_id" uuid;--> statement-breakpoint
+ALTER TABLE "portal_recipients" ADD CONSTRAINT "portal_recipients_linked_record_id_records_id_fk" FOREIGN KEY ("linked_record_id") REFERENCES "public"."records"("id") ON DELETE set null ON UPDATE no action;

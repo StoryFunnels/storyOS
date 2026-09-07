@@ -4253,6 +4253,8 @@ export interface components {
             label: string;
             /** Format: email */
             email?: string;
+            /** Format: uuid */
+            linked_record_id?: string;
         };
         CreateViewDto__schema0: {
             field: string;
@@ -4410,6 +4412,7 @@ export interface components {
                     include_relation_api_names: string[];
                     /** @default false */
                     indexable: boolean;
+                    recipient_scope_field_api_name?: string;
                 };
                 column_widths?: {
                     [key: string]: number;
@@ -4574,6 +4577,7 @@ export interface components {
                     include_relation_api_names: string[];
                     /** @default false */
                     indexable: boolean;
+                    recipient_scope_field_api_name?: string;
                 };
                 column_widths?: {
                     [key: string]: number;
@@ -4734,6 +4738,7 @@ export interface components {
                     include_relation_api_names: string[];
                     /** @default false */
                     indexable: boolean;
+                    recipient_scope_field_api_name?: string;
                 };
                 column_widths?: {
                     [key: string]: number;
@@ -4747,6 +4752,7 @@ export interface components {
             visible_field_api_names?: string[];
             include_relation_api_names?: string[];
             indexable?: boolean;
+            recipient_scope_field_api_name?: string;
         };
         SetPersonalFilterDto__schema0: {
             field: string;
@@ -7936,6 +7942,7 @@ export interface operations {
         parameters: {
             query: {
                 cursor: string;
+                recipient: string;
             };
             header?: never;
             path: {

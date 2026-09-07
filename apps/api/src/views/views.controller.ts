@@ -22,6 +22,9 @@ const shareViewSchema = z.object({
   visible_field_api_names: z.array(z.string()).optional(),
   include_relation_api_names: z.array(z.string()).optional(),
   indexable: z.boolean().optional(),
+  // #535 — naming this turns the share into a recipient-scoped portal; see
+  // ViewsService.share and PublicViewsService for the enforcement.
+  recipient_scope_field_api_name: z.string().optional(),
 });
 class ShareViewDto extends createZodDto(shareViewSchema) {}
 

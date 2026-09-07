@@ -2278,6 +2278,15 @@ export const portalRecipients = pgTable(
     label: text('label').notNull(),
     email: text('email'),
     /**
+     * #535 — which entity in the workspace this recipient IS, for a
+     * relation-typed recipient-scope rule (e.g. a portal recipient who IS a
+     * row in a Clients database). `set null` rather than cascade: the
+     * recipient (and its token/audit trail) survives the linked record being
+     * deleted — it just stops resolving any scope rule until re-linked, which
+     * is the fail-closed direction (see public-views.service.ts).
+     */
+    linkedRecordId: uuid('linked_record_id').references(() => records.id, { onDelete: 'set null' }),
+    /**
      * Opaque and unguessable by construction — `randomBytes(24)`, the same
      * primitive `views.service.ts`'s public-view share token uses (#264/#527).
      * Never derived from `label`, `id` or `createdAt`: deriving it from any of

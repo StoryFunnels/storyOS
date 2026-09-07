@@ -315,6 +315,19 @@ export const viewConfigSchema = z.object({
       visible_field_api_names: z.array(z.string()).optional(),
       include_relation_api_names: z.array(z.string()).default([]),
       indexable: z.boolean().default(false),
+      /**
+       * #535 — the field a resolving portal recipient's rows must match. A
+       * relation field compares against the recipient's `linked_record_id`; a
+       * text/email field compares against the recipient's `email`. Presence of
+       * this key is what turns a public view into a recipient-scoped portal —
+       * every request then REQUIRES a valid `?recipient=` token (fail closed:
+       * see public-views.service.ts), and every relation/lookup/rollup/formula
+       * field is suppressed outright regardless of `include_relation_api_names`
+       * or `visible_field_api_names` (the #469-regression rule: a rollup or a
+       * relation traversal must never become an oracle over out-of-scope rows,
+       * so none of them is exposed at all rather than trying to scope each one).
+       */
+      recipient_scope_field_api_name: z.string().optional(),
     })
     .optional(),
   /**

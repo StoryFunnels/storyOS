@@ -17,7 +17,7 @@ export class PublicViewsController {
   @Get(':token')
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
   @ApiOperation({ summary: 'Public view definition + one page of records (link/public access only)' })
-  get(@Param('token') token: string, @Query('cursor') cursor?: string) {
-    return this.publicViews.getPublicView(token, { cursor });
+  get(@Param('token') token: string, @Query('cursor') cursor?: string, @Query('recipient') recipient?: string) {
+    return this.publicViews.getPublicView(token, { cursor, recipient });
   }
 }

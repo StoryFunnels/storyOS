@@ -3746,6 +3746,14 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "recipient",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -10524,6 +10532,11 @@
             "type": "string",
             "format": "email",
             "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+          },
+          "linked_record_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           }
         },
         "required": [
@@ -11083,6 +11096,9 @@
                   "indexable": {
                     "default": false,
                     "type": "boolean"
+                  },
+                  "recipient_scope_field_api_name": {
+                    "type": "string"
                   }
                 }
               },
@@ -11659,6 +11675,9 @@
                   "indexable": {
                     "default": false,
                     "type": "boolean"
+                  },
+                  "recipient_scope_field_api_name": {
+                    "type": "string"
                   }
                 }
               },
@@ -12215,6 +12234,9 @@
                   "indexable": {
                     "default": false,
                     "type": "boolean"
+                  },
+                  "recipient_scope_field_api_name": {
+                    "type": "string"
                   }
                 }
               },
@@ -12256,6 +12278,9 @@
           },
           "indexable": {
             "type": "boolean"
+          },
+          "recipient_scope_field_api_name": {
+            "type": "string"
           }
         }
       },
