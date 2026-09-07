@@ -12,7 +12,9 @@ and showing you exactly what will happen before it happens.
 
 - **One record** — its `⋯` menu → **Copy to…**.
 - **Several at once** — select their rows in a table, then the selection bar's `⋯` menu →
-  **Copy to…**.
+  **Copy to…**. The mapping is computed **once for the whole selection**, not once per record: a
+  field blocks if *any* selected record has a value in it, so you resolve a schema mismatch a
+  single time rather than once per row.
 
 Pick a destination database (grouped by space) and StoryOS runs a **dry run** immediately.
 
@@ -52,6 +54,19 @@ any warnings) and a button to jump straight to the new record (one) or the desti
 **The destination list isn't filtered to databases you can write to.** Picking one you only have
 read access to fails at the dry-run step with an error, rather than being hidden from the picker
 up front.
+
+## What a bulk copy does — and doesn't — guarantee
+
+With several records selected, the copy is genuinely atomic in one direction only: **if anything
+in the batch fails partway through, everything already created for this copy is rolled back**, so
+you never end up with, say, 30 of 50 records landed and no way to tell which. There's no partial
+state to clean up by hand.
+
+What that means in practice: a failed bulk copy is a clean do-over, not a resume. There's no
+"retry only what didn't make it" — if the batch failed, you run the whole selection again from
+scratch once you've fixed whatever caused the failure. For a very large selection, there's also no
+progress indicator while it runs and no record-count cap enforced before you start mapping — the
+copy just runs to completion or rolls back.
 
 ## Duplicating within the same database
 
