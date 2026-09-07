@@ -73,6 +73,22 @@ The template can reference the record's own fields, and — through a lookup —
 fields too, so a title can read "Acme — Website Refresh" pulling the client's name across a
 relation. It recomputes automatically as the fields it depends on change.
 
+## Default values
+
+A few field types can pre-fill a new record instead of starting empty, each in the shape that
+actually stays true over time:
+
+- **Checkbox** — "Checked by default on new records." Two states, so a literal default is the
+  whole story.
+- **Date** — "Default new records to today" is a flag, not a stored date. A literal default date
+  would be correct for about a day and silently wrong after that; resolving "today" at the moment
+  of insert is the only default that stays accurate.
+- **Select / Workflow** — a **Default option** picker in the field's Edit dialog, with an explicit
+  **None** to clear a default rather than merely leaving it blank. This one is **edit-time only** —
+  a field you're still in the middle of creating has no default-option control yet, because its
+  options are still local drafts without ids to point a default at. Configure the options first,
+  save the field, then set the default from Edit.
+
 ## Field lifecycle
 
 - **Rename** — the `display_name` changes freely; the `api_name` is a stable slug (auto-generated,
