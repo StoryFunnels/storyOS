@@ -69,11 +69,8 @@ token, for something like posting "Status: To Do → In Progress" into a Slack m
 moves.
 
 This respects the same **notification preferences** as everything else on this page — turning off
-"record changed" for yourself stops the emails. That preference defaults to **on**, and the API
-enforces it correctly, but **Settings → Notifications has no toggle for it** — only the other four
-event types (assigned, mentioned, commented, state changed) have a row there today. Until that's
-added, turning it off means a direct API call (`PATCH` your notification preferences), not a
-Settings click.
+**Record changes** in **Settings → Notifications** stops the emails, the same as the other four
+event types (assigned, mentions, comments, status changes) on that page. It defaults **on**.
 
 ## Over the API and MCP
 
