@@ -53,6 +53,13 @@ set up and relate by hand. Once connected, product and collection changes in Sho
 by **webhook** in real time, on top of the regular schedule — you don't wait for the next sync
 tick to see a price change.
 
+**Shopify products is also the one provider with write-back today** — an `out`/`both`-mapped field
+edit in StoryOS pushes back out to Shopify. Scope is deliberately narrow: only product-level
+scalars — title, status, vendor, product type, tags — push back out. **Variant fields (SKU, price,
+inventory) don't push yet**; they're a separate Shopify resource and a deliberate follow-up, not an
+oversight. A rejected write lands as an errored source run naming Shopify's own error, and never
+rolls back your StoryOS-side edit — a retry re-pushes it.
+
 **Social engagement** (Meta Page comments, X mentions, LinkedIn organization engagement) pulls
 comments and mentions from those platforms into a database on the same schedule as any other
 source. **This is ingest only** — it brings activity in; it does not post, reply, or otherwise
