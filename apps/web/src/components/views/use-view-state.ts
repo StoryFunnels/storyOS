@@ -283,10 +283,27 @@ export function useViewMutations(ws: string, db: string) {
      * already reads it only when the group field is a date.
      */
     regroupView: useMutation({
-      mutationFn: async ({ id, config, groupByFieldId }: { id: string; config: ViewConfig; groupByFieldId: string }) => {
+      mutationFn: async ({
+        id,
+        config,
+        groupByFieldId,
+        isDateField,
+      }: {
+        id: string;
+        config: ViewConfig;
+        groupByFieldId: string;
+        /** #515 AC5 — a stale granularity from an earlier date-grouped stint
+         *  must NOT survive a regroup away from dates: reproduced live
+         *  (Vera) resurfacing on a later regroup back to a different date
+         *  field. Cleared here, not merely left unread, whenever the new
+         *  group field isn't a date. */
+        isDateField: boolean;
+      }) => {
+        const nextConfig: ViewConfig = { ...config, group_by_field_id: groupByFieldId };
+        if (!isDateField) delete nextConfig.group_by_granularity;
         const { error } = await api.PATCH('/api/v1/workspaces/{ws}/databases/{db}/views/{view}', {
           params: { path: { ws, db, view: id } },
-          body: { config: { ...config, group_by_field_id: groupByFieldId } as never },
+          body: { config: nextConfig as never },
         });
         if (error) throw error;
       },

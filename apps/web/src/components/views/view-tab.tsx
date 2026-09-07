@@ -254,8 +254,9 @@ export function ViewTab({
                     type="button"
                     disabled={view.type === 'board' && !groupDraft}
                     onClick={() => {
+                      const isDateField = fields.find((f) => f.id === groupDraft)?.type === 'date';
                       mutations.regroupView.mutate(
-                        { id: view.id, config: view.config, groupByFieldId: groupDraft },
+                        { id: view.id, config: view.config, groupByFieldId: groupDraft, isDateField },
                         { onSuccess: () => setRegrouping(false) },
                       );
                     }}
