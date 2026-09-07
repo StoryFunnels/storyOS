@@ -4859,6 +4859,9 @@ export interface components {
             record_ids: string[];
             target_database_id: string;
             skip?: string[];
+            override?: {
+                [key: string]: string;
+            };
             /** @default true */
             dry_run: boolean;
         };

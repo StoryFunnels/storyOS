@@ -1827,31 +1827,43 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Copy records to another database',
       description:
-        '#521 — copy one or more records into a DIFFERENT database (unlike duplicate_record, which copies within the same one). Fields are auto-matched by name; a field that carries a value and has no match in the destination BLOCKS the copy rather than silently dropping it — call with dry_run:true (the default) first to see the field mapping and any blocking fields, resolve them with `skip`, then call again with dry_run:false to actually create the records.',
+        '#521 — copy one or more records into a DIFFERENT database (unlike duplicate_record, which copies within the same one). Fields are auto-matched by name; a field that carries a value and has no match in the destination BLOCKS the copy rather than silently dropping it — call with dry_run:true (the default) first to see the field mapping and any blocking fields, resolve each with `skip` (drop it) or `override` (send it to a SPECIFIC destination field instead of the auto-match, or resolve an ambiguous relation by naming which candidate from that field\'s own `ambiguousWith` to use), then call again with dry_run:false to actually create the records. An override naming an invalid or wrong-type destination reports blocking too, not a silent fallback.',
       inputSchema: {
         workspace: z.string(),
         database: z.string().describe('Source database.'),
         records: z.array(z.string()).min(1).describe('Record uuids or public numbers to copy.'),
         target_database: z.string().describe('Destination database.'),
         skip: z.array(z.string()).optional().describe('Source field api_names to skip explicitly — resolves a blocking field.'),
+        override: z
+          .record(z.string(), z.string())
+          .optional()
+          .describe(
+            'Source field api_name -> destination field id (from a dry_run plan\'s own field ids, or an ambiguousWith candidate\'s field_id). Wins over auto-match and resolves an ambiguous relation by naming the exact one to use.',
+          ),
         dry_run: z.boolean().optional().describe('Default true: preview the mapping and any blocking fields without writing anything.'),
       },
     },
-    handle<{ workspace: string; database: string; records: string[]; target_database: string; skip?: string[]; dry_run?: boolean }>(
-      async ({ workspace, database, records, target_database, skip, dry_run }) => {
-        const ws = await resolveWorkspace(client, workspace);
-        const db = await resolveDatabase(client, ws.id, database);
-        const targetDb = await resolveDatabase(client, ws.id, target_database);
-        const recordIds = await Promise.all(records.map((r) => resolveRecordId(ws.id, db.id, r)));
-        const result = await unwrap<unknown>(
-          client.POST('/api/v1/workspaces/{ws}/databases/{db}/records/copy', {
-            params: { path: { ws: ws.id, db: db.id } },
-            body: { record_ids: recordIds, target_database_id: targetDb.id, skip, dry_run: dry_run ?? true } as never,
-          }),
-        );
-        return text(result);
-      },
-    ),
+    handle<{
+      workspace: string;
+      database: string;
+      records: string[];
+      target_database: string;
+      skip?: string[];
+      override?: Record<string, string>;
+      dry_run?: boolean;
+    }>(async ({ workspace, database, records, target_database, skip, override, dry_run }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const targetDb = await resolveDatabase(client, ws.id, target_database);
+      const recordIds = await Promise.all(records.map((r) => resolveRecordId(ws.id, db.id, r)));
+      const result = await unwrap<unknown>(
+        client.POST('/api/v1/workspaces/{ws}/databases/{db}/records/copy', {
+          params: { path: { ws: ws.id, db: db.id } },
+          body: { record_ids: recordIds, target_database_id: targetDb.id, skip, override, dry_run: dry_run ?? true } as never,
+        }),
+      );
+      return text(result);
+    }),
   );
 
   reg(
