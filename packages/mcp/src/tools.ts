@@ -6131,6 +6131,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         'field_mapping maps the provider\'s external keys to fields in THIS database. A value is either a field name/id ("Comment text" or a uuid, meaning pull-only — the common case) or { field, direction } where direction is "in" (pull, default), "out" (push-only — never overwritten by a sync) or "both". Keys you leave out are simply not stored. ' +
         'external_key_field is the field holding the provider\'s stable id; it MUST be one of field_mapping\'s targets (any direction), and it is what makes the next sync update a record rather than duplicate it. ' +
         'config.conflict_policy controls what wins when both sides changed: "external_wins" (default — a pull overwrites a local edit), "storyos_wins", or "newest_wins" (only for a provider whose config_schema entry lists supports_newest_wins). ' +
+        'An "out"/"both" field_mapping entry alone does not push anything — config.write_back must ALSO be true, or every edit is silently ignored (no push, no error). With write_back true, config.require_approval_for_push (default false) holds each push as an approval in the Inbox instead of sending it immediately; approve or reject it there, or via the approvals endpoints. ' +
         'Defaults to a daily sync when neither schedule nor recurrence is given. The source is created active — call sync_source to run it immediately instead of waiting for the schedule.',
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
@@ -6233,7 +6234,9 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         config: z
           .record(z.string(), z.any())
           .optional()
-          .describe('Replacement provider config. May include conflict_policy: "external_wins" (default) | "storyos_wins" | "newest_wins".'),
+          .describe(
+            'Replacement provider config (replaces the whole object — read the current one from list_sources first if you\'re only changing one key). May include conflict_policy: "external_wins" (default) | "storyos_wins" | "newest_wins", write_back (required true before any "out"/"both" field_mapping entry actually pushes — see create_source\'s description), and require_approval_for_push (default false — holds each push as an Inbox approval instead of sending it immediately).',
+          ),
         field_mapping: z
           .record(
             z.string(),
