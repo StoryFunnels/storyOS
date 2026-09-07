@@ -58,7 +58,9 @@ Click a space's name in the sidebar (the caret still just collapses it) and it o
   naming the other space. **Anything that would otherwise land on the same spot fans out instead**
   — self-relation loops, two relations between the same pair of databases, and two cross-space
   satellites anchored to the same local node all spread apart rather than overlapping into
-  illegible stacked text.
+  illegible stacked text. **The spacing scales with the labels' own length**, not a fixed step — two
+  relations with long field names get pushed further apart than two with short ones, so the *text*
+  clears, not just the point it's anchored to.
 
   ![An ontology diagram showing four databases with self-relations fanned out](/images/space-ontology-diagram.png)
 - **Contents** — a plain list, for when the sidebar is collapsed and you need the same information
