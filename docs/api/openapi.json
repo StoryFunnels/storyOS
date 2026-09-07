@@ -12775,6 +12775,12 @@
               "type": "string"
             }
           },
+          "override": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
           "dry_run": {
             "default": true,
             "type": "boolean"

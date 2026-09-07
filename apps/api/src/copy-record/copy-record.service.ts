@@ -23,6 +23,17 @@ export interface CopyRecordInput {
   targetDatabaseId: string;
   /** Source field api_names the caller explicitly skips (resolves a blocking field). */
   skip?: string[];
+  /**
+   * #605 — source field api_name -> destination field id, honored INSTEAD of
+   * the auto-matched destination (or instead of skipping) for fields the
+   * client explicitly remaps. Also how an ambiguous relation (see a plan's
+   * own `ambiguousWith`) is resolved by naming which candidate to use,
+   * rather than only by skipping it. An override naming an invalid/wrong-type
+   * destination is refused (the field reports `blocking`, same "refuse,
+   * don't drop" posture as every other path through `planField`), never
+   * silently ignored.
+   */
+  override?: Record<string, string>;
   dryRun: boolean;
 }
 
@@ -144,6 +155,7 @@ export class CopyRecordService {
         hasValue: hasValueByKey.get(field.key) ?? false,
         skipped: skip.has(field.key),
         sourceTargetDatabaseId,
+        override: input.override?.[field.key],
       });
     });
 

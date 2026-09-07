@@ -12,6 +12,10 @@ const copyRecordSchema = z.object({
   target_database_id: z.string(),
   /** Source field api_names the caller explicitly skips — resolves a blocking field. */
   skip: z.array(z.string()).optional(),
+  /** #605 — source field api_name -> destination field id, honored instead of
+   *  the auto-matched destination (or a skip); also how an ambiguous relation
+   *  is resolved by naming which candidate to use. */
+  override: z.record(z.string(), z.string()).optional(),
   /** Default true: see the mapping + any blocking fields before committing anything. */
   dry_run: z.boolean().optional().default(true),
 });
@@ -38,6 +42,7 @@ export class CopyRecordController {
         recordIds: body.record_ids,
         targetDatabaseId: body.target_database_id,
         skip: body.skip,
+        override: body.override,
         dryRun: body.dry_run,
       },
       req.user.id,
