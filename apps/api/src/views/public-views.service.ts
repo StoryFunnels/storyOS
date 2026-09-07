@@ -1,10 +1,10 @@
 import { ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import type { FilterNode, ViewConfig } from '@storyos/schemas';
 import { BillingService } from '../billing/billing.service';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { databases, views } from '../db/schema';
+import { databases, fields, selectOptions, views } from '../db/schema';
 import { notDeleted } from '../db/soft-delete';
 import { PortalActivityService } from '../portal/portal-activity.service';
 import { PortalRecipientsService } from '../portal/portal-recipients.service';
@@ -91,6 +91,31 @@ export class PublicViewsService {
     const config = (view.config ?? {}) as ViewConfig;
 
     const defs = await this.records.fieldDefs(database.id);
+
+    // #557 — field label + select-option label/color, the same shape
+    // forms.service.ts already assembles for the public FORM page (#303).
+    // These are workspace SCHEMA, not personal data — no privacy reason to
+    // withhold them, and neither addition changes WHICH fields are exposed
+    // (still gated by exposedApiNames/relationApiNames below).
+    const fieldRows = await this.db.query.fields.findMany({
+      where: eq(fields.databaseId, database.id),
+    });
+    const displayNameByApiName = new Map(fieldRows.map((f) => [f.apiName, f.displayName]));
+    const selectFieldIds = fieldRows
+      .filter((f) => f.type === 'select' || f.type === 'multi_select' || f.type === 'workflow')
+      .map((f) => f.id);
+    const optionRows = selectFieldIds.length
+      ? await this.db.query.selectOptions.findMany({
+          where: inArray(selectOptions.fieldId, selectFieldIds),
+          orderBy: [asc(selectOptions.position)],
+        })
+      : [];
+    const optionsByFieldId = new Map<string, Array<{ id: string; label: string; color: string }>>();
+    for (const o of optionRows) {
+      const list = optionsByFieldId.get(o.fieldId) ?? [];
+      list.push({ id: o.id, label: o.label, color: o.color });
+      optionsByFieldId.set(o.fieldId, list);
+    }
 
     // #535 — a recipient-scope rule turns this from an open share link into a
     // portal: every request MUST resolve to a specific recipient, and that
@@ -228,7 +253,12 @@ export class PublicViewsService {
       database: { name: database.name },
       fields: defs
         .filter((f) => exposedApiNames.has(f.api_name) || relationApiNames.has(f.api_name))
-        .map((f) => ({ api_name: f.api_name, type: f.type })),
+        .map((f) => ({
+          api_name: f.api_name,
+          type: f.type,
+          label: displayNameByApiName.get(f.api_name) ?? f.api_name,
+          ...(optionsByFieldId.has(f.id) ? { options: optionsByFieldId.get(f.id) } : {}),
+        })),
       indexable: share.indexable ?? false,
       hide_branding: hideBranding,
       records: { data: records, next_cursor: result.next_cursor, has_more: result.has_more },
