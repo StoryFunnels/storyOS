@@ -23,6 +23,16 @@ invite a client into exactly one space.
 - The **last admin** cannot demote or remove themselves.
 - Removed or deactivated users keep their historical authorship in comments and activity.
 
+### Restricting a specific member's access
+
+**Members are workspace-wide by design — there's no per-space member restriction, and none is
+planned in the near term.** If you don't want someone touching a particular space, the answer
+isn't a policy on their membership; it's a different kind of person entirely: invite them as a
+**guest** scoped to only the spaces they need, instead of adding them as a member. A guest at
+`contributor` can add and edit records without ever being able to delete anything — the rung
+exists specifically for "let them contribute, but don't let them destroy" — and, per the billing
+section below, `viewer`/`commenter` guests cost nothing either way.
+
 ## Guest scoping
 
 Guests are invited to one or more specific [spaces](/getting-started/concepts/):
@@ -67,9 +77,9 @@ tool underneath it, and they come in three scopes:
 | **Database** | One database |
 | **Record** | One record |
 
-Each grant carries a **role** — `viewer`, `commenter`, `contributor`, or `editor` — the same
-ladder at every scope, not a second set of names to learn. A grant is exactly one scope; there's
-no such thing as a grant that's both space- and database-scoped.
+Each grant carries a **role** — `viewer`, `commenter`, `contributor`, `editor`, or `creator` — the
+same ladder at every scope, not a second set of names to learn. A grant is exactly one scope;
+there's no such thing as a grant that's both space- and database-scoped.
 
 **Where more than one grant applies, the highest wins.** A record-scoped `editor` grant beats a
 database-scoped `viewer` grant on that same record, in either order you'd naturally check them.
@@ -79,10 +89,13 @@ extend to other records it links to. Restricting what a record grant alone lets 
 through search or a list is a separate, not-yet-built piece; this scope answers "can they open and
 edit this specific record", not "what shows up when they search."
 
-**No sharing UI exists yet, and no MCP tool creates or removes a grant** — granting and revoking
-access is deliberately a human decision made over the REST API directly, not something an agent
-does on its own. The MCP `list_grants` tool can still read existing grants, record scope included.
-Don't expect a "Share this record" button in the app; it isn't there.
+**Space- and database-scoped grants have a real UI: Manage Access.** Open it from a space's own
+page, or a database's `⋯` menu. It lists **Members** (workspace-wide, unconditional) separately
+from **Guests** — each guest's grant level is a dropdown, right there, editable without leaving the
+dialog. **Record-scoped grants have no UI yet** — creating or revoking one is still a direct REST
+API call. No MCP tool creates or removes a grant at any scope; that stays a human decision made
+directly against the API, not something an agent does on its own. The MCP `list_grants` tool can
+still read existing grants, record scope included.
 
 ## Personal access tokens
 
