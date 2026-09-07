@@ -175,11 +175,42 @@ function useInstalledPacks(ws: string) {
   });
 }
 
-/** Every `collision` across a preview, keyed by its label — what the resolver UI iterates. */
-function collisionLabels(preview: PreviewResult): string[] {
-  return [...preview.databases, ...preview.views, ...preview.automations, ...preview.agents]
-    .filter((i) => i.action === 'collision')
-    .map((i) => i.name);
+/**
+ * Every `collision` across a preview, keyed by its label — what the resolver
+ * UI iterates. #569 — `reuseOnly` marks a label whose collision includes a
+ * database: the API's own `applyResolutions` (packs.service.ts) accepts just
+ * `reuse` for a database collision — renaming would desynchronize the
+ * manifest's symbolic `$db` refs, a correctness risk, not a UI gap — so
+ * that's the only choice offered for it. Views, automations and agents
+ * accept the full reuse/rename/skip set (verified against that same
+ * server-side comment).
+ */
+interface CollisionEntry {
+  name: string;
+  reuseOnly: boolean;
+}
+function collisionEntries(preview: PreviewResult): CollisionEntry[] {
+  const kindsByName = new Map<string, Set<'databases' | 'other'>>();
+  const record = (items: PreviewItem[], kind: 'databases' | 'other') => {
+    for (const item of items) {
+      if (item.action !== 'collision') continue;
+      const kinds = kindsByName.get(item.name) ?? new Set<'databases' | 'other'>();
+      kinds.add(kind);
+      kindsByName.set(item.name, kinds);
+    }
+  };
+  record(preview.databases, 'databases');
+  record(preview.views, 'other');
+  record(preview.automations, 'other');
+  record(preview.agents, 'other');
+  return [...kindsByName.entries()].map(([name, kinds]) => ({
+    name,
+    // A name colliding as BOTH a database and something else shares one flat
+    // `resolutions[name]` answer server-side — restrict the whole row
+    // whenever a database collision is ANY part of it, rather than let it
+    // look reusable/renameable when the database half isn't.
+    reuseOnly: kinds.has('databases'),
+  }));
 }
 
 function ActionBadge({ action }: { action: PreviewItem['action'] }) {
@@ -213,47 +244,57 @@ function PreviewSection({ title, items }: { title: string; items: PreviewItem[] 
 }
 
 function CollisionResolver({
-  labels,
+  entries,
   resolutions,
   onChange,
 }: {
-  labels: string[];
+  entries: CollisionEntry[];
   resolutions: Record<string, Resolution>;
   onChange: (label: string, resolution: Resolution) => void;
 }) {
-  if (labels.length === 0) return null;
+  if (entries.length === 0) return null;
   return (
     <div className="rounded-[var(--radius-card)] border border-border-default bg-canvas p-3">
       <p className="mb-2 text-[12px] font-semibold text-ink">
-        {labels.length} name{labels.length > 1 ? 's' : ''} already exist in this workspace
+        {entries.length} name{entries.length > 1 ? 's' : ''} already exist in this workspace
       </p>
       <div className="flex flex-col gap-2">
-        {labels.map((label) => {
+        {entries.map(({ name: label, reuseOnly }) => {
           const resolution = resolutions[label] ?? { action: 'reuse' };
           return (
             <div key={label} className="flex flex-col gap-1.5 rounded-[var(--radius-control)] bg-card p-2">
               <p className="text-[13px] text-ink">{label}</p>
-              <div className="flex items-center gap-2">
-                <select
-                  className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[12px] text-ink"
-                  value={resolution.action}
-                  onChange={(e) =>
-                    onChange(label, { ...resolution, action: e.target.value as Resolution['action'] })
-                  }
-                >
-                  <option value="reuse">Reuse the existing one</option>
-                  <option value="rename">Install under a new name</option>
-                  <option value="skip">Skip it</option>
-                </select>
-                {resolution.action === 'rename' && (
-                  <Input
-                    className="h-8"
-                    placeholder="New name"
-                    value={resolution.rename_to ?? ''}
-                    onChange={(e) => onChange(label, { ...resolution, rename_to: e.target.value })}
-                  />
-                )}
-              </div>
+              {/* #569 — a database collision only ever accepts "reuse" server-side
+                  (renaming would desync the manifest's symbolic $db refs); no
+                  select is offered rather than one that 422s at submit. */}
+              {reuseOnly ? (
+                <p className="text-[12px] text-muted">
+                  Will reuse the existing database — rename/skip aren't supported for a database
+                  name collision yet.
+                </p>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <select
+                    className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[12px] text-ink"
+                    value={resolution.action}
+                    onChange={(e) =>
+                      onChange(label, { ...resolution, action: e.target.value as Resolution['action'] })
+                    }
+                  >
+                    <option value="reuse">Reuse the existing one</option>
+                    <option value="rename">Install under a new name</option>
+                    <option value="skip">Skip it</option>
+                  </select>
+                  {resolution.action === 'rename' && (
+                    <Input
+                      className="h-8"
+                      placeholder="New name"
+                      value={resolution.rename_to ?? ''}
+                      onChange={(e) => onChange(label, { ...resolution, rename_to: e.target.value })}
+                    />
+                  )}
+                </div>
+              )}
             </div>
           );
         })}
@@ -303,8 +344,10 @@ function InstallDialog({
 
   const install = useMutation({
     mutationFn: async () => {
-      const labels = collisionLabels(preview.data!);
-      const payload = Object.fromEntries(labels.map((l) => [l, resolutions[l] ?? { action: 'reuse' }]));
+      const entries = collisionEntries(preview.data!);
+      const payload = Object.fromEntries(
+        entries.map(({ name }) => [name, resolutions[name] ?? { action: 'reuse' }]),
+      );
       const { data, error } = await api.POST('/api/v1/workspaces/{ws}/packs/install' as never, {
         params: { path: { ws } },
         body: { manifest: entry.data!.manifest, resolutions: payload } as never,
@@ -322,7 +365,16 @@ function InstallDialog({
     onError: () => toast.error('Install failed — see the collisions below and try again'),
   });
 
-  const unresolved = preview.data ? collisionLabels(preview.data).filter((l) => !resolutions[l]) : [];
+  // #569 — a reuse-only row (any database collision) is never rendered a
+  // control, so it never gets an explicit `resolutions[name]`; it's already
+  // resolved by default (reuse) and must not block Install waiting for input
+  // that's never coming.
+  const unresolved = preview.data
+    ? collisionEntries(preview.data)
+        .filter((e) => !e.reuseOnly)
+        .map((e) => e.name)
+        .filter((name) => !resolutions[name])
+    : [];
   const firstDbId = result?.databases.find((d) => d.action !== 'skipped')?.id;
   const created = (r: InstallResult) =>
     [...r.databases, ...r.views, ...r.automations, ...r.agents, ...r.skills].filter(
@@ -417,7 +469,7 @@ function InstallDialog({
                   </div>
                 )}
                 <CollisionResolver
-                  labels={collisionLabels(preview.data)}
+                  entries={collisionEntries(preview.data)}
                   resolutions={resolutions}
                   onChange={(label, resolution) =>
                     setResolutions((prev) => ({ ...prev, [label]: resolution }))
