@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './helpers/app';
 import { authed, signUpUser } from './helpers/users';
+import { MembersProjectionSubscriber } from '../src/members/members-projection.subscriber';
 
 /**
  * #454 — a read model and access boundary over data that already exists
@@ -23,6 +24,7 @@ let dbId: string;
 let titleApiName: string;
 let adminId: string;
 let memberId: string;
+let membersSubscriber: MembersProjectionSubscriber;
 
 async function as(token: string, method: string, url: string, payload?: unknown) {
   return app.inject({ method: method as never, url: `/api/v1${url}`, headers: authed(token), payload: payload as never });
@@ -30,6 +32,7 @@ async function as(token: string, method: string, url: string, payload?: unknown)
 
 beforeAll(async () => {
   app = await createTestApp();
+  membersSubscriber = app.get(MembersProjectionSubscriber);
   admin = await signUpUser(app, 'AuditLogAdmin');
   member = await signUpUser(app, 'AuditLogMember');
   wsId = (await as(admin.token, 'POST', '/workspaces', { name: 'Audit Log WS' })).json().id;
@@ -37,6 +40,12 @@ beforeAll(async () => {
   const invite = await as(admin.token, 'POST', `/workspaces/${wsId}/invites`, { email: member.email, role: 'member' });
   const inviteToken = new URL(invite.json().accept_url).searchParams.get('token')!;
   await as(member.token, 'POST', '/invites/accept', { token: inviteToken });
+  // The audit log's actor_name resolves through MembersDbService.resolveMembersForUsers,
+  // which reads the Members projection — populated by MembersProjectionSubscriber off the
+  // membership-event bus, fire-and-forget (members-projection.subscriber.ts). Without this,
+  // resolution races the projection and actor_name reads back '(unknown)' (#454's PR #598
+  // CI failure — every other test file exercising this projection awaits `.settle()`).
+  await membersSubscriber.settle(wsId);
 
   adminId = (await as(admin.token, 'GET', '/me')).json().id;
   memberId = (await as(member.token, 'GET', '/me')).json().id;
