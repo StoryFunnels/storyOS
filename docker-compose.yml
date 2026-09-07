@@ -116,6 +116,10 @@ services:
         # enable it; leave it unset to disable analytics entirely.
         NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN: ${NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN:-}
         NEXT_PUBLIC_POSTHOG_HOST: ${NEXT_PUBLIC_POSTHOG_HOST:-https://us.i.posthog.com}
+        # #593 — same WEB_URL as the runtime environment: below, also passed as a
+        # build arg: metadataBase is read at BUILD time for statically prerendered
+        # pages (/, /login, /signup, …), which the runtime-only env never reaches.
+        WEB_URL: ${WEB_URL:-http://localhost:3000}
     image: storyos-web:latest
     restart: unless-stopped
     environment:
