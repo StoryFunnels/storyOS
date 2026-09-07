@@ -34,9 +34,14 @@ never fail because Slack is down.
 ## Seeing who mentioned this record: "Mentioned in"
 
 A record's panel shows a **Mentioned in** section — every *other* record whose comments or
-rich text `#`-mention this one, newest first, with the true total in the heading (*"Mentioned in
-(101)"*, not just however many have loaded).
+rich text `#`-mention this one, with the true total in the heading (*"Mentioned in (101)"*, not
+just however many have loaded).
 
+- **Grouped by source database**, each group headed by its own name and count — *"Sprint Tasks
+  (12)"*, *"Client Requests (4)"*. A group's count is only ever how many of the *loaded* rows are
+  in it, not a second source of truth; the heading's overall total is still the one true count from
+  the server. Groups appear in whatever order their database is first encountered, not
+  alphabetically or re-sorted.
 - **Loads past the first page.** Early on this silently capped at 100 with no signal a 101st
   existed; it now pages with a **Load more** button, and the heading's total comes from the
   server, not from counting what's rendered.
