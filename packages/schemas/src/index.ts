@@ -21,6 +21,15 @@ export const healthSchema = z.object({
   status: z.literal('ok'),
   name: z.literal('StoryOS'),
   version: z.string(),
+  /**
+   * #553 — the commit this RUNNING process was actually built from, baked
+   * into the image at build time (never read from a deploy-time env file
+   * that could lie about a failed rollout). Null outside a Docker build
+   * (local dev/test never sets GIT_SHA).
+   */
+  commit_sha: z.string().nullable(),
+  /** #553 — same reasoning, same source, as commit_sha. */
+  build_time: z.string().nullable(),
 });
 
 export type Health = z.infer<typeof healthSchema>;

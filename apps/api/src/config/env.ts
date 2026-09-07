@@ -106,6 +106,22 @@ export function resolveConnectionsMasterKey(
 export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   /**
+   * #553 — "what commit is this deployment serving," answerable in one
+   * unauthenticated request instead of diffing chunk hashes (Vera's own
+   * words: this cost two separate multi-hour investigations before this
+   * ticket existed). Deliberately baked into the IMAGE at build time
+   * (docker/api.Dockerfile's ARG, set from `github.sha` in
+   * build-images.yml) — never read from the host's `.env` at request time,
+   * because that file is what the DEPLOY SCRIPT writes and would keep
+   * claiming the new sha even if the container swap silently failed. A
+   * baked-in value can only ever say what this exact running process was
+   * actually built from. Unset (any non-Docker dev/test boot) reads as
+   * null, never a fabricated placeholder.
+   */
+  GIT_SHA: z.string().optional(),
+  /** #553 — same reasoning as GIT_SHA, baked alongside it. */
+  BUILD_TIME: z.string().optional(),
+  /**
    * #451 — request-log verbosity. Defaults to today's behaviour ('info', and
    * 'silent' under test), so nothing changes unless an operator asks. It exists
    * because a setup script that makes several hundred API calls buries its own
