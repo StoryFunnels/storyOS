@@ -2171,12 +2171,18 @@ export function SortButton({
   nulls,
   onChange,
   onNullsChange,
+  // #583 — a scheduled automation's top-N sort has no nulls-placement concept
+  // server-side (automationSortSchema is bare {field, direction}[], no whole-
+  // sort empty-values setting). Hiding the section is cheaper and more honest
+  // than rendering a toggle that would silently do nothing when clicked.
+  showNulls = true,
 }: {
   fields: Field[];
   sorts: SortSpec[];
   nulls?: NullsPlacement;
   onChange: (sorts: SortSpec[]) => void;
   onNullsChange: (nulls: NullsPlacement | undefined) => void;
+  showNulls?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const byApiName = new Map(fields.map((f) => [f.apiName, f]));
@@ -2281,13 +2287,15 @@ export function SortButton({
 
             {sorts.length > 0 && (
               <div className="border-t border-border-default p-2">
-                <div className="mb-1.5 flex items-center justify-between px-1">
-                  <span className="text-[11px] text-faint">Empty values</span>
-                  <EmptyPlacementToggle
-                    value={nulls ?? 'last'}
-                    onChange={(v) => onNullsChange(v === 'last' ? undefined : v)}
-                  />
-                </div>
+                {showNulls && (
+                  <div className="mb-1.5 flex items-center justify-between px-1">
+                    <span className="text-[11px] text-faint">Empty values</span>
+                    <EmptyPlacementToggle
+                      value={nulls ?? 'last'}
+                      onChange={(v) => onNullsChange(v === 'last' ? undefined : v)}
+                    />
+                  </div>
+                )}
                 {canAddMore && (
                   <button
                     type="button"

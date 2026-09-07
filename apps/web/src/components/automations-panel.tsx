@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { MousePointerClick, Play, Zap } from 'lucide-react';
 import { toast } from 'sonner';
+import { AUTOMATION_TOP_N_LIMIT_CEILING } from '@storyos/schemas';
 import { api, API_URL } from '@/lib/api';
 import { useDateFormat } from '@/lib/preferences';
 import { ButtonActionsEditor } from '@/components/table-view/button-actions-editor';
@@ -11,7 +12,8 @@ import type { ButtonAction } from '@/components/table-view/button-actions-editor
 import { useDatabase, useMembers } from '@/components/table-view/use-table-data';
 import { availableRecipes } from '@/components/automation-recipes';
 import type { Field } from '@/components/table-view/use-table-data';
-import { OPS_BY_TYPE } from '@/components/views/view-toolbar';
+import { OPS_BY_TYPE, SortButton } from '@/components/views/view-toolbar';
+import type { SortSpec } from '@/components/views/sort-config';
 import { Button } from '@/components/ui/button';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { DialogContent } from '@/components/ui/dialog';
@@ -27,6 +29,9 @@ interface Rule {
   condition: { field: string; op: string; value?: unknown } | null;
   actions: ButtonAction[];
   failureStreak: number;
+  /** #392/#583 — a schedule-only "top N" selection; null on every other trigger. */
+  sort?: SortSpec[] | null;
+  topNLimit?: number | null;
   /** MN-254: set only while trigger.type is "webhook_received". */
   hookToken?: string | null;
   hookSecret?: string | null;
@@ -49,7 +54,11 @@ function triggerSentence(rule: Rule, fields: Field[]): string {
     const field = fields.find((f) => f.id === t.field_id);
     return field ? `When "${field.displayName}" changes` : 'When a record changes';
   }
-  if (t.type === 'schedule') return `Every ${t.every}${t.at ? ` at ${t.at}` : ''} (server time)`;
+  if (t.type === 'schedule') {
+    const base = `Every ${t.every}${t.at ? ` at ${t.at}` : ''} (server time)`;
+    if (rule.topNLimit) return `${base} — top ${rule.topNLimit}`;
+    return base;
+  }
   if (t.type === 'webhook_received') return 'A webhook is received';
   return t.type;
 }
@@ -359,6 +368,11 @@ function RuleEditor({
   );
   const [every, setEvery] = useState(rule?.trigger.every ?? 'day');
   const [at, setAt] = useState(rule?.trigger.at ?? '09:00');
+  // #392/#583 — top-N selection, schedule-only. `limit` is a free-text string
+  // so a user can clear it back to "no cap" (empty string), rather than a
+  // number input silently coercing an empty field to 0.
+  const [sort, setSort] = useState<SortSpec[]>(rule?.sort ?? []);
+  const [limit, setLimit] = useState<string>(rule?.topNLimit != null ? String(rule.topNLimit) : '');
   const [actions, setActions] = useState<ButtonAction[]>(
     rule?.actions ?? [{ type: 'add_comment', body_template: '' }],
   );
@@ -483,11 +497,31 @@ function RuleEditor({
           : { type: triggerType };
     // Webhook rules have no triggering record for a condition to evaluate
     // against — v1 rejects one server-side, so don't even build it here.
+    // #392/#583 — sort/limit (top-N) only apply to a schedule trigger. On an
+    // UPDATE, both are sent EXPLICITLY (sort/limit: null when not schedule, or
+    // when cleared back to empty) rather than omitted — omitting means "leave
+    // unchanged" server-side (see AutomationsService.update's "effective"
+    // fallback), which would silently 422 a save that just switched the
+    // trigger AWAY from schedule while an old top-N selection was still
+    // stored. On a fresh CREATE there's no stale value to clear, so omitting
+    // outside 'schedule' is fine (create's schema is optional, not nullable).
+    const parsedLimit = limit.trim() === '' ? null : Number(limit);
+    // CREATE's schema is optional-but-not-nullable (no prior value to clear);
+    // UPDATE's is nullable (null is the explicit "clear" signal) — see above.
+    const topN =
+      triggerType === 'schedule'
+        ? rule
+          ? { sort: sort.length ? sort : null, limit: parsedLimit }
+          : { sort: sort.length ? sort : undefined, limit: parsedLimit ?? undefined }
+        : rule
+          ? { sort: null, limit: null }
+          : {};
     const body = {
       name,
       trigger,
       condition: isWebhookTrigger ? undefined : buildCondition(),
       actions,
+      ...topN,
     };
     const call = rule
       ? api.PATCH('/api/v1/workspaces/{ws}/databases/{db}/automations/{id}', {
@@ -629,6 +663,38 @@ function RuleEditor({
             </>
           )}
         </div>
+        {/* #392/#583 — "top N" only exists for a schedule trigger: a single
+            triggering record has no "top N" to pick from, so record-triggered
+            rules get a short explanation instead of a silently absent control. */}
+        {triggerType === 'schedule' ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[12px] text-muted">Select</span>
+            <SortButton
+              fields={fields}
+              sorts={sort}
+              onChange={setSort}
+              onNullsChange={() => {}}
+              showNulls={false}
+            />
+            <Input
+              type="number"
+              min={1}
+              max={AUTOMATION_TOP_N_LIMIT_CEILING}
+              className="h-8 w-20"
+              placeholder="all"
+              value={limit}
+              onChange={(e) => setLimit(e.target.value)}
+            />
+            <span className="text-[12px] text-muted">
+              records (up to {AUTOMATION_TOP_N_LIMIT_CEILING}) — leave blank for no cap
+            </span>
+          </div>
+        ) : (
+          <p className="text-[12px] text-faint">
+            Top-N selection (sort + a record cap) is only available on a schedule trigger — a
+            single triggering record has no "top N" to pick from.
+          </p>
+        )}
       </div>
 
       {isWebhookTrigger && (
