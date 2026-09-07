@@ -3240,7 +3240,7 @@
             "bearer": []
           }
         ],
-        "summary": "Delete a view (409 on the last one)",
+        "summary": "Delete a view (409 on the last shared one)",
         "tags": [
           "views"
         ]
