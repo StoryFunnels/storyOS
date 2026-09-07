@@ -61,3 +61,23 @@ token, and that recipient's rows are the only ones the query can ever return.
   covers the ordinary allowlist/relation/indexable options but doesn't yet accept this field, so an
   agent wiring up a recipient-scoped portal needs the raw `POST .../views/{view}/share` call for
   that one property.
+
+## Seeing what a client actually saw
+
+`GET /api/v1/workspaces/:ws/portal-activity` (`list_portal_activity`) — admin-only, filterable by
+recipient and/or published view — records every recipient-scoped access: which recipient, which
+view, when, and whether it was **served** or **rejected** (with a reason for the latter).
+
+- **"Served" answers "did they look", not "did they see rows"** — a fail-closed scope that
+  legitimately returns zero rows still counts as served; the log isn't a second row-level audit,
+  just an access record.
+- **No IP address or user-agent is ever recorded, by design.** The operator's actual question is
+  whether a client looked, which needs neither, and a client didn't consent to being profiled by the
+  agency running their portal.
+- **A revoked recipient's history survives revocation.** Cutting off a client's future access is a
+  different action from erasing the record of what you already showed them — the second one is
+  exactly what someone reaches for this log to check.
+- **A garbage or expired token that never resolves to a real recipient is never logged here** — this
+  is an audit trail for identified clients, not a generic hit counter for anonymous requests.
+- **A logging failure never blocks the portal itself.** If the write fails, the client still sees
+  their content; the failure is visible to you, not to them.
