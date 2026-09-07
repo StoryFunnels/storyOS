@@ -4,7 +4,25 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import posthog from 'posthog-js';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Blocks, BookOpen, Bug, Kanban, Megaphone, Newspaper, Filter, Users } from 'lucide-react';
+import {
+  ArrowLeft,
+  Blocks,
+  BookOpen,
+  Bug,
+  CalendarDays,
+  ClipboardList,
+  Kanban,
+  Map,
+  Megaphone,
+  Network,
+  Newspaper,
+  Filter,
+  Palmtree,
+  Target,
+  TrendingUp,
+  Users,
+  Video,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -56,6 +74,14 @@ export const TEMPLATE_ICONS: Record<string, typeof Kanban> = {
   'author-studio': BookOpen,
   'dev-project': Bug,
   'solo-dev': Bug,
+  meetings: ClipboardList,
+  'customer-journey': Map,
+  'event-planning': CalendarDays,
+  'video-production': Video,
+  'campaigns-hq': Target,
+  'sales-crm': TrendingUp,
+  'org-chart': Network,
+  'time-off': Palmtree,
 };
 
 const CATEGORIES = [
