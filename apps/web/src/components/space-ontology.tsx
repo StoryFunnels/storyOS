@@ -373,6 +373,21 @@ type LayoutEdge =
       localDatabaseId: string;
     };
 
+/**
+ * #607 — a rough but DETERMINISTIC text-width estimate: this is a pure layout
+ * function with no DOM to call getBBox() against. Calibrated against a real
+ * getBBox() reading the ticket itself measured live — a 23-character shortLabel
+ * ("Rel One / Rel One Back") rendered at 92.8 SVG units at this component's
+ * actual 9px label font, i.e. ~0.45 px per character per px of font-size.
+ * Rounds UP to 0.5 so the estimate is never narrower than reality — AC1 wants
+ * the fan-out step "comfortably larger than" the actual width, not merely
+ * equal to it (a tight estimate that undershoots by a few px would just
+ * reproduce this exact ticket at a smaller gap).
+ */
+export function estimateTextWidth(text: string, fontSizePx: number): number {
+  return text.length * fontSizePx * 0.5;
+}
+
 export function computeLayout(
   databases: OntologyDatabase[],
   relations: OntologyRelation[],
@@ -432,6 +447,44 @@ export function computeLayout(
   // second satellite (and its "in {space}" label) landed on the identical
   // (x, y) as the first. Counted per LOCAL node, same fan-out shape as loops.
   const satelliteIndexByNode = new Map<string, number>();
+
+  // #607 — #528's fan-out fixed the WORST case (identical anchor points) but
+  // used a fixed step regardless of the labels' actual rendered width, so
+  // anything longer than a very short label still overlapped heavily. A pass
+  // over every relation BEFORE placing anything, tracking the widest label
+  // each fan-out group will need to clear, lets `spacing`/`satSpreadDeg` below
+  // be sized from real text width instead of a guessed constant — computed
+  // once per group here rather than only from whichever label happens to be
+  // placed first (order-independent, so a later, wider label in the same
+  // group can't retroactively make an earlier placement too tight).
+  const maxPairLabelWidth = new Map<string, number>();
+  const maxSatelliteLabelWidth = new Map<string, number>();
+  for (const r of relations) {
+    if (r.self_relation) continue;
+    const aLocalPre = dbIds.has(r.a.database_id);
+    const bLocalPre = dbIds.has(r.b.database_id);
+    if (aLocalPre && bLocalPre) {
+      const pairKey = [r.a.database_id, r.b.database_id].sort().join('|');
+      const shortLabel = `${r.a.field_name ?? ''} / ${r.b.field_name ?? ''}`;
+      const width = estimateTextWidth(shortLabel, 9);
+      maxPairLabelWidth.set(pairKey, Math.max(maxPairLabelWidth.get(pairKey) ?? 0, width));
+      continue;
+    }
+    const localPre = aLocalPre ? r.a : bLocalPre ? r.b : null;
+    const farPre = aLocalPre ? r.b : bLocalPre ? r.a : null;
+    if (!localPre || !farPre) continue;
+    const spaceName = (farPre.space_id && spaceNameById.get(farPre.space_id)) || 'another space';
+    // The satellite's two-line label stack (name @9px, "in {space}" @8px) —
+    // whichever line is wider is what must clear the next satellite over.
+    const width = Math.max(
+      estimateTextWidth(farPre.database_name ?? 'Untitled', 9),
+      estimateTextWidth(`in ${spaceName}`, 8),
+    );
+    maxSatelliteLabelWidth.set(
+      localPre.database_id,
+      Math.max(maxSatelliteLabelWidth.get(localPre.database_id) ?? 0, width),
+    );
+  }
 
   for (const r of relations) {
     const cardinalityLabel = r.cardinality.replace(/_/g, '-');
@@ -495,7 +548,10 @@ export function computeLayout(
       const perpY = dx / len;
       const sign = pairIndex % 2 === 0 ? 1 : -1;
       const step = Math.ceil(pairIndex / 2);
-      const spacing = 14;
+      // #607 — was a fixed 14; now the widest label this pair will ever draw
+      // (+ margin), so adjacent labels clear each other's text, not just their
+      // anchor points. Floor of 14 keeps the original spacing for short labels.
+      const spacing = Math.max(14, (maxPairLabelWidth.get(pairKey) ?? 0) + 10);
       const offset = sign * step * spacing;
       edges.push({
         kind: 'line',
@@ -537,10 +593,17 @@ export function computeLayout(
     satelliteIndexByNode.set(local.database_id, satIndex + 1);
     const satSign = satIndex % 2 === 0 ? 1 : -1;
     const satStep = Math.ceil(satIndex / 2);
-    const satSpreadDeg = 18;
+    // #607 — was a fixed 18°. Satellites sit on an arc of radius (radius+46),
+    // so the ARC LENGTH between adjacent ones (not the angle itself) is what
+    // has to clear the widest label this node's satellites will draw; convert
+    // that required arc length back to a degree step. Floor of 18° keeps the
+    // original spread for short labels.
+    const satArcRadius = radius + 46;
+    const satRequiredArc = (maxSatelliteLabelWidth.get(local.database_id) ?? 0) + 10;
+    const satSpreadDeg = Math.max(18, (satRequiredArc / satArcRadius) * (180 / Math.PI));
     const angle = baseAngle + (satSign * satStep * satSpreadDeg * Math.PI) / 180;
-    const sx = center + (radius + 46) * Math.cos(angle);
-    const sy = center + (radius + 46) * Math.sin(angle);
+    const sx = center + satArcRadius * Math.cos(angle);
+    const sy = center + satArcRadius * Math.sin(angle);
     const satelliteId = `${r.id}:${far.database_id}`;
     satellites.push({
       id: satelliteId,

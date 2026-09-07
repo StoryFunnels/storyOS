@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeLayout } from './space-ontology';
+import { computeLayout, estimateTextWidth } from './space-ontology';
 import type { OntologyDatabase, OntologyRelation } from './space-ontology';
 
 function db(id: string, name: string): OntologyDatabase {
@@ -104,6 +104,77 @@ describe('computeLayout — #528: two cross-space relations from the same local 
  * satelliteIndexByNode logic accidentally intercepting the self-relation
  * branch, which returns (`continue`) before either new counter is read.
  */
+/**
+ * #607 — Vera's finding: #528's fan-out fixed identical-pixel stacking, but
+ * used a FIXED step regardless of the labels' actual rendered width, so
+ * realistic (multi-word) field names still overlapped by ~85% of their own
+ * width. Same field names as the ticket's own live repro ("Rel One / Rel One
+ * Back", "Rel Two / Rel Two Back").
+ */
+describe('computeLayout — #607: fan-out scales with label width, not a fixed step', () => {
+  it('two same-pair edges with realistic field names get labels that do not overlap', () => {
+    const databases = [db('a', 'A'), db('b', 'B')];
+    const relations = [
+      rel('r1', side('a', 'space-a', 'Rel One'), side('b', 'space-a', 'Rel One Back')),
+      rel('r2', side('a', 'space-a', 'Rel Two'), side('b', 'space-a', 'Rel Two Back')),
+    ];
+    const layout = computeLayout(databases, relations, 'space-a', new Map());
+    const [e1, e2] = layout.edges;
+    const dist = Math.hypot(e2!.labelX - e1!.labelX, e2!.labelY - e1!.labelY);
+    // Each label's own width (both are drawn at the SAME 9px shortLabel size),
+    // centered on its anchor — two anchors must be at least one full label
+    // width apart (half of each) for the text to clear, not just the anchor.
+    const width1 = estimateTextWidth(e1!.shortLabel, 9);
+    const width2 = estimateTextWidth(e2!.shortLabel, 9);
+    expect(dist).toBeGreaterThanOrEqual((width1 + width2) / 2);
+    // #528 MUST KEEP WORKING: anchors stay genuinely distinct, not just
+    // adequately spaced text sharing a point.
+    expect(dist).toBeGreaterThan(0);
+  });
+
+  it('a fixed-step spacing (the pre-#607 constant) would NOT have cleared these labels — proves the test is a real regression guard', () => {
+    // Sanity check on the test itself: the old 14px constant genuinely fails
+    // this bar for these realistic names, so the assertion above is not
+    // trivially satisfied by any spacing at all.
+    const shortLabel = 'Rel One / Rel One Back';
+    const width = estimateTextWidth(shortLabel, 9);
+    expect(14).toBeLessThan(width);
+  });
+
+  it('two cross-space satellites from the same local node, with realistic long names, get labels that do not overlap', () => {
+    const databases = [db('affiliates', 'Affiliates')];
+    const relations = [
+      rel(
+        'r1',
+        side('affiliates', 'space-a', 'Related Deal One'),
+        side('deals-one', 'space-b', 'Affiliate'),
+      ),
+      rel(
+        'r2',
+        side('affiliates', 'space-a', 'Related Deal Two'),
+        side('deals-two', 'space-b', 'Affiliate'),
+      ),
+    ];
+    const layout = computeLayout(
+      databases,
+      relations,
+      'space-a',
+      new Map([['space-b', 'A Fairly Long Space Name']]),
+    );
+    const [s1, s2] = layout.satellites;
+    const dist = Math.hypot(s2!.x - s1!.x, s2!.y - s1!.y);
+    const width1 = Math.max(
+      estimateTextWidth(s1!.name, 9),
+      estimateTextWidth(`in ${s1!.spaceName}`, 8),
+    );
+    const width2 = Math.max(
+      estimateTextWidth(s2!.name, 9),
+      estimateTextWidth(`in ${s2!.spaceName}`, 8),
+    );
+    expect(dist).toBeGreaterThanOrEqual((width1 + width2) / 2);
+  });
+});
+
 describe('computeLayout — #528 regression: self-relations still use their own fan-out', () => {
   it('two self-relation loops on one node still get distinct label positions', () => {
     const databases = [db('issues', 'Issues')];
