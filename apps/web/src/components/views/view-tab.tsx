@@ -8,6 +8,7 @@ import {
   Copy,
   FormInput,
   GanttChart,
+  Group,
   Kanban,
   LayoutDashboard,
   LayoutGrid,
@@ -28,9 +29,14 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import type { ViewSummary, useViewMutations } from './use-view-state';
+import { GroupByFieldSelect } from './view-toolbar';
+import type { Field } from '../table-view/use-table-data';
 
 /**
  * #347 — exported so the SIDEBAR draws a view with the same icon its tab does.
@@ -60,6 +66,7 @@ export function ViewTab({
   canManage,
   canDelete,
   mutations,
+  fields,
   onNavigate,
   onDelete,
   onDuplicated,
@@ -70,6 +77,8 @@ export function ViewTab({
   canManage: boolean;
   canDelete: boolean;
   mutations: ReturnType<typeof useViewMutations>;
+  /** #515 — only needed for board/list views, to offer "Change grouping…". */
+  fields: Field[];
   onNavigate: () => void;
   onDelete: () => void;
   onDuplicated: (id: string) => void;
@@ -79,6 +88,8 @@ export function ViewTab({
 }) {
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(view.name);
+  const [regrouping, setRegrouping] = useState(false);
+  const [groupDraft, setGroupDraft] = useState(view.config.group_by_field_id ?? '');
   const Icon = VIEW_ICON[view.type] ?? Table2;
   // Only editors may reorder; renaming (inline input) also suspends the drag.
   const sortable = useSortable({ id: view.id, disabled: !canManage || renaming });
@@ -171,6 +182,19 @@ export function ViewTab({
               <Copy className="mr-2 h-3.5 w-3.5" />
               Duplicate
             </DropdownMenuItem>
+            {/* #515 — the only way to change WHICH field an existing board/list
+                groups by; previously that was set once at creation, never after. */}
+            {(view.type === 'board' || view.type === 'list') && (
+              <DropdownMenuItem
+                onSelect={() => {
+                  setGroupDraft(view.config.group_by_field_id ?? '');
+                  setRegrouping(true);
+                }}
+              >
+                <Group className="mr-2 h-3.5 w-3.5" />
+                Change grouping…
+              </DropdownMenuItem>
+            )}
             {!view.isDefault && (
               <DropdownMenuItem onSelect={() => mutations.setDefaultView.mutate(view.id)}>
                 <Check className="mr-2 h-3.5 w-3.5" />
@@ -202,6 +226,48 @@ export function ViewTab({
             )}
           </DropdownMenuContent>
         </DropdownMenu>
+      )}
+      {(view.type === 'board' || view.type === 'list') && (
+        <Dialog open={regrouping} onOpenChange={setRegrouping}>
+          {regrouping && (
+            <DialogContent title={`Change grouping — "${view.name}"`}>
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor={`regroup-${view.id}`}>
+                    Group by{view.type === 'list' ? ' (optional)' : ''}
+                  </Label>
+                  <GroupByFieldSelect
+                    id={`regroup-${view.id}`}
+                    viewType={view.type}
+                    fields={fields}
+                    value={groupDraft}
+                    onChange={setGroupDraft}
+                  />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <DialogClose asChild>
+                    <Button type="button" variant="secondary">
+                      Cancel
+                    </Button>
+                  </DialogClose>
+                  <Button
+                    type="button"
+                    disabled={view.type === 'board' && !groupDraft}
+                    onClick={() => {
+                      const isDateField = fields.find((f) => f.id === groupDraft)?.type === 'date';
+                      mutations.regroupView.mutate(
+                        { id: view.id, config: view.config, groupByFieldId: groupDraft, isDateField },
+                        { onSuccess: () => setRegrouping(false) },
+                      );
+                    }}
+                  >
+                    Save
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          )}
+        </Dialog>
       )}
     </div>
   );

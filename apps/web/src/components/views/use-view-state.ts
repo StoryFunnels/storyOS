@@ -273,6 +273,43 @@ export function useViewMutations(ws: string, db: string) {
       },
       onSuccess: invalidate,
     }),
+    /**
+     * #515 — the only way to change an EXISTING board/list view's grouping
+     * field; until now `group_by_field_id` was only ever written once, at
+     * creation (page.tsx's NewViewDialog). Takes the view's own current
+     * config so a stale `group_by_granularity` from an earlier date-grouped
+     * stint is carried forward untouched rather than guessed at here — it's
+     * simply unused while grouped by anything else, and board-view.tsx
+     * already reads it only when the group field is a date.
+     */
+    regroupView: useMutation({
+      mutationFn: async ({
+        id,
+        config,
+        groupByFieldId,
+        isDateField,
+      }: {
+        id: string;
+        config: ViewConfig;
+        groupByFieldId: string;
+        /** #515 AC5 — a stale granularity from an earlier date-grouped stint
+         *  must NOT survive a regroup away from dates: reproduced live
+         *  (Vera) resurfacing on a later regroup back to a different date
+         *  field. Cleared here, not merely left unread, whenever the new
+         *  group field isn't a date. */
+        isDateField: boolean;
+      }) => {
+        const nextConfig: ViewConfig = { ...config, group_by_field_id: groupByFieldId };
+        if (!isDateField) delete nextConfig.group_by_granularity;
+        const { error } = await api.PATCH('/api/v1/workspaces/{ws}/databases/{db}/views/{view}', {
+          params: { path: { ws, db, view: id } },
+          body: { config: nextConfig as never },
+        });
+        if (error) throw error;
+      },
+      onSuccess: invalidate,
+      onError: () => toast.error('Could not change the grouping'),
+    }),
     deleteView: useMutation({
       mutationFn: async (id: string) => {
         const { error } = await api.DELETE('/api/v1/workspaces/{ws}/databases/{db}/views/{view}', {
