@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AccessModule } from '../access/access.module';
+import { BillingModule } from '../billing/billing.module';
 import { DatabasesModule } from '../databases/databases.module';
 import { PortalModule } from '../portal/portal.module';
 import { RecordsModule } from '../records/records.module';
@@ -24,7 +25,9 @@ import { ViewsService } from './views.service';
   // through the same RecordsService.query every signed-in read uses.
   // PortalModule (#535): PublicViewsService resolves a recipient-scope token
   // through PortalRecipientsService.resolveByToken.
-  imports: [WorkspacesModule, DatabasesModule, RecordsModule, UsersModule, AccessModule, PortalModule],
+  // BillingModule (#556): PublicViewsService reads the workspace's plan to
+  // compute hide_branding, mirroring FormsService's existing wiring.
+  imports: [WorkspacesModule, DatabasesModule, RecordsModule, UsersModule, AccessModule, PortalModule, BillingModule],
   controllers: [ViewsController, PersonalFilterController, SpaceViewsController, PublicViewsController],
   providers: [ViewsService, SpaceViewsService, PublicViewsService],
   exports: [ViewsService, SpaceViewsService],
