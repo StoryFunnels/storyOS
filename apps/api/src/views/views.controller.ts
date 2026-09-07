@@ -105,13 +105,17 @@ export class ViewsController {
   }
 
   @Delete(':view')
-  @ApiOperation({ summary: 'Delete a view (409 on the last one)' })
+  @ApiOperation({ summary: 'Delete a view (409 on the last shared one)' })
   async remove(
     @Req() req: WorkspaceRequest,
     @Param('db') databaseId: string,
     @Param('view') viewId: string,
   ) {
-    await this.assertDb(req, databaseId);
+    // #567 — unlike every other mutation here, delete's required access level
+    // depends on WHICH view: the owner deleting their own personal view needs
+    // only viewer (matching createPersonal), everything else still needs editor.
+    const level = await this.viewsService.deleteAccessLevel(databaseId, viewId, req.user.id);
+    await this.databases.assertAccess(req.membership, databaseId, level);
     return this.viewsService.remove(databaseId, viewId);
   }
 
