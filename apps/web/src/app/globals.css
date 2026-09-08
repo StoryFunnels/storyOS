@@ -309,6 +309,13 @@ body {
      the specificity tie regardless of source order. Verified in the browser —
      the first attempt targeted `.bn-editor` alone and computed to 16px. */
   font-size: 14px;
+  /* Same element, same reason, added with the rich-text token mapping above:
+     `.bn-default-styles` hard-codes `font-family: Inter, ...` as a LITERAL, not
+     as var(--bn-font-family) like the rest of BlockNote. So remapping the
+     variable correctly (Figtree resolves there now) still left every document
+     body and description field in Inter — which is not even loaded here, so it
+     fell through to the OS font while the app around it stayed Figtree. */
+  font-family: var(--font-sans);
 }
 
 /*
@@ -345,6 +352,146 @@ body {
 .bn-suggestion-menu .bn-mt-suggestion-menu-item-section svg {
   width: 16px;
   height: 16px;
+}
+
+/*
+ * THE RICH-TEXT EDITOR FOLLOWS THE DESIGN SYSTEM.
+ *
+ * Reported by Ievgen as "colors inside rich text ... it's not readable", and
+ * measured in a real browser before writing a line of this. BlockNote ships its
+ * own complete theme and StoryOS was overriding only two corners of it (#338's
+ * code blocks, and the "/" menu's row height), so every description field and
+ * every document body was a foreign surface inside a StoryOS card:
+ *
+ *   BlockNote painted            StoryOS token
+ *   dark  surface  #1f1f1f       --bg-card      #171c26   (neutral grey vs warm navy)
+ *   dark  text     #cfcfcf       --text-primary #f3efe7   (grey vs cream)
+ *   light text     #3f3f3f       --text-primary #0f1729   (grey vs navy)
+ *   font           Inter         --font-sans    Figtree
+ *
+ * The font line is the one that surprised me: --bn-font-family asks for Inter,
+ * which is NOT loaded here (only Figtree is), so rich text fell through to the
+ * OS font while the app around it stayed Figtree. Every document body in the
+ * product was set in a different typeface from its own chrome.
+ *
+ * Note the text was never a CONTRAST failure — #cfcfcf on #1f1f1f measures
+ * 10.58:1. It reads as "not readable" because it is dimmer and cooler than the
+ * app's own body text and sits on a visibly different slab. A contrast-only
+ * audit passes this and misses it entirely, which is why the fix is a palette
+ * mapping rather than a ratio tweak.
+ *
+ * BlockNote exposes 42 custom properties, so this is a token mapping in ONE
+ * place rather than a component change — and because our tokens are already
+ * theme-aware, both themes are fixed by the same block with no dark override.
+ * Mapping the variables (rather than overriding rendered rules) also means
+ * BlockNote's own menus, tooltips and hover states come along, which selector
+ * patching would have missed one at a time.
+ */
+/*
+ * THE SELECTOR IS LOAD-BEARING, and the first version of this block did nothing
+ * because I got it wrong. BlockNote sets these variables on
+ *
+ *     .bn-root                              (0,1,0)  light
+ *     .bn-root[data-color-scheme='dark']    (0,2,0)  dark
+ *
+ * and its stylesheet is served AFTER ours, so a plain `.bn-container` (0,1,0)
+ * ties with `.bn-root` and loses on source order — and never stood a chance
+ * against the dark rule. Both selectors below are one step above their
+ * counterpart, so neither outcome depends on which chunk loads first:
+ *
+ *     .bn-root.bn-container                            (0,2,0) > (0,1,0)
+ *     .bn-root.bn-container[data-color-scheme='dark']   (0,2,1) > (0,2,0)
+ *
+ * Same trap, same file: see the `.bn-editor .bn-default-styles` note below,
+ * where a single-class rule computed to 16px for exactly this reason.
+ */
+.bn-root.bn-container,
+.bn-root.bn-container[data-color-scheme='dark'] {
+  --bn-font-family: var(--font-sans);
+
+  /* Editor surface: transparent so the StoryOS card behind it shows through —
+     the wrapper already paints --bg-card, and painting it twice is how a
+     one-pixel seam appears at the rounded corners. */
+  --bn-colors-editor-background: transparent;
+  --bn-colors-editor-text: var(--text-primary);
+
+  --bn-colors-menu-background: var(--bg-card);
+  --bn-colors-menu-text: var(--text-primary);
+  --bn-colors-tooltip-background: var(--bg-card);
+  --bn-colors-tooltip-text: var(--text-secondary);
+
+  --bn-colors-hovered-background: var(--bg-hover);
+  --bn-colors-hovered-text: var(--text-primary);
+  --bn-colors-selected-background: var(--bg-active);
+  --bn-colors-selected-text: var(--text-primary);
+
+  --bn-colors-disabled-background: var(--bg-hover);
+  --bn-colors-disabled-text: var(--text-faint);
+
+  --bn-colors-border: var(--border-default);
+  --bn-colors-side-menu: var(--text-faint);
+
+  /* Shape and depth come from the app's scales, not BlockNote's. */
+  --bn-border-radius-small: var(--radius-chip);
+  --bn-border-radius-medium: var(--radius-control);
+  --bn-border-radius-large: var(--radius-card);
+  --bn-shadow-light: var(--shadow-popover, 0 4px 12px rgb(15 23 41 / 0.08));
+  --bn-shadow-medium: var(--shadow-popover, 0 4px 12px rgb(15 23 41 / 0.08));
+}
+
+/*
+ * RICH-TEXT GUTTERS. Reported as "padding on the left is big" — it is, and 48px
+ * of it is load-bearing. Measured before touching anything.
+ *
+ * BlockNote sets `padding: 54px` on `.bn-editor`. Hovering a block reveals the
+ * side menu at exactly 48px wide: two 24px controls, the insert `+` and the drag
+ * handle, living at x=279..327 while the text starts at x=327. So the left
+ * padding is an AFFORDANCE GUTTER, not decoration. Anything under 48px clips
+ * the drag handle, and the obvious "just remove the padding" fix breaks
+ * reordering — which is why the number is written down here.
+ *
+ * The RIGHT 54px holds nothing, so it goes to 24px: 30px back to every table,
+ * code block and image, which were being squeezed to 690px inside an 800px
+ * panel while prose ran to 97 characters a line.
+ *
+ * WHY THE MEASURE IS NOT CAPPED HERE, since that is the reflex: the padding was
+ * accidentally doing line-length control, so trimming it lengthens prose lines
+ * (97 -> 101 characters at 14px). 101 is at the high end but it is what Notion
+ * and Linear ship for a record body, and capping it would leave a ~200px void
+ * down the right of an 800px panel — trading one kind of wasted space for
+ * another. The measure genuinely does need a cap on the standalone /doc page,
+ * where the column is far wider; that surface is a route file rather than this
+ * one, and it is ticketed with the numbers.
+ *
+ * WHAT THIS DOES NOT FIX, and is the bigger half of the complaint: the text
+ * still starts 55px inside the column while every other section on a record
+ * (CONTACTS, PROJECTS, the title) aligns to the column edge. That is an
+ * ALIGNMENT break, not a padding size, and it is what actually reads as "big
+ * padding". Fixing it means pulling the editor left by the gutter width so the
+ * handle sits in the panel's own margin — which needs the panel to HAVE 48px of
+ * left margin, and it currently has ~32px. That is a panel change, ticketed
+ * separately with both options costed.
+ */
+/*
+ * `.bn-root .bn-editor`, not `.bn-editor`. THIRD time this file has hit the same
+ * trap: BlockNote's own rules are single-class and its stylesheet loads after
+ * ours, so any bare `.bn-*` override ties on specificity and loses on source
+ * order. `.bn-editor` here carries `bn-editor` while its PARENT carries
+ * `bn-root`, so the descendant form is (0,2,0) against their (0,1,0).
+ *
+ * The other two: `.bn-default-styles` for font-size/family, and
+ * `.bn-root.bn-container[data-color-scheme]` for the colour tokens. Anyone
+ * overriding BlockNote from here should assume a bare class will silently do
+ * nothing, and verify in the browser rather than trusting the diff — all three
+ * of mine looked correct and changed nothing until measured.
+ */
+.bn-root .bn-editor {
+  /* 48px is the hard floor — the side menu measures exactly 48px, so at 48 the
+     drag handle sits flush against the first glyph with no daylight, and
+     anything less puts it ON the text. 52px keeps 4px of breathing room and
+     still reclaims 2px; the real reclaim is the 30px on the right. */
+  padding-left: 52px;
+  padding-right: 24px;
 }
 
 /*
