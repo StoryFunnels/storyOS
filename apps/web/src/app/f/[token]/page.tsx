@@ -108,17 +108,22 @@ export default function PublicFormPage({ params }: { params: Promise<{ token: st
     }
   }
 
-  const wrap = embed ? 'p-4' : 'min-h-screen bg-[#FAF7F1] px-4 py-12';
+  // #632 — was a hardcoded bg-[#FAF7F1]: the exact LIGHT-mode value of --bg-app,
+  // but a literal hex never flips with the theme. Missed by the ticket's own
+  // "stock Tailwind palette" framing (it's not a neutral-*/gray-* utility), but
+  // the same class of bug — this page cannot follow dark mode until every
+  // color on it, including the outer wrapper, resolves through a token.
+  const wrap = embed ? 'p-4' : 'min-h-screen bg-app px-4 py-12';
 
   if (status === 'loading') {
-    return <div className={wrap}><p className="mx-auto max-w-xl text-sm text-neutral-500">Loading…</p></div>;
+    return <div className={wrap}><p className="mx-auto max-w-xl text-sm text-muted">Loading…</p></div>;
   }
   if (status === 'notfound') {
     return (
       <div className={wrap}>
-        <div className="mx-auto max-w-xl rounded-xl border border-neutral-200 bg-white p-8 text-center">
-          <h1 className="text-lg font-semibold text-neutral-900">Form not found</h1>
-          <p className="mt-2 text-sm text-neutral-500">This form doesn&rsquo;t exist or is no longer accepting responses.</p>
+        <div className="mx-auto max-w-xl rounded-[var(--radius-modal)] border border-border-default bg-card p-8 text-center">
+          <h1 className="text-lg font-semibold text-ink">Form not found</h1>
+          <p className="mt-2 text-sm text-muted">This form doesn&rsquo;t exist or is no longer accepting responses.</p>
         </div>
       </div>
     );
@@ -126,9 +131,9 @@ export default function PublicFormPage({ params }: { params: Promise<{ token: st
   if (status === 'done') {
     return (
       <div className={wrap}>
-        <div className="mx-auto max-w-xl rounded-xl border border-neutral-200 bg-white p-8 text-center">
-          <h1 className="text-lg font-semibold text-neutral-900">Thank you</h1>
-          <p className="mt-2 text-sm text-neutral-600">{def?.success_message ?? 'Your response has been submitted.'}</p>
+        <div className="mx-auto max-w-xl rounded-[var(--radius-modal)] border border-border-default bg-card p-8 text-center">
+          <h1 className="text-lg font-semibold text-ink">Thank you</h1>
+          <p className="mt-2 text-sm text-ink-secondary">{def?.success_message ?? 'Your response has been submitted.'}</p>
         </div>
       </div>
     );
@@ -136,10 +141,10 @@ export default function PublicFormPage({ params }: { params: Promise<{ token: st
 
   return (
     <div className={wrap}>
-      <form onSubmit={submit} className="mx-auto flex max-w-xl flex-col gap-5 rounded-xl border border-neutral-200 bg-white p-8">
+      <form onSubmit={submit} className="mx-auto flex max-w-xl flex-col gap-5 rounded-[var(--radius-modal)] border border-border-default bg-card p-8">
         <div>
-          <h1 className="text-xl font-semibold text-neutral-900">{def!.title}</h1>
-          {def!.description && <p className="mt-1 text-sm text-neutral-500">{def!.description}</p>}
+          <h1 className="text-xl font-semibold text-ink">{def!.title}</h1>
+          {def!.description && <p className="mt-1 text-sm text-muted">{def!.description}</p>}
         </div>
         {visibleFormFields(def!.fields, values).map((f) => {
           // #500 — `required` alone is no longer the full story: `required_when`
@@ -148,9 +153,9 @@ export default function PublicFormPage({ params }: { params: Promise<{ token: st
           const requiredNow = f.required && isFormFieldVisible(f.required_when, values);
           return (
             <label key={f.field_id} className="flex flex-col gap-1.5">
-              <span className="text-[13px] font-medium text-neutral-800">
+              <span className="text-[13px] font-medium text-ink-secondary">
                 {f.label}
-                {requiredNow && <span className="ml-0.5 text-red-500">*</span>}
+                {requiredNow && <span className="ml-0.5 text-error">*</span>}
               </span>
               <Input
                 token={token}
@@ -159,7 +164,7 @@ export default function PublicFormPage({ params }: { params: Promise<{ token: st
                 value={values[f.api_name]}
                 onChange={(v) => setValues((p) => ({ ...p, [f.api_name]: v }))}
               />
-              {f.help && <span className="text-[12px] text-neutral-400">{f.help}</span>}
+              {f.help && <span className="text-[12px] text-faint">{f.help}</span>}
             </label>
           );
         })}
@@ -173,15 +178,15 @@ export default function PublicFormPage({ params }: { params: Promise<{ token: st
           className="absolute left-[-9999px] h-0 w-0 opacity-0"
           aria-hidden
         />
-        {error && <p className="text-[13px] text-red-600">{error}</p>}
+        {error && <p className="text-[13px] text-error">{error}</p>}
         <button
           type="submit"
           disabled={submitting}
-          className="mt-1 rounded-lg bg-neutral-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-50"
+          className="mt-1 rounded-[var(--radius-control)] bg-primary px-4 py-2.5 text-sm font-medium text-[var(--text-on-dark)] hover:bg-primary-hover disabled:opacity-50"
         >
           {submitting ? 'Submitting…' : def!.submit_text}
         </button>
-        {!def!.hide_branding && <p className="text-center text-[11px] text-neutral-400">Powered by StoryOS</p>}
+        {!def!.hide_branding && <p className="text-center text-[11px] text-faint">Powered by StoryOS</p>}
       </form>
     </div>
   );
@@ -234,7 +239,7 @@ function Input({
   onChange: (v: unknown) => void;
 }) {
   const base =
-    'rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 outline-none focus:border-neutral-900';
+    'rounded-[var(--radius-control)] border border-border-strong bg-card px-3 py-2 text-sm text-ink outline-none focus:border-accent';
   const t = field.type;
   if (t === 'checkbox') {
     return (
@@ -282,10 +287,10 @@ function Input({
     const multi = field.multi === true;
     const ids = (Array.isArray(value) ? (value as string[]) : value ? [String(value)] : []).filter(Boolean);
     return (
-      <div className="flex flex-col gap-1.5 rounded-lg border border-neutral-300 bg-white p-2.5">
-        {members.length === 0 && <span className="text-[12px] text-neutral-400">No one to pick from</span>}
+      <div className="flex flex-col gap-1.5 rounded-[var(--radius-control)] border border-border-strong bg-card p-2.5">
+        {members.length === 0 && <span className="text-[12px] text-faint">No one to pick from</span>}
         {members.map((m) => (
-          <label key={m.id} className="flex items-center gap-1.5 text-[13px] text-neutral-900">
+          <label key={m.id} className="flex items-center gap-1.5 text-[13px] text-ink">
             <input
               type={multi ? 'checkbox' : 'radio'}
               name={field.field_id}
@@ -363,7 +368,7 @@ function RelationInput({
     return () => clearTimeout(timer);
   }, [open, search, token, field.field_id]);
 
-  if (!relation) return <span className="text-[12px] text-neutral-400">This field isn&rsquo;t available</span>;
+  if (!relation) return <span className="text-[12px] text-faint">This field isn&rsquo;t available</span>;
 
   function pick(id: string, title: string) {
     setTitles((m) => ({ ...m, [id]: title }));
@@ -400,13 +405,13 @@ function RelationInput({
 
   return (
     <div className="relative">
-      <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-neutral-300 bg-white px-2.5 py-1.5">
+      <div className="flex flex-wrap items-center gap-1.5 rounded-[var(--radius-control)] border border-border-strong bg-card px-2.5 py-1.5">
         {selectedIds.map((id) => (
-          <span key={id} className="flex items-center gap-1 rounded border border-neutral-200 bg-neutral-50 px-1.5 py-0.5 text-[12px] text-neutral-900">
+          <span key={id} className="flex items-center gap-1 rounded border border-border-default bg-hover px-1.5 py-0.5 text-[12px] text-ink">
             {titles[id] ?? id}
             <button
               type="button"
-              className="text-neutral-400 hover:text-red-600"
+              className="text-faint hover:text-error"
               onClick={() => onChange(selectedIds.filter((i) => i !== id))}
               aria-label="Remove"
             >
@@ -415,7 +420,7 @@ function RelationInput({
           </span>
         ))}
         <input
-          className="h-6 min-w-24 flex-1 border-0 bg-transparent text-sm text-neutral-900 outline-none placeholder:text-neutral-400"
+          className="h-6 min-w-24 flex-1 border-0 bg-transparent text-sm text-ink outline-none placeholder:text-faint"
           placeholder={`Search ${relation.target_database_name ?? 'records'}…`}
           value={search}
           onFocus={() => setOpen(true)}
@@ -424,32 +429,35 @@ function RelationInput({
       </div>
       {open && (
         <div
-          className="absolute left-0 top-full z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-neutral-200 bg-white p-1 shadow-[0_4px_12px_rgba(15,23,41,0.1)]"
+          // #632 — no shadow token exists yet anywhere in this codebase (checked:
+          // even the shared Dialog component still hand-rolls its own shadow), so
+          // this stays a literal value rather than inventing a one-off token here.
+          className="absolute left-0 top-full z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-[var(--radius-card)] border border-border-default bg-card p-1 shadow-[0_4px_12px_rgba(15,23,41,0.1)]"
           onMouseLeave={() => setOpen(false)}
         >
           {results.map((r) => (
             <button
               key={r.id}
               type="button"
-              className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-[13px] text-neutral-900 hover:bg-neutral-50"
+              className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-[13px] text-ink hover:bg-hover"
               onClick={() => pick(r.id, r.title)}
             >
               <span className="truncate">{r.title || 'Untitled'}</span>
-              {selectedIds.includes(r.id) && <span className="text-[11px] text-neutral-400">selected</span>}
+              {selectedIds.includes(r.id) && <span className="text-[11px] text-faint">selected</span>}
             </button>
           ))}
           {search.trim() && !exactMatch && (
             <button
               type="button"
               disabled={creating}
-              className="flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left text-[13px] text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
+              className="flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left text-[13px] text-ink-secondary hover:bg-hover disabled:opacity-50"
               onClick={createNew}
             >
               + Create “{search.trim()}”
             </button>
           )}
           {!search.trim() && results.length === 0 && (
-            <p className="px-2 py-1.5 text-[12px] text-neutral-400">Type to search…</p>
+            <p className="px-2 py-1.5 text-[12px] text-faint">Type to search…</p>
           )}
         </div>
       )}
