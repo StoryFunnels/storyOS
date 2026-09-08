@@ -168,7 +168,7 @@ export function IconColorPicker({
 
       {showColor && (
       <div className="border-t border-border-default pt-2">
-        <p className="mb-1 text-meta font-medium uppercase tracking-wider text-faint">Background</p>
+        <p className="mb-1 text-meta font-medium uppercase tracking-wider text-muted">Background</p>
         <div className="flex gap-1">
           {COLOR_NAMES.map((c) => (
             <button
@@ -229,7 +229,8 @@ function IconPreview({ icon, color }: { icon: string | null; color: string | nul
       className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[8px] border border-border-default"
       style={hex ? { backgroundColor: `${hex}22`, color: hex } : undefined}
     >
-      <EntityIcon icon={icon} color={color} size={20} fallback={<span className="text-faint">?</span>} />
+      <EntityIcon icon={icon} color={color} size={20} /* #637: decorative — a "no icon yet" glyph, carrying no affordance. */
+        fallback={<span className="text-faint">?</span>} />
     </div>
   );
 }

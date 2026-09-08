@@ -42,7 +42,7 @@ export function DropdownMenuSeparator({ className, ...props }: ComponentProps<ty
 export function DropdownMenuLabel({ className, ...props }: ComponentProps<typeof Dropdown.Label>) {
   return (
     <Dropdown.Label
-      className={cn('select-none px-2 pb-0.5 pt-1 text-micro font-semibold uppercase tracking-wider text-faint', className)}
+      className={cn('select-none px-2 pb-0.5 pt-1 text-micro font-semibold uppercase tracking-wider text-muted', className)}
       {...props}
     />
   );
