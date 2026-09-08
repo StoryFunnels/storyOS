@@ -1690,6 +1690,45 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/databases/{db}/records/upsert": {
+      "post": {
+        "operationId": "RecordsController_upsert",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertRecordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "#230: match-or-create on a unique key. key_field must be a field marked unique (#229); values[key_field] is the match value.",
+        "tags": [
+          "records"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/databases/{db}/records/query": {
       "post": {
         "operationId": "RecordsController_query",
@@ -10090,6 +10129,23 @@
             "additionalProperties": {}
           }
         }
+      },
+      "UpsertRecordDto": {
+        "type": "object",
+        "properties": {
+          "key_field": {
+            "type": "string",
+            "minLength": 1
+          },
+          "values": {
+            "type": "object",
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "key_field",
+          "values"
+        ]
       },
       "QueryRecordsDto__schema0": {
         "anyOf": [

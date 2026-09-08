@@ -740,6 +740,7 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   delete_automation: 'admin',
   // write (record + content mutations)
   create_record: 'write',
+  upsert_record: 'write',
   update_record: 'write',
   update_record_description: 'write',
   delete_record: 'write',
@@ -1455,6 +1456,45 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           : record,
       );
     }),
+  );
+
+  reg(
+    'upsert_record',
+    {
+      title: 'Upsert record',
+      description:
+        '#230: match-or-create on a unique key. key_field must be a field marked unique via update_field/add_field\'s unique config (#229). ' +
+        'values must include key_field — that value is the match. A matching record is updated (merge, same as update_record); ' +
+        'no match creates a new record. Returns { record, created }, so a caller can tell which branch it took.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        key_field: z.string().describe('api_name of the unique field to match on.'),
+        values: z
+          .record(z.string(), z.any())
+          .describe('Field values by api_name; must include key_field. Relation fields work the same as create_record.'),
+      },
+    },
+    handle<{ workspace: string; database: string; key_field: string; values: Record<string, unknown> }>(
+      async ({ workspace, database, key_field, values }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const detail = await getDetail(ws.id, db.id);
+        const result = await unwrap<{ record: RecordRow; created: boolean }>(
+          client.POST('/api/v1/workspaces/{ws}/databases/{db}/records/upsert', {
+            params: { path: { ws: ws.id, db: db.id } },
+            body: {
+              key_field,
+              values: mapWriteValues(detail, parseStructuredParam(values, 'values') as Record<string, unknown>),
+            } as never,
+          }),
+        );
+        // Read back rather than echoing the write response, same reasoning as
+        // create_record — relation chips only show up on a fresh read.
+        const record = await readRecord(detail, ws.id, db.id, result.record.id);
+        return text({ record, created: result.created });
+      },
+    ),
   );
 
   reg(

@@ -2134,6 +2134,51 @@ export class RecordsService {
   }
 
   /**
+   * #230 — match-or-create on a designated unique key. `keyField` must be
+   * marked `unique` (#229); `input[keyField]` is the value looked up via the
+   * SAME `findUniqueConflict` helper the ordinary create/update path already
+   * uses to name a conflict, so "found" here means exactly what a 409 there
+   * would have meant. A concurrent creation of the same key between the
+   * lookup and the write below still 409s from create()/update()'s own
+   * unique-index check (#229 AC5) rather than silently duplicating — this
+   * method makes the common case a single call, it does not add a second
+   * locking mechanism.
+   */
+  async upsert(
+    workspaceId: string,
+    databaseId: string,
+    keyField: string,
+    input: Record<string, unknown>,
+    actorId: string,
+    source: ChangeSource = 'human',
+    agentId?: string,
+    agentName?: string,
+  ): Promise<{ record: ProjectedRecord; created: boolean }> {
+    const defs = await this.fieldDefs(databaseId);
+    const def = defs.find((d) => d.api_name === keyField);
+    if (!def) {
+      throw new UnprocessableEntityException(`unknown field "${keyField}"`);
+    }
+    if (!(def.config as Record<string, unknown>)['unique']) {
+      throw new UnprocessableEntityException(
+        `field "${keyField}" is not marked unique — only a unique field (#229) can be used as an upsert key`,
+      );
+    }
+    const normalize = (def.config as Record<string, unknown>)['unique_normalize'] !== false;
+    const key = this.normalizedUniqueKey(input[keyField], normalize);
+    if (key === undefined) {
+      throw new UnprocessableEntityException(`upsert requires a non-empty value for "${keyField}"`);
+    }
+    const existing = await this.findUniqueConflict(databaseId, def.id, key, normalize);
+    if (existing) {
+      const record = await this.update(workspaceId, databaseId, existing.id, input, actorId, 0, source, agentId, agentName);
+      return { record, created: false };
+    }
+    const record = await this.create(workspaceId, databaseId, input, actorId, 0, source, agentId, agentName);
+    return { record, created: true };
+  }
+
+  /**
    * Duplicate a record (MN-074): scalar values + description document + the
    * record's single references and many-to-many links. Owned collections
    * (one_to_many where this record is the "one" side) are NOT copied — a child

@@ -64,6 +64,11 @@ const DECLARED_SAFE: Record<string, string> = {
   // spares them at redaction time. They are covered, not exempted.
   key: "a Linear team's key (`ENG`), an identifier, not a credential",
   team_keys: 'Linear team identifiers — the non-secret sibling of api_key',
+  // packages/schemas/src/record-values.ts (#230) — upsertRecordSchema's
+  // key_field names WHICH FIELD to match on (an api_name, e.g. "email"), not
+  // a credential. Never flows through redactSecrets at all: it's a request
+  // body field for the upsert endpoint, not a stored settings/config blob.
+  key_field: 'ticket #230 — the api_name of the field an upsert matches on, not a credential',
   // apps/api/src/integrations/linear-source-adapter.ts (MN-236) — the
   // migration-framework SourceAdapter's `LinearSourceConfig.teamKeys`, the same
   // non-secret Linear team identifiers as `team_keys` above, just camelCase to
