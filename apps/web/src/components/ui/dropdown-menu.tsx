@@ -27,7 +27,7 @@ export function DropdownMenuItem({ className, ...props }: ComponentProps<typeof 
   return (
     <Dropdown.Item
       className={cn(
-        'flex cursor-pointer select-none items-center gap-2 rounded px-2 py-1.5 text-[13px] text-ink outline-none data-[highlighted]:bg-hover',
+        'flex cursor-pointer select-none items-center gap-2 rounded px-2 py-1.5 text-body text-ink outline-none data-[highlighted]:bg-hover',
         className,
       )}
       {...props}
@@ -42,7 +42,7 @@ export function DropdownMenuSeparator({ className, ...props }: ComponentProps<ty
 export function DropdownMenuLabel({ className, ...props }: ComponentProps<typeof Dropdown.Label>) {
   return (
     <Dropdown.Label
-      className={cn('select-none px-2 pb-0.5 pt-1 text-[10px] font-semibold uppercase tracking-wider text-faint', className)}
+      className={cn('select-none px-2 pb-0.5 pt-1 text-micro font-semibold uppercase tracking-wider text-faint', className)}
       {...props}
     />
   );

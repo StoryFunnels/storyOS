@@ -124,7 +124,7 @@ export function DatePicker({
           autoFocus
           placeholder="2026-07-15, 15.07, jul 15, today…"
           className={cn(
-            'mb-1.5 w-full rounded-[var(--radius-control)] border bg-card px-2 py-1.5 text-[13px] text-ink outline-none placeholder:text-faint',
+            'mb-1.5 w-full rounded-[var(--radius-control)] border bg-card px-2 py-1.5 text-body text-ink outline-none placeholder:text-faint',
             text && !selected ? 'border-error' : 'border-border-default focus:border-border-strong',
           )}
           value={text}
@@ -147,14 +147,14 @@ export function DatePicker({
         {includeTime && (
           <input
             type="time"
-            className="mb-1.5 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-[13px] text-ink outline-none"
+            className="mb-1.5 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-body text-ink outline-none"
             value={time}
             onChange={(e) => setTime(e.target.value)}
           />
         )}
 
         <div className="mb-1 flex items-center justify-between px-1">
-          <span className="text-[13px] font-medium text-ink">{monthLabel}</span>
+          <span className="text-body font-medium text-ink">{monthLabel}</span>
           <span className="flex gap-0.5">
             <button type="button" className="rounded p-1 text-muted hover:bg-hover hover:text-ink" onClick={() => shiftMonth(-1)}>
               <ChevronLeft className="h-3.5 w-3.5" />
@@ -167,7 +167,7 @@ export function DatePicker({
 
         <div className="grid grid-cols-7 text-center">
           {WEEKDAYS.map((d, i) => (
-            <span key={i} className="py-0.5 text-[11px] font-medium text-faint">
+            <span key={i} className="py-0.5 text-meta font-medium text-faint">
               {d}
             </span>
           ))}
@@ -179,7 +179,7 @@ export function DatePicker({
                 key={iso}
                 type="button"
                 className={cn(
-                  'rounded py-1 text-[12px] hover:bg-hover',
+                  'rounded py-1 text-label hover:bg-hover',
                   inMonth ? 'text-ink' : 'text-faint',
                   iso === selected && 'bg-primary text-[var(--text-on-dark)] hover:bg-primary',
                   iso === todayStr && iso !== selected && 'font-semibold text-[var(--accent)]',
@@ -193,10 +193,10 @@ export function DatePicker({
         </div>
 
         <div className="mt-1 flex items-center justify-between border-t border-border-default px-1 pt-1.5">
-          <button type="button" className="text-[12px] text-muted hover:text-ink" onClick={() => commit(null)}>
+          <button type="button" className="text-label text-muted hover:text-ink" onClick={() => commit(null)}>
             Clear
           </button>
-          <button type="button" className="text-[12px] text-muted hover:text-ink" onClick={() => commit(todayStr)}>
+          <button type="button" className="text-label text-muted hover:text-ink" onClick={() => commit(todayStr)}>
             Today
           </button>
         </div>

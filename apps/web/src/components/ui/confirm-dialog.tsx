@@ -62,16 +62,16 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
       <Dialog open={opts !== null} onOpenChange={(open) => !open && settle(false)}>
         {opts && (
           <DialogContent title={opts.title}>
-            {opts.message && <p className="mb-5 text-[13px] leading-relaxed text-muted">{opts.message}</p>}
+            {opts.message && <p className="mb-5 text-body leading-relaxed text-muted">{opts.message}</p>}
             {opts.requireTyped && (
-              <label className="mb-5 block text-[13px] text-ink-secondary">
+              <label className="mb-5 block text-body text-ink-secondary">
                 Type <span className="font-medium text-ink">{opts.requireTyped}</span> to confirm
                 <input
                   autoFocus
                   value={typed}
                   onChange={(e) => setTyped(e.target.value)}
                   aria-label={`Type ${opts.requireTyped} to confirm`}
-                  className="mt-1.5 h-8 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink"
+                  className="mt-1.5 h-8 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-body text-ink"
                 />
               </label>
             )}

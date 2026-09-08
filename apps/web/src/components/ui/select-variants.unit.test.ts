@@ -31,7 +31,36 @@ const DELIBERATE_ADDITIONS = new Set([
   'disabled:opacity-50',
 ]);
 
-const set = (s: string) => new Set(s.split(/\s+/).filter(Boolean));
+/**
+ * #634 — the UI type scale replaced the arbitrary sizes with role-named tokens,
+ * and this test started failing on the RENAME even though nothing rendered
+ * differently. That failure was the guard working: the class string genuinely
+ * changed. But the comparison it makes is about reproducing the markup's
+ * RESULT, so it now normalises a token back to the literal it is defined as.
+ *
+ * Every pair below was verified in a browser to compute identically — e.g.
+ * `text-body` and `text-[13px]` both resolve to 13px / 19.5px, because the
+ * scale's values were chosen to match what the arbitrary sizes already
+ * rendered. If a token's value is ever changed, these pairs stop being true and
+ * this map is the thing that has to be revisited — which is the point of
+ * spelling them out rather than stripping text-* from the comparison.
+ */
+const TOKEN_EQUIVALENT: Record<string, string> = {
+  'text-micro': 'text-[10px]',
+  'text-meta': 'text-[11px]',
+  'text-label': 'text-[12px]',
+  'text-body': 'text-[13px]',
+  'text-prose': 'text-[14px]',
+  'text-title': 'text-[16px]',
+};
+
+const set = (s: string) =>
+  new Set(
+    s
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((c) => TOKEN_EQUIVALENT[c] ?? c),
+  );
 
 describe('#627 — Select variants reproduce the markup they replace', () => {
   it('adds nothing to `default` and `sm` beyond the disabled treatment', () => {
@@ -66,8 +95,10 @@ describe('#627 — Select variants reproduce the markup they replace', () => {
       expect(cls, `variant "${size}" has no height`).toMatch(/\bh-\d/);
       // NOT `\])\b` — a word boundary after `]` never matches, so that version
       // failed on `text-[13px]` while quietly passing on `text-sm`.
+      // The role names (#634) count as a size too — that is the whole point of
+      // the scale, and a variant sized with one is not "left to inheritance".
       expect(cls, `variant "${size}" has no text size`).toMatch(
-        /\btext-(sm|base|lg|\[\d+px\])(?![\w-])/,
+        /\btext-(sm|base|lg|micro|meta|label|body|prose|title|\[\d+px\])(?![\w-])/,
       );
     }
   });

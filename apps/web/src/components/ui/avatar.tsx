@@ -24,7 +24,7 @@ function initials(name: string, single: boolean): string {
   return first + words[words.length - 1]![0]!.toUpperCase();
 }
 
-const SIZES = { 16: 'h-4 w-4 text-[8px]', 20: 'h-5 w-5 text-[9px]', 24: 'h-6 w-6 text-[10px]', 32: 'h-8 w-8 text-[12px]', 64: 'h-16 w-16 text-[22px]' } as const;
+const SIZES = { 16: 'h-4 w-4 text-[8px]', 20: 'h-5 w-5 text-[9px]', 24: 'h-6 w-6 text-micro', 32: 'h-8 w-8 text-label', 64: 'h-16 w-16 text-[22px]' } as const;
 
 export function Avatar({
   userId,

@@ -87,7 +87,7 @@ export function IconColorPicker({
     <div className="flex w-72 flex-col gap-2">
       <div className="flex items-center gap-2">
         <IconPreview icon={icon} color={color} />
-        <p className="flex-1 text-[12px] font-medium text-muted">Icon</p>
+        <p className="flex-1 text-label font-medium text-muted">Icon</p>
       </div>
 
       <Input
@@ -161,14 +161,14 @@ export function IconColorPicker({
             );
           })}
           {icons.length === 0 && brandIcons.length === 0 && (
-            <p className="col-span-8 p-2 text-[12px] text-muted">No matches.</p>
+            <p className="col-span-8 p-2 text-label text-muted">No matches.</p>
           )}
         </div>
       </div>
 
       {showColor && (
       <div className="border-t border-border-default pt-2">
-        <p className="mb-1 text-[11px] font-medium uppercase tracking-wider text-faint">Background</p>
+        <p className="mb-1 text-meta font-medium uppercase tracking-wider text-faint">Background</p>
         <div className="flex gap-1">
           {COLOR_NAMES.map((c) => (
             <button
@@ -189,7 +189,7 @@ export function IconColorPicker({
       )}
       <button
         type="button"
-        className="self-start text-[12px] text-muted underline-offset-2 hover:underline"
+        className="self-start text-label text-muted underline-offset-2 hover:underline"
         onClick={() => onChange({ icon: null, color: null })}
       >
         {showColor ? 'Remove icon & color' : 'Remove icon'}
@@ -212,7 +212,7 @@ function CatChip({
       type="button"
       onClick={onClick}
       className={cn(
-        'rounded-full px-2 py-0.5 text-[11px]',
+        'rounded-full px-2 py-0.5 text-meta',
         active ? 'bg-accent-soft font-medium text-ink' : 'text-muted hover:bg-hover',
       )}
     >
@@ -354,7 +354,7 @@ export function EntityIcon({
     return (
       <span
         className={cn(
-          'inline-flex w-4 shrink-0 items-center justify-center text-[14px] leading-none',
+          'inline-flex w-4 shrink-0 items-center justify-center text-prose leading-none',
           className,
         )}
         style={size ? { fontSize: size } : undefined}
