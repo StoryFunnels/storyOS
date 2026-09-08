@@ -1592,7 +1592,23 @@ function GroupRow({
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={cn(
         'group relative rounded px-1 py-1.5',
-        isDragging && 'z-40 bg-card opacity-90 shadow-[0_4px_12px_rgba(15,23,41,0.12)]',
+        /* #631 — the shadow goes, the dimming stays. Answer (a): the opacity IS
+           the signal, so a shadow on top of it says the same thing twice, and
+           StoryOS's stated direction is that depth comes from borders and
+           background shifts rather than shadows.
+
+           NOT `vacatedSlotClass`, which is the trap here. That class dims to
+           opacity-40 with a dashed outline, and it is correct at its six call
+           sites ONLY because a <DragPreview> ghost floats above carrying the
+           content. This file has no DragPreview — it still drags the row itself
+           in the flow via CSS.Transform (the #409 defect it never had fixed,
+           tracked separately). Applying the vacated-slot look here would fade
+           the thing you are actively dragging to 40%, which is a regression, not
+           a consistency win. It becomes right AFTER that conversion, not before.
+
+           Same reason z-40 and bg-card stay: a row that moves with the pointer
+           paints over its neighbours and needs an opaque background. */
+        isDragging && 'z-40 bg-card opacity-90',
       )}
     >
       <div className="flex items-start gap-1.5">
@@ -1694,7 +1710,23 @@ function ConditionRow({
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={cn(
         'group relative rounded px-1 py-1.5',
-        isDragging && 'z-40 bg-card opacity-90 shadow-[0_4px_12px_rgba(15,23,41,0.12)]',
+        /* #631 — the shadow goes, the dimming stays. Answer (a): the opacity IS
+           the signal, so a shadow on top of it says the same thing twice, and
+           StoryOS's stated direction is that depth comes from borders and
+           background shifts rather than shadows.
+
+           NOT `vacatedSlotClass`, which is the trap here. That class dims to
+           opacity-40 with a dashed outline, and it is correct at its six call
+           sites ONLY because a <DragPreview> ghost floats above carrying the
+           content. This file has no DragPreview — it still drags the row itself
+           in the flow via CSS.Transform (the #409 defect it never had fixed,
+           tracked separately). Applying the vacated-slot look here would fade
+           the thing you are actively dragging to 40%, which is a regression, not
+           a consistency win. It becomes right AFTER that conversion, not before.
+
+           Same reason z-40 and bg-card stay: a row that moves with the pointer
+           paints over its neighbours and needs an opaque background. */
+        isDragging && 'z-40 bg-card opacity-90',
       )}
     >
       <div className="flex items-start gap-1.5">
@@ -2379,7 +2411,23 @@ function SortRow({
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={cn(
         'group relative rounded px-1 py-1.5',
-        isDragging && 'z-40 bg-card opacity-90 shadow-[0_4px_12px_rgba(15,23,41,0.12)]',
+        /* #631 — the shadow goes, the dimming stays. Answer (a): the opacity IS
+           the signal, so a shadow on top of it says the same thing twice, and
+           StoryOS's stated direction is that depth comes from borders and
+           background shifts rather than shadows.
+
+           NOT `vacatedSlotClass`, which is the trap here. That class dims to
+           opacity-40 with a dashed outline, and it is correct at its six call
+           sites ONLY because a <DragPreview> ghost floats above carrying the
+           content. This file has no DragPreview — it still drags the row itself
+           in the flow via CSS.Transform (the #409 defect it never had fixed,
+           tracked separately). Applying the vacated-slot look here would fade
+           the thing you are actively dragging to 40%, which is a regression, not
+           a consistency win. It becomes right AFTER that conversion, not before.
+
+           Same reason z-40 and bg-card stay: a row that moves with the pointer
+           paints over its neighbours and needs an opaque background. */
+        isDragging && 'z-40 bg-card opacity-90',
       )}
     >
       <div className="flex items-start gap-1.5">

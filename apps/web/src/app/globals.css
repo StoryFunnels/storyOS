@@ -125,13 +125,26 @@
    * Collapsing those two would be a taste call on five sites with no evidence,
    * so both are named.
    *
-   * WHAT IS DELIBERATELY *NOT* IN THIS SCALE YET: the dragged-in-place state.
-   * Three view-toolbar rows and the board's drag overlay carry a 4px/12px
-   * shadow at 0.12/0.15 while ALSO being dimmed to opacity-90. That is a
-   * different thing from both the popover (static) and the lifted ghost
-   * (following the cursor), and whether such a row should be shadowed at all is
-   * a design question, not a mapping. It keeps its literals until that question
-   * gets an answer and a drag before/after — ticket #631.
+   * THE DRAGGED-IN-PLACE STATE — ANSWERED (ticket #631), and the answer was that
+   * it is not a new elevation. The four sites this block used to reserve turned
+   * out to be TWO different states, not one:
+   *
+   *   board-view's card was gated on `overlay` — the cursor-following ghost,
+   *   which --shadow-lifted already names. It was the fifth such ghost and the
+   *   only one still on a literal, because it predates <DragPreview>. It is now
+   *   on the token, which also makes #409's claim that DragPreview "matches
+   *   board-view" true; at 4px/12px/0.15 against 8px/24px/0.25 it was not.
+   *
+   *   The three view-toolbar rows were the in-place ones, and they get NO
+   *   shadow — the opacity is already the signal, and a shadow on top of it says
+   *   the same thing twice. They keep their dimming rather than taking
+   *   `vacatedSlotClass`: that class fades to 40% behind a floating
+   *   <DragPreview>, and this file has none, so it would fade the row you are
+   *   actively dragging. It becomes right after that conversion, not before.
+   *
+   * So no --shadow-dragging token: it would have named a state that exists only
+   * because one file never adopted #409. Every elevation in the app is now on
+   * this scale except the public form page's, which is ticket #632.
    */
   --shadow-ink: 15 23 41;
   --shadow-popover: 0 4px 12px rgb(var(--shadow-ink) / 0.08);
