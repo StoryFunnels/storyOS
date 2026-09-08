@@ -24,7 +24,7 @@ export function ShortcutsOverlay() {
   return (
     <div className="fixed inset-0 z-[var(--z-palette)] bg-[rgba(15,23,41,0.35)]" onClick={() => setOpen(false)}>
       <div
-        className="mx-auto mt-28 w-full max-w-sm rounded-[var(--radius-modal)] border border-border-default bg-card p-5 shadow-[0_20px_50px_rgba(15,23,41,0.2)]"
+        className="mx-auto mt-28 w-full max-w-sm rounded-[var(--radius-modal)] border border-border-default bg-card p-5 shadow-[var(--shadow-modal)]"
         onClick={(e) => e.stopPropagation()}
       >
         <h2 className="mb-3 text-sm font-semibold text-ink">Keyboard shortcuts</h2>
