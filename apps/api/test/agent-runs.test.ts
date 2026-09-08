@@ -126,6 +126,9 @@ const EXPECTED_RUN_FIELDS = [
   { name: 'cost', type: 'number' },
   { name: 'started_at', type: 'date' },
   { name: 'finished_at', type: 'date' },
+  // #544
+  { name: 'surface', type: 'select' },
+  { name: 'commit_or_image', type: 'text' },
   { name: 'steps', type: 'rich_text' },
 ];
 
@@ -159,6 +162,15 @@ describe('Runs system database (#209, ADR-0010 §1)', () => {
       'State change',
       'Schedule',
       'Automation',
+    ]);
+    // #544 — "Unknown" is a real, selectable option, distinct from the field
+    // being left empty (see the dedicated describe block below).
+    expect(fields.get('surface')!.options!.map((o) => o.label)).toEqual([
+      'Local rig',
+      'Staging',
+      'Production',
+      'Test suite',
+      'Unknown',
     ]);
 
     // Both pack databases live in the one "Agentic OS" space.
@@ -245,6 +257,110 @@ describe('Runs system database (#209, ADR-0010 §1)', () => {
     expect(res.json().id).toBe(agentsDbId);
     expect(res.json().name).toBe('Agents');
     expect(res.json().runs).toEqual({ id: runsDbId, name: 'Runs' });
+  });
+});
+
+/**
+ * #544 — a verification claim (what surface, which commit/image, when) as
+ * structured fields on the ordinary Run record, not prose in Steps. Recording
+ * one is just an ordinary record write — the same PATCH any Run field already
+ * takes — so there is no new "report a verification" endpoint to test; what
+ * needs proving is the field semantics (absent vs Unknown) and that the
+ * concrete query the ticket exists for (surface + time window) already works
+ * through the generic records-query filter engine with zero new query code.
+ */
+describe('#544 verification claims (surface / commit-or-image) on a Run', () => {
+  async function createRun(label: string): Promise<{ id: string; number: number }> {
+    const agent = await createAgent(`${label} bot`, { enabled: true, scopes: ['write'], targets: 'Issues' });
+    const res = await as(admin.token, 'POST', `/workspaces/${wsId}/agents/${agent.id}/run`);
+    expect(res.statusCode, res.body).toBe(201);
+    return res.json();
+  }
+
+  it('recording a verification claim is a single ordinary write, same as any other Run field', async () => {
+    const run = await createRun('Recorder');
+    const fields = await fieldsOf(runsDbId);
+    const stagingId = optionId(fields.get('surface'), 'Staging');
+
+    const patch = await as(
+      admin.token,
+      'PATCH',
+      `/workspaces/${wsId}/databases/${runsDbId}/records/${run.id}`,
+      { values: { surface: stagingId, commit_or_image: 'abc123' } },
+    );
+    expect(patch.statusCode, patch.body).toBeLessThan(300);
+    expect(patch.json().values.surface).toBe(stagingId);
+    expect(patch.json().values.commit_or_image).toBe('abc123');
+  });
+
+  it('a claim with NO recorded surface is distinguishable from one recorded as Unknown', async () => {
+    const noSurface = await createRun('No Surface');
+    const unknownSurface = await createRun('Unknown Surface');
+    const fields = await fieldsOf(runsDbId);
+    const unknownId = optionId(fields.get('surface'), 'Unknown');
+
+    await as(admin.token, 'PATCH', `/workspaces/${wsId}/databases/${runsDbId}/records/${unknownSurface.id}`, {
+      values: { surface: unknownId },
+    });
+
+    const q = await as(admin.token, 'POST', `/workspaces/${wsId}/databases/${runsDbId}/records/query`, {
+      filter: { field: 'surface', op: 'is_empty' },
+      limit: 200,
+    });
+    const absentIds = (q.json().data as Array<{ id: string }>).map((r) => r.id);
+    expect(absentIds).toContain(noSurface.id);
+    expect(absentIds).not.toContain(unknownSurface.id); // recorded-Unknown is NOT absent
+
+    const q2 = await as(admin.token, 'POST', `/workspaces/${wsId}/databases/${runsDbId}/records/query`, {
+      filter: { field: 'surface', op: 'eq', value: unknownId },
+      limit: 200,
+    });
+    const unknownIds = (q2.json().data as Array<{ id: string }>).map((r) => r.id);
+    expect(unknownIds).toContain(unknownSurface.id);
+    expect(unknownIds).not.toContain(noSurface.id);
+  });
+
+  it('the concrete incident query — every claim on ONE surface within a time window — works via the generic filter engine, no new query code', async () => {
+    const fields = await fieldsOf(runsDbId);
+    const stagingId = optionId(fields.get('surface'), 'Staging');
+    const productionId = optionId(fields.get('surface'), 'Production');
+
+    const onStaging = await createRun('On Staging');
+    const onProduction = await createRun('On Production');
+    await as(admin.token, 'PATCH', `/workspaces/${wsId}/databases/${runsDbId}/records/${onStaging.id}`, {
+      values: { surface: stagingId, commit_or_image: 'deadbeef' },
+    });
+    await as(admin.token, 'PATCH', `/workspaces/${wsId}/databases/${runsDbId}/records/${onProduction.id}`, {
+      values: { surface: productionId, commit_or_image: 'cafef00d' },
+    });
+
+    const from = new Date(Date.now() - 60_000).toISOString();
+    const to = new Date(Date.now() + 60_000).toISOString();
+    const q = await as(admin.token, 'POST', `/workspaces/${wsId}/databases/${runsDbId}/records/query`, {
+      filter: {
+        and: [
+          { field: 'surface', op: 'eq', value: stagingId },
+          { field: 'finished_at', op: 'after', value: from },
+          { field: 'finished_at', op: 'before', value: to },
+        ],
+      },
+      limit: 200,
+    });
+    const ids = (q.json().data as Array<{ id: string }>).map((r) => r.id);
+    expect(ids).toContain(onStaging.id);
+    expect(ids).not.toContain(onProduction.id);
+  });
+
+  it('MUST KEEP WORKING: re-ensure never guesses a value onto a pre-existing run — surface/commit_or_image stay absent unless explicitly written', async () => {
+    const run = await createRun('Pre-existing');
+    const again = await as(admin.token, 'POST', `/workspaces/${wsId}/agents/ensure`);
+    expect(again.statusCode, again.body).toBe(201);
+
+    const stored = (
+      await as(admin.token, 'GET', `/workspaces/${wsId}/databases/${runsDbId}/records/${run.id}`)
+    ).json();
+    expect(stored.values.surface).toBeUndefined();
+    expect(stored.values.commit_or_image).toBeUndefined();
   });
 });
 
