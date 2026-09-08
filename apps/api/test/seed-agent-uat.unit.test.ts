@@ -102,6 +102,14 @@ describe('#451 — agent UAT seed plan', () => {
     expect(plan.workspaces.slice(1).every((w) => w.templates.length === 0 && w.packs.length === 0)).toBe(true);
   });
 
+  it('#601 — plans a portal_recipients row too, not just the pack\'s guest-access shape', () => {
+    const plan = buildPlan('nadia', '1');
+    const flagship = plan.workspaces[0]!;
+    expect(flagship.portal_recipients.length).toBeGreaterThan(0);
+    // Flagship only, same reasoning as templates/packs.
+    expect(plan.workspaces.slice(1).every((w) => w.portal_recipients.length === 0)).toBe(true);
+  });
+
   it('plans real files on real records, weighted to where an operator looks (#460)', () => {
     const nadia = buildPlan('nadia', '1');
     expect(nadia.totals.attachments).toBeGreaterThan(50);
