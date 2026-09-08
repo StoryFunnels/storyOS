@@ -16,7 +16,9 @@ and showing you exactly what will happen before it happens.
   field blocks if *any* selected record has a value in it, so you resolve a schema mismatch a
   single time rather than once per row.
 
-Pick a destination database (grouped by space) and StoryOS runs a **dry run** immediately.
+Pick a destination database (grouped by space) and StoryOS runs a **dry run** immediately. **Only
+databases you can actually write to appear in the picker** — one where you only have viewer access
+never shows up, rather than being offered and only failing once you've picked it.
 
 ## Reading the preview
 
@@ -48,12 +50,6 @@ web dialog itself just doesn't have that control yet.
 **Confirm** applies the copy for real. The dialog then shows how many records were created (with
 any warnings) and a button to jump straight to the new record (one) or the destination database
 (several).
-
-## One limit worth knowing before you rely on this
-
-**The destination list isn't filtered to databases you can write to.** Picking one you only have
-read access to fails at the dry-run step with an error, rather than being hidden from the picker
-up front.
 
 ## What a bulk copy does — and doesn't — guarantee
 
