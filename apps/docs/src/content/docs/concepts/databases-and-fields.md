@@ -40,6 +40,25 @@ or Delete field, because a system field is read-only and its position is fixed; 
 those three would do. There's also no drag handle — a system column's position can't be reordered,
 matching what the server has always enforced.
 
+## Preventing duplicate values
+
+A `text` or `number` field can be marked **unique** — a second record can't save with a value
+that duplicates an existing one in that field. Turning it on scans existing rows first and refuses
+with the conflicts named, rather than silently letting existing duplicates through unnoticed.
+**Multiple empty values are always allowed**, regardless of the setting — uniqueness only compares
+values that are actually present. By default, comparison also **folds case and trims whitespace**
+first, so `"SKU-1"` and `" sku-1 "` count as the same value; this normalization can be turned off.
+
+**Enforced everywhere a value can be written** — a manual edit, a CSV import, a raw API call, and
+an MCP/agent write are all rejected the same way, naming the record that already holds the value.
+It's backed by a real database-level unique index underneath the app's own check, so two
+concurrent writes can't both slip through a race the app-level check alone would miss. Turning the
+setting back off keeps existing data exactly as it is; it only removes the constraint going
+forward.
+
+**Setting it is API/MCP-only today** — `update_field` takes `unique` and `unique_normalize` on an
+existing field; there's no toggle in the web field editor yet.
+
 ## Select options are first-class
 
 Options for `select` / `multi_select` / `workflow` fields are **real rows with stable IDs**, never
