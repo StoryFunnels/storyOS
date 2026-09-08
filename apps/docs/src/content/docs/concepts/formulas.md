@@ -134,6 +134,10 @@ The rules, all enforced by the editor as you type:
   that quietly degrades as your data grows is worse than one that isn't offered.
 - An empty link gives `0` for `count` and **empty** for the rest — deliberately matching Rollup, so
   the two never disagree. ("No data" and "adds up to zero" are different answers.)
+- **A condition field can be any referenceable type on the far side** — text, select, workflow,
+  number, date, and so on — the same types you could reference on the current record. A field type
+  that isn't referenceable at all (rich text, a relation, a person) names that reason rather than
+  claiming the field doesn't exist.
 
 ### Is a record linked?
 
