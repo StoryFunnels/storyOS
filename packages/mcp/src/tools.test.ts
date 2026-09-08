@@ -1794,6 +1794,31 @@ describe('descriptions and option editing over MCP (#400, #398)', () => {
       expect(sent.find((s) => s.method === 'PATCH')!.body).toEqual({ color: 'teal' });
     });
 
+    it('#229 — toggling unique forwards a config patch, not a full field replace', async () => {
+      const { call, sent } = harness();
+      await call('update_field', {
+        workspace: 'Eng',
+        database: 'Voices',
+        field: 'state',
+        unique: true,
+      });
+      const patch = sent.find((s) => s.method === 'PATCH' && s.path === '/api/v1/workspaces/{ws}/databases/{db}/fields/{field}');
+      expect(patch!.body).toEqual({ config: { unique: true } });
+    });
+
+    it('#229 — unique_normalize rides along only when unique is also given', async () => {
+      const { call, sent } = harness();
+      await call('update_field', {
+        workspace: 'Eng',
+        database: 'Voices',
+        field: 'state',
+        unique: false,
+        unique_normalize: false,
+      });
+      const patch = sent.find((s) => s.method === 'PATCH' && s.path === '/api/v1/workspaces/{ws}/databases/{db}/fields/{field}');
+      expect(patch!.body).toEqual({ config: { unique: false, unique_normalize: false } });
+    });
+
     it('recolours an EXISTING option, addressed by its label', async () => {
       /*
        * By label, not id: describe_database shows an agent labels and colours and

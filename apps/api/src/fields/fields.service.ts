@@ -7,8 +7,25 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
-import type { CreatableFieldType, FilterNode, FormulaFieldInfo, FormulaType, SystemFieldType } from '@storyos/schemas';
-import { activeFilter, FormulaError, formulaRefs, parseFormula, SYSTEM_FIELDS, systemFieldDefsFor, titleConfigSchema, numberConfigSchema, typecheck } from '@storyos/schemas';
+import type {
+  CreatableFieldType,
+  FilterNode,
+  FormulaFieldInfo,
+  FormulaType,
+  SystemFieldType,
+} from '@storyos/schemas';
+import {
+  activeFilter,
+  FormulaError,
+  formulaRefs,
+  parseFormula,
+  SYSTEM_FIELDS,
+  systemFieldDefsFor,
+  titleConfigSchema,
+  numberConfigSchema,
+  textConfigSchema,
+  typecheck,
+} from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { fields, records, relations, selectOptions } from '../db/schema';
@@ -70,7 +87,8 @@ function richTextToPlain(blocks: unknown): string {
 /** MN-295: finds a "me"-valued condition on a user/created_by field anywhere in a
  * filter tree, or undefined if there isn't one. Returns the offending field's api_name. */
 function findMeReference(node: FilterNode, ctx: CompilerContext): string | undefined {
-  if ('and' in node) return node.and.map((n) => findMeReference(n, ctx)).find((f) => f !== undefined);
+  if ('and' in node)
+    return node.and.map((n) => findMeReference(n, ctx)).find((f) => f !== undefined);
   if ('or' in node) return node.or.map((n) => findMeReference(n, ctx)).find((f) => f !== undefined);
   const def = ctx.defs.get(node.field);
   if (!def || (def.type !== 'user' && def.type !== 'created_by')) return undefined;
@@ -87,7 +105,11 @@ export class FieldsService {
 
   async getField(databaseId: string, fieldId: string): Promise<Field> {
     const field = await this.db.query.fields.findFirst({
-      where: and(eq(fields.id, fieldId), eq(fields.databaseId, databaseId), isNull(fields.deletedAt)),
+      where: and(
+        eq(fields.id, fieldId),
+        eq(fields.databaseId, databaseId),
+        isNull(fields.deletedAt),
+      ),
     });
     if (!field) throw new NotFoundException('Field not found');
     return field;
@@ -190,6 +212,10 @@ export class FieldsService {
     // board grouped by this field with a silent 200. assertNumberConfig closes
     // this at both create() and update() — see the sibling call there.
     if (input.type === 'number') this.assertNumberConfig(input.config ?? {});
+    // #229 — text had the same no-validation gap number did before #579; a
+    // non-boolean `unique` would otherwise land in storage and corrupt the
+    // truthy checks applyUniqueToggle/createUniqueIndex depend on.
+    if (input.type === 'text') this.assertTextConfig(input.config ?? {});
     // MN-129: resolve the api_name before compiling, so a formula field can be
     // guarded against referencing its own (about-to-exist) field.
     const apiName = await this.uniqueApiName(databaseId, input.display_name);
@@ -206,7 +232,11 @@ export class FieldsService {
      * resolved to the real id once they exist, inside the transaction below.
      */
     let pendingDefaultLabel: string | undefined;
-    if ((input.type === 'select' || input.type === 'workflow') && typeof config['default'] === 'string' && config['default']) {
+    if (
+      (input.type === 'select' || input.type === 'workflow') &&
+      typeof config['default'] === 'string' &&
+      config['default']
+    ) {
       pendingDefaultLabel = config['default'] as string;
       if (!input.options?.some((o) => o.label === pendingDefaultLabel)) {
         throw new UnprocessableEntityException(
@@ -264,6 +294,20 @@ export class FieldsService {
     });
     await this.backfillFormulaField(databaseId, created);
     await this.backfillRollupField(databaseId, created);
+    // #229 — a brand-new field has no records referencing it yet, so no
+    // conflict scan is needed; only the DB-level index has to exist before the
+    // first write can rely on it. CONCURRENTLY can't run inside the transaction
+    // above, so this runs after it commits, same as the backfills.
+    if (
+      (input.type === 'text' || input.type === 'number') &&
+      (created.config as Record<string, unknown>)['unique']
+    ) {
+      await this.createUniqueIndex(
+        databaseId,
+        created.id,
+        (created.config as Record<string, unknown>)['unique_normalize'] !== false,
+      );
+    }
     return created;
   }
 
@@ -277,9 +321,14 @@ export class FieldsService {
    * (materializeFormulaFieldForAllRecords checks the type; the sortability gate
    * itself lives in RecordsService.query's SORTABLE check).
    */
-  private async backfillFormulaField(databaseId: string, field: { id: string; type: string }): Promise<void> {
+  private async backfillFormulaField(
+    databaseId: string,
+    field: { id: string; type: string },
+  ): Promise<void> {
     if (field.type !== 'formula') return;
-    await this.recordsService.materializeFormulaFieldForAllRecords(databaseId, field.id).catch(() => undefined);
+    await this.recordsService
+      .materializeFormulaFieldForAllRecords(databaseId, field.id)
+      .catch(() => undefined);
   }
 
   /**
@@ -288,9 +337,14 @@ export class FieldsService {
    * pre-existing record as null until its relation next changed.
    * Best-effort/isolated: never fails the field-create response.
    */
-  private async backfillRollupField(databaseId: string, field: { id: string; type: string }): Promise<void> {
+  private async backfillRollupField(
+    databaseId: string,
+    field: { id: string; type: string },
+  ): Promise<void> {
     if (field.type !== 'rollup') return;
-    await this.recordsService.recomputeRollupFieldForAllRecords(databaseId, field.id).catch(() => undefined);
+    await this.recordsService
+      .recomputeRollupFieldForAllRecords(databaseId, field.id)
+      .catch(() => undefined);
   }
 
   /** Field types a formula may reference, mapped to formula types. */
@@ -300,7 +354,8 @@ export class FieldsService {
     if (type === 'number' || type === 'rollup' || type === 'id') return 'number';
     if (type === 'checkbox') return 'checkbox';
     if (type === 'date' || type === 'created_at' || type === 'updated_at') return 'date';
-    if (['text', 'title', 'select', 'workflow', 'url', 'email', 'lookup'].includes(type)) return 'text';
+    if (['text', 'title', 'select', 'workflow', 'url', 'email', 'lookup'].includes(type))
+      return 'text';
     if (type === 'formula') return null; // resolved per-field from its result_type
     return null;
   }
@@ -341,7 +396,12 @@ export class FieldsService {
     for (const f of live) {
       if (f.type === 'formula') {
         const rt = (f.config as { result_type?: string }).result_type;
-        if (rt) infos.push({ api_name: f.apiName, display_name: f.displayName, formula_type: rt as never });
+        if (rt)
+          infos.push({
+            api_name: f.apiName,
+            display_name: f.displayName,
+            formula_type: rt as never,
+          });
         continue;
       }
       // #286: formulaTypeOf maps every rollup to `number`, which was true while
@@ -387,11 +447,17 @@ export class FieldsService {
         if (t.type === 'relation') continue;
         if (t.type === 'formula') {
           const rt = (t.config as { result_type?: string }).result_type;
-          if (rt) related.push({ api_name: t.apiName, display_name: t.displayName, formula_type: rt as never });
+          if (rt)
+            related.push({
+              api_name: t.apiName,
+              display_name: t.displayName,
+              formula_type: rt as never,
+            });
           continue;
         }
         const ft = FieldsService.formulaTypeOf(t.type);
-        if (ft) related.push({ api_name: t.apiName, display_name: t.displayName, formula_type: ft });
+        if (ft)
+          related.push({ api_name: t.apiName, display_name: t.displayName, formula_type: ft });
       }
       infos.push({
         api_name: f.apiName,
@@ -406,7 +472,8 @@ export class FieldsService {
     for (const spec of SYSTEM_FIELDS) {
       if (infos.some((i) => i.api_name === spec.api_name)) continue;
       const ft = FieldsService.systemFieldFormulaType(spec.type);
-      if (ft) infos.push({ api_name: spec.api_name, display_name: spec.display_name, formula_type: ft });
+      if (ft)
+        infos.push({ api_name: spec.api_name, display_name: spec.display_name, formula_type: ft });
     }
     // MN-129: make the field's own name resolvable even if it has no row yet (a
     // brand-new formula field), so a self-reference produces the dedicated guard
@@ -420,7 +487,8 @@ export class FieldsService {
       ast = parseFormula(expression, infos);
       resultType = typecheck(ast, infos);
     } catch (error) {
-      if (error instanceof FormulaError) throw new UnprocessableEntityException(`Formula error: ${error.message}`);
+      if (error instanceof FormulaError)
+        throw new UnprocessableEntityException(`Formula error: ${error.message}`);
       throw error;
     }
     // MN-129: self-reference guard — reject before storing an AST that would cycle.
@@ -432,9 +500,12 @@ export class FieldsService {
     if (resultType === 'null') resultType = 'text';
 
     // Cycle check: walking refs into other formulas must terminate within depth 5.
-    const formulaByApi = new Map(live.filter((f) => f.type === 'formula').map((f) => [f.apiName, f]));
+    const formulaByApi = new Map(
+      live.filter((f) => f.type === 'formula').map((f) => [f.apiName, f]),
+    );
     const visit = (refs: string[], depth: number): void => {
-      if (depth > 5) throw new UnprocessableEntityException('Formula chains are limited to 5 levels');
+      if (depth > 5)
+        throw new UnprocessableEntityException('Formula chains are limited to 5 levels');
       for (const ref of refs) {
         const target = formulaByApi.get(ref);
         if (!target) continue;
@@ -449,22 +520,43 @@ export class FieldsService {
 
   /** Types a lookup can surface — no chains (lookup-of-lookup) or nested relations in v1. */
   private static readonly LOOKUPABLE = new Set([
-    'title', 'text', 'number', 'checkbox', 'date', 'select', 'multi_select', 'workflow', 'url', 'email',
+    'title',
+    'text',
+    'number',
+    'checkbox',
+    'date',
+    'select',
+    'multi_select',
+    'workflow',
+    'url',
+    'email',
   ]);
 
   /** Resolves the related database behind a relation field of THIS database, or 422s. */
-  private async resolveRelationTargetDb(databaseId: string, relationFieldId: string | undefined): Promise<string> {
+  private async resolveRelationTargetDb(
+    databaseId: string,
+    relationFieldId: string | undefined,
+  ): Promise<string> {
     const relationField = relationFieldId
       ? await this.db.query.fields.findFirst({
-          where: and(eq(fields.id, relationFieldId), eq(fields.databaseId, databaseId), isNull(fields.deletedAt)),
+          where: and(
+            eq(fields.id, relationFieldId),
+            eq(fields.databaseId, databaseId),
+            isNull(fields.deletedAt),
+          ),
         })
       : undefined;
     if (!relationField || relationField.type !== 'relation') {
-      throw new UnprocessableEntityException('relation_field_id must be a relation field of this database');
+      throw new UnprocessableEntityException(
+        'relation_field_id must be a relation field of this database',
+      );
     }
     const relConfig = relationField.config as { relation_id: string; side: 'a' | 'b' };
-    const relation = await this.db.query.relations.findFirst({ where: eq(relations.id, relConfig.relation_id) });
-    if (!relation) throw new UnprocessableEntityException('The underlying relation no longer exists');
+    const relation = await this.db.query.relations.findFirst({
+      where: eq(relations.id, relConfig.relation_id),
+    });
+    if (!relation)
+      throw new UnprocessableEntityException('The underlying relation no longer exists');
     return relConfig.side === 'a' ? relation.databaseBId : relation.databaseAId;
   }
 
@@ -473,18 +565,142 @@ export class FieldsService {
   private assertNumberConfig(config: Record<string, unknown>) {
     const result = numberConfigSchema.safeParse(config);
     if (!result.success) {
-      throw new UnprocessableEntityException(result.error.issues[0]?.message ?? 'invalid number field config');
+      throw new UnprocessableEntityException(
+        result.error.issues[0]?.message ?? 'invalid number field config',
+      );
+    }
+  }
+
+  /** #229 — see the create()-side comment for why text needs this now too. */
+  private assertTextConfig(config: Record<string, unknown>) {
+    const result = textConfigSchema.safeParse(config);
+    if (!result.success) {
+      throw new UnprocessableEntityException(result.error.issues[0]?.message ?? 'invalid text field config');
+    }
+  }
+
+  /**
+   * #229 — deterministic name so toggling off can find and drop the exact index
+   * this field created; fieldId is a server-generated UUID (never user text), so
+   * it's safe to fold straight into a raw identifier. Kept under Postgres' 63-char
+   * identifier limit ("field_unique_" + 32 hex chars = 45).
+   */
+  private uniqueIndexName(fieldId: string): string {
+    if (!/^[0-9a-f-]{36}$/.test(fieldId)) throw new Error('invalid field id');
+    return `field_unique_${fieldId.replace(/-/g, '')}`;
+  }
+
+  /**
+   * The expression the unique index (and the conflict scan) both key on.
+   * `unique_normalize` folds case/whitespace so "SKU-1" and " sku-1 " collide —
+   * see textConfigSchema's uniqueConfigFields doc. Numbers round-trip through
+   * ->> as their canonical JSON text form either way, so normalization is a
+   * text-only concern in practice.
+   */
+  private uniqueValueExpr(fieldId: string, normalize: boolean): string {
+    const raw = `values->>'${fieldId}'`;
+    return normalize ? `lower(trim(${raw}))` : raw;
+  }
+
+  /**
+   * #229 AC1 — toggling Unique on scans existing LIVE records instead of
+   * silently enabling; reports every conflicting group so the caller can name
+   * the colliding records rather than just "duplicates exist". Empty/absent
+   * values never conflict (multiple blanks are always permitted).
+   */
+  private async scanUniqueConflicts(databaseId: string, fieldId: string, normalize: boolean) {
+    const rows = await this.db.query.records.findMany({
+      where: and(
+        eq(records.databaseId, databaseId),
+        isNull(records.deletedAt),
+        sql`${records.values} ? ${fieldId}`,
+      ),
+      columns: { id: true, number: true, title: true, values: true },
+    });
+    const groups = new Map<string, Array<{ id: string; number: number | null; title: string }>>();
+    for (const row of rows) {
+      const raw = (row.values as Record<string, unknown>)[fieldId];
+      if (raw === null || raw === undefined || raw === '') continue;
+      const key = normalize ? String(raw).trim().toLowerCase() : String(raw);
+      if (key === '') continue;
+      const group = groups.get(key) ?? [];
+      group.push({ id: row.id, number: row.number, title: row.title });
+      groups.set(key, group);
+    }
+    return [...groups.entries()]
+      .filter(([, group]) => group.length > 1)
+      .map(([value, group]) => ({ value, records: group }));
+  }
+
+  /**
+   * #229 AC5 — the app-level scan above can't stop a concurrent insert racing
+   * in between the scan and this call, so the real guarantee is this DB-level
+   * partial unique index. CONCURRENTLY can't run inside a transaction (callers
+   * must invoke this outside one); IF NOT EXISTS makes re-toggling on idempotent.
+   */
+  private async createUniqueIndex(databaseId: string, fieldId: string, normalize: boolean) {
+    const name = this.uniqueIndexName(fieldId);
+    const expr = this.uniqueValueExpr(fieldId, normalize);
+    await this.db.execute(
+      sql.raw(
+        `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "${name}" ON records ((${expr})) ` +
+          `WHERE database_id = '${databaseId}' AND deleted_at IS NULL AND values ? '${fieldId}'`,
+      ),
+    );
+  }
+
+  /** #229 AC6 — turning the flag off drops the constraint without touching any data. */
+  private async dropUniqueIndex(fieldId: string) {
+    const name = this.uniqueIndexName(fieldId);
+    await this.db.execute(sql.raw(`DROP INDEX CONCURRENTLY IF EXISTS "${name}"`));
+  }
+
+  /**
+   * Shared by create() (a brand-new field can be born already marked Unique —
+   * no scan needed, there are no values yet) and update()'s text/number
+   * branches (toggling an existing field, where a scan is the whole point).
+   */
+  private async applyUniqueToggle(
+    databaseId: string,
+    fieldId: string,
+    wasUnique: boolean,
+    willBeUnique: boolean,
+    normalize: boolean,
+  ) {
+    if (wasUnique === willBeUnique) return;
+    if (willBeUnique) {
+      const conflicts = await this.scanUniqueConflicts(databaseId, fieldId, normalize);
+      if (conflicts.length > 0) {
+        const sample = conflicts[0]!;
+        const names = sample.records.map((r) => `#${r.number} ("${r.title}")`).join(', ');
+        throw new ConflictException(
+          `Can't enable Unique — ${conflicts.length} value${conflicts.length === 1 ? '' : 's'} already ` +
+            `repeat${conflicts.length === 1 ? 's' : ''} across existing records. Example: "${sample.value}" is shared by ${names}.`,
+        );
+      }
+      await this.createUniqueIndex(databaseId, fieldId, normalize);
+    } else {
+      await this.dropUniqueIndex(fieldId);
     }
   }
 
   private async assertLookupConfig(databaseId: string, config: Record<string, unknown>) {
     const targetApiName = config['target_field_api_name'] as string | undefined;
-    const targetDbId = await this.resolveRelationTargetDb(databaseId, config['relation_field_id'] as string | undefined);
+    const targetDbId = await this.resolveRelationTargetDb(
+      databaseId,
+      config['relation_field_id'] as string | undefined,
+    );
     const targetField = await this.db.query.fields.findFirst({
-      where: and(eq(fields.databaseId, targetDbId), eq(fields.apiName, targetApiName ?? ''), isNull(fields.deletedAt)),
+      where: and(
+        eq(fields.databaseId, targetDbId),
+        eq(fields.apiName, targetApiName ?? ''),
+        isNull(fields.deletedAt),
+      ),
     });
     if (!targetField) {
-      throw new UnprocessableEntityException('target_field_api_name does not exist on the related database');
+      throw new UnprocessableEntityException(
+        'target_field_api_name does not exist on the related database',
+      );
     }
     if (!FieldsService.LOOKUPABLE.has(targetField.type)) {
       throw new UnprocessableEntityException(`Cannot look up ${targetField.type} fields`);
@@ -497,11 +713,16 @@ export class FieldsService {
    * (packages/schemas/src/fields.ts) can trust whatever it finds in storage,
    * the same contract every other type's default already relies on.
    */
-  private assertSelectDefaultOption(config: Record<string, unknown>, optionIds: ReadonlySet<string>): void {
+  private assertSelectDefaultOption(
+    config: Record<string, unknown>,
+    optionIds: ReadonlySet<string>,
+  ): void {
     const def = config['default'];
     if (def === undefined || def === null) return;
     if (typeof def !== 'string' || !optionIds.has(def)) {
-      throw new UnprocessableEntityException('default must be the id of one of this field\'s options');
+      throw new UnprocessableEntityException(
+        "default must be the id of one of this field's options",
+      );
     }
   }
 
@@ -514,8 +735,18 @@ export class FieldsService {
    * quietly resolving to null forever.
    */
   static readonly ROLLUP_ORDER_BY_TYPES = new Set([
-    'number', 'date', 'text', 'title', 'select', 'workflow', 'checkbox', 'email', 'url',
-    'id', 'created_at', 'updated_at',
+    'number',
+    'date',
+    'text',
+    'title',
+    'select',
+    'workflow',
+    'checkbox',
+    'email',
+    'url',
+    'id',
+    'created_at',
+    'updated_at',
   ]);
 
   /**
@@ -529,10 +760,15 @@ export class FieldsService {
   private async assertRollupConfig(databaseId: string, config: Record<string, unknown>) {
     const op = config['op'] as string | undefined;
     if (!op || !FieldsService.ROLLUP_OPS.has(op)) {
-      throw new UnprocessableEntityException('rollup op must be one of count, sum, avg, min, max, first, last');
+      throw new UnprocessableEntityException(
+        'rollup op must be one of count, sum, avg, min, max, first, last',
+      );
     }
     const targetApiName = config['target_field_api_name'] as string | undefined | null;
-    const targetDbId = await this.resolveRelationTargetDb(databaseId, config['relation_field_id'] as string | undefined);
+    const targetDbId = await this.resolveRelationTargetDb(
+      databaseId,
+      config['relation_field_id'] as string | undefined,
+    );
 
     // #286: first/last is a DIFFERENT contract from the aggregates — it needs an
     // ordering field, and its target field is the value to RETURN (any type, or
@@ -540,11 +776,15 @@ export class FieldsService {
     if (isPickOneOp(op)) {
       const orderByApiName = config['order_by_field_api_name'] as string | undefined | null;
       if (!orderByApiName) {
-        throw new UnprocessableEntityException(`rollup op "${op}" needs an order_by_field_api_name (the field to order the related records by)`);
+        throw new UnprocessableEntityException(
+          `rollup op "${op}" needs an order_by_field_api_name (the field to order the related records by)`,
+        );
       }
       const orderByType = await this.rollupFieldType(targetDbId, orderByApiName);
       if (!orderByType) {
-        throw new UnprocessableEntityException('order_by_field_api_name does not exist on the related database');
+        throw new UnprocessableEntityException(
+          'order_by_field_api_name does not exist on the related database',
+        );
       }
       if (!FieldsService.ROLLUP_ORDER_BY_TYPES.has(orderByType)) {
         // formula/rollup/lookup are excluded on purpose, not by oversight: a
@@ -552,13 +792,19 @@ export class FieldsService {
         // `computed_values` under conditions this ordering can't check — so
         // allowing them would order by null for some rows and look like data
         // loss. Refusing with a reason beats a field that quietly never works.
-        throw new UnprocessableEntityException(`rollup "${op}" cannot order by a ${orderByType} field — pick a field with a single stored, comparable value`);
+        throw new UnprocessableEntityException(
+          `rollup "${op}" cannot order by a ${orderByType} field — pick a field with a single stored, comparable value`,
+        );
       }
       // Omitted target = "return a link to the record itself", which the founder
       // asked for explicitly; so unlike the aggregates it is NOT an error.
-      const targetType = targetApiName ? await this.rollupFieldType(targetDbId, targetApiName) : null;
+      const targetType = targetApiName
+        ? await this.rollupFieldType(targetDbId, targetApiName)
+        : null;
       if (targetApiName && !targetType) {
-        throw new UnprocessableEntityException('target_field_api_name does not exist on the related database');
+        throw new UnprocessableEntityException(
+          'target_field_api_name does not exist on the related database',
+        );
       }
       const filterNode = config['filter'] as FilterNode | undefined;
       if (filterNode) await this.assertRollupFilter(targetDbId, filterNode);
@@ -581,13 +827,21 @@ export class FieldsService {
         throw new UnprocessableEntityException(`rollup op "${op}" needs a target_field_api_name`);
       }
       const targetField = await this.db.query.fields.findFirst({
-        where: and(eq(fields.databaseId, targetDbId), eq(fields.apiName, targetApiName), isNull(fields.deletedAt)),
+        where: and(
+          eq(fields.databaseId, targetDbId),
+          eq(fields.apiName, targetApiName),
+          isNull(fields.deletedAt),
+        ),
       });
       if (!targetField) {
-        throw new UnprocessableEntityException('target_field_api_name does not exist on the related database');
+        throw new UnprocessableEntityException(
+          'target_field_api_name does not exist on the related database',
+        );
       }
       if (op !== 'count' && targetField.type !== 'number') {
-        throw new UnprocessableEntityException(`rollup "${op}" aggregates number fields, not ${targetField.type}`);
+        throw new UnprocessableEntityException(
+          `rollup "${op}" aggregates number fields, not ${targetField.type}`,
+        );
       }
     }
 
@@ -609,7 +863,10 @@ export class FieldsService {
     // fieldDefs() returns only stored rows; the registry's purely-synthetic
     // system fields (notably `number`) have none, and "Last Ticket by ID" is the
     // ticket's headline example. Additive, so a real field of the same name wins.
-    return systemFieldDefsFor(defs.map((d) => d.api_name)).find((d) => d.api_name === apiName)?.type ?? null;
+    return (
+      systemFieldDefsFor(defs.map((d) => d.api_name)).find((d) => d.api_name === apiName)?.type ??
+      null
+    );
   }
 
   /** MN-295: compiles the rollup's filter against the related database's fields, purely
@@ -646,16 +903,22 @@ export class FieldsService {
     });
     const doomed: string[] = [];
     for (const lookup of lookups) {
-      const config = lookup.config as { relation_field_id?: string; target_field_api_name?: string };
+      const config = lookup.config as {
+        relation_field_id?: string;
+        target_field_api_name?: string;
+      };
       if (opts.relationFieldIds?.includes(config.relation_field_id ?? '')) doomed.push(lookup.id);
       if (opts.targetField && config.target_field_api_name === opts.targetField.apiName) {
         // Same api_name may exist elsewhere; confirm the relation actually points at the target's db.
         const relationField = await db.query.fields.findFirst({
           where: eq(fields.id, config.relation_field_id ?? ''),
         });
-        const relConfig = relationField?.config as { relation_id?: string; side?: 'a' | 'b' } | undefined;
+        const relConfig = relationField?.config as
+          { relation_id?: string; side?: 'a' | 'b' } | undefined;
         if (!relConfig?.relation_id) continue;
-        const relation = await db.query.relations.findFirst({ where: eq(relations.id, relConfig.relation_id) });
+        const relation = await db.query.relations.findFirst({
+          where: eq(relations.id, relConfig.relation_id),
+        });
         if (!relation) continue;
         const targetDbId = relConfig.side === 'a' ? relation.databaseBId : relation.databaseAId;
         if (targetDbId === opts.targetField.databaseId) doomed.push(lookup.id);
@@ -741,7 +1004,10 @@ export class FieldsService {
       // compileFormulaConfig returns ONLY { expression, ast, result_type }, so the
       // compiled trio is layered OVER `merged` rather than replacing it — otherwise
       // a percent toggle (#190's `format`) would be dropped on every save.
-      nextConfig = { ...merged, ...(await this.compileFormulaConfig(databaseId, merged, field.apiName)) };
+      nextConfig = {
+        ...merged,
+        ...(await this.compileFormulaConfig(databaseId, merged, field.apiName)),
+      };
       recompiledFormula = String(merged.expression) !== String(stored['expression'] ?? '');
     } else if (field.type === 'rollup' && patch.config !== undefined) {
       /*
@@ -764,7 +1030,10 @@ export class FieldsService {
       // The stored sort key was computed under the OLD config — recompute it,
       // for the same reason a recompiled formula is re-materialized below.
       rollupConfigChanged = JSON.stringify(merged) !== JSON.stringify(field.config);
-    } else if ((field.type === 'select' || field.type === 'workflow') && patch.config !== undefined) {
+    } else if (
+      (field.type === 'select' || field.type === 'workflow') &&
+      patch.config !== undefined
+    ) {
       // #475 — unlike create(), the field's options already exist by the time
       // anyone PATCHes its config, so `default` is validated by id here, not
       // by label.
@@ -786,6 +1055,34 @@ export class FieldsService {
       const restored = restoreFieldConfig(patch.config, field.config);
       const merged = { ...(field.config as Record<string, unknown>), ...restored };
       this.assertNumberConfig(merged);
+      // #229 — scan-then-toggle happens BEFORE the config is persisted below, so
+      // a rejected toggle (conflicts found) never leaves the flag half-set.
+      await this.applyUniqueToggle(
+        databaseId,
+        fieldId,
+        Boolean((field.config as Record<string, unknown>)['unique']),
+        Boolean(merged['unique']),
+        merged['unique_normalize'] !== false,
+      );
+      nextConfig = merged;
+    } else if (field.type === 'text' && patch.config !== undefined) {
+      // #229 — text had no dedicated update() branch before (fell through to
+      // the generic shallow merge below); Unique needs one, same as number's.
+      const restored = restoreFieldConfig(patch.config, field.config);
+      const merged = { ...(field.config as Record<string, unknown>), ...restored };
+      const parsed = textConfigSchema.safeParse(merged);
+      if (!parsed.success) {
+        throw new UnprocessableEntityException(
+          parsed.error.issues[0]?.message ?? 'invalid text field config',
+        );
+      }
+      await this.applyUniqueToggle(
+        databaseId,
+        fieldId,
+        Boolean((field.config as Record<string, unknown>)['unique']),
+        Boolean(merged['unique']),
+        merged['unique_normalize'] !== false,
+      );
       nextConfig = merged;
     } else {
       const restored = patch.config ? restoreFieldConfig(patch.config, field.config) : undefined;
@@ -816,7 +1113,9 @@ export class FieldsService {
     }
     // #300: same reasoning for a rollup whose config actually changed.
     if (rollupConfigChanged) {
-      await this.recordsService.recomputeRollupFieldForAllRecords(databaseId, fieldId).catch(() => undefined);
+      await this.recordsService
+        .recomputeRollupFieldForAllRecords(databaseId, fieldId)
+        .catch(() => undefined);
     }
     return this.withOptions(this.db, updated!);
   }
@@ -837,14 +1136,20 @@ export class FieldsService {
   ): Promise<Record<string, unknown>> {
     const parsed = titleConfigSchema.safeParse(config);
     if (!parsed.success) {
-      throw new UnprocessableEntityException(`Title config error: ${parsed.error.issues[0]?.message}`);
+      throw new UnprocessableEntityException(
+        `Title config error: ${parsed.error.issues[0]?.message}`,
+      );
     }
     if (parsed.data.name_mode !== 'computed') return { name_mode: 'freetext' };
     const source = (parsed.data.source ?? '').trim();
     if (!source) {
       throw new UnprocessableEntityException('A computed name needs a template expression');
     }
-    const compiled = await this.compileFormulaConfig(databaseId, { expression: source }, field.apiName);
+    const compiled = await this.compileFormulaConfig(
+      databaseId,
+      { expression: source },
+      field.apiName,
+    );
     await this.assertTitleRefs(databaseId, compiled.ast);
     return {
       name_mode: 'computed',
@@ -886,7 +1191,8 @@ export class FieldsService {
   /** Soft delete (B6). Title/system fields are protected; relation fields belong to MN-018. */
   async remove(databaseId: string, fieldId: string) {
     const field = await this.getField(databaseId, fieldId);
-    if (field.type === 'title') throw new UnprocessableEntityException('The title field cannot be deleted');
+    if (field.type === 'title')
+      throw new UnprocessableEntityException('The title field cannot be deleted');
     if (field.isSystem) throw new UnprocessableEntityException('System fields cannot be deleted');
     if (field.type === 'relation') {
       throw new UnprocessableEntityException('Delete relation fields via the relations API');
@@ -894,6 +1200,10 @@ export class FieldsService {
     const recordsWithValue = await this.usageCount(databaseId, fieldId);
     await this.db.update(fields).set({ deletedAt: new Date() }).where(eq(fields.id, fieldId));
     const lookupsRemoved = await this.removeDependentLookups(this.db, { targetField: field });
+    // #229 — a deleted field's unique index would otherwise dangle forever.
+    if ((field.config as Record<string, unknown>)['unique']) {
+      await this.dropUniqueIndex(fieldId);
+    }
     return { deleted: true, records_with_value: recordsWithValue, lookups_removed: lookupsRemoved };
   }
 
@@ -902,7 +1212,12 @@ export class FieldsService {
    * count without applying. Conversion runs in one transaction (per-row —
    * fine at v1 scale, documented in record-storage.md).
    */
-  async changeType(databaseId: string, fieldId: string, targetType: CreatableFieldType, dryRun: boolean) {
+  async changeType(
+    databaseId: string,
+    fieldId: string,
+    targetType: CreatableFieldType,
+    dryRun: boolean,
+  ) {
     const field = await this.getField(databaseId, fieldId);
     if (field.isSystem || field.type === 'title' || field.type === 'relation') {
       throw new UnprocessableEntityException(`Type of ${field.type} fields cannot be changed`);
@@ -963,6 +1278,11 @@ export class FieldsService {
         await tx.delete(selectOptions).where(eq(selectOptions.fieldId, fieldId));
       }
     });
+    // #229 — config is wiped above, so a unique index from the old type would
+    // otherwise dangle, orphaned from the flag that used to describe it.
+    if ((field.config as Record<string, unknown>)['unique']) {
+      await this.dropUniqueIndex(fieldId);
+    }
 
     return { dry_run: false, records_affected: rows.length, lossy_conversions: lossy };
   }
@@ -978,7 +1298,11 @@ export class FieldsService {
     return field;
   }
 
-  async addOption(databaseId: string, fieldId: string, input: { label: string; color: string; icon?: string | null }) {
+  async addOption(
+    databaseId: string,
+    fieldId: string,
+    input: { label: string; color: string; icon?: string | null },
+  ) {
     await this.assertSelectField(databaseId, fieldId);
     const existing = await this.db.query.selectOptions.findMany({
       where: eq(selectOptions.fieldId, fieldId),
@@ -1042,7 +1366,9 @@ export class FieldsService {
     const count = usage[0]?.count ?? 0;
 
     if (count > 0 && !input.confirm) {
-      throw new ConflictException(`Option is used by ${count} record(s). Pass confirm: true to clear.`);
+      throw new ConflictException(
+        `Option is used by ${count} record(s). Pass confirm: true to clear.`,
+      );
     }
 
     await this.db.transaction(async (tx) => {
@@ -1055,7 +1381,12 @@ export class FieldsService {
                 ? sql`jsonb_set(${records.values}, ${`{${fieldId}}`}::text[], ${JSON.stringify(input.reassign_to)}::jsonb)`
                 : sql`${records.values} - ${fieldId}::text`,
             })
-            .where(and(eq(records.databaseId, databaseId), sql`${records.values}->>${fieldId} = ${optionId}`));
+            .where(
+              and(
+                eq(records.databaseId, databaseId),
+                sql`${records.values}->>${fieldId} = ${optionId}`,
+              ),
+            );
         } else {
           await tx
             .update(records)
@@ -1064,7 +1395,12 @@ export class FieldsService {
                 ? sql`jsonb_set(${records.values}, ${`{${fieldId}}`}::text[], (${records.values}->${fieldId}) - ${optionId} || ${JSON.stringify([input.reassign_to])}::jsonb)`
                 : sql`jsonb_set(${records.values}, ${`{${fieldId}}`}::text[], (${records.values}->${fieldId}) - ${optionId})`,
             })
-            .where(and(eq(records.databaseId, databaseId), sql`${records.values}->${fieldId} ? ${optionId}`));
+            .where(
+              and(
+                eq(records.databaseId, databaseId),
+                sql`${records.values}->${fieldId} ? ${optionId}`,
+              ),
+            );
         }
       }
       await tx.delete(selectOptions).where(eq(selectOptions.id, optionId));
@@ -1078,7 +1414,11 @@ export class FieldsService {
       if (config['default'] === optionId) {
         await tx
           .update(fields)
-          .set({ config: input.reassign_to ? { ...config, default: input.reassign_to } : { ...config, default: undefined } })
+          .set({
+            config: input.reassign_to
+              ? { ...config, default: input.reassign_to }
+              : { ...config, default: undefined },
+          })
           .where(eq(fields.id, fieldId));
       }
     });
@@ -1109,7 +1449,10 @@ function convertValue(
     }
     // #172: workflow → text degrades through the option label, same as select.
     if (from === 'select' || from === 'workflow') {
-      return { value: optionLabels.get(String(value)) ?? null, lost: !optionLabels.has(String(value)) };
+      return {
+        value: optionLabels.get(String(value)) ?? null,
+        lost: !optionLabels.has(String(value)),
+      };
     }
     if (from === 'multi_select') {
       const labels = (value as string[]).map((id) => optionLabels.get(id)).filter(Boolean);
@@ -1132,7 +1475,8 @@ function convertValue(
   if ((to === 'select' && from === 'workflow') || (to === 'workflow' && from === 'select')) {
     return { value, lost: false };
   }
-  if (to === 'multi_select' && (from === 'select' || from === 'workflow')) return { value: [value], lost: false };
+  if (to === 'multi_select' && (from === 'select' || from === 'workflow'))
+    return { value: [value], lost: false };
   if ((to === 'select' || to === 'workflow') && from === 'multi_select') {
     const arr = value as string[];
     return { value: arr[0] ?? null, lost: arr.length > 1 };

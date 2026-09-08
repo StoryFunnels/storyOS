@@ -2768,6 +2768,17 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         database: z.string(),
         field: z.string().describe('Field to update (name, api_name, or id).'),
         rename_to: z.string().optional(),
+        unique: z
+          .boolean()
+          .optional()
+          .describe(
+            '#229 — mark a text/number field Unique (rejects a duplicate value on create/edit) or turn it off. ' +
+              'Turning it on scans existing records first and refuses (naming the conflicting ones) instead of silently enabling.',
+          ),
+        unique_normalize: z
+          .boolean()
+          .optional()
+          .describe('With `unique: true` — fold case and trim whitespace before comparing (default true).'),
         add_options: z.array(optionShape).optional().describe('New choices to add to a select/multi_select field.'),
         /*
          * #398 — the gap that pushed a careful agent toward a DESTRUCTIVE path.
@@ -2808,11 +2819,13 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       database: string;
       field: string;
       rename_to?: string;
+      unique?: boolean;
+      unique_normalize?: boolean;
       add_options?: Array<string | { label: string; color?: string; icon?: string }>;
       update_options?: Array<{ option: string; label?: string; color?: string; icon?: string | null }>;
       remove_options?: Array<{ option: string; confirm?: boolean; reassign_to?: string }>;
     }>(
-      async ({ workspace, database, field, rename_to, add_options, update_options, remove_options }) => {
+      async ({ workspace, database, field, rename_to, unique, unique_normalize, add_options, update_options, remove_options }) => {
         const ws = await resolveWorkspace(client, workspace);
         const db = await resolveDatabase(client, ws.id, database);
         const detail = await getDetail(ws.id, db.id);
@@ -2845,6 +2858,19 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
             client.PATCH('/api/v1/workspaces/{ws}/databases/{db}/fields/{field}', {
               params: { path: { ws: ws.id, db: db.id, field: fieldId } } as never,
               body: { display_name: rename_to } as never,
+            }),
+          );
+        }
+        if (unique !== undefined) {
+          await unwrap<unknown>(
+            client.PATCH('/api/v1/workspaces/{ws}/databases/{db}/fields/{field}', {
+              params: { path: { ws: ws.id, db: db.id, field: fieldId } } as never,
+              body: {
+                config: {
+                  unique,
+                  ...(unique_normalize !== undefined ? { unique_normalize } : {}),
+                },
+              } as never,
             }),
           );
         }
