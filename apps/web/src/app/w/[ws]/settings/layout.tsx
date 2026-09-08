@@ -70,6 +70,9 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
     ...(isAdmin ? [{ href: `${base}/integrations`, label: 'Integrations' }] : []),
     ...(canEdit ? [{ href: `${base}/api`, label: 'API tokens' }] : []),
     ...(isAdmin ? [{ href: `${base}/export`, label: 'Export' }] : []),
+    // #618 — admin-only, matching the restore endpoints' own @MinRole('admin')
+    // gate: a non-admin gets no nav entry, not a restore button that 403s.
+    ...(isAdmin ? [{ href: `${base}/trash`, label: 'Trash' }] : []),
   ];
   const allLinks = [...personal, ...workspaceLinks];
 
