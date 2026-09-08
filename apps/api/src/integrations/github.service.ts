@@ -1,8 +1,9 @@
-import { Inject, Injectable, UnprocessableEntityException } from '@nestjs/common';
-import { and, eq } from 'drizzle-orm';
+import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, UnprocessableEntityException } from '@nestjs/common';
+import { and, eq, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { databases as databasesTable, fields as fieldsTable, selectOptions, workspaces } from '../db/schema';
+import { env } from '../config/env';
 import { DatabasesService } from '../databases/databases.service';
 import { FieldsService } from '../fields/fields.service';
 import { RecordsService } from '../records/records.service';
@@ -10,6 +11,7 @@ import { RelationsService } from '../relations/relations.service';
 import { SpacesService } from '../workspaces/spaces.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { GithubAppService } from './github-app.service';
+import { resolveGithubActor } from './github-actor';
 
 interface GithubIssue {
   number: number;
@@ -180,9 +182,30 @@ const defaultFetcher: GithubFetcher = async (path, token) => {
  * webhook-less by design (self-host friendly); the token stays server-side.
  */
 @Injectable()
-export class GithubService {
+export class GithubService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(GithubService.name);
+  private timer: ReturnType<typeof setInterval> | null = null;
+
   /** Swappable in tests. */
   fetcher: GithubFetcher = defaultFetcher;
+
+  /**
+   * #476 — `sync()`'s issues/pulls fetches had NO pagination loop: a single
+   * `per_page=100` call silently capped every sync at the newest (or oldest,
+   * depending on GitHub's default sort) 100 items, dropping the rest with no
+   * error. Mirrors GithubAppService.listRepos' own pagination shape (page-until
+   * short-page, bounded so a misbehaving API can't loop forever).
+   */
+  private async fetchAllPages<T>(basePath: string, token: string): Promise<T[]> {
+    const perPage = 100;
+    const out: T[] = [];
+    for (let page = 1; page <= 20; page++) {
+      const batch = (await this.fetcher(`${basePath}&page=${page}`, token)) as T[];
+      out.push(...batch);
+      if (batch.length < perPage) break;
+    }
+    return out;
+  }
 
   constructor(
     @Inject(DB) private readonly db: Db,
@@ -193,6 +216,73 @@ export class GithubService {
     private readonly relationsService: RelationsService,
     private readonly githubApp: GithubAppService,
   ) {}
+
+  /**
+   * #476 — a periodic safety net, not the primary mechanism. `sync()`'s intended
+   * ongoing path is GithubWebhookService's inbound webhook; this exists because
+   * that webhook can silently stop delivering (a rotated secret, a re-issued
+   * installation id, a narrowed repo picker — none of which raise an alert, by
+   * the webhook handler's own "never 4xx a delivery" design) with nothing else
+   * to notice or recover. 15 minutes: frequent enough that "PRs keep appearing
+   * without manual intervention" holds even with the webhook fully broken,
+   * infrequent enough not to burn through GitHub's rate limit across many
+   * workspaces. Mirrors AutomationsService's own setInterval-in-onModuleInit
+   * shape (this codebase has no cron/scheduler dependency at all).
+   */
+  onModuleInit() {
+    if (env().NODE_ENV !== 'test') {
+      this.timer = setInterval(() => void this.reconcileAll(), 15 * 60_000);
+    }
+  }
+
+  onModuleDestroy() {
+    if (this.timer) clearInterval(this.timer);
+  }
+
+  async reconcileAll(): Promise<void> {
+    try {
+      await this.reconcileAllInner();
+    } catch (err) {
+      // An untracked setInterval callback throwing is fatal to the whole
+      // process, not just this feature — mirrors AutomationsService.tick().
+      this.logger.error(`github reconciliation tick failed: ${String(err)}`);
+    }
+  }
+
+  private async reconcileAllInner(): Promise<void> {
+    // Only workspaces that have actually configured at least one repo — jsonb
+    // path query mirrors the advisory-lock precedent's own inline `sql` usage
+    // elsewhere in this codebase rather than a full ORM predicate, since
+    // `settings` has no typed column for this.
+    const configured = await this.db.query.workspaces.findMany({
+      where: sql`jsonb_array_length(coalesce(${workspaces.settings}->'github'->'repos', '[]'::jsonb)) > 0`,
+      columns: { id: true },
+    });
+    for (const ws of configured) {
+      // Advisory lock: safe if multiple replicas tick simultaneously (same
+      // precedent as AutomationsService.tickInner's per-rule lock).
+      const lockResult = (await this.db.execute(
+        sql`SELECT pg_try_advisory_lock(hashtext(${`github-sync:${ws.id}`})) AS locked`,
+      )) as unknown as { rows?: Array<{ locked: boolean }> };
+      if (!lockResult.rows?.[0]?.locked) continue;
+      try {
+        const config = await this.readConfig(ws.id);
+        const membership = await resolveGithubActor(this.db, ws.id, config);
+        if (!membership) {
+          this.logger.warn(`github reconciliation: no active actor for workspace ${ws.id}`);
+          continue;
+        }
+        await this.sync(membership, membership.userId);
+      } catch (err) {
+        // One workspace's misconfiguration (bad token, revoked install) must
+        // never stop the rest from reconciling — sync() itself already applies
+        // this same per-repo isolation one level down (#193).
+        this.logger.error(`github reconciliation failed for workspace ${ws.id}: ${String(err)}`);
+      } finally {
+        await this.db.execute(sql`SELECT pg_advisory_unlock(hashtext(${`github-sync:${ws.id}`}))`);
+      }
+    }
+  }
 
   /** The full config, secrets included. Server-side only — never hand this to a client. */
   async readConfig(workspaceId: string): Promise<GithubConfig> {
@@ -498,7 +588,7 @@ export class GithubService {
       if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) {
         throw new UnprocessableEntityException(`Invalid repo "${repo}" — use owner/name`);
       }
-      const issues = (await this.fetcher(`/repos/${repo}/issues?state=all&per_page=100`, token)) as GithubIssue[];
+      const issues = await this.fetchAllPages<GithubIssue>(`/repos/${repo}/issues?state=all&per_page=100`, token);
       for (const issue of issues) {
         if (issue.pull_request) continue; // the issues endpoint includes PRs
         const { id } = await this.upsert(membership, issuesDb.id, repo, issue.number, {
@@ -512,7 +602,7 @@ export class GithubService {
         summary.issues++;
       }
 
-      const pulls = (await this.fetcher(`/repos/${repo}/pulls?state=all&per_page=100`, token)) as GithubPull[];
+      const pulls = await this.fetchAllPages<GithubPull>(`/repos/${repo}/pulls?state=all&per_page=100`, token);
       const prRelationField = (await this.recordsService.fieldDefs(pullsDb.id)).find((d) => d.type === 'relation');
       for (const pull of pulls) {
         const state = pull.merged_at ? 'Merged' : pull.draft ? 'Draft' : pull.state === 'open' ? 'Open' : 'Closed';
