@@ -326,3 +326,223 @@ describe('#559 — the authenticated database GET reflects a just-published view
     expect(afterUnshare.views.find((v: { id: string }) => v.id === viewId).config.share).toBeUndefined();
   });
 });
+
+/**
+ * #555 — board grouping and dashboard tiles in the public payload. #527
+ * shipped table rendering only, since a board's group_by and a dashboard's
+ * tiles can reference fields the plain "visible columns" allowlist never
+ * named — this is the enumerate-explicitly half AC1 asked for, checked
+ * against the SAME allowlist `computePublicFieldAllowlist` gives table
+ * fields, at both share() (write) and getPublicView() (read) time.
+ */
+describe('#555 board grouping in the public payload', () => {
+  async function boardSetup() {
+    const dbId = (await as('POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name: `Board ${Date.now()}` })).json().id;
+    const status = (await as('POST', `/workspaces/${wsId}/databases/${dbId}/fields`, { display_name: 'Status', type: 'text' })).json();
+    const secret = (await as('POST', `/workspaces/${wsId}/databases/${dbId}/fields`, { display_name: 'Secret', type: 'text' })).json();
+    const dbDetail = await (await as('GET', `/workspaces/${wsId}/databases/${dbId}`)).json();
+    const tableViewId = dbDetail.views[0].id; // the default table view — untouched
+    const board = await as('POST', `/workspaces/${wsId}/databases/${dbId}/views`, {
+      name: 'Board',
+      type: 'board',
+      config: { group_by_field_id: status.id },
+    });
+    return { dbId, status, secret, tableViewId, boardViewId: board.json().id };
+  }
+
+  it('a board grouped by an ALLOWLISTED field publishes with group_by_field_api_name in the payload', async () => {
+    const { dbId, status, boardViewId } = await boardSetup();
+    const share = await as('POST', `/workspaces/${wsId}/databases/${dbId}/views/${boardViewId}/share`, {
+      visible_field_api_names: ['name', status.apiName],
+    });
+    expect(share.statusCode, share.body).toBeLessThan(300);
+
+    const res = await pub('GET', `/public/views/${share.json().token}`);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().board).toEqual({
+      group_by_field_api_name: status.apiName,
+      group_by_granularity: null,
+      column_sort: null,
+      hide_empty_groups: false,
+      hide_empty_no_value_group: false,
+    });
+    expect(res.json().dashboard).toBeUndefined(); // never present on a board
+  });
+
+  it('rejects sharing a board grouped by a field that is NOT allowlisted — 422 naming it', async () => {
+    const { dbId, status, boardViewId } = await boardSetup();
+    const share = await as('POST', `/workspaces/${wsId}/databases/${dbId}/views/${boardViewId}/share`, {
+      visible_field_api_names: ['name'], // Status deliberately left off
+    });
+    expect(share.statusCode).toBe(422);
+    expect(share.json().error.message).toContain(status.displayName ?? 'Status');
+  });
+
+  it('READ-TIME defensive drop: hiding the group field AFTER sharing renders ungrouped instead of leaking or 500ing', async () => {
+    const { dbId, status, boardViewId } = await boardSetup();
+    // No explicit visible_field_api_names — the default-visible path is the
+    // one hidden_field_ids actually participates in. An explicit allowlist
+    // is a separate, independent knob that hiding a field afterward does not
+    // touch, by existing (pre-#555) design.
+    const share = await as('POST', `/workspaces/${wsId}/databases/${dbId}/views/${boardViewId}/share`, {});
+    expect(share.statusCode, share.body).toBeLessThan(300);
+
+    // Hidden via the ORDINARY view-config path, not share() — #305's rule
+    // means this must not be treated as invalid, only as unconfigured.
+    // `config` is REPLACED wholesale by update() (see its own comment), and a
+    // board's group_by_field_id is required by validateConfig, so it must be
+    // carried forward here or the PATCH itself 422s and nothing changes.
+    const hide = await as('PATCH', `/workspaces/${wsId}/databases/${dbId}/views/${boardViewId}`, {
+      config: { group_by_field_id: status.id, hidden_field_ids: [status.id] },
+    });
+    expect(hide.statusCode, hide.body).toBeLessThan(300);
+
+    const res = await pub('GET', `/public/views/${share.json().token}`);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().board.group_by_field_api_name).toBeNull();
+  });
+
+  it('MUST KEEP WORKING: table rendering (#527) is unaffected by a board view existing elsewhere on the same database', async () => {
+    const { dbId, tableViewId } = await boardSetup();
+    await as('POST', `/workspaces/${wsId}/databases/${dbId}/records`, { values: { name: 'A row' } });
+    const share = await as('POST', `/workspaces/${wsId}/databases/${dbId}/views/${tableViewId}/share`, {});
+    expect(share.statusCode, share.body).toBeLessThan(300);
+
+    const res = await pub('GET', `/public/views/${share.json().token}`);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().board).toBeUndefined();
+    expect(res.json().dashboard).toBeUndefined();
+    expect(res.json().records.data.length).toBeGreaterThan(0);
+  });
+});
+
+describe('#555 dashboard tiles in the public payload', () => {
+  async function dashboardSetup() {
+    const dbId = (await as('POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name: `Dash ${Date.now()}` })).json().id;
+    const amount = (await as('POST', `/workspaces/${wsId}/databases/${dbId}/fields`, { display_name: 'Amount', type: 'number' })).json();
+    const secretAmount = (await as('POST', `/workspaces/${wsId}/databases/${dbId}/fields`, { display_name: 'Secret Amount', type: 'number' })).json();
+    await as('POST', `/workspaces/${wsId}/databases/${dbId}/records`, { values: { name: 'A', [amount.apiName]: 10 } });
+    await as('POST', `/workspaces/${wsId}/databases/${dbId}/records`, { values: { name: 'B', [amount.apiName]: 25 } });
+    const otherDbId = (await as('POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name: `Other ${Date.now()}` })).json().id;
+    return { dbId, otherDbId, amount, secretAmount };
+  }
+
+  it('a count tile and a sum-of-an-allowlisted-field tile both publish with a server-computed value', async () => {
+    const { dbId, amount } = await dashboardSetup();
+    const created = await as('POST', `/workspaces/${wsId}/databases/${dbId}/views`, {
+      name: 'Metrics',
+      type: 'dashboard',
+      config: {
+        dashboard_tiles: [
+          { id: '20000000-0000-4000-8000-000000000001', label: 'Count', op: 'count' },
+          { id: '20000000-0000-4000-8000-000000000002', label: 'Total', op: 'sum', field_api_name: amount.apiName },
+        ],
+      },
+    });
+    const share = await as('POST', `/workspaces/${wsId}/databases/${dbId}/views/${created.json().id}/share`, {
+      visible_field_api_names: ['name', amount.apiName],
+    });
+    expect(share.statusCode, share.body).toBeLessThan(300);
+
+    const res = await pub('GET', `/public/views/${share.json().token}`);
+    expect(res.statusCode, res.body).toBe(200);
+    const tiles = res.json().dashboard.tiles as Array<{ label: string; value: number }>;
+    expect(tiles.find((t) => t.label === 'Count')!.value).toBe(2);
+    expect(tiles.find((t) => t.label === 'Total')!.value).toBe(35);
+    expect(res.json().board).toBeUndefined(); // never present on a dashboard
+  });
+
+  it('rejects sharing a dashboard tile that sums a field NOT allowlisted — 422 naming it', async () => {
+    const { dbId, secretAmount } = await dashboardSetup();
+    const created = await as('POST', `/workspaces/${wsId}/databases/${dbId}/views`, {
+      name: 'Metrics',
+      type: 'dashboard',
+      config: {
+        dashboard_tiles: [
+          { id: '20000000-0000-4000-8000-000000000003', label: 'Secret total', op: 'sum', field_api_name: secretAmount.apiName },
+        ],
+      },
+    });
+    const share = await as('POST', `/workspaces/${wsId}/databases/${dbId}/views/${created.json().id}/share`, {
+      visible_field_api_names: ['name'], // Secret Amount deliberately left off
+    });
+    expect(share.statusCode).toBe(422);
+    expect(share.json().error.message).toContain(secretAmount.apiName);
+  });
+
+  it('rejects sharing a dashboard containing a CROSS-DATABASE tile — no allowlist exists to check it against', async () => {
+    const { dbId, otherDbId } = await dashboardSetup();
+    const created = await as('POST', `/workspaces/${wsId}/databases/${dbId}/views`, {
+      name: 'Metrics',
+      type: 'dashboard',
+      config: {
+        dashboard_tiles: [
+          { id: '20000000-0000-4000-8000-000000000004', label: 'Elsewhere', op: 'count', database_id: otherDbId },
+        ],
+      },
+    });
+    const share = await as('POST', `/workspaces/${wsId}/databases/${dbId}/views/${created.json().id}/share`, {});
+    expect(share.statusCode).toBe(422);
+    expect(share.json().error.message).toContain('different database');
+  });
+
+  it('a tile filter is scoped by the SAME allowlist — filtering on a hidden field is refused, not silently applied', async () => {
+    const { dbId, amount, secretAmount } = await dashboardSetup();
+    const created = await as('POST', `/workspaces/${wsId}/databases/${dbId}/views`, {
+      name: 'Metrics',
+      type: 'dashboard',
+      config: {
+        dashboard_tiles: [
+          {
+            id: '20000000-0000-4000-8000-000000000005',
+            label: 'Filtered',
+            op: 'sum',
+            field_api_name: amount.apiName,
+            filter: { field: secretAmount.apiName, op: 'gt', value: 0 },
+          },
+        ],
+      },
+    });
+    const share = await as('POST', `/workspaces/${wsId}/databases/${dbId}/views/${created.json().id}/share`, {
+      visible_field_api_names: ['name', amount.apiName], // Secret Amount left off
+    });
+    expect(share.statusCode).toBe(422);
+    expect(share.json().error.message).toContain(secretAmount.apiName);
+  });
+
+  it('READ-TIME defensive drop: hiding a tile\'s field AFTER sharing drops just that tile, not the whole dashboard', async () => {
+    const { dbId, amount } = await dashboardSetup();
+    const created = await as('POST', `/workspaces/${wsId}/databases/${dbId}/views`, {
+      name: 'Metrics',
+      type: 'dashboard',
+      config: {
+        dashboard_tiles: [
+          { id: '20000000-0000-4000-8000-000000000006', label: 'Count', op: 'count' },
+          { id: '20000000-0000-4000-8000-000000000007', label: 'Total', op: 'sum', field_api_name: amount.apiName },
+        ],
+      },
+    });
+    // No explicit visible_field_api_names — see the board test above for why
+    // an explicit allowlist would make hiding-afterward a no-op by design.
+    const share = await as('POST', `/workspaces/${wsId}/databases/${dbId}/views/${created.json().id}/share`, {});
+    expect(share.statusCode, share.body).toBeLessThan(300);
+
+    // `config` is REPLACED wholesale by update() — the tiles must be carried
+    // forward or this PATCH would silently wipe the dashboard's own tiles.
+    const hide = await as('PATCH', `/workspaces/${wsId}/databases/${dbId}/views/${created.json().id}`, {
+      config: {
+        dashboard_tiles: [
+          { id: '20000000-0000-4000-8000-000000000006', label: 'Count', op: 'count' },
+          { id: '20000000-0000-4000-8000-000000000007', label: 'Total', op: 'sum', field_api_name: amount.apiName },
+        ],
+        hidden_field_ids: [amount.id],
+      },
+    });
+    expect(hide.statusCode, hide.body).toBeLessThan(300);
+
+    const res = await pub('GET', `/public/views/${share.json().token}`);
+    expect(res.statusCode, res.body).toBe(200);
+    const tiles = res.json().dashboard.tiles as Array<{ label: string }>;
+    expect(tiles.map((t) => t.label)).toEqual(['Count']); // Total silently dropped, page still 200s
+  });
+});

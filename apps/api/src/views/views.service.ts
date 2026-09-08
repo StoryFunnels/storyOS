@@ -56,6 +56,56 @@ export function assertFilterFieldsLive(node: unknown, liveApiNames: Set<string>)
   }
 }
 
+/** Field types whose config can read data a public visitor is never shown —
+ *  a rollup/lookup aggregates the RELATED database, a formula can reference
+ *  one. Never exposed by the "non-hidden fields" default; only when an
+ *  explicit allowlist names them (#264's "subtle hole"). Shared with
+ *  `PublicViewsService`, which is the other (and original) caller of
+ *  `computePublicFieldAllowlist` below — one rule, not two copies. */
+export const COMPUTED_TYPES = new Set(['rollup', 'lookup', 'formula']);
+
+/**
+ * #555 — the public allowlist computation, extracted so `share()`'s
+ * board/dashboard field-reference validation (below) and
+ * `PublicViewsService.getPublicView`'s redaction use the IDENTICAL rule.
+ * Two independent copies of "which fields does a public visitor see" is
+ * exactly the drift this codebase's field-surfaces rule (CLAUDE.md) warns
+ * about — a board grouped by a field the read-time redaction would have
+ * hidden is a leak, and the only way to guarantee that can't happen is one
+ * function both sides call.
+ */
+export function computePublicFieldAllowlist(
+  defs: Array<{ id: string; api_name: string; type: string }>,
+  opts: {
+    hiddenFieldIds?: string[];
+    explicitAllowlist?: string[];
+    includeRelationApiNames?: string[];
+    recipientScopeActive: boolean;
+  },
+): { exposedApiNames: Set<string>; relationApiNames: Set<string> } {
+  const hiddenIds = new Set(opts.hiddenFieldIds ?? []);
+  const defaultVisible = defs.filter((f) => !hiddenIds.has(f.id)).map((f) => f.api_name);
+  const requestedNames = new Set(opts.explicitAllowlist ?? defaultVisible);
+  // #535 — while a recipient-scope rule is active, NO relation/lookup/rollup/
+  // formula field is exposed at all, regardless of what's allowlisted.
+  const relationApiNames = opts.recipientScopeActive
+    ? new Set<string>()
+    : new Set(opts.includeRelationApiNames ?? []);
+  const exposedApiNames = new Set(
+    defs
+      .filter((f) => {
+        if (!requestedNames.has(f.api_name)) return false;
+        if (f.type === 'relation') return false; // handled separately, via relationApiNames
+        if (opts.recipientScopeActive && COMPUTED_TYPES.has(f.type)) return false;
+        // A computed field is exposed ONLY when an explicit allowlist named it.
+        if (COMPUTED_TYPES.has(f.type)) return Boolean(opts.explicitAllowlist) && requestedNames.has(f.api_name);
+        return true;
+      })
+      .map((f) => f.api_name),
+  );
+  return { exposedApiNames, relationApiNames };
+}
+
 /** Drops references to fields that no longer exist (defensive read, C-series ACs). */
 export function cleanViewConfig(
   config: ViewConfig,
@@ -672,6 +722,79 @@ export class ViewsService {
     }
 
     const currentConfig = (view.config ?? {}) as ViewConfig;
+
+    /*
+     * #555 — a board's grouping and a dashboard's tiles/widgets can reference
+     * fields the plain "visible columns" allowlist never named. Validate
+     * against the SAME allowlist `PublicViewsService.getPublicView` will
+     * actually enforce at read time (computed here from the resolutions THIS
+     * call is setting, not whatever was previously stored, so narrowing
+     * `visible_field_api_names` while leaving a now-stale board/dashboard
+     * reference is still caught) — enumerated explicitly rather than passing
+     * the whole config object through, per this ticket's own AC1.
+     *
+     * Rejecting the whole share() call (422) rather than silently dropping
+     * the reference: an owner who published a board grouped by a field they
+     * forgot to allowlist almost certainly wants that fixed, not a
+     * differently-shaped board they never asked for rendered in their place.
+     */
+    const byId = new Map(live.map((f) => [f.id, f]));
+    const { exposedApiNames } = computePublicFieldAllowlist(
+      live.map((f) => ({ id: f.id, api_name: f.apiName, type: f.type })),
+      {
+        hiddenFieldIds: currentConfig.hidden_field_ids,
+        explicitAllowlist: input.visible_field_api_names,
+        includeRelationApiNames: input.include_relation_api_names,
+        recipientScopeActive: Boolean(input.recipient_scope_field_api_name),
+      },
+    );
+
+    if (currentConfig.group_by_field_id) {
+      const groupField = byId.get(currentConfig.group_by_field_id);
+      if (!groupField || !exposedApiNames.has(groupField.apiName)) {
+        throw new UnprocessableEntityException(
+          `Board is grouped by "${groupField?.displayName ?? currentConfig.group_by_field_id}", which is not in the exposed fields — allowlist it or change the grouping before sharing`,
+        );
+      }
+    }
+
+    interface TileOrWidget {
+      database_id?: string;
+      field_api_name?: string;
+      group_by_field_api_name?: string;
+      measure?: { field_api_name?: string };
+      filter?: unknown;
+    }
+    const validateTileOrWidget = (kind: string, index: number, item: TileOrWidget) => {
+      // Cross-database tiles/widgets have no allowlist to check against at
+      // all — `getPublicView` presupposes exactly one database (the same
+      // reason it 404s a databaseless/space-owned view, above). Refused
+      // outright rather than silently dropped, so the owner discovers the
+      // gap at publish time instead of a recipient seeing an incomplete
+      // dashboard with no explanation.
+      if (item.database_id && item.database_id !== databaseId) {
+        throw new UnprocessableEntityException(
+          `${kind} ${index + 1} measures a different database and cannot be published — remove it or point it at this view's own database before sharing`,
+        );
+      }
+      const referenced = [item.field_api_name, item.group_by_field_api_name, item.measure?.field_api_name].filter(
+        (name): name is string => Boolean(name),
+      );
+      for (const name of referenced) {
+        if (!exposedApiNames.has(name)) {
+          throw new UnprocessableEntityException(
+            `${kind} ${index + 1} references "${name}", which is not in the exposed fields — allowlist it before sharing`,
+          );
+        }
+      }
+      // A tile/widget filter is scope, not display — but a filter on a hidden
+      // field is still an oracle over it (results change based on values a
+      // visitor is never shown), the same side-channel #469 was.
+      if (item.filter) assertFilterFieldsLive(item.filter, exposedApiNames);
+    };
+    (currentConfig.dashboard_tiles ?? []).forEach((tile, i) => validateTileOrWidget('Dashboard tile', i, tile));
+    (currentConfig.dashboard_widgets ?? []).forEach((widget, i) => validateTileOrWidget('Dashboard widget', i, widget));
+
     const token = currentConfig.share?.public_token ?? randomBytes(24).toString('base64url');
     const share = {
       public_token: token,
