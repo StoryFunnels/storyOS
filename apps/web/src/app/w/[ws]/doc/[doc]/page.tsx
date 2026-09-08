@@ -85,7 +85,13 @@ function DocEditor({
   });
 
   return (
-    <div className="mx-auto max-w-3xl px-8 py-8">
+    // #643 — design-system.md specifies 16px/1.6/narrow-centered for entity-page
+    // prose; this page shipped at 14px/1.5/full-width instead. Widened from
+    // max-w-3xl (768px) so a table or code block (which must stay full width,
+    // not capped to the prose measure) has real room — the prose itself is
+    // narrowed separately below, scoped to `.doc-prose` in globals.css so the
+    // record panel's description (same BlockNote CSS) is untouched.
+    <div className="doc-prose mx-auto max-w-5xl px-8 py-8">
       {/* #262 — the title lives in an <input>, and an input's VALUE is not
           printed reliably across engines (WebKit drops it entirely). Mirrored
           into a print-only heading so a printed document is not untitled. */}
