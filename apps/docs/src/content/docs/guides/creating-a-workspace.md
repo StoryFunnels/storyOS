@@ -13,8 +13,11 @@ The first screen after signing up asks for two things: a name, and a starting po
 
 **Business Pack** is the word StoryOS uses for a ready-made set of databases, views and
 automations for one kind of work. There are eight, shown as a scrolling grid of cards — every one
-of them, not a shortlist. You can change anything afterwards, or add more later, so this is not a
-decision to agonise over.
+of them, not a shortlist. You can change anything afterwards, or **add more later** — from inside
+an existing workspace, its home page's **Browse all templates** opens the full gallery of 23
+templates (this screen's eight plus the rest), each card showing a real **install count** so you
+can see which ones other workspaces actually use before adding one. A brand-new template with no
+installs yet simply shows no count, rather than a conspicuous "0."
 
 Two other ways out sit below the grid, and they are deliberately **outside** the scrolling area so
 you can see them without scrolling:
