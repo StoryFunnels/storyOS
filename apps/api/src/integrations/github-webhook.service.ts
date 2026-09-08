@@ -6,7 +6,6 @@ import type { Db } from '../db/client';
 import {
   databases as databasesTable,
   fields as fieldsTable,
-  memberships,
   relations as relationsTable,
   selectOptions,
   workspaces,
@@ -20,6 +19,7 @@ import { GithubReviewsService } from './github-reviews.service';
 import type { RawComment } from './github-reviews.service';
 import { BACKLINK_COMMENT_API, DEFAULT_STATE_AUTOMATION, GithubService } from './github.service';
 import type { GithubConfig, GithubStateAutomation } from './github.service';
+import { resolveGithubActor } from './github-actor';
 
 /**
  * The inbound delivery path. Exported so app.setup.ts can put exactly this path
@@ -296,7 +296,7 @@ export class GithubWebhookService {
       return { ok: true, event, skipped: 'repo_not_selected' };
     }
 
-    const membership = await this.resolveActor(workspaceId, config);
+    const membership = await resolveGithubActor(this.db, workspaceId, config);
     if (!membership) {
       // Nobody to act as → we will not invent an identity (ADR-0010 §2).
       this.logger.warn(`github webhook: no active actor for workspace ${workspaceId}`);
@@ -651,30 +651,6 @@ export class GithubWebhookService {
     return option.label;
   }
 
-  /**
-   * The identity a webhook-driven write acts as: the admin who configured the
-   * hook, falling back to any active admin (the config predates #42 in existing
-   * workspaces). A demoted or departed configurer yields no actor at all rather
-   * than a write from a ghost.
-   */
-  private async resolveActor(
-    workspaceId: string,
-    config: GithubConfig,
-  ): Promise<Membership | null> {
-    if (config.webhook_actor_id) {
-      const membership = await this.db.query.memberships.findFirst({
-        where: and(
-          eq(memberships.workspaceId, workspaceId),
-          eq(memberships.userId, config.webhook_actor_id),
-        ),
-      });
-      if (membership && membership.status === 'active') return membership;
-    }
-    const admins = await this.db.query.memberships.findMany({
-      where: and(eq(memberships.workspaceId, workspaceId), eq(memberships.role, 'admin')),
-    });
-    return admins.find((m) => m.status === 'active') ?? null;
-  }
 }
 
 /**

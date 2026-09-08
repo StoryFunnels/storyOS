@@ -13,12 +13,12 @@ async function inject(method: string, url: string, payload?: unknown) {
 }
 
 const FAKE = {
-  '/repos/acme/site/issues?state=all&per_page=100': [
+  '/repos/acme/site/issues?state=all&per_page=100&page=1': [
     { number: 1, title: 'Fix header overflow', state: 'open', html_url: 'https://github.com/acme/site/issues/1', labels: [{ name: 'bug' }], assignee: { login: 'dana' } },
     { number: 2, title: 'Dark mode', state: 'closed', html_url: 'https://github.com/acme/site/issues/2', labels: [], assignee: null },
     { number: 3, title: 'PR mirage', state: 'open', html_url: 'x', labels: [], assignee: null, pull_request: {} },
   ],
-  '/repos/acme/site/pulls?state=all&per_page=100': [
+  '/repos/acme/site/pulls?state=all&per_page=100&page=1': [
     { number: 10, title: 'Fix overflow (#1)', state: 'open', merged_at: null, html_url: 'https://github.com/acme/site/pull/10', user: { login: 'dana' }, head: { ref: 'fix/1-header-overflow' } },
     { number: 11, title: 'Refactor styles', state: 'closed', merged_at: '2026-07-01T00:00:00Z', html_url: 'https://github.com/acme/site/pull/11', user: { login: 'max' }, head: { ref: 'chore/styles' }, draft: false },
   ],
@@ -90,7 +90,7 @@ describe('GitHub integration v1 (MN-065)', () => {
   });
 
   it('re-sync is idempotent and picks up state changes', async () => {
-    (FAKE['/repos/acme/site/issues?state=all&per_page=100'] as Array<{ state: string }>)[0]!.state = 'closed';
+    (FAKE['/repos/acme/site/issues?state=all&per_page=100&page=1'] as Array<{ state: string }>)[0]!.state = 'closed';
     const res = await inject('POST', `/workspaces/${wsId}/integrations/github/sync`);
     expect(res.json().issues).toBe(2);
 
@@ -118,5 +118,142 @@ describe('GitHub integration v1 (MN-065)', () => {
     const after = (await inject('GET', `/workspaces/${wsId}/integrations/github`)).json();
     expect(after.has_token).toBe(false);
     expect(after.connected).toBe(false);
+  });
+});
+
+describe('#476 sync() paginates instead of silently capping at 100', () => {
+  it('fetches a second page when the first is exactly full', async () => {
+    const ws2 = (await inject('POST', '/workspaces', { name: 'Paged WS' })).json().id;
+    const github = app.get(GithubService);
+    const original = github.fetcher;
+    const page1 = Array.from({ length: 100 }, (_, i) => ({
+      number: i + 1,
+      title: `Issue ${i + 1}`,
+      state: 'open' as const,
+      html_url: `https://github.com/acme/paged/issues/${i + 1}`,
+      labels: [],
+      assignee: null,
+    }));
+    const page2 = [
+      {
+        number: 101,
+        title: 'Issue 101',
+        state: 'open' as const,
+        html_url: 'https://github.com/acme/paged/issues/101',
+        labels: [],
+        assignee: null,
+      },
+    ];
+    github.fetcher = async (path) => {
+      if (path === '/repos/acme/paged/issues?state=all&per_page=100&page=1') return page1;
+      if (path === '/repos/acme/paged/issues?state=all&per_page=100&page=2') return page2;
+      if (path.includes('/pulls')) return [];
+      throw new Error(`unexpected path ${path}`);
+    };
+    try {
+      await inject('POST', `/workspaces/${ws2}/integrations/github`, { token: 'ghp_test', repos: ['acme/paged'] });
+      const res = await inject('POST', `/workspaces/${ws2}/integrations/github/sync`);
+      expect(res.statusCode, res.body).toBe(201);
+      // 101, not capped at 100 — the whole point of #476's pagination fix.
+      expect(res.json().issues).toBe(101);
+    } finally {
+      github.fetcher = original;
+    }
+  });
+});
+
+describe('#476 AC — a PR number shared by two repos never lands on the wrong row', () => {
+  it('upserts #473 from two different repos into two distinct records', async () => {
+    const ws3 = (await inject('POST', '/workspaces', { name: 'Multi Repo WS' })).json().id;
+    const github = app.get(GithubService);
+    const original = github.fetcher;
+    const FAKE2: Record<string, unknown> = {
+      '/repos/storyfunnels/storyos/issues?state=all&per_page=100&page=1': [],
+      '/repos/storyfunnels/storyos/pulls?state=all&per_page=100&page=1': [
+        {
+          number: 473,
+          title: 'storyOS PR',
+          state: 'open',
+          merged_at: null,
+          html_url: 'https://github.com/storyfunnels/storyos/pull/473',
+          user: { login: 'a' },
+          head: { ref: 'x' },
+        },
+      ],
+      '/repos/storyfunnels/storypages/issues?state=all&per_page=100&page=1': [],
+      '/repos/storyfunnels/storypages/pulls?state=all&per_page=100&page=1': [
+        {
+          number: 473,
+          title: 'storypages PR',
+          state: 'open',
+          merged_at: null,
+          html_url: 'https://github.com/storyfunnels/storypages/pull/473',
+          user: { login: 'b' },
+          head: { ref: 'y' },
+        },
+      ],
+    };
+    github.fetcher = async (path) => {
+      if (!(path in FAKE2)) throw new Error(`unexpected path ${path}`);
+      return FAKE2[path];
+    };
+    try {
+      await inject('POST', `/workspaces/${ws3}/integrations/github`, {
+        token: 'ghp_test',
+        repos: ['storyfunnels/storyos', 'storyfunnels/storypages'],
+      });
+      const res = await inject('POST', `/workspaces/${ws3}/integrations/github/sync`);
+      expect(res.statusCode, res.body).toBe(201);
+      expect(res.json().pulls).toBe(2);
+
+      const dbs = (await inject('GET', `/workspaces/${ws3}/databases`)).json();
+      const pullsDb = dbs.find((d: { name: string }) => d.name === 'GitHub Pull Requests');
+      const list = (await inject('GET', `/workspaces/${ws3}/databases/${pullsDb.id}/records?limit=50`)).json();
+      expect(list.data).toHaveLength(2); // #473 x2 did NOT collapse into one row
+      const titles = list.data.map((r: { title: string }) => r.title).sort();
+      expect(titles).toEqual(['storyOS PR', 'storypages PR']);
+    } finally {
+      github.fetcher = original;
+    }
+  });
+});
+
+describe('#476 periodic reconciliation — a safety net independent of the webhook', () => {
+  it('reconcileAll() syncs a workspace with repos configured, without anyone clicking Sync', async () => {
+    const ws4 = (await inject('POST', '/workspaces', { name: 'Recon WS' })).json().id;
+    const github = app.get(GithubService);
+    const original = github.fetcher;
+    const seen: string[] = [];
+    github.fetcher = async (path) => {
+      seen.push(path);
+      return [];
+    };
+    try {
+      await inject('POST', `/workspaces/${ws4}/integrations/github`, { token: 'ghp_test', repos: ['acme/recon'] });
+      await github.reconcileAll();
+      expect(seen.some((p) => p.includes('acme/recon'))).toBe(true);
+    } finally {
+      github.fetcher = original;
+    }
+  });
+
+  it('MUST KEEP WORKING: a workspace with no repos configured is never synced', async () => {
+    const ws5 = (await inject('POST', '/workspaces', { name: 'No Repos WS' })).json().id;
+    const github = app.get(GithubService);
+    const original = github.fetcher;
+    github.fetcher = async () => {
+      throw new Error('should never be called for a workspace with no repos configured');
+    };
+    try {
+      await github.reconcileAll();
+      // sync() (which reconcileAll would have called) always provisions these two
+      // databases via ensurePack() — their absence proves this workspace was
+      // never touched, without relying on fetcher calls from OTHER already-
+      // configured workspaces this same reconcileAll() sweep also visits.
+      const dbs = (await inject('GET', `/workspaces/${ws5}/databases`)).json();
+      expect(dbs.find((d: { name: string }) => d.name === 'GitHub Pull Requests')).toBeUndefined();
+    } finally {
+      github.fetcher = original;
+    }
   });
 });
