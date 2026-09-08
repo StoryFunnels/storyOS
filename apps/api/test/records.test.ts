@@ -348,3 +348,95 @@ describe('batch operations (MN-050)', () => {
     expect((await check(second)).title).toBe('Renamed 519');
   });
 });
+
+describe('#230 upsert on a unique key', () => {
+  let emailApiName: string;
+
+  beforeAll(async () => {
+    const field = await app.inject({
+      method: 'POST',
+      url: `/api/v1/workspaces/${wsId}/databases/${dbId}/fields`,
+      headers: authed(admin.token),
+      payload: { display_name: 'Email 230', type: 'email', config: { unique: true } },
+    });
+    emailApiName = field.json().apiName;
+  });
+
+  it('rejects a non-unique field as the upsert key', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `${base()}/upsert`,
+      headers: authed(admin.token),
+      payload: { key_field: 'name', values: { name: 'x' } },
+    });
+    expect(res.statusCode).toBe(422);
+  });
+
+  it('rejects an upsert with no value for the key field', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `${base()}/upsert`,
+      headers: authed(admin.token),
+      payload: { key_field: emailApiName, values: { name: 'No email' } },
+    });
+    expect(res.statusCode).toBe(422);
+  });
+
+  it('no existing match: creates a new record, created: true', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `${base()}/upsert`,
+      headers: authed(admin.token),
+      payload: { key_field: emailApiName, values: { name: 'Ada', [emailApiName]: 'ada@example.com' } },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().created).toBe(true);
+    expect(res.json().record.title).toBe('Ada');
+  });
+
+  it('an existing match: updates that record instead of creating a duplicate, created: false', async () => {
+    const first = await app.inject({
+      method: 'POST',
+      url: `${base()}/upsert`,
+      headers: authed(admin.token),
+      payload: { key_field: emailApiName, values: { name: 'Grace', [emailApiName]: 'grace@example.com' } },
+    });
+    const firstId = first.json().record.id;
+
+    const second = await app.inject({
+      method: 'POST',
+      url: `${base()}/upsert`,
+      headers: authed(admin.token),
+      payload: { key_field: emailApiName, values: { name: 'Grace Hopper', [emailApiName]: 'grace@example.com' } },
+    });
+    expect(second.statusCode, second.body).toBe(200);
+    expect(second.json().created).toBe(false);
+    expect(second.json().record.id).toBe(firstId);
+    expect(second.json().record.title).toBe('Grace Hopper');
+
+    const list = await app.inject({
+      method: 'GET',
+      url: `${base()}?q=Grace`,
+      headers: authed(admin.token),
+    });
+    expect(list.json().data.filter((r: { title: string }) => r.title.startsWith('Grace'))).toHaveLength(1);
+  });
+
+  it('matches case-normalized, same as #229 uniqueness', async () => {
+    await app.inject({
+      method: 'POST',
+      url: `${base()}/upsert`,
+      headers: authed(admin.token),
+      payload: { key_field: emailApiName, values: { name: 'Mixed Case', [emailApiName]: 'Case@Example.com' } },
+    });
+    const res = await app.inject({
+      method: 'POST',
+      url: `${base()}/upsert`,
+      headers: authed(admin.token),
+      payload: { key_field: emailApiName, values: { name: 'Still Mixed Case', [emailApiName]: 'case@example.com' } },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().created).toBe(false);
+    expect(res.json().record.title).toBe('Still Mixed Case');
+  });
+});

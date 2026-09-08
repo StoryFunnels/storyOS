@@ -275,6 +275,18 @@ export const createRecordsBatchSchema = z.object({
   records: z.array(createRecordSchema).min(1).max(100),
 });
 
+/**
+ * #230 — match-or-create on a designated unique key. `key_field` names the
+ * field (must be marked `unique`, #229) whose value in `values` is looked up;
+ * a match updates that record, no match creates a new one. `values` is the
+ * single source of truth for the key's value — no separate `key_value`, so
+ * there is nothing for the two to disagree about.
+ */
+export const upsertRecordSchema = z.object({
+  key_field: z.string().min(1),
+  values: z.record(z.string(), z.unknown()),
+});
+
 export const updateRecordSchema = z.object({
   values: z.record(z.string(), z.unknown()),
 });

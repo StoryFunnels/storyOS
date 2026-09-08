@@ -23,6 +23,7 @@ import {
   moveRecordSchema,
   queryRecordsSchema,
   updateRecordSchema,
+  upsertRecordSchema,
   aggregateRecordsSchema,
 } from '@storyos/schemas';
 import { AuthGuard } from '../auth/auth.guard';
@@ -35,6 +36,7 @@ import { RecordsService } from './records.service';
 class CreateRecordDto extends createZodDto(createRecordSchema) {}
 class CreateRecordsBatchDto extends createZodDto(createRecordsBatchSchema) {}
 class UpdateRecordDto extends createZodDto(updateRecordSchema) {}
+class UpsertRecordDto extends createZodDto(upsertRecordSchema) {}
 class BatchUpdateRecordsDto extends createZodDto(batchUpdateRecordsSchema) {}
 class BatchRecordIdsDto extends createZodDto(batchRecordIdsSchema) {}
 class QueryRecordsDto extends createZodDto(queryRecordsSchema) {}
@@ -92,6 +94,32 @@ export class RecordsController {
       body.values,
       req.user.id,
       0,
+      req.auth?.source ?? 'human',
+      req.auth?.agentId,
+      req.auth?.agentName,
+    );
+  }
+
+  @Post('upsert')
+  // Always 200, not Nest's default 201 — the response body's `created` flag
+  // is the actual signal, and a fixed decorator cannot vary the code by
+  // which branch (create or update) this particular call took.
+  @HttpCode(200)
+  @ApiOperation({
+    summary: '#230: match-or-create on a unique key. key_field must be a field marked unique (#229); values[key_field] is the match value.',
+  })
+  async upsert(
+    @Req() req: WorkspaceRequest,
+    @Param('db') databaseId: string,
+    @Body() body: UpsertRecordDto,
+  ) {
+    await this.assertDb(req, databaseId, 'contributor');
+    return this.recordsService.upsert(
+      req.membership.workspaceId,
+      databaseId,
+      body.key_field,
+      body.values,
+      req.user.id,
       req.auth?.source ?? 'human',
       req.auth?.agentId,
       req.auth?.agentName,

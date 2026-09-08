@@ -765,6 +765,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/databases/{db}/records/upsert": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** #230: match-or-create on a unique key. key_field must be a field marked unique (#229); values[key_field] is the match value. */
+        post: operations["RecordsController_upsert"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/databases/{db}/records/query": {
         parameters: {
             query?: never;
@@ -4220,6 +4237,12 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        UpsertRecordDto: {
+            key_field: string;
+            values: {
+                [key: string]: unknown;
+            };
+        };
         QueryRecordsDto__schema0: {
             field: string;
             /** @enum {string} */
@@ -6885,6 +6908,29 @@ export interface operations {
         };
         responses: {
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RecordsController_upsert: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpsertRecordDto"];
+            };
+        };
+        responses: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
