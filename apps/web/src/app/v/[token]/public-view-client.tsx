@@ -1,10 +1,18 @@
 'use client';
 
 import { useState } from 'react';
+import { OptionChip } from '@/components/table-view/cells';
+import type { SelectOption } from '@/components/table-view/use-table-data';
 
 interface PublicViewField {
   api_name: string;
   type: string;
+  /** #610 — real display label, same shape `forms.service.ts` already sends
+   * the public form page; no more humanized api_name fallback. */
+  label: string;
+  /** #610 — select/multi_select/workflow only, same {id,label,color} shape
+   * the public form page's option control already reads. */
+  options?: SelectOption[];
 }
 interface PublicRecord {
   id: string;
@@ -86,7 +94,7 @@ export function PublicViewClient({
                 <th className="whitespace-nowrap px-3 py-2 font-medium">Name</th>
                 {def.fields.map((f) => (
                   <th key={f.api_name} className="whitespace-nowrap px-3 py-2 font-medium">
-                    {humanize(f.api_name)}
+                    {f.label}
                   </th>
                 ))}
               </tr>
@@ -97,7 +105,7 @@ export function PublicViewClient({
                   <td className="whitespace-nowrap px-3 py-2 text-neutral-900">{r.title || 'Untitled'}</td>
                   {def.fields.map((f) => (
                     <td key={f.api_name} className="whitespace-nowrap px-3 py-2 text-neutral-700">
-                      {formatValue(r.values[f.api_name])}
+                      <Cell field={f} value={r.values[f.api_name]} />
                     </td>
                   ))}
                 </tr>
@@ -128,13 +136,37 @@ export function PublicViewClient({
   );
 }
 
-/** Best-effort header label from a bare api_name until #557 adds a real one. */
-function humanize(apiName: string): string {
-  return apiName.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+/**
+ * #610 — select/multi_select/workflow render through the SAME shared
+ * `OptionChip` the authenticated table and the public form page use, rather
+ * than a second chip renderer. Every other type keeps the prior best-effort
+ * string formatting — no field metadata beyond `type` for those (see #557's
+ * still-open scope: relation chip data isn't part of this ticket).
+ */
+function Cell({ field, value }: { field: PublicViewField; value: unknown }) {
+  if (field.type === 'select' || field.type === 'workflow') {
+    const option = field.options?.find((o) => o.id === value);
+    return option ? <OptionChip option={option} /> : <>—</>;
+  }
+  if (field.type === 'multi_select') {
+    const ids = Array.isArray(value) ? (value as string[]) : [];
+    const options = ids
+      .map((id) => field.options?.find((o) => o.id === id))
+      .filter((o): o is SelectOption => Boolean(o));
+    if (options.length === 0) return <>—</>;
+    return (
+      <span className="flex gap-1 overflow-hidden">
+        {options.map((o) => (
+          <OptionChip key={o.id} option={o} />
+        ))}
+      </span>
+    );
+  }
+  return <>{formatValue(value)}</>;
 }
 
 /** Best-effort cell rendering with no field metadata beyond `type` — no
- *  option labels/colors, no relation chip data. See #557. */
+ *  relation chip data. See #557's still-open scope. */
 function formatValue(value: unknown): string {
   if (value === null || value === undefined || value === '') return '—';
   if (typeof value === 'boolean') return value ? '✓' : '—';
