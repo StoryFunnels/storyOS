@@ -52,6 +52,11 @@ function DatabasePageInner() {
   const updateIcon = useUpdateDatabaseIcon(ws, db);
 
   const viewId = searchParams.get('view');
+  // #497 — the ontology diagram's edge deep-link: `?field={id}` opens that
+  // field's Edit dialog on load (table-view.tsx / HeaderCell), rather than
+  // just landing on the database. Cleared from the URL once consumed so a
+  // refresh or re-visit doesn't keep reopening it.
+  const openFieldId = searchParams.get('field');
   const { views, activeView, config, patch, personalFilter } = useViewState(ws, db, database.data, viewId, readOnly);
   const viewMutations = useViewMutations(ws, db);
   const members = useMembers(ws, !readOnly);
@@ -267,6 +272,13 @@ function DatabasePageInner() {
             columnWidths={config.column_widths}
             config={config}
             onPatch={patch}
+            autoOpenFieldId={openFieldId}
+            onAutoOpenFieldConsumed={() => {
+              const next = new URLSearchParams(searchParams);
+              next.delete('field');
+              const qs = next.toString();
+              router.replace(`/w/${ws}/d/${db}${qs ? `?${qs}` : ''}`);
+            }}
             onColumnResize={(fieldId, width) =>
               // Round at the source: a drag yields fractional px, which the saved
               // config rejects — and auto-save would then retry it forever (#78).

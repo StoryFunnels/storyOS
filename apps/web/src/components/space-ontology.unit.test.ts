@@ -187,3 +187,39 @@ describe('computeLayout — #528 regression: self-relations still use their own 
     expect([e1!.labelX, e1!.labelY]).not.toEqual([e2!.labelX, e2!.labelY]);
   });
 });
+
+/**
+ * #497 — a relation edge carries the LOCAL side's field id so a click can
+ * deep-link to that relation's own column (`?field={id}`), not just the
+ * local database. Covers all three edge shapes computeLayout produces.
+ */
+describe('computeLayout — #497: edges carry the local side field id for deep-linking', () => {
+  it('a same-space line edge uses side A\'s field id (the local side by convention)', () => {
+    const databases = [db('a', 'A'), db('b', 'B')];
+    const relations = [rel('r1', side('a', 'space-a', 'Owner'), side('b', 'space-a', 'Owned by'))];
+    const layout = computeLayout(databases, relations, 'space-a', new Map());
+    expect(layout.edges).toHaveLength(1);
+    expect(layout.edges[0]!.localFieldId).toBe('a-field');
+    expect(layout.edges[0]!.localDatabaseId).toBe('a');
+  });
+
+  it('a cross-space line edge uses the LOCAL side\'s field id, whichever side that is', () => {
+    const databases = [db('a', 'A')];
+    // Only "a" is in this space's database list — "b" is the far side.
+    const relations = [rel('r1', side('b', 'space-b', 'Far field'), side('a', 'space-a', 'Local field'))];
+    const layout = computeLayout(databases, relations, 'space-a', new Map());
+    expect(layout.edges).toHaveLength(1);
+    expect(layout.edges[0]!.localFieldId).toBe('a-field');
+    expect(layout.edges[0]!.localDatabaseId).toBe('a');
+  });
+
+  it('a self-relation loop uses side A\'s field id', () => {
+    const databases = [db('issues', 'Issues')];
+    const relations = [
+      rel('r1', side('issues', 'space-a', 'Parent'), side('issues', 'space-a', 'Sub-items'), { selfRelation: true }),
+    ];
+    const layout = computeLayout(databases, relations, 'space-a', new Map());
+    expect(layout.edges).toHaveLength(1);
+    expect(layout.edges[0]!.localFieldId).toBe('issues-field');
+  });
+});

@@ -117,15 +117,13 @@ export function SpaceOntology({
       />
     );
   }
-  // #449 — "clicking an edge opens the relation config" has no existing
-  // deep-link target: there is no /relations/{id} route, and the field editor
-  // opens only from inside a database's own table view with no query-param
-  // convention to reach it from elsewhere (checked; none exists). Building one
-  // means touching table-view.tsx, a hotspot file, for a new mechanism — bigger
-  // than "click an edge" and not this ticket's to add unreviewed. The honest v1
-  // opens the LOCAL database, where the relation's field is a real column.
-  // Filed as its own ticket rather than left as a silent gap — see the PR body.
-  const openRelation = (databaseId: string) => router.push(`/w/${ws}/d/${databaseId}`);
+  // #497 — deep-links to the relation's OWN column, not just the local
+  // database: `?field={id}` on the database route, read by table-view.tsx
+  // (via the page) to auto-open that field's Edit dialog on load. See #449's
+  // original note (now resolved) for why this previously opened only the
+  // database.
+  const openRelation = (databaseId: string, fieldId: string) =>
+    router.push(`/w/${ws}/d/${databaseId}?field=${fieldId}`);
 
   return (
     <div className="overflow-x-auto rounded-[var(--radius-card)] border border-border-default bg-card p-4">
@@ -148,7 +146,7 @@ export function SpaceOntology({
                 stroke="var(--border-strong)"
                 strokeWidth={1.5}
                 className="cursor-pointer hover:stroke-[var(--accent)]"
-                onClick={() => openRelation(e.localDatabaseId)}
+                onClick={() => openRelation(e.localDatabaseId, e.localFieldId)}
               >
                 <title>{e.label}</title>
               </path>
@@ -162,7 +160,7 @@ export function SpaceOntology({
                 strokeWidth={1.5}
                 strokeDasharray={e.crossSpace ? '4 3' : undefined}
                 className="cursor-pointer hover:stroke-[var(--accent)]"
-                onClick={() => openRelation(e.localDatabaseId)}
+                onClick={() => openRelation(e.localDatabaseId, e.localFieldId)}
               >
                 <title>{e.label}</title>
               </line>
@@ -361,6 +359,9 @@ type LayoutEdge =
       shortLabel: string;
       crossSpace: boolean;
       localDatabaseId: string;
+      /** #497 — the local side's field id, so a click deep-links to that
+       *  relation's own column rather than just the database. */
+      localFieldId: string;
     }
   | {
       kind: 'loop';
@@ -371,6 +372,9 @@ type LayoutEdge =
       label: string;
       shortLabel: string;
       localDatabaseId: string;
+      /** #497 — a self-relation's two sides (e.g. Parent/Sub-items) share one
+       *  loop; the deep link picks `a`'s field, same as its label's first half. */
+      localFieldId: string;
     };
 
 /**
@@ -519,6 +523,7 @@ export function computeLayout(
         label: `${r.a.field_name ?? '?'} / ${r.b.field_name ?? '?'} (${cardinalityLabel})`,
         shortLabel: `${r.a.field_name ?? '?'} / ${r.b.field_name ?? '?'}`,
         localDatabaseId: r.a.database_id,
+        localFieldId: r.a.field_id,
       });
       continue;
     }
@@ -568,6 +573,7 @@ export function computeLayout(
         shortLabel: `${r.a.field_name ?? ''} / ${r.b.field_name ?? ''}`,
         crossSpace: false,
         localDatabaseId: r.a.database_id,
+        localFieldId: r.a.field_id,
       });
       continue;
     }
@@ -626,6 +632,7 @@ export function computeLayout(
       shortLabel: `${local.field_name ?? ''} / ${far.field_name ?? ''}`,
       crossSpace: true,
       localDatabaseId: local.database_id,
+      localFieldId: local.field_id,
     });
   }
 
