@@ -698,7 +698,14 @@ export function Card({
       className={cn(
         'cursor-pointer rounded-[var(--radius-card)] border border-border-default bg-card hover:border-border-strong',
         s.pad,
-        overlay && 'shadow-[0_4px_12px_rgba(15,23,41,0.15)]',
+        /* #631 — `overlay` is the cursor-following ghost, NOT a dragged-in-place
+           row, which is what --shadow-lifted already names ("something detached
+           from the page: the <DragPreview> ghosts that follow the cursor"). This
+           was the fifth such ghost and the only one still on a literal, because
+           it predates DragPreview. #409's comment claims DragPreview "matches
+           board-view"; it did not (4px/12px at 0.15 vs 8px/24px at 0.25). Now it
+           does. */
+        overlay && 'shadow-[var(--shadow-lifted)]',
       )}
     >
       <CardCover row={row} cover={cover} />
