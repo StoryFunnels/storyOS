@@ -70,10 +70,16 @@ write back to the platform.
 A source can also push your edits **out** to the provider, not just pull its data in — a field
 mapped with direction `out` (push-only, never overwritten by a pull) or `both` sends its new value
 back the moment you save it in StoryOS. This is opt-in and provider-specific: as of this writing,
-**Shopify products** is the one provider that actually implements it. Setting it up is API/MCP-only
-today — there's no web dialog toggle yet, so a source's `config` needs `write_back: true` set
-directly (`update_source` / `create_source`, or a raw API call); an `out`/`both` field mapping alone
-pushes nothing without it.
+**Shopify products** is the one provider that actually implements it. Turning it on is still
+API/MCP-only — a source's `config` needs `write_back: true` set directly (`update_source` /
+`create_source`, or a raw API call); an `out`/`both` field mapping alone pushes nothing without it.
+
+**Setting each field's direction, once write-back is on, is a web dialog.** An existing source's
+**Edit mapping** opens a row per mapped field with an **in / out / both** toggle — the external key
+and each field's destination stay fixed to how the source was created, only direction changes here
+— plus an **"If both sides changed"** conflict-policy selector: **External wins** (the safe
+default — a pull overwrites a local edit), **StoryOS wins**, or **Newest wins**, greyed out with the
+reason named when the provider has no comparable external timestamp to compare by.
 
 **Hold pushes for approval.** Set `require_approval_for_push: true` on the source's config and
 every push waits in your **Inbox** instead of firing immediately — the same approval card
