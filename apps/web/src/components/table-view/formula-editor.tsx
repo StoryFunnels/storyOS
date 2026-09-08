@@ -7,6 +7,7 @@ import {
   FORMULA_FUNCTIONS,
   FORMULA_OPERATORS,
   evaluateFormula,
+  formulaTypeOfFieldType,
   parseFormula,
   relationAggregateExamples,
   typecheck,
@@ -16,12 +17,6 @@ import type { FormulaFieldInfo } from '@storyos/schemas';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import type { DatabaseDetail, Field } from './use-table-data';
-
-const FORMULA_TYPE_OF: Record<string, 'text' | 'number' | 'checkbox' | 'date' | null> = {
-  number: 'number', checkbox: 'checkbox', date: 'date', created_at: 'date', updated_at: 'date',
-  text: 'text', title: 'text', select: 'text', url: 'text', email: 'text', lookup: 'text',
-  rollup: 'number',
-};
 
 /** #204: friendly name for a formula value type. `null` in a spec means "any" (a
  * slot that accepts any type, e.g. if()'s then/else), never the literal null. */
@@ -51,9 +46,12 @@ function fnArgHint(spec: { args: unknown; returns: string }): string {
  *
  * Without this the editor did not merely fail to SUGGEST the dotted form — it
  * could not parse it. Relation fields were dropped from `infos` entirely (there
- * is no relation entry in FORMULA_TYPE_OF), so a user who typed the syntax from
- * the docs got `Unknown field "{Issues}"` from their own editor while the same
- * formula validated server-side. That is the #287 failure mode over again.
+ * is no relation entry in the shared `formulaTypeOfFieldType`), so a user who
+ * typed the syntax from the docs got `Unknown field "{Issues}"` from their own
+ * editor while the same formula validated server-side. That is the #287
+ * failure mode over again — and #615 is a THIRD recurrence, of a related
+ * field being silently dropped because its type had no entry in what used to
+ * be a second, locally-maintained copy of this map.
  *
  * Mirrors FieldsService.formulaFieldInfos: one hop only, related relations
  * skipped (a second hop is not supported), related formulas readable via their
@@ -87,8 +85,20 @@ function useRelationInfos(ws: string, fields: Field[], enabled: boolean): Formul
         if (rt) related.push({ api_name: t.apiName, display_name: t.displayName, formula_type: rt as never });
         continue;
       }
-      const ft = FORMULA_TYPE_OF[t.type];
-      if (ft) related.push({ api_name: t.apiName, display_name: t.displayName, formula_type: ft });
+      const ft = formulaTypeOfFieldType(t.type);
+      if (ft) {
+        related.push({ api_name: t.apiName, display_name: t.displayName, formula_type: ft });
+      } else {
+        // #615 criterion 5 — kept as a named placeholder, not dropped, so a
+        // dotted reference to it gets "is a X field and can't be used in a
+        // formula" instead of a misleading "not a field" as if it didn't exist.
+        related.push({
+          api_name: t.apiName,
+          display_name: t.displayName,
+          formula_type: 'null',
+          unsupported_reason: `is a "${t.type}" field and can't be used in a formula`,
+        });
+      }
     }
     return {
       api_name: link.apiName,
@@ -125,7 +135,7 @@ export function FormulaEditor({
         const rt = f.config['result_type'] as string | undefined;
         return rt ? { api_name: f.apiName, display_name: f.displayName, formula_type: rt as never } : null;
       }
-      const ft = FORMULA_TYPE_OF[f.type];
+      const ft = formulaTypeOfFieldType(f.type);
       return ft ? { api_name: f.apiName, display_name: f.displayName, formula_type: ft } : null;
     })
     .filter((f): f is NonNullable<typeof f> => Boolean(f));
@@ -234,7 +244,9 @@ export function FormulaEditor({
         const link = relationInfos.find((r) => r.display_name.toLowerCase() === linkName);
         const rest = partial.slice(dot + 1).toLowerCase();
         const items = (link?.related ?? [])
-          .filter((f) => f.display_name.toLowerCase().includes(rest))
+          // #615 criterion 5 — placeholders exist so a TYPED-OUT dotted
+          // reference gets a named reason; they're deliberately not suggested.
+          .filter((f) => !f.unsupported_reason && f.display_name.toLowerCase().includes(rest))
           .slice(0, 8)
           .map((f) => ({
             label: `${link!.display_name}.${f.display_name}`,
