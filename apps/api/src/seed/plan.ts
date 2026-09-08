@@ -112,6 +112,19 @@ export interface PlannedPack {
   space_name: string;
 }
 
+/**
+ * #601 — a portal_recipients row (#534), NOT the client-portal pack/space
+ * above. The pack is a database + guest access; a recipient is the OTHER
+ * portal concept this session shipped — a named external party who can read
+ * published content with no user account, no invite, no seat. A UAT
+ * environment that only ever exercises the pack's guest-access shape has
+ * never actually created a recipient, so the recipient-scoped resolve/expiry/
+ * revoke/rotate surfaces have nothing real to run against.
+ */
+export interface PlannedPortalRecipient {
+  label: string;
+}
+
 export interface PlannedWorkspace {
   /** Stable identity across runs. The seeder matches on this to stay additive. */
   key: string;
@@ -124,6 +137,8 @@ export interface PlannedWorkspace {
   templates: PlannedTemplate[];
   /** #460 — starter packs installed into this workspace (the client portal is one). */
   packs: PlannedPack[];
+  /** #601 — portal_recipients rows to seed (see PlannedPortalRecipient's doc). */
+  portal_recipients: PlannedPortalRecipient[];
   /**
    * #451 — only guests can hold partial access, so the guest gets SOME spaces,
    * never all of them. #460 adds the portal: a client portal nobody outside the
@@ -465,6 +480,10 @@ function planNadia(seed: string, scale: number): PlannedWorkspace[] {
        */
       templates: isFlagship ? [{ slug: 'client-work', space_name: 'Agency Back Office', include_samples: true }] : [],
       packs: isFlagship ? [{ slug: 'client-portal', space_name: 'Client Portal' }] : [],
+      // #601 — flagship only, same reasoning as templates/packs above: one real
+      // recipient is enough for the recipient-scoped surfaces to have
+      // something to run against; eleven copies would be noise.
+      portal_recipients: isFlagship ? [{ label: `${client} (UAT portal recipient)` }] : [],
       // A portal the client cannot open is not a portal. The guest gets the
       // portal and Delivery — still strictly fewer spaces than the owner sees.
       guest_grant: isFlagship ? { space_keys: ['delivery', 'pack:Client Portal'], role: 'commenter' } : undefined,
@@ -514,6 +533,7 @@ function planKai(seed: string, scale: number): PlannedWorkspace[] {
       relations: [],
       templates: [],
       packs: [],
+      portal_recipients: [],
     },
   ];
 }

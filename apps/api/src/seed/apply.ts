@@ -29,6 +29,7 @@ import { records as recordsTable, recordVersions } from '../db/schema';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import type { PlannedAttachment, PlannedDatabase, PlannedWorkspace, SeedPlan } from './plan';
+import type { PlannedPortalRecipient } from './plan';
 
 const PASSWORD = 'agent-uat-seed-password-1';
 
@@ -44,6 +45,8 @@ export interface ApplyResult {
   templates_applied: number;
   packs_installed: number;
   guest_granted: boolean;
+  /** #601 */
+  portal_recipients_created: number;
 }
 
 /*
@@ -184,6 +187,7 @@ export async function applyPlan(
     templates_applied: 0,
     packs_installed: 0,
     guest_granted: false,
+    portal_recipients_created: 0,
   };
 
   const ownerToken = await account(call, plan.owner.email, plan.owner.name);
@@ -301,7 +305,39 @@ async function applyWorkspace(
 
   await applyRelations(call, ownerToken, wsId, planned, dbIdByKey, recordIdsByDbKey, result);
   await applyTemplatesAndPacks(call, ownerToken, wsId, planned, spaceIdByKey, result, log);
+  await applyPortalRecipients(call, ownerToken, wsId, planned, result, log);
   await applyGuest(call, ownerToken, guestToken, wsId, planned, plan, spaceIdByKey, result);
+}
+
+/**
+ * #601 — a portal_recipients row (#534), through the real API a workspace
+ * admin would use. Additive/top-up like everything else here: matched by
+ * label against what already exists, so re-running the seeder never creates
+ * duplicates.
+ */
+async function applyPortalRecipients(
+  call: Injector,
+  token: string,
+  wsId: string,
+  planned: PlannedWorkspace,
+  result: ApplyResult,
+  log: (msg: string) => void,
+) {
+  if (planned.portal_recipients.length === 0) return;
+  const existing = ok<Array<{ label: string }>>(
+    await call('GET', `/workspaces/${wsId}/portal-recipients`, undefined, token),
+    'list portal recipients',
+  );
+  const existingLabels = new Set(existing.map((r) => r.label));
+  for (const recipient of planned.portal_recipients as PlannedPortalRecipient[]) {
+    if (existingLabels.has(recipient.label)) continue;
+    ok(
+      await call('POST', `/workspaces/${wsId}/portal-recipients`, { label: recipient.label }, token),
+      `create portal recipient ${recipient.label}`,
+    );
+    result.portal_recipients_created++;
+    log(`    portal recipient "${recipient.label}" created`);
+  }
 }
 
 /**
