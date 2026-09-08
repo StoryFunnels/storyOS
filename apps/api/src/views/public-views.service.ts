@@ -9,12 +9,7 @@ import { notDeleted } from '../db/soft-delete';
 import { PortalActivityService } from '../portal/portal-activity.service';
 import { PortalRecipientsService } from '../portal/portal-recipients.service';
 import { RecordsService } from '../records/records.service';
-
-/** Field types whose config can read data the public visitor is never shown —
- *  a rollup/lookup aggregates the RELATED database, a formula can reference
- *  one. Never exposed by the "non-hidden fields" default; only when
- *  `visible_field_api_names` EXPLICITLY names them (#264's "subtle hole"). */
-const COMPUTED_TYPES = new Set(['rollup', 'lookup', 'formula']);
+import { computePublicFieldAllowlist } from './views.service';
 
 /**
  * #535 — a recipient-scope condition that can never match any real row. Used
@@ -168,11 +163,6 @@ export class PublicViewsService {
       }
     }
 
-    const hiddenIds = new Set(config.hidden_field_ids ?? []);
-    const defaultVisible = defs.filter((f) => !hiddenIds.has(f.id)).map((f) => f.api_name);
-    const explicitAllowlist = share.visible_field_api_names;
-    const requestedNames = new Set(explicitAllowlist ?? defaultVisible);
-
     // #535, the #469-regression AC: a relation column pointing at out-of-scope
     // rows must expose NO title/id/preview, and the same holds for a
     // lookup/rollup computed over them — a rollup must never become an oracle
@@ -182,22 +172,16 @@ export class PublicViewsService {
     // conservative, provably-correct answer: while a recipient-scope rule is
     // active, NO relation/lookup/rollup/formula field is exposed at all,
     // regardless of `include_relation_api_names` or an explicit
-    // `visible_field_api_names` allowlist naming one.
-    const relationApiNames = recipientScopeActive ? new Set<string>() : new Set(share.include_relation_api_names ?? []);
-    const exposedApiNames = new Set(
-      defs
-        .filter((f) => {
-          if (!requestedNames.has(f.api_name)) return false;
-          if (f.type === 'relation') return false; // handled separately, above
-          if (recipientScopeActive && COMPUTED_TYPES.has(f.type)) return false;
-          // A computed field is exposed ONLY when an explicit allowlist named
-          // it — never by the "non-hidden fields" default, since it can read
-          // data the visitor was never shown.
-          if (COMPUTED_TYPES.has(f.type)) return Boolean(explicitAllowlist) && requestedNames.has(f.api_name);
-          return true;
-        })
-        .map((f) => f.api_name),
-    );
+    // `visible_field_api_names` allowlist naming one. See
+    // `computePublicFieldAllowlist`'s own doc for why this is shared with
+    // `ViewsService.share()`'s board/dashboard validation rather than a
+    // second copy of this rule (#555).
+    const { exposedApiNames, relationApiNames } = computePublicFieldAllowlist(defs, {
+      hiddenFieldIds: config.hidden_field_ids,
+      explicitAllowlist: share.visible_field_api_names,
+      includeRelationApiNames: share.include_relation_api_names,
+      recipientScopeActive,
+    });
 
     const filter: FilterNode | undefined = scopeCondition
       ? config.filters
@@ -228,6 +212,85 @@ export class PublicViewsService {
       }
       return { id: record.id, title: record.title, number: record.number, values };
     });
+
+    // #555 — board grouping / dashboard tiles. `share()` already validates
+    // these against the allowlist at PUBLISH time, but `hidden_field_ids`
+    // (ordinary view config, not part of `share`) can change afterward
+    // without a re-share — so this re-checks at READ time too, and defensive
+    // reads DROP a now-stale reference rather than throwing (#305's rule:
+    // unconfigured is not invalid). A whole board rendering ungrouped, or one
+    // tile missing from a dashboard, beats 404ing the entire public page over
+    // one field an owner happened to hide later.
+    let board: {
+      group_by_field_api_name: string | null;
+      group_by_granularity: string | null;
+      column_sort: string | null;
+      hide_empty_groups: boolean;
+      hide_empty_no_value_group: boolean;
+    } | undefined;
+    if (view.type === 'board') {
+      const groupField = config.group_by_field_id ? defs.find((f) => f.id === config.group_by_field_id) : undefined;
+      board = {
+        group_by_field_api_name: groupField && exposedApiNames.has(groupField.api_name) ? groupField.api_name : null,
+        group_by_granularity: config.group_by_granularity ?? null,
+        column_sort: config.column_sort ?? null,
+        hide_empty_groups: config.hide_empty_groups ?? false,
+        hide_empty_no_value_group: config.hide_empty_no_value_group ?? false,
+      };
+    }
+
+    // Dashboard TILES only (Phase 1) — dashboard WIDGETS (charts/grouped
+    // tables, Phase 2 of the dashboard feature itself) are not exposed
+    // publicly yet; that needs a grouped-aggregate query this ticket does not
+    // build. Each tile's value is computed SERVER-SIDE via the same
+    // `RecordsService.aggregate` the authenticated `/records/aggregate`
+    // endpoint uses — never by shipping raw records to the client to reduce
+    // there, which is what the authenticated dashboard still does today (its
+    // own Phase 2 TODO) and would mean paginating an unbounded row set just
+    // to compute one number for an anonymous visitor.
+    let dashboardTiles:
+      | Array<{
+          id: string;
+          label: string;
+          op: string;
+          field_api_name: string | null;
+          value: number | null;
+          layout: unknown;
+          comparison: unknown;
+        }>
+      | undefined;
+    if (view.type === 'dashboard') {
+      const candidates = (config.dashboard_tiles ?? []).filter((tile) => {
+        // Cross-database tiles have no allowlist to check against — dropped,
+        // not rendered ungrouped-style, since there is no safe partial answer.
+        if (tile.database_id && tile.database_id !== database.id) return false;
+        return !tile.field_api_name || exposedApiNames.has(tile.field_api_name);
+      });
+      dashboardTiles = await Promise.all(
+        candidates.map(async (tile) => {
+          // The tile's OWN scope ANDed with the view's (which already carries
+          // the recipient-scope condition, if active) — a tile must never
+          // aggregate outside what THIS visitor's records query itself sees.
+          const tileFilter: FilterNode | undefined = tile.filter
+            ? (filter ? { and: [filter, tile.filter as FilterNode] } : (tile.filter as FilterNode))
+            : filter;
+          const agg = await this.records.aggregate(
+            database.id,
+            { op: tile.op, field: tile.field_api_name, filter: tileFilter },
+            '', // no signed-in visitor, same as the records query above
+          );
+          return {
+            id: tile.id,
+            label: tile.label,
+            op: tile.op,
+            field_api_name: tile.field_api_name ?? null,
+            value: agg.value,
+            layout: tile.layout ?? null,
+            comparison: tile.comparison ?? null,
+          };
+        }),
+      );
+    }
 
     // #556 — read-time, exactly like `FormsService`'s own hide_branding, so a
     // plan change takes effect immediately without needing to re-share.
@@ -262,6 +325,8 @@ export class PublicViewsService {
       indexable: share.indexable ?? false,
       hide_branding: hideBranding,
       records: { data: records, next_cursor: result.next_cursor, has_more: result.has_more },
+      ...(board ? { board } : {}),
+      ...(dashboardTiles ? { dashboard: { tiles: dashboardTiles } } : {}),
     };
   }
 }
