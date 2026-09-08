@@ -378,7 +378,10 @@ export function PersonalSection({ ws }: { ws: string }) {
    */
   if (isEmpty) {
     return (
-      <div className="mb-2">
+      // #641 — mb-2 stacked with the Spaces label's own top margin to make up
+      // most of a 72px void above the tree; mb-1 keeps a real section break
+      // without the extra 4px neither side needed.
+      <div className="mb-1">
         <div
           className="flex items-center justify-between rounded px-2 py-[3px] hover:bg-hover"
           title="Only you can see this. If your account is removed, this content is deleted with it."
@@ -395,7 +398,7 @@ export function PersonalSection({ ws }: { ws: string }) {
   }
 
   return (
-    <div className="mb-2">
+    <div className="mb-1">
       <div className="mb-0.5 flex items-center justify-between px-2">
         <span className="text-[11px] font-semibold uppercase tracking-wider text-faint">Personal</span>
         {newMenu}
