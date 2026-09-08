@@ -497,6 +497,36 @@ export class AgentsService implements OnModuleInit {
         { display_name: 'Cost', type: 'number', config: {} },
         { display_name: 'Started at', type: 'date', config: { include_time: true } },
         { display_name: 'Finished at', type: 'date', config: { include_time: true } },
+        /*
+         * #544 — what surface a verification claim about this run was measured
+         * against, structured rather than prose in Steps. "Unknown" is a real,
+         * selectable option, deliberately distinct from the field being left
+         * EMPTY: absent means nobody recorded a surface at all; Unknown means
+         * someone tried to and couldn't tell. Conflating the two is exactly how
+         * this information gets lost again (the incident this ticket answers).
+         * An enum alone can't say "Vera's local rig" or "commit abc123 on the
+         * frozen build" — Commit/image below carries that free-text half.
+         */
+        {
+          display_name: 'Surface',
+          type: 'select',
+          config: {},
+          options: [
+            { label: 'Local rig', color: 'gray' },
+            { label: 'Staging', color: 'gold' },
+            { label: 'Production', color: 'red' },
+            { label: 'Test suite', color: 'green' },
+            { label: 'Unknown', color: 'brown' },
+          ],
+        },
+        // #544 — the commit sha or image tag verified against, and/or a free
+        // text detail (e.g. "Vera's local rig at commit abc123") the Surface
+        // enum alone can't express. Optional like every field here: recording
+        // a run's completion stays a single write with no new required key.
+        // Named "Commit or image" (not "Commit / image") deliberately — the
+        // slugified api_name must be `commit_or_image` for ensureField's
+        // idempotency lookup below to find it; a "/" collapses differently.
+        { display_name: 'Commit or image', type: 'text', config: {} },
         { display_name: 'Steps', type: 'rich_text', config: {} },
         // #210 / ADR-0010 §4: the staged action, as DATA. Text holding JSON, not
         // rich_text — this is machine state read back by approve/reject, and a
@@ -541,6 +571,31 @@ export class AgentsService implements OnModuleInit {
     // idempotent (a no-op once the flag is already set, or on a field just
     // created above with it).
     await this.hidePendingActionField(runsDb.id);
+
+    // #544 ships after Runs (#209), so a Runs database provisioned before this
+    // change has every field above except Surface/Commit-or-image. Back-fill
+    // idempotently, same shape as Pending action above — a no-op on a
+    // database just created with these fields already, and never a guessed
+    // value written onto any EXISTING run: ensureField only creates the field
+    // going forward, so every run that predates it simply has no value
+    // (absent), which is the honest answer this ticket's AC requires.
+    await this.ensureField(runsDb.id, 'surface', {
+      display_name: 'Surface',
+      type: 'select',
+      config: {},
+      options: [
+        { label: 'Local rig', color: 'gray' },
+        { label: 'Staging', color: 'gold' },
+        { label: 'Production', color: 'red' },
+        { label: 'Test suite', color: 'green' },
+        { label: 'Unknown', color: 'brown' },
+      ],
+    });
+    await this.ensureField(runsDb.id, 'commit_or_image', {
+      display_name: 'Commit or image',
+      type: 'text',
+      config: {},
+    });
 
     // MN-109 Phase A ships after Runs (#209) and Agents (#209), so a pack
     // provisioned by an earlier release has a "Trigger" field on both Agents
