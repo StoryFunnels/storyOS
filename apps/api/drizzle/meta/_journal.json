@@ -638,6 +638,20 @@
       "when": 1788819268134,
       "tag": "0090_quiet_sway",
       "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1788862372251,
+      "tag": "0091_volatile_wither",
+      "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1788862382537,
+      "tag": "0092_wealthy_slipstream",
+      "breakpoints": true
     }
   ]
 }

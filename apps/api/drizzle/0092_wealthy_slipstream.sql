@@ -1,0 +1,1 @@
+ALTER TABLE "portal_recipients" DROP COLUMN "token";

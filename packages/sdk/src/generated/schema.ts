@@ -1374,6 +1374,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/portal-recipients/{recipient}/rotate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Issue a new token for a recipient, atomically invalidating the old one (#602) */
+        post: operations["PortalRecipientsController_rotate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/portal-activity": {
         parameters: {
             query?: never;
@@ -4390,6 +4407,8 @@ export interface components {
             email?: string;
             /** Format: uuid */
             linked_record_id?: string;
+            /** Format: date-time */
+            expires_at?: string;
         };
         CreateViewDto__schema0: {
             field: string;
@@ -7878,6 +7897,25 @@ export interface operations {
         };
     };
     PortalRecipientsController_revoke: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recipient: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PortalRecipientsController_rotate: {
         parameters: {
             query?: never;
             header?: never;
