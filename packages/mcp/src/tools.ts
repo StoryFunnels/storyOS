@@ -655,6 +655,7 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   list_portal_recipients: 'admin',
   create_portal_recipient: 'admin',
   revoke_portal_recipient: 'admin',
+  rotate_portal_recipient: 'admin',
   // #537 — same tier as list_audit_log: a workspace-wide activity read, admin-only.
   list_portal_activity: 'admin',
   get_my_work: 'read',
@@ -7171,23 +7172,26 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Create a portal recipient',
       description:
-        'Names a new external party for the portal (#534) — never creates a user, sends no invitation, and never counts toward billable seats. Returns an opaque token; what content it can reach is not yet wired to anything (row scoping ships separately).',
+        'Names a new external party for the portal (#534) — never creates a user, sends no invitation, and never counts toward billable seats. Returns a signed token (#602 — id.version.hmac, not a bare opaque value); what content it can reach is not yet wired to anything (row scoping ships separately).',
       inputSchema: {
         workspace: z.string(),
         label: z.string().describe('Display name for this recipient, e.g. a client\'s company name.'),
         email: z.string().optional().describe('Optional — for your own reference, not used for delivery yet.'),
+        expires_at: z.string().optional().describe('ISO datetime. Absent = never expires. An expired token is refused the same way a revoked one is.'),
       },
     },
-    handle<{ workspace: string; label: string; email?: string }>(async ({ workspace, label, email }) => {
-      const ws = await resolveWorkspace(client, workspace);
-      const res = await unwrap<unknown>(
-        client.POST('/api/v1/workspaces/{ws}/portal-recipients', {
-          params: { path: { ws: ws.id } },
-          body: { label, email } as never,
-        } as never),
-      );
-      return text({ recipient: res });
-    }),
+    handle<{ workspace: string; label: string; email?: string; expires_at?: string }>(
+      async ({ workspace, label, email, expires_at }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const res = await unwrap<unknown>(
+          client.POST('/api/v1/workspaces/{ws}/portal-recipients', {
+            params: { path: { ws: ws.id } },
+            body: { label, email, expires_at } as never,
+          } as never),
+        );
+        return text({ recipient: res });
+      },
+    ),
   );
 
   reg(
@@ -7209,6 +7213,28 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         } as never),
       );
       return text({ revoked: res });
+    }),
+  );
+
+  reg(
+    'rotate_portal_recipient',
+    {
+      title: 'Rotate a portal recipient\'s token',
+      description:
+        '#602 — issues a new signed token for this recipient and atomically invalidates the old one (no window where both or neither work). Use this when a token may have leaked but the recipient should keep access — revoke ends access permanently instead.',
+      inputSchema: {
+        workspace: z.string(),
+        recipient: z.string().describe('Recipient id (from list_portal_recipients).'),
+      },
+    },
+    handle<{ workspace: string; recipient: string }>(async ({ workspace, recipient }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.POST('/api/v1/workspaces/{ws}/portal-recipients/{recipient}/rotate', {
+          params: { path: { ws: ws.id, recipient } },
+        } as never),
+      );
+      return text({ recipient: res });
     }),
   );
 

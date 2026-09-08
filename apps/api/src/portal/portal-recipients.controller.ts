@@ -38,4 +38,10 @@ export class PortalRecipientsController {
   revoke(@Req() req: WorkspaceRequest, @Param('recipient') recipientId: string) {
     return this.recipients.revoke(req.membership.workspaceId, recipientId);
   }
+
+  @Post(':recipient/rotate')
+  @ApiOperation({ summary: 'Issue a new token for a recipient, atomically invalidating the old one (#602)' })
+  rotate(@Req() req: WorkspaceRequest, @Param('recipient') recipientId: string) {
+    return this.recipients.rotate(req.membership.workspaceId, recipientId);
+  }
 }

@@ -63,14 +63,18 @@ describe('#534 portal recipients — identity and lifecycle', () => {
     expect(list.json().length).toBeGreaterThanOrEqual(50);
   });
 
-  it('AC3: the token is opaque and not derived from label, id, or creation time', async () => {
+  it('AC3: the token is not derived from label or creation time, and cannot be forged (#602)', async () => {
     const res = await as(admin.token, 'POST', `/workspaces/${wsId}/portal-recipients`, { label: 'Token Check Co' });
     const r = res.json();
     expect(r.token).not.toContain('Token Check Co');
-    expect(r.token).not.toContain(r.id);
-    // A base64url random token of 24 bytes decodes to 32 chars; nothing about
-    // it should resemble an ISO timestamp or the label/id above.
-    expect(r.token.length).toBeGreaterThan(20);
+    // #602 — superseded: the token now DELIBERATELY embeds the recipient id
+    // (`id.tokenVersion.hmac`), a self-describing signed credential rather
+    // than a bare opaque value looked up by exact match. Embedding the id is
+    // not a weakness — nothing about the format is guessable without
+    // BETTER_AUTH_SECRET, which is what the next assertion proves.
+    expect(r.token.startsWith(`${r.id}.1.`)).toBe(true);
+    // A forged token (right shape, wrong signature) must not resolve.
+    await expect(recipients.resolveByToken(`${r.id}.1.0000000000000000000000000000000000000000000000000000000000000000`)).rejects.toThrow();
   });
 
   it('AC4: revoking closes access IMMEDIATELY — a resolver call after revoke rejects even though the token itself never changed', async () => {
@@ -124,5 +128,69 @@ describe('#534 portal recipients — identity and lifecycle', () => {
     const created = (await as(admin.token, 'POST', `/workspaces/${wsId}/portal-recipients`, { label: 'Structural Check' })).json();
     expect(created).not.toHaveProperty('database_id');
     expect(created).not.toHaveProperty('databaseId');
+  });
+});
+
+describe('#602 portal recipient tokens — signed, expiring, rotatable', () => {
+  it('a tampered signature is refused, even with a correct id and version', async () => {
+    const created = (await as(admin.token, 'POST', `/workspaces/${wsId}/portal-recipients`, { label: 'Tamper Check' })).json();
+    const [id, version] = created.token.split('.');
+    const forged = `${id}.${version}.deadbeef${'0'.repeat(56)}`;
+    await expect(recipients.resolveByToken(forged)).rejects.toThrow();
+  });
+
+  it('a malformed token (wrong shape) is refused without ever touching the database', async () => {
+    await expect(recipients.resolveByToken('not-a-real-token')).rejects.toThrow();
+    await expect(recipients.resolveByToken('')).rejects.toThrow();
+    await expect(recipients.resolveByToken('a.b')).rejects.toThrow(); // only 2 parts
+  });
+
+  it('an expired token is refused the same way a revoked one is — fail closed', async () => {
+    const past = new Date(Date.now() - 60_000).toISOString();
+    const created = (
+      await as(admin.token, 'POST', `/workspaces/${wsId}/portal-recipients`, { label: 'Expired Co', expires_at: past })
+    ).json();
+    await expect(recipients.resolveByToken(created.token)).rejects.toThrow();
+  });
+
+  it('a future expiry does not refuse — only PAST expiry does', async () => {
+    const future = new Date(Date.now() + 60 * 60_000).toISOString();
+    const created = (
+      await as(admin.token, 'POST', `/workspaces/${wsId}/portal-recipients`, { label: 'Not Yet Expired Co', expires_at: future })
+    ).json();
+    const resolved = await recipients.resolveByToken(created.token);
+    expect(resolved.id).toBe(created.id);
+  });
+
+  it('MUST KEEP WORKING: a recipient created with no expires_at never expires', async () => {
+    const created = (await as(admin.token, 'POST', `/workspaces/${wsId}/portal-recipients`, { label: 'No Expiry Co' })).json();
+    expect(created.expires_at ?? created.expiresAt).toBeNull();
+    const resolved = await recipients.resolveByToken(created.token);
+    expect(resolved.id).toBe(created.id);
+  });
+
+  it("rotate() issues a new token and invalidates the old one atomically — no window where both or neither are valid", async () => {
+    const created = (await as(admin.token, 'POST', `/workspaces/${wsId}/portal-recipients`, { label: 'Rotate Me' })).json();
+    const oldToken = created.token;
+
+    const before = await recipients.resolveByToken(oldToken);
+    expect(before.id).toBe(created.id);
+
+    const rotated = await as(admin.token, 'POST', `/workspaces/${wsId}/portal-recipients/${created.id}/rotate`);
+    expect(rotated.statusCode, rotated.body).toBeLessThan(300);
+    const newToken = rotated.json().token;
+    expect(newToken).not.toBe(oldToken);
+
+    // The instant rotate() commits: old fails, new succeeds — no dual-valid window.
+    await expect(recipients.resolveByToken(oldToken)).rejects.toThrow();
+    const resolved = await recipients.resolveByToken(newToken);
+    expect(resolved.id).toBe(created.id);
+  });
+
+  it('MUST KEEP WORKING: revoke() still closes access immediately after this change', async () => {
+    const created = (await as(admin.token, 'POST', `/workspaces/${wsId}/portal-recipients`, { label: 'Still Revokes' })).json();
+    await recipients.resolveByToken(created.token); // holds before revoke
+    await as(admin.token, 'POST', `/workspaces/${wsId}/portal-recipients/${created.id}/revoke`);
+    await expect(recipients.resolveByToken(created.token)).rejects.toThrow();
   });
 });

@@ -2287,12 +2287,15 @@ export const portalRecipients = pgTable(
      */
     linkedRecordId: uuid('linked_record_id').references(() => records.id, { onDelete: 'set null' }),
     /**
-     * Opaque and unguessable by construction — `randomBytes(24)`, the same
-     * primitive `views.service.ts`'s public-view share token uses (#264/#527).
-     * Never derived from `label`, `id` or `createdAt`: deriving it from any of
-     * those would make a token guessable from public information.
+     * #602 — no secret is stored per recipient at all. The bearer credential
+     * is `id.tokenVersion.hmac(id, tokenVersion, BETTER_AUTH_SECRET)` (see
+     * portal-recipient-token.ts), a pure function of this counter and the
+     * server-wide secret — re-derivable on every read, never persisted.
+     * `rotate()` bumps this by one, which instantly and atomically invalidates
+     * every previously-minted token (their embedded version stops matching)
+     * without needing to store or compare an old value.
      */
-    token: text('token').notNull(),
+    tokenVersion: integer('token_version').notNull().default(1),
     /**
      * Null = active. Revocation is a timestamp, not a delete: the row (and
      * whatever it may end up scoped to, once #534's row-scoping sibling
@@ -2303,12 +2306,11 @@ export const portalRecipients = pgTable(
      * rather than by a TTL someone picked.
      */
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    /** #602 — refused the same way a revoked token is (fail closed). Null = never expires. */
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
     ...timestamps,
   },
-  (t) => [
-    uniqueIndex('portal_recipients_token_uq').on(t.token),
-    index('portal_recipients_workspace_idx').on(t.workspaceId),
-  ],
+  (t) => [index('portal_recipients_workspace_idx').on(t.workspaceId)],
 );
 
 /** #537 — did the request get content, or was it turned away (and why)? */
