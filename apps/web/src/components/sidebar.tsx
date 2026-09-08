@@ -233,12 +233,15 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
       </div>
       {inboxOpen && <InboxPanel ws={ws} onClose={() => setInboxOpen(false)} />}
 
-      <nav className="flex-1 overflow-y-auto p-2">
+      <nav className="flex-1 overflow-y-auto px-2 pb-2 pt-0.5">
         <FavoritesSection ws={ws} />
         {/* #292 — separate from the shared Spaces tree below: it can't be
             shared, moved into a folder, or deleted like a space can. */}
         <PersonalSection ws={ws} />
-        <div className="mb-0.5 mt-1 flex items-center justify-between px-2">
+        {/* #641 — 72px of the void between the nav and the tree was Personal's
+            own mb-2 stacked with this mt-1; trimmed to mt-0 since Personal's
+            bottom margin already separates the two sections. */}
+        <div className="mb-0.5 mt-0 flex items-center justify-between px-2">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-faint">Spaces</span>
           {(spaces.data ?? []).length > 0 && (
             <button
@@ -258,6 +261,12 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
           collisionDetection={closestCenter}
           {...spaceDrag.contextProps}
         >
+          {/* #641 — a gap here (not padding on the header) separates one
+              space from the next: gap only applies BETWEEN siblings, so it
+              adds the breathing room a later space's header needs without
+              also padding out the void above the very FIRST space, the way
+              padding on every header would. */}
+          <div className="flex flex-col gap-2">
           <SortableContext items={visibleSpaces.map((s) => s.id)} strategy={verticalListSortingStrategy}>
             {visibleSpaces.map((space) => (
               <SpaceSection
@@ -270,6 +279,7 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
               />
             ))}
           </SortableContext>
+          </div>
           <DragPreview>
             {spaceDrag.activeId && (
               <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-[3px] text-[11px] font-semibold uppercase tracking-wider text-muted shadow-[var(--shadow-lifted)]">
@@ -538,7 +548,15 @@ function useDatabaseExpanded(databaseId: string, forceOpen: boolean) {
 function RootDropZone({ spaceId, children }: { spaceId: string; children: React.ReactNode }) {
   const { setNodeRef, isOver } = useDroppable({ id: `root:${spaceId}` });
   return (
-    <div ref={setNodeRef} className={cn('rounded', isOver && 'bg-hover ring-1 ring-inset ring-accent/40')}>
+    <div
+      ref={setNodeRef}
+      // #641 — every root database in the space shares this ONE wrapper, so
+      // the gap-0.5 on the SpaceSection's outer flex-col (siblings: folders,
+      // this block, space-level views, docs) never reached the rows INSIDE
+      // it. This is the div actually stacking Members/Agents/Runs etc., so
+      // the fix belongs here.
+      className={cn('flex flex-col gap-0.5 rounded', isOver && 'bg-hover ring-1 ring-inset ring-accent/40')}
+    >
       {children}
     </div>
   );
@@ -1091,7 +1109,11 @@ function SpaceSection({
        * The PointerSensor's `distance: 6` keeps a plain click navigating.
        */}
       <div
-        className="group flex cursor-grab touch-none items-center justify-between px-2 py-1 active:cursor-grabbing"
+        // #641 — was py-1 (4/4); the inter-space breathing room now comes
+        // from the space-list's own gap-2 (added between siblings only, so
+        // it doesn't also pad out the void above the FIRST space). This stays
+        // small and close to its label rather than double-counting that gap.
+        className="group flex cursor-grab touch-none items-center justify-between px-2 pb-0.5 pt-1 active:cursor-grabbing"
         {...attributes}
         {...listeners}
       >
@@ -1301,10 +1323,17 @@ function SpaceSection({
       </Dialog>
 
       {!collapsed && (
-        /* #369 — ONE context for the whole space. Two sibling contexts (root
+        /* #641 — a bare stack of rows here has ZERO gap between them (no
+           flex-col wrapper existed), so pitch collapsed to exactly the row
+           height: 25.5px, tighter than the top nav's own ~27.5px pitch. A
+           nested row must never be denser than its parent, so this wrapper
+           adds the SAME gap-0.5 the nav uses, matching its pitch instead of
+           undercutting it. */
+        <div className="flex flex-col gap-0.5">
+        {/* #369 — ONE context for the whole space. Two sibling contexts (root
            databases, and one per folder) is why nothing could be dragged BETWEEN
            containers: dnd-kit cannot see across contexts, so a folder in another
-           one was never a drop target. */
+           one was never a drop target. */}
         <DndContext
           sensors={dbSensors}
           collisionDetection={collisionStrategy}
@@ -1412,6 +1441,7 @@ function SpaceSection({
             )}
           </DragPreview>
         </DndContext>
+        </div>
       )}
       {dialog && <PromptDialog state={dialog} onClose={() => setDialog(null)} />}
     </div>
@@ -1770,8 +1800,13 @@ function FolderSection({
         )}
       </div>
       {!collapsed && (
-        /* #380 — same guide line, same offset as a database's nested views. */
-        <div className="border-l border-border-default" style={{ marginLeft: SIDEBAR_INDENT_PX[1] }}>
+        /* #380 — same guide line, same offset as a database's nested views.
+           #641 — gap-0.5 added: same zero-gap-between-rows issue as the
+           space's own root list, fixed the same way. */
+        <div
+          className="flex flex-col gap-0.5 border-l border-border-default"
+          style={{ marginLeft: SIDEBAR_INDENT_PX[1] }}
+        >
           {contentCount === 0 && (
             /* #369 — an empty folder needs a target with HEIGHT. "Empty" text
                alone is a few pixels of hit area, so dropping into a new folder
