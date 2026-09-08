@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import type { CSSProperties } from 'react';
 // Leaf module, not cells.tsx: this value is read at MODULE SCOPE below, and
 // importing it from cells.tsx forms a cycle that leaves it in its temporal dead
 // zone on any route where cells.tsx evaluates first (see option-colors.ts).
@@ -57,11 +58,19 @@ export function Avatar({
     <span
       title={name}
       className={cn(
-        'inline-flex shrink-0 select-none items-center justify-center rounded-full font-semibold',
+        'option-tint inline-flex shrink-0 select-none items-center justify-center rounded-full font-semibold',
         SIZES[size],
         className,
       )}
-      style={{ backgroundColor: `${color}2E`, color }}
+      /* #638 — the third instance of the same theme-blind pairing (OptionChip and
+         icon-picker's IconPreview are the others): an 18%-alpha wash of the
+         palette colour with that colour at full strength as the initials. The
+         wash follows the theme, the ink did not, so 88 of 90 colour/surface/
+         theme combinations failed AA — worst indigo 2.37 on a dark card. Shares
+         OptionChip's derivation rather than growing a fourth mechanism. */
+      style={
+        { backgroundColor: `${color}2E`, ['--option-color' as string]: color } as CSSProperties
+      }
     >
       {initials(name, size <= 16)}
     </span>
