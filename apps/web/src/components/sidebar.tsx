@@ -1262,10 +1262,18 @@ function SpaceSection({
                         count > 0
                           ? {
                               title: `Delete "${space.name}" and everything in it?`,
+                              // #618 — was "The trash cannot recover any of
+                              // it", written before #37 shipped restore for
+                              // spaces/databases. An admin CAN bring this
+                              // back (Settings → Trash) within the same
+                              // 30-day window every other trash already
+                              // promises — verified live: restoring the
+                              // space cascades every database in it back too.
                               message:
-                                `This permanently deletes ${count} database${count === 1 ? '' : 's'} ` +
+                                `This deletes ${count} database${count === 1 ? '' : 's'} ` +
                                 `(${databases.map((d) => d.name).join(', ')}) and every record in them. ` +
-                                `The trash cannot recover any of it.`,
+                                `A workspace admin can restore the space (and everything in it) from ` +
+                                `Settings → Trash for 30 days.`,
                               confirmLabel: 'Delete space',
                               danger: true,
                               // Typed name, matching what delete_database already
@@ -1274,7 +1282,10 @@ function SpaceSection({
                             }
                           : {
                               title: `Delete "${space.name}"?`,
-                              message: 'This space is empty. Deleting it cannot be undone.',
+                              // #618 — same correction: an empty space is
+                              // still soft-deleted, not destroyed outright.
+                              message:
+                                'This space is empty. A workspace admin can restore it from Settings → Trash for 30 days.',
                               confirmLabel: 'Delete space',
                               danger: true,
                             },
@@ -2373,9 +2384,12 @@ function DeleteDatabaseDialog({
         }}
       >
         <p className="text-[13px] text-muted">
-          This permanently deletes the database, its fields, records, views, and any relations
-          linking it to other databases. Type{' '}
-          <span className="font-semibold text-ink">{name}</span> to confirm.
+          This deletes the database, its fields, records, views, and any relations linking it to
+          other databases. A workspace admin can restore it from Settings → Trash for 30 days.
+          {/* #618 — was "This permanently deletes...", written before #37
+              shipped restore_database. Verified live: a deleted database
+              reappears, fields/records/views intact, via Settings → Trash. */}
+          {' '}Type <span className="font-semibold text-ink">{name}</span> to confirm.
         </p>
         <Input autoFocus value={typed} onChange={(e) => setTyped(e.target.value)} />
         <div className="flex justify-end gap-2">
