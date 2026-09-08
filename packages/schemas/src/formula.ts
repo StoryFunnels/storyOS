@@ -46,6 +46,40 @@ export interface FormulaFieldInfo {
    * Absent everywhere else.
    */
   related?: FormulaFieldInfo[];
+  /**
+   * #615 criterion 5 — set ONLY on a placeholder entry that exists so a dotted
+   * lookup can name why a related field is unusable, rather than silently
+   * omitting it and reporting "not a field" as if it didn't exist. Never set
+   * on a real, usable entry; `formula_type` on a placeholder is 'null' and
+   * carries no other meaning.
+   */
+  unsupported_reason?: string;
+}
+
+/**
+ * #615 — the ONE mapping from a stored field type to the formula type a
+ * reference to it resolves as, shared by the API (`FieldsService.formulaTypeOf`
+ * delegates here) and the web formula editor (`useRelationInfos`, resolving a
+ * RELATED database's fields), so the two can no longer drift. This is the
+ * third time one map lived in two places (#287, #299) — `workflow` was missing
+ * from the web copy, so `count({Issues}, {Issues.State} = "Done")` validated
+ * server-side and failed in the editor with a misleading "not a field" error,
+ * because the editor silently drops any related field with no mapping instead
+ * of naming the reason.
+ *
+ * `null` means "not referenceable in a formula" — not an error, a deliberate
+ * exclusion (rich_text, multi_select, user, attachment, color, button,
+ * relation, formula itself — formula is resolved per-field from its own
+ * `result_type` by every caller, never through this map).
+ */
+export function formulaTypeOfFieldType(type: string): FormulaType | null {
+  // MN-129: `id` is the record's sequential public #id (records.number) — a
+  // plain number, so `"#" + format({Number})`-style name templates compose.
+  if (type === 'number' || type === 'rollup' || type === 'id') return 'number';
+  if (type === 'checkbox') return 'checkbox';
+  if (type === 'date' || type === 'created_at' || type === 'updated_at') return 'date';
+  if (['text', 'title', 'select', 'workflow', 'url', 'email', 'lookup'].includes(type)) return 'text';
+  return null;
 }
 
 /**
@@ -735,6 +769,12 @@ export function parseFormula(src: string, fields: FormulaFieldInfo[]): FormulaNo
             `"${right}" is not a field on the records "{${left}}" links to`,
             token.pos,
           );
+        }
+        // #615 criterion 5 — a field that exists but was deliberately excluded
+        // (unsupported type) gets its own error naming the reason, not the
+        // "not a field" message a genuinely absent name gets.
+        if (target.unsupported_reason) {
+          throw new FormulaError(`"${right}" ${target.unsupported_reason}`, token.pos);
         }
         return { kind: 'rel', relation: relApi, field: target.api_name };
       }
