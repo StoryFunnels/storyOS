@@ -291,4 +291,60 @@ describe('batch operations (MN-050)', () => {
     });
     expect(restore.json().restored).toBe(2);
   });
+
+  /**
+   * #519 AC1 — reproduce first, per the ticket's own instruction, before
+   * scoping any chunking mechanism.
+   *
+   * FINDING: batch-delete cannot exhibit "times out mid-flight, partial
+   * unreported result" at all — records.service.ts's batchDelete is a single
+   * set-based transaction, and batchRecordIdsSchema caps the array at 200, so
+   * there is no path today to a 20k-row single request. batch-update
+   * (records.service.ts's batchUpdate), however, applies each record
+   * SEQUENTIALLY with NO enclosing transaction — a genuinely different shape.
+   * A per-record failure is already caught and reported (see the test above),
+   * but that same lack of a transaction means every record that succeeded
+   * BEFORE a later one fails is already permanently committed, with no
+   * all-or-nothing guarantee and no undo path (#351's undo covers delete
+   * only). This test proves the commit is real and unconditional, not the
+   * network-timeout half of Otto's fear (which needs a live socket abort to
+   * demonstrate and is not test-reachable) — but it is the same failure
+   * shape: a batch that is part-applied, and the only account of "which part"
+   * is the response body of a single request that a real client can still
+   * fail to receive (timeout, network drop) after the writes are done.
+   */
+  it('#519 AC1: a batch update with a later failure leaves EARLIER records already committed — no transaction, no undo', async () => {
+    const make = async (name: string) =>
+      (
+        await app.inject({
+          method: 'POST',
+          url: base(),
+          headers: authed(admin.token),
+          payload: { values: { name } },
+        })
+      ).json().id;
+    const first = await make('First 519');
+    const second = await make('Second 519');
+    const ghost = '00000000-0000-4000-8000-000000000519'; // never existed — guaranteed to fail
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `${base()}/batch`,
+      headers: authed(admin.token),
+      payload: { record_ids: [first, second, ghost], values: { name: 'Renamed 519' } },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().updated).toBe(2);
+    expect(res.json().failed).toHaveLength(1);
+
+    // The two that succeeded are ALREADY PERSISTED — no rollback, no undo
+    // affordance exists for this (#351's undo covers delete only). If the
+    // client never saw this 200 (dropped connection, proxy timeout), it would
+    // have no way to learn even this much: the writes happen regardless of
+    // whether anyone is listening for the response.
+    const check = async (id: string) =>
+      (await app.inject({ method: 'GET', url: `${base()}/${id}`, headers: authed(admin.token) })).json();
+    expect((await check(first)).title).toBe('Renamed 519');
+    expect((await check(second)).title).toBe('Renamed 519');
+  });
 });
