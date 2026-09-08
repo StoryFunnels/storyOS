@@ -15,6 +15,8 @@ its own filters, sorts, and visible fields. Every database keeps at least one vi
 - **Board (kanban)** — group by a `select` field and drag cards between columns. Column order
   follows the option order; dragging within a column reorders records.
 - **Calendar** — place records by a date field and drag to reschedule.
+- **Timeline** — a Gantt-style bar per record along a date axis, with drag-to-reschedule and an
+  optional planned-vs-actual overlay — see [below](#timeline-planned-vs-actual-dates).
 
 ## Filters & sorts
 
@@ -251,6 +253,28 @@ generic homepage title, and images resolve against your real domain rather than 
 
 This is also reachable directly over the API (`POST`/`DELETE .../views/{view}/share`,
 `GET /public/views/{token}`) and MCP (`share_view`, `unshare_view`).
+
+## Timeline: planned vs actual dates
+
+A Timeline picks a **Start** (and optionally an **End**) date field — the primary pair every bar is
+drawn from, draggable to reschedule. Beside it, an optional **Planned** pair (a second start/end
+date field) overlays a **baseline** on the same row: the primary bar solid, the baseline dashed
+behind it, so a planned-vs-actual gap is visible without a second view.
+
+- **Dragging only ever moves the primary bar.** The baseline stays exactly where it was — there's
+  no drag target on it — so rescheduling a task never quietly erases what was originally planned.
+- **Slippage renders as a label** next to the bar — *"3d late"*, *"2d early"*, or *"on time"* when
+  the primary and baseline ends match. No baseline configured, or the record is missing one side of
+  either pair, and no slippage label appears at all — a partial comparison is never rendered as a
+  number.
+- **A record can have either pair without the other.** Primary-only draws its usual plain bar.
+  Baseline-only — real actual/completion dates with no plan ever set for them — draws its own bar
+  too, in the same solid style, positioned at the baseline dates; it is not left out, and not drawn
+  as a dashed-only sliver as if it were half a comparison.
+- **The "N records have no date" count only means neither pair.** A record rendered from its
+  baseline alone is dated data, not a gap, so it never counts toward that footer.
+- The date axis widens to fit baseline spans too, so a planned range that runs outside every actual
+  date still has room on screen rather than rendering off the edge with no hint it exists.
 
 ## An empty view versus a broken one
 
