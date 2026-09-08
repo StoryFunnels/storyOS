@@ -74,15 +74,19 @@ fail validation.
 
 ## Acting on a leaderboard, not every match
 
-**API and MCP only — no rule-editor control for this yet.** A **scheduled** rule can carry a
-**sort** (up to 3 keys, the same sort spec a [view](/concepts/views/) uses) and a **limit** (capped
-at 200), turning "every record where State = Published" into "the top 5 of them, by engagement." A
-sort with no limit still orders the selection; a limit with no sort just caps it — neither implies
-the other.
+A **scheduled** rule can carry a **sort** (up to 3 keys, the same sort spec a
+[view](/concepts/views/) uses) and a **limit** (capped at 200), turning "every record where
+State = Published" into "the top 5 of them, by engagement." A sort with no limit still orders the
+selection; a limit with no sort just caps it — neither implies the other. The rule editor's
+**Select** row carries both: the same sort picker views use, and a record-count field that states
+the 200 ceiling right next to it — "records (up to 200) — leave blank for no cap" — so the limit
+you're not allowed to exceed is visible before you save, not discovered as a rejected save.
 
 **Every other trigger rejects both fields outright.** "Top five" means nothing for a rule firing on
-one just-created or just-changed record, so `sort`/`limit` are refused on save — whether they arrive
-alongside the trigger or get patched onto a rule whose trigger already isn't `schedule`.
+one just-created or just-changed record, so a non-scheduled rule's editor shows a short explanation
+in place of the sort/limit controls instead of a silently absent one — and `sort`/`limit` are
+refused on save regardless, whether they arrive alongside the trigger or get patched onto a rule
+whose trigger already isn't `schedule`.
 
 - **Ties break on record id, ascending** — the same deterministic tail an ordinary paginated query
   already uses. A record with no value on the sort field sorts **last**, regardless of ascending or
