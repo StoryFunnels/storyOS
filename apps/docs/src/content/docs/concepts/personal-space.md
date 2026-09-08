@@ -10,9 +10,13 @@ differently from an ordinary space on purpose:
 
 > Only you can see this. If your account is removed, this content is deleted with it.
 
-That's the actual copy the sidebar shows — not paraphrased, since a wording drift here would be a
-support incident. Nobody else can see into your Personal space, **including admins**, and there is
-no restore path once your account is gone.
+That's the actual copy — not paraphrased, since a wording drift here would be a support incident.
+**Empty**, the section is a single compact row (a lock icon, "Personal", and the same **+** menu
+described below) with that sentence as its hover tooltip rather than standing text — reclaiming the
+half-dozen rows a permanent explanatory card used to cost every workspace that hadn't touched this
+feature yet. Once it holds a document or view, the sentence renders as a standing line above the
+list, same as always. Nobody else can see into your Personal space, **including admins**, and
+there is no restore path once your account is gone.
 
 ## What it can hold
 

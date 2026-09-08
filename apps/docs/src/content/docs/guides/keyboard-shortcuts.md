@@ -10,7 +10,8 @@ Every shortcut StoryOS has, and three ways to find them again without this page.
 ## Opening the cheat-sheet in the app
 
 - Press **?** anywhere.
-- **Keyboard shortcuts** in the sidebar.
+- **Keyboard shortcuts** in the account menu — the gear icon next to the workspace switcher, at the
+  top of the sidebar.
 - **Keyboard shortcuts** in the command palette (⌘K, or Ctrl+K on Windows and Linux).
 
 Any of the three opens the same overlay, and the overlay renders the keys for *your* platform.

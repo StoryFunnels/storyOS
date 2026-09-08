@@ -63,6 +63,16 @@ A database's views are hidden until you expand it, and StoryOS remembers which o
 Otherwise the sidebar opens at full height every time and you scroll past everything you were not
 looking for.
 
+## Account and workspace admin actions live behind one icon
+
+Settings & members, Integrations, Connections, Webhooks, API tokens, and Keyboard shortcuts — plus
+Sign out — sit in a menu behind the gear icon next to the workspace switcher, at the top of the
+sidebar. None of it is a fixed row competing with the Spaces tree below it; each is still exactly
+one click away, just via that menu instead of a permanent block between the tree and the bottom of
+the sidebar. Settings & members, Integrations, Connections, and Webhooks only appear there for an
+admin; API tokens needs at least contributor access; Keyboard shortcuts and Sign out show for
+everyone.
+
 ## Who sees what
 
 Access works in two layers, and they answer different questions:
