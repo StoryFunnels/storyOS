@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
+import type { EffectiveRole } from './access';
 
 export interface Space {
   id: string;
@@ -26,6 +27,12 @@ export interface DatabaseSummary {
   qualifiedSlug?: string;
   /** #400 — the one-line purpose. Null/absent is the normal state. */
   description?: string | null;
+  /** #562/#611 — the caller's own effective role on this database, batched
+   * server-side. Present on the LIST endpoint only (`DatabasesService.list`,
+   * where a write-access-only picker like #433's Copy-to dialog needs it) —
+   * absent on create/update's response, same as `spaceSlug`/`qualifiedSlug`
+   * above, so optional rather than a type lie. */
+  my_access?: EffectiveRole | null;
 }
 // #524 — hand-typed because the API's OpenAPI doc has no response schema for
 // this endpoint (see duplicateDatabase mutation below); matches
