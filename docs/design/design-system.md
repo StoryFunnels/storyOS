@@ -42,11 +42,36 @@ Warm neutrals instead of Attio's cool grays. Background is warm white, never pur
 }
 ```
 
-**Select-option colors** (user-pickable, for tags/kanban columns — warm-tuned, readable on white): gray `#B5B0A5`, brown `#8B6F47`, gold `#D4A017`, orange `#D97E36`, red `#C0392B`, pink `#C05B7E`, purple `#7E5BA6`, blue `#3D5296`, teal `#057160`, green `#2D7A4F`.
+**Select-option colors** (user-pickable, for tags/kanban columns). Fifteen, and
+the source of truth is
+[`table-view/option-colors.ts`](../../apps/web/src/components/table-view/option-colors.ts),
+not this list — the table is a leaf module every field surface imports, so the
+code cannot drift from itself the way this doc did:
 
-**Value chips (#281, "solid mini-tag"):** select-field badges (State, Priority, Type, Project, …) and relation-entity chips (Blocked By, Blocker for, …) share one 4px-radius shape but opposite treatments, so a category value and a link to another record are never visually confused:
-- *Select-value badge* — solid fill in the option's own color (the table above), white text, uppercase with ~0.03em letter-spacing, semibold, slightly below body size.
-- *Relation-entity chip* — outline only, ~1.4px `--border-strong`, no fill, normal-case text at body size/weight. The deliberate visual inverse of the badge above.
+gray `#64748B` · brown `#9C6B43` · gold `#B7791F` · orange `#E4551F` ·
+red `#DC2626` · pink `#DB2777` · purple `#7C3AED` · blue `#2563EB` ·
+teal `#0D9488` · green `#15803D` · lime `#4D7C0F` · cyan `#0E7490` ·
+indigo `#4F46E5` · magenta `#A21CAF` · rose `#E11D48`
+
+~~gray `#B5B0A5`, brown `#8B6F47`, gold `#D4A017`, orange `#D97E36`, red
+`#C0392B`, pink `#C05B7E`, purple `#7E5BA6`, blue `#3D5296`, teal `#057160`,
+green `#2D7A4F`~~ — **this doc was wrong on all ten** (ticket #639). The shipped
+table is stock Tailwind 600/500 and has five more colours; not one documented
+value matched. Nobody noticed because nothing reads the doc at build time. If
+you change the palette, change `option-colors.ts` and re-derive this list.
+
+**Value chips (#281 shape, #207 fill):** select-field badges (State, Priority,
+Type, Project, …) and relation-entity chips (Blocked By, Blocker for, …) share
+one 4px-radius shape but opposite treatments, so a category value and a link to
+another record are never visually confused:
+- *Select-value badge* — a **soft tint** of the option's own colour (13% alpha
+  fill), sentence case at 11px/medium. #281 originally specified a solid fill with white uppercase text;
+  **#207 deliberately replaced it** because in a dense table that read as a wall
+  of loud colour. The soft tint is the decision, not drift.
+- *Relation-entity chip* — outline only, ~1.4px `--border-strong`, no fill,
+  normal-case text at body size/weight. The deliberate visual inverse of the
+  badge above.
+
 
 ## Typography
 
@@ -57,9 +82,13 @@ Warm neutrals instead of Attio's cool grays. Background is warm white, never pur
 
 ## Shape & depth
 
-- Radii (Attio-ish, compact): controls/inputs/cells **6px**, cards/popovers **8px**, modals **12px**, avatars **full**. Value chips (select badges + relation-entity chips, #281) are the one deliberate exception: **4px**, not a pill — see "Value chips" above.
+- Radii (Attio-ish, compact): controls/inputs/cells **6px**, cards/popovers **8px**, modals **12px**, avatars **full**. Value chips (select badges + relation-entity chips, #281) are the one deliberate exception: **4px** (`--radius-chip`), not a pill — see "Value chips" above.
 - Depth comes from **1px borders + subtle bg shifts**, not shadows. Shadows only on floating elements: popover `0 4px 12px rgba(15,23,41,0.08)`, modal `0 20px 50px rgba(15,23,41,0.15)`.
-- Focus: gold ring (`--focus-ring`), 2px offset on keyboard focus.
+- Focus: `--focus-ring` — 3px of `--accent` at 25% alpha, drawn as an `outline`
+  at offset **0** (ticket #633). It was 2px-offset once; an offset ring on a
+  dense grid clipped against the neighbouring cell, and drawing it as
+  `box-shadow` erased whatever elevation the element already had, since both
+  wanted the same property.
 
 ## Density & spacing
 
