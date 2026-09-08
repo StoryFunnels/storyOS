@@ -246,10 +246,14 @@ function ScalarValue({ field, cell, record, ws, db, rec, members, memberNames, m
         // #176: subtle bordered/hover cell so the value reads as an editable
         // control. Transparent by default; the border + hover only earn their
         // place when the value can actually be edited.
-        // #206: -mx-1.5 bleeds the cell's inner padding outward so the value's
-        // text left edge stays flush with the label row (and with chip values,
-        // which have no cell) — the box breathes without shifting the value.
-        cell && '-mx-1.5 rounded-[var(--radius-control)] border border-transparent px-1.5 py-1 transition-colors',
+        // #640 — was `-mx-1.5 ... py-1`: the negative margin bled the cell's
+        // own padding outward to keep the value's text flush with the label
+        // ABOVE it (label and value shared one left edge, stacked). Now that
+        // #640 puts them in separate columns, that compensation no longer
+        // applies — and py-1 was stacking with the row's own py-1.5, which is
+        // exactly the "44px of content, 21px dead space" this ticket measured.
+        // py-0.5 keeps a real hit target without re-adding that dead space.
+        cell && 'rounded-[var(--radius-control)] border border-transparent px-1.5 py-0.5 transition-colors',
         cell && editableInline && 'hover:border-border-default hover:bg-hover/60',
         editableInline && 'cursor-pointer',
       )}
@@ -437,7 +441,9 @@ export function SidebarField({ field, schemaEditable, onToggleZone, topDivider, 
       ref={sortable.setNodeRef}
       style={style}
       className={cn(
-        'group relative rounded-md py-1.5 pr-1.5 hover:bg-hover/50',
+        // #640 — was py-1.5 (12px), sized for the old two-LINE (label over
+        // value) row.
+        'group relative rounded-md py-0.5 pr-1.5 hover:bg-hover/50',
         /*
          * #331 — the grip needs its own lane. It is absolutely positioned (see
          * #209 below) and 20px wide, while the type glyph starts at the content
@@ -472,7 +478,10 @@ export function SidebarField({ field, schemaEditable, onToggleZone, topDivider, 
           className={cn(
             // #331: sits in the lane reserved by the row's pl-6 above, so it
             // lands BESIDE the type glyph instead of on top of it.
-            'absolute left-0 top-2 z-10 flex h-5 w-5 touch-none items-center justify-center rounded text-faint opacity-0 transition-opacity hover:bg-hover hover:text-muted group-hover:opacity-100',
+            // #640: was `top-2`, tuned for the old stacked (label-over-value)
+            // row's taller content; centered instead, since the row is now a
+            // single ~28px line and a fixed offset would sit off-center.
+            'absolute left-0 top-1/2 z-10 flex h-5 w-5 -translate-y-1/2 touch-none items-center justify-center rounded text-faint opacity-0 transition-opacity hover:bg-hover hover:text-muted group-hover:opacity-100',
             sortable.isDragging ? 'cursor-grabbing' : 'cursor-grab',
           )}
           {...sortable.attributes}
@@ -482,21 +491,20 @@ export function SidebarField({ field, schemaEditable, onToggleZone, topDivider, 
           <GripVertical className="h-3.5 w-3.5" />
         </button>
       )}
-      {/* #209: two-column layout — the type icon lives in a fixed gutter, and the
-          label text + value stack in the second column so they share ONE left
-          edge. The value cell's -mx-1.5 (below) now bleeds relative to this
-          column, landing the value flush under the label — no more drift. */}
-      <div className="flex gap-1.5">
-        <FieldTypeGlyph type={field.type} className="mt-[3px]" />
+      {/* #640 — label and value on ONE row instead of stacked: was 65px/property
+          (44px of content, 21px dead space below it); a fixed 88px label column
+          (the longest real label, "Monthly Value" at 12px, measures ~85px) plus
+          a flexible value column brings a property to ~28px. The type icon still
+          gets its own gutter, matching #209's original alignment intent. */}
+      <div className="flex items-center gap-1.5">
+        <FieldTypeGlyph type={field.type} />
+        {/* #174: labels stay text-muted (readable); #176: Title-case-ish, not
+            all-caps, for Fibery parity. #206: shared label style. */}
+        <span className={cn('w-[88px] shrink-0 truncate', FIELD_LABEL_CLS)}>{field.displayName}</span>
         <div className="min-w-0 flex-1">
-          <div className="mb-0.5 flex items-center gap-1">
-            {/* #174: labels stay text-muted (readable); #176: Title-case-ish, not
-                all-caps, for Fibery parity. #206: shared label style. */}
-            <span className={cn('flex-1 truncate', FIELD_LABEL_CLS)}>{field.displayName}</span>
-            {schemaEditable && <FieldMenu field={field} onToggleZone={onToggleZone} ws={vp.ws} db={vp.db} />}
-          </div>
           <ScalarValue field={field} cell schemaEditable={schemaEditable} onToggleZone={onToggleZone} {...vp} />
         </div>
+        {schemaEditable && <FieldMenu field={field} onToggleZone={onToggleZone} ws={vp.ws} db={vp.db} />}
       </div>
     </div>
   );
