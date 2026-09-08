@@ -570,6 +570,52 @@ body {
 }
 
 /*
+ * #638 — OPTION CHIPS: THE TINT STAYS, THE INK BECOMES THEME-AWARE.
+ *
+ * Every one of the 15 option colours failed WCAG AA, on every surface, in BOTH
+ * themes. Not a dark-mode bug and not one bad colour — the whole palette. The
+ * chip painted the colour at 13% alpha as its background and the SAME colour at
+ * full strength as its text, so the ratio was whatever the arithmetic happened
+ * to give. Nobody chose any of these:
+ *
+ *     worst  indigo   2.47 (dark card)      best  indigo  5.14 (light card)
+ *     blue   2.93 dark / 4.29 light         gold  3.14 light / 3.99 dark
+ *
+ * Five of sixty colour/surface combinations cleared 4.5 — 15 colours x 2 themes
+ * x the card and app surfaces, and all five of the passes were the same three
+ * violets on light. At 11px the chip text is far below the large-text
+ * threshold, so 4.5 applies, not 3. Afterwards: 0 of 60 fail. The 30 card-surface
+ * combinations were also confirmed live in the browser, which agreed exactly.
+ *
+ * WHY NOT design-system.md's PRESCRIBED FIX. The doc specifies the #281 "solid
+ * mini-tag": solid fill, white text. I computed it rather than assuming it was
+ * right, and WHITE ON THE SOLID COLOUR ALSO FAILS — gold 3.64, orange 3.74,
+ * teal 3.74. Following the doc would have traded one accessibility failure for
+ * a smaller one plus a full restyle of every chip in the product.
+ *
+ * And the soft tint is not drift: cells.tsx records that #207 replaced #281's
+ * solid mini-tag deliberately, because in a dense table the solid version "read
+ * as a wall of loud colour". The doc simply never caught up. So the treatment
+ * is kept and the doc is corrected (ticket #639).
+ *
+ * THE FIX: keep the 13% tint exactly as it was, and derive the INK from the
+ * option colour per theme — mixed toward black in light, toward white in dark.
+ * 60% keeps the hue plainly recognisable while clearing AA everywhere: worst
+ * case 5.27 (magenta on a dark card) against the 2.47 it replaces. 65% would
+ * also pass but only reaches 4.77, which is too little headroom for a value
+ * users can pick fifteen ways.
+ *
+ * `--option-color` is set inline per chip; only the derivation lives here, so
+ * there is one mechanism rather than one per call site.
+ */
+.option-tint {
+  color: color-mix(in srgb, var(--option-color) 60%, black);
+}
+:root[data-theme='dark'] .option-tint {
+  color: color-mix(in srgb, var(--option-color) 60%, white);
+}
+
+/*
  * #338 — code blocks follow the theme.
  *
  * BlockNote hard-codes `color:#fff; background-color:#161616` on

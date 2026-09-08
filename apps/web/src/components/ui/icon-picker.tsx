@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import type { CSSProperties } from 'react';
 // Leaf module, not cells.tsx: this value is read at MODULE SCOPE below, and
 // importing it from cells.tsx forms a cycle that leaves it in its temporal dead
 // zone on any route where cells.tsx evaluates first (see option-colors.ts).
@@ -226,8 +227,16 @@ function IconPreview({ icon, color }: { icon: string | null; color: string | nul
   const hex = color ? OPTION_COLORS[color] : null;
   return (
     <div
-      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[8px] border border-border-default"
-      style={hex ? { backgroundColor: `${hex}22`, color: hex } : undefined}
+      className="option-tint flex h-9 w-9 shrink-0 items-center justify-center rounded-[8px] border border-border-default"
+      /* #638 — same tint-plus-own-colour pattern as OptionChip, so it takes the
+         same shared derivation. Lower severity here (the content is a 20px icon,
+         and WCAG's threshold for non-text graphics is 3:1 rather than 4.5), but
+         a second mechanism for one identical case is how these drift apart. */
+      style={
+        hex
+          ? ({ backgroundColor: `${hex}22`, ['--option-color' as string]: hex } as CSSProperties)
+          : undefined
+      }
     >
       <EntityIcon icon={icon} color={color} size={20} /* #637: decorative — a "no icon yet" glyph, carrying no affordance. */
         fallback={<span className="text-faint">?</span>} />

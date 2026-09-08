@@ -65,12 +65,17 @@ Type, Project, …) and relation-entity chips (Blocked By, Blocker for, …) sha
 one 4px-radius shape but opposite treatments, so a category value and a link to
 another record are never visually confused:
 - *Select-value badge* — a **soft tint** of the option's own colour (13% alpha
-  fill), sentence case at 11px/medium. #281 originally specified a solid fill with white uppercase text;
+  fill) with the ink derived from that same colour per theme, sentence case at
+  11px/medium. #281 originally specified a solid fill with white uppercase text;
   **#207 deliberately replaced it** because in a dense table that read as a wall
   of loud colour. The soft tint is the decision, not drift.
 - *Relation-entity chip* — outline only, ~1.4px `--border-strong`, no fill,
   normal-case text at body size/weight. The deliberate visual inverse of the
   badge above.
+The ink is `.option-tint` in `globals.css`, not a literal: `color-mix` toward
+black on light and toward white on dark, at 60%. Measured across all 15 colours
+× both themes, worst case 5.27:1 (ticket #638). Do not hard-code a chip text
+colour — a literal is theme-blind, which is the bug #638 fixed.
 
 
 ## Typography

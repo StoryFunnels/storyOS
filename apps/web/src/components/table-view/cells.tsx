@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Check, ChevronDown, ChevronUp, Plus, Sigma } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -125,13 +126,22 @@ export function optionColor(
 }
 
 /**
- * Select-value badge (#207, soft-tint): a faint wash of the option's own colour
- * with that colour as the TEXT, normal-case, 4px corners. Replaces the old solid
- * uppercase white-on-colour "mini-tag" (#281) — in a dense table that read as a
- * wall of loud colour; this is far calmer while keeping the colour-coding. The
- * `${color}22` alpha bg is theme-adaptive (tints over cream in light, over ink in
- * dark). Still visually distinct from RelationChips' outline treatment below, so a
- * category value is never mistaken for a link to another record.
+ * Select-value badge (#207, soft-tint): a faint wash of the option's own colour,
+ * normal-case, 4px corners. Replaces the old solid uppercase white-on-colour
+ * "mini-tag" (#281) — in a dense table that read as a wall of loud colour; this
+ * is far calmer while keeping the colour-coding. The `${color}22` alpha bg is
+ * theme-adaptive (tints over cream in light, over ink in dark). Still visually
+ * distinct from RelationChips' outline treatment below, so a category value is
+ * never mistaken for a link to another record.
+ *
+ * The TEXT used to be the raw option colour, which is the one part that was NOT
+ * theme-adaptive: a mid-tone hex sitting on a near-black surface. All 15 colours
+ * failed WCAG AA on every surface in both themes, worst 2.47:1 (ticket #638). It
+ * now goes through `.option-tint` in globals.css, which mixes that same colour
+ * toward black on light and toward white on dark — so the hue still reads and
+ * the worst case is 5.27:1. The colour is handed over as the `--option-color`
+ * custom property; keep it that way rather than reintroducing a literal, and
+ * note Tailwind cannot generate a class for a runtime hex anyway.
  */
 /**
  * #202/#214: an option's optional curated icon, rendered before its label on the
@@ -179,8 +189,8 @@ export function OptionChip({ option }: { option: SelectOption }) {
   const color = OPTION_COLORS[option.color] ?? OPTION_COLORS.gray!;
   return (
     <span
-      className="inline-flex max-w-full items-center gap-1 truncate rounded-[var(--radius-chip)] px-1.5 py-0.5 text-[11px] font-medium"
-      style={{ backgroundColor: `${color}22`, color }}
+      className="option-tint inline-flex max-w-full items-center gap-1 truncate rounded-[var(--radius-chip)] px-1.5 py-0.5 text-[11px] font-medium"
+      style={{ backgroundColor: `${color}22`, ['--option-color' as string]: color } as CSSProperties}
     >
       <OptionIcon icon={option.icon} />
       <span className="truncate">{option.label}</span>
