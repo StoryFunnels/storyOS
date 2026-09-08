@@ -44,3 +44,9 @@ while packs are unavailable, but **Start empty** still works — you are not stu
 The workspace is created and, if you picked one, the pack's databases, views and automations are
 installed into it. Installing a pack is idempotent and additive, so choosing one here does not
 close any doors.
+
+**Installing a second pack that shares a database with one you already have reuses it rather than
+duplicating it.** If the incoming pack's sample data assumes an option the reused database's field
+doesn't actually have (its own pack never created that option, only the one you already installed
+did), that one field's value is skipped and reported — the install still completes, rather than
+failing outright over a single sample value it can't carry over.
