@@ -21,6 +21,26 @@ export interface CompilerContext {
 
 const err = (message: string) => new UnprocessableEntityException(message);
 
+/**
+ * #590 — the counterpart to the system-field op error at line ~162: names
+ * BOTH the field and its full allowed-op set, not just the rejected op and
+ * the type. `allowed` is each branch's actual accepted set (including
+ * is_empty/not_empty, which the generic presence check above the switch in
+ * `compileCondition` already accepts for every type reaching these branches)
+ * so a caller learns what WOULD work without a second `describe_database` call.
+ */
+function opErr(def: FieldDef, op: FilterOp, allowed: readonly FilterOp[]): never {
+  throw err(`op "${op}" not valid for field "${def.api_name}" (allowed: ${allowed.join(', ')})`);
+}
+
+const CHECKBOX_OPS: readonly FilterOp[] = ['eq', 'neq', 'is_empty', 'not_empty'];
+const TEXTISH_OPS: readonly FilterOp[] = ['eq', 'neq', 'contains', 'is_empty', 'not_empty'];
+const NUMBER_OPS: readonly FilterOp[] = ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'is_empty', 'not_empty'];
+const DATE_FIELD_OPS: readonly FilterOp[] = ['eq', 'neq', 'before', 'after', 'within', 'is_empty', 'not_empty'];
+const ID_SET_SCALAR_OPS: readonly FilterOp[] = ['eq', 'neq', 'has', 'has_none', 'is_empty', 'not_empty'];
+const ID_SET_ARRAY_OPS: readonly FilterOp[] = ['has', 'has_none', 'is_empty', 'not_empty'];
+const RELATION_OPS: readonly FilterOp[] = ['has', 'has_none', 'is_empty', 'not_empty'];
+
 export function compileFilter(node: FilterNode, ctx: CompilerContext): SQL {
   if ('and' in node) {
     return joinNodes(node.and.map((n) => compileFilter(n, ctx)), sql` AND `);
@@ -178,7 +198,7 @@ function compileCondition(fieldName: string, op: FilterOp, value: unknown, ctx: 
     case 'number':
       return compileNumber(def, op, value);
     case 'checkbox': {
-      if (op !== 'eq' && op !== 'neq') throw err(`op "${op}" not valid for checkbox`);
+      if (op !== 'eq' && op !== 'neq') opErr(def, op, CHECKBOX_OPS);
       if (typeof value !== 'boolean') throw err('checkbox filters expect a boolean value');
       const expr = fieldExpr(def);
       // Missing key counts as false.
@@ -241,7 +261,7 @@ function compileCondition(fieldName: string, op: FilterOp, value: unknown, ctx: 
       if (!def.config['ast']) throw err(`filters on "${def.type}" fields are not supported`);
       if (resultType === 'number') return compileNumber(def, op, value);
       if (resultType === 'checkbox') {
-        if (op !== 'eq' && op !== 'neq') throw err(`op "${op}" not valid for checkbox`);
+        if (op !== 'eq' && op !== 'neq') opErr(def, op, CHECKBOX_OPS);
         if (typeof value !== 'boolean') throw err('checkbox filters expect a boolean value');
         return op === 'eq' ? sql`${fieldExpr(def)} = ${value}` : sql`${fieldExpr(def)} IS DISTINCT FROM ${value}`;
       }
@@ -252,7 +272,7 @@ function compileCondition(fieldName: string, op: FilterOp, value: unknown, ctx: 
       const valueType = isPickOneOp(def.config['op']) ? def.config['value_type'] : 'number';
       if (valueType === 'number') return compileNumber(def, op, value);
       if (valueType === 'checkbox') {
-        if (op !== 'eq' && op !== 'neq') throw err(`op "${op}" not valid for checkbox`);
+        if (op !== 'eq' && op !== 'neq') opErr(def, op, CHECKBOX_OPS);
         if (typeof value !== 'boolean') throw err('checkbox filters expect a boolean value');
         return op === 'eq' ? sql`${fieldExpr(def)} = ${value}` : sql`${fieldExpr(def)} IS DISTINCT FROM ${value}`;
       }
@@ -275,7 +295,7 @@ function compileTextish(def: FieldDef, op: FilterOp, value: unknown): SQL {
     case 'contains':
       return sql`(${expr} ILIKE ${'%' + escapeLike(value) + '%'})`;
     default:
-      throw err(`op "${op}" not valid for ${def.type}`);
+      opErr(def, op, TEXTISH_OPS);
   }
 }
 
@@ -298,7 +318,7 @@ function compileNumber(def: FieldDef, op: FilterOp, value: unknown): SQL {
     case 'lte':
       return sql`(${expr} <= ${value})`;
     default:
-      throw err(`op "${op}" not valid for number`);
+      opErr(def, op, NUMBER_OPS);
   }
 }
 
@@ -398,7 +418,7 @@ function compileDate(def: FieldDef, op: FilterOp, value: unknown): SQL {
     case 'after':
       return sql`(${expr} > ${cmp})`;
     default:
-      throw err(`op "${op}" not valid for date`);
+      opErr(def, op, DATE_FIELD_OPS);
   }
 }
 
@@ -419,7 +439,7 @@ function compileIdSet(
     return op === 'eq' ? sql`(${expr} = ${resolved})` : sql`(${expr} IS DISTINCT FROM ${resolved})`;
   }
 
-  if (op !== 'has' && op !== 'has_none') throw err(`op "${op}" not valid for ${def.type}`);
+  if (op !== 'has' && op !== 'has_none') opErr(def, op, shape === 'scalar' ? ID_SET_SCALAR_OPS : ID_SET_ARRAY_OPS);
   if (!Array.isArray(value) || value.length === 0 || value.some((v) => typeof v !== 'string')) {
     throw err(`op "${op}" on "${def.api_name}" expects a non-empty array of ids`);
   }
@@ -448,7 +468,7 @@ function compileRelation(def: FieldDef, op: FilterOp, value: unknown): SQL {
   if (op === 'is_empty') return sql`(NOT ${anyLink})`;
   if (op === 'not_empty') return sql`(${anyLink})`;
 
-  if (op !== 'has' && op !== 'has_none') throw err(`op "${op}" not valid for relation fields`);
+  if (op !== 'has' && op !== 'has_none') opErr(def, op, RELATION_OPS);
   if (!Array.isArray(value) || value.length === 0 || value.some((v) => typeof v !== 'string')) {
     throw err(`op "${op}" on "${def.api_name}" expects a non-empty array of record ids`);
   }
