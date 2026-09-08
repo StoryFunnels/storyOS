@@ -2,15 +2,39 @@
 
 import { useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { Database as DatabaseIcon } from 'lucide-react';
+import { ChevronRight, Database as DatabaseIcon } from 'lucide-react';
 import { EntityIcon } from '@/components/ui/icon-picker';
-import { databaseNoun, pluralNoun } from '@/lib/records';
-import { OPTION_COLORS } from '@/components/table-view/option-colors';
 import type { DatabaseSummary } from '@/lib/queries';
+import { cn } from '@/lib/utils';
+import { buildOntologyView, pickCentre } from './space-ontology-layout';
+import type { OntologyChip, OntologyGroup } from './space-ontology-layout';
 
 /**
- * #449 — the ontology diagram: the databases in ONE space as nodes, the
- * relations between them as edges.
+ * #636 — the ontology diagram: ONE database at the centre, everything it
+ * relates to as chip lists grouped by space.
+ *
+ * Replaces the radial layout of #449/#528/#607. Those were three passes at the
+ * same rendering symptom — satellite vs satellite, fan step vs label width,
+ * edge midpoint vs satellite name at exactly 0.00px — and none asked whether
+ * the FORM was wrong. It was: every one of those collisions existed because
+ * relationship labels were drawn at rest and positioned by geometry. Moving
+ * them to hover leaves nothing to collide, and chip lists grow downward where
+ * geometry could not.
+ *
+ * WHAT THIS DIAGRAM NO LONGER SHOWS, stated because it is invisible from the
+ * code: a database with no relation to the centre is not drawn. Ievgen chose
+ * the single-centre form (ticket #636) knowing that. It is softened by the page
+ * — the Contents section directly below lists every database in the space with
+ * a link — so such a database is undrawn, never unreachable.
+ *
+ * DIAGRAM_NODE_LIMIT and its list fallback are gone with the circle. That limit
+ * existed because the radial layout overlapped past ~10 nodes; a chip list has
+ * no such threshold, which is the point of the redesign.
+ *
+ * Layout and balance live in `space-ontology-layout.ts` as pure functions, so
+ * the determinism they guarantee is unit-tested without a DOM.
+ *
+ * ORIGINAL #449 NOTE, still true of the data:
  *
  * LAYOUT — no library, and that is a stated decision, not an oversight. Nothing
  * in package.json does graph layout (checked before writing this), and adding
@@ -56,22 +80,6 @@ export interface OntologyRelation {
   b: OntologySide;
 }
 
-const NODE_R = 15; // px radius of a main node's circle
-const SATELLITE_R = 8; // px radius of a cross-space satellite node
-
-/**
- * #449 AC10 — "readable at 20 databases / 40 relations. If the diagram is
- * not, ship the matrix or grouped-list form instead... rather than shipping
- * a hairball." Vera's merge-gate review built the ticket's own exact fixture
- * (20 databases, 28 relations) and confirmed the circular diagram genuinely
- * overlaps at that scale (73 text nodes packed into an 882×882 canvas) — not
- * a subjective call, a measured one. This threshold sits below where that
- * broke and above every fixture that rendered cleanly during development (up
- * to 5 databases): past it, each node gets too little arc room for its two
- * lines of label plus its share of edge labels to stay apart.
- */
-export const DIAGRAM_NODE_LIMIT = 10;
-
 export function SpaceOntology({
   ws,
   spaceId,
@@ -83,611 +91,177 @@ export function SpaceOntology({
   spaceId: string;
   databases: OntologyDatabase[];
   relations: OntologyRelation[];
-  /** Resolves a cross-space edge's far `space_id` to a real name, so the
-   *  satellite reads "in Marketing" rather than "in another space". */
+  /** Resolves a far side's `space_id` to a real name, so a group reads
+   *  "Content Marketing" rather than a uuid. */
   spaceNameById: Map<string, string>;
 }) {
   const router = useRouter();
-  const openDatabase = (id: string) => router.push(`/w/${ws}/d/${id}`);
 
-  const layout = useMemo(
-    () => computeLayout(databases, relations, spaceId, spaceNameById),
-    [databases, relations, spaceId, spaceNameById],
+  const centre = useMemo(() => pickCentre(databases, relations), [databases, relations]);
+  const view = useMemo(
+    () => (centre ? buildOntologyView(centre, relations, spaceNameById, spaceId) : null),
+    [centre, relations, spaceNameById, spaceId],
   );
 
-  if (databases.length === 0) {
+  if (databases.length === 0 || !centre || !view) {
     // #449 AC — zero readable databases is stated plainly, never an empty
     // canvas that reads as "this space really is empty" (it might not be —
     // the viewer may simply not be able to read anything in it).
     return (
-      <p className="rounded-[var(--radius-card)] border border-border-default bg-card p-6 text-[13px] text-muted">
+      <p className="rounded-[var(--radius-card)] border border-border-default bg-card p-6 text-body text-muted">
         No databases here that you can access.
       </p>
     );
   }
 
-  if (databases.length > DIAGRAM_NODE_LIMIT) {
-    return (
-      <OntologyList
-        databases={databases}
-        relations={relations}
-        spaceId={spaceId}
-        spaceNameById={spaceNameById}
-        onOpenDatabase={openDatabase}
-      />
-    );
-  }
-  // #497 — deep-links to the relation's OWN column, not just the local
-  // database: `?field={id}` on the database route, read by table-view.tsx
-  // (via the page) to auto-open that field's Edit dialog on load. See #449's
-  // original note (now resolved) for why this previously opened only the
-  // database.
+  /* #497 — the chevron deep-links to the relation's OWN column, not just the
+     database: `?field={id}` on the database route, read by table-view.tsx to
+     auto-open that field's Edit dialog. The mechanism moved from an SVG edge to
+     a chip; the behaviour is unchanged, which is what AC6 asks for. */
   const openRelation = (databaseId: string, fieldId: string) =>
     router.push(`/w/${ws}/d/${databaseId}?field=${fieldId}`);
 
   return (
-    <div className="overflow-x-auto rounded-[var(--radius-card)] border border-border-default bg-card p-4">
-      <svg
-        viewBox={`0 0 ${layout.width} ${layout.height}`}
-        width={layout.width}
-        height={layout.height}
-        className="mx-auto"
-        role="img"
-        aria-label={`Ontology diagram: ${databases.length} ${pluralNoun('database', databases.length)}, ${relations.length} ${pluralNoun('relation', relations.length)}`}
-      >
-        {/* Edges first, so node circles paint over the line ends rather than a
-            line poking past a label. */}
-        {layout.edges.map((e) => (
-          <g key={e.key}>
-            {e.kind === 'loop' ? (
-              <path
-                d={e.d}
-                fill="none"
-                stroke="var(--border-strong)"
-                strokeWidth={1.5}
-                className="cursor-pointer hover:stroke-[var(--accent)]"
-                onClick={() => openRelation(e.localDatabaseId, e.localFieldId)}
-              >
-                <title>{e.label}</title>
-              </path>
-            ) : (
-              <line
-                x1={e.x1}
-                y1={e.y1}
-                x2={e.x2}
-                y2={e.y2}
-                stroke="var(--border-strong)"
-                strokeWidth={1.5}
-                strokeDasharray={e.crossSpace ? '4 3' : undefined}
-                className="cursor-pointer hover:stroke-[var(--accent)]"
-                onClick={() => openRelation(e.localDatabaseId, e.localFieldId)}
-              >
-                <title>{e.label}</title>
-              </line>
-            )}
-            <text
-              x={e.labelX}
-              y={e.labelY}
-              textAnchor="middle"
-              className="pointer-events-none fill-[var(--muted)] text-[9px]"
-            >
-              {e.shortLabel}
-            </text>
-          </g>
-        ))}
+    <div className="rounded-[var(--radius-card)] border border-border-default bg-card p-6">
+      <div className="grid grid-cols-[1fr_auto_1fr] grid-rows-[auto_auto_auto] items-center justify-items-center gap-x-6 gap-y-4">
+        <div className="col-start-2 row-start-1 flex flex-col items-center gap-2">
+          <AxisGroups groups={view.axes.up} onOpen={openRelation} />
+          <AxisLine vertical hasContent={view.axes.up.length > 0} />
+        </div>
 
-        {/* Cross-space satellites: dashed ring, distinct fill, own space named —
-            visible but never confusable with a member of this space. */}
-        {layout.satellites.map((s) => (
-          <g
-            key={s.id}
-            className="cursor-pointer"
-            onClick={() => openDatabase(s.databaseId)}
-          >
-            <circle
-              cx={s.x}
-              cy={s.y}
-              r={SATELLITE_R}
-              fill="var(--card)"
-              stroke="var(--border-strong)"
-              strokeDasharray="3 2"
-              strokeWidth={1.5}
-            />
-            <text x={s.x} y={s.y + SATELLITE_R + 11} textAnchor="middle" className="fill-[var(--muted)] text-[9px]">
-              {s.name}
-            </text>
-            <text x={s.x} y={s.y + SATELLITE_R + 21} textAnchor="middle" className="fill-[var(--faint)] text-[8px]">
-              in {s.spaceName}
-            </text>
-          </g>
-        ))}
+        <div className="col-start-1 row-start-2 flex items-center gap-2 justify-self-end">
+          <AxisGroups groups={view.axes.left} onOpen={openRelation} />
+          <AxisLine hasContent={view.axes.left.length > 0} />
+        </div>
 
-        {/* Main nodes. */}
-        {layout.nodes.map((n) => (
-          <g key={n.id} className="cursor-pointer" onClick={() => openDatabase(n.id)}>
-            <circle
-              cx={n.x}
-              cy={n.y}
-              r={NODE_R}
-              fill="var(--card)"
-              stroke={(n.color && OPTION_COLORS[n.color]) || 'var(--border-strong)'}
-              strokeWidth={2}
-            >
-              <title>
-                {n.name}
-                {n.description ? ` — ${n.description}` : ''} · {n.recordCounter ?? 0}{' '}
-                {pluralNoun(databaseNoun(n.name), n.recordCounter ?? 0)}
-              </title>
-            </circle>
-            <foreignObject x={n.x - NODE_R} y={n.y - NODE_R} width={NODE_R * 2} height={NODE_R * 2}>
-              <div className="flex h-full w-full items-center justify-center">
-                <EntityIcon icon={n.icon} color={n.color} fallback={<DatabaseIcon className="h-3.5 w-3.5" />} />
-              </div>
-            </foreignObject>
-            <text x={n.x} y={n.y + NODE_R + 12} textAnchor="middle" className="fill-[var(--ink)] text-[11px] font-medium">
-              {n.name}
-            </text>
-            <text x={n.x} y={n.y + NODE_R + 23} textAnchor="middle" className="fill-[var(--faint)] text-[9px]">
-              {n.recordCounter ?? 0} {pluralNoun(databaseNoun(n.name), n.recordCounter ?? 0)}
-            </text>
-          </g>
-        ))}
-      </svg>
+        <CentreChip database={centre} />
+
+        <div className="col-start-3 row-start-2 flex items-center gap-2 justify-self-start">
+          <AxisLine hasContent={view.axes.right.length > 0} />
+          <AxisGroups groups={view.axes.right} onOpen={openRelation} />
+        </div>
+
+        <div className="col-start-2 row-start-3 flex flex-col items-center gap-2">
+          <AxisLine vertical hasContent={view.axes.down.length > 0} />
+          <AxisGroups groups={view.axes.down} onOpen={openRelation} />
+        </div>
+      </div>
     </div>
   );
 }
 
-/**
- * #449 AC10's fallback: a grouped list, one entry per database in this space,
- * each followed by its relations as plain sentences — "Field → Database.Field
- * (cardinality)", the same information the diagram's edge labels carry, just
- * laid out top-to-bottom instead of packed onto a shared canvas. Text wraps
- * and scrolls; it cannot overlap itself the way node/edge labels sharing one
- * fixed-size SVG can. No node-count ceiling of its own — that is the point.
- */
-function OntologyList({
-  databases,
-  relations,
-  spaceId,
-  spaceNameById,
-  onOpenDatabase,
-}: {
-  databases: OntologyDatabase[];
-  relations: OntologyRelation[];
-  spaceId: string;
-  spaceNameById: Map<string, string>;
-  onOpenDatabase: (id: string) => void;
-}) {
-  const dbIds = new Set(databases.map((d) => d.id));
-  const byDatabase = new Map<string, OntologyRelation[]>();
-  for (const d of databases) byDatabase.set(d.id, []);
-  for (const r of relations) {
-    // A same-space relation is listed once, under its "a" side, to avoid
-    // showing the same sentence twice under two different databases.
-    if (byDatabase.has(r.a.database_id)) byDatabase.get(r.a.database_id)!.push(r);
-    else if (byDatabase.has(r.b.database_id)) byDatabase.get(r.b.database_id)!.push(r);
-  }
-
-  const sorted = [...databases].sort((a, b) => a.name.localeCompare(b.name));
-
+/** The axis line. Drawn even when an axis is empty: the lines are what say
+ *  "relations attach here", and a lone chip with nothing around it gives the
+ *  reader no hint that the diagram has structure. */
+function AxisLine({ vertical, hasContent }: { vertical?: boolean; hasContent: boolean }) {
   return (
-    <div className="rounded-[var(--radius-card)] border border-border-default bg-card divide-y divide-border-default">
-      {sorted.map((d) => {
-        const dRelations = byDatabase.get(d.id) ?? [];
-        return (
-          <div key={d.id} className="p-3">
-            <button
-              type="button"
-              onClick={() => onOpenDatabase(d.id)}
-              className="flex items-center gap-2 text-left hover:underline"
-            >
-              <EntityIcon icon={d.icon} color={d.color} fallback={<DatabaseIcon className="h-3.5 w-3.5" />} />
-              <span className="text-[13px] font-medium text-ink">{d.name}</span>
-              <span className="text-[12px] text-faint">
-                {d.recordCounter ?? 0} {pluralNoun(databaseNoun(d.name), d.recordCounter ?? 0)}
-              </span>
-            </button>
-            {dRelations.length > 0 && (
-              <ul className="mt-1.5 flex flex-col gap-1 pl-6">
-                {dRelations.map((r) => (
-                  <li key={r.id} className="text-[12px] text-muted">
-                    {relationSentence(r, d.id, spaceId, dbIds, spaceNameById)}
-                  </li>
-                ))}
-              </ul>
-            )}
+    <span
+      aria-hidden
+      className={cn(
+        'shrink-0 bg-border-default',
+        vertical ? 'h-6 w-px' : 'h-px w-6',
+        hasContent ? 'opacity-100' : 'opacity-40',
+      )}
+    />
+  );
+}
+
+function CentreChip({ database }: { database: OntologyDatabase }) {
+  return (
+    <span className="col-start-2 row-start-2 inline-flex max-w-56 items-center gap-2 rounded-[var(--radius-chip)] border border-border-strong bg-app px-2.5 py-1.5">
+      <EntityIcon
+        icon={database.icon}
+        color={database.color}
+        fallback={<DatabaseIcon size={14} />}
+      />
+      <span className="truncate text-body font-medium text-ink">{database.name}</span>
+    </span>
+  );
+}
+
+function AxisGroups({
+  groups,
+  onOpen,
+}: {
+  groups: OntologyGroup[];
+  onOpen: (databaseId: string, fieldId: string) => void;
+}) {
+  if (groups.length === 0) return null;
+  return (
+    <div className="flex flex-col gap-3">
+      {groups.map((g) => (
+        <div key={`${g.spaceId ?? 'none'}-${g.spaceName}`} className="flex flex-col gap-1">
+          {/* --text-muted, not faint: a group label is how a reader knows which
+              cluster is which, so it carries an affordance (#637 / #326). */}
+          <span className="text-meta font-medium uppercase tracking-wider text-muted">
+            {g.spaceName}
+          </span>
+          <div className="flex flex-wrap gap-1.5">
+            {g.chips.map((c) => (
+              <RelatedChip key={c.relationId} chip={c} onOpen={onOpen} />
+            ))}
           </div>
-        );
-      })}
+        </div>
+      ))}
     </div>
   );
 }
 
-/** Same sentence shape as the diagram's edge title: field on each side, the
- *  cardinality, and — for a self-relation or a cross-space one — a marker
- *  that would otherwise be implicit in the diagram's own drawing (a loop
- *  shape, a dashed satellite). Text has neither, so it says so instead. */
-function relationSentence(
-  r: OntologyRelation,
-  localId: string,
-  spaceId: string,
-  dbIds: Set<string>,
-  spaceNameById: Map<string, string>,
-): string {
-  const cardinality = r.cardinality.replace(/_/g, '-');
-  if (r.self_relation) {
-    return `${r.a.field_name ?? '?'} / ${r.b.field_name ?? '?'} (self, ${cardinality})`;
-  }
-  const local = r.a.database_id === localId ? r.a : r.b;
-  const far = r.a.database_id === localId ? r.b : r.a;
-  const farInThisSpace = far.space_id === spaceId || dbIds.has(far.database_id);
-  const farLabel = farInThisSpace
-    ? far.database_name
-    : `${far.database_name} (in ${(far.space_id && spaceNameById.get(far.space_id)) || 'another space'})`;
-  return `${local.field_name ?? '?'} → ${farLabel}.${far.field_name ?? '?'} (${cardinality})`;
+/** Cardinality in words. `one_to_many` and `many_to_many` are the only two the
+ *  schema has — there is no `many_to_one`, it is the same relation read from
+ *  the other end. */
+function cardinalityLabel(c: string): string {
+  return c === 'one_to_many' ? 'one-to-many' : c === 'many_to_many' ? 'many-to-many' : c;
 }
 
-interface LayoutNode {
-  id: string;
-  name: string;
-  icon: string | null | undefined;
-  color: string | null | undefined;
-  description: string | null | undefined;
-  recordCounter: number | undefined;
-  x: number;
-  y: number;
-}
-interface LayoutSatellite {
-  id: string;
-  databaseId: string;
-  name: string;
-  spaceName: string;
-  x: number;
-  y: number;
-}
-type LayoutEdge =
-  | {
-      kind: 'line';
-      key: string;
-      x1: number;
-      y1: number;
-      x2: number;
-      y2: number;
-      labelX: number;
-      labelY: number;
-      label: string;
-      shortLabel: string;
-      crossSpace: boolean;
-      localDatabaseId: string;
-      /** #497 — the local side's field id, so a click deep-links to that
-       *  relation's own column rather than just the database. */
-      localFieldId: string;
-    }
-  | {
-      kind: 'loop';
-      key: string;
-      d: string;
-      labelX: number;
-      labelY: number;
-      label: string;
-      shortLabel: string;
-      localDatabaseId: string;
-      /** #497 — a self-relation's two sides (e.g. Parent/Sub-items) share one
-       *  loop; the deep link picks `a`'s field, same as its label's first half. */
-      localFieldId: string;
-    };
+function RelatedChip({
+  chip,
+  onOpen,
+}: {
+  chip: OntologyChip;
+  onOpen: (databaseId: string, fieldId: string) => void;
+}) {
+  const describedBy = `rel-${chip.relationId}`;
+  const label = `${cardinalityLabel(chip.cardinality)}${chip.localFieldName ? ` \u00b7 via \u201c${chip.localFieldName}\u201d` : ''}${chip.selfRelation ? ' \u00b7 self-relation' : ''}`;
+  return (
+    <span className="group relative inline-flex">
+      <button
+        type="button"
+        aria-describedby={describedBy}
+        onClick={() => onOpen(chip.databaseId, chip.fieldId)}
+        className="inline-flex max-w-44 items-center gap-1 rounded-[var(--radius-chip)] border border-border-default bg-card py-0.5 pl-1.5 pr-1 text-label text-ink hover:bg-hover"
+      >
+        {/*
+          A SELF-RELATION NAMES THE RELATION, NOT THE DATABASE. Found by looking
+          at it: the Tasks database has two self-relations, so the diagram drew
+          a "Tasks" centre with two "Tasks" chips hanging off it — technically
+          correct and useless to read. The database is already the centre; what
+          distinguishes these chips is which relation they are, so the field
+          name is the informative label ("Parent task", "Blocked by").
+        */}
+        <span className="truncate">
+          {(chip.selfRelation ? (chip.localFieldName ?? chip.name) : chip.name) ?? 'Untitled'}
+        </span>
+        <ChevronRight size={12} className="shrink-0 text-muted" aria-hidden />
+      </button>
+      {/*
+        THE RELATIONSHIP TYPE IS SHOWN ONLY ON INTERACTION — Ievgen's most
+        important line on ticket #636, and the reason the whole collision class
+        is gone: nothing is positioned by geometry at rest.
 
-/**
- * #607 — a rough but DETERMINISTIC text-width estimate: this is a pure layout
- * function with no DOM to call getBBox() against. Calibrated against a real
- * getBBox() reading the ticket itself measured live — a 23-character shortLabel
- * ("Rel One / Rel One Back") rendered at 92.8 SVG units at this component's
- * actual 9px label font, i.e. ~0.45 px per character per px of font-size.
- * Rounds UP to 0.5 so the estimate is never narrower than reality — AC1 wants
- * the fan-out step "comfortably larger than" the actual width, not merely
- * equal to it (a tight estimate that undershoots by a few px would just
- * reproduce this exact ticket at a smaller gap).
- */
-export function estimateTextWidth(text: string, fontSizePx: number): number {
-  return text.length * fontSizePx * 0.5;
-}
-
-export function computeLayout(
-  databases: OntologyDatabase[],
-  relations: OntologyRelation[],
-  spaceId: string,
-  spaceNameById: Map<string, string>,
-) {
-  const n = databases.length;
-  // Radius grows with node count so labels stop overlapping — the "readable at
-  // 20 databases" criterion, satisfied by giving each node more arc room rather
-  // than by trying to be clever about it.
-  const radius = Math.max(90, n * 20);
-  // A provisional centre, used only to PLACE things. The real canvas bounds are
-  // computed from where everything actually ended up (below), not guessed here
-  // — a guessed fixed margin is exactly what clipped a fanned-out self-relation
-  // loop off the top edge on first render, caught live rather than in review:
-  // the loop's control point landed one pixel past a viewBox that assumed every
-  // loop stays close to its node.
-  const center = radius + 100;
-
-  const positions = new Map<string, { x: number; y: number }>();
-  databases.forEach((d, i) => {
-    const angle = (2 * Math.PI * i) / n - Math.PI / 2;
-    positions.set(d.id, {
-      x: center + radius * Math.cos(angle),
-      y: center + radius * Math.sin(angle),
-    });
-  });
-
-  const nodes: LayoutNode[] = databases.map((d) => ({
-    id: d.id,
-    name: d.name,
-    icon: d.icon,
-    color: d.color,
-    description: d.description,
-    recordCounter: d.recordCounter,
-    ...positions.get(d.id)!,
-  }));
-
-  const edges: LayoutEdge[] = [];
-  const satellites: LayoutSatellite[] = [];
-  const dbIds = new Set(databases.map((d) => d.id));
-  // #449 — a node can carry more than one self-relation (Issues has both
-  // Parent/Sub-tasks and Blocked-by/Blocks). Drawing every loop at the same
-  // fixed angle stacked their labels illegibly on top of each other — caught
-  // live, not in review. Each loop on the SAME node now claims its own angle
-  // around it, spaced out as more accumulate.
-  const loopIndexByNode = new Map<string, number>();
-  // #528 — the same two databases can carry more than one relation between
-  // them (e.g. Issues' Parent-task and Blocked-by both point at Issues…
-  // Issues, or two genuinely different tables with two separate relation
-  // fields). A label always drawn at the exact (pa+pb)/2 midpoint put a
-  // second one on the identical pixel — same collision loopIndexByNode
-  // already solves for self-relation loops, applied here to same-pair edges.
-  const pairIndexByKey = new Map<string, number>();
-  // #528 — likewise, two cross-space relations from the SAME local node both
-  // computed their satellite's angle from that node's position alone, so a
-  // second satellite (and its "in {space}" label) landed on the identical
-  // (x, y) as the first. Counted per LOCAL node, same fan-out shape as loops.
-  const satelliteIndexByNode = new Map<string, number>();
-
-  // #607 — #528's fan-out fixed the WORST case (identical anchor points) but
-  // used a fixed step regardless of the labels' actual rendered width, so
-  // anything longer than a very short label still overlapped heavily. A pass
-  // over every relation BEFORE placing anything, tracking the widest label
-  // each fan-out group will need to clear, lets `spacing`/`satSpreadDeg` below
-  // be sized from real text width instead of a guessed constant — computed
-  // once per group here rather than only from whichever label happens to be
-  // placed first (order-independent, so a later, wider label in the same
-  // group can't retroactively make an earlier placement too tight).
-  const maxPairLabelWidth = new Map<string, number>();
-  const maxSatelliteLabelWidth = new Map<string, number>();
-  for (const r of relations) {
-    if (r.self_relation) continue;
-    const aLocalPre = dbIds.has(r.a.database_id);
-    const bLocalPre = dbIds.has(r.b.database_id);
-    if (aLocalPre && bLocalPre) {
-      const pairKey = [r.a.database_id, r.b.database_id].sort().join('|');
-      const shortLabel = `${r.a.field_name ?? ''} / ${r.b.field_name ?? ''}`;
-      const width = estimateTextWidth(shortLabel, 9);
-      maxPairLabelWidth.set(pairKey, Math.max(maxPairLabelWidth.get(pairKey) ?? 0, width));
-      continue;
-    }
-    const localPre = aLocalPre ? r.a : bLocalPre ? r.b : null;
-    const farPre = aLocalPre ? r.b : bLocalPre ? r.a : null;
-    if (!localPre || !farPre) continue;
-    const spaceName = (farPre.space_id && spaceNameById.get(farPre.space_id)) || 'another space';
-    // The satellite's two-line label stack (name @9px, "in {space}" @8px) —
-    // whichever line is wider is what must clear the next satellite over.
-    const width = Math.max(
-      estimateTextWidth(farPre.database_name ?? 'Untitled', 9),
-      estimateTextWidth(`in ${spaceName}`, 8),
-    );
-    maxSatelliteLabelWidth.set(
-      localPre.database_id,
-      Math.max(maxSatelliteLabelWidth.get(localPre.database_id) ?? 0, width),
-    );
-  }
-
-  for (const r of relations) {
-    const cardinalityLabel = r.cardinality.replace(/_/g, '-');
-    if (r.self_relation) {
-      const p = positions.get(r.a.database_id);
-      if (!p) continue;
-      const loopIndex = loopIndexByNode.get(r.a.database_id) ?? 0;
-      loopIndexByNode.set(r.a.database_id, loopIndex + 1);
-      // Fan the loops out from straight-up, alternating left/right of centre so
-      // a second and third loop do not retrace the first one's path.
-      const spread = 34; // degrees between successive loops
-      const sign = loopIndex % 2 === 0 ? 1 : -1;
-      const step = Math.ceil(loopIndex / 2);
-      const angleDeg = -90 + sign * step * spread;
-      const angle = (angleDeg * Math.PI) / 180;
-      const loopR = NODE_R * 1.1;
-      const baseX = p.x + (NODE_R + 2) * Math.cos(angle);
-      const baseY = p.y + (NODE_R + 2) * Math.sin(angle);
-      const tipX = p.x + (NODE_R + loopR * 2.6) * Math.cos(angle);
-      const tipY = p.y + (NODE_R + loopR * 2.6) * Math.sin(angle);
-      // Perpendicular offset for the loop's two control points, so it bulges
-      // out from the node rather than drawing a straight spike.
-      const perpX = -Math.sin(angle) * loopR * 1.6;
-      const perpY = Math.cos(angle) * loopR * 1.6;
-      const d = `M ${baseX} ${baseY} C ${baseX + perpX} ${baseY + perpY}, ${tipX + perpX} ${tipY + perpY}, ${tipX} ${tipY}`;
-      edges.push({
-        kind: 'loop',
-        key: r.id,
-        d,
-        labelX: tipX,
-        labelY: tipY + (Math.sin(angle) >= 0 ? 12 : -8),
-        label: `${r.a.field_name ?? '?'} / ${r.b.field_name ?? '?'} (${cardinalityLabel})`,
-        shortLabel: `${r.a.field_name ?? '?'} / ${r.b.field_name ?? '?'}`,
-        localDatabaseId: r.a.database_id,
-        localFieldId: r.a.field_id,
-      });
-      continue;
-    }
-
-    // Which side is "local" (in this space) — used to decide the click target
-    // and, for a cross-space edge, which side becomes the satellite.
-    const aLocal = dbIds.has(r.a.database_id);
-    const bLocal = dbIds.has(r.b.database_id);
-
-    if (aLocal && bLocal) {
-      const pa = positions.get(r.a.database_id);
-      const pb = positions.get(r.b.database_id);
-      if (!pa || !pb) continue;
-      // Unordered so A→B and B→A relations between the same pair share one
-      // counter — it's the PAIR that collides, not the direction.
-      const pairKey = [r.a.database_id, r.b.database_id].sort().join('|');
-      const pairIndex = pairIndexByKey.get(pairKey) ?? 0;
-      pairIndexByKey.set(pairKey, pairIndex + 1);
-      const midX = (pa.x + pb.x) / 2;
-      const midY = (pa.y + pb.y) / 2;
-      // Fan successive labels off the midpoint along the line's PERPENDICULAR,
-      // alternating sides — same sign/step spread as loopIndexByNode's fan.
-      const dx = pb.x - pa.x;
-      const dy = pb.y - pa.y;
-      const len = Math.hypot(dx, dy) || 1;
-      const perpX = -dy / len;
-      const perpY = dx / len;
-      const sign = pairIndex % 2 === 0 ? 1 : -1;
-      const step = Math.ceil(pairIndex / 2);
-      // #607 — was a fixed 14; now the widest label this pair will ever draw
-      // (+ margin), so adjacent labels clear each other's text, not just their
-      // anchor points. Floor of 14 keeps the original spacing for short labels.
-      const spacing = Math.max(14, (maxPairLabelWidth.get(pairKey) ?? 0) + 10);
-      const offset = sign * step * spacing;
-      edges.push({
-        kind: 'line',
-        key: r.id,
-        x1: pa.x,
-        y1: pa.y,
-        x2: pb.x,
-        y2: pb.y,
-        labelX: midX + perpX * offset,
-        labelY: midY + perpY * offset - 4,
-        // AC: "Edges carry cardinality and the field name on each side —
-        // Issues — Epic → Epics reads as a sentence."
-        label: `${r.a.database_name} — ${r.a.field_name} → ${r.b.database_name} (${cardinalityLabel})`,
-        shortLabel: `${r.a.field_name ?? ''} / ${r.b.field_name ?? ''}`,
-        crossSpace: false,
-        localDatabaseId: r.a.database_id,
-        localFieldId: r.a.field_id,
-      });
-      continue;
-    }
-
-    // Cross-space: exactly one side is local (the relations endpoint only
-    // returns a relation at all when both sides are READABLE, and this page
-    // only asked for relations touching `spaceId`, so at least one side must
-    // be local — both-local is handled above, so this branch is both-not-local
-    // impossible, or genuinely one-local-one-far).
-    const local = aLocal ? r.a : bLocal ? r.b : null;
-    const far = aLocal ? r.b : bLocal ? r.a : null;
-    if (!local || !far) continue;
-    const p = positions.get(local.database_id);
-    if (!p) continue;
-    // Park the satellite just past the ring, on the ray from centre through the
-    // local node — reads as "attached to this node, outside the circle".
-    const baseAngle = Math.atan2(p.y - center, p.x - center);
-    // #528 — a second cross-space relation from this SAME local node would
-    // otherwise reuse the identical ray, landing its satellite (and "in
-    // {space}" label) exactly on top of the first. Fan successive satellites
-    // a few degrees either side of the base ray instead.
-    const satIndex = satelliteIndexByNode.get(local.database_id) ?? 0;
-    satelliteIndexByNode.set(local.database_id, satIndex + 1);
-    const satSign = satIndex % 2 === 0 ? 1 : -1;
-    const satStep = Math.ceil(satIndex / 2);
-    // #607 — was a fixed 18°. Satellites sit on an arc of radius (radius+46),
-    // so the ARC LENGTH between adjacent ones (not the angle itself) is what
-    // has to clear the widest label this node's satellites will draw; convert
-    // that required arc length back to a degree step. Floor of 18° keeps the
-    // original spread for short labels.
-    const satArcRadius = radius + 46;
-    const satRequiredArc = (maxSatelliteLabelWidth.get(local.database_id) ?? 0) + 10;
-    const satSpreadDeg = Math.max(18, (satRequiredArc / satArcRadius) * (180 / Math.PI));
-    const angle = baseAngle + (satSign * satStep * satSpreadDeg * Math.PI) / 180;
-    const sx = center + satArcRadius * Math.cos(angle);
-    const sy = center + satArcRadius * Math.sin(angle);
-    const satelliteId = `${r.id}:${far.database_id}`;
-    satellites.push({
-      id: satelliteId,
-      databaseId: far.database_id,
-      name: far.database_name ?? 'Untitled',
-      spaceName: (far.space_id && spaceNameById.get(far.space_id)) || 'another space',
-      x: sx,
-      y: sy,
-    });
-    edges.push({
-      kind: 'line',
-      key: r.id,
-      x1: p.x,
-      y1: p.y,
-      x2: sx,
-      y2: sy,
-      labelX: (p.x + sx) / 2,
-      labelY: (p.y + sy) / 2 - 4,
-      label: `${local.database_name} — ${local.field_name} → ${far.database_name} (outside this space, ${cardinalityLabel})`,
-      shortLabel: `${local.field_name ?? ''} / ${far.field_name ?? ''}`,
-      crossSpace: true,
-      localDatabaseId: local.database_id,
-      localFieldId: local.field_id,
-    });
-  }
-
-  // Real bounds: every node, satellite and loop control/tip point, each with
-  // enough padding for its own label. Panning/clipping bugs in a hand-rolled
-  // diagram come from assuming a shape's extent instead of measuring it, so
-  // this measures.
-  const pts: Array<{ x: number; y: number; pad: number }> = [
-    ...nodes.map((p) => ({ x: p.x, y: p.y, pad: NODE_R + 26 })),
-    ...satellites.map((p) => ({ x: p.x, y: p.y, pad: SATELLITE_R + 24 })),
-  ];
-  for (const e of edges) {
-    if (e.kind === 'loop') {
-      pts.push({ x: e.labelX, y: e.labelY, pad: 14 });
-    }
-  }
-  const minX = Math.min(...pts.map((p) => p.x - p.pad));
-  const maxX = Math.max(...pts.map((p) => p.x + p.pad));
-  const minY = Math.min(...pts.map((p) => p.y - p.pad));
-  const maxY = Math.max(...pts.map((p) => p.y + p.pad));
-
-  const offsetX = -minX;
-  const offsetY = -minY;
-  const width = maxX - minX;
-  const height = maxY - minY;
-
-  const shift = <T extends { x: number; y: number }>(p: T): T => ({ ...p, x: p.x + offsetX, y: p.y + offsetY });
-  const shiftedNodes = nodes.map(shift);
-  const shiftedSatellites = satellites.map(shift);
-  const shiftedEdges = edges.map((e) =>
-    e.kind === 'loop'
-      ? { ...e, d: shiftPathData(e.d, offsetX, offsetY), labelX: e.labelX + offsetX, labelY: e.labelY + offsetY }
-      : {
-          ...e,
-          x1: e.x1 + offsetX,
-          y1: e.y1 + offsetY,
-          x2: e.x2 + offsetX,
-          y2: e.y2 + offsetY,
-          labelX: e.labelX + offsetX,
-          labelY: e.labelY + offsetY,
-        },
+        It reveals on FOCUS as well as hover. That is not in the ticket and I
+        added it: "hover only" was a statement about what is drawn at rest, not
+        a decision to make relationship type unreachable for keyboard users.
+        `aria-describedby` also hands it to a screen reader without needing
+        either event.
+      */}
+      <span
+        id={describedBy}
+        role="tooltip"
+        className="pointer-events-none absolute left-1/2 top-full z-[var(--z-popover)] mt-1 hidden -translate-x-1/2 whitespace-nowrap rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-meta text-ink shadow-[var(--shadow-popover)] group-focus-within:block group-hover:block"
+      >
+        {label}
+      </span>
+    </span>
   );
-
-  return { width, height, nodes: shiftedNodes, edges: shiftedEdges, satellites: shiftedSatellites };
-}
-
-/** Translate every absolute coordinate in an SVG path's `d` string. The paths
- *  this module builds are all `M x y C x y, x y, x y` — numbers only, no
- *  relative commands — so a blind numeric shift is exact, not an approximation. */
-function shiftPathData(d: string, dx: number, dy: number): string {
-  let i = 0;
-  return d.replace(/-?\d+(?:\.\d+)?/g, (match) => {
-    const value = Number(match);
-    const shifted = i % 2 === 0 ? value + dx : value + dy;
-    i += 1;
-    return String(shifted);
-  });
 }

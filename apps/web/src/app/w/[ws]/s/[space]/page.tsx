@@ -14,7 +14,7 @@ import { EntityIcon, IconColorPicker } from '@/components/ui/icon-picker';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { ShareDialog } from '@/components/share-dialog';
-import { DIAGRAM_NODE_LIMIT, SpaceOntology } from '@/components/space-ontology';
+import { SpaceOntology } from '@/components/space-ontology';
 import type { OntologyRelation } from '@/components/space-ontology';
 import { databaseNoun, pluralNoun } from '@/lib/records';
 import { cn } from '@/lib/utils';
@@ -82,7 +82,9 @@ export default function SpacePage() {
   const members = useQuery({
     queryKey: ['members', ws],
     queryFn: async () => {
-      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/members', { params: { path: { ws } } });
+      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/members', {
+        params: { path: { ws } },
+      });
       if (error) throw error;
       return data as unknown as Member[];
     },
@@ -91,7 +93,9 @@ export default function SpacePage() {
   const grants = useQuery({
     queryKey: ['grants', ws],
     queryFn: async () => {
-      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/grants', { params: { path: { ws } } });
+      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/grants', {
+        params: { path: { ws } },
+      });
       if (error) throw error;
       return (data as unknown as { data: Grant[] }).data;
     },
@@ -139,8 +143,11 @@ export default function SpacePage() {
   const workspaceMembers = (members.data ?? []).filter((m) => m.role !== 'guest');
   const spaceDbIds = new Set(spaceDatabases.map((d) => d.id));
   const spaceGrants = (grants.data ?? []).filter((g) => g.space_id === space.id);
-  const dbGrants = (grants.data ?? []).filter((g) => g.database_id && spaceDbIds.has(g.database_id));
-  const nameOf = (userId: string) => (members.data ?? []).find((m) => m.user_id === userId)?.user.name ?? userId.slice(0, 8);
+  const dbGrants = (grants.data ?? []).filter(
+    (g) => g.database_id && spaceDbIds.has(g.database_id),
+  );
+  const nameOf = (userId: string) =>
+    (members.data ?? []).find((m) => m.user_id === userId)?.user.name ?? userId.slice(0, 8);
   const dbNameOf = (id: string) => spaceDatabases.find((d) => d.id === id)?.name ?? 'a database';
 
   const saveDescription = () => {
@@ -179,7 +186,12 @@ export default function SpacePage() {
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-border-default hover:bg-hover"
           title="Change icon"
         >
-          <EntityIcon icon={space.icon} color={space.color} size={20} fallback={<Layers className="h-4 w-4 text-faint" />} />
+          <EntityIcon
+            icon={space.icon}
+            color={space.color}
+            size={20}
+            fallback={<Layers className="h-4 w-4 text-faint" />}
+          />
         </button>
         <h1 className="text-xl font-semibold text-ink">{space.name}</h1>
       </div>
@@ -198,7 +210,11 @@ export default function SpacePage() {
             )}
           />
           <div className="flex items-center gap-2">
-            <span className={cn('text-[12px] tabular-nums', draft.over ? 'text-error' : 'text-faint')}>{draft.hint}</span>
+            <span
+              className={cn('text-[12px] tabular-nums', draft.over ? 'text-error' : 'text-faint')}
+            >
+              {draft.hint}
+            </span>
             <div className="ml-auto flex gap-2">
               <Button
                 type="button"
@@ -210,7 +226,11 @@ export default function SpacePage() {
               >
                 Cancel
               </Button>
-              <Button type="button" onClick={saveDescription} disabled={draft.over || updateSpace.isPending}>
+              <Button
+                type="button"
+                onClick={saveDescription}
+                disabled={draft.over || updateSpace.isPending}
+              >
                 {updateSpace.isPending ? 'Saving…' : 'Save'}
               </Button>
             </div>
@@ -252,7 +272,10 @@ export default function SpacePage() {
             <AccessGroup
               label="Granted on this space"
               hint="a space-level grant"
-              rows={spaceGrants.map((g) => ({ name: nameOf(g.user_id), role: ROLE_LABEL[g.role] ?? g.role }))}
+              rows={spaceGrants.map((g) => ({
+                name: nameOf(g.user_id),
+                role: ROLE_LABEL[g.role] ?? g.role,
+              }))}
             />
             <AccessGroup
               label="Granted on a database here"
@@ -264,7 +287,9 @@ export default function SpacePage() {
             />
           </div>
         ) : (
-          <p className="text-[13px] text-faint">Only workspace admins and members can see who else has access.</p>
+          <p className="text-[13px] text-faint">
+            Only workspace admins and members can see who else has access.
+          </p>
         )}
       </section>
 
@@ -272,14 +297,15 @@ export default function SpacePage() {
       <section className="mb-8">
         <h2 className="mb-1 text-sm font-medium text-ink">Ontology</h2>
         <p className="mb-3 text-[13px] text-muted">
-          {/* #509 — SpaceOntology picks one of two renderings past DIAGRAM_NODE_LIMIT
-              (see its own #449 AC10 comment); this caption must describe whichever
-              one it actually picked, not always the diagram. */}
-          {spaceDatabases.length} {pluralNoun(databaseNoun('database'), spaceDatabases.length)},{' '}
-          {spaceDatabases.length > DIAGRAM_NODE_LIMIT
-            ? 'listed below, each with its relations as plain sentences'
-            : 'drawn as nodes; a line is a relation'}
-          .
+          {/* #636 — there is only ONE rendering now, so this caption no longer
+              has to describe which of two the component picked (#509's
+              question, which the redesign made moot along with
+              DIAGRAM_NODE_LIMIT). It does have to be honest that the diagram
+              centres on one database and the Contents list below carries the
+              rest. */}
+          {spaceDatabases.length} {pluralNoun(databaseNoun('database'), spaceDatabases.length)}. The
+          diagram centres on the most connected one; hover a chip for the relationship type, and see
+          Contents below for everything here.
         </p>
         <SpaceOntology
           ws={ws}
@@ -306,7 +332,10 @@ export default function SpacePage() {
           <ul className="flex flex-col gap-1">
             {spaceDatabases.map((d) => (
               <li key={d.id}>
-                <a href={`/w/${ws}/d/${d.id}`} className="flex items-center gap-2 rounded px-2 py-1 text-[13px] text-ink hover:bg-hover">
+                <a
+                  href={`/w/${ws}/d/${d.id}`}
+                  className="flex items-center gap-2 rounded px-2 py-1 text-[13px] text-ink hover:bg-hover"
+                >
                   <EntityIcon icon={d.icon} color={d.color} fallback={null} />
                   <span className="truncate">{d.name}</span>
                 </a>
@@ -352,7 +381,10 @@ function AccessGroup({
       </p>
       <ul className="flex flex-col gap-0.5">
         {rows.map((r, i) => (
-          <li key={i} className="flex items-center justify-between rounded px-2 py-1 hover:bg-hover">
+          <li
+            key={i}
+            className="flex items-center justify-between rounded px-2 py-1 hover:bg-hover"
+          >
             <span className="text-ink">{r.name}</span>
             <span className="text-faint">{r.role}</span>
           </li>
