@@ -30,6 +30,13 @@ jobs:
       packages: write # push to ghcr.io via the built-in GITHUB_TOKEN
     strategy:
       fail-fast: false
+      # NOTE: `env` is NOT available here — strategy.matrix is expanded when the
+      # workflow is PARSED, before any job or step runs, so only github/needs/
+      # vars/inputs resolve in this block (#614). A dynamic value (like
+      # BUILD_TIME below, set by a step) belongs on the build step's
+      # `build-args`, concatenated with this matrix's static `build_args` — not
+      # in the matrix itself. Referencing `env` here makes the whole workflow
+      # invalid: GitHub refuses to start it at all (failure at 0s, no logs).
       matrix:
         service: [api, mcp, web]
         arch: [amd64, arm64]
@@ -42,21 +49,12 @@ jobs:
             cache_suffix: '-arm64'
           - service: api
             dockerfile: docker/api.Dockerfile
-            # #553 — baked into the image so GET / can answer "what commit
-            # is this deployment serving" from the running process itself,
-            # never from the host's deploy-time .env (see api.Dockerfile's
-            # own comment for why that distinction matters).
-            build_args: |
-              GIT_SHA=${{ github.sha }}
-              BUILD_TIME=${{ env.BUILD_TIME }}
+            build_args: ''
           - service: mcp
             dockerfile: docker/mcp.Dockerfile
             build_args: ''
           - service: web
             dockerfile: docker/web.Dockerfile
-            # #553 — same reasoning and same values as the api service's own
-            # GIT_SHA/BUILD_TIME above: one CI job, one commit, so both
-            # services report identical build metadata for the same run.
             build_args: |
               NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL }}
               NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN=${{ vars.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN }}
@@ -70,8 +68,6 @@ jobs:
               # from this pipeline. Set the WEB_URL repo variable to override once
               # prod also moves to a pulled GHCR image (docker-compose.prod.yml).
               WEB_URL=${{ vars.WEB_URL || 'https://staging.storyos.dev' }}
-              GIT_SHA=${{ github.sha }}
-              BUILD_TIME=${{ env.BUILD_TIME }}
     steps:
       - uses: actions/checkout@v4
 
@@ -82,7 +78,8 @@ jobs:
         run: echo "OWNER_LC=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
 
       # #553 — one build time for the whole job (not "whenever this step of
-      # this arch's build happens to run"), consumed by the api build-arg above.
+      # this arch's build happens to run"), consumed by the build step's own
+      # `build-args` below (#614 — must be a step's `env`, never the matrix).
       - name: Compute build time
         run: echo "BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
 
@@ -99,7 +96,14 @@ jobs:
           context: .
           file: ${{ matrix.dockerfile }}
           push: true
-          build-args: ${{ matrix.build_args }}
+          # #553's GIT_SHA/BUILD_TIME are appended here, not in the matrix (see
+          # the matrix's own comment on why #614 moved them) — env resolves
+          # normally on a step, and BUILD_TIME's producing step above has
+          # already run by the time this one does.
+          build-args: |
+            ${{ matrix.build_args }}
+            GIT_SHA=${{ github.sha }}
+            BUILD_TIME=${{ env.BUILD_TIME }}
           tags: |
             ghcr.io/${{ env.OWNER_LC }}/storyos-${{ matrix.service }}:${{ github.sha }}-${{ matrix.arch }}
           cache-from: type=gha,scope=${{ matrix.service }}${{ matrix.cache_suffix }}
