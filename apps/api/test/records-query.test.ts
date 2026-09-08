@@ -313,6 +313,26 @@ describe('records query engine (MN-012)', () => {
     }
   });
 
+  it('#590: op-for-type errors name the FIELD and the full allowed-op set, not just the rejected op', async () => {
+    const cases: Array<{ filter: Record<string, unknown>; allowed: string[] }> = [
+      // choice/id-set (select)
+      { filter: { field: 'state', op: 'gt', value: 1 }, allowed: ['eq', 'neq', 'has', 'has_none', 'is_empty', 'not_empty'] },
+      // number
+      { filter: { field: 'estimate', op: 'contains', value: 1 }, allowed: ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'is_empty', 'not_empty'] },
+      // date
+      { filter: { field: 'due', op: 'gt', value: '2026-01-01' }, allowed: ['eq', 'neq', 'before', 'after', 'within', 'is_empty', 'not_empty'] },
+      // checkbox
+      { filter: { field: 'urgent_flag', op: 'contains', value: true }, allowed: ['eq', 'neq', 'is_empty', 'not_empty'] },
+    ];
+    for (const { filter, allowed } of cases) {
+      const res = await query({ filter });
+      expect(res.statusCode, JSON.stringify(filter)).toBe(422);
+      const message = res.json().error.message as string;
+      expect(message, JSON.stringify(filter)).toContain(`"${filter.field}"`);
+      for (const op of allowed) expect(message, JSON.stringify(filter)).toContain(op);
+    }
+  });
+
   it('is injection-proof: hostile values are parameterized, hostile fields rejected', async () => {
     const hostileValue = await query({
       filter: { field: 'brief', op: 'eq', value: `'; DROP TABLE records; --` },
