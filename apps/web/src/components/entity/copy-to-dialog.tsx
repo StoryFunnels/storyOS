@@ -6,6 +6,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { API_URL } from '@/lib/api';
 import { useDatabase } from '@/components/table-view/use-table-data';
 import { useDatabases, useSpaces } from '@/lib/queries';
+import type { DatabaseSummary } from '@/lib/queries';
+import { atLeast } from '@/lib/access';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 
@@ -44,6 +46,21 @@ interface ApplyResult {
  * row is blocking.
  */
 class CopyError extends Error {}
+
+/**
+ * #611 — closes #562's gap: `my_access` now rides along on the list endpoint,
+ * so a viewer-only database is filtered out here rather than sitting in the
+ * picker until the copy endpoint's own assertAccess(..., 'contributor') 403s
+ * it after the fact. `'contributor'` is the SAME minimum the API itself
+ * requires (copy-record.service.ts's assertAccess call) — kept in lockstep,
+ * not re-derived. Exported so the filter itself is unit-testable without
+ * rendering the dialog's react-query/router scaffolding.
+ */
+export function writableCopyTargets(databases: DatabaseSummary[], sourceDatabaseId: string): DatabaseSummary[] {
+  return databases.filter(
+    (d) => d.id !== sourceDatabaseId && atLeast(d.my_access ?? undefined, 'contributor'),
+  );
+}
 
 async function copyRecords(
   ws: string,
@@ -101,10 +118,7 @@ export function CopyToDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // #433/#561 note above — no destination is excluded by write access here
-  // (list endpoint has no my_access, filed as #562); a viewer-only pick is
-  // instead caught by the dry-run call itself failing below.
-  const otherDatabases = (databases.data ?? []).filter((d) => d.id !== db);
+  const otherDatabases = writableCopyTargets(databases.data ?? [], db);
   const spaceName = new Map((spaces.data ?? []).map((s) => [s.id, s.name]));
   const bySpace = new Map<string, typeof otherDatabases>();
   for (const d of otherDatabases) {
