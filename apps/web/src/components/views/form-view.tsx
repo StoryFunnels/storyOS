@@ -409,7 +409,7 @@ function RelationInput({
       </div>
       {open && (
         <div
-          className="absolute left-0 top-full z-20 mt-1 max-h-52 w-full overflow-y-auto rounded-[var(--radius-card)] border border-border-default bg-card p-1 shadow-[0_4px_12px_rgba(15,23,41,0.08)]"
+          className="absolute left-0 top-full z-20 mt-1 max-h-52 w-full overflow-y-auto rounded-[var(--radius-card)] border border-border-default bg-card p-1 shadow-[var(--shadow-popover)]"
           onMouseLeave={() => setOpen(false)}
         >
           {(results.data ?? []).map((r) => (

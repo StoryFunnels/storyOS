@@ -580,7 +580,7 @@ export function RecordDetail({
             </SortableContext>
             <DragPreview>
               {propDrag.activeId && (
-                <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-[13px] text-ink shadow-[0_8px_24px_rgba(15,23,41,0.25)]">
+                <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-[13px] text-ink shadow-[var(--shadow-lifted)]">
                   {fieldLabel(propDrag.activeId) ?? ''}
                 </div>
               )}

@@ -272,7 +272,7 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
           </SortableContext>
           <DragPreview>
             {spaceDrag.activeId && (
-              <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-[3px] text-[11px] font-semibold uppercase tracking-wider text-muted shadow-[0_8px_24px_rgba(15,23,41,0.25)]">
+              <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-[3px] text-[11px] font-semibold uppercase tracking-wider text-muted shadow-[var(--shadow-lifted)]">
                 {visibleSpaces.find((sp) => sp.id === spaceDrag.activeId)?.name ?? ''}
               </div>
             )}
@@ -1406,7 +1406,7 @@ function SpaceSection({
           ))}
           <DragPreview>
             {itemDrag.activeId && (
-              <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-[3px] text-[13px] text-ink shadow-[0_8px_24px_rgba(15,23,41,0.25)]">
+              <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-[3px] text-[13px] text-ink shadow-[var(--shadow-lifted)]">
                 {itemLabel(itemDrag.activeId) ?? ''}
               </div>
             )}

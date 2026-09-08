@@ -416,7 +416,7 @@ function DbFilterControl({ filter }: { filter: PickerFilterState }) {
         <ChevronDown className="h-3 w-3" />
       </button>
       {open && (
-        <div className="absolute right-0 z-10 mt-1 max-h-48 w-40 overflow-y-auto rounded-[var(--radius-control)] border border-border-default bg-card p-1 shadow-[0_16px_40px_rgba(15,23,41,0.22)]">
+        <div className="absolute right-0 z-10 mt-1 max-h-48 w-40 overflow-y-auto rounded-[var(--radius-control)] border border-border-default bg-card p-1 shadow-[var(--shadow-overlay)]">
           <FilterOption
             label="Anything"
             active={filter.value == null}
@@ -503,7 +503,7 @@ function makePickerMenu(opts: {
     // control.
     const showFilter = Boolean(filter && (filter.options.length > 1 || filter.value));
     return (
-      <div className="w-72 overflow-hidden rounded-[var(--radius-modal)] border border-border-default bg-card shadow-[0_16px_40px_rgba(15,23,41,0.22)]">
+      <div className="w-72 overflow-hidden rounded-[var(--radius-modal)] border border-border-default bg-card shadow-[var(--shadow-overlay)]">
         {(showFilter || (isEmptyQuery && hasItems)) && (
           <div className="flex items-center justify-between gap-2 px-2.5 pb-0.5 pt-2">
             <p className="text-[11px] font-medium uppercase tracking-wider text-faint">

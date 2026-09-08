@@ -214,7 +214,7 @@ export function HeaderCell({
         // #413 — the cursor must cover exactly what responds, or the header
         // grows a region that looks draggable and is not (and vice versa).
         reorderable && 'cursor-grab touch-none active:cursor-grabbing',
-        sticky && 'bg-app shadow-[2px_0_4px_-2px_rgba(15,23,41,0.12)]',
+        sticky && 'bg-app shadow-[var(--shadow-edge-right)]',
         /* #409/#411 — `z-40 opacity-70` is what let the dragged header paint
            over its neighbours AND over the frozen first column (whose sticky z
            is 30 + …). The content now floats in the shared portalled overlay,

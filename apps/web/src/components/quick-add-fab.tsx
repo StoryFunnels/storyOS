@@ -63,7 +63,7 @@ export function QuickAddFab() {
         onClick={() => setOpen(true)}
         aria-label="Quick add a record"
         title={newRecordTitle}
-        className="fixed bottom-5 right-4 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-[var(--text-on-dark)] shadow-[0_8px_24px_rgba(15,23,41,0.25)] hover:bg-primary-hover md:hidden"
+        className="fixed bottom-5 right-4 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-[var(--text-on-dark)] shadow-[var(--shadow-lifted)] hover:bg-primary-hover md:hidden"
       >
         <Plus className="h-6 w-6" />
       </button>

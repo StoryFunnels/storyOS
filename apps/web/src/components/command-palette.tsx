@@ -294,7 +294,7 @@ export function CommandPalette() {
         role="dialog"
         aria-modal="true"
         aria-label="Search and commands"
-        className="flex max-h-[70vh] w-full max-w-xl flex-col overflow-hidden rounded-[var(--radius-modal)] border border-border-default bg-card shadow-[0_24px_60px_rgba(15,23,41,0.28)]"
+        className="flex max-h-[70vh] w-full max-w-xl flex-col overflow-hidden rounded-[var(--radius-modal)] border border-border-default bg-card shadow-[var(--shadow-palette)]"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="relative flex items-center gap-2.5 border-b border-border-default px-3.5">
