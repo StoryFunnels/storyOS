@@ -16,6 +16,7 @@ import { Dialog, DialogTrigger } from '@/components/ui/dialog';
 import { CellDisplay, CellEditor, EmptyFieldAffordance, PressButton, cellToText, fieldValue } from './cells';
 import { AddFieldDialog } from './add-field-dialog';
 import { BatchBar } from './batch-bar';
+import { EditFieldDialog } from './edit-field-dialog';
 import { HeaderCell } from './header-cell';
 import { PASTE_WRONG_TARGET, coercePaste, resolvePasteSource } from './paste';
 import { computeRangeBounds, hasCrossedDragThreshold, parseCellDataset, type Cursor } from './range-select';
@@ -95,6 +96,8 @@ export function TableView({
   onColumnResize,
   config,
   onPatch,
+  autoOpenFieldId,
+  onAutoOpenFieldConsumed,
 }: {
   ws: string;
   db: string;
@@ -107,6 +110,13 @@ export function TableView({
   /** View config + patch, so column headers can filter/sort by their field (MN-225). */
   config?: ViewConfig;
   onPatch?: (updates: Partial<ViewConfig>) => void;
+  /** #497 — the ontology diagram's edge deep-link (`?field={id}` on the
+   *  database route): opens this field's Edit dialog on load, independent of
+   *  whichever HeaderCell instance it renders as (and even if the current
+   *  view has it hidden — the point is reaching the relation's config, not
+   *  reproducing the view's own visibility rule). */
+  autoOpenFieldId?: string | null;
+  onAutoOpenFieldConsumed?: () => void;
 }) {
   // #396 — platform-correct: ⌘ on a Mac, Ctrl elsewhere.
   const newRecordTitle = useWithShortcut('New record', 'new-record');
@@ -123,6 +133,17 @@ export function TableView({
       ),
     [database.data, hiddenFieldIds],
   );
+  // #497 — looked up against the database's FULL field list, not the current
+  // view's filtered `fields` above: the deep link's whole point is reaching a
+  // relation's config regardless of whether this view happens to hide it.
+  const autoOpenField = autoOpenFieldId
+    ? (database.data?.fields ?? []).find((f) => f.id === autoOpenFieldId)
+    : undefined;
+  // Nothing to show (field deleted, or the id belongs elsewhere) — still clear
+  // the stale param rather than leaving a dead `?field=` in the URL forever.
+  useEffect(() => {
+    if (autoOpenFieldId && database.data && !autoOpenField) onAutoOpenFieldConsumed?.();
+  }, [autoOpenFieldId, database.data, autoOpenField, onAutoOpenFieldConsumed]);
   // #289 — the public id renders in the row GUTTER, not as a column, so
   // hidden_field_ids couldn't reach it and it was the one visible column nobody
   // could turn off. The Fields picker now offers it via the canonical system-field
@@ -1086,6 +1107,13 @@ export function TableView({
           canDelete={atLeast(database.data?.my_access, 'editor')}
           onClear={() => setSelected(new Set())}
         />
+      )}
+      {/* #497 — ontology diagram edge deep-link: opens this field's Edit
+          dialog on load, independent of any single HeaderCell instance. */}
+      {autoOpenField && (
+        <Dialog open onOpenChange={(open) => !open && onAutoOpenFieldConsumed?.()}>
+          <EditFieldDialog ws={ws} db={db} field={autoOpenField} onDone={() => onAutoOpenFieldConsumed?.()} />
+        </Dialog>
       )}
     </div>
   );
