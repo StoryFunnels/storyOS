@@ -63,6 +63,19 @@ unset and it's simply always required, same as before this existed.
 **Unchecking Required clears any "Require only when" rule with it**, rather than leaving an
 orphaned condition sitting in the form's saved config.
 
+### Narrowing a relation field's choices
+
+A **relation** field in the builder gets its own **Filter candidates** control — the same filter
+builder [views](/concepts/views/) use, scoped to the field's target database. Set a condition
+(*"Status is Active"*, say) and the field's picker only offers matching records, instead of every
+record in that database.
+
+**Enforced server-side, the same way visibility is.** The filter narrows both the live search a
+visitor types into and what a submission is allowed to name — a crafted request naming a filtered-out
+record's id directly is refused, not just hidden from the picker's own search. Leave no filter set
+and the picker behaves exactly as it always has: an unfiltered search across the whole target
+database.
+
 ## 2. Give the client a scoped space
 
 [Spaces](/getting-started/concepts/) are the unit of guest access. The cleanest portal is **one
