@@ -223,6 +223,26 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/spaces/trash": {
+      "get": {
+        "operationId": "WorkspaceController_listSpacesTrash",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Deleted spaces in this workspace (admin)",
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/spaces/personal": {
       "post": {
         "operationId": "WorkspaceController_getOrCreatePersonalSpace",
@@ -314,6 +334,35 @@
           }
         ],
         "summary": "Delete a space (creator on this space, or admin)",
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/spaces/{space}/restore": {
+      "post": {
+        "operationId": "WorkspaceController_restoreSpace",
+        "parameters": [
+          {
+            "name": "space",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Restore a deleted space, its cascade-deleted databases, and their fields/records/views (admin)",
         "tags": [
           "workspaces"
         ]
@@ -1036,6 +1085,26 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/databases/trash": {
+      "get": {
+        "operationId": "DatabasesController_listTrash",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Deleted databases in this workspace (admin)",
+        "tags": [
+          "databases"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/databases/{db}": {
       "get": {
         "operationId": "DatabasesController_get",
@@ -1134,6 +1203,35 @@
           }
         ],
         "summary": "Hard delete (creator on this database, or admin) — body.confirm must equal the name",
+        "tags": [
+          "databases"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/restore": {
+      "post": {
+        "operationId": "DatabasesController_restore",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Restore a deleted database, and whatever fields/records/views were deleted with it (admin)",
         "tags": [
           "databases"
         ]
@@ -3604,6 +3702,72 @@
           }
         ],
         "summary": "Set this view as the database's default (one default per database)",
+        "tags": [
+          "views"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/views/trash": {
+      "get": {
+        "operationId": "ViewsController_listTrash",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Deleted views on this database (editor+)",
+        "tags": [
+          "views"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/views/{view}/restore": {
+      "post": {
+        "operationId": "ViewsController_restore",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "view",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Restore a deleted view",
         "tags": [
           "views"
         ]

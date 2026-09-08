@@ -1,5 +1,5 @@
 import { Inject, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
-import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { normalizeIconInput } from '@storyos/schemas/icons';
 import { normalizeDescription } from '@storyos/schemas';
 import { DB } from '../db/db.module';
@@ -7,7 +7,7 @@ import type { Db } from '../db/client';
 import { databases, spaceDocuments, spaces, views } from '../db/schema';
 import { notDeleted } from '../db/soft-delete';
 import { AccessService } from '../access/access.service';
-import { slugify, softDeleteDatabaseCascade } from '../databases/databases.service';
+import { restoreDatabaseCascade, slugify, softDeleteDatabaseCascade } from '../databases/databases.service';
 import type { Membership } from './workspace-access.guard';
 
 @Injectable()
@@ -235,5 +235,53 @@ export class SpacesService {
     });
     if (!gone) throw new NotFoundException('Space not found');
     return { deleted: true, databases_deleted: contained.length };
+  }
+
+  /** #37 — deleted spaces in this workspace, for the trash view. */
+  async listTrash(workspaceId: string) {
+    const rows = await this.db.query.spaces.findMany({
+      where: and(eq(spaces.workspaceId, workspaceId), isNotNull(spaces.deletedAt)),
+      orderBy: [desc(spaces.deletedAt)],
+    });
+    return rows.map((s) => ({ id: s.id, name: s.name, deleted_at: s.deletedAt }));
+  }
+
+  /**
+   * #37 — undo `remove()` above: the space itself, every database that was
+   * cascade-deleted WITH it (via `restoreDatabaseCascade`, the same
+   * same-timestamp rule that function documents), and the space's own
+   * views/documents (a space-level dashboard has no `databaseId`, so it is
+   * matched by `spaceId` here rather than folded into a database's own
+   * restore). A database independently trashed before the space was
+   * deleted keeps its own, earlier `deletedAt` and is left alone — same
+   * symmetry `restoreDatabaseCascade` already applies one level down.
+   */
+  async restore(workspaceId: string, spaceId: string) {
+    const space = await this.db.query.spaces.findFirst({
+      where: and(eq(spaces.id, spaceId), eq(spaces.workspaceId, workspaceId), isNotNull(spaces.deletedAt)),
+    });
+    if (!space) throw new NotFoundException('Space not found in trash');
+    const deletedAt = space.deletedAt!;
+
+    const containedDatabases = await this.db.query.databases.findMany({
+      where: and(eq(databases.spaceId, spaceId), eq(databases.deletedAt, deletedAt)),
+      columns: { id: true },
+    });
+
+    await this.db.transaction(async (tx) => {
+      await tx.update(spaces).set({ deletedAt: null }).where(eq(spaces.id, spaceId));
+      for (const db of containedDatabases) {
+        await restoreDatabaseCascade(tx, db.id, deletedAt);
+      }
+      await tx
+        .update(views)
+        .set({ deletedAt: null })
+        .where(and(eq(views.spaceId, spaceId), eq(views.deletedAt, deletedAt)));
+      await tx
+        .update(spaceDocuments)
+        .set({ deletedAt: null })
+        .where(and(eq(spaceDocuments.spaceId, spaceId), eq(spaceDocuments.deletedAt, deletedAt)));
+    });
+    return { restored: true, id: spaceId, databases_restored: containedDatabases.length };
   }
 }

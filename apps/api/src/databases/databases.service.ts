@@ -1,7 +1,7 @@
 import { ConflictException, ForbiddenException, Inject, Injectable, NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { and, asc, eq, inArray, isNull, or } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, isNull, or } from 'drizzle-orm';
 import { normalizeIconInput } from '@storyos/schemas/icons';
 import { resolveDatabaseColor, randomDatabaseColor } from '../common/database-color';
 import { DB } from '../db/db.module';
@@ -33,6 +33,35 @@ export async function softDeleteDatabaseCascade(tx: Tx, databaseId: string, now:
   await tx.update(fields).set({ deletedAt: now }).where(and(eq(fields.databaseId, databaseId), isNull(fields.deletedAt)));
   await tx.update(records).set({ deletedAt: now }).where(and(eq(records.databaseId, databaseId), isNull(records.deletedAt)));
   await tx.update(views).set({ deletedAt: now }).where(and(eq(views.databaseId, databaseId), isNull(views.deletedAt)));
+}
+
+/**
+ * #37 — the exact inverse of `softDeleteDatabaseCascade`, and exported the
+ * same plain-function way (not a DatabasesService method) so `SpacesService`
+ * can reuse it directly without a module import cycle — `DatabasesModule`
+ * already imports `WorkspacesModule` (for `SpacesService`/`AccessService`),
+ * so the reverse import would need a `forwardRef` for no real benefit here.
+ *
+ * `deletedAt` must be the database's OWN `deletedAt` (the caller looks that
+ * up first) — only fields/records/views sharing that EXACT timestamp were
+ * deleted in the same cascade and are restored; anything independently
+ * trashed earlier keeps its own timestamp and is left alone, symmetric with
+ * the `isNull` guard `softDeleteDatabaseCascade` applies going the other way.
+ */
+export async function restoreDatabaseCascade(tx: Tx, databaseId: string, deletedAt: Date): Promise<void> {
+  await tx.update(databases).set({ deletedAt: null }).where(eq(databases.id, databaseId));
+  await tx
+    .update(fields)
+    .set({ deletedAt: null })
+    .where(and(eq(fields.databaseId, databaseId), eq(fields.deletedAt, deletedAt)));
+  await tx
+    .update(records)
+    .set({ deletedAt: null })
+    .where(and(eq(records.databaseId, databaseId), eq(records.deletedAt, deletedAt)));
+  await tx
+    .update(views)
+    .set({ deletedAt: null })
+    .where(and(eq(views.databaseId, databaseId), eq(views.deletedAt, deletedAt)));
 }
 
 export function slugify(name: string): string {
@@ -560,5 +589,28 @@ export class DatabasesService {
       await softDeleteDatabaseCascade(tx, databaseId, new Date());
     });
     return { deleted: true, severed_relations: touching.length };
+  }
+
+  /** #37 — deleted databases in this workspace, for the trash view. */
+  async listTrash(workspaceId: string) {
+    const rows = await this.db.query.databases.findMany({
+      where: and(eq(databases.workspaceId, workspaceId), isNotNull(databases.deletedAt)),
+      orderBy: [desc(databases.deletedAt)],
+    });
+    return rows.map((d) => ({ id: d.id, name: d.name, space_id: d.spaceId, deleted_at: d.deletedAt }));
+  }
+
+  /**
+   * #37 — undo `remove()` above, via `restoreDatabaseCascade` (see that
+   * function's own doc for what "same cascade" means and why relations are
+   * never touched here).
+   */
+  async restore(workspaceId: string, databaseId: string) {
+    const database = await this.db.query.databases.findFirst({
+      where: and(eq(databases.id, databaseId), eq(databases.workspaceId, workspaceId), isNotNull(databases.deletedAt)),
+    });
+    if (!database) throw new NotFoundException('Database not found in trash');
+    await this.db.transaction((tx) => restoreDatabaseCascade(tx, databaseId, database.deletedAt!));
+    return { restored: true, id: databaseId };
   }
 }

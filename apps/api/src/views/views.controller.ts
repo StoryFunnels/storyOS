@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
@@ -120,6 +120,28 @@ export class ViewsController {
     const level = await this.viewsService.deleteAccessLevel(databaseId, viewId, req.user.id);
     await this.databases.assertAccess(req.membership, databaseId, level);
     return this.viewsService.remove(databaseId, viewId);
+  }
+
+  // #37 — no bare GET ':view' route exists on this controller, so there is no
+  // ordering hazard with a literal 'trash' segment here (contrast
+  // DatabasesController/WorkspacesController, which both have a wildcard
+  // GET route this must be registered ahead of).
+  @Get('trash')
+  @ApiOperation({ summary: 'Deleted views on this database (editor+)' })
+  async listTrash(@Req() req: WorkspaceRequest, @Param('db') databaseId: string) {
+    await this.assertDb(req, databaseId);
+    return this.viewsService.listTrash(databaseId);
+  }
+
+  @Post(':view/restore')
+  @ApiOperation({ summary: 'Restore a deleted view' })
+  async restore(
+    @Req() req: WorkspaceRequest,
+    @Param('db') databaseId: string,
+    @Param('view') viewId: string,
+  ) {
+    await this.assertDb(req, databaseId);
+    return this.viewsService.restore(databaseId, viewId);
   }
 
   @Post(':view/share')
