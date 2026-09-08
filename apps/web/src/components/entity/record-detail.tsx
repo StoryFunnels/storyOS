@@ -460,7 +460,7 @@ export function RecordDetail({
         <div className="min-w-0 flex-1">
           <div className="mb-4 flex items-center gap-2">
             <input
-              className="w-full bg-transparent text-2xl font-semibold text-ink outline-none placeholder:text-faint read-only:cursor-default"
+              className="w-full truncate bg-transparent text-2xl font-semibold text-ink outline-none placeholder:text-faint read-only:cursor-default"
               placeholder="Untitled"
               value={titleDraft ?? record.data.title}
               readOnly={titleReadOnly}
