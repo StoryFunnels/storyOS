@@ -12,7 +12,7 @@ export function Input({
     <input
       ref={ref}
       className={cn(
-        'flex h-9 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-3 text-sm text-ink placeholder:text-faint',
+        'flex h-9 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-3 text-sm text-ink placeholder:text-muted',
         className,
       )}
       {...props}

@@ -124,7 +124,7 @@ export function DatePicker({
           autoFocus
           placeholder="2026-07-15, 15.07, jul 15, today…"
           className={cn(
-            'mb-1.5 w-full rounded-[var(--radius-control)] border bg-card px-2 py-1.5 text-body text-ink outline-none placeholder:text-faint',
+            'mb-1.5 w-full rounded-[var(--radius-control)] border bg-card px-2 py-1.5 text-body text-ink outline-none placeholder:text-muted',
             text && !selected ? 'border-error' : 'border-border-default focus:border-border-strong',
           )}
           value={text}
@@ -167,7 +167,7 @@ export function DatePicker({
 
         <div className="grid grid-cols-7 text-center">
           {WEEKDAYS.map((d, i) => (
-            <span key={i} className="py-0.5 text-meta font-medium text-faint">
+            <span key={i} className="py-0.5 text-meta font-medium text-muted">
               {d}
             </span>
           ))}
@@ -180,6 +180,12 @@ export function DatePicker({
                 type="button"
                 className={cn(
                   'rounded py-1 text-label hover:bg-hover',
+                  /* #637 — this one STAYS faint. Out-of-month days are the one
+                     genuinely de-emphasised case here: the dimming IS the signal
+                     that a day belongs to another month, and --text-muted would
+                     flatten the distinction the grid depends on. They are still
+                     clickable, so it is a trade worth revisiting if measured as a
+                     problem — but a deliberate keep, not an oversight. */
                   inMonth ? 'text-ink' : 'text-faint',
                   iso === selected && 'bg-primary text-[var(--text-on-dark)] hover:bg-primary',
                   iso === todayStr && iso !== selected && 'font-semibold text-[var(--accent)]',
