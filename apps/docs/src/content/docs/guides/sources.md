@@ -58,6 +58,31 @@ comments and mentions from those platforms into a database on the same schedule 
 source. **This is ingest only** — it brings activity in; it does not post, reply, or otherwise
 write back to the platform.
 
+## Two-way sync: writing back to the provider
+
+A source can also push your edits **out** to the provider, not just pull its data in — a field
+mapped with direction `out` (push-only, never overwritten by a pull) or `both` sends its new value
+back the moment you save it in StoryOS. This is opt-in and provider-specific: as of this writing,
+**Shopify products** is the one provider that actually implements it. Setting it up is API/MCP-only
+today — there's no web dialog toggle yet, so a source's `config` needs `write_back: true` set
+directly (`update_source` / `create_source`, or a raw API call); an `out`/`both` field mapping alone
+pushes nothing without it.
+
+**Hold pushes for approval.** Set `require_approval_for_push: true` on the source's config and
+every push waits in your **Inbox** instead of firing immediately — the same approval card
+[a gated automation action](/concepts/automations/#sending-email) uses, showing a before→after
+preview of exactly what would change. Approve it and the write goes out; reject it and nothing is
+ever sent. Either way it's logged.
+
+**Every push attempt is in the source's run log** — held, sent, rejected, or failed — with the
+field-level diff, so there's a full audit trail of what StoryOS changed externally and who allowed
+it, the same run history [any source](#while-it-runs) already keeps.
+
+**A pull-caused push can't loop.** If StoryOS pulls a change, and that pull's own write would
+trigger a push, and that push would somehow trigger another pull — the chain is capped at two hops
+and refused rather than allowed to ping-pong forever; the run log names the cap when it's hit rather
+than failing silently.
+
 ## Managing one over the API or MCP
 
 `list_source_providers`, `discover_source_fields`, `create_source`, `update_source`,
