@@ -75,8 +75,21 @@ export const IMPORTABLE_FIELD_TYPES = creatableFieldTypeSchema.options.filter(
  */
 export const OPTION_COLORS = PALETTE;
 
-
-export const textConfigSchema = z.object({ multiline: z.boolean().default(false) });
+/**
+ * #229 — `unique` rejects a create/edit that would duplicate an existing live
+ * record's value for this field; `unique_normalize` (default on) folds case and
+ * trims whitespace before comparing, so "SKU-1" and " sku-1 " collide. Multiple
+ * empty/absent values are always permitted regardless of either flag — see
+ * FieldsService's uniqueness scan and RecordsService's write-path enforcement.
+ */
+export const uniqueConfigFields = {
+  unique: z.boolean().default(false),
+  unique_normalize: z.boolean().default(true),
+};
+export const textConfigSchema = z.object({
+  multiline: z.boolean().default(false),
+  ...uniqueConfigFields,
+});
 
 /**
  * #579 — per-FIELD config (Ievgen, 2026-09-05), not per-view: the same bins
@@ -104,13 +117,25 @@ export const numberBinsSchema = z
   .superRefine((bins, ctx) => {
     bins.forEach((bin, i) => {
       if (bin.min !== null && bin.max !== null && bin.min >= bin.max) {
-        ctx.addIssue({ code: 'custom', message: `bin ${i} ("${bin.label}"): min must be less than max`, path: [i, 'min'] });
+        ctx.addIssue({
+          code: 'custom',
+          message: `bin ${i} ("${bin.label}"): min must be less than max`,
+          path: [i, 'min'],
+        });
       }
       if (bin.min === null && i !== 0) {
-        ctx.addIssue({ code: 'custom', message: `bin ${i} ("${bin.label}"): only the first bin may leave min unbounded`, path: [i, 'min'] });
+        ctx.addIssue({
+          code: 'custom',
+          message: `bin ${i} ("${bin.label}"): only the first bin may leave min unbounded`,
+          path: [i, 'min'],
+        });
       }
       if (bin.max === null && i !== bins.length - 1) {
-        ctx.addIssue({ code: 'custom', message: `bin ${i} ("${bin.label}"): only the last bin may leave max unbounded`, path: [i, 'max'] });
+        ctx.addIssue({
+          code: 'custom',
+          message: `bin ${i} ("${bin.label}"): only the last bin may leave max unbounded`,
+          path: [i, 'max'],
+        });
       }
       const prev = bins[i - 1];
       if (prev && prev.max !== null && bin.min !== null && prev.max !== bin.min) {
@@ -130,6 +155,8 @@ export const numberConfigSchema = z.object({
   currency_code: z.string().length(3).optional(),
   /** #579 — absent = not configured for board grouping yet (ungrouped/refused). */
   bins: numberBinsSchema.optional(),
+  /** #229 — see textConfigSchema's uniqueConfigFields doc; unique_normalize is a no-op for numbers (kept for a uniform config shape across both unique-able types). */
+  ...uniqueConfigFields,
 });
 export const dateConfigSchema = z.object({
   include_time: z.boolean().default(false),
@@ -280,7 +307,10 @@ export const actionSchema = z.discriminatedUnion('type', [
      * Further caps the agent's own declared Scopes for this run only — can
      * only narrow, never widen (ADR-0010 §2's least-privilege guarantee).
      */
-    tool_scope: z.array(z.enum(['read', 'write', 'admin'])).max(3).optional(),
+    tool_scope: z
+      .array(z.enum(['read', 'write', 'admin']))
+      .max(3)
+      .optional(),
     /**
      * Phase A supports exactly one target: the record that fired this rule or
      * button. There is no other addressable target yet — databases aren't
@@ -531,7 +561,6 @@ export const changeFieldTypeSchema = z.object({
   dry_run: z.boolean().default(false),
 });
 
-
 export const createOptionSchema = z.object({
   label: z.string().trim().min(1).max(100),
   color: z.enum(OPTION_COLORS).default('gray'),
@@ -567,7 +596,10 @@ export const automationTriggerSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('schedule'),
     every: z.enum(['hour', 'day', 'week']),
-    at: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+    at: z
+      .string()
+      .regex(/^\d{2}:\d{2}$/)
+      .optional(),
     weekday: z.number().int().min(0).max(6).optional(),
   }),
   /**

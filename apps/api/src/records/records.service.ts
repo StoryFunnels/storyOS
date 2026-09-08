@@ -7,7 +7,14 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, or, sql, SQL } from 'drizzle-orm';
-import { activeFilter, applyFieldDefaults, evaluateFormula, formulaRefs, systemFieldDefsFor, validateRecordValues } from '@storyos/schemas';
+import {
+  activeFilter,
+  applyFieldDefaults,
+  evaluateFormula,
+  formulaRefs,
+  systemFieldDefsFor,
+  validateRecordValues,
+} from '@storyos/schemas';
 import type { FormulaNode } from '@storyos/schemas';
 import type { FieldDef, FilterNode } from '@storyos/schemas';
 import { DB } from '../db/db.module';
@@ -15,7 +22,23 @@ import { buildRenderContext, renderTypedValue } from '../activity/render-values'
 import { assertOwnedAttachments, loadAttachmentChips } from '../attachments/attachment-values';
 import { AttachmentsService } from '../attachments/attachments.service';
 import type { Db } from '../db/client';
-import { activityEvents, comments, databases, documents, fields, memberships, recordFieldChanges, recordLinks, recordVersions, recordWatchers, records, relations, selectOptions, user, views } from '../db/schema';
+import {
+  activityEvents,
+  comments,
+  databases,
+  documents,
+  fields,
+  memberships,
+  recordFieldChanges,
+  recordLinks,
+  recordVersions,
+  recordWatchers,
+  records,
+  relations,
+  selectOptions,
+  user,
+  views,
+} from '../db/schema';
 import { boardGroupIsReadOnly } from '../views/views.service';
 import type { ChangeSource } from '../db/schema';
 import type { QueryRecordsInput } from '@storyos/schemas';
@@ -152,7 +175,8 @@ export class RecordsService {
     const stored = row.values as Record<string, unknown>;
     for (const def of defs) {
       if (def.type === 'title' || def.type === 'relation') continue;
-      if (def.type === 'created_at' || def.type === 'updated_at' || def.type === 'created_by') continue;
+      if (def.type === 'created_at' || def.type === 'updated_at' || def.type === 'created_by')
+        continue;
       if (def.type === 'id') continue; // surfaced top-level as `number`, not in values
       const raw = stored[def.id];
       if (raw === undefined || raw === null) continue;
@@ -214,7 +238,9 @@ export class RecordsService {
       const side = def.config['side'] as 'a' | 'b';
 
       if (membership) {
-        const relation = await this.db.query.relations.findFirst({ where: eq(relations.id, relationId) });
+        const relation = await this.db.query.relations.findFirst({
+          where: eq(relations.id, relationId),
+        });
         if (!relation) continue; // dangling — no chips
         const targetDatabaseId = side === 'a' ? relation.databaseBId : relation.databaseAId;
         const targetDb = await this.db.query.databases.findFirst({
@@ -224,7 +250,8 @@ export class RecordsService {
         // A caller who cannot read the target database gets no chips for this
         // field at all — never a partial/redacted chip, an ABSENT one, exactly
         // like the direct route already 404s rather than reveal a shape.
-        if (targetDb && (await this.access.effectiveForDatabase(membership, targetDb)) === null) continue;
+        if (targetDb && (await this.access.effectiveForDatabase(membership, targetDb)) === null)
+          continue;
       }
 
       const myCol = side === 'a' ? recordLinks.fromRecordId : recordLinks.toRecordId;
@@ -242,7 +269,10 @@ export class RecordsService {
           ),
         );
 
-      const byRecord = new Map<string, Array<{ id: string; title: string; number: number | null }>>();
+      const byRecord = new Map<
+        string,
+        Array<{ id: string; title: string; number: number | null }>
+      >();
       for (const row of rows) {
         const list = byRecord.get(row.mine) ?? [];
         list.push({ id: row.id, title: row.title, number: row.number });
@@ -275,7 +305,10 @@ export class RecordsService {
    * relation targets follow, and it means a half-finished delete degrades to a
    * shorter list rather than to a broken image.
    */
-  private async attachFiles(projected: ProjectedRecord[], defs: FieldDef[]): Promise<ProjectedRecord[]> {
+  private async attachFiles(
+    projected: ProjectedRecord[],
+    defs: FieldDef[],
+  ): Promise<ProjectedRecord[]> {
     const attachmentDefs = defs.filter((d) => d.type === 'attachment');
     if (attachmentDefs.length === 0 || projected.length === 0) return projected;
     const chips = await loadAttachmentChips(
@@ -306,7 +339,10 @@ export class RecordsService {
    * below, so a filtered rollup fetches only the target rows that pass its
    * condition (rather than filtering an already-`SELECT *`ed batch in JS).
    */
-  private async attachRollups(projected: ProjectedRecord[], defs: FieldDef[]): Promise<ProjectedRecord[]> {
+  private async attachRollups(
+    projected: ProjectedRecord[],
+    defs: FieldDef[],
+  ): Promise<ProjectedRecord[]> {
     const rollupDefs = defs.filter((d) => d.type === 'rollup');
     if (rollupDefs.length === 0 || projected.length === 0) return projected;
 
@@ -335,7 +371,8 @@ export class RecordsService {
         if (!relation) continue;
         const targetDbId = side === 'a' ? relation.databaseBId : relation.databaseAId;
         const targetDefs = await this.fieldDefs(targetDbId);
-        if (targetApiName) targetFieldId = targetDefs.find((d) => d.api_name === targetApiName)?.id ?? null;
+        if (targetApiName)
+          targetFieldId = targetDefs.find((d) => d.api_name === targetApiName)?.id ?? null;
         if (filterNode) {
           const ctx: CompilerContext = {
             defs: new Map(targetDefs.map((d) => [d.api_name, d])),
@@ -368,7 +405,8 @@ export class RecordsService {
       }
 
       for (const record of projected) {
-        const allChips = (record.values[relationDef.api_name] as Array<{ id: string }> | undefined) ?? [];
+        const allChips =
+          (record.values[relationDef.api_name] as Array<{ id: string }> | undefined) ?? [];
         const chips = filterSql ? allChips.filter((chip) => passesFilter.has(chip.id)) : allChips;
         if (!targetApiName) {
           record.values[def.api_name] = op === 'count' ? chips.length : null;
@@ -433,7 +471,9 @@ export class RecordsService {
     const targetDefs = [...storedDefs, ...systemFieldDefsFor(storedDefs.map((d) => d.api_name))];
     const orderByDef = targetDefs.find((d) => d.api_name === orderByApiName);
     if (!orderByDef) return; // ordering field was deleted — no defensible winner
-    const targetDef = targetApiName ? targetDefs.find((d) => d.api_name === targetApiName) : undefined;
+    const targetDef = targetApiName
+      ? targetDefs.find((d) => d.api_name === targetApiName)
+      : undefined;
     if (targetApiName && !targetDef) return;
 
     // Select ids are opaque uuids; both the ordering and the returned value want
@@ -444,7 +484,10 @@ export class RecordsService {
     const optionLabels = new Map<string, string>();
     if (labelledDefs.length > 0) {
       const options = await this.db.query.selectOptions.findMany({
-        where: inArray(selectOptions.fieldId, labelledDefs.map((d) => d.id)),
+        where: inArray(
+          selectOptions.fieldId,
+          labelledDefs.map((d) => d.id),
+        ),
       });
       for (const option of options) optionLabels.set(option.id, option.label);
     }
@@ -471,22 +514,25 @@ export class RecordsService {
     const rowById = new Map(targetRows.map((row) => [row.id, row]));
 
     for (const record of projected) {
-      const chips = (record.values[relationDef.api_name] as Array<{ id: string }> | undefined) ?? [];
+      const chips =
+        (record.values[relationDef.api_name] as Array<{ id: string }> | undefined) ?? [];
       // The filter is applied by the query above, so a chip with no row here was
       // either filtered out or deleted — both mean "not a candidate".
       const candidates = chips.flatMap((chip) => {
         const row = rowById.get(chip.id);
         return row ? [row] : [];
       });
-      const winner = pickOneRow(candidates, op, (row) => rollupFieldValue(row, orderByDef, optionLabels));
+      const winner = pickOneRow(candidates, op, (row) =>
+        rollupFieldValue(row, orderByDef, optionLabels),
+      );
       if (!winner) continue;
       record.values[def.api_name] = targetDef
         ? (rollupFieldValue(winner, targetDef, optionLabels) ?? null)
-        // Same shape as a relation chip PLUS `database_id`: a relation cell gets
-        // the target db from its own field metadata, but a rollup's field has no
-        // relation block, so the chip has to carry what the link needs or "Last
-        // Ticket" renders as unclickable text — the opposite of the ask.
-        : { id: winner.id, title: winner.title, number: winner.number, database_id: targetDbId };
+        : // Same shape as a relation chip PLUS `database_id`: a relation cell gets
+          // the target db from its own field metadata, but a rollup's field has no
+          // relation block, so the chip has to carry what the link needs or "Last
+          // Ticket" renders as unclickable text — the opposite of the ask.
+          { id: winner.id, title: winner.title, number: winner.number, database_id: targetDbId };
     }
   }
 
@@ -550,7 +596,9 @@ export class RecordsService {
         values[apiName] = chips;
       }
     }
-    return [...byId.entries()].map(([id, values]) => ({ id, values }) as unknown as ProjectedRecord);
+    return [...byId.entries()].map(
+      ([id, values]) => ({ id, values }) as unknown as ProjectedRecord,
+    );
   }
 
   /**
@@ -613,7 +661,10 @@ export class RecordsService {
       const labelByOption = new Map<string, string>();
       if (selectDefs.length > 0) {
         const options = await this.db.query.selectOptions.findMany({
-          where: inArray(selectOptions.fieldId, selectDefs.map((d) => d.id)),
+          where: inArray(
+            selectOptions.fieldId,
+            selectDefs.map((d) => d.id),
+          ),
         });
         for (const option of options) labelByOption.set(option.id, option.label);
       }
@@ -646,7 +697,9 @@ export class RecordsService {
         if (!chips?.length) continue;
         // Soft-deleted targets simply drop out — the same way a dangling
         // reference resolves to nothing everywhere else.
-        const bags = chips.map((chip) => bagById.get(chip.id)).filter((b): b is Record<string, unknown> => Boolean(b));
+        const bags = chips
+          .map((chip) => bagById.get(chip.id))
+          .filter((b): b is Record<string, unknown> => Boolean(b));
         const existing = out.get(record.id) ?? {};
         existing[apiName] = bags;
         out.set(record.id, existing);
@@ -655,7 +708,10 @@ export class RecordsService {
     return out;
   }
 
-  private async attachFormulas(projected: ProjectedRecord[], defs: FieldDef[]): Promise<ProjectedRecord[]> {
+  private async attachFormulas(
+    projected: ProjectedRecord[],
+    defs: FieldDef[],
+  ): Promise<ProjectedRecord[]> {
     const formulaDefs = defs.filter((d) => d.type === 'formula' && (d.config['ast'] as unknown));
     if (formulaDefs.length === 0 || projected.length === 0) return projected;
 
@@ -664,7 +720,10 @@ export class RecordsService {
     const labelByOption = new Map<string, string>();
     if (selectDefs.length > 0) {
       const options = await this.db.query.selectOptions.findMany({
-        where: inArray(selectOptions.fieldId, selectDefs.map((d) => d.id)),
+        where: inArray(
+          selectOptions.fieldId,
+          selectDefs.map((d) => d.id),
+        ),
       });
       for (const option of options) labelByOption.set(option.id, option.label);
     }
@@ -679,7 +738,9 @@ export class RecordsService {
      * the thing the AC forbids.
      */
     const relationApiNames = new Set<string>();
-    const relationDefApiNames = new Set(defs.filter((d) => d.type === 'relation').map((d) => d.api_name));
+    const relationDefApiNames = new Set(
+      defs.filter((d) => d.type === 'relation').map((d) => d.api_name),
+    );
     for (const def of ordered) {
       for (const ref of formulaRefs(def.config['ast'] as FormulaNode)) {
         if (relationDefApiNames.has(ref)) relationApiNames.add(ref);
@@ -747,7 +808,10 @@ export class RecordsService {
   private async materializeFormulas(defs: FieldDef[], rows: RecordRow[]): Promise<void> {
     const byApiName = new Map(defs.map((d) => [d.api_name, d]));
     const formulaDefs = defs.filter(
-      (d) => d.type === 'formula' && (d.config['ast'] as unknown) && formulaDependsOnlyOnOwnRecord(d, byApiName),
+      (d) =>
+        d.type === 'formula' &&
+        (d.config['ast'] as unknown) &&
+        formulaDependsOnlyOnOwnRecord(d, byApiName),
     );
     if (formulaDefs.length === 0 || rows.length === 0) return;
 
@@ -755,7 +819,10 @@ export class RecordsService {
     const labelByOption = new Map<string, string>();
     if (selectDefs.length > 0) {
       const options = await this.db.query.selectOptions.findMany({
-        where: inArray(selectOptions.fieldId, selectDefs.map((d) => d.id)),
+        where: inArray(
+          selectOptions.fieldId,
+          selectDefs.map((d) => d.id),
+        ),
       });
       for (const option of options) labelByOption.set(option.id, option.label);
     }
@@ -777,7 +844,11 @@ export class RecordsService {
     const relationApiNames = this.relationRefsOf(formulaDefs, byApiName);
     let relatedByRecord = new Map<string, Record<string, Array<Record<string, unknown>>>>();
     if (relationApiNames.size > 0) {
-      const chips = await this.relationChipsFromLinks(defs, relationApiNames, rows.map((r) => r.id));
+      const chips = await this.relationChipsFromLinks(
+        defs,
+        relationApiNames,
+        rows.map((r) => r.id),
+      );
       relatedByRecord = await this.loadRelatedBags(chips, defs, relationApiNames);
     }
 
@@ -824,7 +895,9 @@ export class RecordsService {
         // materialize for the same record without racing to clobber each other's keys).
         await tx
           .update(records)
-          .set({ computedValues: sql`${records.computedValues} || ${JSON.stringify(patch)}::jsonb` })
+          .set({
+            computedValues: sql`${records.computedValues} || ${JSON.stringify(patch)}::jsonb`,
+          })
           .where(eq(records.id, row.id));
       }
     });
@@ -879,7 +952,10 @@ export class RecordsService {
     const selectDefs = defs.filter((d) => d.type === 'select' || d.type === 'workflow');
     if (selectDefs.length === 0) return map;
     const options = await this.db.query.selectOptions.findMany({
-      where: inArray(selectOptions.fieldId, selectDefs.map((d) => d.id)),
+      where: inArray(
+        selectOptions.fieldId,
+        selectDefs.map((d) => d.id),
+      ),
     });
     for (const option of options) map.set(option.id, option.label);
     return map;
@@ -1027,14 +1103,18 @@ export class RecordsService {
       if (rows.length === 0) continue;
       // attachLinks resolves relation chips → lookups → rollups (read-time, fresh),
       // giving each record its current cross-record values keyed by api_name.
-      const projected = await this.attachLinks(rows.map((r) => this.project(r, defs)), defs);
+      const projected = await this.attachLinks(
+        rows.map((r) => this.project(r, defs)),
+        defs,
+      );
       const projectedById = new Map(projected.map((p) => [p.id, p]));
       await this.db.transaction(async (tx) => {
         for (const row of rows) {
           const p = projectedById.get(row.id);
           if (!p) continue;
           const crossRecord = new Map<string, unknown>();
-          for (const def of crossRecordDefs) crossRecord.set(def.api_name, p.values[def.api_name] ?? null);
+          for (const def of crossRecordDefs)
+            crossRecord.set(def.api_name, p.values[def.api_name] ?? null);
           const title = this.computeTitle(
             titleDef,
             defs,
@@ -1117,7 +1197,11 @@ export class RecordsService {
         const values = await this.computeRollupValuesForChunk(def, defs, chunk);
         for (const recordId of chunk) {
           const patch = patchByRecord.get(recordId) ?? {};
-          patch[def.id] = values.has(recordId) ? values.get(recordId) : def.config['op'] === 'count' ? 0 : null;
+          patch[def.id] = values.has(recordId)
+            ? values.get(recordId)
+            : def.config['op'] === 'count'
+              ? 0
+              : null;
           patchByRecord.set(recordId, patch);
         }
       }
@@ -1135,12 +1219,16 @@ export class RecordsService {
         for (const [recordId, patch] of patchByRecord) {
           await tx
             .update(records)
-            .set({ computedValues: sql`${records.computedValues} || ${JSON.stringify(patch)}::jsonb` })
+            .set({
+              computedValues: sql`${records.computedValues} || ${JSON.stringify(patch)}::jsonb`,
+            })
             .where(eq(records.id, recordId));
         }
       });
       if (defs.some((d) => d.type === 'formula')) {
-        const freshRows = await this.db.query.records.findMany({ where: inArray(records.id, chunk) });
+        const freshRows = await this.db.query.records.findMany({
+          where: inArray(records.id, chunk),
+        });
         await this.materializeFormulas(defs, freshRows).catch(() => undefined);
       }
     }
@@ -1178,7 +1266,9 @@ export class RecordsService {
     let filterSql: SQL | undefined;
     let targetDefs: FieldDef[] | undefined;
     if (targetApiName || filterNode) {
-      const relation = await this.db.query.relations.findFirst({ where: eq(relations.id, relationId) });
+      const relation = await this.db.query.relations.findFirst({
+        where: eq(relations.id, relationId),
+      });
       if (!relation) return result;
       const targetDbId = side === 'a' ? relation.databaseBId : relation.databaseAId;
       targetDefs = await this.fieldDefs(targetDbId);
@@ -1274,7 +1364,9 @@ export class RecordsService {
     const targetDefs = [...storedDefs, ...systemFieldDefsFor(storedDefs.map((d) => d.api_name))];
     const orderByDef = targetDefs.find((d) => d.api_name === orderByApiName);
     if (!orderByDef) return result; // ordering field deleted — no defensible winner
-    const targetDef = targetApiName ? targetDefs.find((d) => d.api_name === targetApiName) : undefined;
+    const targetDef = targetApiName
+      ? targetDefs.find((d) => d.api_name === targetApiName)
+      : undefined;
     if (targetApiName && !targetDef) return result;
 
     const labelledDefs = [orderByDef, targetDef].filter(
@@ -1283,7 +1375,10 @@ export class RecordsService {
     const optionLabels = new Map<string, string>();
     if (labelledDefs.length > 0) {
       const options = await this.db.query.selectOptions.findMany({
-        where: inArray(selectOptions.fieldId, labelledDefs.map((d) => d.id)),
+        where: inArray(
+          selectOptions.fieldId,
+          labelledDefs.map((d) => d.id),
+        ),
       });
       for (const option of options) optionLabels.set(option.id, option.label);
     }
@@ -1296,7 +1391,10 @@ export class RecordsService {
       .where(and(eq(recordLinks.relationId, relation.id), inArray(myCol, recordIds)));
     if (links.length === 0) return result;
 
-    const conditions = [inArray(records.id, [...new Set(links.map((l) => l.other))]), isNull(records.deletedAt)];
+    const conditions = [
+      inArray(records.id, [...new Set(links.map((l) => l.other))]),
+      isNull(records.deletedAt),
+    ];
     if (filterNode) {
       const ctx: CompilerContext = {
         defs: new Map(targetDefs.map((d) => [d.api_name, d])),
@@ -1319,7 +1417,9 @@ export class RecordsService {
     }
 
     for (const [parentId, candidates] of candidatesByParent) {
-      const winner = pickOneRow(candidates, op, (row) => rollupFieldValue(row, orderByDef, optionLabels));
+      const winner = pickOneRow(candidates, op, (row) =>
+        rollupFieldValue(row, orderByDef, optionLabels),
+      );
       if (!winner) continue;
       const value = targetDef
         ? rollupFieldValue(winner, targetDef, optionLabels)
@@ -1398,7 +1498,12 @@ export class RecordsService {
     /** #132: this record's title changed — a lookup/rollup targeting the title
      * (target_field_api_name = the title field's api_name) must invalidate too. */
     titleChanged?: boolean;
-    linkedRelations?: Array<{ relationId: string; fieldId: string; otherDatabaseId: string; otherRecordIds: string[] }>;
+    linkedRelations?: Array<{
+      relationId: string;
+      fieldId: string;
+      otherDatabaseId: string;
+      otherRecordIds: string[];
+    }>;
   }): Promise<void> {
     if (event.changedFieldIds?.length || event.titleChanged) {
       // target_field_api_name (rollup config) is an api_name; changedFieldIds are
@@ -1408,7 +1513,9 @@ export class RecordsService {
       const myDefs = await this.fieldDefs(event.databaseId);
       const idToApiName = new Map(myDefs.map((d) => [d.id, d.api_name]));
       const changedApiNames = new Set(
-        (event.changedFieldIds ?? []).map((id) => idToApiName.get(id)).filter((n): n is string => !!n),
+        (event.changedFieldIds ?? [])
+          .map((id) => idToApiName.get(id))
+          .filter((n): n is string => !!n),
       );
       // #132: a title change surfaces as the title field's api_name (e.g. `name`)
       // so a cross-record name that looks up this record's TITLE recomputes. This
@@ -1419,7 +1526,10 @@ export class RecordsService {
         if (titleApiName) changedApiNames.add(titleApiName);
       }
       const rels = await this.db.query.relations.findMany({
-        where: or(eq(relations.databaseAId, event.databaseId), eq(relations.databaseBId, event.databaseId)),
+        where: or(
+          eq(relations.databaseAId, event.databaseId),
+          eq(relations.databaseBId, event.databaseId),
+        ),
       });
       for (const rel of rels) {
         const mySide: 'a' | 'b' = rel.databaseAId === event.databaseId ? 'a' : 'b';
@@ -1443,7 +1553,13 @@ export class RecordsService {
         const otherTitleDef = this.computedTitleDef(otherDefs);
         const titleAffected =
           !!otherTitleDef &&
-          this.titleAffectedByRelatedChange(otherTitleDef, otherDefs, reverseFieldId, changedApiNames, relevantRollups);
+          this.titleAffectedByRelatedChange(
+            otherTitleDef,
+            otherDefs,
+            reverseFieldId,
+            changedApiNames,
+            relevantRollups,
+          );
         /*
          * #300: a formula relation aggregate on the OTHER side reads this
          * record through the reverse field, so a change here can move it just
@@ -1477,12 +1593,15 @@ export class RecordsService {
           .where(and(eq(recordLinks.relationId, rel.id), eq(myCol, event.recordId)));
         const otherIds = links.map((l) => l.other);
         if (otherIds.length === 0) continue;
-        if (relevantRollups.length > 0) await this.recomputeRollupsForRelationField(otherDbId, reverseFieldId, otherIds);
+        if (relevantRollups.length > 0)
+          await this.recomputeRollupsForRelationField(otherDbId, reverseFieldId, otherIds);
         if (titleAffected) await this.recomputeTitlesForRecords(otherDbId, otherIds);
         // #300: recomputeRollupsForRelationField re-materializes formulas as its
         // last step, so this only needs to run when it did NOT run at all.
         if (formulaAggregateAffected && relevantRollups.length === 0) {
-          const freshRows = await this.db.query.records.findMany({ where: inArray(records.id, otherIds) });
+          const freshRows = await this.db.query.records.findMany({
+            where: inArray(records.id, otherIds),
+          });
           await this.materializeFormulas(otherDefs, freshRows).catch(() => undefined);
         }
       }
@@ -1495,10 +1614,17 @@ export class RecordsService {
       // recompute it alongside its own rollup.
       await this.recomputeTitlesForRecords(event.databaseId, [event.recordId]);
       if (link.otherRecordIds.length === 0) continue;
-      const relation = await this.db.query.relations.findFirst({ where: eq(relations.id, link.relationId) });
+      const relation = await this.db.query.relations.findFirst({
+        where: eq(relations.id, link.relationId),
+      });
       if (!relation) continue;
-      const reverseFieldId = relation.fieldAId === link.fieldId ? relation.fieldBId : relation.fieldAId;
-      await this.recomputeRollupsForRelationField(link.otherDatabaseId, reverseFieldId, link.otherRecordIds);
+      const reverseFieldId =
+        relation.fieldAId === link.fieldId ? relation.fieldBId : relation.fieldAId;
+      await this.recomputeRollupsForRelationField(
+        link.otherDatabaseId,
+        reverseFieldId,
+        link.otherRecordIds,
+      );
       // #132: and the other side's names, if THEY look back through the reverse field.
       await this.recomputeTitlesForRecords(link.otherDatabaseId, link.otherRecordIds);
     }
@@ -1534,7 +1660,10 @@ export class RecordsService {
     return false;
   }
 
-  private async attachLookups(projected: ProjectedRecord[], defs: FieldDef[]): Promise<ProjectedRecord[]> {
+  private async attachLookups(
+    projected: ProjectedRecord[],
+    defs: FieldDef[],
+  ): Promise<ProjectedRecord[]> {
     const lookupDefs = defs.filter((d) => d.type === 'lookup');
     if (lookupDefs.length === 0 || projected.length === 0) return projected;
 
@@ -1586,7 +1715,9 @@ export class RecordsService {
       for (const record of projected) {
         const chips = record.values[relationDef.api_name] as Array<{ id: string }> | undefined;
         if (!chips?.length) continue;
-        const resolved = chips.map((chip) => byId.get(chip.id)).filter((v) => v !== undefined && v !== null);
+        const resolved = chips
+          .map((chip) => byId.get(chip.id))
+          .filter((v) => v !== undefined && v !== null);
         record.values[def.api_name] = single ? (resolved[0] ?? null) : resolved;
       }
     }
@@ -1692,6 +1823,83 @@ export class RecordsService {
   }
 
   /**
+   * #229 AC2/AC3 — every write path (UI edit, CSV import, REST, MCP) funnels
+   * through create/createBatch/update, so one check here covers all of them.
+   * This is the friendly, common-case guard: it runs before the transaction
+   * opens and names the conflicting record in the same `details[]` shape
+   * validateOrThrow uses. It is NOT the race-proof guarantee — two concurrent
+   * writes can both pass this and both try to commit; FieldsService's partial
+   * unique index is what actually stops that (AC5), and finishInsertOrThrow
+   * below re-runs this same lookup after a 23505 to still name the record.
+   */
+  private async assertUniqueValuesOrThrow(
+    databaseId: string,
+    defs: FieldDef[],
+    entries: Array<{ values: Record<string, unknown>; excludeRecordId?: string }>,
+  ): Promise<void> {
+    const uniqueFields = defs.filter((d) =>
+      Boolean((d.config as Record<string, unknown>)['unique']),
+    );
+    if (uniqueFields.length === 0) return;
+    for (const def of uniqueFields) {
+      const normalize = (def.config as Record<string, unknown>)['unique_normalize'] !== false;
+      for (const entry of entries) {
+        const key = this.normalizedUniqueKey(entry.values[def.id], normalize);
+        if (key === undefined) continue;
+        const conflict = await this.findUniqueConflict(
+          databaseId,
+          def.id,
+          key,
+          normalize,
+          entry.excludeRecordId,
+        );
+        if (conflict) throw this.uniqueConflictError(def, conflict);
+      }
+    }
+  }
+
+  /** Multiple empty/absent values are always permitted (#229 AC4) — only a real value can conflict. */
+  private normalizedUniqueKey(raw: unknown, normalize: boolean): string | undefined {
+    if (raw === null || raw === undefined || raw === '') return undefined;
+    const key = normalize ? String(raw).trim().toLowerCase() : String(raw);
+    return key === '' ? undefined : key;
+  }
+
+  private async findUniqueConflict(
+    databaseId: string,
+    fieldId: string,
+    normalizedValue: string,
+    normalize: boolean,
+    excludeRecordId?: string,
+  ): Promise<{ id: string; number: number | null; title: string } | undefined> {
+    const expr = normalize
+      ? sql`lower(trim(${records.values}->>${fieldId}))`
+      : sql`${records.values}->>${fieldId}`;
+    const row = await this.db.query.records.findFirst({
+      where: and(
+        eq(records.databaseId, databaseId),
+        isNull(records.deletedAt),
+        excludeRecordId ? sql`${records.id} != ${excludeRecordId}` : undefined,
+        sql`${expr} = ${normalizedValue}`,
+      ),
+      columns: { id: true, number: true, title: true },
+    });
+    return row ?? undefined;
+  }
+
+  private uniqueConflictError(def: FieldDef, conflict: { number: number | null; title: string }) {
+    return new ConflictException({
+      message: 'Record values validation failed',
+      details: [
+        {
+          path: `values.${def.api_name}`,
+          message: `duplicate value — already used by record #${conflict.number} ("${conflict.title}")`,
+        },
+      ],
+    });
+  }
+
+  /**
    * MN-080: turn `{ project: [3] | ['<uuid>'] }` into everything needed to write
    * record_links. Resolved and fully validated BEFORE the transaction opens, so a
    * bad target id fails the whole write instead of leaving an unlinked record.
@@ -1725,9 +1933,14 @@ export class RecordsService {
       // column and failing as a raw Postgres syntax error the caller sees as an
       // opaque 500 (#278).
       const isNumericString = (v: string) => /^\d+$/.test(v.trim());
-      const toNumber = (v: string | number) => (typeof v === 'number' ? v : Number.parseInt(v.trim(), 10));
+      const toNumber = (v: string | number) =>
+        typeof v === 'number' ? v : Number.parseInt(v.trim(), 10);
       const invalid = raw.find(
-        (v) => !(typeof v === 'number' || (typeof v === 'string' && (isNumericString(v) || UUID_RE.test(v.trim())))),
+        (v) =>
+          !(
+            typeof v === 'number' ||
+            (typeof v === 'string' && (isNumericString(v) || UUID_RE.test(v.trim())))
+          ),
       );
       if (invalid !== undefined) {
         throw new UnprocessableEntityException({
@@ -1782,7 +1995,14 @@ export class RecordsService {
           `"${apiName}" can link to only one target (one-to-many); got ${targets.length}`,
         );
       }
-      plans.push({ relationId: relation.id, side, apiName, fieldId: def.id, targetDatabaseId, targets });
+      plans.push({
+        relationId: relation.id,
+        side,
+        apiName,
+        fieldId: def.id,
+        targetDatabaseId,
+        targets,
+      });
     }
     return plans;
   }
@@ -1805,8 +2025,20 @@ export class RecordsService {
     plans: LinkPlan[],
     replace: boolean,
     source: ChangeSource = 'human',
-  ): Promise<Array<{ relationId: string; fieldId: string; otherDatabaseId: string; otherRecordIds: string[] }>> {
-    const affected: Array<{ relationId: string; fieldId: string; otherDatabaseId: string; otherRecordIds: string[] }> = [];
+  ): Promise<
+    Array<{
+      relationId: string;
+      fieldId: string;
+      otherDatabaseId: string;
+      otherRecordIds: string[];
+    }>
+  > {
+    const affected: Array<{
+      relationId: string;
+      fieldId: string;
+      otherDatabaseId: string;
+      otherRecordIds: string[];
+    }> = [];
     for (const plan of plans) {
       const myCol = plan.side === 'a' ? recordLinks.fromRecordId : recordLinks.toRecordId;
       const otherCol = plan.side === 'a' ? recordLinks.toRecordId : recordLinks.fromRecordId;
@@ -1847,7 +2079,10 @@ export class RecordsService {
               recordId: target.id,
               actorId,
               type: 'relation.linked',
-              payload: { relation_id: plan.relationId, other: { id: record.id, title: record.title } },
+              payload: {
+                relation_id: plan.relationId,
+                other: { id: record.id, title: record.title },
+              },
               source,
             },
           ]),
@@ -1914,9 +2149,20 @@ export class RecordsService {
     const src = await this.get(databaseId, recordId);
     const defs = await this.fieldDefs(databaseId);
     const SKIP = new Set([
-      'id', 'relation', 'lookup', 'rollup', 'formula', 'button', 'title', 'created_at', 'updated_at', 'created_by',
+      'id',
+      'relation',
+      'lookup',
+      'rollup',
+      'formula',
+      'button',
+      'title',
+      'created_at',
+      'updated_at',
+      'created_by',
     ]);
-    const input: Record<string, unknown> = { name: `${(src.title ?? '').trim() || 'Untitled'} (copy)` };
+    const input: Record<string, unknown> = {
+      name: `${(src.title ?? '').trim() || 'Untitled'} (copy)`,
+    };
     for (const def of defs) {
       if (SKIP.has(def.type)) continue;
       const v = src.values[def.api_name];
@@ -1936,11 +2182,19 @@ export class RecordsService {
         const rows = await this.db
           .select({ to: recordLinks.toRecordId })
           .from(recordLinks)
-          .where(and(eq(recordLinks.relationId, relation.id), eq(recordLinks.fromRecordId, recordId)));
+          .where(
+            and(eq(recordLinks.relationId, relation.id), eq(recordLinks.fromRecordId, recordId)),
+          );
         if (rows.length) {
           await this.db
             .insert(recordLinks)
-            .values(rows.map((r) => ({ relationId: relation.id, fromRecordId: created.id, toRecordId: r.to })))
+            .values(
+              rows.map((r) => ({
+                relationId: relation.id,
+                fromRecordId: created.id,
+                toRecordId: r.to,
+              })),
+            )
             .onConflictDoNothing();
           // MN-287: duplicate() copies links via raw inserts (bypassing writeLinks()
           // entirely — the whole point is copying without re-running link resolution),
@@ -1970,11 +2224,19 @@ export class RecordsService {
         const rows = await this.db
           .select({ from: recordLinks.fromRecordId })
           .from(recordLinks)
-          .where(and(eq(recordLinks.relationId, relation.id), eq(recordLinks.toRecordId, recordId)));
+          .where(
+            and(eq(recordLinks.relationId, relation.id), eq(recordLinks.toRecordId, recordId)),
+          );
         if (rows.length) {
           await this.db
             .insert(recordLinks)
-            .values(rows.map((r) => ({ relationId: relation.id, fromRecordId: r.from, toRecordId: created.id })))
+            .values(
+              rows.map((r) => ({
+                relationId: relation.id,
+                fromRecordId: r.from,
+                toRecordId: created.id,
+              })),
+            )
             .onConflictDoNothing();
           this.domainEvents.emit({
             type: 'record_linked',
@@ -1998,11 +2260,18 @@ export class RecordsService {
     }
 
     // Copy the description document, if any.
-    const doc = await this.db.query.documents.findFirst({ where: eq(documents.recordId, recordId) });
+    const doc = await this.db.query.documents.findFirst({
+      where: eq(documents.recordId, recordId),
+    });
     if (doc?.content) {
       await this.db
         .insert(documents)
-        .values({ recordId: created.id, content: doc.content, contentText: doc.contentText, version: 1 });
+        .values({
+          recordId: created.id,
+          content: doc.content,
+          contentText: doc.contentText,
+          version: 1,
+        });
     }
 
     // #599 — the source record's comment thread history, copied onto the new
@@ -2077,6 +2346,12 @@ export class RecordsService {
       withDefaults.map((input) => this.resolveUserInputs(workspaceId, defs, input)),
     );
     const validated = resolved.map((input) => this.validateOrThrow(defs, input));
+    // #229 — before any record is inserted, same "resolve everything up front" shape as linkPlans below.
+    await this.assertUniqueValuesOrThrow(
+      databaseId,
+      defs,
+      validated.map((v) => ({ values: v.values })),
+    );
     // Resolved up front: an unknown target must fail before any record is inserted.
     const linkPlans = await Promise.all(
       validated.map((v) => (v.links ? this.planLinks(defs, v.links) : Promise.resolve([]))),
@@ -2095,61 +2370,91 @@ export class RecordsService {
     // to the record_created emit after commit, same pattern update() uses.
     const linkedRelationsByIndex = new Map<
       number,
-      Array<{ relationId: string; fieldId: string; otherDatabaseId: string; otherRecordIds: string[] }>
+      Array<{
+        relationId: string;
+        fieldId: string;
+        otherDatabaseId: string;
+        otherRecordIds: string[];
+      }>
     >();
 
-    const rows = await this.db.transaction(async (tx) => {
-      // Allocate a contiguous block of public numbers atomically (MN-087): bump the
-      // per-database counter by N and take the returned high-water mark. Gap-tolerant.
-      const [db] = await tx
-        .update(databases)
-        .set({ recordCounter: sql`${databases.recordCounter} + ${inputs.length}` })
-        .where(eq(databases.id, databaseId))
-        .returning({ counter: databases.recordCounter });
-      const firstNumber = (db!.counter as number) - inputs.length + 1;
-      const inserted = await tx
-        .insert(records)
-        .values(
-          validated.map((v, i) => {
-            const values = stripNulls(v.values);
-            // #id-post-allocation: firstNumber+i is this record's public number,
-            // already allocated above, so a `{Number}`/#id template resolves.
-            const title = titleDef
-              ? this.computeTitle(titleDef, defs, values, firstNumber + i, labelByOption)
-              : v.title ?? '';
-            return {
-              databaseId,
-              number: firstNumber + i,
-              title,
-              values,
-              position: positions[i]!,
-              createdBy: actorId,
-              updatedBy: actorId,
-            };
-          }),
-        )
-        .returning();
-      await tx.insert(activityEvents).values(
-        inserted.map((row) => ({
-          workspaceId,
-          recordId: row.id,
-          actorId,
-          type: 'record.created',
-          payload: { title: row.title },
-          source,
-          agentId,
-          agentName,
-        })),
-      );
-      for (const [i, row] of inserted.entries()) {
-        const plans = linkPlans[i]!;
-        if (plans.length) {
-          const linked = await this.writeLinks(tx as unknown as Db, workspaceId, actorId, row, plans, false, source);
-          if (linked.length) linkedRelationsByIndex.set(i, linked);
+    let rows: RecordRow[];
+    try {
+      rows = await this.db.transaction(async (tx) => {
+        // Allocate a contiguous block of public numbers atomically (MN-087): bump the
+        // per-database counter by N and take the returned high-water mark. Gap-tolerant.
+        const [db] = await tx
+          .update(databases)
+          .set({ recordCounter: sql`${databases.recordCounter} + ${inputs.length}` })
+          .where(eq(databases.id, databaseId))
+          .returning({ counter: databases.recordCounter });
+        const firstNumber = (db!.counter as number) - inputs.length + 1;
+        const inserted = await tx
+          .insert(records)
+          .values(
+            validated.map((v, i) => {
+              const values = stripNulls(v.values);
+              // #id-post-allocation: firstNumber+i is this record's public number,
+              // already allocated above, so a `{Number}`/#id template resolves.
+              const title = titleDef
+                ? this.computeTitle(titleDef, defs, values, firstNumber + i, labelByOption)
+                : (v.title ?? '');
+              return {
+                databaseId,
+                number: firstNumber + i,
+                title,
+                values,
+                position: positions[i]!,
+                createdBy: actorId,
+                updatedBy: actorId,
+              };
+            }),
+          )
+          .returning();
+        await tx.insert(activityEvents).values(
+          inserted.map((row) => ({
+            workspaceId,
+            recordId: row.id,
+            actorId,
+            type: 'record.created',
+            payload: { title: row.title },
+            source,
+            agentId,
+            agentName,
+          })),
+        );
+        for (const [i, row] of inserted.entries()) {
+          const plans = linkPlans[i]!;
+          if (plans.length) {
+            const linked = await this.writeLinks(
+              tx as unknown as Db,
+              workspaceId,
+              actorId,
+              row,
+              plans,
+              false,
+              source,
+            );
+            if (linked.length) linkedRelationsByIndex.set(i, linked);
+          }
         }
-      }
-      return inserted;
-    });
+        return inserted;
+      });
+    } catch (err) {
+      // #229 AC5 — the pre-check above raced and lost; re-resolve the SAME
+      // conflict now that the winner has committed, so the caller still gets a
+      // named record instead of a raw 23505.
+      const fieldId = uniqueFieldIdFromViolation(err);
+      if (fieldId === undefined) throw err;
+      const def = defs.find((d) => d.id === fieldId);
+      if (!def) throw err;
+      await this.assertUniqueValuesOrThrow(
+        databaseId,
+        [def],
+        validated.map((v) => ({ values: v.values })),
+      );
+      throw err;
+    }
     // MN-195: fire-and-forget, after the write already succeeded — never lets
     // an abuse-detection failure turn into a failed write. Counts every
     // create path (including bulk import), never blocks or slows any of them.
@@ -2178,7 +2483,11 @@ export class RecordsService {
 
   async getRow(databaseId: string, recordId: string): Promise<RecordRow> {
     const row = await this.db.query.records.findFirst({
-      where: and(eq(records.id, recordId), eq(records.databaseId, databaseId), isNull(records.deletedAt)),
+      where: and(
+        eq(records.id, recordId),
+        eq(records.databaseId, databaseId),
+        isNull(records.deletedAt),
+      ),
     });
     if (!row) throw new NotFoundException('Record not found');
     return row;
@@ -2201,12 +2510,20 @@ export class RecordsService {
     min: EffectiveRole,
   ): Promise<void> {
     const database = await this.db.query.databases.findFirst({
-      where: and(eq(databases.id, databaseId), eq(databases.workspaceId, membership.workspaceId), notDeleted(databases.deletedAt)),
+      where: and(
+        eq(databases.id, databaseId),
+        eq(databases.workspaceId, membership.workspaceId),
+        notDeleted(databases.deletedAt),
+      ),
       columns: { id: true, spaceId: true },
     });
     if (!database) throw new NotFoundException('Database not found');
     const record = await this.db.query.records.findFirst({
-      where: and(eq(records.id, recordId), eq(records.databaseId, databaseId), isNull(records.deletedAt)),
+      where: and(
+        eq(records.id, recordId),
+        eq(records.databaseId, databaseId),
+        isNull(records.deletedAt),
+      ),
       columns: { id: true },
     });
     if (!record) throw new NotFoundException('Record not found');
@@ -2218,7 +2535,11 @@ export class RecordsService {
     this.access.assertRank(effective, min, 'Record');
   }
 
-  async get(databaseId: string, recordId: string, membership?: Membership): Promise<ProjectedRecord> {
+  async get(
+    databaseId: string,
+    recordId: string,
+    membership?: Membership,
+  ): Promise<ProjectedRecord> {
     const [row, defs] = await Promise.all([
       this.getRow(databaseId, recordId),
       this.fieldDefs(databaseId),
@@ -2228,9 +2549,17 @@ export class RecordsService {
   }
 
   /** Resolve a record by its public per-database number (MN-087, pretty URLs). */
-  async getByNumber(databaseId: string, number: number, membership?: Membership): Promise<ProjectedRecord> {
+  async getByNumber(
+    databaseId: string,
+    number: number,
+    membership?: Membership,
+  ): Promise<ProjectedRecord> {
     const row = await this.db.query.records.findFirst({
-      where: and(eq(records.databaseId, databaseId), eq(records.number, number), isNull(records.deletedAt)),
+      where: and(
+        eq(records.databaseId, databaseId),
+        eq(records.number, number),
+        isNull(records.deletedAt),
+      ),
     });
     if (!row) throw new NotFoundException('Record not found');
     const defs = await this.fieldDefs(databaseId);
@@ -2328,6 +2657,15 @@ export class RecordsService {
     // A relation-only update has no value diff, but is still a real change.
     if (Object.keys(diff).length === 0 && linkPlans.length === 0) return this.project(row, defs);
 
+    // #229 — before the transaction opens, same "resolve everything up front"
+    // shape as linkPlans/attachment ownership above. `merged` (not just the
+    // diff) so an unchanged-but-now-colliding value would still be caught, but
+    // excludeRecordId means this record's own unchanged value never conflicts
+    // with itself.
+    await this.assertUniqueValuesOrThrow(databaseId, defs, [
+      { values: merged, excludeRecordId: recordId },
+    ]);
+
     // MN-267: populated inside the transaction below (writeLinks' before∪after
     // report), read after commit to feed the record_updated event.
     let linkedRelations: Array<{
@@ -2337,94 +2675,109 @@ export class RecordsService {
       otherRecordIds: string[];
     }> = [];
 
-    const updated = await this.db.transaction(async (tx) => {
-      const [next] = await tx
-        .update(records)
-        .set({ values: merged, title: nextTitle, updatedBy: actorId })
-        .where(eq(records.id, recordId))
-        .returning();
-      if (Object.keys(diff).length > 0) {
-        await tx.insert(activityEvents).values({
-          workspaceId,
-          recordId,
-          actorId,
-          type: 'record.updated',
-          payload: { diff },
-          source,
-          agentId,
-          agentName,
-        });
-        // MN-231: snapshot the FULL pre-write state (not just the diff) so a
-        // later restore can write it straight back without replaying a chain
-        // of diffs. Same transaction as the write it's capturing — never
-        // captured without the change it precedes actually landing.
-        await tx.insert(recordVersions).values({
-          workspaceId,
-          recordId,
-          actorId,
-          title: row.title,
-          values: before,
-        });
-        /*
-         * #31 (C2) — fan the SAME diff out to one row per changed field.
-         *
-         * record_versions above answers "what did this record look like then".
-         * This answers "who changed the status, and from what" — the question
-         * the history UI is actually built around. Same transaction, so a
-         * captured change always corresponds to a write that landed.
-         *
-         * `historyDays === 0` is Free: capture NOTHING rather than
-         * capture-then-prune. The window is zero, so those rows could never be
-         * read by anyone — pure write amplification plus pruning load
-         * (docs/architecture/version-history.md, "Retention").
-         */
-        if (historyDays > 0) {
-          const rows = Object.entries(diff).map(([key, change]) => ({
+    let updated: RecordRow;
+    try {
+      updated = await this.db.transaction(async (tx) => {
+        const [next] = await tx
+          .update(records)
+          .set({ values: merged, title: nextTitle, updatedBy: actorId })
+          .where(eq(records.id, recordId))
+          .returning();
+        if (Object.keys(diff).length > 0) {
+          await tx.insert(activityEvents).values({
             workspaceId,
-            databaseId,
             recordId,
-            // record-diff.ts denotes the promoted title column with the literal
-            // "title"; the table stores that as a null field_id.
-            fieldId: key === 'title' ? null : key,
-            actorUserId: actorId,
-            /*
-             * Explicitly JSON-encoded so a bare scalar can't be re-parsed as
-             * JSON source text on its way into jsonb. What is stored here is
-             * exactly what the WRITE stored — note the record READ path coerces
-             * some values (a text field holding 3 reads back as "3"), so the
-             * timeline and the record can render the same change differently.
-             * That is a presentation gap for the history UI to close (#335),
-             * not a reason to make capture lie about what was written.
-             */
-            oldValue: sql`${JSON.stringify((change as { from: unknown }).from ?? null)}::jsonb`,
-            newValue: sql`${JSON.stringify((change as { to: unknown }).to ?? null)}::jsonb`,
-            /*
-             * #390 — the column and the enum have existed since #31; nothing
-             * ever wrote a non-default value, so every row in the product said
-             * 'human' including rows written by automations and by MCP. The
-             * badge was decorative: it rendered whatever the default said.
-             */
+            actorId,
+            type: 'record.updated',
+            payload: { diff },
             source,
             agentId,
             agentName,
-          }));
-          if (rows.length > 0) await tx.insert(recordFieldChanges).values(rows);
+          });
+          // MN-231: snapshot the FULL pre-write state (not just the diff) so a
+          // later restore can write it straight back without replaying a chain
+          // of diffs. Same transaction as the write it's capturing — never
+          // captured without the change it precedes actually landing.
+          await tx.insert(recordVersions).values({
+            workspaceId,
+            recordId,
+            actorId,
+            title: row.title,
+            values: before,
+          });
+          /*
+           * #31 (C2) — fan the SAME diff out to one row per changed field.
+           *
+           * record_versions above answers "what did this record look like then".
+           * This answers "who changed the status, and from what" — the question
+           * the history UI is actually built around. Same transaction, so a
+           * captured change always corresponds to a write that landed.
+           *
+           * `historyDays === 0` is Free: capture NOTHING rather than
+           * capture-then-prune. The window is zero, so those rows could never be
+           * read by anyone — pure write amplification plus pruning load
+           * (docs/architecture/version-history.md, "Retention").
+           */
+          if (historyDays > 0) {
+            const rows = Object.entries(diff).map(([key, change]) => ({
+              workspaceId,
+              databaseId,
+              recordId,
+              // record-diff.ts denotes the promoted title column with the literal
+              // "title"; the table stores that as a null field_id.
+              fieldId: key === 'title' ? null : key,
+              actorUserId: actorId,
+              /*
+               * Explicitly JSON-encoded so a bare scalar can't be re-parsed as
+               * JSON source text on its way into jsonb. What is stored here is
+               * exactly what the WRITE stored — note the record READ path coerces
+               * some values (a text field holding 3 reads back as "3"), so the
+               * timeline and the record can render the same change differently.
+               * That is a presentation gap for the history UI to close (#335),
+               * not a reason to make capture lie about what was written.
+               */
+              oldValue: sql`${JSON.stringify((change as { from: unknown }).from ?? null)}::jsonb`,
+              newValue: sql`${JSON.stringify((change as { to: unknown }).to ?? null)}::jsonb`,
+              /*
+               * #390 — the column and the enum have existed since #31; nothing
+               * ever wrote a non-default value, so every row in the product said
+               * 'human' including rows written by automations and by MCP. The
+               * badge was decorative: it rendered whatever the default said.
+               */
+              source,
+              agentId,
+              agentName,
+            }));
+            if (rows.length > 0) await tx.insert(recordFieldChanges).values(rows);
+          }
         }
-      }
-      // Naming a relation in an update sets it to exactly these targets.
-      if (linkPlans.length) {
-        linkedRelations = await this.writeLinks(
-          tx as unknown as Db,
-          workspaceId,
-          actorId,
-          { id: next!.id, title: next!.title },
-          linkPlans,
-          true,
-          source,
-        );
-      }
-      return next!;
-    });
+        // Naming a relation in an update sets it to exactly these targets.
+        if (linkPlans.length) {
+          linkedRelations = await this.writeLinks(
+            tx as unknown as Db,
+            workspaceId,
+            actorId,
+            { id: next!.id, title: next!.title },
+            linkPlans,
+            true,
+            source,
+          );
+        }
+        return next!;
+      });
+    } catch (err) {
+      // #229 AC5 — see createBatch's identical catch for why this re-resolves
+      // instead of just rethrowing.
+      const fieldId = uniqueFieldIdFromViolation(err);
+      const def = fieldId !== undefined ? defs.find((d) => d.id === fieldId) : undefined;
+      if (!def) throw err;
+      await this.assertUniqueValuesOrThrow(
+        databaseId,
+        [def],
+        [{ values: merged, excludeRecordId: recordId }],
+      );
+      throw err;
+    }
 
     // MN-260: recompute this record's own formula sort values off the just-
     // written row. Awaited (not fire-and-forget) so a query issued right after
@@ -2526,7 +2879,9 @@ export class RecordsService {
     // MN-073: a status/priority (any select) change pings the record's assignees —
     // the people carried on its user fields — so triage state is pushed, not polled.
     // #172: a workflow (status) change pings assignees just like any select change.
-    const changedSelects = defs.filter((d) => (d.type === 'select' || d.type === 'workflow') && d.id in diff);
+    const changedSelects = defs.filter(
+      (d) => (d.type === 'select' || d.type === 'workflow') && d.id in diff,
+    );
     if (changedSelects.length > 0) {
       const assignees = new Set<string>();
       for (const def of defs) {
@@ -2585,7 +2940,10 @@ export class RecordsService {
   }
 
   /** The record's watchers + whether the caller is one (for the watch toggle UI). */
-  async listWatchers(recordId: string, callerId: string): Promise<{ watching: boolean; watchers: string[] }> {
+  async listWatchers(
+    recordId: string,
+    callerId: string,
+  ): Promise<{ watching: boolean; watchers: string[] }> {
     const rows = await this.db.query.recordWatchers.findMany({
       where: eq(recordWatchers.recordId, recordId),
       columns: { userId: true },
@@ -2665,7 +3023,13 @@ export class RecordsService {
     if (changedDefs.length === 0) return '';
 
     const nameRows = await this.db.query.fields.findMany({
-      where: and(eq(fields.databaseId, databaseId), inArray(fields.id, changedDefs.map((d) => d.id))),
+      where: and(
+        eq(fields.databaseId, databaseId),
+        inArray(
+          fields.id,
+          changedDefs.map((d) => d.id),
+        ),
+      ),
       columns: { id: true, displayName: true },
     });
     const nameById = new Map(nameRows.map((r) => [r.id, r.displayName]));
@@ -2674,7 +3038,9 @@ export class RecordsService {
       .map((d) => d.id);
     const optionLabels = new Map<string, string>();
     if (optionFieldIds.length) {
-      const opts = await this.db.query.selectOptions.findMany({ where: inArray(selectOptions.fieldId, optionFieldIds) });
+      const opts = await this.db.query.selectOptions.findMany({
+        where: inArray(selectOptions.fieldId, optionFieldIds),
+      });
       for (const o of opts) optionLabels.set(o.id, o.label);
     }
     const changed: ChangeSummaryField[] = changedDefs.map((d) => ({
@@ -2732,7 +3098,8 @@ export class RecordsService {
     const conditions = [eq(recordFieldChanges.recordId, recordId)];
     if (cursor) {
       const created = new Date(Buffer.from(cursor, 'base64url').toString());
-      if (!Number.isNaN(created.getTime())) conditions.push(lt(recordFieldChanges.createdAt, created));
+      if (!Number.isNaN(created.getTime()))
+        conditions.push(lt(recordFieldChanges.createdAt, created));
     }
     const rows = await this.db.query.recordFieldChanges.findMany({
       where: and(...conditions),
@@ -2765,14 +3132,22 @@ export class RecordsService {
         id: c.id,
         field_id: c.fieldId,
         // null field_id is the promoted title column (record-diff.ts's "title").
-        field_name: c.fieldId ? ctx.fieldName.get(c.fieldId) ?? '(deleted field)' : 'Name',
-        field_type: c.fieldId ? ctx.fieldType.get(c.fieldId) ?? null : 'title',
+        field_name: c.fieldId ? (ctx.fieldName.get(c.fieldId) ?? '(deleted field)') : 'Name',
+        field_type: c.fieldId ? (ctx.fieldType.get(c.fieldId) ?? null) : 'title',
         actor_id: c.actorUserId,
         source: c.source,
         old_value: c.oldValue,
         new_value: c.newValue,
-        old_display: renderTypedValue(c.oldValue, c.fieldId ? ctx.fieldType.get(c.fieldId) : 'title', ctx),
-        new_display: renderTypedValue(c.newValue, c.fieldId ? ctx.fieldType.get(c.fieldId) : 'title', ctx),
+        old_display: renderTypedValue(
+          c.oldValue,
+          c.fieldId ? ctx.fieldType.get(c.fieldId) : 'title',
+          ctx,
+        ),
+        new_display: renderTypedValue(
+          c.newValue,
+          c.fieldId ? ctx.fieldType.get(c.fieldId) : 'title',
+          ctx,
+        ),
         created_at: c.createdAt,
       })),
       next_cursor:
@@ -2824,7 +3199,10 @@ export class RecordsService {
       const labelByOption = await this.loadSelectLabels(defs);
       target.title = this.computeTitle(titleDef, defs, target.values, row.number, labelByOption);
     }
-    const diff = diffSnapshots({ values: row.values as Record<string, unknown>, title: row.title }, target);
+    const diff = diffSnapshots(
+      { values: row.values as Record<string, unknown>, title: row.title },
+      target,
+    );
 
     if (Object.keys(diff).length === 0) return this.project(row, defs);
 
@@ -2887,7 +3265,12 @@ export class RecordsService {
     workspaceId: string,
     databaseId: string,
     recordId: string,
-    input: { before_record_id?: string; after_record_id?: string; values?: Record<string, unknown>; view_id?: string },
+    input: {
+      before_record_id?: string;
+      after_record_id?: string;
+      values?: Record<string, unknown>;
+      view_id?: string;
+    },
     actorId: string,
     source: ChangeSource = 'human',
   ): Promise<ProjectedRecord> {
@@ -2902,12 +3285,19 @@ export class RecordsService {
     // never sends `view_id` and is unaffected.
     if (input.view_id && input.values) {
       const view = await this.db.query.views.findFirst({ where: eq(views.id, input.view_id) });
-      const groupFieldId = (view?.config as { group_by_field_id?: string } | null)?.group_by_field_id;
+      const groupFieldId = (view?.config as { group_by_field_id?: string } | null)
+        ?.group_by_field_id;
       if (view?.type === 'board' && groupFieldId) {
-        const groupField = await this.db.query.fields.findFirst({ where: eq(fields.id, groupFieldId) });
+        const groupField = await this.db.query.fields.findFirst({
+          where: eq(fields.id, groupFieldId),
+        });
         // Values are keyed by api_name (as everywhere else in the write path),
         // not the field's id — resolve before checking.
-        if (groupField && groupField.apiName in input.values && boardGroupIsReadOnly(groupField.type)) {
+        if (
+          groupField &&
+          groupField.apiName in input.values &&
+          boardGroupIsReadOnly(groupField.type)
+        ) {
           throw new UnprocessableEntityException(
             `this board is grouped by a "${groupField.type}" field — dragging a card can reorder it but can never change its group`,
           );
@@ -3103,16 +3493,29 @@ export class RecordsService {
     source: ChangeSource = 'human',
   ) {
     const rows = await this.db.query.records.findMany({
-      where: and(eq(records.databaseId, databaseId), inArray(records.id, recordIds), isNull(records.deletedAt)),
+      where: and(
+        eq(records.databaseId, databaseId),
+        inArray(records.id, recordIds),
+        isNull(records.deletedAt),
+      ),
       columns: { id: true },
     });
     const ids = rows.map((r) => r.id);
     if (ids.length > 0) {
       await this.db.transaction(async (tx) => {
         await tx.update(records).set({ deletedAt: new Date() }).where(inArray(records.id, ids));
-        await tx.insert(activityEvents).values(
-          ids.map((id) => ({ workspaceId, recordId: id, actorId, type: 'record.deleted', payload: {}, source })),
-        );
+        await tx
+          .insert(activityEvents)
+          .values(
+            ids.map((id) => ({
+              workspaceId,
+              recordId: id,
+              actorId,
+              type: 'record.deleted',
+              payload: {},
+              source,
+            })),
+          );
       });
       ids.forEach((recordId) =>
         this.domainEvents.emit({
@@ -3136,16 +3539,29 @@ export class RecordsService {
     source: ChangeSource = 'human',
   ) {
     const rows = await this.db.query.records.findMany({
-      where: and(eq(records.databaseId, databaseId), inArray(records.id, recordIds), isNotNull(records.deletedAt)),
+      where: and(
+        eq(records.databaseId, databaseId),
+        inArray(records.id, recordIds),
+        isNotNull(records.deletedAt),
+      ),
       columns: { id: true },
     });
     const ids = rows.map((r) => r.id);
     if (ids.length > 0) {
       await this.db.transaction(async (tx) => {
         await tx.update(records).set({ deletedAt: null }).where(inArray(records.id, ids));
-        await tx.insert(activityEvents).values(
-          ids.map((id) => ({ workspaceId, recordId: id, actorId, type: 'record.restored', payload: {}, source })),
-        );
+        await tx
+          .insert(activityEvents)
+          .values(
+            ids.map((id) => ({
+              workspaceId,
+              recordId: id,
+              actorId,
+              type: 'record.restored',
+              payload: {},
+              source,
+            })),
+          );
       });
     }
     return { restored: ids.length };
@@ -3201,7 +3617,12 @@ export class RecordsService {
      * only existed in a response nobody had a reason to keep. The restore
      * endpoints take uuids; this is what lets a caller find the uuid.
      */
-    return rows.map((r) => ({ id: r.id, number: r.number, title: r.title, deleted_at: r.deletedAt }));
+    return rows.map((r) => ({
+      id: r.id,
+      number: r.number,
+      title: r.title,
+      deleted_at: r.deletedAt,
+    }));
   }
 
   /**
@@ -3239,7 +3660,12 @@ export class RecordsService {
    */
   async aggregate(
     databaseId: string,
-    input: { op: 'count' | 'sum' | 'avg' | 'min' | 'max'; field?: string; filter?: unknown; q?: string },
+    input: {
+      op: 'count' | 'sum' | 'avg' | 'min' | 'max';
+      field?: string;
+      filter?: unknown;
+      q?: string;
+    },
     currentUserId: string,
   ): Promise<{
     op: string;
@@ -3270,17 +3696,30 @@ export class RecordsService {
     const conditions: unknown[] = [eq(records.databaseId, databaseId), isNull(records.deletedAt)];
     if (input.q) conditions.push(sql`${records.title} ILIKE ${'%' + input.q + '%'}`);
     if (input.filter) {
-      conditions.push(compileFilter(input.filter as FilterNode, { defs: byApiName, currentUserId }));
+      conditions.push(
+        compileFilter(input.filter as FilterNode, { defs: byApiName, currentUserId }),
+      );
     }
     const where = and(...(conditions as SQL[]));
 
     if (input.op === 'count') {
-      const [row] = await this.db.select({ value: sql<number>`count(*)::int` }).from(records).where(where);
-      return { op: 'count', field: null, value: row?.value ?? 0, filtered: Boolean(input.filter || input.q), exact: true };
+      const [row] = await this.db
+        .select({ value: sql<number>`count(*)::int` })
+        .from(records)
+        .where(where);
+      return {
+        op: 'count',
+        field: null,
+        value: row?.value ?? 0,
+        filtered: Boolean(input.filter || input.q),
+        exact: true,
+      };
     }
 
     if (!input.field) {
-      throw new UnprocessableEntityException(`"${input.op}" needs a field to aggregate; only "count" works without one`);
+      throw new UnprocessableEntityException(
+        `"${input.op}" needs a field to aggregate; only "count" works without one`,
+      );
     }
     const def = byApiName.get(input.field);
     if (!def) throw new UnprocessableEntityException(`unknown field "${input.field}"`);
@@ -3300,10 +3739,13 @@ export class RecordsService {
     const numeric = sql`NULLIF(${source}, '')::numeric`;
     const guard = sql`${source} ~ '^-?[0-9]+(\.[0-9]+)?$'`;
     const expr =
-      input.op === 'sum' ? sql`sum(${numeric})`
-      : input.op === 'avg' ? sql`avg(${numeric})`
-      : input.op === 'min' ? sql`min(${numeric})`
-      : sql`max(${numeric})`;
+      input.op === 'sum'
+        ? sql`sum(${numeric})`
+        : input.op === 'avg'
+          ? sql`avg(${numeric})`
+          : input.op === 'min'
+            ? sql`min(${numeric})`
+            : sql`max(${numeric})`;
 
     const [row] = await this.db
       .select({ value: sql<string | null>`${expr}` })
@@ -3393,7 +3835,11 @@ export class RecordsService {
     }
 
     return {
-      data: await this.attachLinks(page.map((r) => this.project(r, defs)), defs, membership),
+      data: await this.attachLinks(
+        page.map((r) => this.project(r, defs)),
+        defs,
+        membership,
+      ),
       next_cursor: nextCursor,
       has_more: hasMore,
     };
@@ -3428,7 +3874,11 @@ export class RecordsService {
     const hasMore = rows.length > opts.limit;
     const lastRow = page[page.length - 1];
     return {
-      data: await this.attachLinks(page.map((r) => this.project(r, defs)), defs, membership),
+      data: await this.attachLinks(
+        page.map((r) => this.project(r, defs)),
+        defs,
+        membership,
+      ),
       next_cursor: hasMore && lastRow ? encodeCursor(lastRow.position, lastRow.id) : null,
       has_more: hasMore,
     };
@@ -3437,6 +3887,33 @@ export class RecordsService {
 
 function stripNulls(values: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(values).filter(([, v]) => v !== null));
+}
+
+/**
+ * #229 AC5 — true iff `err` is a Postgres unique-violation (SQLSTATE 23505)
+ * raised by one of FieldsService's dynamic `field_unique_<id>` indexes; this is
+ * the race assertUniqueValuesOrThrow's pre-check can't close (two concurrent
+ * writes both pass the pre-check, then race to insert). Mirrors
+ * DatabasesService's isSlugUniqueViolation: match on `code` AND a `constraint`
+ * of the expected shape so an unrelated 23505 is never swallowed, walking
+ * `.cause` since drizzle wraps the original pg DatabaseError.
+ */
+function uniqueFieldIdFromViolation(err: unknown): string | undefined {
+  for (let cur: unknown = err; cur != null; cur = (cur as { cause?: unknown }).cause) {
+    if (typeof cur !== 'object') break;
+    const e = cur as { code?: unknown; constraint?: unknown };
+    if (
+      e.code === '23505' &&
+      typeof e.constraint === 'string' &&
+      e.constraint.startsWith('field_unique_')
+    ) {
+      const hex = e.constraint.slice('field_unique_'.length);
+      if (/^[0-9a-f]{32}$/.test(hex)) {
+        return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+      }
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -3450,7 +3927,14 @@ function orderFormulasByDependency(formulaDefs: FieldDef[]): FieldDef[] {
   for (let pass = 0; pass < 6 && remaining.size > 0; pass++) {
     for (const def of [...remaining]) {
       const refs = new Set<string>();
-      const walk = (n: { kind: string; api_name?: string; operand?: unknown; left?: unknown; right?: unknown; args?: unknown[] }) => {
+      const walk = (n: {
+        kind: string;
+        api_name?: string;
+        operand?: unknown;
+        left?: unknown;
+        right?: unknown;
+        args?: unknown[];
+      }) => {
         if (n.kind === 'ref' && n.api_name) refs.add(n.api_name);
         if (n.operand) walk(n.operand as never);
         if (n.left) walk(n.left as never);
@@ -3496,14 +3980,29 @@ function orderFormulasByDependency(formulaDefs: FieldDef[]): FieldDef[] {
  * rules (#375/#380/#383/#399/#408/#422's pattern).
  */
 const SORTABLE_FIELD_TYPES = new Set([
-  'id', 'title', 'text', 'number', 'date', 'url', 'email', 'select', 'workflow',
+  'id',
+  'title',
+  'text',
+  'number',
+  'date',
+  'url',
+  'email',
+  'select',
+  'workflow',
   // MN-267: rollup is now materialized too (recomputeRollupsForRelationField,
   // invalidated via RollupInvalidationSubscriber on the related record's
   // change or the relation's own link-set change) — reuses computed_values/
   // fieldExpr()/the keyset cursor exactly like formula does (MN-260).
   // #351: updated_by joins created_at/updated_at/created_by as a sortable
   // system column (records.updated_by), via the registry-driven overlay above.
-  'checkbox', 'created_at', 'updated_at', 'created_by', 'updated_by', 'user', 'formula', 'rollup',
+  'checkbox',
+  'created_at',
+  'updated_at',
+  'created_by',
+  'updated_by',
+  'user',
+  'formula',
+  'rollup',
 ]);
 
 /**
@@ -3520,7 +4019,10 @@ export function validateSorts(
   return sorts.map((s) => {
     const def = byApiName.get(s.field);
     if (!def) throw new UnprocessableEntityException(`unknown sort field "${s.field}"`);
-    if (!SORTABLE_FIELD_TYPES.has(def.type) || (def.type === 'user' && def.config['multi'] === true)) {
+    if (
+      !SORTABLE_FIELD_TYPES.has(def.type) ||
+      (def.type === 'user' && def.config['multi'] === true)
+    ) {
       throw new UnprocessableEntityException(`cannot sort by ${def.type} field "${s.field}"`);
     }
     // MN-260/MN-267: a formula is only sortable if its materialized value can
@@ -3605,7 +4107,10 @@ function encodeQueryCursor(cursor: QueryCursor): string {
   return Buffer.from(JSON.stringify(cursor)).toString('base64url');
 }
 
-function decodeQueryCursor(cursor: string, expectedSortCount: number): Required<Pick<QueryCursor, 'id'>> & QueryCursor {
+function decodeQueryCursor(
+  cursor: string,
+  expectedSortCount: number,
+): Required<Pick<QueryCursor, 'id'>> & QueryCursor {
   try {
     const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString()) as QueryCursor;
     if (typeof parsed.id !== 'string') throw new Error();
