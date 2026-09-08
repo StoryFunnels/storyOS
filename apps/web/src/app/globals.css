@@ -394,6 +394,51 @@ body {
 }
 
 /*
+ * #643 — design-system.md (lines 55, 66) has always specified 16px prose,
+ * 1.6 line-height and a narrow centered column for entity-page prose (the
+ * /doc page); it shipped at the record-panel's 14px/1.5/full-width instead.
+ *
+ * Scoped to `.doc-prose` (set on the /doc page's own wrapper) rather than
+ * changing the `.bn-editor.bn-default-styles` rule above: that rule is
+ * shared with the record panel's description field, and the record panel
+ * deliberately stays at 14px (an 800px-ish panel has no room to spare, and
+ * #642 already tuned that surface on its own terms). Three classes here
+ * beats the two above on specificity regardless of source order, the same
+ * fix the comment above already had to make once.
+ */
+.doc-prose .bn-editor.bn-default-styles,
+.doc-prose .bn-editor .bn-default-styles {
+  font-size: 16px;
+}
+
+/*
+ * #643 — the narrow column applies to PROSE, not to a table, code block or
+ * image: those must keep the full editor width (design-system.md's own
+ * distinction, and this ticket's explicit acceptance criterion). BlockNote
+ * tags every block with `data-content-type`, so the narrowing targets the
+ * text-bearing types by name rather than the editor as a whole — a table
+ * sitting in the same flow is simply not in this list and stays full width.
+ *
+ * line-height lives HERE, not on the editor-level rule above: BlockNote's
+ * own `.bn-block-outer { line-height: 1.5 }` sits directly between the
+ * editor and these blocks and is an explicit rule on an ancestor of THESE
+ * elements, so it wins the inheritance chain over anything set higher up —
+ * verified live (computed 24px/1.5 with line-height only set above). A rule
+ * directly on the block itself is what actually reaches it.
+ */
+.doc-prose [data-content-type='paragraph'],
+.doc-prose [data-content-type='heading'],
+.doc-prose [data-content-type='bulletListItem'],
+.doc-prose [data-content-type='numberedListItem'],
+.doc-prose [data-content-type='checkListItem'],
+.doc-prose [data-content-type='quote'] {
+  max-width: 40rem;
+  margin-left: auto;
+  margin-right: auto;
+  line-height: 1.6;
+}
+
+/*
  * #338 — slash-menu density.
  *
  * BlockNote's default "/" menu gives each entry a large icon tile, a 16px
