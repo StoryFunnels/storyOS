@@ -339,15 +339,52 @@ body {
   font-size: 13px;
   line-height: 1.2;
 }
-.bn-suggestion-menu .bn-suggestion-menu-item {
+/*
+ * #645 — `.bn-mantine` PREFIX IS LOAD-BEARING ON BOTH RULES BELOW.
+ *
+ * BlockNote sets the row padding with `.bn-mantine .bn-suggestion-menu-item`
+ * and the icon wrapper with
+ * `.bn-mt-suggestion-menu-item-section[data-position='left']` — both (0,2,0),
+ * both in a stylesheet served AFTER ours. #338's two-class selectors tied and
+ * lost on source order, so its `padding-block: 6px` never applied: the row
+ * computed to mantine's `calc(var(--mantine-spacing-xs) / 1.5)` = 6.667px the
+ * whole time, and the comment claiming a 28px row was never true.
+ *
+ * Both selectors here are (0,3,0), so neither depends on chunk order.
+ */
+.bn-mantine .bn-suggestion-menu .bn-suggestion-menu-item {
   /* `.bn-suggestion-menu-item`, verified in the DOM — the rows are mantine
      Group roots, not Menu items, so a `mantine-Menu-item` guess matched
      nothing. */
-  /* 6px lands a ~28px row: half the original ~50px, still comfortable to hit.
-     3px measured at 13px in the browser, which was too cramped to click. */
-  padding-block: 6px;
+  /* 4px, not #338's 6px, because the arithmetic changed with the icon wrapper
+     below: tallest child is now the 20px wrapper, so 4+20+4 = a 28px row —
+     the size #338 asked for and never got. 6px would give 32px. */
+  padding-block: 4px;
   padding-inline: 8px;
-  min-height: 0;
+  /*
+   * #645 — `min-height: 0` USED TO BE HERE AND IT BROKE THE MENU.
+   *
+   * Shrinking the icon below was only half the job: the SVG went to 16px but
+   * its wrapper kept mantine's 8px block padding, so the wrapper stayed 32px
+   * while `min-height: 0` gave the flex row permission to be shorter than its
+   * own child. Measured: rows computed to 17px around a 32px icon, and the
+   * 28px group headings then landed on the rows above them — 22 overlaps of
+   * 12–13px each. Ievgen spotted it by looking; the comment above had
+   * predicted a 28px row and never checked.
+   *
+   * The wrapper's padding now comes down with the icon (below), so the row
+   * sizes to its content on its own and needs no min-height override. If a
+   * future change makes rows too tall again, shrink what is IN them rather
+   * than letting the row lie about its height.
+   */
+}
+.bn-suggestion-menu .bn-mt-suggestion-menu-item-section[data-position='left'] {
+  /* The wrapper around the 16px icon. mantine ships 8px block padding here,
+     which is what kept it at 32px while the row was told it could be 17px.
+     2px lands a 20px wrapper, so a row's tallest child is the icon rather
+     than a box half again its size, and the 28px row falls out of the content
+     instead of being forced by a min-height that lies. */
+  padding-block: 2px;
 }
 .bn-suggestion-menu .bn-mt-suggestion-menu-item-section svg {
   width: 16px;
