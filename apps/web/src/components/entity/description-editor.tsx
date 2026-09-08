@@ -139,7 +139,24 @@ function EditorInner({
       <div className="flex items-center justify-end">
         <MarkdownActions editor={editor} filename="description" />
       </div>
-      <div className="min-h-40 rounded-[var(--radius-card)] border border-border-default bg-card py-3 [&_.bn-editor]:bg-transparent">
+      {/* #642 — was min-h-40 (160px), reserved regardless of content: an empty
+          description held the full 160px for one placeholder line, 73-112px
+          more than the content needed. min-h-12 (48px) keeps a real click
+          target without the dead space.
+
+          #642 — the alignment break (globals.css's own comment names this as
+          "ticketed separately, not fixed here"): `.bn-root .bn-editor` carries
+          a hard-floor 52px left padding — BlockNote's insert/drag-handle side
+          menu, load-bearing, can't just be removed. That pushes the PROSE
+          TEXT 52px inside this box, while the box itself already sits flush
+          at the column edge (verified live: bn-editor's own rect starts at
+          the same x as the title and the relation boxes above it) — so the
+          text alone reads as indented against everything else. Pulling the
+          box 52px further left (and widening it by the same 52px, so its
+          RIGHT edge doesn't move) puts the text back at the column edge,
+          with the drag handle now sitting in the reclaimed margin outside
+          the visible content — exactly what the comment above asks for. */}
+      <div className="-ml-[52px] w-[calc(100%+52px)] min-h-12 rounded-[var(--radius-card)] border border-border-default bg-card py-3 [&_.bn-editor]:bg-transparent">
         <MentionScope ws={ws}>
           <BlockNoteView
             /* #338: BlockNote mounts its own "/" menu unless this is off, and it
