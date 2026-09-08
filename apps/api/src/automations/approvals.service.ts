@@ -6,6 +6,8 @@ import type { Db } from '../db/client';
 import { approvals, automations, sourceRuns } from '../db/schema';
 import { CommentsService } from '../comments/comments.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { AccessService } from '../access/access.service';
+import type { Membership } from '../workspaces/workspace-access.guard';
 import { JobRunnerService } from './job-runner.service';
 import type { ActionEffect } from './actions.service';
 
@@ -90,6 +92,7 @@ export class ApprovalsService {
     private readonly comments: CommentsService,
     private readonly notifications: NotificationsService,
     private readonly jobs: JobRunnerService,
+    private readonly access: AccessService,
   ) {}
 
   /** Rule owner by default, `automations.approver_id` as a per-rule override
@@ -155,13 +158,28 @@ export class ApprovalsService {
     };
   }
 
-  async list(workspaceId: string, status?: string) {
+  /**
+   * #654 — this was workspace-wide with no per-database check at all, so a
+   * guest holding a grant on exactly one database could list every OTHER
+   * database's pending/decided approvals, including `action_snapshot` (can
+   * carry triggering-record field values). `ctx.databaseId` is always
+   * present on every row's own frozen snapshot (`create()` above), so
+   * filtering needs no join — `visibleDatabaseIds` returns `null` for an
+   * admin/member (unrestricted, matches today's behavior exactly), or the
+   * guest's actual visible set.
+   */
+  async list(membership: Membership, status?: string) {
     const rows = await this.db.query.approvals.findMany({
-      where: and(eq(approvals.workspaceId, workspaceId), status ? eq(approvals.status, status) : undefined),
+      where: and(
+        eq(approvals.workspaceId, membership.workspaceId),
+        status ? eq(approvals.status, status) : undefined,
+      ),
       orderBy: [desc(approvals.createdAt)],
       limit: 100,
     });
-    return rows.map(toDto);
+    const visible = await this.access.visibleDatabaseIds(membership);
+    const scoped = visible === null ? rows : rows.filter((r) => visible.has((r.actionSnapshot as ApprovalActionSnapshot).ctx.databaseId));
+    return scoped.map(toDto);
   }
 
   async get(workspaceId: string, id: string) {
