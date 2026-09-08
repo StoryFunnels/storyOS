@@ -746,13 +746,28 @@ describe('CSV import: prose imports as rich text (#375 regression)', () => {
     expect(res.json().created).toBe(2);
     expect(res.json().warnings_total).toBe(0);
 
+    // #655 — the cell must be picked BY FIELD, not by "whichever prose column
+    // Object.values happens to order first". Two rich_text columns exist
+    // (One Liner, Notes); picking "the first non-empty array" was a coin
+    // flip between them, and the assertion below checked the OTHER column's
+    // text half the time — a regression guard that could pass while broken.
+    const detail = await inject('GET', `/workspaces/${wsId}/databases/${dbId}`);
+    const fields = detail.json().fields as Array<{ apiName: string; displayName: string }>;
+    const oneLinerApiName = fields.find((f) => f.displayName === 'One Liner')!.apiName;
+    const notesApiName = fields.find((f) => f.displayName === 'Notes')!.apiName;
+
     const rows = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records/query`, { limit: 10 })).json().data;
     const perseus = (rows as Array<{ title: string; values: Record<string, unknown> }>).find((r) => r.title === 'Perseus')!;
-    const values = Object.values(perseus.values);
-    // Not merely present — the right SHAPE, and carrying the original text.
-    const blocks = values.find((v) => Array.isArray(v) && (v as unknown[]).length > 0) as Array<{ type: string }>;
-    expect(blocks, 'the cell must not have been dropped').toBeTruthy();
-    expect(blocks[0]!.type).toBe('paragraph');
-    expect(JSON.stringify(blocks)).toContain('Passive RF drone detection');
+
+    const assertBlocks = (value: unknown, expectedText: string) => {
+      const blocks = value as Array<{ type: string }>;
+      expect(Array.isArray(blocks) && blocks.length > 0, 'the cell must not have been dropped').toBe(true);
+      expect(blocks[0]!.type).toBe('paragraph');
+      expect(JSON.stringify(blocks)).toContain(expectedText);
+    };
+    assertBlocks(perseus.values[oneLinerApiName], 'Passive RF drone detection');
+    // Notes was previously never checked at all — the whole point of a
+    // two-rich-text-column fixture is that both columns are exercised.
+    assertBlocks(perseus.values[notesApiName], 'batch0 (pre-Apify manual pass)');
   });
 });
