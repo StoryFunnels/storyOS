@@ -103,15 +103,15 @@
    * ordering AND the uniqueness, and fails on a raw z-index added to any
    * document-level overlay.
    */
-  --z-sticky: 10;           /* sticky table headers, in-flow toolbars */
-  --z-drawer-backdrop: 20;  /* mobile sidebar scrim */
-  --z-drawer: 30;           /* the mobile sidebar itself */
+  --z-sticky: 10; /* sticky table headers, in-flow toolbars */
+  --z-drawer-backdrop: 20; /* mobile sidebar scrim */
+  --z-drawer: 30; /* the mobile sidebar itself */
   --z-overlay-backdrop: 40; /* a panel's own click-away catcher */
-  --z-overlay: 50;          /* the panel body that backdrop belongs to */
+  --z-overlay: 50; /* the panel body that backdrop belongs to */
   --z-dialog-backdrop: 60;
   --z-dialog: 70;
-  --z-palette: 80;          /* command palette, shortcuts overlay */
-  --z-popover: 90;          /* EVERY portalled popover/menu — above all of the above */
+  --z-palette: 80; /* command palette, shortcuts overlay */
+  --z-popover: 90; /* EVERY portalled popover/menu — above all of the above */
   --z-toast: 100;
 }
 
@@ -247,6 +247,13 @@ body {
      the specificity tie regardless of source order. Verified in the browser —
      the first attempt targeted `.bn-editor` alone and computed to 16px. */
   font-size: 14px;
+  /* Same element, same reason, added with the rich-text token mapping above:
+     `.bn-default-styles` hard-codes `font-family: Inter, ...` as a LITERAL, not
+     as var(--bn-font-family) like the rest of BlockNote. So remapping the
+     variable correctly (Figtree resolves there now) still left every document
+     body and description field in Inter — which is not even loaded here, so it
+     fell through to the OS font while the app around it stayed Figtree. */
+  font-family: var(--font-sans);
 }
 
 /*
@@ -283,6 +290,91 @@ body {
 .bn-suggestion-menu .bn-mt-suggestion-menu-item-section svg {
   width: 16px;
   height: 16px;
+}
+
+/*
+ * THE RICH-TEXT EDITOR FOLLOWS THE DESIGN SYSTEM.
+ *
+ * Reported by Ievgen as "colors inside rich text ... it's not readable", and
+ * measured in a real browser before writing a line of this. BlockNote ships its
+ * own complete theme and StoryOS was overriding only two corners of it (#338's
+ * code blocks, and the "/" menu's row height), so every description field and
+ * every document body was a foreign surface inside a StoryOS card:
+ *
+ *   BlockNote painted            StoryOS token
+ *   dark  surface  #1f1f1f       --bg-card      #171c26   (neutral grey vs warm navy)
+ *   dark  text     #cfcfcf       --text-primary #f3efe7   (grey vs cream)
+ *   light text     #3f3f3f       --text-primary #0f1729   (grey vs navy)
+ *   font           Inter         --font-sans    Figtree
+ *
+ * The font line is the one that surprised me: --bn-font-family asks for Inter,
+ * which is NOT loaded here (only Figtree is), so rich text fell through to the
+ * OS font while the app around it stayed Figtree. Every document body in the
+ * product was set in a different typeface from its own chrome.
+ *
+ * Note the text was never a CONTRAST failure — #cfcfcf on #1f1f1f measures
+ * 10.58:1. It reads as "not readable" because it is dimmer and cooler than the
+ * app's own body text and sits on a visibly different slab. A contrast-only
+ * audit passes this and misses it entirely, which is why the fix is a palette
+ * mapping rather than a ratio tweak.
+ *
+ * BlockNote exposes 42 custom properties, so this is a token mapping in ONE
+ * place rather than a component change — and because our tokens are already
+ * theme-aware, both themes are fixed by the same block with no dark override.
+ * Mapping the variables (rather than overriding rendered rules) also means
+ * BlockNote's own menus, tooltips and hover states come along, which selector
+ * patching would have missed one at a time.
+ */
+/*
+ * THE SELECTOR IS LOAD-BEARING, and the first version of this block did nothing
+ * because I got it wrong. BlockNote sets these variables on
+ *
+ *     .bn-root                              (0,1,0)  light
+ *     .bn-root[data-color-scheme='dark']    (0,2,0)  dark
+ *
+ * and its stylesheet is served AFTER ours, so a plain `.bn-container` (0,1,0)
+ * ties with `.bn-root` and loses on source order — and never stood a chance
+ * against the dark rule. Both selectors below are one step above their
+ * counterpart, so neither outcome depends on which chunk loads first:
+ *
+ *     .bn-root.bn-container                            (0,2,0) > (0,1,0)
+ *     .bn-root.bn-container[data-color-scheme='dark']   (0,2,1) > (0,2,0)
+ *
+ * Same trap, same file: see the `.bn-editor .bn-default-styles` note below,
+ * where a single-class rule computed to 16px for exactly this reason.
+ */
+.bn-root.bn-container,
+.bn-root.bn-container[data-color-scheme='dark'] {
+  --bn-font-family: var(--font-sans);
+
+  /* Editor surface: transparent so the StoryOS card behind it shows through —
+     the wrapper already paints --bg-card, and painting it twice is how a
+     one-pixel seam appears at the rounded corners. */
+  --bn-colors-editor-background: transparent;
+  --bn-colors-editor-text: var(--text-primary);
+
+  --bn-colors-menu-background: var(--bg-card);
+  --bn-colors-menu-text: var(--text-primary);
+  --bn-colors-tooltip-background: var(--bg-card);
+  --bn-colors-tooltip-text: var(--text-secondary);
+
+  --bn-colors-hovered-background: var(--bg-hover);
+  --bn-colors-hovered-text: var(--text-primary);
+  --bn-colors-selected-background: var(--bg-active);
+  --bn-colors-selected-text: var(--text-primary);
+
+  --bn-colors-disabled-background: var(--bg-hover);
+  --bn-colors-disabled-text: var(--text-faint);
+
+  --bn-colors-border: var(--border-default);
+  --bn-colors-side-menu: var(--text-faint);
+
+  /* Shape and depth come from the app's scales, not BlockNote's. */
+  --bn-border-radius-small: var(--radius-chip);
+  --bn-border-radius-medium: var(--radius-control);
+  --bn-border-radius-large: var(--radius-card);
+  --bn-shadow-light: var(--shadow-popover, 0 4px 12px rgb(15 23 41 / 0.08));
+  --bn-shadow-medium: var(--shadow-popover, 0 4px 12px rgb(15 23 41 / 0.08));
 }
 
 /*
