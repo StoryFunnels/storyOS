@@ -21,8 +21,11 @@ the whole thing unaffordable.
 - A **label** (their name — "Acme Co", not an account name), an optional **email** (for your own
   reference only, not used to send anything), and an optional **linked record** — the record in
   your own database that *is* this client, used to scope what they see (below).
-- A server-generated, **opaque token** — never derived from the label, id, or creation time, so it
-  can't be guessed from any of the other fields.
+- A **signed token** (HMAC), never a bare random string — it embeds the recipient's id and a
+  version number, verified without a database read before the request ever reaches the row, so a
+  tampered or forged token is rejected outright rather than merely failing to match.
+- An optional **expiry**: an expired token is refused the exact same way a revoked one is — no
+  visible difference in the error, so a caller can't distinguish "revoked" from "simply timed out."
 - Creating a recipient never creates a user, never sends an invitation, and never changes your
   billable seat count — whether you create one recipient or fifty.
 
@@ -31,9 +34,14 @@ the whole thing unaffordable.
 There's no web UI for this yet — it's API and MCP only:
 
 - `POST /api/v1/workspaces/:ws/portal-recipients` (`create_portal_recipient`) — `label`, optional
-  `email`, optional `linked_record_id`.
+  `email`, `linked_record_id`, and `expires_at` (an ISO datetime; absent means it never expires).
 - `GET /api/v1/workspaces/:ws/portal-recipients` (`list_portal_recipients`) — read-only.
 - `POST /api/v1/workspaces/:ws/portal-recipients/:recipient/revoke` (`revoke_portal_recipient`).
+- `POST /api/v1/workspaces/:ws/portal-recipients/:recipient/rotate` (`rotate_portal_recipient`) —
+  issues a fresh token for the same recipient and invalidates the old one **atomically**: there's
+  no moment where both work, and none where neither does. Use this when a link may have leaked but
+  the recipient themselves is still legitimate — revoke throws them out entirely; rotate just
+  changes their key.
 
 **Revoking is immediate — every access path closes at once**, not on the next cache expiry or the
 next login attempt, because there is no session to expire: every request re-resolves the token
