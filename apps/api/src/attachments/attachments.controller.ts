@@ -16,7 +16,6 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { AuthGuard } from '../auth/auth.guard';
 import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
-import { DatabasesService } from '../databases/databases.service';
 import { RecordsService } from '../records/records.service';
 import { AttachmentsService } from './attachments.service';
 
@@ -27,18 +26,28 @@ import { AttachmentsService } from './attachments.service';
 export class AttachmentsController {
   constructor(
     private readonly attachmentsService: AttachmentsService,
-    private readonly databases: DatabasesService,
     private readonly records: RecordsService,
   ) {}
 
+  /**
+   * #473 AC2 — attachments are RECORD-scoped, not merely database-scoped.
+   *
+   * Previously: `DatabasesService.assertAccess` (database/space-level only)
+   * plus `RecordsService.getRow` (existence only) — so a member with database
+   * access could list/download/upload/delete attachments on ANY record in it,
+   * even one a record-scoped grant (#472) deliberately did not extend to
+   * them. `assertRecordAccess` is the same record-aware check the records
+   * controller already uses for read/write of the record itself — reusing it
+   * here means a record grant's boundary now actually reaches its files, not
+   * just its field values.
+   */
   private async assertRecord(
     req: WorkspaceRequest,
     databaseId: string,
     recordId: string,
     min: 'viewer' | 'editor' = 'viewer',
   ) {
-    await this.databases.assertAccess(req.membership, databaseId, min);
-    await this.records.getRow(databaseId, recordId);
+    await this.records.assertRecordAccess(req.membership, databaseId, recordId, min);
   }
 
   @Get()
