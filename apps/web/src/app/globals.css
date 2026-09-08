@@ -65,6 +65,68 @@
   --chart-7: #c9701f;
   --chart-8: #9a7b4f;
 
+  /*
+   * #630 — THE ELEVATION SCALE. One place, one ink.
+   *
+   * There was no shadow token at all. There were 14 distinct hand-rolled
+   * shadows across 30 call sites, every one on this same rgba(15,23,41,a) ink,
+   * and design-system.md specifies exactly TWO. Read the offsets and a real
+   * scale is visible underneath — 4/12, 8/24, 16/40, 20/50, 24/60 — re-derived
+   * from memory each time, so the 4px/12px popover geometry alone ended up
+   * carrying FOUR different opacities (0.08 x5, 0.1 x1, 0.12 x3, 0.15 x3)
+   * across twelve sites. Nobody chose four; four is what happens without a
+   * token.
+   *
+   * THE INK IS A SEPARATE VARIABLE ON PURPOSE, and this is the load-bearing
+   * part of the file.
+   *
+   * The audit that produced this scale claimed that literal-rgba shadows cannot
+   * adapt to dark mode, so floating surfaces lose their separation from the
+   * page. That claim is REASONED FROM THIS FILE AND HAS NOT BEEN REPRODUCED in
+   * a browser — Vera is walking it on ticket #623. So this scale deliberately
+   * does NOT ship a dark-mode shadow value: --shadow-ink resolves to the same
+   * 15 23 41 in both themes, which is exactly what the 30 call sites already
+   * did. Zero behaviour change, no value defended on unverified reasoning.
+   *
+   * If Vera confirms the problem, the fix is ONE line — override --shadow-ink
+   * in the dark block. If she finds the separation is fine, nothing here needs
+   * reverting. That is the whole reason the ink is factored out rather than
+   * inlined into seven tokens.
+   *
+   * THE NAMES COME FROM READING ALL 30 CALL SITES, not from guessing an
+   * elevation ladder, and the two that share the 8px/24px geometry are the
+   * reason it was worth doing:
+   *
+   *   --shadow-panel  (0.15) is a panel stacked above other chrome — the batch
+   *                   bar's sub-panels, the cell editor.
+   *   --shadow-lifted (0.25) is something detached from the page: the four
+   *                   <DragPreview> ghosts that follow the cursor, and the
+   *                   mobile FAB. Same idea, so one token.
+   *
+   * Collapsing those two would be a taste call on five sites with no evidence,
+   * so both are named.
+   *
+   * WHAT IS DELIBERATELY *NOT* IN THIS SCALE YET: the dragged-in-place state.
+   * Three view-toolbar rows and the board's drag overlay carry a 4px/12px
+   * shadow at 0.12/0.15 while ALSO being dimmed to opacity-90. That is a
+   * different thing from both the popover (static) and the lifted ghost
+   * (following the cursor), and whether such a row should be shadowed at all is
+   * a design question, not a mapping. It keeps its literals until that question
+   * gets an answer and a drag before/after — ticket #631.
+   */
+  --shadow-ink: 15 23 41;
+  --shadow-popover: 0 4px 12px rgb(var(--shadow-ink) / 0.08);
+  --shadow-panel: 0 8px 24px rgb(var(--shadow-ink) / 0.15);
+  --shadow-lifted: 0 8px 24px rgb(var(--shadow-ink) / 0.25);
+  --shadow-overlay: 0 16px 40px rgb(var(--shadow-ink) / 0.22);
+  --shadow-modal: 0 20px 50px rgb(var(--shadow-ink) / 0.15);
+  --shadow-palette: 0 24px 60px rgb(var(--shadow-ink) / 0.28);
+  /* Directional, not elevation: a sticky column's right edge and the inbox
+     drawer's left edge. Same ink, so they belong here rather than staying the
+     last two literals. */
+  --shadow-edge-right: 2px 0 4px -2px rgb(var(--shadow-ink) / 0.12);
+  --shadow-edge-left: -8px 0 24px rgb(var(--shadow-ink) / 0.08);
+
   --radius-control: 6px;
   --radius-card: 8px;
   --radius-modal: 12px;

@@ -309,7 +309,7 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
       <div
         // Fits a 375px viewport (was a hard-coded w-96/384px, wider than the
         // screen it needs to sit inside): full-bleed under md, fixed width above.
-        className="absolute bottom-0 right-0 top-0 flex w-full flex-col border-l border-border-default bg-card shadow-[-8px_0_24px_rgba(15,23,41,0.08)] md:w-96"
+        className="absolute bottom-0 right-0 top-0 flex w-full flex-col border-l border-border-default bg-card shadow-[var(--shadow-edge-left)] md:w-96"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex h-12 shrink-0 items-center justify-between border-b border-border-default px-4">

@@ -18,6 +18,7 @@ import {
   activeFilter,
   FormulaError,
   formulaRefs,
+  formulaTypeOfFieldType,
   parseFormula,
   SYSTEM_FIELDS,
   systemFieldDefsFor,
@@ -347,17 +348,14 @@ export class FieldsService {
       .catch(() => undefined);
   }
 
-  /** Field types a formula may reference, mapped to formula types. */
+  /**
+   * Field types a formula may reference, mapped to formula types. Delegates to
+   * the shared `formulaTypeOfFieldType` (#615) so this and the web formula
+   * editor's identical need can no longer drift into two lists.
+   */
   static formulaTypeOf(type: string): FormulaType | null {
-    // MN-129: `id` is the record's sequential public #id (records.number) — a
-    // plain number, so `"#" + format({Number})`-style name templates compose.
-    if (type === 'number' || type === 'rollup' || type === 'id') return 'number';
-    if (type === 'checkbox') return 'checkbox';
-    if (type === 'date' || type === 'created_at' || type === 'updated_at') return 'date';
-    if (['text', 'title', 'select', 'workflow', 'url', 'email', 'lookup'].includes(type))
-      return 'text';
     if (type === 'formula') return null; // resolved per-field from its result_type
-    return null;
+    return formulaTypeOfFieldType(type);
   }
 
   /**
@@ -456,8 +454,19 @@ export class FieldsService {
           continue;
         }
         const ft = FieldsService.formulaTypeOf(t.type);
-        if (ft)
+        if (ft) {
           related.push({ api_name: t.apiName, display_name: t.displayName, formula_type: ft });
+        } else {
+          // #615 criterion 5 — kept as a named placeholder, not dropped, so a
+          // dotted reference to it fails with a named reason, not a
+          // misleading "not a field" as if it didn't exist.
+          related.push({
+            api_name: t.apiName,
+            display_name: t.displayName,
+            formula_type: 'null',
+            unsupported_reason: `is a "${t.type}" field and can't be used in a formula`,
+          });
+        }
       }
       infos.push({
         api_name: f.apiName,

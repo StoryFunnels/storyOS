@@ -119,7 +119,7 @@ export function AttachmentEditor({
   }
 
   return (
-    <div className="min-w-[220px] rounded-[var(--radius-control)] border border-border-strong bg-card p-2 shadow-[0_4px_12px_rgba(15,23,41,0.15)]">
+    <div className="min-w-[220px] rounded-[var(--radius-control)] border border-border-strong bg-card p-2 shadow-[var(--shadow-popover)]">
       {files.length > 0 && (
         <ul className="mb-2 flex flex-col gap-1">
           {files.map((f) => (

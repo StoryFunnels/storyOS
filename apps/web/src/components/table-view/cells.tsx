@@ -63,7 +63,7 @@ function ColorEditor({
     <Popover open onOpenChange={(open) => !open && onCancel()}>
       <PopoverParentAnchor />
       <PopoverContent
-        className="flex w-56 flex-col gap-2 p-2 shadow-[0_8px_24px_rgba(15,23,41,0.15)]"
+        className="flex w-56 flex-col gap-2 p-2 shadow-[var(--shadow-panel)]"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-1.5">

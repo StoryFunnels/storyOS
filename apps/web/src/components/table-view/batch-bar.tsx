@@ -312,7 +312,7 @@ export function BatchBar({
 
   return (
     <div className="pointer-events-none fixed bottom-4 left-1/2 z-40 -translate-x-1/2">
-      <div className="pointer-events-auto relative flex items-center gap-2 rounded-full border border-border-default bg-card px-4 py-2 shadow-[0_8px_24px_rgba(15,23,41,0.18)]">
+      <div className="pointer-events-auto relative flex items-center gap-2 rounded-full border border-border-default bg-card px-4 py-2 shadow-[var(--shadow-panel)]">
         <span className="text-[13px] font-medium text-ink">
           {selected.length} selected
           {moreUnloaded && (
@@ -380,7 +380,7 @@ export function BatchBar({
         </button>
 
         {settingField && (
-          <div className="absolute bottom-full left-1/2 mb-2 w-64 -translate-x-1/2 rounded-[var(--radius-card)] border border-border-default bg-card p-2 shadow-[0_8px_24px_rgba(15,23,41,0.15)]">
+          <div className="absolute bottom-full left-1/2 mb-2 w-64 -translate-x-1/2 rounded-[var(--radius-card)] border border-border-default bg-card p-2 shadow-[var(--shadow-panel)]">
             <p className="mb-1.5 text-[12px] font-medium text-muted">
               Set “{settingField.displayName}” on {selected.length} records
             </p>
@@ -461,7 +461,7 @@ function BulkLinkPicker({
   });
 
   return (
-    <div className="absolute bottom-full left-1/2 mb-2 w-72 -translate-x-1/2 rounded-[var(--radius-card)] border border-border-default bg-card p-2 shadow-[0_8px_24px_rgba(15,23,41,0.15)]">
+    <div className="absolute bottom-full left-1/2 mb-2 w-72 -translate-x-1/2 rounded-[var(--radius-card)] border border-border-default bg-card p-2 shadow-[var(--shadow-panel)]">
       <p className="mb-1.5 text-[12px] font-medium text-muted">
         Link {count} record{count === 1 ? '' : 's'} via “{field.displayName}” — replaces existing links
       </p>

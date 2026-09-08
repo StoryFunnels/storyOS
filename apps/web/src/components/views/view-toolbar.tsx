@@ -1121,7 +1121,7 @@ export function FiltersSection({
                 detection would misfire and close the builder mid-interaction. */}
             {/* #278 — clicking away closes AND commits the draft. */}
             <div className="fixed inset-0 z-[var(--z-overlay-backdrop)]" onClick={closeBuilder} />
-            <div className="absolute left-0 top-full z-[var(--z-overlay)] mt-1 w-[26rem] max-w-[calc(100vw-2rem)] rounded-[var(--radius-card)] border border-border-default bg-card shadow-[0_4px_12px_rgba(15,23,41,0.08)]">
+            <div className="absolute left-0 top-full z-[var(--z-overlay)] mt-1 w-[26rem] max-w-[calc(100vw-2rem)] rounded-[var(--radius-card)] border border-border-default bg-card shadow-[var(--shadow-popover)]">
               {canUsePersonalScope && (
                 <FilterScopeToggle value={scope} onChange={setScope} personalActive={hasPersonalFilter} />
               )}
@@ -2230,7 +2230,7 @@ export function SortButton({
       {open && (
         <>
           <div className="fixed inset-0 z-[var(--z-overlay-backdrop)]" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 top-full z-[var(--z-overlay)] mt-1 w-72 max-w-[calc(100vw-2rem)] rounded-[var(--radius-card)] border border-border-default bg-card shadow-[0_4px_12px_rgba(15,23,41,0.08)]">
+          <div className="absolute left-0 top-full z-[var(--z-overlay)] mt-1 w-72 max-w-[calc(100vw-2rem)] rounded-[var(--radius-card)] border border-border-default bg-card shadow-[var(--shadow-popover)]">
             <div className="flex items-center justify-between border-b border-border-default px-3 py-2">
               {/* #427 — "Sort" read as if it sorted the board. It sorts CARDS; column
                   order lives in the Filter panel's Groups section. The old label is

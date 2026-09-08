@@ -46,6 +46,40 @@ export interface FormulaFieldInfo {
    * Absent everywhere else.
    */
   related?: FormulaFieldInfo[];
+  /**
+   * #615 criterion 5 — set ONLY on a placeholder entry that exists so a dotted
+   * lookup can name why a related field is unusable, rather than silently
+   * omitting it and reporting "not a field" as if it didn't exist. Never set
+   * on a real, usable entry; `formula_type` on a placeholder is 'null' and
+   * carries no other meaning.
+   */
+  unsupported_reason?: string;
+}
+
+/**
+ * #615 — the ONE mapping from a stored field type to the formula type a
+ * reference to it resolves as, shared by the API (`FieldsService.formulaTypeOf`
+ * delegates here) and the web formula editor (`useRelationInfos`, resolving a
+ * RELATED database's fields), so the two can no longer drift. This is the
+ * third time one map lived in two places (#287, #299) — `workflow` was missing
+ * from the web copy, so `count({Issues}, {Issues.State} = "Done")` validated
+ * server-side and failed in the editor with a misleading "not a field" error,
+ * because the editor silently drops any related field with no mapping instead
+ * of naming the reason.
+ *
+ * `null` means "not referenceable in a formula" — not an error, a deliberate
+ * exclusion (rich_text, multi_select, user, attachment, color, button,
+ * relation, formula itself — formula is resolved per-field from its own
+ * `result_type` by every caller, never through this map).
+ */
+export function formulaTypeOfFieldType(type: string): FormulaType | null {
+  // MN-129: `id` is the record's sequential public #id (records.number) — a
+  // plain number, so `"#" + format({Number})`-style name templates compose.
+  if (type === 'number' || type === 'rollup' || type === 'id') return 'number';
+  if (type === 'checkbox') return 'checkbox';
+  if (type === 'date' || type === 'created_at' || type === 'updated_at') return 'date';
+  if (['text', 'title', 'select', 'workflow', 'url', 'email', 'lookup'].includes(type)) return 'text';
+  return null;
 }
 
 /**
@@ -54,6 +88,16 @@ export interface FormulaFieldInfo {
  * takes the bare relation (`{Issues}`).
  */
 export const RELATION_AGGREGATES = new Set(['count', 'sum', 'avg', 'min', 'max']);
+
+/**
+ * #594 — reduces over a relation like RELATION_AGGREGATES, but PROJECTS
+ * (returns a list of the field's value per matching related record) instead
+ * of reducing to a scalar. Kept as its own set rather than folded into
+ * RELATION_AGGREGATES: the two differ in required field type (any type here,
+ * NUMBER only for sum/avg/min/max) and return type (list vs number), and a
+ * shared set would need a per-member type/return lookup anyway.
+ */
+export const RELATION_PROJECTIONS = new Set(['pluck']);
 
 /**
  * #299 — relation-aggregate entries for a function browser, written against the
@@ -86,6 +130,22 @@ export function relationAggregateExamples(
       example: `count({${link}})`,
       doc: `How many ${link} are linked to this record.`,
     });
+    // #594 — pluck() has no type restriction, so any related field (not just
+    // number) makes it offerable; pick the first one at all, same as count's
+    // "at least one link" gate above.
+    const anyField = (rel.related ?? [])[0];
+    if (anyField) {
+      const pluckPath = `{${link}.${anyField.display_name}}`;
+      // Wrapped in join(): pluck()'s bare result is a list, which #241's
+      // top-level guard always rejects — an unwrapped example would error the
+      // instant someone clicked it, exactly the "example that errors on click"
+      // failure this discoverability layer exists to prevent (#287/#299).
+      out.push({
+        name: 'pluck',
+        example: `join(pluck(${pluckPath}), ", ")`,
+        doc: `${anyField.display_name} from every linked ${link}, as a comma-separated list.`,
+      });
+    }
     const numeric = (rel.related ?? []).find((r) => r.formula_type === 'number');
     if (!numeric) continue;
     const path = `{${link}.${numeric.display_name}}`;
@@ -106,7 +166,10 @@ export function relationAggregateExamples(
 export function usesRelationAggregate(node: FormulaNode): boolean {
   if (node.kind === 'call') {
     const subject = node.args[0];
-    if (RELATION_AGGREGATES.has(node.name) && subject && subject.kind === 'rel') return true;
+    // #594 — pluck() reduces over a link exactly like an aggregate does (same
+    // Rollup-note reasoning applies), even though it projects instead of
+    // reducing to a scalar.
+    if ((RELATION_AGGREGATES.has(node.name) || RELATION_PROJECTIONS.has(node.name)) && subject && subject.kind === 'rel') return true;
     return node.args.some((a) => usesRelationAggregate(a));
   }
   if (node.kind === 'binary') return usesRelationAggregate(node.left) || usesRelationAggregate(node.right);
@@ -425,6 +488,24 @@ export const FORMULA_FUNCTIONS: Record<string, FnSpec> = {
     keywords: ['how many', 'number of', 'total', 'tally', 'linked', 'related'],
     impl: () => null,
   },
+  /**
+   * #594 — projects one field across (optionally filtered) linked records into
+   * a list, same shape as split()'s. Relation-only, same reasoning as count():
+   * there is nothing to "pluck" from a bag of own-record values, so the
+   * typechecker requires `{Relation.Field}` as the first argument and this
+   * impl is unreachable in practice.
+   */
+  pluck: {
+    args: 'variadic-any',
+    returns: 'list',
+    doc: 'A field projected across every linked record, as a list. Optionally only those matching a condition.',
+    // Wrapped in join(): pluck()'s own result is a list, which #241's
+    // top-level guard always rejects — an unwrapped example would error the
+    // instant someone clicked it (#287/#299).
+    example: 'join(pluck({Issues.Estimate}, {Issues.State} = "Done"), ", ")',
+    keywords: ['collect', 'project', 'map', 'list of', 'linked', 'related'],
+    impl: () => null,
+  },
   avg: {
     args: 'variadic-number',
     returns: 'number',
@@ -736,6 +817,12 @@ export function parseFormula(src: string, fields: FormulaFieldInfo[]): FormulaNo
             token.pos,
           );
         }
+        // #615 criterion 5 — a field that exists but was deliberately excluded
+        // (unsupported type) gets its own error naming the reason, not the
+        // "not a field" message a genuinely absent name gets.
+        if (target.unsupported_reason) {
+          throw new FormulaError(`"${right}" ${target.unsupported_reason}`, token.pos);
+        }
         return { kind: 'rel', relation: relApi, field: target.api_name };
       }
 
@@ -945,6 +1032,21 @@ export function typecheck(node: FormulaNode, fields: FormulaFieldInfo[]): Formul
           }
           return n.name === 'count' ? 'number' : 'number';
         }
+        if (first && first.kind === 'rel' && RELATION_PROJECTIONS.has(n.name)) {
+          // #594 — unlike sum/avg/min/max, pluck() has no type restriction on
+          // the projected field: any scalar becomes a list of its text form,
+          // same as split()'s list.
+          if (!first.field) {
+            throw new FormulaError(`${n.name}() needs a field to project — write {${first.relation}.SomeField}`);
+          }
+          if (n.args.length > 2) {
+            throw new FormulaError(`${n.name}() takes the link.field and an optional condition`);
+          }
+          if (n.args[1] && check(n.args[1]!) !== 'checkbox') {
+            throw new FormulaError(`${n.name}()'s condition must be true/false`);
+          }
+          return 'list';
+        }
         const argTypes = n.args.map(check);
         // #241: a list is only meaningful to join/at/size, handled above.
         if (argTypes.includes('list')) {
@@ -952,7 +1054,7 @@ export function typecheck(node: FormulaNode, fields: FormulaFieldInfo[]): Formul
         }
         if (argTypes.includes('relation')) {
           throw new FormulaError(
-            `${n.name}() cannot take a link field — only count(), sum(), avg(), min() and max() can`,
+            `${n.name}() cannot take a link field — only count(), sum(), avg(), min(), max() and pluck() can`,
           );
         }
         if (n.name === 'if') {
@@ -1128,6 +1230,20 @@ export function evaluateFormula(
         if (node.name === 'avg') return nums.reduce((a, b) => a + b, 0) / nums.length;
         if (node.name === 'min') return Math.min(...nums);
         return Math.max(...nums);
+      }
+      if (subject && subject.kind === 'rel' && RELATION_PROJECTIONS.has(node.name)) {
+        const bags = related?.[subject.relation] ?? [];
+        const condition = node.args[1];
+        const matching = condition
+          ? bags.filter((bag) => evaluateFormula(condition, bag, related) === true)
+          : bags;
+        // #594 — a related record with no value for the field is DROPPED, not
+        // stringified to '', same as sum/avg/min/max dropping a non-numeric
+        // value rather than treating it as 0.
+        return matching
+          .map((bag) => (subject.field ? bag[subject.field] : null))
+          .filter((v) => v !== null && v !== undefined)
+          .map((v) => asStr(v));
       }
       if (node.name === 'if') {
         const cond = evaluateFormula(node.args[0]!, values, related);
