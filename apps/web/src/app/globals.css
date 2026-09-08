@@ -378,6 +378,61 @@ body {
 }
 
 /*
+ * RICH-TEXT GUTTERS. Reported as "padding on the left is big" — it is, and 48px
+ * of it is load-bearing. Measured before touching anything.
+ *
+ * BlockNote sets `padding: 54px` on `.bn-editor`. Hovering a block reveals the
+ * side menu at exactly 48px wide: two 24px controls, the insert `+` and the drag
+ * handle, living at x=279..327 while the text starts at x=327. So the left
+ * padding is an AFFORDANCE GUTTER, not decoration. Anything under 48px clips
+ * the drag handle, and the obvious "just remove the padding" fix breaks
+ * reordering — which is why the number is written down here.
+ *
+ * The RIGHT 54px holds nothing, so it goes to 24px: 30px back to every table,
+ * code block and image, which were being squeezed to 690px inside an 800px
+ * panel while prose ran to 97 characters a line.
+ *
+ * WHY THE MEASURE IS NOT CAPPED HERE, since that is the reflex: the padding was
+ * accidentally doing line-length control, so trimming it lengthens prose lines
+ * (97 -> 101 characters at 14px). 101 is at the high end but it is what Notion
+ * and Linear ship for a record body, and capping it would leave a ~200px void
+ * down the right of an 800px panel — trading one kind of wasted space for
+ * another. The measure genuinely does need a cap on the standalone /doc page,
+ * where the column is far wider; that surface is a route file rather than this
+ * one, and it is ticketed with the numbers.
+ *
+ * WHAT THIS DOES NOT FIX, and is the bigger half of the complaint: the text
+ * still starts 55px inside the column while every other section on a record
+ * (CONTACTS, PROJECTS, the title) aligns to the column edge. That is an
+ * ALIGNMENT break, not a padding size, and it is what actually reads as "big
+ * padding". Fixing it means pulling the editor left by the gutter width so the
+ * handle sits in the panel's own margin — which needs the panel to HAVE 48px of
+ * left margin, and it currently has ~32px. That is a panel change, ticketed
+ * separately with both options costed.
+ */
+/*
+ * `.bn-root .bn-editor`, not `.bn-editor`. THIRD time this file has hit the same
+ * trap: BlockNote's own rules are single-class and its stylesheet loads after
+ * ours, so any bare `.bn-*` override ties on specificity and loses on source
+ * order. `.bn-editor` here carries `bn-editor` while its PARENT carries
+ * `bn-root`, so the descendant form is (0,2,0) against their (0,1,0).
+ *
+ * The other two: `.bn-default-styles` for font-size/family, and
+ * `.bn-root.bn-container[data-color-scheme]` for the colour tokens. Anyone
+ * overriding BlockNote from here should assume a bare class will silently do
+ * nothing, and verify in the browser rather than trusting the diff — all three
+ * of mine looked correct and changed nothing until measured.
+ */
+.bn-root .bn-editor {
+  /* 48px is the hard floor — the side menu measures exactly 48px, so at 48 the
+     drag handle sits flush against the first glyph with no daylight, and
+     anything less puts it ON the text. 52px keeps 4px of breathing room and
+     still reclaims 2px; the real reclaim is the 30px on the right. */
+  padding-left: 52px;
+  padding-right: 24px;
+}
+
+/*
  * #338 — code blocks follow the theme.
  *
  * BlockNote hard-codes `color:#fff; background-color:#161616` on
