@@ -1186,6 +1186,7 @@ export class PacksService {
       automations: [],
       sample_records: [],
       skills: [],
+      skipped_sample_field_values: [],
     };
 
     const dbIds = new Map(built.databases.map((d) => [norm(d.name), d.id]));
@@ -1938,11 +1939,42 @@ export class PacksService {
         result.sample_records.push({ name: label, action: 'reused', id: existing });
         continue;
       }
-      const values = deref(planned.values, refToId, `A sample record of "${planned.database}"`);
+      /*
+       * #568 — a sample record's `$option:`/`$field:` refs are this PACK's own
+       * promise about what IT creates. When `planned.database` resolved as
+       * `reuse` (an already-installed pack's database, not one this install
+       * created), that promise is no longer this install's to keep: the actual
+       * live field may genuinely lack an option this pack's own manifest
+       * assumed would exist (e.g. Consulting OS's "health" Industry option,
+       * absent from Agency OS's already-installed Clients). Deref'ing the
+       * WHOLE record at once (the pre-#568 behaviour) meant one such value
+       * failed the entire install with a 422 — installing two ordinary packs
+       * that happen to share a database name should not be able to do that.
+       *
+       * So: per-field, not whole-object. A database this pack itself CREATED
+       * still gets the old hard-fail — there, every ref really is self-
+       * inconsistency in this pack's own manifest, exactly what `deref` exists
+       * to catch.
+       */
+      const dbAction = result.databases.find((d) => norm(d.name) === norm(planned.database))?.action;
+      const isReused = dbAction === 'reused';
+      const values: Record<string, unknown> = {};
+      for (const [field, raw] of Object.entries(planned.values)) {
+        try {
+          values[field] = deref(raw, refToId, `A sample record of "${planned.database}"`);
+        } catch (err) {
+          if (!isReused) throw err;
+          result.skipped_sample_field_values.push({
+            record: label,
+            field,
+            reason: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
       const created = await this.records.create(
         membership.workspaceId,
         dbId,
-        values as Record<string, unknown>,
+        values,
         membership.userId,
         0,
         // #481 — seeded from the pack's own manifest template, not typed by the

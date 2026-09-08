@@ -352,6 +352,22 @@ const installedEntitySchema = z.object({
 });
 
 /**
+ * #568 — a single sample-record FIELD value dropped, not the whole record.
+ *
+ * Only happens when the value's `$option:`/`$field:` ref points at something
+ * that doesn't exist on the ACTUAL (reused) field this database resolved to —
+ * a manifest-vs-manifest mismatch on a database this install didn't create, so
+ * it isn't this install's promise to keep. A database this pack DOES create is
+ * still held to the hard-fail rule `deref` always enforced (a self-inconsistent
+ * manifest is a 422), since there every ref really is this pack's own promise.
+ */
+const skippedSampleFieldValueSchema = z.object({
+  record: z.string(),
+  field: z.string(),
+  reason: z.string(),
+});
+
+/**
  * What install did.
  *
  * `unmet` is the interesting part: a pack whose Slack connection is missing
@@ -378,6 +394,8 @@ export const packInstallResultSchema = z.object({
   automations: z.array(installedEntitySchema),
   sample_records: z.array(installedEntitySchema),
   skills: z.array(installedEntitySchema),
+  /** #568 — see skippedSampleFieldValueSchema's doc. Empty on every install that hits none. */
+  skipped_sample_field_values: z.array(skippedSampleFieldValueSchema).default([]),
 });
 export type PackInstallResult = z.infer<typeof packInstallResultSchema>;
 
