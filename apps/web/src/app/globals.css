@@ -253,6 +253,40 @@
   --color-warning: var(--warning);
   --color-info: var(--info);
   --font-sans: var(--font-figtree), -apple-system, 'Segoe UI', sans-serif;
+
+  /*
+   * #634 / #624 D1 — THE UI TYPE SCALE. Role names, not t-shirt sizes.
+   *
+   * Values chosen to MATCH what 1,272 arbitrary text-[Npx] call sites already
+   * render, so adopting a token is a rename and not a restyle. Every step keeps
+   * the 1.5 line-height ratio those arbitrary sizes already compute to — that
+   * ratio is what makes the migration provably zero-change.
+   *
+   * Tailwind's own text-xs/sm/base/… are NOT touched. text-sm stays 14px, which
+   * 125 call sites already depend on; redefining it would silently shrink every
+   * Button and Input in the product. Role names also cannot be confused with
+   * Tailwind's — a `text-ui-sm` meaning 12px sitting beside `text-sm` meaning
+   * 14px would be reached for wrongly inside a week.
+   *
+   * Headings stay on Tailwind's named scale (text-lg 36 sites, text-xl 7,
+   * text-2xl 3). So the app ends with a heading scale and a UI scale, which is
+   * normal and is at least written down.
+   *
+   * Frozen on ticket #624 so the zero-change claim is checkable against that
+   * record rather than against memory.
+   */
+  --text-micro: 10px;
+  --text-micro--line-height: 1.5;
+  --text-meta: 11px;
+  --text-meta--line-height: 1.5;
+  --text-label: 12px;
+  --text-label--line-height: 1.5;
+  --text-body: 13px;
+  --text-body--line-height: 1.5;
+  --text-prose: 14px;
+  --text-prose--line-height: 1.5;
+  --text-title: 16px;
+  --text-title--line-height: 1.5;
   --radius-control: 6px;
   --radius-card: 8px;
   --radius-modal: 12px;

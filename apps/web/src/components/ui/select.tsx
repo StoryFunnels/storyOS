@@ -73,8 +73,8 @@ const selectVariants = cva(
     variants: {
       size: {
         default: 'h-9 px-2 text-sm',
-        sm: 'h-8 px-2 text-[13px]',
-        xs: 'h-6 px-1 text-[12px]',
+        sm: 'h-8 px-2 text-body',
+        xs: 'h-6 px-1 text-label',
       },
     },
     defaultVariants: { size: 'default' },

@@ -40,7 +40,7 @@ export function SelectField({
     <div className="flex flex-col gap-1.5">
       <Label>{label}</Label>
       <select
-        className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-3 text-[13px] text-ink outline-none focus:border-border-strong"
+        className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-3 text-body text-ink outline-none focus:border-border-strong"
         value={value}
         onChange={(event) => {
           const next = event.target.value;
@@ -60,7 +60,7 @@ export function SelectField({
           </option>
         ))}
       </select>
-      {help && <p className="text-[11px] leading-4 text-muted">{help}</p>}
+      {help && <p className="text-meta leading-4 text-muted">{help}</p>}
     </div>
   );
 }
