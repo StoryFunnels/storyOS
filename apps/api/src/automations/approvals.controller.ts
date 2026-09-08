@@ -11,8 +11,11 @@ import { ApprovalsService } from './approvals.service';
 class RejectApprovalDto extends createZodDto(z.object({ reason: z.string().max(2000).optional() })) {}
 
 /**
- * MN-255 — the approval gate's REST surface. Read is any workspace member
- * (`@RequiresScope('read')`); approve/reject are human-only: a PAT needs
+ * MN-255 — the approval gate's REST surface. Read requires only 'read' token
+ * scope (`@RequiresScope('read')`), but #654 scopes the ROWS themselves to
+ * the caller's visible databases — an admin/member sees everything
+ * (unrestricted, unchanged), a guest sees only approvals whose database they
+ * hold a grant on. Approve/reject are human-only: a PAT needs
  * `admin` scope to get past AuthGuard at all (`@RequiresScope('admin')`),
  * and — for BOTH a session and a PAT — `assertHuman` below additionally
  * requires the caller be the approval's own approver or a workspace admin.
@@ -31,7 +34,7 @@ export class ApprovalsController {
   @RequiresScope('read')
   @ApiOperation({ summary: 'List approvals for this workspace, optionally filtered by status' })
   list(@Req() req: WorkspaceRequest, @Query('status') status?: string) {
-    return this.approvals.list(req.membership.workspaceId, status);
+    return this.approvals.list(req.membership, status);
   }
 
   @Post(':id/approve')
