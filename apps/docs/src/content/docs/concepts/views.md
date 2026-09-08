@@ -242,14 +242,13 @@ a 200 with a "not found" message on it — the distinction a browser hides but a
 **Sharing the link itself previews correctly** — the view's actual name and database, not a
 generic homepage title, and images resolve against your real domain rather than `localhost`.
 
-**Known gaps, today:**
+**Column headers and select cells render like the real thing.** The public payload carries each
+field's actual display label (not a humanized `api_name` fallback) and, for select/multi_select/
+workflow fields, the same coloured `OptionChip` a signed-in member sees — not a raw option id.
 
-- **Column headers and cell values are best-effort.** The public payload carries a field's
-  `api_name` and `type` only — no display label, no select-option colors — so headers fall back to
-  a humanized api_name (`due_date` → "Due Date") and select/multi-select values show their raw
-  option id rather than a coloured label.
-- **The "Powered by StoryOS" footer always shows**, even on a paid plan — there's no plan-gated
-  hiding yet for a published view, unlike a public form.
+**The "Powered by StoryOS" footer follows the workspace's plan**, the same computed value the
+public form page already used — visible on Free, hidden on a paid plan. No re-publishing needed;
+it reads live.
 
 This is also reachable directly over the API (`POST`/`DELETE .../views/{view}/share`,
 `GET /public/views/{token}`) and MCP (`share_view`, `unshare_view`).
