@@ -53,23 +53,24 @@ Click a space's name in the sidebar (the caret still just collapses it) and it o
   within the space. A guest sees an honest one-line explanation instead of this section, since the
   underlying endpoints refuse a non-member anyway — never a silently empty section or a doomed
   "Manage access" button.
-- **Ontology** — a diagram of the space's databases and the relations between them: nodes for
-  databases, edges for relations, and a cross-space relation drawn as a dashed satellite node
-  naming the other space. **Anything that would otherwise land on the same spot fans out instead**
-  — self-relation loops, two relations between the same pair of databases, and two cross-space
-  satellites anchored to the same local node all spread apart rather than overlapping into
-  illegible stacked text. **The spacing scales with the labels' own length**, not a fixed step — two
-  relations with long field names get pushed further apart than two with short ones, so the *text*
-  clears, not just the point it's anchored to.
+- **Ontology** — one database as a **centre chip** (whichever one has the most relations in this
+  space), with everything it relates to along four axes — up, down, left, right — as chip lists
+  **grouped by space**, the far space's name a small label above each cluster. Click a chip's
+  chevron to jump straight to that relation's own field on the far database. **Nothing is
+  positioned by geometry** — no circle, no spokes, no satellites, no edge labels — so there's
+  nothing left to overlap as a space grows. A relation's cardinality and field name show only on
+  hover or keyboard focus, never drawn at rest.
 
-  ![An ontology diagram showing four databases with self-relations fanned out](/images/space-ontology-diagram.png)
+  **Only databases related to the centre appear here.** An unrelated database in the same space
+  isn't hidden from you — it's simply not part of this diagram; the **Contents** list below still
+  names every database in the space regardless of whether it has a relation to draw.
 - **Contents** — a plain list, for when the sidebar is collapsed and you need the same information
   without it.
 
 **Access here follows the same door-and-room rule as everywhere else.** A space you cannot see
 doesn't render this page at all ("Nothing here you can access, or this space does not exist.");
 inside a space you *can* see, each database on the ontology diagram is independently gated —
-one you cannot read is simply absent, no node, no placeholder, no count.
+one you cannot read is simply absent, no chip, no placeholder, no count.
 
 ## Database
 
