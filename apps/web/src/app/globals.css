@@ -46,6 +46,25 @@
   --accent-hover: #e8b830;
   --accent-soft: #fbf3d8;
 
+  /*
+   * #633 — THE FOCUS RING, as a token at last. design-system.md has promised a
+   * `--focus-ring` since MN-014 and it never existed, which is exactly why the
+   * value ended up hardcoded in the rule below.
+   *
+   * Derived from --accent rather than restating it, because the hardcoded
+   * rgba(212, 160, 23, 0.25) was --accent's LIGHT value: in dark mode --accent
+   * lifts to #e0af2b and the ring stayed light-mode gold, making it the one
+   * element in the product that ignored the theme — on the single affordance
+   * that exists for keyboard users.
+   *
+   * 25% and 3px reproduce the previous appearance exactly in light mode, so
+   * this commit changes the MECHANISM and dark mode, not the look. The doc also
+   * asks for a 2px offset; that is a value change and it is not in here.
+   */
+  --focus-ring-width: 3px;
+  --focus-ring-color: color-mix(in srgb, var(--accent) 25%, transparent);
+  --focus-ring: var(--focus-ring-width) solid var(--focus-ring-color);
+
   /* Status */
   --success: #2d7a4f;
   --error: #c0392b;
@@ -270,9 +289,31 @@ body {
   background: var(--accent-soft);
 }
 
+/*
+ * #633 — OUTLINE, NOT BOX-SHADOW, and that is the whole bug.
+ *
+ * box-shadow is the same property the elevation scale uses, and this rule
+ * REPLACED it rather than composing. Reproduced: with the account dropdown's
+ * container focused, its computed box-shadow was only the ring — the popover
+ * shadow was gone; move focus to an item inside and it came back. So a
+ * keyboard user tabbing onto any floating surface made it go flat.
+ *
+ * `outline` is a separate property, so the ring and the elevation now coexist.
+ * It also draws outside the border box like the old 0 0 0 3px spread did, so
+ * with offset 0 the appearance is unchanged in light mode.
+ *
+ * NOTE ON THE ~21 `outline-none` UTILITIES in components: Tailwind emits
+ * utilities into a CSS layer and this rule is unlayered, so unlayered wins
+ * regardless of specificity. Verified in the browser on a bare `outline-none`
+ * input (ui/select-field) and a `focus:outline-none` textarea (tyron) — both
+ * show the ring. That is a behaviour change for the five `focus:outline-none`
+ * sites, and the right one: they were suppressing a browser outline back when
+ * the ring came from box-shadow, and suppressing it now would leave them with
+ * no focus indicator at all.
+ */
 *:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px rgba(212, 160, 23, 0.25);
+  outline: var(--focus-ring);
+  outline-offset: 0;
 }
 
 /* Command palette (⌘K) indeterminate search bar */
