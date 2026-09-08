@@ -6,6 +6,7 @@ import { AgentsService } from '../src/agents/agents.service';
 import { AgentTriggerSubscriber } from '../src/agents/trigger.subscriber';
 import type { AgentRuntime, ProposedAction } from '../src/agents/agent-runtime';
 import type { PackManifest } from '@storyos/schemas';
+import { STARTER_PACKS } from '../src/packs/starter-packs';
 
 /**
  * Business Packs — the pack format (MN-218 / #160).
@@ -1515,5 +1516,88 @@ describe('Support Inbox registry pack (#306): 7-state workflow', () => {
     } finally {
       service.runtimeFor = original;
     }
+  }, 60_000);
+});
+
+/**
+ * #568 — installing Consulting OS after Agency OS, reusing Agency OS's Clients
+ * database, used to 422 the WHOLE install: Consulting's sample Client record
+ * references `$option:Clients.Industry.Health`, an option that exists on
+ * Consulting's OWN manifest but not on Agency OS's (already-installed, reused)
+ * Industry field. That mismatch is real data, not a malformed pack — installing
+ * two ordinary starter packs that happen to share a database name is exactly
+ * what the collision/reuse UI exists to support.
+ */
+describe('#568 pack install: a reused database\'s missing option is a skip, not a 422', () => {
+  it('reproduces the exact 422 from the ticket, unfixed', () => {
+    // The fix targets installSampleRecords; this just documents the two real
+    // starter packs' shapes stay the way the ticket described them, so the
+    // regression test below is provably exercising the same bug.
+    const agency = STARTER_PACKS.find((p) => p.slug === 'agency-os')!;
+    const consulting = STARTER_PACKS.find((p) => p.slug === 'consulting-os')!;
+    const agencyIndustry = agency.manifest.databases
+      .find((d) => d.name === 'Clients')!
+      .fields.find((f) => f.name === 'Industry')!;
+    expect(agencyIndustry.options?.map((o) => o.label)).not.toContain('Health');
+    const consultingSample = consulting.manifest.sample_records.find((r) => r.database === 'Clients')!;
+    expect(String(consultingSample.values['industry']).toLowerCase()).toContain('health');
+  });
+
+  it('install Agency OS, then Consulting OS reusing Clients — succeeds, skips just the one field', async () => {
+    const wsId = await newWorkspace('Pack Collision 568');
+    const agency = STARTER_PACKS.find((p) => p.slug === 'agency-os')!;
+    const consulting = STARTER_PACKS.find((p) => p.slug === 'consulting-os')!;
+
+    await installOk(wsId, agency.manifest);
+
+    const preview = await previewOk(wsId, consulting.manifest);
+    const clients = preview.databases.find((d: { name: string }) => d.name === 'Clients');
+    expect(clients?.action, 'Clients must collide — that is the whole scenario').toBe('collision');
+
+    const res = await installWith(wsId, consulting.manifest, { Clients: { action: 'reuse' } });
+    expect(res.statusCode, res.body).toBe(201); // NOT a 422
+    const result = res.json();
+
+    expect(result.skipped_sample_field_values).toEqual([
+      expect.objectContaining({ field: 'industry' }),
+    ]);
+
+    // The sample record still installs — every OTHER field intact — just
+    // without the one value that had nowhere to resolve to.
+    const clientsDb = await dbNamed(wsId, 'Clients');
+    const records = (
+      await as(admin.token, 'GET', `/workspaces/${wsId}/databases/${clientsDb.id}/records?limit=50`)
+    ).json().data as Array<{ title: string; values: Record<string, unknown> }>;
+    const sample = records.find((r) => r.title.includes('Meridian'));
+    expect(sample, 'the sample record itself still installs').toBeTruthy();
+    expect(sample!.values['industry']).toBeUndefined(); // dropped, not a stale/wrong value
+  }, 60_000);
+
+  it('MUST KEEP WORKING: installing Consulting OS standalone still creates the sample with Industry = Health', async () => {
+    const wsId = await newWorkspace('Consulting Standalone 568');
+    const consulting = STARTER_PACKS.find((p) => p.slug === 'consulting-os')!;
+    await installOk(wsId, consulting.manifest);
+
+    const clientsDb = await dbNamed(wsId, 'Clients');
+    const records = (
+      await as(admin.token, 'GET', `/workspaces/${wsId}/databases/${clientsDb.id}/records?limit=50`)
+    ).json().data as Array<{ title: string; values: Record<string, unknown> }>;
+    const sample = records.find((r) => r.title.includes('Meridian'));
+    expect(sample).toBeTruthy();
+    const detail = (await as(admin.token, 'GET', `/workspaces/${wsId}/databases/${clientsDb.id}`)).json();
+    const industryField = detail.fields.find((f: { apiName: string }) => f.apiName === 'industry');
+    const healthOption = industryField.options.find((o: { label: string }) => o.label === 'Health');
+    expect(sample!.values['industry']).toBe(healthOption.id);
+  }, 60_000);
+
+  it('a database this pack itself CREATES still hard-fails on a truly dangling ref', async () => {
+    const wsId = await newWorkspace('Self-Inconsistent 568');
+    const consulting = STARTER_PACKS.find((p) => p.slug === 'consulting-os')!;
+    const broken: PackManifest = JSON.parse(JSON.stringify(consulting.manifest));
+    const sample = broken.sample_records.find((r) => r.database === 'Clients')!;
+    sample.values['industry'] = '$option:Clients.Industry.NoSuchOption';
+
+    const res = await installPack(wsId, broken);
+    expect(res.statusCode, res.body).toBe(422); // unchanged: a self-inconsistent manifest is still refused whole
   }, 60_000);
 });
