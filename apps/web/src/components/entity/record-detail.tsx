@@ -73,6 +73,7 @@ import {
   clampSidebarWidth,
   SIDEBAR_DEFAULT_W,
   SIDEBAR_MAX_W,
+  SIDEBAR_MIN_BODY_W,
   SIDEBAR_MIN_W,
   SIDEBAR_STEP,
   useRecordSidebarWidth,
@@ -455,9 +456,17 @@ export function RecordDetail({
         </div>
       </div>
 
+      {/* #626 — was `min-w-0` on the body below: no floor, so a narrow split
+          pane (whose real width the `lg:flex-row` breakpoint above knows
+          nothing about — it reads the VIEWPORT, not this container) squeezed
+          it to a few px and wrapped "Nothing linked yet." one character per
+          line. SIDEBAR_MIN_BODY_W is the body floor the sidebar-drag code
+          already enforces (record-sidebar-width.ts) when you resize the
+          divider by hand; this makes the SAME floor hold when the container
+          itself shrinks, not only when you drag. */}
       <div ref={columnsRef} className="flex flex-col gap-6 lg:flex-row lg:items-start">
         {/* MAIN BODY: title, pinned strip, collections + rich sections, description, discussion */}
-        <div className="min-w-0 flex-1">
+        <div className="flex-1" style={{ minWidth: SIDEBAR_MIN_BODY_W }}>
           <div className="mb-4 flex items-center gap-2">
             <input
               className="w-full truncate bg-transparent text-2xl font-semibold text-ink outline-none placeholder:text-faint read-only:cursor-default"
