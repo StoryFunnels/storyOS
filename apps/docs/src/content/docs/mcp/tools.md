@@ -20,6 +20,7 @@ design the workspace, not just fill it. Always call `get_started` first.
 | `query_records` | Filter / sort / paginate records with the structured filter AST. |
 | `get_record` | One record in full, by uuid or public number. |
 | `get_links` | Web-app URLs for a database, its saved views, and/or a batch of records — no round-trip per record. |
+| `list_agent_activity` | Everything one configured Agent wrote in a date range — writes made through an ordinary token never carry agent attribution, so only agent-scoped ones show up here. |
 
 ## Write
 

@@ -44,6 +44,22 @@ Agents never appear as actors and never accumulate a permission surface of their
 So "Ada changed Status to Done · automation" is not a contradiction. It means a rule Ada owns
 fired, and the change is hers in the sense that matters for permissions and accountability.
 
+## An agent write names the agent, not just its owner
+
+An `agent`-badged row carries a third fact alongside who and what: **which configured Agent**
+(from your workspace's Agents database) actually made the write — its name at the moment it wrote,
+snapshotted so a later rename or deletion never rewrites what a historical row appears to say.
+
+**The human owner is resolved from the credential, live, every request — never from a stale token
+field and never something the agent supplies about itself.** An agent-scoped token whose Agent
+record has been deleted, or whose owner is no longer an active member, is refused outright — there
+is no fallback identity an agent's writes fall back to instead. A person is never blocked by this;
+only an agent-scoped credential is.
+
+**Query one agent's activity in bulk** — `GET /workspaces/:ws/agents/:agent/activity` (`from`/`to`
+date range) or the `list_agent_activity` MCP tool — for "show me everything this agent did last
+week," rather than reading one record's history at a time.
+
 ## Where the label comes from
 
 It is **derived from how the request authenticated**, never claimed by the caller:
