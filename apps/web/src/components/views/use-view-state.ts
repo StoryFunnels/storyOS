@@ -332,6 +332,29 @@ export function useViewMutations(ws: string, db: string) {
       onSuccess: invalidate,
       onError: () => toast.error('Could not duplicate the view'),
     }),
+    /**
+     * #293 — "Copy to My Space": fork a shared view into the caller's own
+     * private copy, never sync'd back. Invalidates the SAME query key
+     * duplicateView does — the personal-views list (personal-section.tsx)
+     * refetches on its own ['personal-views', ws] key, not this one, so a
+     * second invalidation there isn't needed for this call to be visible.
+     */
+    copyViewToPersonal: useMutation({
+      mutationFn: async (id: string) => {
+        const { data, error } = await api.POST(
+          '/api/v1/workspaces/{ws}/databases/{db}/views/{view}/copy-to-personal',
+          { params: { path: { ws, db, view: id } } } as never,
+        );
+        if (error) throw error;
+        return data as unknown as { id: string };
+      },
+      onSuccess: () => {
+        invalidate();
+        void qc.invalidateQueries({ queryKey: ['personal-views', ws] });
+        toast.success('Copied to My Space');
+      },
+      onError: () => toast.error('Could not copy the view'),
+    }),
     setDefaultView: useMutation({
       mutationFn: async (id: string) => {
         const { error } = await api.POST(

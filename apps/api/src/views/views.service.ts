@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
@@ -578,6 +579,46 @@ export class ViewsService {
         .returning();
       return updated!;
     });
+  }
+
+  /**
+   * #293 — publish a personal view: it becomes an ordinary shared view,
+   * visible to everyone with database access, by clearing `ownerUserId`. Per
+   * personal-space.md this is a ONE-WAY move — coming back is
+   * `copyToPersonal` below, a fork with no sync, never un-publish. Only the
+   * view's own owner may publish it; publishing someone else's view isn't a
+   * capability anyone has, owner or not.
+   */
+  async publish(databaseId: string, viewId: string, callerId: string) {
+    const view = await this.db.query.views.findFirst({
+      where: and(eq(views.id, viewId), eq(views.databaseId, databaseId), isNull(views.deletedAt)),
+    });
+    if (!view) throw new NotFoundException('View not found');
+    if (!view.ownerUserId) throw new UnprocessableEntityException('This view is already shared.');
+    if (view.ownerUserId !== callerId) throw new ForbiddenException('Only the owner can publish this view.');
+    const [updated] = await this.db.update(views).set({ ownerUserId: null }).where(eq(views.id, viewId)).returning();
+    return updated!;
+  }
+
+  /**
+   * #293 — fork a shared view into the caller's own private copy ("Copy to My
+   * Space" — personal-space.md's answer to "publishing is one-way"). Delegates
+   * to `create` with `ownerUserId` set rather than re-deriving position/
+   * defaults a second time — the exact same clone shape `createPersonal`
+   * already gets for a from-scratch personal view.
+   */
+  async copyToPersonal(databaseId: string, viewId: string, ownerUserId: string) {
+    const source = await this.db.query.views.findFirst({
+      where: and(eq(views.id, viewId), eq(views.databaseId, databaseId), isNull(views.deletedAt)),
+    });
+    if (!source) throw new NotFoundException('View not found');
+    if (source.ownerUserId) throw new UnprocessableEntityException('This view is already personal.');
+    return this.create(
+      databaseId,
+      { name: `${source.name} copy`, type: source.type as ViewType, config: source.config as ViewConfig },
+      ownerUserId,
+      ownerUserId,
+    );
   }
 
   /**

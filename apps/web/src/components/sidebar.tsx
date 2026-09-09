@@ -1071,6 +1071,23 @@ function SpaceSection({
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['space-docs', ws, space.id] }),
     onError: () => toast.error('Could not delete document'),
   });
+  /** #293 — "Copy to My Space": fork a shared document into an independent
+   * personal copy, never sync'd back. Invalidates the PERSONAL docs list
+   * (personal-section.tsx's `['space-docs', ws, <personal space id>]`), not
+   * this space's own — the copy lands there, not here. */
+  const copyDocToPersonal = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await api.POST('/api/v1/workspaces/{ws}/documents/{doc}/copy-to-personal', {
+        params: { path: { ws, doc: id } },
+      } as never);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['space-docs', ws] });
+      toast.success('Copied to My Space');
+    },
+    onError: () => toast.error('Could not copy document'),
+  });
 
   // Styled name/confirm dialog replaces window.prompt/confirm (MN-24).
   const [dialog, setDialog] = useState<DialogState | null>(null);
@@ -1366,6 +1383,7 @@ function SpaceSection({
               onMoveDoc={(id, folderId) => moveDocToFolder.mutate({ id, folderId })}
               onRenameDoc={(id, title) => renameDoc.mutate({ id, title })}
               onDeleteDoc={(id) => deleteDoc.mutate(id)}
+              onCopyDocToPersonal={(id) => copyDocToPersonal.mutate(id)}
               onRenameView={onRenameView}
               onDeleteView={onDeleteView}
               onRenameFolder={onRenameFolder}
@@ -1441,6 +1459,7 @@ function SpaceSection({
               onMove={(id, folderId) => moveDocToFolder.mutate({ id, folderId })}
               onRename={(id, title) => renameDoc.mutate({ id, title })}
               onDelete={(id) => deleteDoc.mutate(id)}
+              onCopyToPersonal={(id) => copyDocToPersonal.mutate(id)}
               setDialog={setDialog}
             />
           ))}
@@ -1477,6 +1496,7 @@ function DocumentRow({
   onMove,
   onRename,
   onDelete,
+  onCopyToPersonal,
   setDialog,
   depth = 1,
   canEdit = true,
@@ -1488,6 +1508,7 @@ function DocumentRow({
   onMove: (id: string, folderId: string | null) => void;
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
+  onCopyToPersonal: (id: string) => void;
   setDialog: (d: DialogState) => void;
   depth?: SidebarDepth;
   canEdit?: boolean;
@@ -1557,6 +1578,14 @@ function DocumentRow({
                   })),
               ]
             : []),
+          {
+            // #293 — "Copy to My Space": fork this shared document into an
+            // independent personal copy, never sync'd back. #524 convention:
+            // fires immediately, no dialog, no name prompt — same as Duplicate.
+            label: 'Copy to My Space',
+            separatorBefore: true,
+            onSelect: () => onCopyToPersonal(doc.id),
+          },
           {
             label: 'Delete',
             danger: true,
@@ -1643,6 +1672,7 @@ function FolderSection({
   onMoveDoc,
   onRenameDoc,
   onDeleteDoc,
+  onCopyDocToPersonal,
   onRenameView,
   onDeleteView,
   onRenameFolder,
@@ -1668,6 +1698,7 @@ function FolderSection({
   onMoveDoc: (id: string, folderId: string | null) => void;
   onRenameDoc: (id: string, title: string) => void;
   onDeleteDoc: (id: string) => void;
+  onCopyDocToPersonal: (id: string) => void;
   /** #383 — view rows in a folder get the same menu as those outside one. */
   onRenameView: (view: SidebarView) => void;
   onDeleteView: (view: SidebarView) => void;
@@ -1895,6 +1926,7 @@ function FolderSection({
               onMove={onMoveDoc}
               onRename={onRenameDoc}
               onDelete={onDeleteDoc}
+              onCopyToPersonal={onCopyDocToPersonal}
               setDialog={setDialog}
             />
           ))}

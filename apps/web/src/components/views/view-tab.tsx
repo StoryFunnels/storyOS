@@ -215,6 +215,19 @@ export function ViewTab({
                 Share…
               </DropdownMenuItem>
             )}
+            {/*
+              #293 — fork a SHARED view into a private personal copy, never
+              sync'd back (personal-space.md's answer to "publishing is
+              one-way"). Never offered for a view that's already personal —
+              its owner reaches "publish" from personal-section.tsx instead,
+              which this tab-bar never renders a personal view into.
+            */}
+            {!view.ownerUserId && (
+              <DropdownMenuItem onSelect={() => mutations.copyViewToPersonal.mutate(view.id)}>
+                <Copy className="mr-2 h-3.5 w-3.5" />
+                Copy to My Space
+              </DropdownMenuItem>
+            )}
             {canDelete && (
               <>
                 <DropdownMenuSeparator />
