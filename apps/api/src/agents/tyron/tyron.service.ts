@@ -8,10 +8,11 @@ import type { Membership } from '../../workspaces/workspace-access.guard';
 import { TokensService } from '../../tokens/tokens.service';
 import { TyronThreadsService } from './threads.service';
 import { TyronSpendGuardService } from './tyron-spend-guard.service';
+import { TyronChatClientResolver } from './tyron-chat-client-resolver';
 import { McpToolCatalog } from './tool-catalog';
 import { scopeForRole } from '../agent-principal';
 import type { Role } from '../../workspaces/workspace-access.guard';
-import { defaultTyronChatClient, type ChatMessage } from './chat-client';
+import type { ChatMessage } from './chat-client';
 import { runTurn, type TurnEvent } from './turn-loop';
 import { BUILD_MAX_TOOL_CALLS, BUILD_MAX_TURNS, BUILD_SYSTEM_PROMPT } from './build-workspace';
 
@@ -45,6 +46,7 @@ export class TyronService {
     private readonly tokens: TokensService,
     private readonly threads: TyronThreadsService,
     private readonly spendGuard: TyronSpendGuardService,
+    private readonly chatClientResolver: TyronChatClientResolver,
   ) {}
 
   /**
@@ -60,7 +62,13 @@ export class TyronService {
     message: string,
     /** #363 — a build supplies its own prompt and ceilings; chat uses the defaults. */
     overrides?: { systemPrompt?: string; maxToolCalls?: number; maxTurns?: number },
-  ): Promise<{ reply: string; question?: { message: string; tool: string }; stopped?: string }> {
+  ): Promise<{
+    reply: string;
+    model?: string;
+    source?: 'byo' | 'managed';
+    question?: { message: string; tool: string };
+    stopped?: string;
+  }> {
     // Owner-scoped: a 404 here if the thread is not theirs, before anything else.
     await this.threads.get(membership, threadId);
 
@@ -77,15 +85,23 @@ export class TyronService {
      */
     await this.threads.appendMessage(membership, threadId, { role: 'user', content: message });
 
-    const chat = defaultTyronChatClient();
-    if (!chat) {
+    /**
+     * #352 — the workspace's own connected `openai` credential if one
+     * exists and is active, else this instance's managed key. Resolved
+     * ONCE per turn so `resolved.model`/`resolved.source` stay consistent
+     * across everything below that records or reports them.
+     */
+    const resolved = await this.chatClientResolver.resolve(membership.workspaceId);
+    if (!resolved) {
       // Unconfigured is a plain, actionable statement — not a 500. Every
-      // self-host without a key lands here, and `defaultManagedAiClient` sets
-      // the same precedent for its sibling seam.
+      // self-host without a key (and no workspace connection either) lands
+      // here, and `defaultManagedAiClient` sets the same precedent for its
+      // sibling seam.
       throw new UnprocessableEntityException(
         'Tyron is not configured on this instance — an OpenAI API key has not been set.',
       );
     }
+    const { client: chat, model: resolvedModel, source } = resolved;
 
     /**
      * A short-lived token scoped to THIS member (ADR-0016 §2).
@@ -162,16 +178,21 @@ export class TyronService {
         role: 'assistant',
         content: spoken,
         actions,
-        // The model comes from env and is never hardcoded (#357), so recording
-        // it here makes a tier change visible in the data rather than only in a
-        // deploy.
-        ...(usage ? { usage: { ...usage, model: env().OPENAI_MODEL } } : {}),
+        // The model comes from `resolved` (env for managed, the connection's
+        // own config for BYO) and is never hardcoded (#357), so recording it
+        // here makes both a tier change AND a BYO switch visible in the data
+        // rather than only in a deploy or a connections-page click.
+        ...(usage ? { usage: { ...usage, model: resolvedModel, source } } : {}),
       });
-      // #353 — measured, never enforced (see the service's own doc). Never
-      // awaited into the response path: a broken spend guard must not break
-      // a real turn, same convention as every other fire-and-forget side
+      // #353 — measured, never enforced (see the service's own doc). ONLY for
+      // a managed-key turn: #352's AC is explicit that a workspace's own key
+      // carries no StoryOS usage limit or meter, and tracking someone else's
+      // OpenAI spend toward OUR anomaly guard would answer a question nobody
+      // is asking (it isn't a bill we'd ever see). Never awaited into the
+      // response path either way — a broken spend guard must not break a
+      // real turn, same convention as every other fire-and-forget side
       // effect here.
-      if (usage) {
+      if (usage && source === 'managed') {
         void this.spendGuard
           .recordUsage(membership.workspaceId, usage.tokensIn, usage.tokensOut)
           .catch(() => undefined);
@@ -184,9 +205,12 @@ export class TyronService {
       await this.setPending(threadId, pending);
       // #420 — the just-answered turn carries its model too, so the label
       // appears immediately rather than only after the thread is refetched.
+      // #352 — `source` alongside it, so the composer can say WHICH AI
+      // answered rather than inferring it from a model name that could
+      // coincidentally match between a workspace's own key and StoryOS's.
       return {
         reply: spoken,
-        ...(usage ? { model: env().OPENAI_MODEL } : {}),
+        ...(usage ? { model: resolvedModel, source } : {}),
         ...(question ? { question } : {}),
         ...(stopped ? { stopped } : {}),
       };

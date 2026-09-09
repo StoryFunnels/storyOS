@@ -2,6 +2,7 @@ import { apifyProvider } from './apify';
 import { googleProvider } from './google';
 import { googleCalendarProvider } from './google-calendar';
 import { httpProvider } from './http';
+import { openaiProvider } from './openai';
 import { resendProvider } from './resend';
 import { shopifyProvider } from './shopify';
 import { smtpProvider } from './smtp';
@@ -23,6 +24,8 @@ export { httpProvider } from './http';
 export type { HttpConnectionAuth } from './http';
 export { shopifyProvider, normalizeShopDomain, shopifyGraphql, shopifyGraphqlUrl, shopifyAuthHeaders, SHOPIFY_API_VERSION } from './shopify';
 export type { ShopifyAuth } from './shopify';
+export { openaiProvider } from './openai';
+export type { OpenAiConnectionAuth } from './openai';
 
 /**
  * The provider registry (MN-252 Step 2). Adding a provider is exactly: a new
@@ -38,5 +41,6 @@ export const PROVIDER_REGISTRY: ReadonlyMap<string, ProviderDescriptor> = new Ma
     smtpProvider,
     httpProvider,
     shopifyProvider,
+    openaiProvider,
   ].map((p) => [p.id, p]),
 );

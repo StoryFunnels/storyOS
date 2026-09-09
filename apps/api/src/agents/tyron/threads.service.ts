@@ -114,14 +114,19 @@ export class TyronThreadsService {
          * Per MESSAGE, not per thread, and that is the honest shape: the column
          * has always been per-message, and a thread that spans a model change
          * would be misrepresented by one label at the bottom of the composer.
-         * It also stays correct when #352 adds bring-your-own — the answer to
-         * "who answered this turn" does not become ambiguous, it just gains a
-         * second possible value.
          *
          * Null on user messages and on a turn whose model call failed, matching
          * how the usage columns are stored: absent is honest there.
          */
         model: m.model ?? null,
+        /**
+         * #352 — 'byo' | 'managed' | null, alongside `model` above. Added
+         * because a model NAME alone can't be trusted to say "which AI
+         * answered": a workspace's own key can be configured with the same
+         * model tag the managed path uses, and the ticket's AC is explicit
+         * that this must never be left to be inferred.
+         */
+        source: m.source ?? null,
         /*
          * `actions` is intentionally NOT returned. #357 is explicit that Tyron
          * streams outcomes and never a tool trace, and an API that hands the
@@ -182,7 +187,7 @@ export class TyronThreadsService {
        * guessed. Omitted on user messages and on a turn whose model call failed
        * — absent is honest there, whereas zero would read as "free".
        */
-      usage?: { tokensIn: number; tokensOut: number; model: string };
+      usage?: { tokensIn: number; tokensOut: number; model: string; source?: 'byo' | 'managed' };
     },
   ) {
     const thread = await this.own(membership, threadId);
@@ -196,6 +201,7 @@ export class TyronThreadsService {
         tokensIn: message.usage?.tokensIn,
         tokensOut: message.usage?.tokensOut,
         model: message.usage?.model,
+        source: message.usage?.source,
       })
       .returning();
     await this.db

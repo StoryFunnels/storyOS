@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AutomationsModule } from '../automations/automations.module';
 import { BillingModule } from '../billing/billing.module';
 import { CollaborationModule } from '../comments/collaboration.module';
+import { ConnectionsModule } from '../connections/connections.module';
 import { DatabasesModule } from '../databases/databases.module';
 import { FieldsModule } from '../fields/fields.module';
 import { NotificationsModule } from '../notifications/notifications.module';
@@ -17,6 +18,7 @@ import { TyronThreadsController } from './tyron/threads.controller';
 import { TyronThreadsService } from './tyron/threads.service';
 import { TyronService } from './tyron/tyron.service';
 import { TyronSpendGuardService } from './tyron/tyron-spend-guard.service';
+import { TyronChatClientResolver } from './tyron/tyron-chat-client-resolver';
 
 /**
  * Agents + Runs + Agent Triggers system databases (MN-214a / #209 / #211,
@@ -48,12 +50,18 @@ import { TyronSpendGuardService } from './tyron/tyron-spend-guard.service';
  * `CommentsService` — the minimal "assign agent to record → it runs → posts
  * progress back as a comment" path, reusing the same comment-create path a
  * person's @mention goes through rather than inventing a second write path.
+ *
+ * #352 (Tyron: bring your own AI key) adds `ConnectionsModule` for
+ * `TyronChatClientResolver` to look up a workspace's own `openai` connection
+ * — the SAME credential registry every other provider already lives in,
+ * not a second one Tyron manages for itself.
  */
 @Module({
   imports: [
     AutomationsModule,
     BillingModule,
     CollaborationModule,
+    ConnectionsModule,
     DatabasesModule,
     FieldsModule,
     NotificationsModule,
@@ -69,6 +77,7 @@ import { TyronSpendGuardService } from './tyron/tyron-spend-guard.service';
     TyronThreadsService,
     TyronService,
     TyronSpendGuardService,
+    TyronChatClientResolver,
   ],
   exports: [AgentsService, ArchitectService, TyronThreadsService, TyronService, TyronSpendGuardService],
 })

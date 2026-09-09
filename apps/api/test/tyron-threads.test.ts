@@ -410,3 +410,68 @@ describe('#420 — the model that answered is readable per turn', () => {
     for (const m of thread.json().messages) expect(m).not.toHaveProperty('actions');
   });
 });
+
+describe('#352 — which AI answered (byo vs managed) is readable per turn, alongside the model', () => {
+  it('returns "byo" on a turn that used the workspace\'s own connected key', async () => {
+    const threads = app.get(TyronThreadsService);
+    const membership = { workspaceId: wsId, userId: (await as(owner.token, 'GET', '/me')).json().id } as never;
+
+    await threads.appendMessage(membership, ownerThread, {
+      role: 'assistant',
+      content: 'Answered on your own key.',
+      usage: { tokensIn: 5, tokensOut: 5, model: 'gpt-4o', source: 'byo' },
+    });
+
+    const thread = await as(owner.token, 'GET', `/workspaces/${wsId}/tyron/threads/${ownerThread}`);
+    const last = thread.json().messages.at(-1);
+    expect(last.model).toBe('gpt-4o');
+    expect(last.source).toBe('byo');
+  });
+
+  it('returns "managed" on a turn that used StoryOS\'s own key', async () => {
+    const threads = app.get(TyronThreadsService);
+    const membership = { workspaceId: wsId, userId: (await as(owner.token, 'GET', '/me')).json().id } as never;
+
+    await threads.appendMessage(membership, ownerThread, {
+      role: 'assistant',
+      content: 'Answered on the managed key.',
+      usage: { tokensIn: 5, tokensOut: 5, model: 'gpt-4o-mini', source: 'managed' },
+    });
+
+    const thread = await as(owner.token, 'GET', `/workspaces/${wsId}/tyron/threads/${ownerThread}`);
+    const last = thread.json().messages.at(-1);
+    expect(last.source).toBe('managed');
+  });
+
+  it('leaves source null on a USER message, same convention as model', async () => {
+    const threads = app.get(TyronThreadsService);
+    const membership = { workspaceId: wsId, userId: (await as(owner.token, 'GET', '/me')).json().id } as never;
+    await threads.appendMessage(membership, ownerThread, { role: 'user', content: 'do a thing' });
+
+    const thread = await as(owner.token, 'GET', `/workspaces/${wsId}/tyron/threads/${ownerThread}`);
+    const last = thread.json().messages.at(-1);
+    expect(last.role).toBe('user');
+    expect(last.source).toBeNull();
+  });
+
+  it('two models that happen to share a name are still told apart by source, not left ambiguous', async () => {
+    // The exact scenario #352's AC guards against: a workspace's own key
+    // configured with the SAME model tag the managed path uses. If source
+    // didn't exist, these two turns would be indistinguishable from the
+    // model field alone.
+    const threads = app.get(TyronThreadsService);
+    const membership = { workspaceId: wsId, userId: (await as(owner.token, 'GET', '/me')).json().id } as never;
+
+    await threads.appendMessage(membership, ownerThread, {
+      role: 'assistant', content: 'first', usage: { tokensIn: 1, tokensOut: 1, model: 'gpt-4o-mini', source: 'managed' },
+    });
+    await threads.appendMessage(membership, ownerThread, {
+      role: 'assistant', content: 'second', usage: { tokensIn: 1, tokensOut: 1, model: 'gpt-4o-mini', source: 'byo' },
+    });
+
+    const messages = (await as(owner.token, 'GET', `/workspaces/${wsId}/tyron/threads/${ownerThread}`)).json().messages;
+    const lastTwo = messages.slice(-2) as Array<{ model: string; source: string }>;
+    expect(lastTwo[0]!.model).toBe(lastTwo[1]!.model); // same model tag
+    expect(lastTwo[0]!.source).not.toBe(lastTwo[1]!.source); // still told apart
+  });
+});
