@@ -248,6 +248,11 @@ export function PersonalSection({ ws }: { ws: string }) {
   const qc = useQueryClient();
   const router = useRouter();
   const confirm = useConfirm();
+  // #293 — destination list for "Move to shared space": every space that
+  // ISN'T personal. Filters client-side off the same `useSpaces` response the
+  // rest of the sidebar already fetches — the field was always on the wire
+  // (schema.ts's `spaces.personal`), the `Space` type just didn't declare it.
+  const sharedSpaces = (useSpaces(ws).data ?? []).filter((s) => !s.personal);
 
   const docsKey = ['space-docs', ws, spaceId] as const;
   const docs = useQuery({
@@ -291,6 +296,33 @@ export function PersonalSection({ ws }: { ws: string }) {
     onError: () => toast.error('Could not delete document'),
   });
 
+  /**
+   * #293 — publish a personal document to a shared space. One-way
+   * (personal-space.md): once moved, coming back is a fresh "Copy to My
+   * Space" from the shared side, never this in reverse. Fires immediately on
+   * picking the target space, no confirmation dialog — the #524 convention
+   * for a non-destructive sidebar action, same as duplicate.
+   */
+  const moveDocToSpace = useMutation({
+    mutationFn: async ({ docId, targetSpaceId }: { docId: string; targetSpaceId: string }) => {
+      const { error } = await api.POST('/api/v1/workspaces/{ws}/documents/{doc}/move', {
+        params: { path: { ws, doc: docId } },
+        body: { space_id: targetSpaceId } as never,
+      } as never);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      // #293 — the doc leaves THIS space's list and lands in the target
+      // space's OWN ['space-docs', ws, targetSpaceId] query (sidebar.tsx's
+      // SpaceSection), which this component doesn't hold a key for. A prefix
+      // invalidation on ['space-docs', ws] catches both sides in one call —
+      // same fix copyDocToPersonal needed in sidebar.tsx for the same reason.
+      void qc.invalidateQueries({ queryKey: ['space-docs', ws] });
+      toast.success('Moved to shared space');
+    },
+    onError: () => toast.error('Could not move document'),
+  });
+
   const createView = useMutation({
     mutationFn: async ({ databaseId, name, type }: { databaseId: string; name: string; type: string }) => {
       const { data, error } = await api.POST('/api/v1/workspaces/{ws}/databases/{db}/views/personal', {
@@ -318,6 +350,32 @@ export function PersonalSection({ ws }: { ws: string }) {
     // member can hit this 403 deleting their OWN personal view — the toast
     // surfaces it honestly rather than pretending it always works.
     onError: () => toast.error('Could not delete view — you may need editor access to this database'),
+  });
+
+  /** #293 — publish a personal view: it becomes an ordinary shared view on
+   * its same database, visible to everyone with access. One-way, same as
+   * moveDocToSpace above — the way back is copy_view_to_personal_space from
+   * the shared side. No destination picker: unlike a document, a view's
+   * database (and therefore its space) never changes, publishing only clears
+   * who owns it. */
+  const publishView = useMutation({
+    mutationFn: async (v: PersonalView) => {
+      const { error } = await api.POST('/api/v1/workspaces/{ws}/databases/{db}/views/{view}/publish', {
+        params: { path: { ws, db: v.database_id, view: v.id } },
+      } as never);
+      if (error) throw error;
+    },
+    onSuccess: (_data, v) => {
+      void qc.invalidateQueries({ queryKey: viewsKey });
+      // #293 — the view leaves this personal list and lands in its DATABASE's
+      // own view-tab bar, which use-view-state.ts's useViewMutations reads
+      // from ['database', ws, databaseId] — a query this component doesn't
+      // otherwise touch. Same class of gap moveDocToSpace had for its
+      // destination space's doc list.
+      void qc.invalidateQueries({ queryKey: ['database', ws, v.database_id] });
+      toast.success('Published to shared views');
+    },
+    onError: () => toast.error('Could not publish view — you may need editor access to this database'),
   });
 
   const docItems = docs.data ?? [];
@@ -426,9 +484,15 @@ export function PersonalSection({ ws }: { ws: string }) {
             <SidebarRowMenu
               label={doc.title || 'Untitled'}
               actions={[
+                ...sharedSpaces.map((s, i) => ({
+                  label: s.name,
+                  ...(i === 0 ? { sectionLabel: 'Move to shared space', separatorBefore: true } : {}),
+                  onSelect: () => moveDocToSpace.mutate({ docId: doc.id, targetSpaceId: s.id }),
+                })),
                 {
                   label: 'Delete',
                   danger: true,
+                  separatorBefore: true,
                   onSelect: async () => {
                     const ok = await confirm({
                       title: `Delete "${doc.title || 'Untitled'}"?`,
@@ -458,8 +522,13 @@ export function PersonalSection({ ws }: { ws: string }) {
                 label={v.name}
                 actions={[
                   {
+                    label: 'Publish to shared views',
+                    onSelect: () => publishView.mutate(v),
+                  },
+                  {
                     label: 'Delete',
                     danger: true,
+                    separatorBefore: true,
                     onSelect: async () => {
                       const ok = await confirm({
                         title: `Delete "${v.name}"?`,

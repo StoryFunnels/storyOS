@@ -2204,6 +2204,40 @@ export interface paths {
         patch: operations["SpaceDocumentsController_update"];
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/documents/{doc}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Move a document to a shared space (one-way out of Personal; notifies its mentions) */
+        post: operations["SpaceDocumentsController_move"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/documents/{doc}/copy-to-personal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Copy a document into my personal space (independent fork, no sync) */
+        post: operations["SpaceDocumentsController_copyToPersonal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/connections": {
         parameters: {
             query?: never;
@@ -2611,6 +2645,40 @@ export interface paths {
         put?: never;
         /** Set this view as the database's default (one default per database) */
         post: operations["ViewsController_setDefault"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/views/{view}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publish a personal view to the shared database (one-way; see copy-to-personal) */
+        post: operations["ViewsController_publish"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/views/{view}/copy-to-personal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Copy a shared view into my personal space (independent fork, no sync) */
+        post: operations["ViewsController_copyToPersonal"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4904,6 +4972,10 @@ export interface components {
             expected_version?: number;
             /** Format: uuid */
             folder_id?: string | null;
+        };
+        MoveSpaceDocDto: {
+            /** Format: uuid */
+            space_id: string;
         };
         CreateConnectionDto: {
             provider: string;
@@ -9241,6 +9313,48 @@ export interface operations {
             };
         };
     };
+    SpaceDocumentsController_move: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                doc: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MoveSpaceDocDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SpaceDocumentsController_copyToPersonal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                doc: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     ConnectionsController_list: {
         parameters: {
             query?: never;
@@ -9816,6 +9930,46 @@ export interface operations {
         };
     };
     ViewsController_setDefault: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                view: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ViewsController_publish: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                view: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ViewsController_copyToPersonal: {
         parameters: {
             query?: never;
             header?: never;

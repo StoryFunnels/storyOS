@@ -26,6 +26,11 @@ const updateSchema = z.object({
 });
 class UpdateSpaceDocDto extends createZodDto(updateSchema) {}
 
+// #293 — target space for "Move to shared space"; the service rejects a
+// personal target rather than trusting the client not to send its own.
+const moveSchema = z.object({ space_id: z.string().uuid() });
+class MoveSpaceDocDto extends createZodDto(moveSchema) {}
+
 @ApiTags('documents')
 @ApiBearerAuth()
 @Controller('workspaces/:ws')
@@ -61,5 +66,17 @@ export class SpaceDocumentsController {
   @ApiOperation({ summary: 'Delete a standalone document' })
   async remove(@Req() req: WorkspaceRequest, @Param('doc') doc: string) {
     return this.docs.remove(req.membership, doc);
+  }
+
+  @Post('documents/:doc/move')
+  @ApiOperation({ summary: 'Move a document to a shared space (one-way out of Personal; notifies its mentions)' })
+  async move(@Req() req: WorkspaceRequest, @Param('doc') doc: string, @Body() body: MoveSpaceDocDto) {
+    return this.docs.moveToSpace(req.membership, doc, body.space_id, req.user.id);
+  }
+
+  @Post('documents/:doc/copy-to-personal')
+  @ApiOperation({ summary: 'Copy a document into my personal space (independent fork, no sync)' })
+  async copyToPersonal(@Req() req: WorkspaceRequest, @Param('doc') doc: string) {
+    return this.docs.copyToPersonal(req.membership, doc, req.user.id);
   }
 }

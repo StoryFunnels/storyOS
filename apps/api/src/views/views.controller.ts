@@ -107,6 +107,40 @@ export class ViewsController {
     return this.viewsService.setDefault(databaseId, viewId);
   }
 
+  /**
+   * #293 — publish a personal view (clears ownerUserId, one-way). Gated
+   * editor: unlike `createPersonal`'s viewer-only bar, the result becomes a
+   * SHARED view everyone with database access can see, the same bar
+   * `create`/`update` already hold for shared-view changes.
+   */
+  @Post(':view/publish')
+  @ApiOperation({ summary: 'Publish a personal view to the shared database (one-way; see copy-to-personal)' })
+  async publish(
+    @Req() req: WorkspaceRequest,
+    @Param('db') databaseId: string,
+    @Param('view') viewId: string,
+  ) {
+    await this.assertDb(req, databaseId);
+    return this.viewsService.publish(databaseId, viewId, req.user.id);
+  }
+
+  /**
+   * #293 — fork a shared view into a private copy. Viewer-only, mirroring
+   * `createPersonal`'s own bar — this is the caller's own content, not a
+   * schema/management change, and never touches the source view.
+   */
+  @Post(':view/copy-to-personal')
+  @RequiresScope('write')
+  @ApiOperation({ summary: 'Copy a shared view into my personal space (independent fork, no sync)' })
+  async copyToPersonal(
+    @Req() req: WorkspaceRequest,
+    @Param('db') databaseId: string,
+    @Param('view') viewId: string,
+  ) {
+    await this.databases.assertAccess(req.membership, databaseId, 'viewer');
+    return this.viewsService.copyToPersonal(databaseId, viewId, req.user.id);
+  }
+
   @Delete(':view')
   @ApiOperation({ summary: 'Delete a view (409 on the last shared one)' })
   async remove(

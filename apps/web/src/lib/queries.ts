@@ -13,6 +13,11 @@ export interface Space {
   /** #400's purpose line. Absent from this type until #457 — which is part of why
    *  nothing in the app ever offered to write one. */
   description?: string | null;
+  /** #293 — the backend row (spaces.personal, schema.ts) was always on the wire;
+   *  this type just didn't declare it. Needed to filter a personal space out of a
+   *  "move to shared space" destination picker without a second round-trip. */
+  personal?: boolean;
+  ownerUserId?: string | null;
 }
 export interface DatabaseSummary {
   id: string;

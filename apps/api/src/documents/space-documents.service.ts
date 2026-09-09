@@ -6,6 +6,9 @@ import type { Db } from '../db/client';
 import { spaceDocuments, spaceFolders } from '../db/schema';
 import { extractText } from './documents.service';
 import { AccessService } from '../access/access.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { SpacesService } from '../workspaces/spaces.service';
+import { collectMentions } from '../mentions/mentions.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 
 const MAX_BYTES = 2 * 1024 * 1024;
@@ -18,6 +21,8 @@ export class SpaceDocumentsService {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly access: AccessService,
+    private readonly notifications: NotificationsService,
+    private readonly spaces: SpacesService,
   ) {}
 
   private project(row: typeof spaceDocuments.$inferSelect) {
@@ -172,5 +177,82 @@ export class SpaceDocumentsService {
     await this.assertSpace(membership, existing.spaceId, 'editor');
     await this.db.update(spaceDocuments).set({ deletedAt: new Date() }).where(eq(spaceDocuments.id, docId));
     return { deleted: docId };
+  }
+
+  /**
+   * #293 — a document's personal-ness is entirely its `spaceId` pointing at a
+   * personal space (schema.ts, personal-space.md) — "moving" it to shared is
+   * a real UPDATE of that column, not a copy. One-way per the ADR: the
+   * return trip is `copyToPersonal` below, a fork with no sync, never an
+   * un-publish. Best-effort notify of the document's OWN mentions fires only
+   * on a personal -> shared transition: a personal document's mentions are
+   * suppressed at write time (personal-space.md — never notified at all), so
+   * this move is the first moment they become visible; moving between two
+   * already-shared spaces re-surfaces nothing new and never notifies again.
+   */
+  async moveToSpace(membership: Membership, docId: string, targetSpaceId: string, actorId: string) {
+    const existing = await this.row(membership.workspaceId, docId);
+    const source = await this.access.assertSpace(membership, existing.spaceId, 'editor');
+    const target = await this.access.assertSpace(membership, targetSpaceId, 'editor');
+    if (target.personal) {
+      throw new UnprocessableEntityException(
+        'Target must be a shared space — use copy-to-personal to fork a shared item into yours.',
+      );
+    }
+    const [row] = await this.db
+      .update(spaceDocuments)
+      // #368: a folder belongs to the space it's foldered under — carrying it
+      // across a space move would file this document under a sidebar folder
+      // it no longer has any relationship to (same guard `update` enforces
+      // when a client tries to hand it a foreign folder_id directly).
+      .set({ spaceId: targetSpaceId, folderId: null })
+      .where(eq(spaceDocuments.id, docId))
+      .returning();
+
+    if (source.personal) {
+      const { userIds } = collectMentions(existing.content);
+      if (userIds.length) {
+        await this.notifications.notify({
+          workspaceId: membership.workspaceId,
+          actorId,
+          type: 'mentioned',
+          recipients: userIds,
+          snippet: existing.title,
+        });
+      }
+    }
+    return this.project(row!);
+  }
+
+  /**
+   * #293 — "Copy to My Space": fork a document the caller can see into an
+   * independent copy in their OWN personal space, never sync'd back (the
+   * ADR's answer to "publishing is one-way"). A fresh id/version/position —
+   * editing either side afterward never touches the other.
+   */
+  async copyToPersonal(membership: Membership, docId: string, actorId: string) {
+    const existing = await this.row(membership.workspaceId, docId);
+    await this.assertSpace(membership, existing.spaceId, 'viewer');
+    const personalSpace = await this.spaces.getOrCreatePersonal(membership.workspaceId, actorId);
+    const [last] = await this.db
+      .select({ position: spaceDocuments.position })
+      .from(spaceDocuments)
+      .where(eq(spaceDocuments.spaceId, personalSpace.id))
+      .orderBy(desc(spaceDocuments.position))
+      .limit(1);
+    const [row] = await this.db
+      .insert(spaceDocuments)
+      .values({
+        workspaceId: membership.workspaceId,
+        spaceId: personalSpace.id,
+        title: existing.title,
+        icon: existing.icon,
+        content: existing.content,
+        contentText: existing.contentText,
+        position: (last?.position ?? -1) + 1,
+        createdBy: actorId,
+      })
+      .returning();
+    return this.project(row!);
   }
 }

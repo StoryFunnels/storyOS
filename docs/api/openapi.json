@@ -5476,6 +5476,74 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/documents/{doc}/move": {
+      "post": {
+        "operationId": "SpaceDocumentsController_move",
+        "parameters": [
+          {
+            "name": "doc",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MoveSpaceDocDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Move a document to a shared space (one-way out of Personal; notifies its mentions)",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/documents/{doc}/copy-to-personal": {
+      "post": {
+        "operationId": "SpaceDocumentsController_copyToPersonal",
+        "parameters": [
+          {
+            "name": "doc",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Copy a document into my personal space (independent fork, no sync)",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/connections": {
       "get": {
         "operationId": "ConnectionsController_list",
@@ -6478,6 +6546,80 @@
           }
         ],
         "summary": "Set this view as the database's default (one default per database)",
+        "tags": [
+          "views"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/views/{view}/publish": {
+      "post": {
+        "operationId": "ViewsController_publish",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "view",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Publish a personal view to the shared database (one-way; see copy-to-personal)",
+        "tags": [
+          "views"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/views/{view}/copy-to-personal": {
+      "post": {
+        "operationId": "ViewsController_copyToPersonal",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "view",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Copy a shared view into my personal space (independent fork, no sync)",
         "tags": [
           "views"
         ]
@@ -12680,6 +12822,19 @@
             "nullable": true
           }
         }
+      },
+      "MoveSpaceDocDto": {
+        "type": "object",
+        "properties": {
+          "space_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "space_id"
+        ]
       },
       "CreateConnectionDto": {
         "type": "object",

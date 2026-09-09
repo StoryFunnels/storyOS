@@ -549,6 +549,10 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   create_document: 'write',
   update_document: 'write',
   delete_document: 'write',
+  // #293 — same 'write' ceiling as the rest of this row; the controller has
+  // no scope override on either route, so it defaults the same way.
+  move_document_to_space: 'write',
+  copy_document_to_personal_space: 'write',
   list_folders: 'admin',
   create_folder: 'admin',
   update_folder: 'admin',
@@ -626,6 +630,13 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   set_personal_filter: 'write',
   duplicate_view: 'admin',
   set_default_view: 'admin',
+  // #293 — publish_view turns a personal view into a shared one, so it sits at
+  // the same 'admin' ceiling as create_view/update_view/delete_view (the
+  // controller has no scope override on that route either). copy_view_to_
+  // personal_space is the inverse fork and mirrors create_personal_view's own
+  // 'write' — it writes only the caller's own private content.
+  publish_view: 'admin',
+  copy_view_to_personal_space: 'write',
   share_view: 'admin',
   unshare_view: 'admin',
   create_space_view: 'admin',
@@ -3570,6 +3581,61 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     ),
   );
 
+  reg(
+    'move_document_to_space',
+    {
+      title: 'Move document to a shared space',
+      description:
+        'Move a document out of Personal into a shared space — a one-way publish (personal-space.md): the item becomes visible and exportable to everyone with access to the target space, and any @mentions in its body that were suppressed while it was personal now notify for the first time. Coming back is copy_document_to_personal_space, an independent fork, not an un-publish. Moving between two already-shared spaces is a plain re-file — nothing was hidden, so nothing notifies.',
+      inputSchema: {
+        workspace: z.string(),
+        space: z.string().describe('The space the document is in now.'),
+        document: z.string().describe('Document title or id (from list_documents).'),
+        target_space: z.string().describe('The shared space to move it into (from list_spaces). Must not be a personal space.'),
+      },
+    },
+    handle<{ workspace: string; space: string; document: string; target_space: string }>(
+      async ({ workspace, space, document, target_space }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const spaceId = await resolveSpaceId(ws.id, space);
+        const docId = await resolveDocumentId(ws.id, spaceId, document);
+        const targetSpaceId = await resolveSpaceId(ws.id, target_space);
+        const moved = await unwrap<SpaceDocRow>(
+          client.POST('/api/v1/workspaces/{ws}/documents/{doc}/move', {
+            params: { path: { ws: ws.id, doc: docId } } as never,
+            body: { space_id: targetSpaceId } as never,
+          }),
+        );
+        return text(serializeDoc(ws.id, moved));
+      },
+    ),
+  );
+
+  reg(
+    'copy_document_to_personal_space',
+    {
+      title: 'Copy document to my personal space',
+      description:
+        'Fork a document you can see into your own Personal space — an independent copy, never synced back (personal-space.md\'s answer to "publishing is one-way"). Editing either copy afterward never touches the other.',
+      inputSchema: {
+        workspace: z.string(),
+        space: z.string().describe('The space the document is in now.'),
+        document: z.string().describe('Document title or id (from list_documents).'),
+      },
+    },
+    handle<{ workspace: string; space: string; document: string }>(async ({ workspace, space, document }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const spaceId = await resolveSpaceId(ws.id, space);
+      const docId = await resolveDocumentId(ws.id, spaceId, document);
+      const copy = await unwrap<SpaceDocRow>(
+        client.POST('/api/v1/workspaces/{ws}/documents/{doc}/copy-to-personal', {
+          params: { path: { ws: ws.id, doc: docId } } as never,
+        }),
+      );
+      return text(serializeDoc(ws.id, copy));
+    }),
+  );
+
   // ---- Folders: the sidebar grouping documents, databases and views sit in ----
 
   reg(
@@ -5336,6 +5402,58 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         }),
       );
       return text({ default_view: v.name, id: v.id, applies_to: 'everyone in this workspace' });
+    }),
+  );
+
+  reg(
+    'publish_view',
+    {
+      title: 'Publish my personal view to the shared database',
+      description:
+        'Turn a view you own privately (made with create_personal_view) into an ordinary shared view everyone with access to the database can see. One-way (personal-space.md) — the way back is copy_view_to_personal_space, an independent fork, never an un-publish. Only the view\'s owner can publish it, and it must still be personal (already-shared views 422 here).',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        view: z.string().describe('Your personal view\'s name or id (from list_personal_views).'),
+      },
+    },
+    handle<{ workspace: string; database: string; view: string }>(async ({ workspace, database, view }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const detail = await getDetail(ws.id, db.id);
+      const v = resolveView(detail, view);
+      const published = await unwrap<{ id: string; name: string }>(
+        client.POST('/api/v1/workspaces/{ws}/databases/{db}/views/{view}/publish', {
+          params: { path: { ws: ws.id, db: db.id, view: v.id } } as never,
+        }),
+      );
+      return text({ ...published, url: viewUrl(ws.id, db.id, published.id) });
+    }),
+  );
+
+  reg(
+    'copy_view_to_personal_space',
+    {
+      title: 'Copy a shared view to my personal space',
+      description:
+        'Fork a shared view into your own private copy — an independent clone of its config, never synced back (personal-space.md\'s answer to "publishing is one-way"). Reconfiguring either view afterward never touches the other.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        view: z.string().describe('The shared view to copy (from describe_database).'),
+      },
+    },
+    handle<{ workspace: string; database: string; view: string }>(async ({ workspace, database, view }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const detail = await getDetail(ws.id, db.id);
+      const v = resolveView(detail, view);
+      const copy = await unwrap<{ id: string; name: string }>(
+        client.POST('/api/v1/workspaces/{ws}/databases/{db}/views/{view}/copy-to-personal', {
+          params: { path: { ws: ws.id, db: db.id, view: v.id } } as never,
+        }),
+      );
+      return text({ ...copy, url: viewUrl(ws.id, db.id, copy.id) });
     }),
   );
 
