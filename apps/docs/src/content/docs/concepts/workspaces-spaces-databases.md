@@ -151,7 +151,11 @@ General page; it is never thrown away.
 
 ## Deleting a database, view, or space
 
-Treat it as permanent. The data isn't destroyed the instant you confirm — StoryOS marks it rather
-than erasing the row outright — but there is **no restore feature for any of the three**, so
-there's nothing you can click to bring one back. That's a different guarantee from deleting a
-*record*, which genuinely does go to a trash you can restore from.
+All three go to a trash you can restore from, the same guarantee a deleted **record** already
+had — StoryOS marks the row rather than erasing it outright.
+
+- **A database's own Trash** (its `⋯` menu) lists that database's deleted records *and* views
+  together, one place to undo either.
+- **Settings → Trash**, admin-only, lists deleted **spaces** and **databases** workspace-wide.
+  Restoring a space brings back every database it held automatically — you don't separately
+  restore each one.

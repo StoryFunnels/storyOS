@@ -36,6 +36,18 @@ Each write returns the resulting record; each `422` is surfaced verbatim.
 | `duplicate_record` | Copy a record within the **same** database (unlike `copy_records`, a different one) — values, links, description, and its comment thread + attachments, all copied onto the new record. Owned one-to-many collections are NOT copied (a duplicated project doesn't clone its tasks). |
 | `copy_records` | Copy one or more records into a **different** database (unlike `duplicate_record`, same database). Fields auto-match by name; one with a value and no destination match **blocks** the copy. Call with `dry_run: true` (the default) to see the mapping and any blocking fields, resolve a row with `skip` (drop it) or `override` (send it to a specific destination field instead of the auto-match — or resolve an ambiguous relation by naming which candidate to use), then call again with `dry_run: false`. `override` is MCP/API-only — the web dialog's mapping is still read-only. |
 
+## Trash & restore
+
+Databases, spaces, and views are trashed and restorable the same way a record is — nothing here
+erases outright.
+
+| Tool | What it does |
+|---|---|
+| `list_trash` / `restore_records` | A database's deleted records (30-day retention) and bringing one back. |
+| `list_views_trash` / `restore_view` | A database's deleted views. |
+| `list_spaces_trash` / `restore_space` | Workspace-wide deleted spaces (**admin only**) — restoring one brings back every database it held automatically. |
+| `list_databases_trash` / `restore_database` | Workspace-wide deleted databases (**admin only**). |
+
 ## Personal space
 
 A view or space owned by the **calling identity**, invisible to everyone else including admins —
