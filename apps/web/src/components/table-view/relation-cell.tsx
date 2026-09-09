@@ -125,7 +125,7 @@ export function RelationChip({
      primitive, so the inverse-of-filled relationship is declared in one place
      rather than held by two components happening to differ. `max-w-40
      shrink-0` stays here: it is this surface's layout, not the chip's identity. */
-  const shared = cn(chipVariants({ variant: 'outline' }), 'max-w-40 shrink-0', className);
+  const shared = cn(chipVariants({ variant: 'reference' }), 'max-w-40 shrink-0', className);
   // Same treatment as the record-page relation rows (#227): faint, tabular #id
   // with a small right margin, rendered only when a number exists.
   const idBadge =
