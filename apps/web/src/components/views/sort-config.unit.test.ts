@@ -79,6 +79,13 @@ describe('directionLabel — field-type-aware idioms (nice-to-have AC)', () => {
     expect(directionLabel('relation', 'asc')).toBe('Ascending');
     expect(directionLabel('relation', 'desc')).toBe('Descending');
   });
+
+  // #662 — `user` sorts by the assigned person's NAME (same as created_by/
+  // updated_by), so it gets the same A→Z idiom rather than falling back.
+  it('uses A→Z / Z→A for a user field, matching created_by/updated_by', () => {
+    expect(directionLabel('user', 'asc')).toBe('A → Z');
+    expect(directionLabel('user', 'desc')).toBe('Z → A');
+  });
 });
 
 describe('MAX_SORTS', () => {

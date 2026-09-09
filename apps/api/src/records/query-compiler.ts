@@ -3,7 +3,7 @@ import { SQL, sql } from 'drizzle-orm';
 import type { FieldDef, FilterNode, FilterOp, RelativeDateRange } from '@storyos/schemas';
 import { SYSTEM_FIELD_BY_API_NAME, SYSTEM_FIELD_TYPES } from '@storyos/schemas';
 import { isPickOneOp } from './rollup-pick-one';
-import { recordLinks, records } from '../db/schema';
+import { recordLinks, records, user } from '../db/schema';
 
 /**
  * The filter-AST → SQL compiler (ADR-0002). Everything is parameterized;
@@ -518,7 +518,24 @@ export interface SortSpec {
   direction: 'asc' | 'desc';
 }
 
+/**
+ * #662 — a `user`/`created_by`/`updated_by` field's own storage is a bare user
+ * id (records.values->>id for `user`; the dedicated created_by/updated_by
+ * columns for the other two), so sorting by `fieldExpr` directly would order
+ * by that id string — alphabetical-looking but meaningless, and NOT the
+ * person's name #662's AC promises. Resolve to the name via a correlated
+ * scalar subquery instead; a record whose assignee id doesn't match any row
+ * (a removed member — ADR-0017 tombstones rather than deletes, so this is
+ * mostly theoretical) naturally sorts as NULL, same bucket as "unset".
+ */
 export function sortExpr(def: FieldDef): SQL {
+  if (def.type === 'created_by' || def.type === 'updated_by') {
+    const idExpr = def.type === 'created_by' ? sql`${records.createdBy}` : sql`${records.updatedBy}`;
+    return sql`(SELECT ${user.name} FROM ${user} WHERE ${user.id} = ${idExpr})`;
+  }
+  if (def.type === 'user') {
+    return sql`(SELECT ${user.name} FROM ${user} WHERE ${user.id} = (${records.values}->>${def.id}))`;
+  }
   return fieldExpr(def);
 }
 

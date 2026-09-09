@@ -168,6 +168,11 @@ const RELATIVE_RANGES = [
 export const SORTABLE = new Set([
   // #172: workflow sorts like select (the API SORTABLE set already includes it).
   'title', 'text', 'number', 'date', 'url', 'email', 'select', 'workflow', 'checkbox', 'created_at', 'updated_at',
+  // #662 — `user` was already in the api's SORTABLE_FIELD_TYPES (records.service.ts)
+  // but missing here, so the picker never offered it even though the API accepted
+  // it. A MULTI user field is excluded below (sortableFields), matching the api's
+  // own refusal (validateSorts: `user` && config.multi === true 422s).
+  'user',
   // MN-260: formula is materialized server-side and reads through fieldExpr()
   // like any stored field now — SortButton further narrows to same-record-only
   // formulas via isSortableFormula (sort-config.ts).
@@ -2215,7 +2220,14 @@ export function SortButton({
 }) {
   const [open, setOpen] = useState(false);
   const byApiName = new Map(fields.map((f) => [f.apiName, f]));
-  const sortableFields = fields.filter((f) => SORTABLE.has(f.type) && isSortableFormula(f, byApiName));
+  const sortableFields = fields.filter(
+    (f) =>
+      SORTABLE.has(f.type) &&
+      isSortableFormula(f, byApiName) &&
+      // #662 — a MULTI user field has no single value to order by; offering it
+      // here would just 422 at save time (validateSorts, records.service.ts).
+      !(f.type === 'user' && f.config['multi'] === true),
+  );
   // MN-267: rollup is sortable now (real recompute-on-related-record-change
   // plumbing exists — see SORTABLE's comment above); `lookup` is the one still
   // fully excluded, and a formula reaching into one inherits that same
