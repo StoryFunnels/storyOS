@@ -6,6 +6,7 @@ import { Check, Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { chipVariants } from '@/components/ui/chip';
 import { recordHref } from '@/lib/records';
 import { Popover, PopoverContent, PopoverParentAnchor } from '@/components/ui/popover';
 import { EntityPickerRow } from '@/components/entity/entity-picker-row';
@@ -120,10 +121,11 @@ export function RelationChip({
    * records stay identifiable when titles collide or are blank. */
   number?: number | null;
 }) {
-  const shared = cn(
-    'inline-flex max-w-40 shrink-0 items-center gap-1 truncate rounded-[var(--radius-chip)] border-[1.4px] border-border-strong px-1.5 py-0.5 text-[13px] text-ink',
-    className,
-  );
+  /* #533 — the shape and the OUTLINE variant come from the shared chip
+     primitive, so the inverse-of-filled relationship is declared in one place
+     rather than held by two components happening to differ. `max-w-40
+     shrink-0` stays here: it is this surface's layout, not the chip's identity. */
+  const shared = cn(chipVariants({ variant: 'outline' }), 'max-w-40 shrink-0', className);
   // Same treatment as the record-page relation rows (#227): faint, tabular #id
   // with a small right margin, rendered only when a number exists.
   const idBadge =
