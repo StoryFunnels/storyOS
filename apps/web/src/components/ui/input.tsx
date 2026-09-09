@@ -12,7 +12,12 @@ export function Input({
     <input
       ref={ref}
       className={cn(
-        'flex h-9 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-3 text-sm text-ink placeholder:text-muted',
+        /* #628 — `text-prose`, not Tailwind's `text-sm`. Both are 14px, so no
+           input changes size; what changes is that the field and its Label now
+           read from ONE scale instead of two that can drift apart independently.
+           It also picks up the scale's 1.5 leading (21px, from text-sm's 20px),
+           which is the other half of the mismatch the ticket measured. */
+        'flex h-9 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-3 text-prose text-ink placeholder:text-muted',
         className,
       )}
       {...props}
