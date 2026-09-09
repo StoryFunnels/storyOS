@@ -19,7 +19,7 @@ import { FormView } from '@/components/views/form-view';
 import { TableView } from '@/components/table-view/table-view';
 import { ListSurface } from '@/components/entity/split-screen-host';
 import { EntityIconChip, IconColorPicker } from '@/components/ui/icon-picker';
-import { GroupByFieldSelect, ViewToolbar } from '@/components/views/view-toolbar';
+import { ViewToolbar } from '@/components/views/view-toolbar';
 import { ViewTab } from '@/components/views/view-tab';
 import { ShareViewDialog } from '@/components/views/share-view-dialog';
 import {
@@ -33,12 +33,9 @@ import { useDatabase, useMembers, useReorderFields, useUpdateDatabaseIcon } from
 import type { Field } from '@/components/table-view/use-table-data';
 import { atLeast } from '@/lib/access';
 import { fieldReorderMoves } from '@/lib/reorder';
-import { Button } from '@/components/ui/button';
-import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { useConfirm } from '@/components/ui/confirm-dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 
 function DatabasePageInner() {
@@ -179,6 +176,7 @@ function DatabasePageInner() {
           <div className="shrink-0">
             <NewViewDialog
               fields={database.data.fields}
+              existingNames={views.map((v) => v.name)}
               onCreate={(name, type, configPatch) =>
                 viewMutations.createView.mutate(
                   { name, type, config: { ...EMPTY_CONFIG, ...configPatch } },
@@ -309,29 +307,29 @@ const VIEW_KIND_LABEL: Record<ViewKind, string> = {
   form: 'Form',
   dashboard: 'Dashboard',
 };
-const VIEW_KIND_LABELS = Object.values(VIEW_KIND_LABEL);
-
+/**
+ * #660 — "why do I need to name the view I am creating? Give it a dumb name
+ * and id, that's enough" (Ievgen, live). Picking a Type is now the WHOLE
+ * action: the view is created immediately with an auto-generated, collision-
+ * avoided name (Table, Table 2, …) and sensible defaults for whatever a type
+ * needs (board/list group-by, calendar/timeline date field) — the exact same
+ * fallbacks this dialog already computed before, just applied without an
+ * extra click. Naming and every one of those defaults stays adjustable
+ * afterward through the view's own existing mechanisms (rename — the same
+ * one #277's bug is in — and its own toolbar's Group By / date-field
+ * pickers), never a second naming/config system.
+ */
 function NewViewDialog({
   fields,
+  existingNames,
   onCreate,
 }: {
   fields: Field[];
+  existingNames: string[];
   onCreate: (name: string, type: ViewKind, configPatch?: Partial<ViewConfig>) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [name, setName] = useState(VIEW_KIND_LABEL.table);
-  const [type, setType] = useState<ViewKind>('table');
-
-  // MN-222: prefill the name from the picked type, but never clobber a name the
-  // user typed — only overwrite when the field is empty or still holds a type default.
-  function selectType(kind: ViewKind) {
-    setName((prev) => (prev.trim() === '' || VIEW_KIND_LABELS.includes(prev.trim()) ? VIEW_KIND_LABEL[kind] : prev));
-    setType(kind);
-  }
   const dateFields = fields.filter((f) => f.type === 'date' || f.type === 'created_at' || f.type === 'updated_at');
-  const [dateField, setDateField] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
   // #272: both group-by pickers now read the SHARED rule (./groupable-fields), which
   // mirrors the API's `boardGroupError`. This List list used to be
   // `f.type === 'select'` inline, which silently hid the workflow/State field from
@@ -341,10 +339,29 @@ function NewViewDialog({
   // user, or the single side of a one-to-many relation. The API enforces the same rule.
   const boardGroupFields = fields.filter(canGroupBoardBy);
   // #181: a Board defaults to grouping by the database's workflow field when it
-  // has one — the shown default and the created view both prefer it (below).
+  // has one.
   const workflowField = fields.find((f) => f.type === 'workflow');
   const boardDefaultGroupId = workflowField?.id || boardGroupFields[0]?.id;
-  const [groupBy, setGroupBy] = useState('');
+
+  // Mirrors packs.service.ts's uniqueDuplicateName (database duplication) — same
+  // "base, base 2, base 3…" shape, scoped here to this database's own view names.
+  function uniqueViewName(base: string): string {
+    const taken = new Set(existingNames.map((n) => n.trim().toLowerCase()));
+    if (!taken.has(base.toLowerCase())) return base;
+    for (let i = 2; ; i++) {
+      const candidate = `${base} ${i}`;
+      if (!taken.has(candidate.toLowerCase())) return candidate;
+    }
+  }
+
+  function createView(kind: ViewKind) {
+    const patch: Partial<ViewConfig> = {};
+    if (kind === 'board') patch.group_by_field_id = boardDefaultGroupId;
+    if (kind === 'calendar') patch.date_field_id = dateFields[0]?.id;
+    if (kind === 'timeline') patch.start_date_field_id = dateFields[0]?.id;
+    onCreate(uniqueViewName(VIEW_KIND_LABEL[kind]), kind, patch);
+    setOpen(false);
+  }
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -354,133 +371,37 @@ function NewViewDialog({
         </button>
       </DialogTrigger>
       <DialogContent title="New view">
-        <form
-          className="flex flex-col gap-4"
-          onSubmit={(e) => {
-            e.preventDefault();
-            // Empty is never sent — fall back to the type's label (MN-222).
-            const finalName = name.trim() || VIEW_KIND_LABEL[type];
-            const patch: Partial<ViewConfig> = {};
-            if (type === 'board') patch.group_by_field_id = groupBy || boardDefaultGroupId;
-            if (type === 'list' && groupBy) patch.group_by_field_id = groupBy;
-            if (type === 'calendar') patch.date_field_id = dateField || dateFields[0]?.id;
-            if (type === 'timeline') {
-              patch.start_date_field_id = startDate || dateFields[0]?.id;
-              if (endDate) patch.end_date_field_id = endDate;
-            }
-            onCreate(finalName, type, patch);
-            setOpen(false);
-            setName(VIEW_KIND_LABEL[type]);
-          }}
-        >
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="view-name">Name</Label>
-            <Input id="view-name" autoFocus value={name} onChange={(e) => setName(e.target.value)} />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label>Type</Label>
-            <div className="grid grid-cols-2 gap-2">
-              {(
-                [
-                  { kind: 'table', label: 'Table', Icon: Table2 },
-                  { kind: 'board', label: 'Board', Icon: Kanban, need: boardGroupFields.length === 0 ? 'Needs a select, user, or one-to-many relation field' : null },
-                  { kind: 'calendar', label: 'Calendar', Icon: CalendarDays, need: dateFields.length === 0 ? 'Needs a date field' : null },
-                  { kind: 'gallery', label: 'Gallery', Icon: LayoutGrid },
-                  { kind: 'list', label: 'List', Icon: ListIcon },
-                  { kind: 'feed', label: 'Feed', Icon: Newspaper },
-                  { kind: 'timeline', label: 'Timeline', Icon: GanttChart, need: dateFields.length === 0 ? 'Needs a date field' : null },
-                  { kind: 'form', label: 'Form', Icon: FormInput },
-                  { kind: 'dashboard', label: 'Dashboard', Icon: LayoutDashboard },
-                ] as Array<{ kind: ViewKind; label: string; Icon: typeof Table2; need?: string | null }>
-              ).map(({ kind, label, Icon, need }) => (
-                <button
-                  key={kind}
-                  type="button"
-                  disabled={Boolean(need)}
-                  title={need ?? undefined}
-                  onClick={() => selectType(kind)}
-                  className={cn(
-                    'flex h-16 flex-col items-center justify-center gap-1 rounded-[var(--radius-control)] border text-[13px]',
-                    type === kind ? 'border-[var(--accent)] bg-accent-soft text-ink' : 'border-border-default text-muted',
-                    need && 'cursor-not-allowed opacity-50',
-                  )}
-                >
-                  <Icon className="h-4 w-4" />
-                  <span>{label}</span>
-                  {need && <span className="text-[10px] text-faint">{need}</span>}
-                </button>
-              ))}
-            </div>
-          </div>
-          {type === 'timeline' && (
-            <div className="flex gap-2">
-              <div className="flex flex-1 flex-col gap-1.5">
-                <Label htmlFor="start-date">Start date</Label>
-                <select
-                  id="start-date"
-                  className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-sm text-ink"
-                  value={startDate || dateFields[0]?.id || ''}
-                  onChange={(e) => setStartDate(e.target.value)}
-                >
-                  {dateFields.map((f) => (
-                    <option key={f.id} value={f.id}>{f.displayName}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex flex-1 flex-col gap-1.5">
-                <Label htmlFor="end-date">End date (optional)</Label>
-                <select
-                  id="end-date"
-                  className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-sm text-ink"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                >
-                  <option value="">None</option>
-                  {dateFields.map((f) => (
-                    <option key={f.id} value={f.id}>{f.displayName}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          )}
-          {type === 'calendar' && (
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="date-field">Date field</Label>
-              <select
-                id="date-field"
-                className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-sm text-ink"
-                value={dateField || dateFields[0]?.id || ''}
-                onChange={(e) => setDateField(e.target.value)}
-              >
-                {dateFields.map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.displayName}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-          {((type === 'board' && boardGroupFields.length > 0) || type === 'list') && (
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="group-by">Group by{type === 'list' ? ' (optional)' : ''}</Label>
-              <GroupByFieldSelect
-                id="group-by"
-                viewType={type === 'board' ? 'board' : 'list'}
-                fields={fields}
-                value={type === 'board' ? groupBy || boardDefaultGroupId || '' : groupBy}
-                onChange={setGroupBy}
-              />
-            </div>
-          )}
-          <div className="flex justify-end gap-2">
-            <DialogClose asChild>
-              <Button type="button" variant="secondary">
-                Cancel
-              </Button>
-            </DialogClose>
-            <Button type="submit">Create view</Button>
-          </div>
-        </form>
+        <div className="grid grid-cols-2 gap-2">
+          {(
+            [
+              { kind: 'table', label: 'Table', Icon: Table2 },
+              { kind: 'board', label: 'Board', Icon: Kanban, need: boardGroupFields.length === 0 ? 'Needs a select, user, or one-to-many relation field' : null },
+              { kind: 'calendar', label: 'Calendar', Icon: CalendarDays, need: dateFields.length === 0 ? 'Needs a date field' : null },
+              { kind: 'gallery', label: 'Gallery', Icon: LayoutGrid },
+              { kind: 'list', label: 'List', Icon: ListIcon },
+              { kind: 'feed', label: 'Feed', Icon: Newspaper },
+              { kind: 'timeline', label: 'Timeline', Icon: GanttChart, need: dateFields.length === 0 ? 'Needs a date field' : null },
+              { kind: 'form', label: 'Form', Icon: FormInput },
+              { kind: 'dashboard', label: 'Dashboard', Icon: LayoutDashboard },
+            ] as Array<{ kind: ViewKind; label: string; Icon: typeof Table2; need?: string | null }>
+          ).map(({ kind, label, Icon, need }) => (
+            <button
+              key={kind}
+              type="button"
+              disabled={Boolean(need)}
+              title={need ?? undefined}
+              onClick={() => createView(kind)}
+              className={cn(
+                'flex h-16 flex-col items-center justify-center gap-1 rounded-[var(--radius-control)] border text-[13px] border-border-default text-muted hover:border-[var(--accent)] hover:bg-accent-soft hover:text-ink',
+                need && 'cursor-not-allowed opacity-50 hover:border-border-default hover:bg-transparent hover:text-muted',
+              )}
+            >
+              <Icon className="h-4 w-4" />
+              <span>{label}</span>
+              {need && <span className="text-[10px] text-faint">{need}</span>}
+            </button>
+          ))}
+        </div>
       </DialogContent>
     </Dialog>
   );
