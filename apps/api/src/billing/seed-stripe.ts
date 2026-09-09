@@ -9,6 +9,10 @@
  *
  * It prints the STRIPE_PRICE_* lines to paste into your .env.
  */
+// #658: MUST be the first import — see main.ts's own comment. Without this,
+// apps/api/.env is never read and DATABASE_URL/STRIPE_SECRET_KEY silently
+// fall back to their zod defaults.
+import '../config/load-env';
 import Stripe from 'stripe';
 import { env } from '../config/env';
 import { PLANS, SEAT_LOOKUP_KEY, SEAT_PRICE_USD, type PlanDef } from './plans';
