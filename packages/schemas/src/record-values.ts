@@ -291,14 +291,28 @@ export const updateRecordSchema = z.object({
   values: z.record(z.string(), z.unknown()),
 });
 
-/** MN-050: bulk operations from the table selection bar. */
+/**
+ * MN-050: bulk operations from the table selection bar.
+ *
+ * #653 — raised from 200 to 5000. records.service.ts applies both ops in
+ * internal chunks of 200 (BULK_OP_CHUNK_SIZE) rather than one unbounded pass,
+ * so a large selection can't produce one oversized transaction/loop. Both
+ * operations are per-record idempotent (delete no-ops on an already-deleted
+ * row; update re-applying the same patch is a no-op difference), so a caller
+ * whose request was interrupted mid-flight can safely retry with the SAME
+ * record_ids — already-applied records are simply re-touched harmlessly.
+ * That is this PR's resumability guarantee; a durable, pollable job with
+ * live progress and an undo-for-edit snapshot store is real, separate work
+ * split to a follow-up ticket (needs new tables, and this codebase allows
+ * only one drizzle migration in flight across all open PRs).
+ */
 export const batchUpdateRecordsSchema = z.object({
-  record_ids: z.array(z.uuid()).min(1).max(200),
+  record_ids: z.array(z.uuid()).min(1).max(5000),
   values: z.record(z.string(), z.unknown()),
 });
 
 export const batchRecordIdsSchema = z.object({
-  record_ids: z.array(z.uuid()).min(1).max(200),
+  record_ids: z.array(z.uuid()).min(1).max(5000),
 });
 
 export const moveRecordSchema = z

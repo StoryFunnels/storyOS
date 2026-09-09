@@ -5,6 +5,7 @@ import { createTestApp } from './helpers/app';
 import { authed, signUpUser } from './helpers/users';
 import { connectTestDb } from './helpers/db';
 import { activityEvents } from '../src/db/schema';
+import { RecordsService } from '../src/records/records.service';
 
 let app: NestFastifyApplication;
 let admin: { token: string; email: string };
@@ -346,6 +347,85 @@ describe('batch operations (MN-050)', () => {
       (await app.inject({ method: 'GET', url: `${base()}/${id}`, headers: authed(admin.token) })).json();
     expect((await check(first)).title).toBe('Renamed 519');
     expect((await check(second)).title).toBe('Renamed 519');
+  });
+
+  /**
+   * #653 — the actual remaining gap #519 named: a selection above the old
+   * 200-row cap. Seeds via RecordsService.createBatch directly (not 250
+   * sequential HTTP posts) purely to keep the test fast; the assertions
+   * below exercise the real HTTP batch endpoints.
+   */
+  it('#653: batch-delete above 200 records succeeds in internal chunks, and retrying with the same ids is a safe no-op', async () => {
+    const recordsService = app.get(RecordsService);
+    const seeded = await recordsService.createBatch(
+      wsId,
+      dbId,
+      Array.from({ length: 250 }, (_, i) => ({ name: `Bulk653 ${i}` })),
+      adminUserId,
+    );
+    const ids = seeded.map((r) => r.id);
+    expect(ids).toHaveLength(250);
+
+    const first = await app.inject({
+      method: 'POST',
+      url: `${base()}/batch-delete`,
+      headers: authed(admin.token),
+      payload: { record_ids: ids },
+    });
+    expect(first.statusCode, first.body).toBe(201);
+    expect(first.json().deleted).toBe(250);
+
+    // Retrying with the SAME ids (simulating a client that never saw the
+    // response) must be safe: every row is already soft-deleted, so the
+    // chunked isNull(deletedAt) filter finds nothing left to touch.
+    const retry = await app.inject({
+      method: 'POST',
+      url: `${base()}/batch-delete`,
+      headers: authed(admin.token),
+      payload: { record_ids: ids },
+    });
+    expect(retry.statusCode, retry.body).toBe(201);
+    expect(retry.json().deleted).toBe(0);
+  });
+
+  it('#653: batch-update above 200 records applies the patch to all of them, and retrying with the same ids is a safe no-op difference', async () => {
+    const recordsService = app.get(RecordsService);
+    const seeded = await recordsService.createBatch(
+      wsId,
+      dbId,
+      Array.from({ length: 220 }, (_, i) => ({ name: `Bulk653b ${i}` })),
+      adminUserId,
+    );
+    const ids = seeded.map((r) => r.id);
+
+    const first = await app.inject({
+      method: 'PATCH',
+      url: `${base()}/batch`,
+      headers: authed(admin.token),
+      payload: { record_ids: ids, values: { name: 'Renamed 653' } },
+    });
+    expect(first.statusCode, first.body).toBe(200);
+    expect(first.json().updated).toBe(220);
+    expect(first.json().failed).toHaveLength(0);
+
+    // Re-applying the SAME patch to the SAME ids is a no-op difference, not
+    // an error and not a double-effect — the resumability guarantee #653
+    // relies on instead of a durable job/cursor.
+    const retry = await app.inject({
+      method: 'PATCH',
+      url: `${base()}/batch`,
+      headers: authed(admin.token),
+      payload: { record_ids: ids, values: { name: 'Renamed 653' } },
+    });
+    expect(retry.statusCode, retry.body).toBe(200);
+    expect(retry.json().updated).toBe(220);
+
+    const check = await app.inject({
+      method: 'GET',
+      url: `${base()}/${ids[0]}`,
+      headers: authed(admin.token),
+    });
+    expect(check.json().title).toBe('Renamed 653');
   });
 });
 
