@@ -197,7 +197,7 @@ export function SchemaMap({
               {db.fields.map((f) => (
                 <span
                   key={f.name}
-                  className={cn(chipVariants({ variant: 'outline' }), 'max-w-full')}
+                  className={cn(chipVariants({ variant: 'reference' }), 'max-w-full')}
                   title={`${f.name} — ${f.type}`}
                 >
                   <span className="truncate">{f.name}</span>

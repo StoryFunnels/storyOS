@@ -48,7 +48,14 @@ after, worst case across all 15 colours × both themes is 5.27:1.
 
 Both treatments above come from **one** primitive:
 [`ui/chip.tsx`](../../apps/web/src/components/ui/chip.tsx)'s `chipVariants`, with
-`variant: 'filled' | 'outline'`. Before it, the shared shape (4px radius,
+`variant: 'value' | 'reference'`.
+
+**Named for what they are, not how they are painted.** A `value` is drawn from
+this field's own option set and is coloured by itself; a `reference` points at a
+record living elsewhere, is coloured by its home database, and usually navigates.
+They shipped as `filled`/`outline` for a day — names describing paint, which
+invite a future reader to argue that two fills would look tidier and win on
+visual grounds while quietly conflating two different kinds of thing. Before it, the shared shape (4px radius,
 `px-1.5 py-0.5`, `gap-1`, truncate) was retyped in two separately-maintained
 components, so it held by coincidence.
 

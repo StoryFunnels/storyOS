@@ -192,7 +192,7 @@ export function OptionChip({ option }: { option: SelectOption }) {
     <span
       /* #533 — the shape, type step and weight come from the shared chip
          primitive; `option-tint` and `max-w-full` are this surface's own. */
-      className={cn(chipVariants({ variant: 'filled' }), 'option-tint max-w-full')}
+      className={cn(chipVariants({ variant: 'value' }), 'option-tint max-w-full')}
       style={{ backgroundColor: `${color}22`, ['--option-color' as string]: color } as CSSProperties}
     >
       <OptionIcon icon={option.icon} />
