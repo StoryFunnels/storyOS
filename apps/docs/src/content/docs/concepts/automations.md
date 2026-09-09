@@ -22,7 +22,7 @@ Eleven actions, all available to buttons and rules alike.
 | Action | What it does |
 |---|---|
 | **Set fields on this record** | Writes values onto the record that triggered the rule. |
-| **Create a record** | Creates one record in any database, optionally linked back through a relation. |
+| **Create a record** | Creates one record in any database, optionally linked back through a relation — or [matches an existing one on a unique key instead of duplicating it](#creating-or-upserting-a-record). |
 | **Create many records** | Creates 0–200 records from one template. The count can be a number or a `{Field}` token read at run time; `{index}` (1-based) differentiates them — "Day {index}". |
 | **Add a comment** | Posts a comment on the record. |
 | **Notify a person** | An in-app notification to a person field's value, or `@me`. |
@@ -71,6 +71,20 @@ fail validation.
 - Actions: the eleven above. Each action can also carry its **own** condition, checked against
   the record just before that action runs — so a rule can validate first and only then fire an
   email or an API call. A failed per-action condition skips that one action and the rest still run.
+
+## Creating or upserting a record
+
+A **Create a record** action can be configured to **match an existing record on a [unique
+field](/concepts/databases-and-fields/#preventing-duplicate-values) instead of always inserting** —
+the same match-or-create logic the `upsert_record` MCP tool exposes, so a rule that runs on a
+schedule against a CRM export, say, doesn't create a fresh duplicate every time it sees an email
+address it's already recorded. A match either **updates** the existing record with the rule's
+values, or (configured to **skip**) leaves it untouched — useful when the rule should only fill in
+records that don't exist yet, never overwrite ones that do.
+
+**This is API/MCP-only today** — there's no toggle for it in the rule editor's own UI yet, so
+configuring it means setting `upsert: { key_field_id, on_match }` on the action directly through
+`create_automation`/`update_automation`.
 
 ## Acting on a leaderboard, not every match
 
