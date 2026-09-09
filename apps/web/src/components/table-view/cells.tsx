@@ -13,6 +13,7 @@ import { DatePicker } from '@/components/ui/date-picker';
 import { Avatar } from '@/components/ui/avatar';
 import { Popover, PopoverContent, PopoverParentAnchor } from '@/components/ui/popover';
 import { RelationChips } from './relation-cell';
+import { chipVariants } from '@/components/ui/chip';
 import type { LinkChip } from './relation-cell';
 import { AgentRefCell } from './agent-ref-cell';
 import { isAgentConfigRefValue } from '@/lib/database-labels';
@@ -189,7 +190,9 @@ export function OptionChip({ option }: { option: SelectOption }) {
   const color = OPTION_COLORS[option.color] ?? OPTION_COLORS.gray!;
   return (
     <span
-      className="option-tint inline-flex max-w-full items-center gap-1 truncate rounded-[var(--radius-chip)] px-1.5 py-0.5 text-[11px] font-medium"
+      /* #533 — the shape, type step and weight come from the shared chip
+         primitive; `option-tint` and `max-w-full` are this surface's own. */
+      className={cn(chipVariants({ variant: 'filled' }), 'option-tint max-w-full')}
       style={{ backgroundColor: `${color}22`, ['--option-color' as string]: color } as CSSProperties}
     >
       <OptionIcon icon={option.icon} />

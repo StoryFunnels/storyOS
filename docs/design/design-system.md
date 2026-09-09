@@ -44,6 +44,56 @@ fixed (a hardcoded blend meant the same chip measured 4.29:1 in light mode and 2
 the worst ratio on the page, because nobody had chosen the dark-mode number at all). Measured
 after, worst case across all 15 colours × both themes is 5.27:1.
 
+### One chip, two declared variants (#533 primitive 1)
+
+Both treatments above come from **one** primitive:
+[`ui/chip.tsx`](../../apps/web/src/components/ui/chip.tsx)'s `chipVariants`, with
+`variant: 'filled' | 'outline'`. Before it, the shared shape (4px radius,
+`px-1.5 py-0.5`, `gap-1`, truncate) was retyped in two separately-maintained
+components, so it held by coincidence.
+
+**The variants are the point, not the consolidation.** #533's first criterion was
+originally "one chip component adopted everywhere", which taken literally would
+have erased the deliberate filled-vs-outline distinction in the name of
+consolidating an accidental one. What must survive is the *distinction*: it is now
+a declared variant rather than two components that happen to differ and could
+converge with any edit.
+
+The primitive does **not** own max-width, shrink, the element type (`span` vs `a`)
+or the children. A chip in a table cell wants `max-w-full`; a chip in a row of
+references wants `max-w-40 shrink-0`. Per
+[field-surfaces.md](../architecture/field-surfaces.md), different chrome *wraps*
+the shared control rather than re-rendering it.
+
+Type steps come from the role scale, not literals: `filled` is `text-meta`
+(11px), `outline` is `text-body` (13px) — the same font sizes the two
+`text-[Npx]` literals rendered.
+
+The **leading changed**, though, and it is worth knowing: `text-[Npx]` sets no
+line-height, so those chips inherited `normal`; the role steps apply 1.5.
+Measured, the filled chip's box grows 17.50px → 20.50px. Table rows do **not**
+move (fixed at 32px, cell 31px), so nothing reflows — the delta is a slightly
+taller tint behind the label. Kept deliberately: `line-height: normal` on an 11px
+pill was itself off-scale.
+
+### Colour is bound to entity identity (#533 primitive 2)
+
+This guarantee **already held**; #533 asked for it to be written down rather than
+rebuilt, so here it is:
+
+- A database has one colour on `databases.color`, resolved read-time through the
+  API's `resolveDatabaseColor(id, color)` — so a database with no stored colour
+  still gets a *stable* one derived from its id, and every read path resolves
+  through the same function.
+- A select option's colour is stored **per option, keyed by option id**, so it
+  survives renames and reordering.
+- An avatar's colour is derived by hashing the **user id**, never the display name
+  (MN-045), for the same reason.
+
+The rule that follows: **no surface reassigns colour.** If two places show the
+same entity in different colours, one of them derived its own instead of reading
+the stored value — and that is the bug.
+
 ## Typography
 
 - **UI font: Figtree** (Google Fonts; weights 400/500/600/700) — warm, friendly, highly legible; the Borderlands family, works great at app density. Fallback `-apple-system, Segoe UI, sans-serif`.
