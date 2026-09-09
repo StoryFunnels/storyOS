@@ -24,8 +24,10 @@ interface SortableFieldLike {
 /**
  * MN-260/MN-267: a formula field is sortable only if its full dependency chain
  * (through other formulas too) never reaches a `lookup` field — mirrors the
- * API's formulaDependsOnlyOnOwnRecord (records.service.ts) exactly, same as
- * SORTABLE below already mirrors records.service.ts's SORTABLE set. `rollup`
+ * API's formulaDependsOnlyOnOwnRecord (records.service.ts) exactly, the same
+ * way view-toolbar.tsx's own SORTABLE set is meant to mirror records.service.ts's
+ * SORTABLE_FIELD_TYPES — a claim that drifted false for `user` until #662, and
+ * has no test holding it true going forward (see #657's AC #6). `rollup`
  * is no longer excluded here: MN-267 built real recompute-on-related-record-
  * change plumbing for it (RollupInvalidationSubscriber, materialized into the
  * same computed_values column formula uses), so a formula reaching into a
@@ -100,6 +102,8 @@ const DIRECTION_LABELS: Record<string, { asc: string; desc: string }> = {
   id: { asc: '1 → 9', desc: '9 → 1' },
   created_by: { asc: 'A → Z', desc: 'Z → A' },
   updated_by: { asc: 'A → Z', desc: 'Z → A' },
+  // #662 — sorts by the assigned person's name, same as created_by/updated_by.
+  user: { asc: 'A → Z', desc: 'Z → A' },
 };
 
 export function directionLabel(fieldType: string, direction: 'asc' | 'desc'): string {
