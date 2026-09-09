@@ -75,6 +75,7 @@ import { MAX_SORTS, directionLabel, isSortableFormula, nextSortField, reorderSor
 import type { NullsPlacement } from './sort-config';
 import { SYSTEM_FIELD_OPS, SYSTEM_SORTABLE_TYPES, SYSTEM_USER_TYPES, withSystemFields } from './system-fields';
 import { OPTION_COLORS, OptionIcon } from '../table-view/cells';
+import { countHiddenFields, isFieldVisible, toggleFieldVisibility } from '../table-view/number-column';
 
 /** Op menu per field type — mirrors the API op×type matrix. */
 export const OPS_BY_TYPE: Record<string, Array<{ op: string; label: string; input: 'text' | 'number' | 'date' | 'options' | 'relative' | 'boolean' | 'records' | 'none' }>> = {
@@ -2677,17 +2678,19 @@ function HiddenFieldsButton({
   /** #338 — when supplied, user fields become drag-to-reorder (writes field.position). */
   onReorder?: (activeId: string, overId: string) => void;
 }) {
+  // #659 — the number field's entry in `hidden` is polarity-inverted (default
+  // hidden, so presence means shown); see number-column.ts, shared with
+  // table-view.tsx's own reading of the same array so the two can't drift.
+  const hiddenCount = countHiddenFields(hidden, new Set(fields.map((f) => f.id)));
   return (
     <FieldsMenu
       fields={fields}
-      isVisible={(f) => !hidden.includes(f.id)}
-      onToggle={(f, next) =>
-        onChange(next ? hidden.filter((id) => id !== f.id) : [...hidden, f.id])
-      }
+      isVisible={(f) => isFieldVisible(hidden, f.id)}
+      onToggle={(f, next) => onChange(toggleFieldVisibility(hidden, f.id, next))}
       onReorder={onReorder}
       triggerIcon={EyeOff}
-      triggerLabel={hidden.length ? `${hidden.length} hidden` : 'Hide fields'}
-      triggerActive={hidden.length > 0}
+      triggerLabel={hiddenCount ? `${hiddenCount} hidden` : 'Hide fields'}
+      triggerActive={hiddenCount > 0}
     />
   );
 }

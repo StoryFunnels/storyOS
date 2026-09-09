@@ -9,7 +9,7 @@ import {
 import { randomBytes } from 'node:crypto';
 import { and, desc, eq, isNotNull, isNull } from 'drizzle-orm';
 import type { ViewConfig, ViewType } from '@storyos/schemas';
-import { SYSTEM_FIELDS } from '@storyos/schemas';
+import { SYSTEM_FIELDS, systemFieldId } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { databases, fields, relations, spaceFolders, views } from '../db/schema';
@@ -118,7 +118,13 @@ export function cleanViewConfig(
     sorts: (config.sorts ?? []).filter((s) => liveApiNames.has(s.field)),
     // MN-252: whole-sort empty-values placement rides alongside `sorts`.
     sorts_nulls: config.sorts_nulls,
-    hidden_field_ids: (config.hidden_field_ids ?? []).filter((id) => liveFieldIds.has(id)),
+    // #659 — the synthetic `__sys_number` id (#289) never has a stored field
+    // row, so it can never be in `liveFieldIds`; without this exception every
+    // read stripped it back out the instant it was written, silently undoing
+    // the toggle it was meant to persist.
+    hidden_field_ids: (config.hidden_field_ids ?? []).filter(
+      (id) => liveFieldIds.has(id) || id === systemFieldId('number'),
+    ),
     group_by_field_id:
       config.group_by_field_id && liveFieldIds.has(config.group_by_field_id)
         ? config.group_by_field_id
@@ -364,7 +370,10 @@ export class ViewsService {
     const apiNames = new Set([...live.map((f) => f.apiName), ...SYSTEM_FIELDS.map((f) => f.api_name)]);
 
     const referencedIds = [
-      ...(config.hidden_field_ids ?? []),
+      // #659 — `__sys_number` (#289) is a valid hidden_field_ids entry with no
+      // stored row; excluded here rather than added to `byId`, since it must
+      // stay invalid everywhere else this map is used (group_by/date fields).
+      ...(config.hidden_field_ids ?? []).filter((id) => id !== systemFieldId('number')),
       ...(config.card_field_ids ?? []),
       ...Object.keys(config.column_widths ?? {}),
       ...(config.group_by_field_id ? [config.group_by_field_id] : []),

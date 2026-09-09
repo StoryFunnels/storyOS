@@ -24,14 +24,15 @@ import { RelationEditor } from './relation-cell';
 import {
   useDatabase,
   useMembers,
+  useRecordCount,
   useRecordMutations,
   useRecordsInfinite,
 } from './use-table-data';
 import type { Field, RecordRow } from './use-table-data';
 import type { ViewConfig } from '../views/use-view-state';
-import { databaseNoun, recordHref, recordSegment } from '@/lib/records';
+import { databaseNoun, pluralNoun, recordHref, recordSegment } from '@/lib/records';
 import { useOpenRecord } from '@/components/entity/split-panel-context';
-import { systemFieldId } from '@storyos/schemas';
+import { isNumberColumnHidden } from './number-column';
 import { atLeast } from '@/lib/access';
 import { cn } from '@/lib/utils';
 import { DragPreview, useDragPresentation } from '@/components/ui/drag-presentation';
@@ -125,6 +126,10 @@ export function TableView({
   const noun = databaseNoun(database.data?.name);
   const records = useRecordsInfinite(ws, db, queryBody);
   const { updateRecord, createRecord, deleteRecord } = useRecordMutations(ws, db);
+  // #659 — the persistent "how many rows does this view hold" answer the row
+  // index alone can't give without scrolling to the end. Same filter as the
+  // grid's own query, so it always matches what's on screen.
+  const recordCount = useRecordCount(ws, db, queryBody?.['filter']);
 
   const fields = useMemo(
     () =>
@@ -144,16 +149,11 @@ export function TableView({
   useEffect(() => {
     if (autoOpenFieldId && database.data && !autoOpenField) onAutoOpenFieldConsumed?.();
   }, [autoOpenFieldId, database.data, autoOpenField, onAutoOpenFieldConsumed]);
-  // #289 — the public id renders in the row GUTTER, not as a column, so
-  // hidden_field_ids couldn't reach it and it was the one visible column nobody
-  // could turn off. The Fields picker now offers it via the canonical system-field
-  // id (`__sys_number`), and this is where that choice takes effect. Falls back to
-  // a real `number` field row's id when the database has one.
+  // #289/#659 — see number-column.ts: the record number now defaults to
+  // hidden, in favour of the row-index column below.
   const numberHidden = useMemo(() => {
-    const hidden = new Set(hiddenFieldIds ?? []);
-    if (hidden.has(systemFieldId('number'))) return true;
     const real = (database.data?.fields ?? []).find((f) => f.apiName === 'number');
-    return real ? hidden.has(real.id) : false;
+    return isNumberColumnHidden(hiddenFieldIds, real?.id);
   }, [hiddenFieldIds, database.data]);
 
   const hasUserField = fields.some((f) => f.type === 'user');
@@ -885,8 +885,15 @@ export function TableView({
         >
           {/* Header */}
           <div className="sticky top-0 z-20 flex border-b border-border-default bg-app">
-            <div className={cn('flex w-14 shrink-0 items-center justify-center bg-app text-[11px] font-medium text-faint', pinned && 'sticky left-0 z-30')}>
-              #
+            <div
+              className={cn('flex w-14 shrink-0 items-center justify-center bg-app text-[11px] font-medium text-faint', pinned && 'sticky left-0 z-30')}
+              // #659 — the persistent total-record-count AC: this gutter header is
+              // sticky in both axes already (pinned left + the header's own sticky
+              // top), so it's always on screen regardless of scroll — the one spot
+              // that never needed new positioning to satisfy "no scrolling required".
+              title={recordCount.data !== undefined ? `${recordCount.data} ${pluralNoun(noun, recordCount.data)}` : undefined}
+            >
+              {recordCount.data ?? '#'}
             </div>
             {fields.slice(0, frozenCount).map((field, i) => (
               <HeaderCell
@@ -997,18 +1004,27 @@ export function TableView({
                       selected.has(row.id) ? 'bg-accent-soft' : 'bg-card group-hover:bg-hover',
                     )}
                   >
-                    {/* Public id in the gutter by default (MN-087) — fades to row actions on
-                        hover, and can be hidden entirely from Fields (#289). */}
-                    {row.number !== null && !numberHidden && (
-                      <span
-                        className={cn(
-                          'text-[11px] tabular-nums text-faint',
-                          selected.size > 0 ? 'opacity-0' : 'group-hover:opacity-0',
-                        )}
-                      >
-                        {row.number}
-                      </span>
-                    )}
+                    {/*
+                      #659 — the view-relative row index (1, 2, 3…) is the new
+                      default first column: a live position/count indicator
+                      derived straight from this view's own filtered/sorted
+                      row order (`item.index`), so it recalculates for free
+                      whenever that order changes. It is not a field — never
+                      stored, never itself hideable. The permanent record
+                      number (MN-087) is now opt-in alongside it via Fields →
+                      Hide fields (#289) rather than the thing shown by
+                      default; both fade to row actions on hover, same as
+                      before.
+                    */}
+                    <span
+                      className={cn(
+                        'flex items-center gap-0.5 text-[11px] tabular-nums text-faint',
+                        selected.size > 0 ? 'opacity-0' : 'group-hover:opacity-0',
+                      )}
+                    >
+                      {item.index + 1}
+                      {row.number !== null && !numberHidden && <span>·{row.number}</span>}
+                    </span>
                     <div
                       className={cn(
                         'absolute inset-0 flex items-center justify-center gap-0.5',
