@@ -12,6 +12,7 @@ import {
   applyFieldDefaults,
   evaluateFormula,
   formulaRefs,
+  SORTABLE_FIELD_TYPES as SHARED_SORTABLE_FIELD_TYPES,
   systemFieldDefsFor,
   validateRecordValues,
 } from '@storyos/schemas';
@@ -171,11 +172,42 @@ export class RecordsService {
       list.push(option.id);
       optionsByField.set(option.fieldId, list);
     }
+    /**
+     * #657 — a relation field's own stored config carries `relation_id`/`side`
+     * but not whether IT is the single- or many-valued end; that lives on the
+     * shared `relations` row's `cardinality`. Denormalized onto a synthetic
+     * `config['multi']` here (never persisted — same pattern `option_ids`
+     * above already uses) so every caller checking "can this be sorted" reads
+     * ONE flag, the same shape `user`'s own `config['multi']` already is,
+     * rather than re-deriving cardinality+side itself. Side 'a' of a
+     * one_to_many relation is the "many" side's PARENT reference — each
+     * record on it has at most one link (relations.service.ts's own "side A
+     * is the many side: each record has at most one parent") — every other
+     * combination (one_to_many's side b, or many_to_many either side) can
+     * hold more than one.
+     */
+    const relationFields = fieldRows.filter((f) => f.type === 'relation');
+    const relationIds = [...new Set(relationFields.map((f) => (f.config as Record<string, unknown>)['relation_id'] as string))];
+    const relationRows = relationIds.length
+      ? await this.db.query.relations.findMany({ where: inArray(relations.id, relationIds) })
+      : [];
+    const cardinalityById = new Map(relationRows.map((r) => [r.id, r.cardinality]));
+    const multiByFieldId = new Map<string, boolean>();
+    for (const f of relationFields) {
+      const config = f.config as Record<string, unknown>;
+      const cardinality = cardinalityById.get(config['relation_id'] as string);
+      const side = config['side'] as 'a' | 'b' | undefined;
+      const isSingleValued = cardinality === 'one_to_many' && side === 'a';
+      multiByFieldId.set(f.id, !isSingleValued);
+    }
     return fieldRows.map((f) => ({
       id: f.id,
       api_name: f.apiName,
       type: f.type,
-      config: (f.config ?? {}) as Record<string, unknown>,
+      config:
+        f.type === 'relation'
+          ? { ...(f.config ?? {}), multi: multiByFieldId.get(f.id) }
+          : ((f.config ?? {}) as Record<string, unknown>),
       option_ids: optionsByField.get(f.id),
     }));
   }
@@ -4111,32 +4143,13 @@ function orderFormulasByDependency(formulaDefs: FieldDef[]): FieldDef[] {
  * sort spec is validated — a scheduled automation's top-N selection (#392)
  * reuses this exact function rather than a second, drifting copy of the same
  * rules (#375/#380/#383/#399/#408/#422's pattern).
+ *
+ * #657 — the SET itself now comes from @storyos/schemas (SORTABLE_FIELD_TYPES),
+ * the one list apps/web's own `SORTABLE` (view-toolbar.tsx) should import too
+ * instead of hand-copying — that hand-copy is exactly how `user` (and, before
+ * this ticket, `relation`) drifted out of sync between the two.
  */
-const SORTABLE_FIELD_TYPES = new Set([
-  'id',
-  'title',
-  'text',
-  'number',
-  'date',
-  'url',
-  'email',
-  'select',
-  'workflow',
-  // MN-267: rollup is now materialized too (recomputeRollupsForRelationField,
-  // invalidated via RollupInvalidationSubscriber on the related record's
-  // change or the relation's own link-set change) — reuses computed_values/
-  // fieldExpr()/the keyset cursor exactly like formula does (MN-260).
-  // #351: updated_by joins created_at/updated_at/created_by as a sortable
-  // system column (records.updated_by), via the registry-driven overlay above.
-  'checkbox',
-  'created_at',
-  'updated_at',
-  'created_by',
-  'updated_by',
-  'user',
-  'formula',
-  'rollup',
-]);
+const SORTABLE_FIELD_TYPES = new Set<string>(SHARED_SORTABLE_FIELD_TYPES);
 
 /**
  * Validate a caller's sort spec against a database's real fields, exactly as
@@ -4154,7 +4167,7 @@ export function validateSorts(
     if (!def) throw new UnprocessableEntityException(`unknown sort field "${s.field}"`);
     if (
       !SORTABLE_FIELD_TYPES.has(def.type) ||
-      (def.type === 'user' && def.config['multi'] === true)
+      ((def.type === 'user' || def.type === 'relation') && def.config['multi'] === true)
     ) {
       throw new UnprocessableEntityException(`cannot sort by ${def.type} field "${s.field}"`);
     }
