@@ -7,6 +7,7 @@ import { env } from '../../config/env';
 import type { Membership } from '../../workspaces/workspace-access.guard';
 import { TokensService } from '../../tokens/tokens.service';
 import { TyronThreadsService } from './threads.service';
+import { TyronSpendGuardService } from './tyron-spend-guard.service';
 import { McpToolCatalog } from './tool-catalog';
 import { scopeForRole } from '../agent-principal';
 import type { Role } from '../../workspaces/workspace-access.guard';
@@ -43,6 +44,7 @@ export class TyronService {
     @Inject(DB) private readonly db: Db,
     private readonly tokens: TokensService,
     private readonly threads: TyronThreadsService,
+    private readonly spendGuard: TyronSpendGuardService,
   ) {}
 
   /**
@@ -165,6 +167,15 @@ export class TyronService {
         // deploy.
         ...(usage ? { usage: { ...usage, model: env().OPENAI_MODEL } } : {}),
       });
+      // #353 — measured, never enforced (see the service's own doc). Never
+      // awaited into the response path: a broken spend guard must not break
+      // a real turn, same convention as every other fire-and-forget side
+      // effect here.
+      if (usage) {
+        void this.spendGuard
+          .recordUsage(membership.workspaceId, usage.tokensIn, usage.tokensOut)
+          .catch(() => undefined);
+      }
       /*
        * Store the pending call so "yes" executes exactly what was classified and
        * shown. Cleared on every turn that does NOT end in a question, so an
