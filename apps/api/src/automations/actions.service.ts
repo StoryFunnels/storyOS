@@ -271,6 +271,23 @@ export class AutomationActionsService {
         });
         if (!target)
           throw new UnprocessableEntityException(`${action.type} targets an unknown database`);
+        if (action.type === 'create_record' && action.upsert) {
+          const keyField = await this.db.query.fields.findFirst({
+            where: and(
+              eq(fields.id, action.upsert.key_field_id),
+              eq(fields.databaseId, action.database_id),
+              isNull(fields.deletedAt),
+            ),
+          });
+          if (!keyField) {
+            throw new UnprocessableEntityException('upsert.key_field_id must be a field on the target database');
+          }
+          if (!(keyField.config as Record<string, unknown>)['unique']) {
+            throw new UnprocessableEntityException(
+              `upsert.key_field_id ("${keyField.displayName}") is not marked unique — only a unique field (#229) can be an upsert key`,
+            );
+          }
+        }
         if (action.link_via_relation_field_id) {
           const relField = await this.db.query.fields.findFirst({
             where: and(
@@ -614,10 +631,15 @@ export class AutomationActionsService {
       }
       case 'create_record': {
         const values = this.interpolateValues(this.resolveTokens(action.values, ctx), ctx, displayToApi);
-        return {
-          snapshot: { ...action, values },
-          previewText: `Create a record${typeof values.name === 'string' ? ` "${values.name}"` : ''}`,
-        };
+        const named = typeof values.name === 'string' ? ` "${values.name}"` : '';
+        // #230 — a gated create_record configured to upsert might actually
+        // match and update (or skip) an existing record instead of creating
+        // one; the approver deserves the real possibility, not a guaranteed
+        // "Create" that the run itself might not honor.
+        const previewText = action.upsert
+          ? `Create${named}, or update/skip a matching existing record (upsert)`
+          : `Create a record${named}`;
+        return { snapshot: { ...action, values }, previewText };
       }
       case 'create_records': {
         // #246: the per-item {index}/token resolution happens at execute() time
@@ -942,16 +964,48 @@ export class AutomationActionsService {
           displayToApi,
           await this.numericContext(ctx.databaseId, action.database_id),
         );
-        const created = await this.recordsService.create(
-          ctx.workspaceId,
-          action.database_id,
-          values,
-          ctx.actorId,
-          ctx.depth ?? 0,
-          ctx.source ?? 'automation',
-        );
+        let created: { id: string; title: string };
+        let wasCreated = true;
+        if (action.upsert) {
+          // #230 — match-or-create on the configured key, via the SAME
+          // RecordsService.upsert() the REST/MCP endpoint uses. validate()
+          // already confirmed key_field_id is a unique field on this
+          // database, so the only new lookup here is its api_name.
+          const defs = await this.recordsService.fieldDefs(action.database_id);
+          const keyDef = defs.find((d) => d.id === action.upsert!.key_field_id);
+          if (!keyDef) {
+            throw new UnprocessableEntityException(
+              'upsert.key_field_id no longer exists on the target database',
+            );
+          }
+          const result = await this.recordsService.upsert(
+            ctx.workspaceId,
+            action.database_id,
+            keyDef.api_name,
+            values,
+            ctx.actorId,
+            ctx.source ?? 'automation',
+            undefined,
+            undefined,
+            action.upsert.on_match,
+          );
+          created = result.record;
+          wasCreated = result.created;
+        } else {
+          created = await this.recordsService.create(
+            ctx.workspaceId,
+            action.database_id,
+            values,
+            ctx.actorId,
+            ctx.depth ?? 0,
+            ctx.source ?? 'automation',
+          );
+        }
         // MN-254: a webhook-triggered create_record has no source record to link
-        // back to — skip the link rather than crash.
+        // back to — skip the link rather than crash. Linking runs even when an
+        // upsert matched-and-skipped: addLinks is idempotent, and a rule that
+        // runs repeatedly over time should keep the relation present rather
+        // than only setting it up the first time the record is created.
         if (action.link_via_relation_field_id && ctx.record) {
           await this.relationsService.addLinks(
             ctx.workspaceId,
@@ -966,7 +1020,13 @@ export class AutomationActionsService {
         effects.push({
           type: 'create_record',
           record_id: created.id,
-          summary: `Created "${created.title}"`,
+          summary: action.upsert
+            ? wasCreated
+              ? `Created "${created.title}"`
+              : action.upsert.on_match === 'skip'
+                ? `Matched existing "${created.title}" — left unchanged (skip)`
+                : `Updated existing "${created.title}"`
+            : `Created "${created.title}"`,
         });
       } else if (action.type === 'create_records') {
         // #246: a dynamic-count batch create. Each record shares one template;

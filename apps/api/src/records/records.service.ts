@@ -2189,6 +2189,15 @@ export class RecordsService {
     source: ChangeSource = 'human',
     agentId?: string,
     agentName?: string,
+    /**
+     * #230 — the automation create_record step's own "updates-or-skips per
+     * config" AC needs a match to leave the existing record untouched rather
+     * than always updating it. The REST/MCP upsert endpoint has no such
+     * config surface and always wants 'update' (its whole point is
+     * match-or-create-with-fresh-values), so this stays an optional trailing
+     * param rather than a required one every caller must decide on.
+     */
+    onMatch: 'update' | 'skip' = 'update',
   ): Promise<{ record: ProjectedRecord; created: boolean }> {
     const defs = await this.fieldDefs(databaseId);
     const def = defs.find((d) => d.api_name === keyField);
@@ -2207,6 +2216,10 @@ export class RecordsService {
     }
     const existing = await this.findUniqueConflict(databaseId, def.id, key, normalize);
     if (existing) {
+      if (onMatch === 'skip') {
+        const record = await this.get(databaseId, existing.id);
+        return { record, created: false };
+      }
       const record = await this.update(workspaceId, databaseId, existing.id, input, actorId, 0, source, agentId, agentName);
       return { record, created: false };
     }

@@ -929,6 +929,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         // #297: these all shipped and worked, but nothing an agent reads mentioned
         // them — so in practice they did not exist.
         'A record_linked trigger takes direction:"link"|"unlink" (omit = both). EVERY action takes an optional `condition` — a non-match skips just that action. ' +
+        '#230: a create_record action can take `upsert: { key_field_id, on_match: "update"|"skip" }` (key_field_id must be a field on the target database marked unique) so a re-triggered rule matches an existing record on that key instead of duplicating it — "update" (default) refreshes it with the new values, "skip" leaves it untouched. ' +
         'Template tokens: {Field Name} · {linked.Field Name} (the just-linked record) · {changesSummary} → "State: Urgent → Done" · {index} inside create_records. ' +
         'list_automations / get_automation read them back with names AND ids; update_automation enables/disables or edits (it replaces a trigger WHOLE — read first, pass back what you keep); delete_automation needs confirm=true; get_runs shows why a rule did or didn\'t fire.',
         '',

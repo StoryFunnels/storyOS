@@ -4440,6 +4440,15 @@ export interface components {
                 };
                 /** Format: uuid */
                 link_via_relation_field_id?: string;
+                upsert?: {
+                    /** Format: uuid */
+                    key_field_id: string;
+                    /**
+                     * @default update
+                     * @enum {string}
+                     */
+                    on_match: "update" | "skip";
+                };
             } | {
                 require_approval?: boolean;
                 condition?: unknown;
@@ -4607,6 +4616,15 @@ export interface components {
                 };
                 /** Format: uuid */
                 link_via_relation_field_id?: string;
+                upsert?: {
+                    /** Format: uuid */
+                    key_field_id: string;
+                    /**
+                     * @default update
+                     * @enum {string}
+                     */
+                    on_match: "update" | "skip";
+                };
             } | {
                 require_approval?: boolean;
                 condition?: unknown;

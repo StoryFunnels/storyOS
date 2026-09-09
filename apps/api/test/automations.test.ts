@@ -1129,3 +1129,185 @@ describe('MN-168 — entitlements wiring for the automations engine', () => {
     await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}`, { enabled: false });
   });
 });
+
+describe('#230 create_record upsert — updates-or-skips a matching record instead of duplicating', () => {
+  it('rejects a key_field_id that is not marked unique', async () => {
+    const space = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
+    const targetDb = (await inject('POST', `/workspaces/${wsId}/databases`, {
+      space_id: space,
+      name: 'Contacts 230a',
+    })).json();
+    const emailField = (await inject('POST', `/workspaces/${wsId}/databases/${targetDb.id}/fields`, {
+      display_name: 'Email',
+      type: 'text',
+      // deliberately NOT unique
+    })).json();
+
+    const res = await inject('POST', `/workspaces/${wsId}/databases/${dbId}/automations`, {
+      name: 'Upsert without a unique key',
+      trigger: { type: 'record_updated', field_id: stateFieldId },
+      actions: [
+        {
+          type: 'create_record',
+          database_id: targetDb.id,
+          values: { name: '{Name}', [emailField.apiName]: '{Name}@example.com' },
+          upsert: { key_field_id: emailField.id },
+        },
+      ],
+    });
+    expect(res.statusCode).toBe(422);
+    expect(res.body.toLowerCase()).toContain('unique');
+  });
+
+  it('updates the matching record instead of duplicating (default on_match)', async () => {
+    const space = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
+    const targetDb = (await inject('POST', `/workspaces/${wsId}/databases`, {
+      space_id: space,
+      name: 'Contacts 230b',
+    })).json();
+    const emailField = (await inject('POST', `/workspaces/${wsId}/databases/${targetDb.id}/fields`, {
+      display_name: 'Email',
+      type: 'text',
+      config: { unique: true },
+    })).json();
+    const tagField = (await inject('POST', `/workspaces/${wsId}/databases/${targetDb.id}/fields`, {
+      display_name: 'Tag',
+      type: 'text',
+    })).json();
+
+    const existing = (await inject('POST', `/workspaces/${wsId}/databases/${targetDb.id}/records`, {
+      values: { name: 'Old Name', [emailField.apiName]: 'match@example.com', [tagField.apiName]: 'original' },
+    })).json();
+
+    const rule = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/automations`, {
+      name: 'Upsert on email — update',
+      trigger: { type: 'record_updated', field_id: stateFieldId },
+      actions: [
+        {
+          type: 'create_record',
+          database_id: targetDb.id,
+          values: {
+            name: '{Name}',
+            [emailField.apiName]: 'match@example.com',
+            [tagField.apiName]: 'refreshed',
+          },
+          upsert: { key_field_id: emailField.id, on_match: 'update' },
+        },
+      ],
+    })).json();
+    expect(rule.id, JSON.stringify(rule)).toBeTruthy();
+
+    const rec = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records`, {
+      values: { name: 'Trigger 230b', [stateApi]: urgentId },
+    })).json();
+    await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/records/${rec.id}`, {
+      values: { [stateApi]: doneId },
+    });
+    await engine.settle(rec.id);
+    await wait(50);
+
+    // No duplicate — still exactly one record in the target database.
+    const all = (await inject('POST', `/workspaces/${wsId}/databases/${targetDb.id}/records/query`, {})).json();
+    expect(all.data).toHaveLength(1);
+
+    const updated = (await inject('GET', `/workspaces/${wsId}/databases/${targetDb.id}/records/${existing.id}`)).json();
+    expect(updated.values[tagField.apiName]).toBe('refreshed');
+
+    await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}`, { enabled: false });
+  });
+
+  it('leaves the matching record untouched when on_match is "skip"', async () => {
+    const space = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
+    const targetDb = (await inject('POST', `/workspaces/${wsId}/databases`, {
+      space_id: space,
+      name: 'Contacts 230c',
+    })).json();
+    const emailField = (await inject('POST', `/workspaces/${wsId}/databases/${targetDb.id}/fields`, {
+      display_name: 'Email',
+      type: 'text',
+      config: { unique: true },
+    })).json();
+    const tagField = (await inject('POST', `/workspaces/${wsId}/databases/${targetDb.id}/fields`, {
+      display_name: 'Tag',
+      type: 'text',
+    })).json();
+
+    await inject('POST', `/workspaces/${wsId}/databases/${targetDb.id}/records`, {
+      values: { name: 'Keep Me', [emailField.apiName]: 'skip@example.com', [tagField.apiName]: 'untouched' },
+    });
+
+    const rule = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/automations`, {
+      name: 'Upsert on email — skip',
+      trigger: { type: 'record_updated', field_id: stateFieldId },
+      actions: [
+        {
+          type: 'create_record',
+          database_id: targetDb.id,
+          values: {
+            name: 'Should not overwrite',
+            [emailField.apiName]: 'skip@example.com',
+            [tagField.apiName]: 'would-be-overwritten',
+          },
+          upsert: { key_field_id: emailField.id, on_match: 'skip' },
+        },
+      ],
+    })).json();
+
+    const rec = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records`, {
+      values: { name: 'Trigger 230c', [stateApi]: urgentId },
+    })).json();
+    await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/records/${rec.id}`, {
+      values: { [stateApi]: doneId },
+    });
+    await engine.settle(rec.id);
+    await wait(50);
+
+    const all = (await inject('POST', `/workspaces/${wsId}/databases/${targetDb.id}/records/query`, {})).json();
+    expect(all.data).toHaveLength(1);
+    expect(all.data[0].title).toBe('Keep Me');
+    expect(all.data[0].values[tagField.apiName]).toBe('untouched');
+
+    await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}`, { enabled: false });
+  });
+
+  it('creates a new record when nothing matches the key', async () => {
+    const space = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
+    const targetDb = (await inject('POST', `/workspaces/${wsId}/databases`, {
+      space_id: space,
+      name: 'Contacts 230d',
+    })).json();
+    const emailField = (await inject('POST', `/workspaces/${wsId}/databases/${targetDb.id}/fields`, {
+      display_name: 'Email',
+      type: 'text',
+      config: { unique: true },
+    })).json();
+
+    const rule = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/automations`, {
+      name: 'Upsert on email — no match yet',
+      trigger: { type: 'record_updated', field_id: stateFieldId },
+      actions: [
+        {
+          type: 'create_record',
+          database_id: targetDb.id,
+          values: { name: 'Brand New', [emailField.apiName]: 'new-230d@example.com' },
+          upsert: { key_field_id: emailField.id },
+        },
+      ],
+    })).json();
+
+    const rec = (await inject('POST', `/workspaces/${wsId}/databases/${dbId}/records`, {
+      values: { name: 'Trigger 230d', [stateApi]: urgentId },
+    })).json();
+    await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/records/${rec.id}`, {
+      values: { [stateApi]: doneId },
+    });
+    await engine.settle(rec.id);
+    await wait(50);
+
+    const all = (await inject('POST', `/workspaces/${wsId}/databases/${targetDb.id}/records/query`, {})).json();
+    expect(all.data).toHaveLength(1);
+    expect(all.data[0].title).toBe('Brand New');
+
+    await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}`, { enabled: false });
+  });
+});
