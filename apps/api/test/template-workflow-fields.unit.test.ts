@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { TEMPLATES } from '../src/templates/definitions';
+import { STARTER_PACKS } from '../src/packs/starter-packs';
 
 /**
  * #218 — a database's LIFECYCLE status must be a `workflow` field, not a plain
@@ -13,23 +14,51 @@ import { TEMPLATES } from '../src/templates/definitions';
  * Two rules, and the second is the one that can actually break an install:
  * seeding TWO workflow fields in one database is a 409 from
  * assertNoExistingWorkflowField — the template would fail to apply at all.
+ *
+ * Covers BOTH surfaces the ticket named: `templates/definitions/*.ts` (the
+ * `display_name` DSL) and `packs/starter-packs.ts` (the manifest DSL, which
+ * names the same property `name`) — the two were audited and fixed
+ * separately in this codebase's history and had drifted: definitions/*.ts
+ * was already converted by the time this file's TEMPLATES-only checks were
+ * written, but starter-packs.ts's own 18 lifecycle fields were still plain
+ * `select` until #218 closed the gap. One shared check over both sources is
+ * what keeps a THIRD manifest format from repeating the drift silently.
  */
 const LIFECYCLE = /^(status|state|stage|phase)$/i;
 
 interface TField {
   display_name?: string;
+  name?: string;
   type?: string;
 }
 
-describe('template lifecycle status fields (#218)', () => {
+interface TDatabase {
+  name: string;
+  fields?: TField[];
+}
+
+interface Source {
+  label: string;
+  databases: TDatabase[];
+}
+
+const SOURCES: Source[] = [
+  ...TEMPLATES.map((t) => ({ label: t.slug, databases: (t.databases ?? []) as TDatabase[] })),
+  ...STARTER_PACKS.map((p) => ({
+    label: p.slug,
+    databases: (p.manifest.databases ?? []) as unknown as TDatabase[],
+  })),
+];
+
+describe('template + pack lifecycle status fields (#218)', () => {
   it('never seeds two workflow fields in one database — that is a 409 on apply', () => {
-    for (const template of TEMPLATES) {
-      for (const db of template.databases ?? []) {
-        const workflows = (db.fields ?? []).filter((f: TField) => f.type === 'workflow');
+    for (const source of SOURCES) {
+      for (const db of source.databases) {
+        const workflows = (db.fields ?? []).filter((f) => f.type === 'workflow');
         expect(
           workflows.length,
-          `${template.slug} → ${db.name} has ${workflows.length} workflow fields: ${workflows
-            .map((f: TField) => f.display_name)
+          `${source.label} → ${db.name} has ${workflows.length} workflow fields: ${workflows
+            .map((f) => f.display_name ?? f.name)
             .join(', ')}`,
         ).toBeLessThanOrEqual(1);
       }
@@ -39,12 +68,13 @@ describe('template lifecycle status fields (#218)', () => {
   it('uses workflow (not select) for a field named like a lifecycle status', () => {
     const offenders: string[] = [];
     let checked = 0;
-    for (const template of TEMPLATES) {
-      for (const db of template.databases ?? []) {
-        for (const f of (db.fields ?? []) as TField[]) {
-          if (!LIFECYCLE.test(f.display_name ?? '')) continue;
+    for (const source of SOURCES) {
+      for (const db of source.databases) {
+        for (const f of db.fields ?? []) {
+          const label = f.display_name ?? f.name ?? '';
+          if (!LIFECYCLE.test(label)) continue;
           checked += 1;
-          if (f.type !== 'workflow') offenders.push(`${template.slug} → ${db.name} → ${f.display_name} is ${f.type}`);
+          if (f.type !== 'workflow') offenders.push(`${source.label} → ${db.name} → ${label} is ${f.type}`);
         }
       }
     }
