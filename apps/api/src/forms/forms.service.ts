@@ -1,4 +1,5 @@
 import {
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
@@ -17,6 +18,8 @@ import { resolveDatabaseColor } from '../common/database-color';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { databases, fields, memberships, records, relations, selectOptions, user, views } from '../db/schema';
+import { PortalActivityService } from '../portal/portal-activity.service';
+import { PortalRecipientsService } from '../portal/portal-recipients.service';
 import { RecordsService } from '../records/records.service';
 import { compileFilter } from '../records/query-compiler';
 import { cleanFilterNode } from '../views/views.service';
@@ -64,6 +67,8 @@ export class FormsService {
     @Inject(DB) private readonly db: Db,
     private readonly records: RecordsService,
     private readonly billing: BillingService,
+    private readonly portalRecipients: PortalRecipientsService,
+    private readonly portalActivity: PortalActivityService,
   ) {}
 
   /** Resolve a public token → its view + form config + database, or 404. */
@@ -339,13 +344,90 @@ export class FormsService {
     return { id: created.id, title: created.title, number: created.number };
   }
 
-  /** Validate + create a record from a public submission (anonymous author). */
-  async submit(token: string, values: Record<string, unknown>, honeypot?: string) {
+  /**
+   * #538 — resolve a portal recipient's bearer token against the form's OWN
+   * view (`config.share.recipient_scope_field_api_name` — the SAME key
+   * `PublicViewsService` reads for the read side, so a view is a portal
+   * consistently for both reading and writing rather than needing a second,
+   * form-specific config to stay in sync with the first). Returns undefined
+   * for an ordinary (non-portal) public form. Throws (and logs, once a real
+   * recipient row exists to attribute the rejection to) on every failure
+   * mode: wrong workspace, a scope field that no longer exists, or a
+   * recipient with no usable value for it — fail CLOSED, same posture as the
+   * read path's `IMPOSSIBLE_CONDITION`, because a write has no safe "matches
+   * nothing" degradation to fall back on.
+   */
+  private async resolvePortalScope(
+    view: typeof views.$inferSelect,
+    database: typeof databases.$inferSelect,
+    recipientToken: string | undefined,
+  ): Promise<
+    | { recipient: Awaited<ReturnType<PortalRecipientsService['resolveByToken']>>; scopeFieldApiName: string; scopeFieldType: string; stampValue: unknown }
+    | undefined
+  > {
+    const share = ((view.config as Record<string, unknown>).share ?? {}) as { recipient_scope_field_api_name?: string };
+    const scopeFieldApiName = share.recipient_scope_field_api_name;
+    if (!scopeFieldApiName) return undefined;
+
+    if (!recipientToken) throw new ForbiddenException('recipient required');
+    const recipient = await this.portalRecipients.resolveByToken(recipientToken);
+
+    const reject = async (reason: string) => {
+      await this.portalActivity.record({
+        workspaceId: database.workspaceId,
+        recipientId: recipient.id,
+        viewId: view.id,
+        outcome: 'rejected',
+        reason,
+      });
+      throw new ForbiddenException('invalid recipient');
+    };
+    // Defense in depth, same check as the read path: a recipient token is
+    // only ever minted for one workspace.
+    if (recipient.workspaceId !== database.workspaceId) await reject('recipient belongs to a different workspace');
+
+    const defs = await this.records.fieldDefs(database.id);
+    const scopeField = defs.find((f) => f.api_name === scopeFieldApiName);
+    if (!scopeField) await reject('portal scope field no longer exists');
+
+    const stampValue = scopeField!.type === 'relation' ? recipient.linkedRecordId ?? null : recipient.email ?? null;
+    if (stampValue == null) await reject('recipient has no usable value for the portal scope field');
+
+    return {
+      recipient,
+      scopeFieldApiName,
+      scopeFieldType: scopeField!.type,
+      stampValue: scopeField!.type === 'relation' ? [stampValue] : stampValue,
+    };
+  }
+
+  /**
+   * Validate + create (or, portal-scoped, edit) a record from a public
+   * submission (anonymous author).
+   *
+   * #538 — `recipientToken`/`recordId` are both new and both optional: an
+   * ordinary public form never supplies either, so its behavior is byte-for-
+   * byte unchanged (MUST KEEP WORKING). Editing is a portal-only capability —
+   * `recordId` on a form whose view isn't portal-scoped is a 422, not a
+   * silent no-op or a generic write.
+   */
+  async submit(
+    token: string,
+    values: Record<string, unknown>,
+    honeypot?: string,
+    recipientToken?: string,
+    recordId?: string,
+  ) {
     // Bots fill hidden fields — accept and silently drop so they don't retry.
     if (honeypot && honeypot.trim() !== '') return { ok: true };
 
     const def = await this.getDefinition(token);
-    const { database } = await this.resolve(token);
+    const { view, database } = await this.resolve(token);
+
+    const portal = await this.resolvePortalScope(view, database, recipientToken);
+    if (!portal && recordId) {
+      throw new UnprocessableEntityException('this form does not support editing a record');
+    }
 
     // #263 — resolve which fields the submitted answers actually reveal. This is
     // the SAME evaluator the renderer uses (packages/schemas), so the browser and
@@ -390,8 +472,69 @@ export class FormsService {
       clean,
     );
 
+    // #538 — the scope field is NEVER client-controlled: whatever the client
+    // submitted for it (present, absent, or forged) is discarded and replaced
+    // with the server-derived value. This is what makes "cannot alter the
+    // attribution" hold even if the operator's own form happens to expose
+    // that field, and even though it was already dropped once above by the
+    // visible-fields allowlist if the operator DIDN'T expose it.
+    if (portal) clean[portal.scopeFieldApiName] = portal.stampValue;
+
+    if (portal && recordId) {
+      // #538 — a relation field's value lives in `record_links`, not the raw
+      // `records.values` jsonb (that only holds scalar field values); reading
+      // the raw row directly, as `enforceRelationFilters` does for scalar
+      // relation-id INPUTS, would see nothing for it. `RecordsService.get()`
+      // is the same projection/attachLinks pipeline the read API uses (no
+      // membership — same "no signed-in visitor" posture as the public views
+      // read path), so a relation scope field resolves to real linked-record
+      // ids here exactly as `enforceRelationFilters` and `getPublicView`
+      // already trust it to.
+      let target: Awaited<ReturnType<RecordsService['get']>> | undefined;
+      try {
+        target = await this.records.get(database.id, recordId);
+      } catch {
+        target = undefined;
+      }
+      const currentScopeVal = target?.values[portal.scopeFieldApiName];
+      const ownsRecord =
+        portal.scopeFieldType === 'relation'
+          ? (Array.isArray(currentScopeVal) ? currentScopeVal : currentScopeVal != null ? [currentScopeVal] : [])
+              .map((v) => (v && typeof v === 'object' && 'id' in v ? (v as { id: string }).id : v))
+              .includes(portal.recipient.linkedRecordId)
+          : currentScopeVal === portal.recipient.email;
+      if (!target || !ownsRecord) {
+        await this.portalActivity.record({
+          workspaceId: database.workspaceId,
+          recipientId: portal.recipient.id,
+          viewId: view.id,
+          outcome: 'rejected',
+          reason: target ? 'record does not belong to this recipient' : 'record not found',
+        });
+        throw new NotFoundException('Record not found');
+      }
+      const updated = await this.records.update(database.workspaceId, database.id, recordId, clean, null);
+      await this.portalActivity.record({
+        workspaceId: database.workspaceId,
+        recipientId: portal.recipient.id,
+        viewId: view.id,
+        outcome: 'served',
+        reason: 'portal form edit',
+      });
+      return { ok: true, id: updated.id };
+    }
+
     // Anonymous author: createdBy/actor is null (renders as a deactivated user).
     const created = await this.records.create(database.workspaceId, database.id, clean, null);
+    if (portal) {
+      await this.portalActivity.record({
+        workspaceId: database.workspaceId,
+        recipientId: portal.recipient.id,
+        viewId: view.id,
+        outcome: 'served',
+        reason: 'portal form create',
+      });
+    }
     return { ok: true, id: created.id };
   }
 

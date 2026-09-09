@@ -9,6 +9,15 @@ const publicSubmitSchema = z.object({
   values: z.record(z.string(), z.unknown()).default({}),
   /** Honeypot — real users never fill this; bots do. */
   hp: z.string().optional(),
+  /** #538 — a portal recipient's bearer token, same shape/param name as
+   *  PublicViewsService's `opts.recipient`. Only meaningful (and required)
+   *  when the form's own view has `config.share.recipient_scope_field_api_name`
+   *  set; ignored otherwise, so an ordinary public form is unaffected. */
+  recipient: z.string().optional(),
+  /** #538 — present only to EDIT an existing record through a portal form
+   *  (never available on an ordinary public form); the record must already
+   *  belong to the resolving recipient's scope. */
+  record_id: z.uuid().optional(),
 });
 class PublicSubmitDto extends createZodDto(publicSubmitSchema) {}
 
@@ -35,9 +44,9 @@ export class PublicFormsController {
 
   @Post(':token')
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
-  @ApiOperation({ summary: 'Submit a public form → creates a record (anonymous)' })
+  @ApiOperation({ summary: 'Submit a public form → creates or (portal-scoped) edits a record (anonymous)' })
   submit(@Param('token') token: string, @Body() body: PublicSubmitDto) {
-    return this.forms.submit(token, body.values, body.hp);
+    return this.forms.submit(token, body.values, body.hp, body.recipient, body.record_id);
   }
 
   /**

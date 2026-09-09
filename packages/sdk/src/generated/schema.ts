@@ -3901,7 +3901,7 @@ export interface paths {
         /** Public form definition (link/public access only) */
         get: operations["PublicFormsController_get"];
         put?: never;
-        /** Submit a public form → creates a record (anonymous) */
+        /** Submit a public form → creates or (portal-scoped) edits a record (anonymous) */
         post: operations["PublicFormsController_submit"];
         delete?: never;
         options?: never;
@@ -5794,6 +5794,9 @@ export interface components {
                 [key: string]: unknown;
             };
             hp?: string;
+            recipient?: string;
+            /** Format: uuid */
+            record_id?: string;
         };
         CreateRelationTargetDto: {
             title: string;
