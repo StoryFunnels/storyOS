@@ -31,6 +31,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { guestInviteHref } from '@/lib/guest-invite';
 import { cn } from '@/lib/utils';
+import { SchemaMap, ViewThumbnail } from '@/components/template-preview';
 
 export interface TemplatePreview {
   databases: Array<{ name: string; fields: Array<{ name: string; type: string }> }>;
@@ -213,40 +214,6 @@ function GuideText({ markdown }: { markdown: string }) {
   );
 }
 
-function PreviewPanel({ preview }: { preview: TemplatePreview }) {
-  return (
-    <div className="flex flex-col gap-3 rounded-[var(--radius-card)] border border-border-default bg-canvas p-3">
-      <div>
-        <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-faint">Databases</p>
-        <div className="flex flex-col gap-1.5">
-          {preview.databases.map((db) => (
-            <div key={db.name}>
-              <p className="text-[13px] font-medium text-ink">{db.name}</p>
-              <p className="text-[12px] text-muted">
-                {db.fields.map((f) => f.name).join(' · ')}
-              </p>
-            </div>
-          ))}
-        </div>
-      </div>
-      {preview.relations.length > 0 && (
-        <div>
-          <p className="mb-1 text-[11px] font-medium uppercase tracking-wider text-faint">Relations</p>
-          <p className="text-[12px] text-muted">{preview.relations.join('  ·  ')}</p>
-        </div>
-      )}
-      {preview.views.length > 0 && (
-        <div>
-          <p className="mb-1 text-[11px] font-medium uppercase tracking-wider text-faint">Views</p>
-          <p className="text-[12px] text-muted">
-            {preview.views.map((v) => `${v.name} (${v.type})`).join(' · ')}
-          </p>
-        </div>
-      )}
-    </div>
-  );
-}
-
 /**
  * In-workspace template gallery (MN-033): browse by category, preview the
  * schema, and install — packs get a space name, database templates pick a
@@ -313,7 +280,12 @@ export function TemplateGalleryDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent title={selected ? selected.name : 'Templates'} className="max-w-xl">
+      {/* #663 — wider than max-w-xl: the detail screen now leads with view
+          thumbnails and a schema map, which need room to be legible. */}
+      <DialogContent
+        title={selected ? selected.name : 'Templates'}
+        className={selected ? 'max-w-3xl' : 'max-w-xl'}
+      >
         {!selected ? (
           <div className="flex flex-col gap-3">
             <div className="flex gap-1">
@@ -349,13 +321,51 @@ export function TemplateGalleryDialog({
               <ArrowLeft className="h-3 w-3" /> All templates
             </button>
             <p className="-mt-2 text-[13px] text-ink-secondary">{selected.description}</p>
-            <div className="flex max-h-[45vh] flex-col gap-3 overflow-y-auto">
-              {selected.guide && (
-                <div className="rounded-[var(--radius-card)] border border-border-default bg-card p-3">
-                  <GuideText markdown={selected.guide} />
+            {/* #663 — VISUAL FIRST. What you get, drawn, before a word of prose:
+                the views you would land in, then the databases behind them. The
+                guide is still here and still useful — it is just no longer the
+                surface you have to read in order to decide. */}
+            <div className="flex max-h-[55vh] flex-col gap-4 overflow-y-auto pr-1">
+              {selected.preview.views.length > 0 && (
+                <div>
+                  <p className="mb-2 text-meta font-medium uppercase tracking-wider text-faint">
+                    You get {selected.preview.views.length}{' '}
+                    {selected.preview.views.length === 1 ? 'view' : 'views'}
+                  </p>
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                    {selected.preview.views.map((v) => (
+                      <ViewThumbnail
+                        key={`${v.database ?? ''}-${v.name}`}
+                        name={v.name}
+                        type={v.type}
+                        database={v.database}
+                      />
+                    ))}
+                  </div>
                 </div>
               )}
-              <PreviewPanel preview={selected.preview} />
+              {selected.preview.databases.length > 0 && (
+                <div>
+                  <p className="mb-2 text-meta font-medium uppercase tracking-wider text-faint">
+                    {selected.preview.databases.length}{' '}
+                    {selected.preview.databases.length === 1 ? 'database' : 'databases'}
+                  </p>
+                  <SchemaMap
+                    databases={selected.preview.databases}
+                    relations={selected.preview.relations}
+                  />
+                </div>
+              )}
+              {selected.guide && (
+                <details className="rounded-[var(--radius-card)] border border-border-default bg-card p-3">
+                  <summary className="cursor-pointer text-body font-medium text-ink-secondary">
+                    How this works
+                  </summary>
+                  <div className="mt-2">
+                    <GuideText markdown={selected.guide} />
+                  </div>
+                </details>
+              )}
             </div>
 
             {selected.scope === 'pack' ? (
