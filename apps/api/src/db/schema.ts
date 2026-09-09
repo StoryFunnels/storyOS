@@ -74,6 +74,8 @@ export const fieldType = pgEnum('field_type', [
   'rollup',
   'button',
   'formula',
+  // #571 — a field computed by an LLM call, not typed or aggregated.
+  'ai',
   'created_at',
   'updated_at',
   'created_by',

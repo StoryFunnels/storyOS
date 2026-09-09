@@ -16,6 +16,8 @@ import type {
 } from '@storyos/schemas';
 import {
   activeFilter,
+  aiFieldConfigSchema,
+  aiPromptRefs,
   FormulaError,
   formulaRefs,
   formulaTypeOfFieldType,
@@ -222,6 +224,11 @@ export class FieldsService {
     const apiName = await this.uniqueApiName(databaseId, input.display_name);
     if (input.type === 'formula') {
       input.config = await this.compileFormulaConfig(databaseId, input.config ?? {}, apiName);
+    }
+    // #571 — no selfFieldId on create: nothing can already depend on a field
+    // that doesn't exist yet, so a cycle can't form through it here.
+    if (input.type === 'ai') {
+      input.config = await this.assertAiFieldConfig(databaseId, input.config ?? {});
     }
     // No prior config to preserve against on create — this only strips any stray
     // presence flags so a `{ __keep: true }` never lands in storage (#249).
@@ -525,6 +532,134 @@ export class FieldsService {
     visit(formulaRefs(ast), 1);
 
     return { expression, ast, result_type: resultType };
+  }
+
+  /**
+   * Field types an AI prompt may depend on — plain, directly-written fields
+   * only. Excludes 'ai' (own cycle-check branch handles that), and, more
+   * load-bearingly, 'formula'/'rollup'/'lookup': recompute dispatch
+   * (AiFieldSubscriber) fires off `record_updated`'s `changedFieldIds`, which
+   * is the diff of the WRITTEN `values` bag — a computed field's own id never
+   * appears there (formula/rollup write only to `computed_values`, on a
+   * schedule this record's own write doesn't control; a lookup is never
+   * materialized at all). Allowing one as a dependency would compile and look
+   * configured, then silently never recompute again after the first write —
+   * exactly the "confident but wrong" failure this ticket's own AC (and
+   * Tyron's grounding rules) refuse to ship. A real fix needs the rollup/
+   * lookup invalidation paths to emit their own domain event; until then this
+   * is a deliberate v1 narrowing, disclosed on the ticket rather than left
+   * for #620 or a future reader to discover as unexplained staleness.
+   */
+  private static readonly AI_DEPENDABLE_FIELD_TYPES = new Set([
+    'text',
+    'rich_text',
+    'number',
+    'checkbox',
+    'date',
+    'select',
+    'multi_select',
+    'workflow',
+    'url',
+    'email',
+    'color',
+    'user',
+    'attachment',
+  ]);
+
+  /**
+   * #571 — validates and compiles an AI field's config. `prompt`'s
+   * `{Field Name}` tokens are resolved against this database's LIVE fields
+   * (own-record only in v1 — no `{Relation.Field}` reach yet, unlike
+   * formula's one-level-deep relation traversal; the record bag an AI
+   * prompt renders against is built the same way automation actions'
+   * `interpolate()` builds its bag, and that bag has no relation-field
+   * scope to walk into). An unresolved token is a 422 naming it, never a
+   * silently-blank substitution the model would confidently reason over.
+   *
+   * `selfFieldId` is only known on update (a create has no id yet, and
+   * nothing else could already depend on a field that doesn't exist) — it's
+   * what makes the cycle walk below concrete rather than name-based.
+   */
+  private async assertAiFieldConfig(
+    databaseId: string,
+    config: Record<string, unknown>,
+    selfFieldId?: string,
+  ): Promise<Record<string, unknown>> {
+    const parsed = aiFieldConfigSchema.safeParse(config);
+    if (!parsed.success) {
+      throw new UnprocessableEntityException(
+        parsed.error.issues[0]?.message ?? 'invalid ai field config',
+      );
+    }
+    const { prompt, output } = parsed.data;
+    const live = await this.db.query.fields.findMany({
+      where: and(eq(fields.databaseId, databaseId), isNull(fields.deletedAt)),
+    });
+    const byDisplayName = new Map(live.map((f) => [f.displayName, f]));
+
+    const dependencyFieldIds: string[] = [];
+    const unknownRefs: string[] = [];
+    for (const ref of aiPromptRefs(prompt)) {
+      if (ref.toLowerCase() === 'name' || ref.toLowerCase() === 'title') continue; // the record's own title — no field row to depend on
+      const field = byDisplayName.get(ref);
+      if (!field) {
+        unknownRefs.push(ref);
+        continue;
+      }
+      if (field.id === selfFieldId) {
+        throw new UnprocessableEntityException(
+          'An AI field cannot reference its own field — it would create a cycle',
+        );
+      }
+      if (field.type === 'ai') {
+        dependencyFieldIds.push(field.id); // own-cycle branch below covers this
+        continue;
+      }
+      if (!FieldsService.AI_DEPENDABLE_FIELD_TYPES.has(field.type)) {
+        throw new UnprocessableEntityException(
+          `prompt references "${ref}", a ${field.type} field — AI fields cannot depend on a computed field (formula/rollup/lookup) in v1, since a change to it would not trigger recompute`,
+        );
+      }
+      dependencyFieldIds.push(field.id);
+    }
+    if (unknownRefs.length > 0) {
+      throw new UnprocessableEntityException(
+        `prompt references unknown field(s): ${unknownRefs.join(', ')}`,
+      );
+    }
+
+    // Cycle check: this field's prompt must not depend, directly or
+    // transitively (through other AI fields), on itself. Only reachable on
+    // update — see selfFieldId's doc above.
+    if (selfFieldId) {
+      const aiDeps = new Map(
+        live
+          .filter((f) => f.type === 'ai')
+          .map((f) => [
+            f.id,
+            ((f.config as Record<string, unknown>)['dependency_field_ids'] as string[] | undefined) ?? [],
+          ]),
+      );
+      aiDeps.set(selfFieldId, dependencyFieldIds); // this save's fresh deps, not the stale stored ones
+      const reachesSelf = (ids: string[], depth: number): boolean => {
+        if (depth > 5) {
+          throw new UnprocessableEntityException('AI field prompt chains are limited to 5 levels');
+        }
+        for (const id of ids) {
+          if (id === selfFieldId) return true;
+          const nested = aiDeps.get(id);
+          if (nested && reachesSelf(nested, depth + 1)) return true;
+        }
+        return false;
+      };
+      if (reachesSelf(dependencyFieldIds, 1)) {
+        throw new UnprocessableEntityException(
+          'An AI field prompt cannot depend, directly or transitively, on another AI field that depends on it — this would create a recompute cycle',
+        );
+      }
+    }
+
+    return { prompt, output, dependency_field_ids: dependencyFieldIds };
   }
 
   /** Types a lookup can surface — no chains (lookup-of-lookup) or nested relations in v1. */
@@ -1039,6 +1174,25 @@ export class FieldsService {
       // The stored sort key was computed under the OLD config — recompute it,
       // for the same reason a recompiled formula is re-materialized below.
       rollupConfigChanged = JSON.stringify(merged) !== JSON.stringify(field.config);
+    } else if (field.type === 'ai' && patch.config !== undefined) {
+      // #571 — same "compiled artifact, not a merge target" shape as formula:
+      // dependency_field_ids is derived from `prompt`, never client-supplied,
+      // so a config-only patch (e.g. changing `output`) must still re-default
+      // `prompt` from the stored value or it would blank on every save.
+      const stored = field.config as Record<string, unknown>;
+      const merged = {
+        ...stored,
+        ...patch.config,
+        prompt: patch.config['prompt'] ?? stored['prompt'] ?? '',
+      };
+      nextConfig = await this.assertAiFieldConfig(databaseId, merged, field.id);
+      // #571 AC — recompute is triggered by a write to a DEPENDENCY field, not
+      // by editing the prompt itself. A prompt edit deliberately does NOT
+      // eagerly re-run the model across every existing record (unlike
+      // formula/rollup's cheap, free recompute, an LLM call per row is real
+      // cost) — existing rows keep their last-computed value, now stale
+      // against the new prompt, until their next dependency write. Flagged as
+      // a known v1 gap on the ticket rather than silently building it.
     } else if (
       (field.type === 'select' || field.type === 'workflow') &&
       patch.config !== undefined

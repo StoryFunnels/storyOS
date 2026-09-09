@@ -2744,6 +2744,9 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
   const FIELD_TYPES = [
     'text', 'rich_text', 'number', 'checkbox', 'date', 'select', 'multi_select', 'workflow',
     'url', 'email', 'color', 'user', 'attachment', 'lookup', 'rollup', 'button', 'formula',
+    // #571 — a field computed by an LLM call. Config: {prompt, output}, where
+    // output is {kind:'text'} or {kind:'choice', options:[...]}.
+    'ai',
   ] as const;
   /**
    * #216 — an option may carry a curated `icon` ref (`set:<name>` / `brand:<slug>`),
@@ -2770,7 +2773,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       description:
         'Add a field to a database. For select/multi_select/workflow pass options as labels. Use `workflow` (not `select`) for the ' +
         'lifecycle status a database is tracked by \u2014 it is the canonical status field: at most ONE per database, and board grouping, ' +
-        'the mention badge and My Work all key off it. A plain `select` is for any other list of choices. lookup/rollup/formula need config. Rollup config: {relation_field_id, op}, where op is count|sum|avg|min|max (aggregate a number field via target_field_api_name) or first|last (#286 — order the linked records by order_by_field_api_name and return that record\'s target_field_api_name, or omit it for a link to the record itself). Optional filter narrows the linked records first. (Relations link two databases — not added here yet.) Returns the field.',
+        'the mention badge and My Work all key off it. A plain `select` is for any other list of choices. lookup/rollup/formula/ai need config. Rollup config: {relation_field_id, op}, where op is count|sum|avg|min|max (aggregate a number field via target_field_api_name) or first|last (#286 — order the linked records by order_by_field_api_name and return that record\'s target_field_api_name, or omit it for a link to the record itself). Optional filter narrows the linked records first. (Relations link two databases — not added here yet.) ' +
+        'AI field config: {prompt, output}. prompt uses {Field Name} tokens over this record\'s OWN fields only (no relation reach in v1). output is {kind:"text"} for free text or {kind:"choice", options:["a","b"]} to constrain the model to one of a fixed set. Recomputes automatically when a referenced field is written — never on read, never per view. Returns the field.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),

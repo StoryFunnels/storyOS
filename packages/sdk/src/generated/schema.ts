@@ -1248,896 +1248,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/workspaces/{ws}/relations": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Every relation in the workspace — one entry per relation, both sides resolved (#448) */
-        get: operations["RelationsController_list"];
-        put?: never;
-        /** Create a relation — needs creator on BOTH databases */
-        post: operations["RelationsController_create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/relations/{rel}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Relation config + comparable fields for the auto-link editor */
-        get: operations["RelationsController_detail"];
-        put?: never;
-        post?: never;
-        /** Delete a relation, both its fields, and all links (confirm: true) */
-        delete: operations["RelationsController_remove"];
-        options?: never;
-        head?: never;
-        /** Set or clear a relation’s auto-link rules (MN-085) */
-        patch: operations["RelationsController_update"];
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/relations/{rel}/auto-link": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Run auto-link now across existing records — returns a summary (MN-085) */
-        post: operations["RelationsController_runAutoLink"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/relations/{rel}/select-drift": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Detect select↔relation drift for a parent record (MN-286): child records whose select-field label matches the parent’s title but aren’t linked here */
-        get: operations["RelationsController_selectDrift"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/relations/{rel}/select-drift/reconcile": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Bulk-link every currently-drifted child record to the parent (MN-286) */
-        post: operations["RelationsController_reconcileSelectDrift"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/links/{field}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Linked records for a relation field ({id, title} chips) */
-        get: operations["LinksController_list"];
-        /** Replace all links for this record on this field */
-        put: operations["LinksController_replace"];
-        /** Add links (409 when one-to-many already linked) */
-        post: operations["LinksController_add"];
-        /** Remove specific links */
-        delete: operations["LinksController_remove"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/portal-recipients": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List portal recipients for this workspace */
-        get: operations["PortalRecipientsController_list"];
-        put?: never;
-        /** Create a portal recipient — never creates a user, never touches billable seats */
-        post: operations["PortalRecipientsController_create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/portal-recipients/{recipient}/revoke": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Revoke a recipient — every access path closes immediately, no cache/TTL */
-        post: operations["PortalRecipientsController_revoke"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/portal-recipients/{recipient}/rotate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Issue a new token for a recipient, atomically invalidating the old one (#602) */
-        post: operations["PortalRecipientsController_rotate"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/portal-activity": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Portal recipient activity — what a client saw and did, filterable by recipient/view (admin) */
-        get: operations["PortalActivityController_list"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/databases/{db}/views": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Create a saved view (config validated against live fields) */
-        post: operations["ViewsController_create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/databases/{db}/views/personal": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Create a view owned by me (private, never shared) over this database */
-        post: operations["ViewsController_createPersonal"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/databases/{db}/views/{view}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /** Delete a view (409 on the last shared one) */
-        delete: operations["ViewsController_remove"];
-        options?: never;
-        head?: never;
-        /** Rename / reconfigure / reorder a view */
-        patch: operations["ViewsController_update"];
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/databases/{db}/views/{view}/duplicate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Duplicate a view with its full config, placed next to the original */
-        post: operations["ViewsController_duplicate"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/databases/{db}/views/{view}/default": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Set this view as the database's default (one default per database) */
-        post: operations["ViewsController_setDefault"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/databases/{db}/views/trash": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Deleted views on this database (editor+) */
-        get: operations["ViewsController_listTrash"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/databases/{db}/views/{view}/restore": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Restore a deleted view */
-        post: operations["ViewsController_restore"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/databases/{db}/views/{view}/share": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Publish a read-only public link for this view, or update its allowlist (#264) */
-        post: operations["ViewsController_share"];
-        /** Revoke a view's public link — takes effect immediately (#264) */
-        delete: operations["ViewsController_unshare"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/databases/{db}/views/{view}/personal-filter": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** My personal filter override for this view (cleaned of dead field refs) */
-        get: operations["PersonalFilterController_get"];
-        /** Set (or replace) my personal filter override for this view */
-        put: operations["PersonalFilterController_set"];
-        post?: never;
-        /** Clear my personal filter override for this view */
-        delete: operations["PersonalFilterController_clear"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/spaces/{space}/views": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Views navigable in a space, for the sidebar tree (#347) */
-        get: operations["SpaceViewsController_list"];
-        put?: never;
-        /** Create a space-level view — dashboards only (#306) */
-        post: operations["SpaceViewsController_create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/views/personal": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** My own personal views across the workspace, for the Personal sidebar section (#551) */
-        get: operations["SpaceViewsController_listPersonal"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/views/{view}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** One view by id, with or without a database (#306) */
-        get: operations["SpaceViewsController_get"];
-        put?: never;
-        post?: never;
-        /** Delete a space-level view (#383) */
-        delete: operations["SpaceViewsController_remove"];
-        options?: never;
-        head?: never;
-        /** Update a view by id — name / config / placement (#306) */
-        patch: operations["SpaceViewsController_update"];
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/views/{view}/move-to-space": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Move a database-level dashboard into its space (#306) */
-        post: operations["SpaceViewsController_moveToSpace"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/public/views/{token}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Public view definition + one page of records (link/public access only) */
-        get: operations["PublicViewsController_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/databases/{db}/export/csv": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Download the database (or a view) as CSV */
-        get: operations["ExportController_csv"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/export/workspace.zip": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Download the whole workspace as a .zip (schema, records, relations, attachments) */
-        get: operations["WorkspaceExportController_workspace"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/webhooks": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List webhooks (secrets are never returned) */
-        get: operations["WebhooksController_list"];
-        put?: never;
-        /** Create a webhook — the signing secret is returned once, here only */
-        post: operations["WebhooksController_create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/webhooks/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /** Delete a webhook */
-        delete: operations["WebhooksController_remove"];
-        options?: never;
-        head?: never;
-        /** Update a webhook (url / events / enabled) */
-        patch: operations["WebhooksController_update"];
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/webhooks/{id}/deliveries": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Recent delivery attempts — status, code, error, retries */
-        get: operations["WebhooksController_deliveries"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/document": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Record description (BlockNote JSON; version 0 = never written) */
-        get: operations["DocumentsController_get"];
-        /** Write the description — 409 with current version on conflict */
-        put: operations["DocumentsController_put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/spaces/{space}/documents": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Standalone documents in a space (MN-095) */
-        get: operations["SpaceDocumentsController_list"];
-        put?: never;
-        /** Create a standalone document in a space */
-        post: operations["SpaceDocumentsController_create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/documents/{doc}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** A standalone document (BlockNote content + version) */
-        get: operations["SpaceDocumentsController_get"];
-        put?: never;
-        post?: never;
-        /** Delete a standalone document */
-        delete: operations["SpaceDocumentsController_remove"];
-        options?: never;
-        head?: never;
-        /** Update title/icon/content — 409 on version conflict */
-        patch: operations["SpaceDocumentsController_update"];
-        trace?: never;
-    };
-    "/api/v1/me/tokens": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** My personal access tokens (prefix only — plaintext is never stored) */
-        get: operations["TokensController_list"];
-        put?: never;
-        /** Create a PAT — the token is shown ONCE in this response */
-        post: operations["TokensController_create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/me/tokens/{token}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /** Revoke a token (immediate) */
-        delete: operations["TokensController_revoke"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/comments": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Comments, newest first */
-        get: operations["CommentsController_list"];
-        put?: never;
-        /** Comment (guests included); mentions extracted server-side */
-        post: operations["CommentsController_create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/comments/{comment}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /** Delete own comment (admins: any) */
-        delete: operations["CommentsController_remove"];
-        options?: never;
-        head?: never;
-        /** Edit own comment */
-        patch: operations["CommentsController_update"];
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/activity": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Record activity trail, newest first (cursor) */
-        get: operations["ActivityController_list"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/versions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Record version history, newest first (cursor) */
-        get: operations["RecordVersionsController_list"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/versions/changes": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Per-field change history, newest first (cursor) */
-        get: operations["RecordVersionsController_changes"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/versions/{version}/restore": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Restore the record to a previously captured version */
-        post: operations["RecordVersionsController_restore"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/audit-log": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Workspace-wide activity + field changes, filterable by actor/entity/date range (admin) */
-        get: operations["AuditLogController_list"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/files": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Upload an image for the editor (multipart "file"); returns { id, url } */
-        post: operations["FilesController_upload"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/files/{id}/download-url": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Mint a signed, expiring download URL for a file (#201) */
-        post: operations["FilesController_mintDownloadUrl"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/files/{id}/revoke": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Revoke a file — kills its capability URL and any signed download URLs (#201) */
-        post: operations["FilesController_revoke"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/files/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Serve an uploaded editor image by id (capability URL, or access-checked under private-attachments mode) */
-        get: operations["PublicFilesController_serve"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/files/{id}/download": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Download a file via a signed, expiring URL (#201) */
-        get: operations["FileDownloadController_download"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/search": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Search records by title + databases/spaces by name (grant-scoped) */
-        get: operations["SearchController_search"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/my-work": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Records across databases assigned to me or created by me (MN-049, #36) */
-        get: operations["SearchController_myWork"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/recent": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Records the caller touched most recently (from activity) */
-        get: operations["SearchController_recent"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/databases/{db}/import": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Import CSV: fields "file", "mapping" (JSON), "dry_run" ("true"/"false") */
-        post: operations["ImportController_run"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workspaces/{ws}/databases/{db}/records/copy": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Copy records into another database (map -> dry-run -> apply). dry_run (default true) returns the field mapping and any blocking fields without writing anything. */
-        post: operations["CopyRecordController_copy"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/buttons/{field}/press": {
         parameters: {
             query?: never;
@@ -2321,6 +1431,288 @@ export interface paths {
         put?: never;
         /** Reject a pending approval — the gated action never runs (human-only) */
         post: operations["ApprovalsController_reject"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/webhooks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List webhooks (secrets are never returned) */
+        get: operations["WebhooksController_list"];
+        put?: never;
+        /** Create a webhook — the signing secret is returned once, here only */
+        post: operations["WebhooksController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/webhooks/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a webhook */
+        delete: operations["WebhooksController_remove"];
+        options?: never;
+        head?: never;
+        /** Update a webhook (url / events / enabled) */
+        patch: operations["WebhooksController_update"];
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/webhooks/{id}/deliveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Recent delivery attempts — status, code, error, retries */
+        get: operations["WebhooksController_deliveries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/relations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every relation in the workspace — one entry per relation, both sides resolved (#448) */
+        get: operations["RelationsController_list"];
+        put?: never;
+        /** Create a relation — needs creator on BOTH databases */
+        post: operations["RelationsController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/relations/{rel}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Relation config + comparable fields for the auto-link editor */
+        get: operations["RelationsController_detail"];
+        put?: never;
+        post?: never;
+        /** Delete a relation, both its fields, and all links (confirm: true) */
+        delete: operations["RelationsController_remove"];
+        options?: never;
+        head?: never;
+        /** Set or clear a relation’s auto-link rules (MN-085) */
+        patch: operations["RelationsController_update"];
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/relations/{rel}/auto-link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run auto-link now across existing records — returns a summary (MN-085) */
+        post: operations["RelationsController_runAutoLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/relations/{rel}/select-drift": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Detect select↔relation drift for a parent record (MN-286): child records whose select-field label matches the parent’s title but aren’t linked here */
+        get: operations["RelationsController_selectDrift"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/relations/{rel}/select-drift/reconcile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Bulk-link every currently-drifted child record to the parent (MN-286) */
+        post: operations["RelationsController_reconcileSelectDrift"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/links/{field}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Linked records for a relation field ({id, title} chips) */
+        get: operations["LinksController_list"];
+        /** Replace all links for this record on this field */
+        put: operations["LinksController_replace"];
+        /** Add links (409 when one-to-many already linked) */
+        post: operations["LinksController_add"];
+        /** Remove specific links */
+        delete: operations["LinksController_remove"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/comments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Comments, newest first */
+        get: operations["CommentsController_list"];
+        put?: never;
+        /** Comment (guests included); mentions extracted server-side */
+        post: operations["CommentsController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/comments/{comment}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete own comment (admins: any) */
+        delete: operations["CommentsController_remove"];
+        options?: never;
+        head?: never;
+        /** Edit own comment */
+        patch: operations["CommentsController_update"];
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Record activity trail, newest first (cursor) */
+        get: operations["ActivityController_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Record version history, newest first (cursor) */
+        get: operations["RecordVersionsController_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/versions/changes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Per-field change history, newest first (cursor) */
+        get: operations["RecordVersionsController_changes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/versions/{version}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore the record to a previously captured version */
+        post: operations["RecordVersionsController_restore"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/audit-log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Workspace-wide activity + field changes, filterable by actor/entity/date range (admin) */
+        get: operations["AuditLogController_list"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2757,6 +2149,61 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/document": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Record description (BlockNote JSON; version 0 = never written) */
+        get: operations["DocumentsController_get"];
+        /** Write the description — 409 with current version on conflict */
+        put: operations["DocumentsController_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/spaces/{space}/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Standalone documents in a space (MN-095) */
+        get: operations["SpaceDocumentsController_list"];
+        put?: never;
+        /** Create a standalone document in a space */
+        post: operations["SpaceDocumentsController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/documents/{doc}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A standalone document (BlockNote content + version) */
+        get: operations["SpaceDocumentsController_get"];
+        put?: never;
+        post?: never;
+        /** Delete a standalone document */
+        delete: operations["SpaceDocumentsController_remove"];
+        options?: never;
+        head?: never;
+        /** Update title/icon/content — 409 on version conflict */
+        patch: operations["SpaceDocumentsController_update"];
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/connections": {
         parameters: {
             query?: never;
@@ -3009,6 +2456,559 @@ export interface paths {
         get: operations["SourcesController_runs"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/portal-recipients": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List portal recipients for this workspace */
+        get: operations["PortalRecipientsController_list"];
+        put?: never;
+        /** Create a portal recipient — never creates a user, never touches billable seats */
+        post: operations["PortalRecipientsController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/portal-recipients/{recipient}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke a recipient — every access path closes immediately, no cache/TTL */
+        post: operations["PortalRecipientsController_revoke"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/portal-recipients/{recipient}/rotate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Issue a new token for a recipient, atomically invalidating the old one (#602) */
+        post: operations["PortalRecipientsController_rotate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/portal-activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Portal recipient activity — what a client saw and did, filterable by recipient/view (admin) */
+        get: operations["PortalActivityController_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/views": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create a saved view (config validated against live fields) */
+        post: operations["ViewsController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/views/personal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create a view owned by me (private, never shared) over this database */
+        post: operations["ViewsController_createPersonal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/views/{view}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a view (409 on the last shared one) */
+        delete: operations["ViewsController_remove"];
+        options?: never;
+        head?: never;
+        /** Rename / reconfigure / reorder a view */
+        patch: operations["ViewsController_update"];
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/views/{view}/duplicate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Duplicate a view with its full config, placed next to the original */
+        post: operations["ViewsController_duplicate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/views/{view}/default": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Set this view as the database's default (one default per database) */
+        post: operations["ViewsController_setDefault"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/views/trash": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Deleted views on this database (editor+) */
+        get: operations["ViewsController_listTrash"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/views/{view}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore a deleted view */
+        post: operations["ViewsController_restore"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/views/{view}/share": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publish a read-only public link for this view, or update its allowlist (#264) */
+        post: operations["ViewsController_share"];
+        /** Revoke a view's public link — takes effect immediately (#264) */
+        delete: operations["ViewsController_unshare"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/views/{view}/personal-filter": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** My personal filter override for this view (cleaned of dead field refs) */
+        get: operations["PersonalFilterController_get"];
+        /** Set (or replace) my personal filter override for this view */
+        put: operations["PersonalFilterController_set"];
+        post?: never;
+        /** Clear my personal filter override for this view */
+        delete: operations["PersonalFilterController_clear"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/spaces/{space}/views": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Views navigable in a space, for the sidebar tree (#347) */
+        get: operations["SpaceViewsController_list"];
+        put?: never;
+        /** Create a space-level view — dashboards only (#306) */
+        post: operations["SpaceViewsController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/views/personal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** My own personal views across the workspace, for the Personal sidebar section (#551) */
+        get: operations["SpaceViewsController_listPersonal"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/views/{view}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One view by id, with or without a database (#306) */
+        get: operations["SpaceViewsController_get"];
+        put?: never;
+        post?: never;
+        /** Delete a space-level view (#383) */
+        delete: operations["SpaceViewsController_remove"];
+        options?: never;
+        head?: never;
+        /** Update a view by id — name / config / placement (#306) */
+        patch: operations["SpaceViewsController_update"];
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/views/{view}/move-to-space": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Move a database-level dashboard into its space (#306) */
+        post: operations["SpaceViewsController_moveToSpace"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/views/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Public view definition + one page of records (link/public access only) */
+        get: operations["PublicViewsController_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/export/csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download the database (or a view) as CSV */
+        get: operations["ExportController_csv"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/export/workspace.zip": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download the whole workspace as a .zip (schema, records, relations, attachments) */
+        get: operations["WorkspaceExportController_workspace"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** My personal access tokens (prefix only — plaintext is never stored) */
+        get: operations["TokensController_list"];
+        put?: never;
+        /** Create a PAT — the token is shown ONCE in this response */
+        post: operations["TokensController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/tokens/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke a token (immediate) */
+        delete: operations["TokensController_revoke"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Upload an image for the editor (multipart "file"); returns { id, url } */
+        post: operations["FilesController_upload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/files/{id}/download-url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mint a signed, expiring download URL for a file (#201) */
+        post: operations["FilesController_mintDownloadUrl"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/files/{id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke a file — kills its capability URL and any signed download URLs (#201) */
+        post: operations["FilesController_revoke"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/files/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Serve an uploaded editor image by id (capability URL, or access-checked under private-attachments mode) */
+        get: operations["PublicFilesController_serve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/files/{id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download a file via a signed, expiring URL (#201) */
+        get: operations["FileDownloadController_download"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Search records by title + databases/spaces by name (grant-scoped) */
+        get: operations["SearchController_search"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/my-work": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Records across databases assigned to me or created by me (MN-049, #36) */
+        get: operations["SearchController_myWork"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/recent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Records the caller touched most recently (from activity) */
+        get: operations["SearchController_recent"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import CSV: fields "file", "mapping" (JSON), "dry_run" ("true"/"false") */
+        post: operations["ImportController_run"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/records/copy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Copy records into another database (map -> dry-run -> apply). dry_run (default true) returns the field mapping and any blocking fields without writing anything. */
+        post: operations["CopyRecordController_copy"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4186,7 +4186,7 @@ export interface components {
         CreateFieldDto: {
             display_name: string;
             /** @enum {string} */
-            type: "text" | "rich_text" | "number" | "checkbox" | "date" | "select" | "multi_select" | "workflow" | "url" | "email" | "color" | "user" | "attachment" | "lookup" | "rollup" | "button" | "formula";
+            type: "text" | "rich_text" | "number" | "checkbox" | "date" | "select" | "multi_select" | "workflow" | "url" | "email" | "color" | "user" | "attachment" | "lookup" | "rollup" | "button" | "formula" | "ai";
             config?: {
                 [key: string]: unknown;
             };
@@ -4205,7 +4205,7 @@ export interface components {
         };
         ChangeFieldTypeDto: {
             /** @enum {string} */
-            type: "text" | "rich_text" | "number" | "checkbox" | "date" | "select" | "multi_select" | "workflow" | "url" | "email" | "color" | "user" | "attachment" | "lookup" | "rollup" | "button" | "formula";
+            type: "text" | "rich_text" | "number" | "checkbox" | "date" | "select" | "multi_select" | "workflow" | "url" | "email" | "color" | "user" | "attachment" | "lookup" | "rollup" | "button" | "formula" | "ai";
             /** @default false */
             dry_run: boolean;
         };
@@ -4390,6 +4390,362 @@ export interface components {
                 dismissedWorkspaces?: string[];
             };
         };
+        CreateAutomationDto: {
+            name: string;
+            trigger: {
+                /** @enum {string} */
+                type: "record_created";
+            } | {
+                /** @enum {string} */
+                type: "record_updated";
+                /** Format: uuid */
+                field_id?: string;
+            } | {
+                /** @enum {string} */
+                type: "record_linked";
+                /** Format: uuid */
+                relation_field_id: string;
+                /** @enum {string} */
+                direction?: "link" | "unlink";
+            } | {
+                /** @enum {string} */
+                type: "schedule";
+                /** @enum {string} */
+                every: "hour" | "day" | "week";
+                at?: string;
+                weekday?: number;
+            } | {
+                /** @enum {string} */
+                type: "webhook_received";
+            };
+            condition?: unknown;
+            actions: ({
+                require_approval?: boolean;
+                condition?: unknown;
+                /** @enum {string} */
+                type: "set_values";
+                values: {
+                    [key: string]: unknown;
+                };
+            } | {
+                require_approval?: boolean;
+                condition?: unknown;
+                /** @enum {string} */
+                type: "create_record";
+                /** Format: uuid */
+                database_id: string;
+                /** @default {} */
+                values: {
+                    [key: string]: unknown;
+                };
+                /** Format: uuid */
+                link_via_relation_field_id?: string;
+            } | {
+                require_approval?: boolean;
+                condition?: unknown;
+                /** @enum {string} */
+                type: "create_records";
+                /** Format: uuid */
+                database_id: string;
+                count: number | string;
+                /** @default {} */
+                values: {
+                    [key: string]: unknown;
+                };
+                /** Format: uuid */
+                link_via_relation_field_id?: string;
+            } | {
+                require_approval?: boolean;
+                condition?: unknown;
+                /** @enum {string} */
+                type: "add_comment";
+                body_template: string;
+            } | {
+                require_approval?: boolean;
+                condition?: unknown;
+                /** @enum {string} */
+                type: "notify_user";
+                user: string;
+                message: string;
+            } | {
+                require_approval?: boolean;
+                condition?: unknown;
+                /** @enum {string} */
+                type: "update_linked";
+                /** Format: uuid */
+                relation_field_id: string;
+                values: {
+                    [key: string]: unknown;
+                };
+            } | {
+                require_approval?: boolean;
+                condition?: unknown;
+                /** @enum {string} */
+                type: "send_slack_message";
+                text: string;
+                channel?: string;
+            } | {
+                require_approval?: boolean;
+                condition?: unknown;
+                /** @enum {string} */
+                type: "send_webhook";
+                /** Format: uri */
+                url: string;
+                body_template?: string;
+                headers?: {
+                    [key: string]: string | {
+                        /** @enum {boolean} */
+                        __keep: true;
+                    };
+                };
+            } | {
+                require_approval?: boolean;
+                condition?: unknown;
+                /** @enum {string} */
+                type: "run_agent";
+                agent: string;
+                prompt?: string;
+                tool_scope?: ("read" | "write" | "admin")[];
+                /** @enum {string} */
+                target?: "trigger_record";
+                model?: string;
+                max_steps?: number;
+                max_cost_cents?: number;
+                dry_run?: boolean;
+            } | {
+                require_approval?: boolean;
+                condition?: unknown;
+                /** @enum {string} */
+                type: "send_email";
+                /** Format: uuid */
+                connection_id: string;
+                to: string;
+                cc?: string;
+                reply_to?: string;
+                subject: string;
+                body_markdown: string;
+            } | {
+                require_approval?: boolean;
+                condition?: unknown;
+                /** @enum {string} */
+                type: "http_request";
+                /** @enum {string} */
+                method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+                url: string;
+                headers?: {
+                    [key: string]: string;
+                };
+                body_template?: string;
+                /** Format: uuid */
+                connection_id?: string;
+                capture?: {
+                    path: string;
+                    /** Format: uuid */
+                    target_field_id: string;
+                }[];
+            })[];
+            /** @default true */
+            enabled: boolean;
+            approverId?: string;
+            sort?: {
+                field: string;
+                /**
+                 * @default asc
+                 * @enum {string}
+                 */
+                direction: "asc" | "desc";
+            }[];
+            limit?: number;
+        };
+        UpdateAutomationDto: {
+            name?: string;
+            trigger?: {
+                /** @enum {string} */
+                type: "record_created";
+            } | {
+                /** @enum {string} */
+                type: "record_updated";
+                /** Format: uuid */
+                field_id?: string;
+            } | {
+                /** @enum {string} */
+                type: "record_linked";
+                /** Format: uuid */
+                relation_field_id: string;
+                /** @enum {string} */
+                direction?: "link" | "unlink";
+            } | {
+                /** @enum {string} */
+                type: "schedule";
+                /** @enum {string} */
+                every: "hour" | "day" | "week";
+                at?: string;
+                weekday?: number;
+            } | {
+                /** @enum {string} */
+                type: "webhook_received";
+            };
+            condition?: unknown;
+            actions?: ({
+                require_approval?: boolean;
+                condition?: unknown;
+                /** @enum {string} */
+                type: "set_values";
+                values: {
+                    [key: string]: unknown;
+                };
+            } | {
+                require_approval?: boolean;
+                condition?: unknown;
+                /** @enum {string} */
+                type: "create_record";
+                /** Format: uuid */
+                database_id: string;
+                /** @default {} */
+                values: {
+                    [key: string]: unknown;
+                };
+                /** Format: uuid */
+                link_via_relation_field_id?: string;
+            } | {
+                require_approval?: boolean;
+                condition?: unknown;
+                /** @enum {string} */
+                type: "create_records";
+                /** Format: uuid */
+                database_id: string;
+                count: number | string;
+                /** @default {} */
+                values: {
+                    [key: string]: unknown;
+                };
+                /** Format: uuid */
+                link_via_relation_field_id?: string;
+            } | {
+                require_approval?: boolean;
+                condition?: unknown;
+                /** @enum {string} */
+                type: "add_comment";
+                body_template: string;
+            } | {
+                require_approval?: boolean;
+                condition?: unknown;
+                /** @enum {string} */
+                type: "notify_user";
+                user: string;
+                message: string;
+            } | {
+                require_approval?: boolean;
+                condition?: unknown;
+                /** @enum {string} */
+                type: "update_linked";
+                /** Format: uuid */
+                relation_field_id: string;
+                values: {
+                    [key: string]: unknown;
+                };
+            } | {
+                require_approval?: boolean;
+                condition?: unknown;
+                /** @enum {string} */
+                type: "send_slack_message";
+                text: string;
+                channel?: string;
+            } | {
+                require_approval?: boolean;
+                condition?: unknown;
+                /** @enum {string} */
+                type: "send_webhook";
+                /** Format: uri */
+                url: string;
+                body_template?: string;
+                headers?: {
+                    [key: string]: string | {
+                        /** @enum {boolean} */
+                        __keep: true;
+                    };
+                };
+            } | {
+                require_approval?: boolean;
+                condition?: unknown;
+                /** @enum {string} */
+                type: "run_agent";
+                agent: string;
+                prompt?: string;
+                tool_scope?: ("read" | "write" | "admin")[];
+                /** @enum {string} */
+                target?: "trigger_record";
+                model?: string;
+                max_steps?: number;
+                max_cost_cents?: number;
+                dry_run?: boolean;
+            } | {
+                require_approval?: boolean;
+                condition?: unknown;
+                /** @enum {string} */
+                type: "send_email";
+                /** Format: uuid */
+                connection_id: string;
+                to: string;
+                cc?: string;
+                reply_to?: string;
+                subject: string;
+                body_markdown: string;
+            } | {
+                require_approval?: boolean;
+                condition?: unknown;
+                /** @enum {string} */
+                type: "http_request";
+                /** @enum {string} */
+                method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+                url: string;
+                headers?: {
+                    [key: string]: string;
+                };
+                body_template?: string;
+                /** Format: uuid */
+                connection_id?: string;
+                capture?: {
+                    path: string;
+                    /** Format: uuid */
+                    target_field_id: string;
+                }[];
+            })[];
+            enabled?: boolean;
+            approverId?: string | null;
+            sort?: {
+                field: string;
+                /**
+                 * @default asc
+                 * @enum {string}
+                 */
+                direction: "asc" | "desc";
+            }[] | null;
+            limit?: number | null;
+        };
+        TestAutomationDto: {
+            /** Format: uuid */
+            record_id: string;
+            action_index?: number;
+        };
+        RejectApprovalDto: {
+            reason?: string;
+        };
+        CreateWebhookDto: {
+            /** Format: uri */
+            url: string;
+            /** Format: uuid */
+            database_id?: string;
+            events: ("record.created" | "record.updated" | "record.deleted" | "record.restored" | "relation.linked" | "relation.unlinked" | "comment.created")[];
+            /** @default true */
+            enabled: boolean;
+        };
+        UpdateWebhookDto: {
+            /** Format: uri */
+            url?: string;
+            events?: ("record.created" | "record.updated" | "record.deleted" | "record.restored" | "relation.linked" | "relation.unlinked" | "comment.created")[];
+            enabled?: boolean;
+        };
         CreateRelationDto: {
             /** Format: uuid */
             database_a_id: string;
@@ -4423,6 +4779,211 @@ export interface components {
         };
         ReplaceLinksDto: {
             record_ids: string[];
+        };
+        CommentBodyDto: {
+            body: ({
+                /** @enum {string} */
+                type: "text";
+                text: string;
+            } | {
+                /** @enum {string} */
+                type: "mention";
+                user_id: string;
+            } | {
+                /** @enum {string} */
+                type: "record";
+                /** Format: uuid */
+                record_id: string;
+                /** Format: uuid */
+                database_id: string;
+            })[] | {
+                /** @enum {string} */
+                format: "blocknote";
+                doc: {
+                    [key: string]: unknown;
+                }[];
+            };
+        };
+        GithubConfigDto: {
+            token?: string;
+            repos?: string[];
+            webhook_secret?: string;
+            /** Format: uuid */
+            link_database_id?: string;
+            state_automation?: {
+                opened?: string | null;
+                reopened?: string | null;
+                review_requested?: string | null;
+                review_approved?: string | null;
+                review_changes_requested?: string | null;
+                merged?: string | null;
+                closed?: string | null;
+                pushed?: string | null;
+            };
+        };
+        ReviewCommentDto: {
+            path: string;
+            line: number;
+            /** @enum {string} */
+            side: "LEFT" | "RIGHT";
+            body: string;
+        };
+        ReviewReplyDto: {
+            body: string;
+        };
+        ReviewReactionDto: {
+            /** @enum {string} */
+            content: "+1" | "-1" | "laugh" | "confused" | "heart" | "hooray" | "rocket" | "eyes";
+        };
+        SubmitReviewDto: {
+            /** @enum {string} */
+            event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
+            body?: string;
+        };
+        ReviewSettingsDto: {
+            enabled?: boolean;
+            auto_convert_draft?: boolean;
+            /** @enum {string} */
+            default_merge_strategy?: "merge" | "squash" | "rebase";
+            /** @enum {string} */
+            code_theme?: "auto" | "light" | "dark";
+            /** @enum {string} */
+            code_font?: "mono" | "mono_lig" | "system";
+            notifications?: {
+                review_requests?: boolean;
+                comments_mentions?: boolean;
+            };
+        };
+        LinearConfigDto: {
+            api_key?: string;
+            team_keys?: string[];
+        };
+        SlackConfigDto: {
+            bot_token?: string;
+            default_channel?: string;
+            /** Format: uri */
+            webhook_url?: string;
+        };
+        ShopifyCatalogueDto: {
+            /** Format: uuid */
+            space_id: string;
+            /** Format: uuid */
+            connection_id: string;
+            name_prefix?: string;
+        };
+        PutDocumentDto: {
+            content: unknown;
+            expected_version: number;
+        };
+        CreateSpaceDocDto: {
+            title?: string;
+            icon?: string;
+        };
+        UpdateSpaceDocDto: {
+            title?: string;
+            icon?: string | null;
+            content?: unknown;
+            expected_version?: number;
+            /** Format: uuid */
+            folder_id?: string | null;
+        };
+        CreateConnectionDto: {
+            provider: string;
+            name: string;
+            auth: {
+                [key: string]: unknown;
+            };
+        };
+        DiscoverSourceDto: {
+            /** Format: uuid */
+            connection_id: string;
+            provider_source: string;
+            /** @default {} */
+            config: {
+                [key: string]: unknown;
+            };
+        };
+        CreateSourceDto: {
+            name: string;
+            /** Format: uuid */
+            connection_id: string;
+            provider_source: string;
+            /** @default {} */
+            config: {
+                [key: string]: unknown;
+            };
+            field_mapping: {
+                [key: string]: string | {
+                    /** Format: uuid */
+                    field_id: string;
+                    /**
+                     * @default in
+                     * @enum {string}
+                     */
+                    direction: "in" | "out" | "both";
+                };
+            };
+            /** Format: uuid */
+            external_key_field_id: string;
+            /** @enum {string} */
+            schedule?: "15m" | "hour" | "day";
+            recurrence?: {
+                /** @enum {string} */
+                kind: "hourly";
+                minute: number;
+            } | {
+                /** @enum {string} */
+                kind: "daily";
+                hour: number;
+                minute: number;
+            } | {
+                /** @enum {string} */
+                kind: "weekly";
+                weekday: number;
+                hour: number;
+                minute: number;
+            };
+        };
+        UpdateSourceDto: {
+            name?: string;
+            /** Format: uuid */
+            connection_id?: string;
+            config?: {
+                [key: string]: unknown;
+            };
+            field_mapping?: {
+                [key: string]: string | {
+                    /** Format: uuid */
+                    field_id: string;
+                    /**
+                     * @default in
+                     * @enum {string}
+                     */
+                    direction: "in" | "out" | "both";
+                };
+            };
+            /** Format: uuid */
+            external_key_field_id?: string;
+            /** @enum {string} */
+            schedule?: "15m" | "hour" | "day";
+            recurrence?: {
+                /** @enum {string} */
+                kind: "hourly";
+                minute: number;
+            } | {
+                /** @enum {string} */
+                kind: "daily";
+                hour: number;
+                minute: number;
+            } | {
+                /** @enum {string} */
+                kind: "weekly";
+                weekday: number;
+                hour: number;
+                minute: number;
+            };
+            /** @enum {string} */
+            status?: "active" | "paused" | "error";
         };
         CreatePortalRecipientDto: {
             label: string;
@@ -4963,37 +5524,6 @@ export interface components {
             /** Format: uuid */
             folder_id?: string | null;
         };
-        CreateWebhookDto: {
-            /** Format: uri */
-            url: string;
-            /** Format: uuid */
-            database_id?: string;
-            events: ("record.created" | "record.updated" | "record.deleted" | "record.restored" | "relation.linked" | "relation.unlinked" | "comment.created")[];
-            /** @default true */
-            enabled: boolean;
-        };
-        UpdateWebhookDto: {
-            /** Format: uri */
-            url?: string;
-            events?: ("record.created" | "record.updated" | "record.deleted" | "record.restored" | "relation.linked" | "relation.unlinked" | "comment.created")[];
-            enabled?: boolean;
-        };
-        PutDocumentDto: {
-            content: unknown;
-            expected_version: number;
-        };
-        CreateSpaceDocDto: {
-            title?: string;
-            icon?: string;
-        };
-        UpdateSpaceDocDto: {
-            title?: string;
-            icon?: string | null;
-            content?: unknown;
-            expected_version?: number;
-            /** Format: uuid */
-            folder_id?: string | null;
-        };
         CreateTokenDto: {
             name: string;
             /** Format: uuid */
@@ -5008,30 +5538,6 @@ export interface components {
             /** Format: uuid */
             agent_id?: string;
         };
-        CommentBodyDto: {
-            body: ({
-                /** @enum {string} */
-                type: "text";
-                text: string;
-            } | {
-                /** @enum {string} */
-                type: "mention";
-                user_id: string;
-            } | {
-                /** @enum {string} */
-                type: "record";
-                /** Format: uuid */
-                record_id: string;
-                /** Format: uuid */
-                database_id: string;
-            })[] | {
-                /** @enum {string} */
-                format: "blocknote";
-                doc: {
-                    [key: string]: unknown;
-                }[];
-            };
-        };
         CopyRecordDto: {
             record_ids: string[];
             target_database_id: string;
@@ -5041,512 +5547,6 @@ export interface components {
             };
             /** @default true */
             dry_run: boolean;
-        };
-        CreateAutomationDto: {
-            name: string;
-            trigger: {
-                /** @enum {string} */
-                type: "record_created";
-            } | {
-                /** @enum {string} */
-                type: "record_updated";
-                /** Format: uuid */
-                field_id?: string;
-            } | {
-                /** @enum {string} */
-                type: "record_linked";
-                /** Format: uuid */
-                relation_field_id: string;
-                /** @enum {string} */
-                direction?: "link" | "unlink";
-            } | {
-                /** @enum {string} */
-                type: "schedule";
-                /** @enum {string} */
-                every: "hour" | "day" | "week";
-                at?: string;
-                weekday?: number;
-            } | {
-                /** @enum {string} */
-                type: "webhook_received";
-            };
-            condition?: unknown;
-            actions: ({
-                require_approval?: boolean;
-                condition?: unknown;
-                /** @enum {string} */
-                type: "set_values";
-                values: {
-                    [key: string]: unknown;
-                };
-            } | {
-                require_approval?: boolean;
-                condition?: unknown;
-                /** @enum {string} */
-                type: "create_record";
-                /** Format: uuid */
-                database_id: string;
-                /** @default {} */
-                values: {
-                    [key: string]: unknown;
-                };
-                /** Format: uuid */
-                link_via_relation_field_id?: string;
-            } | {
-                require_approval?: boolean;
-                condition?: unknown;
-                /** @enum {string} */
-                type: "create_records";
-                /** Format: uuid */
-                database_id: string;
-                count: number | string;
-                /** @default {} */
-                values: {
-                    [key: string]: unknown;
-                };
-                /** Format: uuid */
-                link_via_relation_field_id?: string;
-            } | {
-                require_approval?: boolean;
-                condition?: unknown;
-                /** @enum {string} */
-                type: "add_comment";
-                body_template: string;
-            } | {
-                require_approval?: boolean;
-                condition?: unknown;
-                /** @enum {string} */
-                type: "notify_user";
-                user: string;
-                message: string;
-            } | {
-                require_approval?: boolean;
-                condition?: unknown;
-                /** @enum {string} */
-                type: "update_linked";
-                /** Format: uuid */
-                relation_field_id: string;
-                values: {
-                    [key: string]: unknown;
-                };
-            } | {
-                require_approval?: boolean;
-                condition?: unknown;
-                /** @enum {string} */
-                type: "send_slack_message";
-                text: string;
-                channel?: string;
-            } | {
-                require_approval?: boolean;
-                condition?: unknown;
-                /** @enum {string} */
-                type: "send_webhook";
-                /** Format: uri */
-                url: string;
-                body_template?: string;
-                headers?: {
-                    [key: string]: string | {
-                        /** @enum {boolean} */
-                        __keep: true;
-                    };
-                };
-            } | {
-                require_approval?: boolean;
-                condition?: unknown;
-                /** @enum {string} */
-                type: "run_agent";
-                agent: string;
-                prompt?: string;
-                tool_scope?: ("read" | "write" | "admin")[];
-                /** @enum {string} */
-                target?: "trigger_record";
-                model?: string;
-                max_steps?: number;
-                max_cost_cents?: number;
-                dry_run?: boolean;
-            } | {
-                require_approval?: boolean;
-                condition?: unknown;
-                /** @enum {string} */
-                type: "send_email";
-                /** Format: uuid */
-                connection_id: string;
-                to: string;
-                cc?: string;
-                reply_to?: string;
-                subject: string;
-                body_markdown: string;
-            } | {
-                require_approval?: boolean;
-                condition?: unknown;
-                /** @enum {string} */
-                type: "http_request";
-                /** @enum {string} */
-                method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
-                url: string;
-                headers?: {
-                    [key: string]: string;
-                };
-                body_template?: string;
-                /** Format: uuid */
-                connection_id?: string;
-                capture?: {
-                    path: string;
-                    /** Format: uuid */
-                    target_field_id: string;
-                }[];
-            })[];
-            /** @default true */
-            enabled: boolean;
-            approverId?: string;
-            sort?: {
-                field: string;
-                /**
-                 * @default asc
-                 * @enum {string}
-                 */
-                direction: "asc" | "desc";
-            }[];
-            limit?: number;
-        };
-        UpdateAutomationDto: {
-            name?: string;
-            trigger?: {
-                /** @enum {string} */
-                type: "record_created";
-            } | {
-                /** @enum {string} */
-                type: "record_updated";
-                /** Format: uuid */
-                field_id?: string;
-            } | {
-                /** @enum {string} */
-                type: "record_linked";
-                /** Format: uuid */
-                relation_field_id: string;
-                /** @enum {string} */
-                direction?: "link" | "unlink";
-            } | {
-                /** @enum {string} */
-                type: "schedule";
-                /** @enum {string} */
-                every: "hour" | "day" | "week";
-                at?: string;
-                weekday?: number;
-            } | {
-                /** @enum {string} */
-                type: "webhook_received";
-            };
-            condition?: unknown;
-            actions?: ({
-                require_approval?: boolean;
-                condition?: unknown;
-                /** @enum {string} */
-                type: "set_values";
-                values: {
-                    [key: string]: unknown;
-                };
-            } | {
-                require_approval?: boolean;
-                condition?: unknown;
-                /** @enum {string} */
-                type: "create_record";
-                /** Format: uuid */
-                database_id: string;
-                /** @default {} */
-                values: {
-                    [key: string]: unknown;
-                };
-                /** Format: uuid */
-                link_via_relation_field_id?: string;
-            } | {
-                require_approval?: boolean;
-                condition?: unknown;
-                /** @enum {string} */
-                type: "create_records";
-                /** Format: uuid */
-                database_id: string;
-                count: number | string;
-                /** @default {} */
-                values: {
-                    [key: string]: unknown;
-                };
-                /** Format: uuid */
-                link_via_relation_field_id?: string;
-            } | {
-                require_approval?: boolean;
-                condition?: unknown;
-                /** @enum {string} */
-                type: "add_comment";
-                body_template: string;
-            } | {
-                require_approval?: boolean;
-                condition?: unknown;
-                /** @enum {string} */
-                type: "notify_user";
-                user: string;
-                message: string;
-            } | {
-                require_approval?: boolean;
-                condition?: unknown;
-                /** @enum {string} */
-                type: "update_linked";
-                /** Format: uuid */
-                relation_field_id: string;
-                values: {
-                    [key: string]: unknown;
-                };
-            } | {
-                require_approval?: boolean;
-                condition?: unknown;
-                /** @enum {string} */
-                type: "send_slack_message";
-                text: string;
-                channel?: string;
-            } | {
-                require_approval?: boolean;
-                condition?: unknown;
-                /** @enum {string} */
-                type: "send_webhook";
-                /** Format: uri */
-                url: string;
-                body_template?: string;
-                headers?: {
-                    [key: string]: string | {
-                        /** @enum {boolean} */
-                        __keep: true;
-                    };
-                };
-            } | {
-                require_approval?: boolean;
-                condition?: unknown;
-                /** @enum {string} */
-                type: "run_agent";
-                agent: string;
-                prompt?: string;
-                tool_scope?: ("read" | "write" | "admin")[];
-                /** @enum {string} */
-                target?: "trigger_record";
-                model?: string;
-                max_steps?: number;
-                max_cost_cents?: number;
-                dry_run?: boolean;
-            } | {
-                require_approval?: boolean;
-                condition?: unknown;
-                /** @enum {string} */
-                type: "send_email";
-                /** Format: uuid */
-                connection_id: string;
-                to: string;
-                cc?: string;
-                reply_to?: string;
-                subject: string;
-                body_markdown: string;
-            } | {
-                require_approval?: boolean;
-                condition?: unknown;
-                /** @enum {string} */
-                type: "http_request";
-                /** @enum {string} */
-                method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
-                url: string;
-                headers?: {
-                    [key: string]: string;
-                };
-                body_template?: string;
-                /** Format: uuid */
-                connection_id?: string;
-                capture?: {
-                    path: string;
-                    /** Format: uuid */
-                    target_field_id: string;
-                }[];
-            })[];
-            enabled?: boolean;
-            approverId?: string | null;
-            sort?: {
-                field: string;
-                /**
-                 * @default asc
-                 * @enum {string}
-                 */
-                direction: "asc" | "desc";
-            }[] | null;
-            limit?: number | null;
-        };
-        TestAutomationDto: {
-            /** Format: uuid */
-            record_id: string;
-            action_index?: number;
-        };
-        RejectApprovalDto: {
-            reason?: string;
-        };
-        GithubConfigDto: {
-            token?: string;
-            repos?: string[];
-            webhook_secret?: string;
-            /** Format: uuid */
-            link_database_id?: string;
-            state_automation?: {
-                opened?: string | null;
-                reopened?: string | null;
-                review_requested?: string | null;
-                review_approved?: string | null;
-                review_changes_requested?: string | null;
-                merged?: string | null;
-                closed?: string | null;
-                pushed?: string | null;
-            };
-        };
-        ReviewCommentDto: {
-            path: string;
-            line: number;
-            /** @enum {string} */
-            side: "LEFT" | "RIGHT";
-            body: string;
-        };
-        ReviewReplyDto: {
-            body: string;
-        };
-        ReviewReactionDto: {
-            /** @enum {string} */
-            content: "+1" | "-1" | "laugh" | "confused" | "heart" | "hooray" | "rocket" | "eyes";
-        };
-        SubmitReviewDto: {
-            /** @enum {string} */
-            event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
-            body?: string;
-        };
-        ReviewSettingsDto: {
-            enabled?: boolean;
-            auto_convert_draft?: boolean;
-            /** @enum {string} */
-            default_merge_strategy?: "merge" | "squash" | "rebase";
-            /** @enum {string} */
-            code_theme?: "auto" | "light" | "dark";
-            /** @enum {string} */
-            code_font?: "mono" | "mono_lig" | "system";
-            notifications?: {
-                review_requests?: boolean;
-                comments_mentions?: boolean;
-            };
-        };
-        LinearConfigDto: {
-            api_key?: string;
-            team_keys?: string[];
-        };
-        SlackConfigDto: {
-            bot_token?: string;
-            default_channel?: string;
-            /** Format: uri */
-            webhook_url?: string;
-        };
-        ShopifyCatalogueDto: {
-            /** Format: uuid */
-            space_id: string;
-            /** Format: uuid */
-            connection_id: string;
-            name_prefix?: string;
-        };
-        CreateConnectionDto: {
-            provider: string;
-            name: string;
-            auth: {
-                [key: string]: unknown;
-            };
-        };
-        DiscoverSourceDto: {
-            /** Format: uuid */
-            connection_id: string;
-            provider_source: string;
-            /** @default {} */
-            config: {
-                [key: string]: unknown;
-            };
-        };
-        CreateSourceDto: {
-            name: string;
-            /** Format: uuid */
-            connection_id: string;
-            provider_source: string;
-            /** @default {} */
-            config: {
-                [key: string]: unknown;
-            };
-            field_mapping: {
-                [key: string]: string | {
-                    /** Format: uuid */
-                    field_id: string;
-                    /**
-                     * @default in
-                     * @enum {string}
-                     */
-                    direction: "in" | "out" | "both";
-                };
-            };
-            /** Format: uuid */
-            external_key_field_id: string;
-            /** @enum {string} */
-            schedule?: "15m" | "hour" | "day";
-            recurrence?: {
-                /** @enum {string} */
-                kind: "hourly";
-                minute: number;
-            } | {
-                /** @enum {string} */
-                kind: "daily";
-                hour: number;
-                minute: number;
-            } | {
-                /** @enum {string} */
-                kind: "weekly";
-                weekday: number;
-                hour: number;
-                minute: number;
-            };
-        };
-        UpdateSourceDto: {
-            name?: string;
-            /** Format: uuid */
-            connection_id?: string;
-            config?: {
-                [key: string]: unknown;
-            };
-            field_mapping?: {
-                [key: string]: string | {
-                    /** Format: uuid */
-                    field_id: string;
-                    /**
-                     * @default in
-                     * @enum {string}
-                     */
-                    direction: "in" | "out" | "both";
-                };
-            };
-            /** Format: uuid */
-            external_key_field_id?: string;
-            /** @enum {string} */
-            schedule?: "15m" | "hour" | "day";
-            recurrence?: {
-                /** @enum {string} */
-                kind: "hourly";
-                minute: number;
-            } | {
-                /** @enum {string} */
-                kind: "daily";
-                hour: number;
-                minute: number;
-            } | {
-                /** @enum {string} */
-                kind: "weekly";
-                weekday: number;
-                hour: number;
-                minute: number;
-            };
-            /** @enum {string} */
-            status?: "active" | "paused" | "error";
         };
         CreateCalendarBindingDto: {
             /** Format: uuid */
@@ -7635,1548 +7635,6 @@ export interface operations {
             };
         };
     };
-    RelationsController_list: {
-        parameters: {
-            query: {
-                space: string;
-                database: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    RelationsController_create: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateRelationDto"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    RelationsController_detail: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                rel: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    RelationsController_remove: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                rel: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DeleteRelationDto"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    RelationsController_update: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                rel: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateRelationDto"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    RelationsController_runAutoLink: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                rel: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    RelationsController_selectDrift: {
-        parameters: {
-            query: {
-                record_id: string;
-            };
-            header?: never;
-            path: {
-                rel: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    RelationsController_reconcileSelectDrift: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                rel: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SelectDriftReconcileDto"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    LinksController_list: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-                rec: string;
-                /** @description The relation field, by api_name (as query filters and value patches name fields) or by id. #458 — an unrecognised field is a 404, never a 500. */
-                field: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    LinksController_replace: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-                rec: string;
-                /** @description The relation field, by api_name (as query filters and value patches name fields) or by id. #458 — an unrecognised field is a 404, never a 500. */
-                field: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ReplaceLinksDto"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    LinksController_add: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-                rec: string;
-                /** @description The relation field, by api_name (as query filters and value patches name fields) or by id. #458 — an unrecognised field is a 404, never a 500. */
-                field: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["LinkRecordsDto"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    LinksController_remove: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-                rec: string;
-                /** @description The relation field, by api_name (as query filters and value patches name fields) or by id. #458 — an unrecognised field is a 404, never a 500. */
-                field: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["LinkRecordsDto"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    PortalRecipientsController_list: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    PortalRecipientsController_create: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreatePortalRecipientDto"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    PortalRecipientsController_revoke: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                recipient: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    PortalRecipientsController_rotate: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                recipient: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    PortalActivityController_list: {
-        parameters: {
-            query?: {
-                recipient?: string;
-                view?: string;
-                limit?: number;
-                cursor?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    ViewsController_create: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateViewDto"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    ViewsController_createPersonal: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreatePersonalViewDto"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    ViewsController_remove: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-                view: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    ViewsController_update: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-                view: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateViewDto"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    ViewsController_duplicate: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-                view: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    ViewsController_setDefault: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-                view: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    ViewsController_listTrash: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    ViewsController_restore: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-                view: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    ViewsController_share: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-                view: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ShareViewDto"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    ViewsController_unshare: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-                view: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    PersonalFilterController_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-                view: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    PersonalFilterController_set: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-                view: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SetPersonalFilterDto"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    PersonalFilterController_clear: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-                view: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    SpaceViewsController_list: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                space: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    SpaceViewsController_create: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                space: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateSpaceViewDto"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    SpaceViewsController_listPersonal: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    SpaceViewsController_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                view: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    SpaceViewsController_remove: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                view: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    SpaceViewsController_update: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                view: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateSpaceViewDto"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    SpaceViewsController_moveToSpace: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                view: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    PublicViewsController_get: {
-        parameters: {
-            query: {
-                cursor: string;
-                recipient: string;
-            };
-            header?: never;
-            path: {
-                token: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    ExportController_csv: {
-        parameters: {
-            query: {
-                view: string;
-            };
-            header?: never;
-            path: {
-                db: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    WorkspaceExportController_workspace: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    WebhooksController_list: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    WebhooksController_create: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateWebhookDto"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    WebhooksController_remove: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    WebhooksController_update: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateWebhookDto"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    WebhooksController_deliveries: {
-        parameters: {
-            query: {
-                limit: string;
-            };
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    DocumentsController_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-                rec: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    DocumentsController_put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-                rec: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PutDocumentDto"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    SpaceDocumentsController_list: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                space: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    SpaceDocumentsController_create: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                space: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateSpaceDocDto"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    SpaceDocumentsController_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                doc: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    SpaceDocumentsController_remove: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                doc: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    SpaceDocumentsController_update: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                doc: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateSpaceDocDto"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    TokensController_list: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    TokensController_create: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateTokenDto"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    TokensController_revoke: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                token: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    CommentsController_list: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-                rec: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    CommentsController_create: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-                rec: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CommentBodyDto"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    CommentsController_remove: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-                rec: string;
-                comment: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    CommentsController_update: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-                rec: string;
-                comment: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CommentBodyDto"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    ActivityController_list: {
-        parameters: {
-            query?: {
-                limit?: number;
-                cursor?: string;
-            };
-            header?: never;
-            path: {
-                db: string;
-                rec: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    RecordVersionsController_list: {
-        parameters: {
-            query?: {
-                limit?: number;
-                cursor?: string;
-            };
-            header?: never;
-            path: {
-                db: string;
-                rec: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    RecordVersionsController_changes: {
-        parameters: {
-            query?: {
-                limit?: number;
-                cursor?: string;
-            };
-            header?: never;
-            path: {
-                db: string;
-                rec: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    RecordVersionsController_restore: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-                rec: string;
-                version: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    AuditLogController_list: {
-        parameters: {
-            query?: {
-                actor?: string;
-                entity?: string;
-                from?: string;
-                to?: string;
-                limit?: number;
-                cursor?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    FilesController_upload: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    FilesController_mintDownloadUrl: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    FilesController_revoke: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    PublicFilesController_serve: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    FileDownloadController_download: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    SearchController_search: {
-        parameters: {
-            query: {
-                q: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    SearchController_myWork: {
-        parameters: {
-            query: {
-                tab: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    SearchController_recent: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    ImportController_run: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    CopyRecordController_copy: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                db: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CopyRecordDto"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
     ButtonsController_press: {
         parameters: {
             query?: never;
@@ -9447,6 +7905,580 @@ export interface operations {
         };
         responses: {
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    WebhooksController_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    WebhooksController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateWebhookDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    WebhooksController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    WebhooksController_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateWebhookDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    WebhooksController_deliveries: {
+        parameters: {
+            query: {
+                limit: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RelationsController_list: {
+        parameters: {
+            query: {
+                space: string;
+                database: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RelationsController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateRelationDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RelationsController_detail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rel: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RelationsController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rel: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteRelationDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RelationsController_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rel: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateRelationDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RelationsController_runAutoLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rel: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RelationsController_selectDrift: {
+        parameters: {
+            query: {
+                record_id: string;
+            };
+            header?: never;
+            path: {
+                rel: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RelationsController_reconcileSelectDrift: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rel: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SelectDriftReconcileDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    LinksController_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                rec: string;
+                /** @description The relation field, by api_name (as query filters and value patches name fields) or by id. #458 — an unrecognised field is a 404, never a 500. */
+                field: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    LinksController_replace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                rec: string;
+                /** @description The relation field, by api_name (as query filters and value patches name fields) or by id. #458 — an unrecognised field is a 404, never a 500. */
+                field: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplaceLinksDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    LinksController_add: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                rec: string;
+                /** @description The relation field, by api_name (as query filters and value patches name fields) or by id. #458 — an unrecognised field is a 404, never a 500. */
+                field: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LinkRecordsDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    LinksController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                rec: string;
+                /** @description The relation field, by api_name (as query filters and value patches name fields) or by id. #458 — an unrecognised field is a 404, never a 500. */
+                field: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LinkRecordsDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    CommentsController_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                rec: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    CommentsController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                rec: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CommentBodyDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    CommentsController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                rec: string;
+                comment: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    CommentsController_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                rec: string;
+                comment: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CommentBodyDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ActivityController_list: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                db: string;
+                rec: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RecordVersionsController_list: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                db: string;
+                rec: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RecordVersionsController_changes: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                db: string;
+                rec: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RecordVersionsController_restore: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                rec: string;
+                version: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AuditLogController_list: {
+        parameters: {
+            query?: {
+                actor?: string;
+                entity?: string;
+                from?: string;
+                to?: string;
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -10044,6 +9076,153 @@ export interface operations {
             };
         };
     };
+    DocumentsController_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                rec: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    DocumentsController_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                rec: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutDocumentDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SpaceDocumentsController_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                space: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SpaceDocumentsController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                space: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSpaceDocDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SpaceDocumentsController_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                doc: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SpaceDocumentsController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                doc: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SpaceDocumentsController_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                doc: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateSpaceDocDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     ConnectionsController_list: {
         parameters: {
             query?: never;
@@ -10403,6 +9582,827 @@ export interface operations {
         requestBody?: never;
         responses: {
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PortalRecipientsController_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PortalRecipientsController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePortalRecipientDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PortalRecipientsController_revoke: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recipient: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PortalRecipientsController_rotate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recipient: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PortalActivityController_list: {
+        parameters: {
+            query?: {
+                recipient?: string;
+                view?: string;
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ViewsController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateViewDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ViewsController_createPersonal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePersonalViewDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ViewsController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                view: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ViewsController_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                view: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateViewDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ViewsController_duplicate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                view: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ViewsController_setDefault: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                view: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ViewsController_listTrash: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ViewsController_restore: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                view: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ViewsController_share: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                view: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ShareViewDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ViewsController_unshare: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                view: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PersonalFilterController_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                view: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PersonalFilterController_set: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                view: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetPersonalFilterDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PersonalFilterController_clear: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                view: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SpaceViewsController_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                space: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SpaceViewsController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                space: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSpaceViewDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SpaceViewsController_listPersonal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SpaceViewsController_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                view: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SpaceViewsController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                view: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SpaceViewsController_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                view: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateSpaceViewDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SpaceViewsController_moveToSpace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                view: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PublicViewsController_get: {
+        parameters: {
+            query: {
+                cursor: string;
+                recipient: string;
+            };
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ExportController_csv: {
+        parameters: {
+            query: {
+                view: string;
+            };
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    WorkspaceExportController_workspace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    TokensController_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    TokensController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTokenDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    TokensController_revoke: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    FilesController_upload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    FilesController_mintDownloadUrl: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    FilesController_revoke: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PublicFilesController_serve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    FileDownloadController_download: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SearchController_search: {
+        parameters: {
+            query: {
+                q: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SearchController_myWork: {
+        parameters: {
+            query: {
+                tab: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SearchController_recent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ImportController_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    CopyRecordController_copy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CopyRecordDto"];
+            };
+        };
+        responses: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
