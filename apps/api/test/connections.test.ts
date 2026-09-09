@@ -61,7 +61,7 @@ describe('connections registry (MN-252)', () => {
     expect(res.statusCode).toBe(200);
     const providers = res.json().data as Array<{ id: string; label: string }>;
     const ids = providers.map((p) => p.id);
-    expect(ids).toEqual(expect.arrayContaining(['apify', 'resend', 'google']));
+    expect(ids).toEqual(expect.arrayContaining(['apify', 'resend', 'google', 'openai']));
     expect(providers.find((provider) => provider.id === 'google')?.label).toBe('YouTube');
   });
 
@@ -83,6 +83,11 @@ describe('connections registry (MN-252)', () => {
     expect(byId('resend').tier).toBe('api_key');
     expect(byId('smtp').tier).toBe('api_key');
     expect(byId('http').tier).toBe('api_key');
+    // #352 — Tyron BYO key is api_key tier specifically so it works
+    // identically on hosted and self-managed, same as every other
+    // bring-your-own-credential provider.
+    expect(byId('openai').tier).toBe('api_key');
+    expect(byId('openai').availability).toBe('connectable');
     expect(byId('google').tier).toBe('oauth_managed');
     expect(byId('google-calendar').tier).toBe('oauth_managed');
 

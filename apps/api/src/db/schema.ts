@@ -2236,6 +2236,16 @@ export const tyronMessages = pgTable(
     tokensOut: integer('tokens_out'),
     /** Which model answered. From env, never hardcoded — so a tier change is visible here. */
     model: text('model'),
+    /**
+     * #352 — 'byo' when this turn ran on the WORKSPACE's own connected AI
+     * credential, 'managed' when it ran on StoryOS's own key. `model` alone
+     * doesn't reliably say this: a workspace's own key can be configured
+     * with the same model tag the managed path uses, and the AC is explicit
+     * that "which AI is answering" must never be inferred or left ambiguous.
+     * Null on user messages and on a failed model call, same convention as
+     * tokensIn/tokensOut/model.
+     */
+    source: text('source'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('tyron_messages_thread_idx').on(t.threadId, t.createdAt)],
