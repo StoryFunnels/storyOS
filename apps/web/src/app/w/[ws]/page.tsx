@@ -83,7 +83,12 @@ export default function WorkspaceHome() {
   const showChecklist = shouldShowChecklist(steps, dismissed);
 
   return (
-    <div className="mx-auto max-w-2xl p-4 sm:p-10">
+    /* #663 — LEFT-ALIGNED, and no longer capped at 672px. `mx-auto max-w-2xl`
+       was the single class that made this page two narrow columns floating in
+       the middle of a wide viewport while the sidebar's content sat hard left.
+       max-w-6xl still stops prose from running to absurd measures on an
+       ultrawide, but the content now starts where the eye already is. */
+    <div className="max-w-6xl p-4 sm:p-10">
       {sampleCount > 0 && (
         <div className="mb-6 flex items-center justify-between rounded-[var(--radius-card)] border border-border-default bg-accent-soft px-4 py-3">
           <span className="text-[13px] text-ink">
@@ -157,7 +162,11 @@ export default function WorkspaceHome() {
               Browse all templates
             </button>
           </div>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {/* #663 — more than two columns. Twenty templates at two-up ran well
+              below the fold; at three and four they are scannable in one look.
+              Steps up with width rather than jumping straight to four, so the
+              cards keep a readable measure on a laptop. */}
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
             {(registry.data?.intents ?? []).map((intent) => {
               const Icon = TEMPLATE_ICONS[intent.template] ?? Blocks;
               return (
