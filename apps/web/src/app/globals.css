@@ -87,8 +87,8 @@
   /*
    * #630 — THE ELEVATION SCALE. One place, one ink.
    *
-   * There was no shadow token at all. There were 14 distinct hand-rolled
-   * shadows across 30 call sites, every one on this same rgba(15,23,41,a) ink,
+   * There was no shadow token at all. There were 15 distinct hand-rolled
+   * shadows across 31 call sites, every one on this same rgba(15,23,41,a) ink,
    * and design-system.md specifies exactly TWO. Read the offsets and a real
    * scale is visible underneath — 4/12, 8/24, 16/40, 20/50, 24/60 — re-derived
    * from memory each time, so the 4px/12px popover geometry alone ended up
@@ -158,6 +158,31 @@
      last two literals. */
   --shadow-edge-right: 2px 0 4px -2px rgb(var(--shadow-ink) / 0.12);
   --shadow-edge-left: -8px 0 24px rgb(var(--shadow-ink) / 0.08);
+
+  /*
+   * #661 — 15 and 31, not 14 and 30. THE AUDIT'S INSTRUMENT WAS HALF-BLIND.
+   *
+   * The original sweep grepped for the Tailwind CLASS utility, `shadow-[`. A
+   * shadow can also be written as an inline style object, and one was:
+   * ui/toaster.tsx passed `boxShadow: '0 4px 16px rgb(15 23 41 / 0.12)'` to
+   * sonner's toastOptions. No class-based grep could ever have seen it, so it
+   * was never counted — and 4px/16px is a FIFTH geometry, in a scale whose whole
+   * claim was to have been read off every call site rather than guessed.
+   *
+   * The scale itself needed nothing: that site's own comment said it wanted to
+   * match "the app's elevated surfaces (dialogs, popovers)", which is
+   * --shadow-popover. Only the count was wrong. Recorded because a figure
+   * produced by an instrument that cannot see half the search space is worth
+   * distrusting even when its conclusion happens to hold.
+   *
+   * THE SCRIM belongs here rather than in the surface block: it is the same ink
+   * as every shadow, and it was hand-copied identically into five files (the
+   * mobile drawer, the command palette, the shortcuts overlay, every dialog, and
+   * form-view's own overlay). Nothing had diverged yet, which is the only good
+   * time to do this — the shadows got their token only after one geometry had
+   * already sprouted four opacities.
+   */
+  --scrim: rgb(var(--shadow-ink) / 0.35);
 
   --radius-control: 6px;
   --radius-card: 8px;
