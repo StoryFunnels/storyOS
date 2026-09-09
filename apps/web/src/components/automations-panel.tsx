@@ -14,6 +14,9 @@ import { availableRecipes } from '@/components/automation-recipes';
 import type { Field } from '@/components/table-view/use-table-data';
 import { OPS_BY_TYPE, SortButton } from '@/components/views/view-toolbar';
 import type { SortSpec } from '@/components/views/sort-config';
+import { FlowDiagram } from '@/components/automations/flow-diagram';
+import { triggerLabel } from '@/components/automations/flow-diagram-model';
+import type { DiagramRule } from '@/components/automations/flow-diagram-model';
 import { Button } from '@/components/ui/button';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { DialogContent } from '@/components/ui/dialog';
@@ -25,7 +28,16 @@ interface Rule {
   id: string;
   name: string;
   enabled: boolean;
-  trigger: { type: string; field_id?: string; every?: string; at?: string; weekday?: number };
+  trigger: {
+    type: string;
+    field_id?: string;
+    /** #270 — set only when trigger.type is 'record_linked'. */
+    relation_field_id?: string;
+    direction?: 'link' | 'unlink';
+    every?: string;
+    at?: string;
+    weekday?: number;
+  };
   condition: { field: string; op: string; value?: unknown } | null;
   actions: ButtonAction[];
   failureStreak: number;
@@ -47,20 +59,12 @@ interface Run {
   createdAt: string;
 }
 
+/** Thin rule-level wrapper over the shared `triggerLabel` (#283): adds the
+ * schedule-only top-N suffix, which is a rule fact, not a trigger fact. */
 function triggerSentence(rule: Rule, fields: Field[]): string {
-  const t = rule.trigger;
-  if (t.type === 'record_created') return 'When a record is created';
-  if (t.type === 'record_updated') {
-    const field = fields.find((f) => f.id === t.field_id);
-    return field ? `When "${field.displayName}" changes` : 'When a record changes';
-  }
-  if (t.type === 'schedule') {
-    const base = `Every ${t.every}${t.at ? ` at ${t.at}` : ''} (server time)`;
-    if (rule.topNLimit) return `${base} — top ${rule.topNLimit}`;
-    return base;
-  }
-  if (t.type === 'webhook_received') return 'A webhook is received';
-  return t.type;
+  const base = triggerLabel(rule.trigger, fields);
+  if (rule.trigger.type === 'schedule' && rule.topNLimit) return `${base} — top ${rule.topNLimit}`;
+  return base;
 }
 
 /** The public endpoint lives on the API host, not the web app's own origin. */
@@ -259,6 +263,7 @@ function RuleRow({
   onDelete: () => void;
 }) {
   const [showRuns, setShowRuns] = useState(false);
+  const [showDiagram, setShowDiagram] = useState(false);
   const fmt = useDateFormat();
   const runs = useQuery({
     queryKey: ['automation-runs', ws, db, rule.id],
@@ -293,6 +298,12 @@ function RuleRow({
         </button>
         <button
           className="text-[12px] text-muted hover:text-ink"
+          onClick={() => setShowDiagram((s) => !s)}
+        >
+          Diagram
+        </button>
+        <button
+          className="text-[12px] text-muted hover:text-ink"
           onClick={() => setShowRuns((s) => !s)}
         >
           Runs
@@ -305,6 +316,17 @@ function RuleRow({
         <p className="mt-1 text-[12px] text-warning">
           Auto-disabled after repeated failures — fix the actions and re-enable.
         </p>
+      )}
+      {showDiagram && (
+        <div className="mt-2 border-t border-border-default pt-2">
+          <FlowDiagram rule={rule as DiagramRule} fields={fields} />
+          <button
+            className="mt-2 text-[12px] text-muted hover:text-ink hover:underline"
+            onClick={onEdit}
+          >
+            Edit in form
+          </button>
+        </div>
       )}
       {showRuns && (
         <div className="mt-2 border-t border-border-default pt-2">
