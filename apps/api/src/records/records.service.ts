@@ -18,6 +18,7 @@ import {
 import type { FormulaNode } from '@storyos/schemas';
 import type { FieldDef, FilterNode } from '@storyos/schemas';
 import { DB } from '../db/db.module';
+import { chunk } from '../common/chunk';
 import { buildRenderContext, renderTypedValue } from '../activity/render-values';
 import { assertOwnedAttachments, loadAttachmentChips } from '../attachments/attachment-values';
 import { AttachmentsService } from '../attachments/attachments.service';
@@ -3540,7 +3541,32 @@ export class RecordsService {
     return { deleted: true };
   }
 
-  /** MN-050: one values patch applied to many records; per-record validation, partial failures reported. */
+  /**
+   * #653 — bound a single pass at this many records rather than one unbounded
+   * loop/transaction over the caller's whole (now up to 5000-record)
+   * selection. Chosen to match the PRIOR per-request cap (200), which #686's
+   * own reproduction already proved comfortably fast — raising the ceiling
+   * without changing the unit of work that was already known-safe.
+   */
+  private static readonly BULK_OP_CHUNK_SIZE = 200;
+
+  /**
+   * MN-050: one values patch applied to many records; per-record validation,
+   * partial failures reported.
+   *
+   * #653 — processed in chunks of BULK_OP_CHUNK_SIZE. Each record write is
+   * already its own independent `update()` call (no enclosing transaction,
+   * unchanged from before), so chunking here doesn't change per-record
+   * atomicity — what it buys is a safe RETRY story: applying the same patch
+   * to a record twice is a no-op difference, so a caller whose request was
+   * interrupted mid-selection can simply resend the same record_ids and
+   * pick up where it left off, re-touching already-applied records
+   * harmlessly rather than needing the server to remember where it stopped.
+   * A durable, pollable job with live per-chunk progress and an undo
+   * snapshot is real, separate work — split to a follow-up ticket, since it
+   * needs new tables and this codebase allows only one drizzle migration in
+   * flight across all open PRs.
+   */
   async batchUpdate(
     workspaceId: string,
     databaseId: string,
@@ -3551,20 +3577,31 @@ export class RecordsService {
   ) {
     const failed: Array<{ record_id: string; message: string }> = [];
     let updated = 0;
-    for (const recordId of recordIds) {
-      try {
-        await this.update(workspaceId, databaseId, recordId, input, actorId, 0, source);
-        updated++;
-      } catch (error) {
-        failed.push({
-          record_id: recordId,
-          message: error instanceof Error ? (error as { message: string }).message : 'failed',
-        });
+    for (const batch of chunk(recordIds, RecordsService.BULK_OP_CHUNK_SIZE)) {
+      for (const recordId of batch) {
+        try {
+          await this.update(workspaceId, databaseId, recordId, input, actorId, 0, source);
+          updated++;
+        } catch (error) {
+          failed.push({
+            record_id: recordId,
+            message: error instanceof Error ? (error as { message: string }).message : 'failed',
+          });
+        }
       }
     }
     return { updated, failed };
   }
 
+  /**
+   * #653 — deleted in chunks of BULK_OP_CHUNK_SIZE, each its own transaction,
+   * rather than one transaction spanning the caller's whole (now up to
+   * 5000-record) selection. Soft-delete is idempotent per record (the
+   * `isNull(deletedAt)` filter below excludes anything already gone), so a
+   * caller whose request was interrupted mid-selection can safely resend the
+   * same record_ids — already-deleted rows are silently skipped rather than
+   * erroring or double-processing.
+   */
   async batchDelete(
     workspaceId: string,
     databaseId: string,
@@ -3572,16 +3609,18 @@ export class RecordsService {
     actorId: string,
     source: ChangeSource = 'human',
   ) {
-    const rows = await this.db.query.records.findMany({
-      where: and(
-        eq(records.databaseId, databaseId),
-        inArray(records.id, recordIds),
-        isNull(records.deletedAt),
-      ),
-      columns: { id: true },
-    });
-    const ids = rows.map((r) => r.id);
-    if (ids.length > 0) {
+    const allIds: string[] = [];
+    for (const batch of chunk(recordIds, RecordsService.BULK_OP_CHUNK_SIZE)) {
+      const rows = await this.db.query.records.findMany({
+        where: and(
+          eq(records.databaseId, databaseId),
+          inArray(records.id, batch),
+          isNull(records.deletedAt),
+        ),
+        columns: { id: true },
+      });
+      const ids = rows.map((r) => r.id);
+      if (ids.length === 0) continue;
       await this.db.transaction(async (tx) => {
         await tx.update(records).set({ deletedAt: new Date() }).where(inArray(records.id, ids));
         await tx
@@ -3607,8 +3646,9 @@ export class RecordsService {
           depth: 0,
         }),
       );
+      allIds.push(...ids);
     }
-    return { deleted: ids.length, record_ids: ids };
+    return { deleted: allIds.length, record_ids: allIds };
   }
 
   async batchRestore(

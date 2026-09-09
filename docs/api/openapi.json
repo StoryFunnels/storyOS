@@ -10417,7 +10417,7 @@
         "properties": {
           "record_ids": {
             "minItems": 1,
-            "maxItems": 200,
+            "maxItems": 5000,
             "type": "array",
             "items": {
               "type": "string",
@@ -10440,7 +10440,7 @@
         "properties": {
           "record_ids": {
             "minItems": 1,
-            "maxItems": 200,
+            "maxItems": 5000,
             "type": "array",
             "items": {
               "type": "string",
