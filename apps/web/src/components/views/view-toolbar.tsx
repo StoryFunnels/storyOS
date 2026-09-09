@@ -40,6 +40,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { DatePicker } from '@/components/ui/date-picker';
+import { DragPreview, useDragPresentation, vacatedSlotClass } from '@/components/ui/drag-presentation';
 import { EntityIcon, IconColorPicker } from '@/components/ui/icon-picker';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { API_URL, api } from '@/lib/api';
@@ -1330,6 +1331,21 @@ export function FilterBuilderPanel({
     onNodesChange(moveNodeTo(nodes, from, to));
   }
 
+  // #656 — path-addressed ids ("2.0.1") fail #415's readable-announcement intent
+  // exactly as badly as a raw uuid, so the label reads the SAME node summary a
+  // group/condition row shows itself: a group has no field, a condition reuses
+  // describeCondition (or its own custom label, same precedence ConditionRow uses).
+  const filterLabel = (id: string) => {
+    const entry = flat.find((f) => f.id === id);
+    if (!entry) return undefined;
+    const node = entry.node;
+    if (isFilterGroup(node)) return 'Filter group';
+    const field = fields.find((f) => f.apiName === node.field);
+    if (!field) return undefined;
+    return node.label ?? describeCondition(field, node, members);
+  };
+  const filterDrag = useDragPresentation(filterLabel, { onDragEnd }, flat.map((f) => f.id));
+
   return (
     <div className="flex max-h-[70vh] flex-col">
       <div className="flex items-center justify-between border-b border-border-default px-3 py-2">
@@ -1364,7 +1380,7 @@ export function FilterBuilderPanel({
         </div>
       ) : (
         <div className="max-h-80 overflow-y-auto p-1">
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+          <DndContext sensors={sensors} collisionDetection={closestCenter} {...filterDrag.contextProps}>
             <SortableContext items={flat.map((f) => f.id)} strategy={verticalListSortingStrategy}>
               {nodes.map((node, i) => (
                 <FilterNodeRow
@@ -1382,6 +1398,13 @@ export function FilterBuilderPanel({
                 />
               ))}
             </SortableContext>
+            <DragPreview>
+              {filterDrag.activeId && (
+                <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-[12px] font-medium text-ink shadow-[var(--shadow-lifted)]">
+                  {filterLabel(filterDrag.activeId) ?? ''}
+                </div>
+              )}
+            </DragPreview>
           </DndContext>
         </div>
       )}
@@ -1592,23 +1615,10 @@ function GroupRow({
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={cn(
         'group relative rounded px-1 py-1.5',
-        /* #631 — the shadow goes, the dimming stays. Answer (a): the opacity IS
-           the signal, so a shadow on top of it says the same thing twice, and
-           StoryOS's stated direction is that depth comes from borders and
-           background shifts rather than shadows.
-
-           NOT `vacatedSlotClass`, which is the trap here. That class dims to
-           opacity-40 with a dashed outline, and it is correct at its six call
-           sites ONLY because a <DragPreview> ghost floats above carrying the
-           content. This file has no DragPreview — it still drags the row itself
-           in the flow via CSS.Transform (the #409 defect it never had fixed,
-           tracked separately). Applying the vacated-slot look here would fade
-           the thing you are actively dragging to 40%, which is a regression, not
-           a consistency win. It becomes right AFTER that conversion, not before.
-
-           Same reason z-40 and bg-card stay: a row that moves with the pointer
-           paints over its neighbours and needs an opaque background. */
-        isDragging && 'z-40 bg-card opacity-90',
+        // #656 — the dragged content now floats in the shared DragPreview
+        // overlay, so this slot never competes for stacking order; it only
+        // needs to mark itself as vacated (#409/#631).
+        vacatedSlotClass(isDragging),
       )}
     >
       <div className="flex items-start gap-1.5">
@@ -1710,23 +1720,10 @@ function ConditionRow({
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={cn(
         'group relative rounded px-1 py-1.5',
-        /* #631 — the shadow goes, the dimming stays. Answer (a): the opacity IS
-           the signal, so a shadow on top of it says the same thing twice, and
-           StoryOS's stated direction is that depth comes from borders and
-           background shifts rather than shadows.
-
-           NOT `vacatedSlotClass`, which is the trap here. That class dims to
-           opacity-40 with a dashed outline, and it is correct at its six call
-           sites ONLY because a <DragPreview> ghost floats above carrying the
-           content. This file has no DragPreview — it still drags the row itself
-           in the flow via CSS.Transform (the #409 defect it never had fixed,
-           tracked separately). Applying the vacated-slot look here would fade
-           the thing you are actively dragging to 40%, which is a regression, not
-           a consistency win. It becomes right AFTER that conversion, not before.
-
-           Same reason z-40 and bg-card stay: a row that moves with the pointer
-           paints over its neighbours and needs an opaque background. */
-        isDragging && 'z-40 bg-card opacity-90',
+        // #656 — the dragged content now floats in the shared DragPreview
+        // overlay, so this slot never competes for stacking order; it only
+        // needs to mark itself as vacated (#409/#631).
+        vacatedSlotClass(isDragging),
       )}
     >
       <div className="flex items-start gap-1.5">
@@ -2245,6 +2242,14 @@ export function SortButton({
     onChange(reorderSorts(sorts, Number(active.id), Number(over.id)));
   }
   const canAddMore = sorts.length < MAX_SORTS && nextSortField(sorts, sortableFields) !== undefined;
+  // #656 — a sort key is index-addressed ("0", "1"), which reads no better than
+  // a raw id to a screen reader; name the field it actually sorts by instead.
+  const sortLabel = (id: string) => byApiName.get(sorts[Number(id)]?.field ?? '')?.displayName;
+  const sortDrag = useDragPresentation(
+    sortLabel,
+    { onDragEnd },
+    sorts.map((_, i) => String(i)),
+  );
 
   return (
     <span className="relative">
@@ -2299,7 +2304,7 @@ export function SortButton({
               </div>
             ) : (
               <div className="max-h-64 overflow-y-auto p-1">
-                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+                <DndContext sensors={sensors} collisionDetection={closestCenter} {...sortDrag.contextProps}>
                   <SortableContext items={sorts.map((_, i) => String(i))} strategy={verticalListSortingStrategy}>
                     {sorts.map((sort, i) => (
                       <SortRow
@@ -2313,6 +2318,13 @@ export function SortButton({
                       />
                     ))}
                   </SortableContext>
+                  <DragPreview>
+                    {sortDrag.activeId && (
+                      <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-[12px] font-medium text-ink shadow-[var(--shadow-lifted)]">
+                        {sortLabel(sortDrag.activeId) ?? ''}
+                      </div>
+                    )}
+                  </DragPreview>
                 </DndContext>
               </div>
             )}
@@ -2411,23 +2423,10 @@ function SortRow({
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={cn(
         'group relative rounded px-1 py-1.5',
-        /* #631 — the shadow goes, the dimming stays. Answer (a): the opacity IS
-           the signal, so a shadow on top of it says the same thing twice, and
-           StoryOS's stated direction is that depth comes from borders and
-           background shifts rather than shadows.
-
-           NOT `vacatedSlotClass`, which is the trap here. That class dims to
-           opacity-40 with a dashed outline, and it is correct at its six call
-           sites ONLY because a <DragPreview> ghost floats above carrying the
-           content. This file has no DragPreview — it still drags the row itself
-           in the flow via CSS.Transform (the #409 defect it never had fixed,
-           tracked separately). Applying the vacated-slot look here would fade
-           the thing you are actively dragging to 40%, which is a regression, not
-           a consistency win. It becomes right AFTER that conversion, not before.
-
-           Same reason z-40 and bg-card stay: a row that moves with the pointer
-           paints over its neighbours and needs an opaque background. */
-        isDragging && 'z-40 bg-card opacity-90',
+        // #656 — the dragged content now floats in the shared DragPreview
+        // overlay, so this slot never competes for stacking order; it only
+        // needs to mark itself as vacated (#409/#631).
+        vacatedSlotClass(isDragging),
       )}
     >
       <div className="flex items-start gap-1.5">
@@ -2574,6 +2573,8 @@ function CardFieldPicker({ fields, shown, onChange }: { fields: Field[]; shown: 
     if (from < 0 || to < 0) return;
     onChange(arrayMove(shown, from, to));
   };
+  const cardFieldLabel = (id: string) => fields.find((f) => f.id === id)?.displayName;
+  const cardFieldDrag = useDragPresentation(cardFieldLabel, { onDragEnd }, shown);
 
   return (
     <>
@@ -2582,7 +2583,7 @@ function CardFieldPicker({ fields, shown, onChange }: { fields: Field[]; shown: 
           <div className="px-2 pb-0.5 pt-1 text-[11px] font-semibold uppercase tracking-wider text-faint">
             Shown · drag to reorder
           </div>
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+          <DndContext sensors={sensors} collisionDetection={closestCenter} {...cardFieldDrag.contextProps}>
             <SortableContext items={shown} strategy={verticalListSortingStrategy}>
               {shownFields.map((field) => (
                 <SortableCardField
@@ -2592,6 +2593,13 @@ function CardFieldPicker({ fields, shown, onChange }: { fields: Field[]; shown: 
                 />
               ))}
             </SortableContext>
+            <DragPreview>
+              {cardFieldDrag.activeId && (
+                <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-[12px] font-medium text-ink shadow-[var(--shadow-lifted)]">
+                  {cardFieldLabel(cardFieldDrag.activeId) ?? ''}
+                </div>
+              )}
+            </DragPreview>
           </DndContext>
         </>
       )}
@@ -2614,12 +2622,18 @@ function CardFieldPicker({ fields, shown, onChange }: { fields: Field[]; shown: 
 }
 
 function SortableCardField({ field, onRemove }: { field: Field; onRemove: () => void }) {
-  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: field.id });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: field.id });
   return (
     <div
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
-      className="group flex items-center gap-2 rounded px-2 py-1.5 text-[13px] text-ink hover:bg-hover"
+      // #656 — this was the fourth sortable in this file with NO drag styling at
+      // all; it now gets the same floating-preview + vacated-slot treatment as
+      // the other three.
+      className={cn(
+        'group flex items-center gap-2 rounded px-2 py-1.5 text-[13px] text-ink hover:bg-hover',
+        vacatedSlotClass(isDragging),
+      )}
     >
       <button {...attributes} {...listeners} className="cursor-grab text-faint hover:text-muted" title="Drag to reorder">
         <GripVertical className="h-3.5 w-3.5" />
