@@ -1,12 +1,14 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChevronRight, Database as DatabaseIcon } from 'lucide-react';
+import { ChevronRight, Database as DatabaseIcon, Plus } from 'lucide-react';
 import { EntityIcon } from '@/components/ui/icon-picker';
 import type { DatabaseSummary } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { buildOntologyView, pickCentre } from './space-ontology-layout';
+import { Dialog } from './ui/dialog';
+import { AddFieldDialog } from './table-view/add-field-dialog';
 import type { OntologyChip, OntologyGroup } from './space-ontology-layout';
 
 /**
@@ -97,6 +99,8 @@ export function SpaceOntology({
 }) {
   const router = useRouter();
 
+  const [addOpen, setAddOpen] = useState(false);
+
   const centre = useMemo(() => pickCentre(databases, relations), [databases, relations]);
   const view = useMemo(
     () => (centre ? buildOntologyView(centre, relations, spaceNameById, spaceId) : null),
@@ -134,7 +138,7 @@ export function SpaceOntology({
           <AxisLine hasContent={view.axes.left.length > 0} />
         </div>
 
-        <CentreChip database={centre} />
+        <CentreChip database={centre} onAdd={() => setAddOpen(true)} />
 
         <div className="col-start-3 row-start-2 flex items-center gap-2 justify-self-start">
           <AxisLine hasContent={view.axes.right.length > 0} />
@@ -146,6 +150,32 @@ export function SpaceOntology({
           <AxisGroups groups={view.axes.down} onOpen={openRelation} />
         </div>
       </div>
+
+      {/* #636 AC1 — ONE `+`, not the four the ticket describes.
+          The ticket says "four axes… each a plain line ending in a `+` that adds
+          a relation in that direction", which reads naturally when direction
+          means something. It does not: Ievgen chose balance-only placement, so a
+          chip added "upward" lands wherever the deterministic balance puts it.
+          Four buttons that all do one thing imply a choice the system then
+          ignores, which is worse than one button. So the axis lines stay pure
+          structure and the single `+` sits on the centre chip, where "add a
+          relation FROM this database" is unambiguous.
+
+          It opens `AddFieldDialog` with initialType="relation" — the SAME dialog
+          the /relations page opens, deliberately not a second path. Otto's
+          ruling there: cardinality changes are destructive, and "two code paths
+          that both claim to create/edit a relation is exactly how they drift
+          apart". This surface adds a third entry point, not a third mechanism. */}
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        {addOpen && (
+          <AddFieldDialog
+            ws={ws}
+            db={centre.id}
+            initialType="relation"
+            onDone={() => setAddOpen(false)}
+          />
+        )}
+      </Dialog>
     </div>
   );
 }
@@ -166,15 +196,33 @@ function AxisLine({ vertical, hasContent }: { vertical?: boolean; hasContent: bo
   );
 }
 
-function CentreChip({ database }: { database: OntologyDatabase }) {
+function CentreChip({
+  database,
+  onAdd,
+}: {
+  database: OntologyDatabase;
+  onAdd: () => void;
+}) {
   return (
-    <span className="col-start-2 row-start-2 inline-flex max-w-56 items-center gap-2 rounded-[var(--radius-chip)] border border-border-strong bg-app px-2.5 py-1.5">
+    <span className="col-start-2 row-start-2 inline-flex max-w-56 items-center gap-2 rounded-[var(--radius-chip)] border border-border-strong bg-app py-1.5 pl-2.5 pr-1.5">
       <EntityIcon
         icon={database.icon}
         color={database.color}
         fallback={<DatabaseIcon size={14} />}
       />
       <span className="truncate text-body font-medium text-ink">{database.name}</span>
+      <button
+        type="button"
+        onClick={onAdd}
+        /* Always visible, never hover-only: this is the diagram's only action,
+           and #637's rule is that anything carrying an affordance clears AA —
+           so text-muted, not text-faint. */
+        className="-mr-0.5 shrink-0 rounded-[var(--radius-control)] p-0.5 text-muted hover:bg-hover hover:text-ink"
+        title={`Add a relation from ${database.name}`}
+        aria-label={`Add a relation from ${database.name}`}
+      >
+        <Plus className="h-3.5 w-3.5" aria-hidden />
+      </button>
     </span>
   );
 }

@@ -27,7 +27,7 @@ and declined in favour of balance-only. Recorded so it is not re-litigated.
 
 ---
 
-## The consequence of balance-only that needs a decision
+## The consequence of balance-only, and the decision it forced
 
 **If the axes carry no meaning, four `+` buttons are four copies of one action.**
 
@@ -38,13 +38,22 @@ rightward" do the same thing and produce a chip that may land on a different axi
 than the one clicked — which is worse than one button, because it implies a
 choice the system will then ignore.
 
-**Recommendation: one `+`, not four.** Place it on the centre chip's trailing
-edge, where "add a relation from this database" reads unambiguously. Keep the
-four axis lines as pure structure — they carry chips, not actions.
+**DECIDED: one `+`, not four** (2026-09-09, Dara). It sits on the centre chip's
+trailing edge, where "add a relation from this database" reads unambiguously.
+The four axis lines stay pure structure — they carry chips, not actions.
 
-I am not treating this as blocking. If four `+` buttons are wanted anyway, they
-should all open the same picker and the spec should say the clicked direction is
-ignored, so the next reader is not misled into implementing four behaviours.
+This was raised as a recommendation and routed for a product call; Otto returned
+the ticket without ruling on it, and Ievgen has delegated design decisions of
+this kind, so I have taken it. Recording that the four-button reading was
+available and was rejected on a stated reason, not overlooked: with balance-only
+placement, four buttons would imply a choice the system then ignores.
+
+**It opens the EXISTING dialog, not a new one.** `AddFieldDialog` with
+`initialType="relation"` — the same call the `/relations` page makes. That is
+Otto's ruling on #531, and it applies verbatim here: cardinality changes are
+destructive, and "two code paths that both claim to create/edit a relation is
+exactly how they drift apart". This surface adds a third entry point, never a
+third mechanism.
 
 ---
 
@@ -161,7 +170,6 @@ Content: the cardinality in plain words and both field names — e.g.
 
 ## What I have not decided, and will not guess
 
-- **The `+` count** — recommendation above (one), flagged rather than assumed.
 - **Whether the centre chip is always the space's "primary" database, or whether
   the diagram re-centres when you click a chip.** The ticket says a chevron
   *navigates into* the database, which suggests the page changes rather than the
