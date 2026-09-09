@@ -69,6 +69,12 @@ const DECLARED_SAFE: Record<string, string> = {
   // a credential. Never flows through redactSecrets at all: it's a request
   // body field for the upsert endpoint, not a stored settings/config blob.
   key_field: 'ticket #230 — the api_name of the field an upsert matches on, not a credential',
+  // packages/schemas/src/fields.ts (#230) — create_record action's own
+  // upsert.key_field_id: the SAME "which field to match on" reference as
+  // key_field above, just an id instead of an api_name (this one is a
+  // stored automation config, not a request body, so it needs the id form)
+  // and stored inside an automation rule's config, not a credential.
+  key_field_id: 'ticket #230 — the field id an automation upsert matches on, not a credential',
   // apps/api/src/integrations/linear-source-adapter.ts (MN-236) — the
   // migration-framework SourceAdapter's `LinearSourceConfig.teamKeys`, the same
   // non-secret Linear team identifiers as `team_keys` above, just camelCase to

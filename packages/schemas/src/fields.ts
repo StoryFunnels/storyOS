@@ -221,6 +221,22 @@ export const actionSchema = z.discriminatedUnion('type', [
     database_id: z.uuid(),
     values: z.record(z.string(), z.unknown()).default({}),
     link_via_relation_field_id: z.uuid().optional(),
+    /**
+     * #230 — match-or-create on a unique key instead of always inserting.
+     * `key_field_id` must be a field on `database_id` marked unique (#229);
+     * the interpolated `values[key_field's api_name]` is the match value,
+     * via the SAME RecordsService.upsert() the REST/MCP upsert endpoint
+     * uses. `on_match: 'skip'` leaves the existing record untouched rather
+     * than reapplying `values` — the "updates-or-skips per config" half of
+     * this ticket's AC that 'update' alone (the endpoint's only mode)
+     * doesn't cover.
+     */
+    upsert: z
+      .object({
+        key_field_id: z.uuid(),
+        on_match: z.enum(['update', 'skip']).default('update'),
+      })
+      .optional(),
   }),
   /**
    * #246 — create a DYNAMIC number of records in one action, so the "one Day
