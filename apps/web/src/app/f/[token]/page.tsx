@@ -432,7 +432,7 @@ function RelationInput({
           // #632 — no shadow token exists yet anywhere in this codebase (checked:
           // even the shared Dialog component still hand-rolls its own shadow), so
           // this stays a literal value rather than inventing a one-off token here.
-          className="absolute left-0 top-full z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-[var(--radius-card)] border border-border-default bg-card p-1 shadow-[0_4px_12px_rgba(15,23,41,0.1)]"
+          className="absolute left-0 top-full z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-[var(--radius-card)] border border-border-default bg-card p-1 shadow-[var(--shadow-popover)]"
           onMouseLeave={() => setOpen(false)}
         >
           {results.map((r) => (

@@ -50,8 +50,11 @@ export function StoryOSToaster() {
         style: {
           borderRadius: 'var(--radius-card)',
           // Matches the app's elevated surfaces (dialogs, popovers) rather
-          // than sonner's heavier default drop shadow.
-          boxShadow: '0 4px 16px rgb(15 23 41 / 0.12)',
+          // than sonner's heavier default drop shadow. #661: that intent is now
+          // stated as the token instead of re-derived as a literal — this was
+          // the one shadow #630's class-only grep could not see, because it is
+          // an inline style rather than a `shadow-[…]` utility.
+          boxShadow: 'var(--shadow-popover)',
           fontSize: '13px',
         },
         classNames: {

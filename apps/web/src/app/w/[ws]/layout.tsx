@@ -104,7 +104,7 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
       {/* Mobile-only backdrop — tapping it closes the drawer, same as the X. */}
       {mobileOpen && (
         <div
-          className="fixed inset-0 z-[var(--z-drawer-backdrop)] bg-[rgba(15,23,41,0.35)] md:hidden"
+          className="fixed inset-0 z-[var(--z-drawer-backdrop)] bg-[var(--scrim)] md:hidden"
           onClick={() => setMobileOpen(false)}
           aria-hidden
         />
