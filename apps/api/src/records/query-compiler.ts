@@ -117,6 +117,27 @@ function fieldExpr(def: FieldDef): SQL {
   // computed_values too, materialized by the ai_field_recompute job
   // executor. Always text: neither output shape is ever numeric/boolean.
   if (def.type === 'ai') return sql`(${records.computedValues}->>${def.id})`;
+  // #657 — sortable ONLY when validateSorts() already refused the multi-
+  // valued case (config['multi'], set by RecordsService.fieldDefs from the
+  // relation's own cardinality+side), so exactly zero or one linked record
+  // can ever match here — no ordering-among-many decision to make, unlike a
+  // pick-one rollup. Same myCol/otherCol convention as compileRelation's own
+  // EXISTS query, just resolving to the linked record's TITLE instead of a
+  // membership check.
+  if (def.type === 'relation') {
+    const relationId = def.config['relation_id'] as string;
+    const side = (def.config['side'] as 'a' | 'b' | undefined) ?? 'a';
+    // Plain SQL aliasing (`records lnk`) rather than drizzle-orm's alias() —
+    // interpolating an alias()'d table object into a raw `sql` template
+    // renders only its bare identifier, with no `AS` linkage back to the
+    // real `records` table, which Postgres then reads as "relation
+    // sort_..._linked_record does not exist". `myCol`/`otherCol` are one of
+    // two hardcoded literals (never user input), so sql.raw() here is the
+    // same safety class as every other literal column name in this file.
+    const myCol = side === 'a' ? 'from_record_id' : 'to_record_id';
+    const otherCol = side === 'a' ? 'to_record_id' : 'from_record_id';
+    return sql`(SELECT lnk.title FROM ${recordLinks} rl JOIN ${records} lnk ON lnk.id = rl.${sql.raw(otherCol)} WHERE rl.relation_id = ${relationId} AND rl.${sql.raw(myCol)} = ${records.id} AND lnk.deleted_at IS NULL LIMIT 1)`;
+  }
   return sql`(${records.values}->>${def.id})`;
 }
 

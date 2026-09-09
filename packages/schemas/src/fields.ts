@@ -73,6 +73,48 @@ export const IMPORTABLE_FIELD_TYPES = creatableFieldTypeSchema.options.filter(
 );
 
 /**
+ * #657 — the ONE list of field types a sort can target, shared by
+ * apps/api/src/records/records.service.ts (validateSorts) and
+ * apps/web/src/components/views/view-toolbar.ts (its own `SORTABLE`).
+ *
+ * Moved here because the two were two hand-maintained arrays, each carrying
+ * a comment claiming to mirror the other, and they had already drifted:
+ * `user` was in the api's set but missing from web's (ticket #662) — the
+ * exact same #375/#399 drift shape this package already exists to close.
+ * Spans BOTH creatable field types (text, select, …) and system/computed
+ * ones (id, created_by, formula, relation, …) that `creatableFieldTypeSchema`
+ * deliberately excludes, so it cannot be derived FROM that schema the way
+ * `IMPORTABLE_FIELD_TYPES` above is — it is its own list, just a single one
+ * now instead of two.
+ *
+ * NOTE: `relation` and `user` are here because a SINGLE-valued one is
+ * sortable; a multi-valued one is refused at validation time by checking
+ * the field's own `config.multi` (set on `user` at field-create time, and
+ * derived from the relation's cardinality+side for `relation` — see
+ * RecordsService.fieldDefs) — this list alone doesn't capture that half.
+ */
+export const SORTABLE_FIELD_TYPES = [
+  'id',
+  'title',
+  'text',
+  'number',
+  'date',
+  'url',
+  'email',
+  'select',
+  'workflow',
+  'checkbox',
+  'created_at',
+  'updated_at',
+  'created_by',
+  'updated_by',
+  'user',
+  'formula',
+  'rollup',
+  'relation',
+] as const;
+
+/**
  * #399 — DERIVED from the one shared palette, never a second hardcoded list.
  *
  * This list and the container ones had drifted: the five colours at the end
