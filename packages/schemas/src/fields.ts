@@ -610,6 +610,7 @@ export const automationTriggerSchema = z.discriminatedUnion('type', [
    */
   z.object({ type: z.literal('webhook_received') }),
 ]);
+export type AutomationTrigger = z.infer<typeof automationTriggerSchema>;
 
 /**
  * #392 — a SCHEDULED rule's top-N selection: reuses the exact sort spec views
