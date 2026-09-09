@@ -87,6 +87,16 @@ export interface ProjectedRecord {
   created_by: string | null;
   created_at: Date;
   updated_at: Date;
+  /**
+   * #571 — carried through ONLY so attachAiFields can read a field's
+   * persisted value without a second per-record fetch. Unlike rollup/
+   * formula (recomputed fresh on every read, `computed_values` is just their
+   * sort/filter shadow copy), an ai field's DISPLAY value has no "compute
+   * fresh" option — that would mean an LLM call per page view, which the
+   * ticket forbids — so its `computed_values` entry IS the value, not a copy
+   * of one computed elsewhere in this same request.
+   */
+  computed_values?: Record<string, unknown>;
 }
 
 const TRASH_RETENTION_DAYS = 30;
@@ -198,6 +208,7 @@ export class RecordsService {
       created_by: row.createdBy,
       created_at: row.createdAt,
       updated_at: row.updatedAt,
+      computed_values: row.computedValues as Record<string, unknown>,
     };
   }
 
@@ -229,7 +240,7 @@ export class RecordsService {
       // this path too. Missing it meant a database with no relation field
       // returned raw attachment ids and every card rendered a uuid, which is
       // exactly how the six tests below failed the first time.
-      return this.attachFormulas(await this.attachFiles(projected, defs), defs); // lookups need relations; formulas don't
+      return this.attachFormulas(this.attachAiFields(await this.attachFiles(projected, defs), defs), defs); // lookups need relations; formulas/ai fields don't
     }
     const ids = projected.map((p) => p.id);
 
@@ -286,7 +297,8 @@ export class RecordsService {
     const withAttachments = await this.attachFiles(projected, defs);
     const withLookups = await this.attachLookups(withAttachments, defs);
     const withRollups = await this.attachRollups(withLookups, defs);
-    return this.attachFormulas(withRollups, defs);
+    const withAi = this.attachAiFields(withRollups, defs);
+    return this.attachFormulas(withAi, defs);
   }
 
   /**
@@ -706,6 +718,29 @@ export class RecordsService {
       }
     }
     return out;
+  }
+
+  /**
+   * #571 — surfaces an ai field's PERSISTED value for display, read straight
+   * from `computed_values` (never computed here). Unlike attachRollups/
+   * attachFormulas, which recompute fresh on every read and treat
+   * `computed_values` as a secondary sort/filter shadow copy, an ai field has
+   * no "compute fresh" option at read time — that would be an LLM call per
+   * page view, which the ticket forbids. Runs BEFORE attachFormulas so a
+   * formula referencing an ai field sees its value the same way it already
+   * sees a rollup's (record.values[api_name], populated by an earlier pass).
+   */
+  private attachAiFields(projected: ProjectedRecord[], defs: FieldDef[]): ProjectedRecord[] {
+    const aiDefs = defs.filter((d) => d.type === 'ai');
+    if (aiDefs.length === 0 || projected.length === 0) return projected;
+    for (const record of projected) {
+      const computed = record.computed_values ?? {};
+      for (const def of aiDefs) {
+        const value = computed[def.id];
+        if (value !== undefined) record.values[def.api_name] = value;
+      }
+    }
+    return projected;
   }
 
   private async attachFormulas(

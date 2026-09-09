@@ -11,6 +11,7 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { DatabasesModule } from './databases/databases.module';
 import { FieldsModule } from './fields/fields.module';
 import { RecordsModule } from './records/records.module';
+import { AiFieldModule } from './records/ai-field.module';
 import { RelationsModule } from './relations/relations.module';
 import { PortalModule } from './portal/portal.module';
 import { ViewsModule } from './views/views.module';
@@ -96,6 +97,7 @@ import { DeploymentModule } from './deployment/deployment.module';
     DatabasesModule,
     FieldsModule,
     RecordsModule,
+    AiFieldModule,
     RelationsModule,
     PortalModule,
     ViewsModule,

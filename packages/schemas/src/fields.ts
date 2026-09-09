@@ -27,6 +27,11 @@ export const creatableFieldTypeSchema = z.enum([
   'rollup',
   'button',
   'formula',
+  // #571 — a field whose value is computed by an LLM call rather than typed
+  // or aggregated: a prompt referencing the record's own fields (and, via an
+  // existing relation, related-record fields the same one-level-deep reach
+  // rollup/lookup already have), with a free-text or fixed-choice output.
+  'ai',
 ]);
 export type CreatableFieldType = z.infer<typeof creatableFieldTypeSchema>;
 
@@ -45,6 +50,8 @@ export const NON_IMPORTABLE_FIELD_TYPES = [
   // #391: a CSV cell cannot become a file. An import that "created" an
   // attachment field would produce a column that is empty for every row.
   'attachment',
+  // #571: an ai field's value is computed by an LLM call, never a cell value.
+  'ai',
 ] as const;
 
 /**
@@ -477,6 +484,48 @@ export const titleConfigSchema = z.object({
 });
 export type TitleConfig = z.infer<typeof titleConfigSchema>;
 
+/**
+ * AI-computed field (#571). `prompt` uses the SAME `{Field Name}` token
+ * syntax automation actions already interpolate — reuse, not a second
+ * template language. `output` is either free text or a fixed set of
+ * classification choices (Baserow/Attio's own AI-field shape).
+ *
+ * `dependency_field_ids` is COMPILED at save (mirrors formula's `ast`, never
+ * client-supplied): every field id the prompt's tokens resolved to, used both
+ * to refuse a cyclic AI-field-depends-on-AI-field configuration at save time
+ * and to decide which record writes should re-trigger this field at write
+ * time (FieldsService.assertAiFieldConfig / AiFieldSubscriber).
+ */
+export const aiFieldConfigSchema = z.object({
+  prompt: z.string().trim().min(1).max(4000),
+  output: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('text') }),
+    z.object({
+      kind: z.literal('choice'),
+      options: z.array(z.string().trim().min(1).max(100)).min(1).max(50),
+    }),
+  ]),
+  dependency_field_ids: z.array(z.uuid()).optional(),
+});
+export type AiFieldConfig = z.infer<typeof aiFieldConfigSchema>;
+
+/**
+ * The raw `{Field Name}` tokens in a prompt — display names, not yet
+ * resolved to field ids (that needs a live field list, so it happens in
+ * FieldsService.assertAiFieldConfig). Deliberately the SAME token shape
+ * `{index}`/`{changesSummary}`/`{payload.…}` etc. sit alongside in
+ * automation templates, but this only recognizes plain field-name tokens —
+ * an AI prompt has no batch index, no changes summary, no inbound webhook
+ * payload to reference.
+ */
+export function aiPromptRefs(prompt: string): string[] {
+  const out = new Set<string>();
+  for (const match of prompt.matchAll(/\{([^{}]+)\}/g)) {
+    out.add(match[1]!.trim());
+  }
+  return [...out];
+}
+
 export const emptyConfigSchema = z.object({});
 
 export const fieldConfigSchemas: Record<CreatableFieldType, z.ZodType> = {
@@ -517,6 +566,7 @@ export const fieldConfigSchemas: Record<CreatableFieldType, z.ZodType> = {
   rollup: rollupConfigSchema,
   button: buttonConfigSchema,
   formula: formulaConfigSchema,
+  ai: aiFieldConfigSchema,
 };
 
 export function validateFieldConfig(type: CreatableFieldType, config: unknown) {

@@ -113,6 +113,10 @@ function fieldExpr(def: FieldDef): SQL {
     return sql`(${records.computedValues}->>${def.id})`;
   }
   if (def.type === 'rollup') return sql`((${records.computedValues}->>${def.id})::numeric)`;
+  // #571 — an AI field's value (free text or a chosen label) lives in
+  // computed_values too, materialized by the ai_field_recompute job
+  // executor. Always text: neither output shape is ever numeric/boolean.
+  if (def.type === 'ai') return sql`(${records.computedValues}->>${def.id})`;
   return sql`(${records.values}->>${def.id})`;
 }
 
@@ -121,7 +125,7 @@ function presentExpr(def: FieldDef): SQL {
   // asking `values ? id` for them answered "empty" for every row, which made
   // is_empty match everything and not_empty match nothing. Only reachable now
   // that pick-one rollups are filterable at all.
-  if (def.type === 'rollup' || def.type === 'formula') {
+  if (def.type === 'rollup' || def.type === 'formula' || def.type === 'ai') {
     return sql`(${records.computedValues} ? ${def.id} AND ${records.computedValues}->${def.id} <> 'null'::jsonb)`;
   }
   if (def.type === 'id') return sql`(${records.number} IS NOT NULL)`;
@@ -279,6 +283,10 @@ function compileCondition(fieldName: string, op: FilterOp, value: unknown, ctx: 
       if (valueType === 'date') return compileDate(def, op, value);
       return compileTextish(def, op, value);
     }
+    // #571 — always text (free text or a chosen label); no result-type branch
+    // needed, unlike formula/rollup.
+    case 'ai':
+      return compileTextish(def, op, value);
     default:
       throw err(`filters on "${def.type}" fields are not supported`);
   }

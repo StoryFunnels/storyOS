@@ -78,7 +78,9 @@ export function formulaTypeOfFieldType(type: string): FormulaType | null {
   if (type === 'number' || type === 'rollup' || type === 'id') return 'number';
   if (type === 'checkbox') return 'checkbox';
   if (type === 'date' || type === 'created_at' || type === 'updated_at') return 'date';
-  if (['text', 'title', 'select', 'workflow', 'url', 'email', 'lookup'].includes(type)) return 'text';
+  // #571 — an ai field's stored value (free text or a chosen label) reads
+  // like any other text field to a formula.
+  if (['text', 'title', 'select', 'workflow', 'url', 'email', 'lookup', 'ai'].includes(type)) return 'text';
   return null;
 }
 
