@@ -14,7 +14,8 @@ its own filters, sorts, and visible fields. Every database keeps at least one vi
   edits, and per-column widths. The default.
 - **Board (kanban)** — group by a `select` field and drag cards between columns. Column order
   follows the option order; dragging within a column reorders records.
-- **Calendar** — place records by a date field and drag to reschedule.
+- **Calendar** — place records by a date field and drag to reschedule, in **Month**, **Week**, or
+  **Day** mode — see [below](#calendar-day-week-and-month-modes).
 - **Timeline** — a Gantt-style bar per record along a date axis, with drag-to-reschedule and an
   optional planned-vs-actual overlay — see [below](#timeline-planned-vs-actual-dates).
 
@@ -311,6 +312,29 @@ this operator branding — it's the shared-view page's own thing today.)
 - **Setting one field never clears the other.** Sending only an accent colour leaves an
   already-set logo alone, and vice versa — the same partial-merge convention the workspace
   `description` field already follows. Send `null` for a field to clear just that one.
+
+## Calendar: day, week, and month modes
+
+A toolbar toggle switches a Calendar between **Month**, **Week**, and **Day** — the choice is
+saved on the view, not per session, so reopening it later shows the same mode you left it in.
+
+- **Month** is the original grid: chips on days, drag to reschedule at day granularity.
+- **Week** and **Day** render an hour axis instead — a scrollable 24-hour column per visible day,
+  with each record placed at its date field's time.
+- **An optional second date field gives an event its real height** — pick an **End date field**
+  from the toolbar (only offered in Week/Day mode) and an event's block spans start to end. Leave
+  it unset and every event just gets a fixed, display-only block; nothing about the stored value
+  changes either way.
+- **Two events overlapping on the same day both render, side by side** — neither hides the other.
+- **A record with a date but no time renders in a separate "All day" row** above the hour grid, in
+  every mode, rather than vanishing from Week/Day because it has nothing to place on the axis.
+- **Dragging in Week/Day moves both the day AND the time** (snapped to 15-minute steps); dragging
+  the same record in Month mode still only ever changes its date, at day granularity — Month
+  dragging doesn't acquire a time component just because the calendar now has one. With an End
+  date field set, dragging shifts start and end by the same amount, so a block keeps its length
+  when it moves.
+- Every mode paints a record's colour (from the view's **Color by** field) through the same shared
+  colour source every other view reads, so switching modes never changes how a record looks.
 
 ## Timeline: planned vs actual dates
 
