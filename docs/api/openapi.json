@@ -5476,6 +5476,35 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/documents/{doc}/export/markdown": {
+      "get": {
+        "operationId": "SpaceDocumentsController_exportMarkdown",
+        "parameters": [
+          {
+            "name": "doc",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Download the document as Markdown (#262 — the PDF export reuses this serializer)",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/documents/{doc}/move": {
       "post": {
         "operationId": "SpaceDocumentsController_move",

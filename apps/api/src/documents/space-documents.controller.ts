@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Req, Res, UseGuards } from '@nestjs/common';
+import type { FastifyReply } from 'fastify';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
@@ -6,6 +7,12 @@ import { AuthGuard } from '../auth/auth.guard';
 import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { SpaceDocumentsService } from './space-documents.service';
+
+/** Mirrors export/csv.ts's csvFilename — same slug shape, `.md` instead. */
+function markdownFilename(title: string): string {
+  const slug = title.trim().replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '') || 'document';
+  return `${slug}.md`;
+}
 
 // #283: max(16) was too small even for existing `set:<name>` refs (e.g.
 // `set:layout-dashboard` is 20 chars) — bumped to match the max(48) convention
@@ -54,6 +61,21 @@ export class SpaceDocumentsController {
   @ApiOperation({ summary: 'A standalone document (BlockNote content + version)' })
   async get(@Req() req: WorkspaceRequest, @Param('doc') doc: string) {
     return this.docs.get(req.membership, doc);
+  }
+
+  /**
+   * #262 — phase 1 of PDF export: the same "whole document" Markdown, on its
+   * own, since PDF rendering will reuse this serializer rather than write a
+   * second one directly against BlockNote (Ievgen's own sequencing note on
+   * the ticket: MD export ships first, PDF reuses it).
+   */
+  @Get('documents/:doc/export/markdown')
+  @ApiOperation({ summary: 'Download the document as Markdown (#262 — the PDF export reuses this serializer)' })
+  async exportMarkdown(@Req() req: WorkspaceRequest, @Param('doc') doc: string, @Res() reply: FastifyReply) {
+    const { title, markdown } = await this.docs.exportMarkdown(req.membership, doc);
+    reply.header('content-type', 'text/markdown; charset=utf-8');
+    reply.header('content-disposition', `attachment; filename="${markdownFilename(title)}"`);
+    return reply.send(markdown);
   }
 
   @Patch('documents/:doc')

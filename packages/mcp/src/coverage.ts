@@ -34,6 +34,11 @@ export interface CoverageRule {
  */
 export const EXCLUDED: CoverageRule[] = [
   {
+    match: 'GET /api/v1/workspaces/{ws}/documents/{doc}/export/markdown',
+    reason:
+      "#262 — the capability (read a document as Markdown) is already reachable via get_document, which renders through the same @storyos/schemas/markdown converter this route's response is built from. This route exists for the FILE-DOWNLOAD convention the web UI needs (content-disposition, a single self-contained blob with the title as an H1) and for PDF export to reuse — not a second way for an agent to read the same text. Mirroring it as a tool would be exactly the false parity coverage.ts's own docstring warns against: 'the requirement is that every CAPABILITY is reachable, not that the two surfaces mirror each other operation for operation.'",
+  },
+  {
     match: /(POST|DELETE|PATCH) .*\/(grants|invites|members)(\/|$)/,
     reason:
       /*

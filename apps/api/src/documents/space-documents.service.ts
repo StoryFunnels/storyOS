@@ -5,6 +5,7 @@ import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { spaceDocuments, spaceFolders } from '../db/schema';
 import { extractText } from './documents.service';
+import { blocksToMarkdown } from '@storyos/schemas/markdown';
 import { AccessService } from '../access/access.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { SpacesService } from '../workspaces/spaces.service';
@@ -109,6 +110,25 @@ export class SpaceDocumentsService {
     const existing = await this.row(membership.workspaceId, docId);
     await this.assertSpace(membership, existing.spaceId, 'viewer');
     return this.project(existing);
+  }
+
+  /**
+   * #262 — same access rule as `get`: exporting shows you what you can already
+   * read. Uses `@storyos/schemas/markdown`'s `blocksToMarkdown` — the SAME
+   * converter `get_document` already renders through in packages/mcp — rather
+   * than a second implementation against BlockNote's own library. That
+   * matters beyond avoiding duplication: this converter already understands
+   * StoryOS's own mention nodes (`@member`/`#record`), which a generic
+   * BlockNote-library conversion would not render at all. What a person
+   * downloads from "Export" and what an agent reads via get_document are
+   * therefore the same text, not two approximations that can drift.
+   */
+  async exportMarkdown(membership: Membership, docId: string): Promise<{ title: string; markdown: string }> {
+    const existing = await this.row(membership.workspaceId, docId);
+    await this.assertSpace(membership, existing.spaceId, 'viewer');
+    const body = blocksToMarkdown(existing.content);
+    const markdown = `# ${existing.title}\n\n${body}`.trim() + '\n';
+    return { title: existing.title, markdown };
   }
 
   async update(
