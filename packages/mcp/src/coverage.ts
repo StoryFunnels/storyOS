@@ -279,13 +279,17 @@ export const DEFERRED: CoverageRule[] = [
     reason: '#406 — how many records carry a value for a field; the number you want before deleting one.',
   },
   {
-    match: /^(GET|POST) \/api\/v1\/workspaces(\/\{ws\})?$/,
+    // #682 — narrowed from `(GET|POST) .../workspaces(/{ws})?`, which also
+    // matched the bare `GET /workspaces` (the LIST op) — already reached by
+    // `list_workspaces` since before this rule was written. The old, broader
+    // regex hid that overlap from the dead-rule check (still matched real
+    // operations, just partly ones a tool already covered); see #682's
+    // "a deferred entry never turns out to be already-covered" test, added
+    // for exactly this. Left deferred: creating a workspace (plan-gated,
+    // #683) and reading ONE workspace's own details by id (also #683).
+    match: /^(GET \/api\/v1\/workspaces\/\{ws\}|POST \/api\/v1\/workspaces)$/,
     reason:
-      '#406 — reading one workspace\'s details and creating a workspace. `list_workspaces` covers the common case; creation is plan-gated and worth deciding deliberately.',
-  },
-  {
-    match: /\/spaces\/\{space\}\/documents/,
-    reason: '#406 — documents that live in a space rather than on a record.',
+      "#406 — reading one workspace's own details by id, and creating a workspace. `list_workspaces` covers listing; creation is plan-gated and worth deciding deliberately.",
   },
 ];
 
