@@ -207,7 +207,10 @@ interface RecordRow {
  * multi_select/user via mapFilterValues below.
  */
 export const OPS_BY_FIELD_TYPE = {
-  'text/url/email': ['eq', 'neq', 'contains', 'is_empty', 'not_empty'],
+  // #429 — `not_contains` added alongside the web filter panel's own
+  // "does not contain" op; kept in the same row rather than a separate one
+  // so this table and apps/web's OPS_BY_TYPE never have a reason to diverge.
+  'text/url/email': ['eq', 'neq', 'contains', 'not_contains', 'is_empty', 'not_empty'],
   'number/id': ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'is_empty', 'not_empty'],
   date: ['eq', 'neq', 'before', 'after', 'within', 'is_empty', 'not_empty'],
   select: ['eq', 'neq', 'has', 'has_none', 'is_empty', 'not_empty'],

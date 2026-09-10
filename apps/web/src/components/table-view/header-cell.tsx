@@ -27,7 +27,7 @@ import { ChangeTypeDialog } from './change-type-dialog';
 import { EditFieldDialog } from './edit-field-dialog';
 import { useDeleteField } from './field-dialog-shared';
 import type { Field } from './use-table-data';
-import { OPS_BY_TYPE, SORTABLE, defaultValueFor } from '../views/view-toolbar';
+import { opsForField, SORTABLE, defaultValueFor } from '../views/view-toolbar';
 import type { ViewConfig } from '../views/use-view-state';
 import {
   buildFilterGroup,
@@ -98,10 +98,10 @@ export function HeaderCell({
   const sortable = useSortable({ id: field.id, disabled: !reorderable });
 
   // Header ⋯ menu: seed a filter clause for this field (MN-225), mirroring AddFilterButton.
-  const canFilter = Boolean(config && onPatch && OPS_BY_TYPE[field.type]);
+  const canFilter = Boolean(config && onPatch && opsForField(field).length > 0);
   function filterByField() {
     if (!config || !onPatch) return;
-    const first = OPS_BY_TYPE[field.type]?.[0];
+    const first = opsForField(field)[0];
     if (!first) return;
     const connector = filterConnector(config.filters);
     const existing = filterConditions(config.filters);

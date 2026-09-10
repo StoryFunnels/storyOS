@@ -14,7 +14,7 @@ import type { LinkChip } from '@/components/table-view/relation-cell';
 import {
   AddFilterButton,
   FilterChip,
-  OPS_BY_TYPE,
+  opsForField,
   SortButton,
 } from '@/components/views/view-toolbar';
 import type { FilterCondition } from '@/components/views/use-view-state';
@@ -170,7 +170,7 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
     const opt = colorField.options?.find((o) => o.id === row.values[colorField.apiName]);
     return opt ? OPTION_COLORS[opt.color] ?? OPTION_COLORS.gray! : null;
   };
-  const filterable = targetFields.filter((f) => OPS_BY_TYPE[f.type]);
+  const filterable = targetFields.filter((f) => opsForField(f).length > 0);
   const conditions = cv.filters?.and ?? [];
   const setConditions = (next: FilterCondition[]) => setCv({ filters: next.length ? { and: next } : undefined });
 
@@ -216,7 +216,7 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
             <AddFilterButton
               fields={filterable}
               onAdd={(f) => {
-                const op = OPS_BY_TYPE[f.type]![0]!;
+                const op = opsForField(f)[0]!;
                 setConditions([...conditions, { field: f.apiName, op: op.op as FilterCondition['op'], value: undefined }]);
               }}
             />

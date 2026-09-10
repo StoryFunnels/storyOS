@@ -10,6 +10,7 @@ export const filterOpSchema = z.enum([
   'eq',
   'neq',
   'contains',
+  'not_contains',
   'gt',
   'gte',
   'lt',
