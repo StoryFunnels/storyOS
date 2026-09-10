@@ -803,7 +803,7 @@ function BillingSection() {
                 placeholder="Reason (required, audited)"
                 value={planReason}
                 onChange={(e) => setPlanReason(e.target.value)}
-                className="mb-2 h-8 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink placeholder:text-faint"
+                className="mb-2 h-8 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink placeholder:text-muted"
               />
               <input
                 type="date"
@@ -844,7 +844,7 @@ function BillingSection() {
                 placeholder="Included seats"
                 value={includedSeats}
                 onChange={(e) => setIncludedSeats(e.target.value)}
-                className="mb-2 h-8 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink placeholder:text-faint"
+                className="mb-2 h-8 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink placeholder:text-muted"
               />
               <input
                 type="number"
@@ -852,7 +852,7 @@ function BillingSection() {
                 placeholder="Automation runs / month"
                 value={automationRunsPerMonth}
                 onChange={(e) => setAutomationRunsPerMonth(e.target.value)}
-                className="mb-2 h-8 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink placeholder:text-faint"
+                className="mb-2 h-8 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink placeholder:text-muted"
               />
               <input
                 type="number"
@@ -860,7 +860,7 @@ function BillingSection() {
                 placeholder="Max workspaces"
                 value={maxWorkspaces}
                 onChange={(e) => setMaxWorkspaces(e.target.value)}
-                className="mb-2 h-8 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink placeholder:text-faint"
+                className="mb-2 h-8 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink placeholder:text-muted"
               />
               <input
                 type="text"
@@ -868,7 +868,7 @@ function BillingSection() {
                 placeholder="Reason (required, audited)"
                 value={overrideReason}
                 onChange={(e) => setOverrideReason(e.target.value)}
-                className="mb-2 h-8 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink placeholder:text-faint"
+                className="mb-2 h-8 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink placeholder:text-muted"
               />
               <input
                 type="date"

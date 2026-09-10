@@ -312,7 +312,7 @@ function WidgetCard({
             </label>
           )}
           <input
-            className="h-7 rounded border border-border-default bg-card px-1.5 text-[12px] text-ink placeholder:text-faint"
+            className="h-7 rounded border border-border-default bg-card px-1.5 text-[12px] text-ink placeholder:text-muted"
             placeholder={title}
             value={widget.title}
             onChange={(e) => onPatch({ title: e.target.value })}

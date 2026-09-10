@@ -327,7 +327,7 @@ export function DashboardView({
                   placeholder={defaultTileLabel(tile.op, fieldName.get(tile.field_api_name ?? ''))}
                   value={tile.label}
                   onChange={(e) => updateTile(tile.id, { label: e.target.value })}
-                  className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink placeholder:text-faint"
+                  className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink placeholder:text-muted"
                 />
                 {/* #304 — what this tile measures. Scoped to the dashboard's own
                     SPACE in v1: offering a picker wider than the access story is
@@ -448,7 +448,7 @@ export function DashboardView({
                         comparison: { target, direction: tile.comparison?.direction ?? 'up' },
                       });
                     }}
-                    className="h-8 w-full min-w-0 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink placeholder:text-faint"
+                    className="h-8 w-full min-w-0 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink placeholder:text-muted"
                   />
                   {tile.comparison?.target != null && (
                     <select

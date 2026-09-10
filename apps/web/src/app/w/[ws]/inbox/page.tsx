@@ -310,7 +310,7 @@ export default function InboxPage() {
                     onChange={(e) => setRejectReason(e.target.value)}
                     placeholder="Reason if rejecting (optional)"
                     rows={2}
-                    className="w-full rounded-[var(--radius-control)] border border-border-default bg-app px-2.5 py-1.5 text-[13px] text-ink placeholder:text-faint"
+                    className="w-full rounded-[var(--radius-control)] border border-border-default bg-app px-2.5 py-1.5 text-[13px] text-ink placeholder:text-muted"
                   />
                   <div className="flex gap-3">
                     <button
@@ -352,7 +352,7 @@ export default function InboxPage() {
                     onChange={(e) => setRejectReason(e.target.value)}
                     placeholder="Reason if rejecting (optional)"
                     rows={2}
-                    className="w-full rounded-[var(--radius-control)] border border-border-default bg-app px-2.5 py-1.5 text-[13px] text-ink placeholder:text-faint"
+                    className="w-full rounded-[var(--radius-control)] border border-border-default bg-app px-2.5 py-1.5 text-[13px] text-ink placeholder:text-muted"
                   />
                   <div className="flex gap-3">
                     <button
