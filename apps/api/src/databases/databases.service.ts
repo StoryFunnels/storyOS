@@ -109,6 +109,17 @@ export class DatabasesService {
   /**
    * Access-checked database load (ADR-0007): 404 without any grant, 403 below
    * `min`. The cheap primitive every content/schema controller calls.
+   *
+   * #474 — a guest with ONLY a record-scoped grant (#472) inside this
+   * database used to 404 here every time, because `effectiveForDatabase`
+   * only ever looks at space/database grants. That made a record grant
+   * reachable solely by knowing the record's direct URL — never through
+   * `GET /records`, `POST /records/query`, or anything else this gate
+   * fronts. Falling through to `visibleRecordIds`'s `bestRole` fixes the
+   * ENTRY problem; `my_access` here is deliberately NOT "you may see every
+   * record" in that fallback case — callers that return record DATA must
+   * separately consult `visibleRecordIds` to narrow the actual rows, same
+   * as `RecordsService.list`/`query` now do.
    */
   async assertAccess(
     membership: Membership,
@@ -123,7 +134,11 @@ export class DatabasesService {
       ),
     });
     if (!database) throw new NotFoundException('Database not found');
-    const effective = await this.access.effectiveForDatabase(membership, database);
+    let effective = await this.access.effectiveForDatabase(membership, database);
+    if (effective === null) {
+      const recordScoped = await this.access.visibleRecordIds(membership, database);
+      if (recordScoped && recordScoped.ids.size > 0) effective = recordScoped.bestRole;
+    }
     this.access.assertRank(effective, min, 'Database');
     return { database, my_access: effective! };
   }

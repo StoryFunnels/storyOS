@@ -209,6 +209,63 @@ export class AccessService {
   }
 
   /**
+   * #474 — the record-level counterpart to `guestVisibility`: does this guest
+   * have any reason to be inside this DATABASE at all, even with NO space or
+   * database grant? A record-scoped grant (#472) alone must not 404 the
+   * whole database (that would make a record grant unreachable through any
+   * list/query surface, only through a direct `GET /records/:rec` the guest
+   * already happens to have the id for) — but it must not unlock the whole
+   * database either. Two separate callers use this for two separate jobs:
+   * the ENTRY gate (`DatabasesService.assertAccess`, via `bestRole` — "is
+   * `min` satisfied at all") and the DATA narrowing (`RecordsService`'s
+   * list/query paths, via `ids` — "which rows may actually come back").
+   *
+   * null = no record-level narrowing needed — admin/member, or a guest who
+   * already holds a space/database grant here (today's unchanged behavior:
+   * they see every record, same as before this method existed).
+   *
+   * A non-null result with an EMPTY `ids` set means the guest has no grant
+   * reaching this database at all (record, database, or space) — callers
+   * must treat that as "matches nothing," not "no restriction."
+   */
+  async visibleRecordIds(
+    membership: Membership,
+    database: { id: string; spaceId: string },
+  ): Promise<{ ids: Set<string>; bestRole: GrantRole | null } | null> {
+    if (membership.role !== 'guest') return null;
+    const grants = await this.guestGrants(membership);
+    const hasBroaderGrant = grants.some(
+      (g) => g.databaseId === database.id || g.spaceId === database.spaceId,
+    );
+    if (hasBroaderGrant) return null;
+    const recordGrants = grants.filter(
+      (g): g is typeof g & { recordId: string } => Boolean(g.recordId),
+    );
+    if (recordGrants.length === 0) return { ids: new Set(), bestRole: null };
+    // A grant's recordId has no databaseId of its own (schema.ts:200-206's
+    // three scopes are mutually exclusive columns) — resolve which of this
+    // guest's record grants actually belong to THIS database.
+    const rows = await this.db.query.records.findMany({
+      where: and(
+        inArray(
+          records.id,
+          recordGrants.map((g) => g.recordId),
+        ),
+        eq(records.databaseId, database.id),
+        notDeleted(records.deletedAt),
+      ),
+      columns: { id: true },
+    });
+    const ids = new Set(rows.map((r) => r.id));
+    let bestRole: GrantRole | null = null;
+    for (const g of recordGrants) {
+      if (!ids.has(g.recordId)) continue;
+      if (!bestRole || ACCESS_RANK[g.role] > ACCESS_RANK[bestRole]) bestRole = g.role;
+    }
+    return { ids, bestRole };
+  }
+
+  /**
    * Effective role for a SPACE (MN-124). null = no access (render as 404).
    *
    * Space delete had no per-scope check at all — only `@MinRole('member')` — so
