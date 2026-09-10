@@ -7,10 +7,6 @@ import {
   ChevronDown,
   Copy,
   GripVertical,
-  Hash,
-  LineChart as LineChartIcon,
-  PieChart as PieChartIcon,
-  Plus,
   X,
 } from 'lucide-react';
 import { Bar, BarChart, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
@@ -20,7 +16,6 @@ import { SortableContext, arrayMove, horizontalListSortingStrategy, useSortable 
 import { CSS } from '@dnd-kit/utilities';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import { chipVariants } from '@/components/ui/chip';
 import type { Field } from '../table-view/use-table-data';
 import { TILE_OPS, formatTileValue, opLabel, opNeedsField } from './dashboard-tiles';
 import type { TileOp } from './dashboard-tiles';
@@ -378,17 +373,15 @@ export function SummaryWidgetStrip({
   /* Declared above the early return below — hooks cannot sit behind a branch. */
   const [justDuplicated, setJustDuplicated] = useState<string | null>(null);
 
-  if (widgets.length === 0 && readOnly) return null;
+  /* #698 — no widgets, no strip. It used to render a full-width row carrying
+     nothing but its own add button plus a border-b, costing ~40px above the grid
+     on every table/board/gallery/list view whether or not anyone used the
+     feature. The add control now lives in the toolbar row (see
+     AddSummaryWidgetButton below), so there is nothing left to render here. */
+  if (widgets.length === 0) return null;
 
   function setWidgets(next: SummaryWidget[]) {
     onPatch({ summary_widgets: next });
-  }
-
-  function addWidget() {
-    setWidgets([
-      ...widgets,
-      { id: crypto.randomUUID(), type: 'stat', title: '', op: 'count' },
-    ]);
   }
 
   /** #696 — insert the copy directly AFTER its original, not at the end, so the
@@ -431,25 +424,44 @@ export function SummaryWidgetStrip({
           ))}
         </SortableContext>
       </DndContext>
-      {!readOnly && (
-        <button
-          type="button"
-          onClick={addWidget}
-          className={cn(chipVariants({ variant: 'reference' }), 'h-auto shrink-0 gap-1 self-center hover:bg-hover')}
-        >
-          {widgets.length === 0 ? (
-            <>
-              <Hash className="h-3.5 w-3.5" />
-              <BarChart3 className="h-3.5 w-3.5" />
-              <PieChartIcon className="h-3.5 w-3.5" />
-              <LineChartIcon className="h-3.5 w-3.5" />
-            </>
-          ) : (
-            <Plus className="h-3.5 w-3.5" />
-          )}
-          {widgets.length === 0 ? 'Add a summary widget' : 'Add widget'}
-        </button>
-      )}
     </div>
+  );
+}
+
+/**
+ * The "add a summary widget" control, rendered by the VIEW TOOLBAR rather than
+ * by the strip (#698).
+ *
+ * Styled to match the toolbar's own controls — Filter, Sort, Hide fields, CSV —
+ * not the strip's chip. A control that moves into a row should look like the row
+ * it moved into; carrying its old styling across is how a toolbar ends up with
+ * five different button treatments.
+ *
+ * No `ml-auto`: that belongs to ExportCsvButton, which is deliberately pushed to
+ * the right edge. This joins the left group.
+ */
+export function AddSummaryWidgetButton({
+  config,
+  onPatch,
+}: {
+  config: ViewConfig;
+  onPatch: (patch: Partial<ViewConfig>) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() =>
+        onPatch({
+          summary_widgets: [
+            ...(config.summary_widgets ?? []),
+            { id: crypto.randomUUID(), type: 'stat', title: '', op: 'count' },
+          ],
+        })
+      }
+      className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[12px] text-muted hover:bg-hover hover:text-ink"
+      title="Add a summary widget over this view's rows"
+    >
+      <BarChart3 className="h-3.5 w-3.5" /> Add widget
+    </button>
   );
 }
