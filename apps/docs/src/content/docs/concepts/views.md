@@ -266,6 +266,27 @@ it reads live.
 This is also reachable directly over the API (`POST`/`DELETE .../views/{view}/share`,
 `GET /public/views/{token}`) and MCP (`share_view`, `unshare_view`).
 
+### Your own branding on the page
+
+A **logo** and an **accent colour** — set once per workspace, from Settings → General's "Portal
+branding" section (or `update_workspace`'s `portal_logo_url`/`portal_accent_color` over MCP) — show
+on **every published view's public page**, on every plan including Free. This is a different,
+non-plan-gated thing from the "Powered by StoryOS" footer above: your logo is your own brand
+appearing where a client looks; our footer is our own attribution, which only a paid plan removes.
+Nothing here is scoped per-view — one workspace, one logo, one accent colour, on every public view
+link you share. (A public [form](/guides/client-portals/) carries the same footer toggle, but not
+this operator branding — it's the shared-view page's own thing today.)
+
+- The logo renders at the top of the page; the accent colour tints the page's header border and a
+  couple of small UI accents. Neither is required — an unbranded page renders exactly as before.
+- **Both are treated as data, never markup.** `logo_url` must be `https://` (never `data:`,
+  `javascript:`, or a relative path) and only ever reaches the page as an `<img src>`;
+  `accent_color` must match a strict 6-digit hex (`#3366ff`) and only ever reaches the page as an
+  inline `style`, never interpolated into a stylesheet or raw HTML.
+- **Setting one field never clears the other.** Sending only an accent colour leaves an
+  already-set logo alone, and vice versa — the same partial-merge convention the workspace
+  `description` field already follows. Send `null` for a field to clear just that one.
+
 ## Timeline: planned vs actual dates
 
 A Timeline picks a **Start** (and optionally an **End**) date field — the primary pair every bar is
