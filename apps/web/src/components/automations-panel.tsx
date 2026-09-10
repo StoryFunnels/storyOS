@@ -9,14 +9,15 @@ import { api, API_URL } from '@/lib/api';
 import { useDateFormat } from '@/lib/preferences';
 import { ButtonActionsEditor } from '@/components/table-view/button-actions-editor';
 import type { ButtonAction } from '@/components/table-view/button-actions-editor';
-import { useDatabase, useMembers } from '@/components/table-view/use-table-data';
+import { useDatabase, useMailConnections, useMembers } from '@/components/table-view/use-table-data';
+import { FlowDiagramEditor } from '@/components/automations/flow-diagram-editor';
 import { availableRecipes } from '@/components/automation-recipes';
 import type { Field } from '@/components/table-view/use-table-data';
 import { opsForField, SortButton } from '@/components/views/view-toolbar';
 import type { SortSpec } from '@/components/views/sort-config';
 import { FlowDiagram } from '@/components/automations/flow-diagram';
 import { triggerLabel } from '@/components/automations/flow-diagram-model';
-import type { DiagramRule } from '@/components/automations/flow-diagram-model';
+import type { DiagramCondition, DiagramRule } from '@/components/automations/flow-diagram-model';
 import { Button } from '@/components/ui/button';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { DialogContent } from '@/components/ui/dialog';
@@ -413,10 +414,20 @@ function RuleEditor({
   // #156 — a NEW rule starts at the recipe gallery; editing an existing rule goes
   // straight to the form. "Start from scratch" is always one click away.
   const [showRecipes, setShowRecipes] = useState(!rule);
+  // #285 — two views of the SAME `actions`/`setActions` state, not two
+  // separate edit paths: "Canvas" (reorder/add/remove via the flow diagram)
+  // and "List" (the existing per-action settings form). Switching does not
+  // touch `actions` at all, so opening either view and saving with no
+  // changes is byte-identical to not having opened it (#285's own AC).
+  const [actionsView, setActionsView] = useState<'list' | 'canvas'>('list');
   const confirm = useConfirm();
   const membersQuery = useMembers(ws, true);
   const members = (membersQuery.data ?? []).map((m) => ({ id: m.user.id, name: m.user.name }));
   const isWebhookTrigger = triggerType === 'webhook_received';
+  // #285 — the canvas's own "add action" needs the same defaults
+  // ButtonActionsEditor's type-select already builds via defaultActionFor.
+  const relationFields = fields.filter((f) => f.type === 'relation');
+  const mailConnections = useMailConnections(ws);
 
   const lastPayloadQuery = useQuery({
     queryKey: ['automation-last-payload', ws, db, rule?.id],
@@ -911,16 +922,59 @@ function RuleEditor({
       )}
 
       <div className="flex flex-col gap-1.5">
-        <Label>Then</Label>
-        <ButtonActionsEditor
-          ws={ws}
-          db={db}
-          fields={fields}
-          actions={actions}
-          onChange={setActions}
-          restrictToWebhookSafe={isWebhookTrigger}
-          ruleId={rule?.id}
-        />
+        <div className="flex items-center justify-between">
+          <Label>Then</Label>
+          {/* #285 — List and Canvas are two views of the SAME `actions` state
+              (declared once, above), not two edit paths: switching tabs never
+              touches `actions`, so a rule opened and saved with no edits is
+              byte-identical regardless of which view was last shown. */}
+          <div className="flex gap-1 rounded-[var(--radius-control)] border border-border-default p-0.5 text-[12px]">
+            <button
+              type="button"
+              className={cn(
+                'rounded px-2 py-0.5',
+                actionsView === 'list' ? 'bg-hover text-ink' : 'text-muted hover:text-ink',
+              )}
+              onClick={() => setActionsView('list')}
+            >
+              List
+            </button>
+            <button
+              type="button"
+              className={cn(
+                'rounded px-2 py-0.5',
+                actionsView === 'canvas' ? 'bg-hover text-ink' : 'text-muted hover:text-ink',
+              )}
+              onClick={() => setActionsView('canvas')}
+            >
+              Canvas
+            </button>
+          </div>
+        </div>
+        {actionsView === 'canvas' ? (
+          <FlowDiagramEditor
+            trigger={{ type: triggerType, field_id: triggerFieldId || undefined }}
+            condition={isWebhookTrigger ? undefined : (buildCondition() as DiagramCondition | undefined)}
+            actions={actions}
+            onChange={setActions}
+            onEditSettings={() => setActionsView('list')}
+            fields={fields}
+            db={db}
+            relationFields={relationFields}
+            mailConnectionId={mailConnections.data?.[0]?.id}
+            restrictToWebhookSafe={isWebhookTrigger}
+          />
+        ) : (
+          <ButtonActionsEditor
+            ws={ws}
+            db={db}
+            fields={fields}
+            actions={actions}
+            onChange={setActions}
+            restrictToWebhookSafe={isWebhookTrigger}
+            ruleId={rule?.id}
+          />
+        )}
       </div>
 
       <div className="flex justify-end gap-2">
