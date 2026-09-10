@@ -21,6 +21,8 @@ design the workspace, not just fill it. Always call `get_started` first.
 | `get_record` | One record in full, by uuid or public number. |
 | `get_links` | Web-app URLs for a database, its saved views, and/or a batch of records — no round-trip per record. |
 | `list_agent_activity` | Everything one configured Agent wrote in a date range — writes made through an ordinary token never carry agent attribution, so only agent-scoped ones show up here. |
+| `list_database_comments` | Every comment and `#record` reference across a whole database, newest first — see [mentions and notifications](/concepts/mentions-and-notifications/#a-feed-across-many-records-comments-and-references-over-time). |
+| `list_hierarchy_activity` | The same feed, rooted at one record and walked down a chain of relation fields (e.g. Epic → Story → Task), up to 5 levels — permission-checked at every level. |
 
 ## Write
 

@@ -50,6 +50,49 @@ just however many have loaded).
   to you, the section doesn't render at all rather than showing an empty heading.
 - **Zero mentions** also renders nothing — no heading reading "(0)".
 
+## A feed across many records: comments and references over time
+
+**"Mentioned in" above answers a structural question** — what points at this one record, right
+now. A different question is temporal: what's *happened* — every comment and every new
+`#record` reference — across a whole database, or a whole hierarchy, in order. That's a
+**feed**, API/MCP only today (no web page yet):
+
+- `GET /workspaces/{ws}/databases/{db}/activity/comments` (`list_database_comments`) — every
+  comment and reference across every record in **one database**, newest first, cursor-paginated.
+  "What's been said across this database recently" without opening each record.
+- `GET /workspaces/{ws}/databases/{db}/records/{rec}/activity/hierarchy?relation_field_ids=a,b,c`
+  (`list_hierarchy_activity`) — the same feed, but rooted at **one record** and walked down a
+  chain of relation fields you name, one **per level** — a different field each time, since each
+  level lives on a different database (an Epic's own "Stories" field, then a Story's own "Tasks"
+  field). Up to **5 levels**. Answers "everything that happened under this Epic, across every
+  Story and Task under it" in one call, instead of one per database.
+
+Both read the exact same two event kinds, so an entry looks and behaves identically either way:
+
+- **`comment.created`** — which record, who/what wrote it, and a snippet of the comment.
+- **`reference.created`** — which record now carries a new `#`-mention, and which record it
+  points at. Only genuinely **new** mentions produce an entry: resaving content that still
+  contains the same mention it already had doesn't re-emit one, since a mention is stored as a
+  replace-the-whole-set write under the hood, not an append.
+
+**Every entry carries `source`** (`human` / `agent` / `automation` / `mcp` / `null` if never
+recorded) — the same attribution [record history](/concepts/record-history/) uses, never
+defaulted to `human` just because most things are.
+
+**A deleted comment, or a reference whose target record is gone, is left out of the feed** — an
+`activity_events` row is an append-only log with no foreign key back to the comment or record it
+describes, so a row can outlive the thing it points at; the feed skips rather than render a
+dangling entry.
+
+**The hierarchy walk only ever traverses what you can see.** A record the caller cannot access is
+excluded from the walked set *before* the activity query runs, not fetched and then filtered out
+— so its mere presence never leaks through a count or a timing difference. The root record being
+invisible to you 404s the whole call, the same "don't confirm it exists" posture a personal view
+already uses. A relation field that's missing, wrong-typed, or renamed simply ends the walk at
+that level — you still get everything gathered up to there, not a rejected call. A **diamond**
+(two different paths reaching the same descendant record) is deduped: that record's activity
+counts once, not twice.
+
 ## Watching a record for changes
 
 Mentions aren't the only thing that notifies. **Watching** a record gets you an email (and an
