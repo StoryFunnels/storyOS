@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Select } from '@/components/ui/select';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
 import { Check, Filter as FilterIcon, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useDatabase, useMembers, useRecordsInfinite } from '../table-view/use-table-data';
@@ -49,8 +50,6 @@ export interface DashboardTile {
   comparison?: { target?: number; direction: 'up' | 'down' };
 }
 
-const SELECT_CLASS =
-  'h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink';
 
 /**
  * Dashboard view (MN-225 / #168, Phase 1) — a grid of KPI / metric tiles, each
@@ -333,7 +332,7 @@ export function DashboardView({
                     SPACE in v1: offering a picker wider than the access story is
                     how the leak gets built (#306 defers workspace-root for the
                     same reason). */}
-                <select
+                <Select
                   aria-label="Tile source database"
                   value={tile.database_id ?? db ?? ''}
                   onChange={(e) => {
@@ -352,14 +351,14 @@ export function DashboardView({
                       toast.info(`Filter cleared — it referred to ${sourceName(tile.database_id ?? db ?? '')}'s fields.`);
                     }
                   }}
-                  className={SELECT_CLASS}
+                  size="sm"
                 >
                   {sourceOptions.map((o) => (
                     <option key={o.id} value={o.id}>
                       {o.name}
                     </option>
                   ))}
-                </select>
+                </Select>
                 {/* #304 — this tile's own scope. The SAME builder the view toolbar
                     uses (one filter spec, one UI), so a tile can measure a slice
                     instead of every tile repeating the view's total. No viewId is
@@ -380,7 +379,7 @@ export function DashboardView({
                   />
                 )}
                 <div className="flex gap-1.5">
-                  <select
+                  <Select
                     aria-label="Aggregation"
                     value={tile.op}
                     onChange={(e) => {
@@ -391,20 +390,21 @@ export function DashboardView({
                         : undefined;
                       updateTile(tile.id, { op, field_api_name });
                     }}
-                    className={SELECT_CLASS}
+                    size="sm"
                   >
                     {TILE_OPS.map((op) => (
                       <option key={op} value={op}>
                         {opLabel(op)}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                   {opNeedsField(tile.op) && (
-                    <select
+                    <Select
                       aria-label="Field"
                       value={tile.field_api_name ?? ''}
                       onChange={(e) => updateTile(tile.id, { field_api_name: e.target.value || undefined })}
-                      className={`${SELECT_CLASS} min-w-0 flex-1`}
+                      size="sm"
+                      className="min-w-0 flex-1"
                     >
                       <option value="">Select a number field…</option>
                       {numberFields.map((f) => (
@@ -412,7 +412,7 @@ export function DashboardView({
                           {f.displayName}
                         </option>
                       ))}
-                    </select>
+                    </Select>
                   )}
                 </div>
                 {opNeedsField(tile.op) && numberFields.length === 0 && (
@@ -451,7 +451,7 @@ export function DashboardView({
                     className="h-8 w-full min-w-0 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink placeholder:text-muted"
                   />
                   {tile.comparison?.target != null && (
-                    <select
+                    <Select
                       aria-label="Which direction is good"
                       value={tile.comparison.direction}
                       onChange={(e) =>
@@ -462,7 +462,8 @@ export function DashboardView({
                           },
                         })
                       }
-                      className={`${SELECT_CLASS} w-full min-w-0`}
+                      size="sm"
+                      className="w-full min-w-0"
                       /* Stated, not inferred. More revenue is good; more overdue
                          invoices is bad. A wrong guess here colours a bad number
                          green, which is worse than no colour at all. */
@@ -470,7 +471,7 @@ export function DashboardView({
                     >
                       <option value="up">Higher is better</option>
                       <option value="down">Target is a limit</option>
-                    </select>
+                    </Select>
                   )}
                 </div>
               </div>
