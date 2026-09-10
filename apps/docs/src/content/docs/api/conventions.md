@@ -72,6 +72,7 @@ Limits: nesting depth ≤ 3, ≤ 50 conditions, `limit` ≤ 200, `expand` one le
 |---|---|---|---|---|---|---|---|---|---|
 | `eq` / `neq` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ | — |
 | `contains` | ✅ | — | — | — | — | — | — | — | — |
+| `not_contains` | ✅ | — | — | — | — | — | — | — | — |
 | `gt` `gte` `lt` `lte` | — | ✅ | — | — | — | — | — | — | — |
 | `before` / `after` / `within` | — | — | ✅ | — | — | — | — | — | — |
 | `has` / `has_none` | — | — | — | — | ✅ | ✅ | ✅ | ✅ | ✅ (record ids) |
@@ -79,6 +80,10 @@ Limits: nesting depth ≤ 3, ≤ 50 conditions, `limit` ≤ 200, `expand` one le
 
 `within` accepts relative ranges (`today`, `next_7_days`, `this_month`, …). User filters accept the
 literal `"me"`, resolved server-side. An invalid op-for-type returns `422`.
+
+**`not_contains` treats an unset field as a match** — `null`/empty counts as "doesn't contain X",
+the same direction `is_empty` already goes, rather than being silently excluded the way a bare
+negated `contains` would leave it.
 
 **A `workflow` field filters exactly like `select`** — same ops, same option-**id** values (not
 labels; the MCP tools resolve a label to its id for you, the raw API always wants the id). It's
