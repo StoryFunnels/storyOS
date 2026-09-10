@@ -169,6 +169,15 @@ export function cleanViewConfig(
       config.date_field_id && liveFieldIds.has(config.date_field_id)
         ? config.date_field_id
         : undefined,
+    // #470 — same allowlist trap this function's own history already
+    // documents (#227/#391 below): a plain preference naming no field id
+    // (calendar_mode) passes through unconditionally, same as column_sort
+    // above; the end-field REFERENCE is cleaned the same way date_field_id is.
+    calendar_mode: config.calendar_mode,
+    calendar_end_date_field_id:
+      config.calendar_end_date_field_id && liveFieldIds.has(config.calendar_end_date_field_id)
+        ? config.calendar_end_date_field_id
+        : undefined,
     start_date_field_id:
       config.start_date_field_id && liveFieldIds.has(config.start_date_field_id)
         ? config.start_date_field_id
@@ -378,6 +387,7 @@ export class ViewsService {
       ...Object.keys(config.column_widths ?? {}),
       ...(config.group_by_field_id ? [config.group_by_field_id] : []),
       ...(config.date_field_id ? [config.date_field_id] : []),
+      ...(config.calendar_end_date_field_id ? [config.calendar_end_date_field_id] : []),
     ];
     for (const id of referencedIds) {
       if (!byId.has(id)) throw new UnprocessableEntityException(`unknown field id "${id}" in view config`);

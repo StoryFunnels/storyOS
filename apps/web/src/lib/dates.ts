@@ -23,3 +23,20 @@ export const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
+
+/** #470 — day/week calendar mode nav. */
+export function addDays(d: Date, n: number): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+}
+
+/** Monday of the week containing `d` (matches monthMatrix's Monday-first grid). */
+export function startOfWeek(d: Date): Date {
+  const offset = (d.getDay() + 6) % 7;
+  return addDays(d, -offset);
+}
+
+/** The 7 consecutive days of the week containing `d`, Monday first. */
+export function weekDays(d: Date): Date[] {
+  const start = startOfWeek(d);
+  return Array.from({ length: 7 }, (_, i) => addDays(start, i));
+}

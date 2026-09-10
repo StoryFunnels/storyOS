@@ -365,6 +365,29 @@ export function ViewToolbar({
         </select>
       )}
 
+      {/* #470 — an OPTIONAL second date field giving a day/week event its real
+          end time (mirrors timeline's start/end pair). Only worth showing once
+          the view is actually in day/week mode — in month mode nothing reads
+          this field at all, so offering it there would be a picker for a
+          capability the current mode can't use. */}
+      {viewType === 'calendar' && (config.calendar_mode === 'day' || config.calendar_mode === 'week') && (
+        <select
+          className="h-6 rounded border border-border-default bg-card px-1 text-[12px] text-ink"
+          value={config.calendar_end_date_field_id ?? ''}
+          onChange={(e) => onPatch({ calendar_end_date_field_id: e.target.value || undefined })}
+          title="End date field (optional — sets event height)"
+        >
+          <option value="">No end field (fixed 1h blocks)</option>
+          {fields
+            .filter((f) => f.id !== config.date_field_id && (f.type === 'date' || f.type === 'created_at' || f.type === 'updated_at'))
+            .map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.displayName}
+              </option>
+            ))}
+        </select>
+      )}
+
       {/* Color-by (MN-102): tint rows/cards by a select/workflow field's option color.
           #226 adds `calendar` — the calendar now fills its cards from this same
           field, and a renderer whose picker doesn't offer it is unreachable

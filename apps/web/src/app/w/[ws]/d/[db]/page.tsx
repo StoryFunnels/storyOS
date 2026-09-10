@@ -246,7 +246,7 @@ function DatabasePageInner() {
             personalFilter={personalFilter}
           />
         ) : activeView?.type === 'calendar' ? (
-          <CalendarView ws={ws} db={db} config={config} readOnly={readOnly} personalFilter={personalFilter} />
+          <CalendarView ws={ws} db={db} config={config} readOnly={readOnly} onPatch={patch} personalFilter={personalFilter} />
         ) : activeView?.type === 'gallery' ? (
           <GalleryView ws={ws} db={db} config={config} readOnly={readOnly} personalFilter={personalFilter} />
         ) : activeView?.type === 'list' ? (
