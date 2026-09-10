@@ -16,6 +16,7 @@ import { SplitArea, SplitHost } from '@/components/entity/split-screen-host';
 import { useSidebarCollapsed } from '@/lib/sidebar-state';
 import { TyronPanel } from '@/components/tyron/tyron-panel';
 import { useTyronPanel } from '@/lib/tyron-panel';
+import { peekPendingBuild } from '@/lib/pending-build';
 import { cn } from '@/lib/utils';
 
 /** The protected workspace shell. */
@@ -33,7 +34,19 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
   const { collapsed, toggle: toggleCollapsed } = useSidebarCollapsed();
   // #356 — FULL means the panel takes the window. Read here because <main> is the
   // thing that has to give way, and it is owned by this layout.
-  const { state: tyronState } = useTyronPanel();
+  const { state: tyronState, set: setTyronPanel } = useTyronPanel();
+
+  /**
+   * #217 — land straight in the build, not in an empty workspace with an
+   * offer to click. `/new-workspace`'s describe-your-work step already took
+   * the description; this only decides whether Tyron's panel should be open
+   * and full before `TyronConversation` mounts to actually consume it
+   * (`takePendingBuild`, further down the tree) — peeking rather than taking,
+   * so the description is still there when that component looks for it.
+   */
+  useEffect(() => {
+    if (peekPendingBuild(ws)) setTyronPanel('full');
+  }, [ws, setTyronPanel]);
 
   /**
    * #486 — the actual root cause, found by reading useSession() itself

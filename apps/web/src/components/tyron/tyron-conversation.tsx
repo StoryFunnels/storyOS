@@ -7,6 +7,7 @@ import { api, apiErrorMessage } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { AgentAvatar } from './agent-avatar';
 import { useRememberedThread } from '@/lib/tyron-thread';
+import { takePendingBuild } from '@/lib/pending-build';
 import { composerHeight } from './composer-height';
 import { ThreadMenu } from './thread-menu';
 import { StarterCards } from './starter-cards';
@@ -39,6 +40,14 @@ export function TyronConversation({ ws }: { ws: string }) {
    * lost; it was unreachable.
    */
   const { threadId, setThreadId, hydrated } = useRememberedThread(ws);
+  /*
+   * #217 — read (and clear) exactly once, on this component's own mount.
+   * The layout already forced the panel `full` on the same signal
+   * (`peekPendingBuild`, read-only there); this is the ONE consumption, so a
+   * later remount of this same conversation (closing/reopening the panel)
+   * never re-triggers a build the user did not ask for twice.
+   */
+  const [pendingBuild] = useState<string | null>(() => takePendingBuild(ws));
   const [draft, setDraft] = useState('');
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -273,6 +282,7 @@ export function TyronConversation({ ws }: { ws: string }) {
               onAsk={(text) => send.mutate(text)}
               onBuilt={() => void qc.invalidateQueries({ queryKey: ['tyron-thread', ws] })}
               busy={send.isPending}
+              autoOpenBuild={pendingBuild ?? undefined}
             />
           </div>
         )}
