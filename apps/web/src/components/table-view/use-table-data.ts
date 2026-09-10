@@ -241,6 +241,30 @@ export function useRecordsInfinite(ws: string, db: string, queryBody?: Record<st
   });
 }
 
+/**
+ * #659 — the view's total row count, for the persistent "N records" indicator.
+ * Server-computed via `/records/aggregate` (op: count) rather than counting
+ * fetched pages — `useRecordsInfinite` only holds however many pages have been
+ * scrolled into view so far, and the ADR-0016 rule against it ("counting must
+ * not be done by fetching") applies just as much to a table's own row count as
+ * to Tyron's. Scoped by the SAME filter the view's own query uses, so the
+ * number always matches what the grid is actually showing.
+ */
+export function useRecordCount(ws: string, db: string, filter?: unknown) {
+  return useQuery({
+    queryKey: [...recordsKey(ws, db), 'count', filter],
+    queryFn: async () => {
+      const { data, error } = await api.POST('/api/v1/workspaces/{ws}/databases/{db}/records/aggregate', {
+        params: { path: { ws, db } },
+        body: { op: 'count', ...(filter ? { filter } : {}) } as never,
+      });
+      if (error) throw error;
+      return (data as unknown as { value: number }).value;
+    },
+    enabled: Boolean(ws && db),
+  });
+}
+
 export function useRecordMutations(ws: string, db: string) {
   const qc = useQueryClient();
   const key = recordsKey(ws, db);

@@ -165,6 +165,69 @@ describe('views backend (MN-020)', () => {
   });
 });
 
+/**
+ * #659/#289 — `__sys_number` is the ONE `hidden_field_ids` entry with no
+ * stored field row. Before this ticket it was triple-rejected: the zod
+ * schema required a real uuid, `validateConfig` 422'd it as an unknown field
+ * id, and even past both of those `cleanViewConfig` would have stripped it
+ * back out on the very next read. All three are exercised here together
+ * because fixing only one and still hitting either of the others looks
+ * identical from a passing-test's point of view — a request that never got
+ * this far.
+ */
+describe('#659 — the synthetic number-column id round-trips through view config', () => {
+  let tableDbId: string;
+  let tableViewId: string;
+
+  beforeAll(async () => {
+    tableDbId = (
+      await inject('POST', `/workspaces/${wsId}/databases`, {
+        space_id: (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id,
+        name: 'Number Column Table',
+      })
+    ).json().id;
+    tableViewId = (await inject('GET', `/workspaces/${wsId}/databases/${tableDbId}`)).json().views[0].id;
+  });
+
+  it('accepts __sys_number in hidden_field_ids (was a 422 before this ticket)', async () => {
+    const res = await inject('PATCH', `/workspaces/${wsId}/databases/${tableDbId}/views/${tableViewId}`, {
+      config: { sorts: [], hidden_field_ids: ['__sys_number'], card_field_ids: [], column_widths: {} },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+  });
+
+  it('survives a read — cleanViewConfig no longer strips it as a dangling reference', async () => {
+    const detail = await inject('GET', `/workspaces/${wsId}/databases/${tableDbId}`);
+    const view = detail.json().views.find((v: { id: string }) => v.id === tableViewId);
+    expect(view.config.hidden_field_ids).toEqual(['__sys_number']);
+  });
+
+  it('an unrelated dangling field id is still dropped — the fix is scoped to this one id, not a blanket exemption', async () => {
+    await inject('PATCH', `/workspaces/${wsId}/databases/${tableDbId}/views/${tableViewId}`, {
+      config: { sorts: [], hidden_field_ids: ['__sys_number', '11111111-1111-1111-1111-111111111111'], card_field_ids: [], column_widths: {} },
+    });
+    const detail = await inject('GET', `/workspaces/${wsId}/databases/${tableDbId}`);
+    const view = detail.json().views.find((v: { id: string }) => v.id === tableViewId);
+    expect(view.config.hidden_field_ids).toEqual(['__sys_number']);
+  });
+
+  it('still rejects a genuinely invalid hidden_field_ids entry (schema loosened, not opened up)', async () => {
+    const res = await inject('PATCH', `/workspaces/${wsId}/databases/${tableDbId}/views/${tableViewId}`, {
+      config: { sorts: [], hidden_field_ids: ['not-a-uuid-or-a-system-id'], card_field_ids: [], column_widths: {} },
+    });
+    expect(res.statusCode).toBe(422);
+  });
+
+  it('clearing it back out removes it from the stored config', async () => {
+    await inject('PATCH', `/workspaces/${wsId}/databases/${tableDbId}/views/${tableViewId}`, {
+      config: { sorts: [], hidden_field_ids: [], card_field_ids: [], column_widths: {} },
+    });
+    const detail = await inject('GET', `/workspaces/${wsId}/databases/${tableDbId}`);
+    const view = detail.json().views.find((v: { id: string }) => v.id === tableViewId);
+    expect(view.config.hidden_field_ids).toEqual([]);
+  });
+});
+
 describe('view rename / duplicate / default (MN-241)', () => {
   // Own database so earlier tests' field deletions can't affect this block.
   let vdb: string;

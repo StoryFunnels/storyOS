@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { formVisibilityRuleSchema } from './form-visibility';
 import { filterSchema, nullsPlacementSchema, sortSchema } from './query';
+import { systemFieldId } from './system-fields';
 
 export const viewTypeSchema = z.enum([
   'table', 'board', 'calendar', 'gallery', 'list', 'feed', 'timeline', 'form', 'dashboard',
@@ -192,7 +193,16 @@ export const viewConfigSchema = z.object({
    * i.e. the pre-MN-252 default, so old saved views compile unchanged.
    */
   sorts_nulls: nullsPlacementSchema.optional(),
-  hidden_field_ids: z.array(z.uuid()).default([]),
+  /**
+   * #659 — mostly real field-row uuids, but also the ONE synthetic system-field
+   * id (`__sys_number`, #289) the table's row gutter reads to decide whether to
+   * show the permanent record number. That id never backs a stored field row,
+   * so a plain `z.uuid()` here rejected it outright — the PATCH 422'd and
+   * `cleanViewConfig` would have stripped it back out on the very next read
+   * even if it hadn't. Both are fixed together; this schema fix is the one a
+   * new synthetic hideable id would need to repeat.
+   */
+  hidden_field_ids: z.array(z.union([z.uuid(), z.literal(systemFieldId('number'))])).default([]),
   /** Board only — must reference a single-select field (v1). */
   group_by_field_id: z.uuid().optional(),
   /**

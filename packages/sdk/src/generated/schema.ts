@@ -5116,7 +5116,7 @@ export interface components {
                 /** @enum {string} */
                 sorts_nulls?: "first" | "last";
                 /** @default [] */
-                hidden_field_ids: string[];
+                hidden_field_ids: (string | "__sys_number")[];
                 /** Format: uuid */
                 group_by_field_id?: string;
                 /** @enum {string} */
@@ -5282,7 +5282,7 @@ export interface components {
                 /** @enum {string} */
                 sorts_nulls?: "first" | "last";
                 /** @default [] */
-                hidden_field_ids: string[];
+                hidden_field_ids: (string | "__sys_number")[];
                 /** Format: uuid */
                 group_by_field_id?: string;
                 /** @enum {string} */
@@ -5444,7 +5444,7 @@ export interface components {
                 /** @enum {string} */
                 sorts_nulls?: "first" | "last";
                 /** @default [] */
-                hidden_field_ids: string[];
+                hidden_field_ids: (string | "__sys_number")[];
                 /** Format: uuid */
                 group_by_field_id?: string;
                 /** @enum {string} */
