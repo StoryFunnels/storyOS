@@ -2204,6 +2204,23 @@ export interface paths {
         patch: operations["SpaceDocumentsController_update"];
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/documents/{doc}/export/markdown": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download the document as Markdown (#262 — the PDF export reuses this serializer) */
+        get: operations["SpaceDocumentsController_exportMarkdown"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/documents/{doc}/move": {
         parameters: {
             query?: never;
@@ -9307,6 +9324,25 @@ export interface operations {
                 "application/json": components["schemas"]["UpdateSpaceDocDto"];
             };
         };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SpaceDocumentsController_exportMarkdown: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                doc: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             200: {
                 headers: {
