@@ -2557,7 +2557,7 @@ export class RecordsService {
     // #599 — the source record's attachments (files), physically copied.
     // See AttachmentsService.duplicateAll's own doc comment for why this is
     // a real byte-for-byte storage copy rather than sharing storage keys.
-    await this.attachmentsService.duplicateAll(recordId, created.id);
+    await this.attachmentsService.duplicateAll(workspaceId, recordId, created.id, actorId);
 
     return this.get(databaseId, created.id);
   }
