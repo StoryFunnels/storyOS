@@ -1877,7 +1877,46 @@
             "bearer": []
           }
         ],
-        "summary": "Apply one values patch to up to 200 records (partial failures reported)",
+        "summary": "Apply one values patch to up to 5000 records (partial failures reported)",
+        "tags": [
+          "records"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/records/batch-update-undo": {
+      "post": {
+        "operationId": "RecordsController_batchUpdateUndo",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchUpdateUndoDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "#653 — undo a batch update using the `restorable` list its response reported",
         "tags": [
           "records"
         ]
@@ -1916,7 +1955,7 @@
             "bearer": []
           }
         ],
-        "summary": "Soft-delete up to 200 records",
+        "summary": "Soft-delete up to 5000 records",
         "tags": [
           "records"
         ]
@@ -1955,7 +1994,7 @@
             "bearer": []
           }
         ],
-        "summary": "Restore up to 200 records from trash",
+        "summary": "Restore up to 5000 records from trash",
         "tags": [
           "records"
         ]
@@ -10726,6 +10765,38 @@
         "required": [
           "record_ids",
           "values"
+        ]
+      },
+      "BatchUpdateUndoDto": {
+        "type": "object",
+        "properties": {
+          "restorable": {
+            "minItems": 1,
+            "maxItems": 5000,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "record_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "version_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
+              },
+              "required": [
+                "record_id",
+                "version_id"
+              ]
+            }
+          }
+        },
+        "required": [
+          "restorable"
         ]
       },
       "BatchRecordIdsDto": {

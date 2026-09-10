@@ -302,9 +302,10 @@ export const updateRecordSchema = z.object({
  * whose request was interrupted mid-flight can safely retry with the SAME
  * record_ids — already-applied records are simply re-touched harmlessly.
  * That is this PR's resumability guarantee; a durable, pollable job with
- * live progress and an undo-for-edit snapshot store is real, separate work
- * split to a follow-up ticket (needs new tables, and this codebase allows
- * only one drizzle migration in flight across all open PRs).
+ * live progress is real, separate work split to a follow-up ticket (needs
+ * new job-tracking tables, and this codebase allows only one drizzle
+ * migration in flight across all open PRs). Undo-for-edit does NOT need a
+ * new table — see `batchUpdateUndoSchema` below.
  */
 export const batchUpdateRecordsSchema = z.object({
   record_ids: z.array(z.uuid()).min(1).max(5000),
@@ -313,6 +314,19 @@ export const batchUpdateRecordsSchema = z.object({
 
 export const batchRecordIdsSchema = z.object({
   record_ids: z.array(z.uuid()).min(1).max(5000),
+});
+
+/**
+ * #653 — undo a `batchUpdate` call. `restorable` is exactly what a prior
+ * `batchUpdate` response reported: the `{record_id, version_id}` pairs for
+ * every record it actually changed. Reuses the existing `record_versions`
+ * snapshot (MN-231) rather than a new before-image table.
+ */
+export const batchUpdateUndoSchema = z.object({
+  restorable: z
+    .array(z.object({ record_id: z.uuid(), version_id: z.uuid() }))
+    .min(1)
+    .max(5000),
 });
 
 export const moveRecordSchema = z

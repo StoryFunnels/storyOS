@@ -3761,10 +3761,17 @@ export class RecordsService {
    * interrupted mid-selection can simply resend the same record_ids and
    * pick up where it left off, re-touching already-applied records
    * harmlessly rather than needing the server to remember where it stopped.
-   * A durable, pollable job with live per-chunk progress and an undo
-   * snapshot is real, separate work — split to a follow-up ticket, since it
-   * needs new tables and this codebase allows only one drizzle migration in
-   * flight across all open PRs.
+   * A durable, pollable job with live per-chunk progress is real, separate
+   * work — split to a follow-up ticket (#680's sibling gap, tracked
+   * separately), since it needs new job-tracking tables and this codebase
+   * allows only one drizzle migration in flight across all open PRs.
+   *
+   * Undo does NOT need a new table, though: `update()` already snapshots the
+   * FULL pre-write state into `record_versions` on every real value change
+   * (MN-231), in the same transaction as the write. `restorable` reports the
+   * version id captured for each record that actually changed, so a caller
+   * can undo the whole batch via `undoBatchUpdate` without this codebase
+   * inventing a second snapshot mechanism.
    */
   async batchUpdate(
     workspaceId: string,
@@ -3775,12 +3782,23 @@ export class RecordsService {
     source: ChangeSource = 'human',
   ) {
     const failed: Array<{ record_id: string; message: string }> = [];
+    const restorable: Array<{ record_id: string; version_id: string }> = [];
     let updated = 0;
     for (const batch of chunk(recordIds, RecordsService.BULK_OP_CHUNK_SIZE)) {
       for (const recordId of batch) {
         try {
           await this.update(workspaceId, databaseId, recordId, input, actorId, 0, source);
           updated++;
+          // The version row (if any) was just committed inside update()'s own
+          // transaction — a no-op patch (value already equal) creates none,
+          // which is correctly nothing to undo.
+          const [version] = await this.db
+            .select({ id: recordVersions.id })
+            .from(recordVersions)
+            .where(eq(recordVersions.recordId, recordId))
+            .orderBy(desc(recordVersions.createdAt))
+            .limit(1);
+          if (version) restorable.push({ record_id: recordId, version_id: version.id });
         } catch (error) {
           failed.push({
             record_id: recordId,
@@ -3789,7 +3807,42 @@ export class RecordsService {
         }
       }
     }
-    return { updated, failed };
+    return { updated, failed, restorable };
+  }
+
+  /**
+   * #653 — undo a `batchUpdate` call by restoring each affected record to the
+   * pre-edit snapshot `batchUpdate` reported in its `restorable` list.
+   * Deliberately takes the caller's own `{record_id, version_id}` pairs
+   * rather than re-deriving "the version right before now": re-deriving
+   * would restore the WRONG snapshot if the record was edited again after
+   * the batch ran, and `restoreVersion` already refuses a version id that
+   * doesn't belong to the named record (a stale or forged pair 404s that one
+   * entry rather than silently restoring an unrelated point in history).
+   */
+  async undoBatchUpdate(
+    workspaceId: string,
+    databaseId: string,
+    restorable: Array<{ record_id: string; version_id: string }>,
+    actorId: string,
+    source: ChangeSource = 'human',
+  ) {
+    const failed: Array<{ record_id: string; message: string }> = [];
+    let restored = 0;
+    for (const batch of chunk(restorable, RecordsService.BULK_OP_CHUNK_SIZE)) {
+      for (const { record_id: recordId, version_id: versionId } of batch) {
+        try {
+          await this.restoreVersion(workspaceId, databaseId, recordId, versionId, actorId, source);
+          restored++;
+        } catch (error) {
+          failed.push({
+            record_id: recordId,
+            message: error instanceof Error ? (error as { message: string }).message : 'failed',
+          });
+        }
+      }
+    }
+    return { restored, failed };
   }
 
   /**
@@ -3850,6 +3903,13 @@ export class RecordsService {
     return { deleted: allIds.length, record_ids: allIds };
   }
 
+  /**
+   * #653 — chunked to match batchDelete's own treatment: each chunk is its
+   * own transaction rather than one transaction spanning the whole (now up
+   * to 5000-record) selection. Restore is idempotent per record (the
+   * `isNotNull(deletedAt)` filter excludes anything already restored), so a
+   * retry with the same record_ids is safe, same as batchDelete.
+   */
   async batchRestore(
     workspaceId: string,
     databaseId: string,
@@ -3857,16 +3917,18 @@ export class RecordsService {
     actorId: string,
     source: ChangeSource = 'human',
   ) {
-    const rows = await this.db.query.records.findMany({
-      where: and(
-        eq(records.databaseId, databaseId),
-        inArray(records.id, recordIds),
-        isNotNull(records.deletedAt),
-      ),
-      columns: { id: true },
-    });
-    const ids = rows.map((r) => r.id);
-    if (ids.length > 0) {
+    const allIds: string[] = [];
+    for (const batch of chunk(recordIds, RecordsService.BULK_OP_CHUNK_SIZE)) {
+      const rows = await this.db.query.records.findMany({
+        where: and(
+          eq(records.databaseId, databaseId),
+          inArray(records.id, batch),
+          isNotNull(records.deletedAt),
+        ),
+        columns: { id: true },
+      });
+      const ids = rows.map((r) => r.id);
+      if (ids.length === 0) continue;
       await this.db.transaction(async (tx) => {
         await tx.update(records).set({ deletedAt: null }).where(inArray(records.id, ids));
         await tx
@@ -3882,8 +3944,9 @@ export class RecordsService {
             })),
           );
       });
+      allIds.push(...ids);
     }
-    return { restored: ids.length };
+    return { restored: allIds.length };
   }
 
   async restore(
