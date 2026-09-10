@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo } from 'react';
+import { Select } from '@/components/ui/select';
 import { Filter as FilterIcon, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { BlockLayout } from '@storyos/schemas';
@@ -76,8 +77,6 @@ function colorFor(i: number): string {
   return CHART_COLORS[i % CHART_COLORS.length]!;
 }
 
-const SELECT_CLASS =
-  'h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink';
 
 /** Field types a widget can group records by (categorical / date). */
 const GROUPABLE_TYPES = new Set(['select', 'workflow', 'multi_select', 'date', 'checkbox']);
@@ -330,7 +329,7 @@ export function DashboardWidgetCard({
           {/* #367 — what this widget measures. Scoped to the dashboard's own SPACE,
               for the same reason #304 scoped the tile picker: a picker wider than
               the access story is how the leak gets built. */}
-          <select
+          <Select
             aria-label="Widget source database"
             value={widget.database_id ?? db ?? ''}
             onChange={(e) => {
@@ -372,14 +371,14 @@ export function DashboardWidgetCard({
                 );
               }
             }}
-            className={SELECT_CLASS}
+            size="sm"
           >
             {sourceOptions.map((o) => (
               <option key={o.id} value={o.id}>
                 {o.name}
               </option>
             ))}
-          </select>
+          </Select>
           {/* #367 — this widget's own scope, through the SAME builder the view
               toolbar and tiles use (one filter spec, one UI). Offered only for a
               widget on the view's OWN database: the builder needs that database's
@@ -396,23 +395,24 @@ export function DashboardWidgetCard({
             />
           )}
           <div className="flex flex-wrap gap-1.5">
-            <select
+            <Select
               aria-label="Widget type"
               value={widget.type}
               onChange={(e) => onPatch({ type: e.target.value as ChartWidgetType })}
-              className={SELECT_CLASS}
+              size="sm"
             >
               {CHART_WIDGET_TYPES.map((t) => (
                 <option key={t} value={t}>
                   {WIDGET_TYPE_LABEL[t]}
                 </option>
               ))}
-            </select>
-            <select
+            </Select>
+            <Select
               aria-label="Group by field"
               value={widget.group_by_field_api_name ?? ''}
               onChange={(e) => onPatch({ group_by_field_api_name: e.target.value || undefined })}
-              className={`${SELECT_CLASS} min-w-0 flex-1`}
+              size="sm"
+              className="min-w-0 flex-1"
             >
               <option value="">Group by…</option>
               {groupableFields.map((f) => (
@@ -420,10 +420,10 @@ export function DashboardWidgetCard({
                   {f.displayName}
                 </option>
               ))}
-            </select>
+            </Select>
           </div>
           <div className="flex flex-wrap gap-1.5">
-            <select
+            <Select
               aria-label="Measure"
               value={widget.measure.op}
               onChange={(e) => {
@@ -433,16 +433,16 @@ export function DashboardWidgetCard({
                   : undefined;
                 onPatch({ measure: { op, field_api_name } });
               }}
-              className={SELECT_CLASS}
+              size="sm"
             >
               {TILE_OPS.map((op) => (
                 <option key={op} value={op}>
                   {opLabel(op)}
                 </option>
               ))}
-            </select>
+            </Select>
             {measureNeedsField(widget.measure.op) && (
-              <select
+              <Select
                 aria-label="Measure field"
                 value={widget.measure.field_api_name ?? ''}
                 onChange={(e) =>
@@ -450,7 +450,8 @@ export function DashboardWidgetCard({
                     measure: { op: widget.measure.op, field_api_name: e.target.value || undefined },
                   })
                 }
-                className={`${SELECT_CLASS} min-w-0 flex-1`}
+                size="sm"
+                className="min-w-0 flex-1"
               >
                 <option value="">Select a number field…</option>
                 {numberFields.map((f) => (
@@ -458,7 +459,7 @@ export function DashboardWidgetCard({
                     {f.displayName}
                   </option>
                 ))}
-              </select>
+              </Select>
             )}
           </div>
           {groupableFields.length === 0 && (
