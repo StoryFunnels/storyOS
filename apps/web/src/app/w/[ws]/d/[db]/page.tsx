@@ -21,6 +21,7 @@ import { ListSurface } from '@/components/entity/split-screen-host';
 import { EntityIconChip, IconColorPicker } from '@/components/ui/icon-picker';
 import { ViewToolbar } from '@/components/views/view-toolbar';
 import { SummaryWidgetStrip } from '@/components/views/summary-widget-strip';
+import { viewSupportsSummaryWidgets } from '@/components/views/summary-widget-support';
 import { ViewTab } from '@/components/views/view-tab';
 import { ShareViewDialog } from '@/components/views/share-view-dialog';
 import {
@@ -233,6 +234,7 @@ function DatabasePageInner() {
         viewId={activeView?.id}
         personalFilter={personalFilter}
         onReorderFields={schemaEditable ? onReorderFields : undefined}
+        readOnly={readOnly}
       />
       </ErrorBoundary>
 
@@ -249,10 +251,7 @@ function DatabasePageInner() {
         form has no rows to summarise, and dashboard already has this exact
         capability as its own tiles/widgets.
       */}
-      {(activeView?.type === 'table' ||
-        activeView?.type === 'board' ||
-        activeView?.type === 'gallery' ||
-        activeView?.type === 'list') && (
+      {viewSupportsSummaryWidgets(activeView?.type) && (
         <ErrorBoundary label="The summary widgets" onReset={() => patch({ summary_widgets: [] })}>
           <SummaryWidgetStrip
             ws={ws}

@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { AddSummaryWidgetButton } from './summary-widget-strip';
+import { viewSupportsSummaryWidgets } from './summary-widget-support';
 import { COLUMN_SORT_LABELS, type ColumnSort } from './board-columns';
 import { isIncompleteCondition } from '@storyos/schemas';
 import { useQuery } from '@tanstack/react-query';
@@ -286,6 +288,7 @@ export function ViewToolbar({
   viewId,
   personalFilter,
   onReorderFields,
+  readOnly,
 }: {
   fields: Field[];
   config: ViewConfig;
@@ -301,6 +304,9 @@ export function ViewToolbar({
   /** #338 — drag-to-reorder the canonical field order from the Hide-fields panel.
    * Only supplied when the viewer may edit the schema (`creator`); omitted = read-only list. */
   onReorderFields?: (activeId: string, overId: string) => void;
+  /** #698 — gates the add-summary-widget control only. The toolbar's other
+   * controls keep whatever permission behaviour they already had. */
+  readOnly?: boolean;
 }) {
   // #352 — overlay the canonical system-field set (Number, ID, Created, Last
   // edited, Created by, Last edited by) onto the introspected fields so filter
@@ -488,6 +494,14 @@ export function ViewToolbar({
           value={config.color_by_field_id}
           onChange={(color_by_field_id) => onPatch({ color_by_field_id })}
         />
+      )}
+
+      {/* #698 — moved here out of the summary strip, which was rendering a
+          full-width row plus a border just to hold this button on views that had
+          no widgets. The view-type gate is the shared predicate, NOT a second
+          copy of the four-way check in page.tsx. */}
+      {!readOnly && viewSupportsSummaryWidgets(viewType) && (
+        <AddSummaryWidgetButton config={config} onPatch={onPatch} />
       )}
 
       {/* MN-075: the way out — this view's rows, exactly as shown. */}
