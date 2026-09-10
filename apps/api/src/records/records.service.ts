@@ -4146,6 +4146,37 @@ export class RecordsService {
     };
   }
 
+  /**
+   * #474 — the record-level narrowing `list`/`query` need alongside
+   * `attachLinks`' existing chip-withholding. `DatabasesService.assertAccess`
+   * already let a record-scoped-only guest THROUGH the gate (see its own
+   * #474 comment); this is what stops the actual ROWS from including
+   * anything beyond what they were granted, once they're past it.
+   *
+   * Returns `null` for the common case (admin/member, or a guest with a
+   * space/database grant here) — no extra query, no extra condition, and
+   * `list`/`query` behave exactly as before this existed (AC #5/#6). Only
+   * pays the extra `visibleRecordIds` lookup for a guest with no broader
+   * grant on this database.
+   */
+  private async recordVisibilityCondition(
+    membership: Membership | undefined,
+    databaseId: string,
+  ): Promise<SQL | null> {
+    if (!membership || membership.role !== 'guest') return null;
+    const database = await this.db.query.databases.findFirst({
+      where: eq(databases.id, databaseId),
+      columns: { id: true, spaceId: true },
+    });
+    if (!database) return null;
+    const scoped = await this.access.visibleRecordIds(membership, database);
+    if (!scoped) return null; // broader grant here — unrestricted, as today
+    // Empty ids: a grant reaches this database (assertAccess already
+    // required one), but resolved to nothing live (e.g. every granted
+    // record was since soft-deleted) — match nothing rather than everything.
+    return inArray(records.id, [...scoped.ids]);
+  }
+
   async query(
     databaseId: string,
     input: QueryRecordsInput,
@@ -4167,6 +4198,8 @@ export class RecordsService {
     if (input.filter) {
       conditions.push(compileFilter(input.filter, { defs: byApiName, currentUserId }));
     }
+    const visibility = await this.recordVisibilityCondition(membership, databaseId);
+    if (visibility) conditions.push(visibility);
 
     if (input.cursor) {
       const decoded = decodeQueryCursor(input.cursor, sorts.length);
@@ -4240,6 +4273,8 @@ export class RecordsService {
     const defs = await this.fieldDefs(databaseId);
     const conditions = [eq(records.databaseId, databaseId), isNull(records.deletedAt)];
     if (opts.q) conditions.push(sql`${records.title} ILIKE ${'%' + opts.q + '%'}`);
+    const visibility = await this.recordVisibilityCondition(membership, databaseId);
+    if (visibility) conditions.push(visibility);
 
     if (opts.cursor) {
       const decoded = decodeCursor(opts.cursor);
