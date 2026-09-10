@@ -37,13 +37,16 @@ schema changes.
 ### Building a filter
 
 - **Nested And/Or groups** — a condition can itself be a group, so "State is Urgent AND (Owner is
-  me OR Owner is unset)" is one filter, not a workaround.
+  me OR Owner is unset)" is one filter, not a workaround. Nesting goes 3 levels deep; past that,
+  **Turn into group** on a condition's own menu disables itself with the reason rather than letting
+  you build something the server would reject.
 
   ![The filter builder showing a top-level OR with a nested AND group inside it](/images/nested-filter-builder.png)
-- **Global vs Personal scope** — a Global filter is part of the saved view, so everyone who opens
-  it sees the same thing. A **Personal** filter layers on top of the shared one, for you only, and
-  can only *narrow* what Global already shows — it's ANDed in at query time, never a way to see
-  something the view's Global filter excludes.
+- **Global and Personal render together, in one panel** — a **Global** section (part of the saved
+  view, same for everyone) and a **Personal** section (yours only, narrowing what Global already
+  shows — ANDed in at query time, never a way to see past what Global excludes), both visible at
+  once rather than switched between. The effective filter is always readable without toggling
+  anything.
 - **A dynamic "Me"** value on any user field (including `created_by`/`updated_by`) — pick **Me**
   instead of naming yourself, and the same shared view resolves to "assigned to whoever is
   looking" for every person who opens it, per-viewer, at the backend.
@@ -54,6 +57,28 @@ schema changes.
 **Not built:** per-database tabs for filtering across several databases at once. A view models
 exactly one database, and the filter format has no shape for "this condition applies only when
 browsing database B" — it isn't a missing UI control, it's an unmodelled case.
+
+### A condition's own menu, and staying visible on the toolbar
+
+Each condition's **⋯** menu carries **Duplicate**, **Pin to toolbar** (or *Unpin*, once pinned),
+**Edit name and icon**, and **Turn into group** — plus **Remove**, set apart below a divider.
+
+- **Disabling a condition is its own persistent icon on the row**, not a menu item — a disabled
+  condition that looked identical to an enabled one used to be silently misleading (you'd read a
+  filter that wasn't the one actually applied), so its state has to be visible at a glance, not
+  merely reachable by opening a menu.
+- **A filter with one or two conditions shows them as chips on the toolbar itself**, automatically
+  — small enough to read and tweak without opening the panel at all. Past that size, only
+  conditions someone explicitly **pinned** show as toolbar chips; the rest live in the panel.
+
+### Operators
+
+Coverage is decided per field type and kept uniform — no type missing an operator its neighbour
+has for no reason. Text (and url/email) fields get **does not contain**, alongside **contains**:
+an unset field counts as "doesn't contain X" rather than being silently excluded, the same way an
+empty field already counts toward `is_empty`. The full type-by-type list is the [operator × type
+matrix](/api/conventions/#operator--type-matrix) — the same table the raw API and MCP tools use,
+so what the panel offers and what a `filter` you write by hand can express never disagree.
 
 ## Record ordering
 
