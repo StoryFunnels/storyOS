@@ -275,10 +275,6 @@ export const DEFERRED: CoverageRule[] = [
       '#406 — automation dry-run, last received payload, and hook-token rotation. INBOUND (a webhook_received trigger), deliberately kept separate from the outbound-subscription rule above: one reason cannot describe both directions (#443 decided this rather than leaving two rules to drift). Rule CRUD is already covered; `regenerate-hook` additionally mints a token, so it carries the same secret-in-a-transcript objection.',
   },
   {
-    match: /\/fields\/\{field\}\/usage$/,
-    reason: '#406 — how many records carry a value for a field; the number you want before deleting one.',
-  },
-  {
     // #682 — narrowed from `(GET|POST) .../workspaces(/{ws})?`, which also
     // matched the bare `GET /workspaces` (the LIST op) — already reached by
     // `list_workspaces` since before this rule was written. The old, broader
