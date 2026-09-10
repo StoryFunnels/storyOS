@@ -153,13 +153,17 @@ export function FormView({
                     setValues((p) => ({ ...p, [field.apiName]: v }));
                   }}
                 />
-                {cfg?.help && <span className="mt-0.5 text-[11px] text-faint">{cfg.help}</span>}
+                {/* #669 — help text carries an affordance (it tells the person
+                    filling the form what to do), not decoration. */}
+                {cfg?.help && <span className="mt-0.5 text-[11px] text-muted">{cfg.help}</span>}
               </Row>
             );
           })}
 
+          {/* #669 — an editor-facing instruction naming the exact next action,
+              same category #665 promoted ("Empty — drop something here"). */}
           {fields.length === 0 && (
-            <p className="rounded-[var(--radius-card)] border border-dashed border-border-default px-3 py-2 text-[12px] text-faint">
+            <p className="rounded-[var(--radius-card)] border border-dashed border-border-default px-3 py-2 text-[12px] text-muted">
               Use the “Fields” panel to choose which fields appear on this form.
             </p>
           )}
@@ -306,7 +310,8 @@ function FieldInput({
       // and the native input carries that for free — but a person is now recognisable.
       return (
         <div className="flex flex-col gap-1.5 rounded-[var(--radius-control)] border border-border-default bg-card p-2">
-          {members.length === 0 && <span className="text-[12px] text-faint">No members</span>}
+          {/* #669 — explains an absence, same category as "No matches" below. */}
+          {members.length === 0 && <span className="text-[12px] text-muted">No members</span>}
           {members.map((m) => (
             <label key={m.id} className="flex cursor-pointer items-center gap-2 text-[13px] text-ink">
               <input
@@ -381,7 +386,9 @@ function RelationInput({
   };
 
   if (!relation || !targetDb) {
-    return <span className="text-[12px] text-faint">Relation is not configured</span>;
+    // #669 — names why the control is unusable right now, an affordance in the
+    // same family as #429's "the panel says so in a sentence" rule.
+    return <span className="text-[12px] text-muted">Relation is not configured</span>;
   }
 
   return (
@@ -390,6 +397,9 @@ function RelationInput({
         {selectedIds.map((id) => (
           <span key={id} className="flex items-center gap-1 rounded border border-border-default bg-hover px-1.5 py-0.5 text-[12px] text-ink">
             {titles.get(id) ?? id}
+            {/* #669 — icon-only, deliberately out of scope (icon glyphs are
+                judged at the 3:1 threshold, not text's 4.5:1 — the ticket's
+                own carve-out, same as #665's). */}
             <button
               type="button"
               className="text-faint hover:text-error"
@@ -400,7 +410,9 @@ function RelationInput({
           </span>
         ))}
         <input
-          className="h-6 min-w-24 flex-1 border-0 bg-transparent text-[13px] text-ink outline-none placeholder:text-faint"
+          // #669 — placeholder promoted to muted, matching #637's own input
+          // primitive (a placeholder tells you what to type).
+          className="h-6 min-w-24 flex-1 border-0 bg-transparent text-[13px] text-ink outline-none placeholder:text-muted"
           placeholder={`Search ${relation.target_database_name ?? 'records'}…`}
           value={search}
           onFocus={() => setOpen(true)}
@@ -424,7 +436,7 @@ function RelationInput({
             </button>
           ))}
           {results.data?.length === 0 && (
-            <p className="px-2 py-1.5 text-[12px] text-faint">No matches</p>
+            <p className="px-2 py-1.5 text-[12px] text-muted">No matches</p>
           )}
         </div>
       )}
@@ -486,7 +498,11 @@ function FormBuilder({
         <div className="flex flex-col gap-4 border-t border-border-default p-4 text-[13px]">
           {/* Sharing */}
           <section className="flex flex-col gap-2">
-            <p className="text-[11px] font-medium uppercase tracking-wider text-faint">Sharing</p>
+            {/* #669 — section headers promoted to muted throughout this file:
+                same category #665 already promoted for the sidebar (they
+                orient the editor, not decoration). Every other "…uppercase
+                tracking-wider text-muted" label below is the same call. */}
+            <p className="text-[11px] font-medium uppercase tracking-wider text-muted">Sharing</p>
             <FreeGuestTip dismissKey={`form-share-${db}`} href={`/w/${ws}/settings/members?invite=guest`}>
               Sharing with one specific client or collaborator? Invite them as a guest instead —
               viewer and commenter access is free, always, not a trial.
@@ -528,7 +544,7 @@ function FormBuilder({
 
           {/* Form meta */}
           <section className="flex flex-col gap-2">
-            <p className="text-[11px] font-medium uppercase tracking-wider text-faint">Form</p>
+            <p className="text-[11px] font-medium uppercase tracking-wider text-muted">Form</p>
             <MetaInput label="Title" value={form.title ?? ''} onChange={(v) => patchForm({ title: v || undefined })} />
             <MetaInput label="Description" value={form.description ?? ''} onChange={(v) => patchForm({ description: v || undefined })} />
             <MetaInput label="Submit button" value={form.submit_text ?? ''} placeholder="Submit" onChange={(v) => patchForm({ submit_text: v || undefined })} />
@@ -599,9 +615,11 @@ function FormFieldsSidebar({
         </div>
 
         <section className="flex flex-col gap-1.5">
-          <p className="text-[11px] font-medium uppercase tracking-wider text-faint">On this form · drag to reorder</p>
+          <p className="text-[11px] font-medium uppercase tracking-wider text-muted">On this form · drag to reorder</p>
+          {/* #669 — instructs the exact next action, same as the two other
+              empty-state promotions in this file. */}
           {selected.length === 0 && (
-            <p className="rounded-[var(--radius-card)] border border-dashed border-border-default px-2.5 py-2 text-[12px] text-faint">
+            <p className="rounded-[var(--radius-card)] border border-dashed border-border-default px-2.5 py-2 text-[12px] text-muted">
               No fields yet — add one below.
             </p>
           )}
@@ -630,7 +648,7 @@ function FormFieldsSidebar({
 
         {available.length > 0 && (
           <section className="flex flex-col gap-1.5">
-            <p className="text-[11px] font-medium uppercase tracking-wider text-faint">Add a field</p>
+            <p className="text-[11px] font-medium uppercase tracking-wider text-muted">Add a field</p>
             {available.map((field) => (
               <button
                 key={field.id}
@@ -673,13 +691,18 @@ function SortableFormField({
       className="rounded-[var(--radius-card)] border border-border-default bg-app"
     >
       <div className="flex items-center gap-1.5 px-2 py-1.5">
+        {/* #669 — icon-only, deliberately out of scope (icon glyphs are
+            judged at 3:1, not text's 4.5:1 — the ticket's own carve-out). */}
         <button {...attributes} {...listeners} className="cursor-grab text-faint hover:text-muted" title="Drag to reorder">
           <GripVertical className="h-3.5 w-3.5" />
         </button>
         <button type="button" onClick={() => setExpanded((v) => !v)} className="flex-1 truncate text-left text-[13px] text-ink">
           {field.displayName}
+          {/* #669 — stays faint on purpose: a type annotation beside a name
+              you can already read, the textbook decorative case (#665). */}
           <span className="ml-1 text-[11px] text-faint">· {field.type}</span>
         </button>
+        {/* #669 — icon-only, deliberately out of scope (see the drag handle above). */}
         <button type="button" onClick={onRemove} className="text-faint hover:text-error" title="Remove from form">
           <X className="h-3.5 w-3.5" />
         </button>
@@ -821,7 +844,10 @@ function VisibilityRuleRow({
   onChange: (rule: FormVisibilityRule | undefined) => void;
 }) {
   if (earlierFields.length === 0) {
-    return <p className="text-[11px] text-faint">{emptyText}</p>;
+    // #669 — explains why the control isn't offered here (no earlier field to
+    // condition on), same "state, not decoration" category as the relation
+    // "not configured" message above.
+    return <p className="text-[11px] text-muted">{emptyText}</p>;
   }
   const controller = earlierFields.find((f) => f.id === rule?.field_id);
   const needsValue = rule ? rule.op === 'eq' || rule.op === 'neq' : false;
@@ -830,7 +856,7 @@ function VisibilityRuleRow({
 
   return (
     <div className="flex flex-col gap-1 rounded border border-border-default bg-card p-1.5">
-      <span className="text-[11px] font-medium uppercase tracking-wider text-faint">{label}</span>
+      <span className="text-[11px] font-medium uppercase tracking-wider text-muted">{label}</span>
       <select
         className={select}
         value={rule?.field_id ?? ''}
