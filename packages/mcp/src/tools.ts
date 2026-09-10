@@ -4420,7 +4420,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Update workspace',
       description:
-        'Rename the workspace or set its description — the top-level "what this company is doing here" line that list_workspaces returns. Only the fields you pass change.',
+        'Rename the workspace, set its description, or set the logo/accent colour shown on the public portal page (#539) — the top-level "what this company is doing here" line that list_workspaces returns, or an agency\'s own brand on the pages it shares with clients. Only the fields you pass change.',
       inputSchema: {
         workspace: z.string(),
         rename_to: z.string().optional(),
@@ -4430,31 +4430,55 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .nullable()
           .optional()
           .describe(`${DESCRIPTION_PARAM} Pass null to clear.`),
+        portal_logo_url: z
+          .string()
+          .nullable()
+          .optional()
+          .describe('Logo shown on the public portal page. Must be an https:// URL. Pass null to clear.'),
+        portal_accent_color: z
+          .string()
+          .nullable()
+          .optional()
+          .describe('Accent colour for the public portal page, as a 6-digit hex like "#3366ff". Pass null to clear.'),
       },
     },
-    handle<{ workspace: string; rename_to?: string; description?: string | null }>(
-      async ({ workspace, rename_to, description }) => {
-        const ws = await resolveWorkspace(client, workspace);
-        const body: Record<string, unknown> = {};
-        if (rename_to) body.name = rename_to;
-        if (description !== undefined) body.description = description;
-        /*
-         * Deliberately NOT exposing `private_attachments`, the other key on
-         * updateWorkspaceSchema. It is a security posture switch for the whole
-         * workspace (#201), and "rename this workspace" is not a reason to put a
-         * lever like that within reach of a model. #397's principle is that every
-         * CAPABILITY is reachable, not that every field of every schema is —
-         * this is a deliberate exclusion, recorded here rather than left silent.
-         */
-        const res = await unwrap<unknown>(
-          client.PATCH('/api/v1/workspaces/{ws}', {
-            params: { path: { ws: ws.id } } as never,
-            body: body as never,
-          }),
-        );
-        return text(res);
-      },
-    ),
+    handle<{
+      workspace: string;
+      rename_to?: string;
+      description?: string | null;
+      portal_logo_url?: string | null;
+      portal_accent_color?: string | null;
+    }>(async ({ workspace, rename_to, description, portal_logo_url, portal_accent_color }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const body: Record<string, unknown> = {};
+      if (rename_to) body.name = rename_to;
+      if (description !== undefined) body.description = description;
+      /*
+       * Deliberately NOT exposing `private_attachments`, the other key on
+       * updateWorkspaceSchema. It is a security posture switch for the whole
+       * workspace (#201), and "rename this workspace" is not a reason to put a
+       * lever like that within reach of a model. #397's principle is that every
+       * CAPABILITY is reachable, not that every field of every schema is —
+       * this is a deliberate exclusion, recorded here rather than left silent.
+       *
+       * `branding` (#539) is the opposite call: cosmetic client-portal
+       * configuration, not a security posture, so it's exposed like rename/
+       * description above rather than excluded like private_attachments.
+       */
+      if (portal_logo_url !== undefined || portal_accent_color !== undefined) {
+        body.branding = {
+          ...(portal_logo_url !== undefined ? { logo_url: portal_logo_url } : {}),
+          ...(portal_accent_color !== undefined ? { accent_color: portal_accent_color } : {}),
+        };
+      }
+      const res = await unwrap<unknown>(
+        client.PATCH('/api/v1/workspaces/{ws}', {
+          params: { path: { ws: ws.id } } as never,
+          body: body as never,
+        }),
+      );
+      return text(res);
+    }),
   );
 
   reg(

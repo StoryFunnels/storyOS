@@ -15,6 +15,38 @@ export const createWorkspaceSchema = z.object({
     .optional(),
 });
 
+/**
+ * #539 — an agency operator's own brand on the public portal page (the
+ * shared-view page at /v/[token]). Deliberately NOT the closed
+ * `spaceColorSchema`/`databaseColorSchema` ten-value palette below: those
+ * exist so an internal entity's color is one of a small, themed set: this is
+ * the OPPOSITE case — an operator's own brand color, which by definition
+ * isn't one of ours. A strict hex pattern is the bound instead, so a stored
+ * value can only ever become a CSS color, never markup or a script URL.
+ * `logo_url` is bounded to `https://` for the same reason — never `data:`,
+ * `javascript:`, or a relative path that could be reinterpreted server-side.
+ * Both null-clearable independent of each other (a partial merge, applied in
+ * WorkspacesService.update the same read-modify-write way `private_attachments`
+ * already is).
+ */
+export const workspaceBrandingSchema = z.object({
+  logo_url: z
+    .string()
+    .trim()
+    .max(2048)
+    .refine((u) => u.startsWith('https://'), 'must be an https:// URL')
+    .pipe(z.url())
+    .nullable()
+    .optional(),
+  accent_color: z
+    .string()
+    .trim()
+    .regex(/^#[0-9a-fA-F]{6}$/, 'hex color like #3366ff')
+    .nullable()
+    .optional(),
+});
+export type WorkspaceBranding = z.infer<typeof workspaceBrandingSchema>;
+
 export const updateWorkspaceSchema = z.object({
   name: z.string().trim().min(1).max(100).optional(),
   /** #201: when on, `GET /files/:id` (inline editor-image serve) also requires
@@ -24,6 +56,9 @@ export const updateWorkspaceSchema = z.object({
   private_attachments: z.boolean().optional(),
   /** #400 — null clears it. */
   description: descriptionPatchSchema,
+  /** #539 — merged over the existing value; a field omitted here is left
+   * alone, one explicitly `null` is cleared. See workspaceBrandingSchema. */
+  branding: workspaceBrandingSchema.optional(),
 });
 
 /**

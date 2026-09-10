@@ -1,6 +1,7 @@
 import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { and, eq, inArray } from 'drizzle-orm';
 import { normalizeDescription } from '@storyos/schemas';
+import type { WorkspaceBranding } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { memberships, spaces, workspaces } from '../db/schema';
@@ -103,9 +104,16 @@ export class WorkspacesService {
 
   async update(
     id: string,
-    patch: { name?: string; private_attachments?: boolean; description?: string | null },
+    patch: {
+      name?: string;
+      private_attachments?: boolean;
+      description?: string | null;
+      /** #539 — merged over the existing value; a key omitted here is left
+       * alone, one explicitly `null` clears just that key. */
+      branding?: WorkspaceBranding;
+    },
   ) {
-    const { private_attachments, description, ...rest } = patch;
+    const { private_attachments, description, branding, ...rest } = patch;
     const set: { name?: string; settings?: Record<string, unknown>; description?: string | null } = {
       ...rest,
       // #400: normalized here, not in the zod schema — templates and the
@@ -116,9 +124,19 @@ export class WorkspacesService {
     // Same read-modify-write as the integration settings blobs (slack/github/linear
     // services): `settings` is a shared jsonb bag, so a flag write must merge over
     // the current value rather than clobber it.
-    if (private_attachments !== undefined) {
+    if (private_attachments !== undefined || branding !== undefined) {
       const current = await this.db.query.workspaces.findFirst({ where: eq(workspaces.id, id) });
-      set.settings = { ...((current?.settings as Record<string, unknown>) ?? {}), private_attachments };
+      const currentSettings = (current?.settings as Record<string, unknown>) ?? {};
+      set.settings = {
+        ...currentSettings,
+        ...(private_attachments !== undefined ? { private_attachments } : {}),
+        // #539 — a SUB-merge, not a replace: patching just `accent_color`
+        // must not clear an already-set `logo_url`, the same "field omitted =
+        // untouched" rule the outer patch itself follows.
+        ...(branding !== undefined
+          ? { branding: { ...((currentSettings['branding'] as WorkspaceBranding) ?? {}), ...branding } }
+          : {}),
+      };
     }
     const [ws] = await this.db
       .update(workspaces)
@@ -133,5 +151,20 @@ export class WorkspacesService {
   async privateAttachmentsEnabled(workspaceId: string): Promise<boolean> {
     const ws = await this.db.query.workspaces.findFirst({ where: eq(workspaces.id, workspaceId) });
     return Boolean((ws?.settings as Record<string, unknown> | undefined)?.private_attachments);
+  }
+
+  /** #539 — an operator's own brand on the public portal page. Defaults to
+   * both null (unbranded) rather than throwing/erroring when a workspace has
+   * never set either — every existing shared-view page keeps rendering
+   * exactly as it does today until an operator opts in. */
+  async branding(workspaceId: string): Promise<WorkspaceBranding> {
+    const ws = await this.db.query.workspaces.findFirst({
+      where: eq(workspaces.id, workspaceId),
+      columns: { settings: true },
+    });
+    const stored = (ws?.settings as Record<string, unknown> | undefined)?.['branding'] as
+      | WorkspaceBranding
+      | undefined;
+    return { logo_url: stored?.logo_url ?? null, accent_color: stored?.accent_color ?? null };
   }
 }

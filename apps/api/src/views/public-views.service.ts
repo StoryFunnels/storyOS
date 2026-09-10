@@ -9,6 +9,7 @@ import { notDeleted } from '../db/soft-delete';
 import { PortalActivityService } from '../portal/portal-activity.service';
 import { PortalRecipientsService } from '../portal/portal-recipients.service';
 import { RecordsService } from '../records/records.service';
+import { WorkspacesService } from '../workspaces/workspaces.service';
 import { computePublicFieldAllowlist } from './views.service';
 
 /**
@@ -46,6 +47,7 @@ export class PublicViewsService {
     private readonly portalRecipients: PortalRecipientsService,
     private readonly billing: BillingService,
     private readonly portalActivity: PortalActivityService,
+    private readonly workspaces: WorkspacesService,
   ) {}
 
   /** Resolve a public token → its view + database + share config, or 404. */
@@ -297,6 +299,12 @@ export class PublicViewsService {
     const billingStatus = await this.billing.getStatus(database.workspaceId);
     const hideBranding = billingStatus.plan !== 'free';
 
+    // #539 — the operator's OWN brand (logo/accent colour), read-time same as
+    // hide_branding above. Deliberately NOT plan-gated: an agency's own logo
+    // showing on their free-tier portal is a growth lever, not something to
+    // withhold; only OUR "Powered by StoryOS" footer is what a paid plan removes.
+    const branding = await this.workspaces.branding(database.workspaceId);
+
     // #537 — a resolved recipient reaching this point got a response, whether
     // or not the fail-closed scope left it empty; "served" answers "did they
     // look", not "did they see any rows". Fire-and-forget in spirit (record()
@@ -324,6 +332,7 @@ export class PublicViewsService {
         })),
       indexable: share.indexable ?? false,
       hide_branding: hideBranding,
+      branding,
       records: { data: records, next_cursor: result.next_cursor, has_more: result.has_more },
       ...(board ? { board } : {}),
       ...(dashboardTiles ? { dashboard: { tiles: dashboardTiles } } : {}),

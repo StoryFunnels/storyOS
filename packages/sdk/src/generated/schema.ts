@@ -4145,6 +4145,10 @@ export interface components {
             name?: string;
             private_attachments?: boolean;
             description?: string | null;
+            branding?: {
+                logo_url?: string | null;
+                accent_color?: string | null;
+            };
         };
         CreateSpaceDto: {
             name: string;
