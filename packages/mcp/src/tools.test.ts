@@ -4588,3 +4588,60 @@ describe('test_automation / get_automation_last_payload (#684)', () => {
     expect(handlers.has('get_automation_last_payload')).toBe(true);
   });
 });
+
+/** #683 — the single-workspace getter, split out from the plan-gated create. */
+describe('get_workspace (#683)', () => {
+  const WORKSPACE = { id: 'ws-1', name: 'JCM Agency', slug: 'jcm-agency', description: 'Agency ops' };
+
+  function fakeServer() {
+    const handlers = new Map<string, (args: unknown) => Promise<unknown>>();
+    return {
+      server: { registerTool: (name: string, _config: unknown, handler: (args: unknown) => Promise<unknown>) => handlers.set(name, handler) },
+      handlers,
+    };
+  }
+
+  /** Distinguishes the LIST route from the single-item route — the point of this ticket. */
+  function fakeClient() {
+    const GET = async (path: string) => {
+      if (path === '/api/v1/workspaces') return { data: [WORKSPACE] };
+      if (path === '/api/v1/workspaces/{ws}') {
+        return { data: { ...WORKSPACE, settings: { theme: 'dark' }, createdAt: '2026-01-01T00:00:00Z' } };
+      }
+      throw new Error(`unmocked GET ${path}`);
+    };
+    return { client: { GET } as never };
+  }
+
+  function registerAndGet() {
+    const { server, handlers } = fakeServer();
+    const { client } = fakeClient();
+    registerTools(server as never, { client, baseUrl: 'http://x', token: 't' } as Ctx, { scope: 'read', allowRunButton: true });
+    return handlers.get('get_workspace')!;
+  }
+
+  it('resolves the workspace ref, then calls the single-item route — not just the list', async () => {
+    const handler = registerAndGet();
+    const res = (await handler({ workspace: 'JCM Agency' })) as { isError?: boolean; content: Array<{ text: string }> };
+    expect(res.isError).toBeUndefined();
+    // Only present on the single-item route's response in the fake client above —
+    // proves this went through GET /workspaces/{ws}, not a re-serving of the list.
+    expect(res.content[0]!.text).toContain('"settings"');
+    expect(res.content[0]!.text).toContain('"theme": "dark"');
+  });
+
+  it('resolves by id, slug, or name — same as every other tool\'s `workspace` param', async () => {
+    const handler = registerAndGet();
+    for (const ref of ['ws-1', 'jcm-agency', 'JCM Agency']) {
+      const res = (await handler({ workspace: ref })) as { isError?: boolean };
+      expect(res.isError, `ref "${ref}" should resolve`).toBeUndefined();
+    }
+  });
+
+  it('is reachable at read scope', () => {
+    const handlers = new Map<string, unknown>();
+    const server = { registerTool: (n: string, _c: unknown, h: unknown) => handlers.set(n, h) };
+    registerTools(server as never, { client: {} as never, baseUrl: 'x', token: 't' } as Ctx, { scope: 'read', allowRunButton: true });
+    expect(handlers.has('get_workspace')).toBe(true);
+  });
+});

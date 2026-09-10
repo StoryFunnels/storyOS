@@ -514,6 +514,7 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   // read
   get_started: 'read',
   list_workspaces: 'read',
+  get_workspace: 'read',
   list_databases: 'read',
   describe_database: 'read',
   search: 'read',
@@ -995,6 +996,22 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       inputSchema: {},
     },
     handle<Record<string, never>>(async () => text(await listWorkspaces(client))),
+  );
+
+  reg(
+    'get_workspace',
+    {
+      title: 'Get workspace',
+      description: 'One workspace, addressed directly by name/slug/id — its full metadata, including settings.',
+      inputSchema: { workspace: z.string().describe('Workspace name, slug, or id (from list_workspaces).') },
+    },
+    handle<{ workspace: string }>(async ({ workspace }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}', { params: { path: { ws: ws.id } } } as never),
+      );
+      return text(res);
+    }),
   );
 
   reg(
