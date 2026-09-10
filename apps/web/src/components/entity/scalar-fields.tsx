@@ -190,7 +190,9 @@ function ScalarValue({ field, cell, record, ws, db, rec, members, memberNames, m
             )}
           </span>
         ))}
-        {targets.length === 0 && readOnly && <span className="text-[13px] text-faint">Empty</span>}
+        {/* #669 — "Empty" is the only text telling you a read-only relation has
+            nothing in it; an em dash would be decorative, a WORD is not. */}
+        {targets.length === 0 && readOnly && <span className="text-[13px] text-muted">Empty</span>}
         {!readOnly && (
           <button
             type="button"
@@ -332,7 +334,7 @@ function DatabasePicker({
           autoFocus
           value={query}
           placeholder="Search databases…"
-          className="w-full rounded border border-border-default bg-card px-2 py-1 text-[13px] text-ink outline-none placeholder:text-faint"
+          className="w-full rounded border border-border-default bg-card px-2 py-1 text-[13px] text-ink outline-none placeholder:text-muted"
           onChange={(e) => setQuery(e.target.value)}
         />
         <div className="max-h-60 overflow-y-auto">
@@ -354,7 +356,7 @@ function DatabasePicker({
             );
           })}
           {options.length === 0 && (
-            <p className="px-2 py-1.5 text-[12px] text-faint">No databases</p>
+            <p className="px-2 py-1.5 text-[12px] text-muted">No databases</p>
           )}
         </div>
       </PopoverContent>

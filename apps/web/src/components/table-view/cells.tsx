@@ -264,6 +264,10 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, ws 
   // The prose class: wrap+break in the sidebar (MN-132), truncate in a grid row.
   const prose = wrap ? 'whitespace-pre-wrap break-words' : 'truncate';
   if (value === undefined || value === null || value === '') {
+    /* #669 — this and the two like it below hold a bare space, NO GLYPH. They
+       exist to give an empty cell a height. Contrast here is not merely
+       acceptable, it is meaningless: there is nothing to read. Left faint so a
+       future sweep does not "fix" three spans that render nothing. */
     return <span className="text-faint"> </span>;
   }
   // #317 (residual): agent-config text fields hold bare entity UUIDs
@@ -434,6 +438,9 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, ws 
       return <span className="w-full truncate text-right text-[13px] tabular-nums">{formatNumberValue(field, value)}</span>;
     case 'id':
       // Public per-database sequential id (MN-087) — muted, monospace-ish.
+      // #669 — STAYS faint. #326 names the record number as its FIRST example of
+      // genuinely decorative text, and #741 kept `#{row.number}` on the same
+      // grounds. Consistent by decision rather than by oversight.
       return <span className="truncate text-[12px] tabular-nums text-faint">{String(value)}</span>;
     case 'title':
       return <span className={cn('text-[13px] font-medium text-ink', prose)}>{String(value)}</span>;
@@ -963,7 +970,7 @@ function OptionList({
           autoFocus
           value={query}
           placeholder="Search…"
-          className="w-full rounded border border-border-default bg-card px-2 py-1 text-[13px] text-ink outline-none placeholder:text-faint"
+          className="w-full rounded border border-border-default bg-card px-2 py-1 text-[13px] text-ink outline-none placeholder:text-muted"
           onChange={(e) => {
             setQuery(e.target.value);
             setActive(0);
@@ -1013,7 +1020,15 @@ function OptionList({
             );
           })}
           {filtered.length === 0 && !showCreate && (
-            <p className="px-2 py-1.5 text-[12px] text-faint">No matches</p>
+            /* #669 — reachable only when NO create affordance is offered:
+                 `showCreate` is allowCreate && query && !exactMatch, so on a
+                 field you CAN add options to, a non-matching query renders the
+                 Create button instead of this. So this is the empty-dropdown
+                 explanation for fields you cannot extend (or that have no
+                 options at all) — narrower than "your search found nothing",
+                 which is what I first wrote here and had to correct. Still the
+                 only text explaining an empty list, hence muted. */
+            <p className="px-2 py-1.5 text-[12px] text-muted">No matches</p>
           )}
           {showCreate && (
             <button
