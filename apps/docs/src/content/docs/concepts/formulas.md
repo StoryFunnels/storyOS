@@ -97,6 +97,7 @@ whenever the winning record or the link set changes.
 | `sqrt(n)` / `pow(a, b)` | number | Square root / power | `pow({Base}, 2)` |
 | `sum(…)` | number | Add the arguments — or a field across a link | `sum({Fees}, {Tax})` |
 | `count(link, cond?)` | number | Count linked records ([across a link](#across-a-link)) | `count({Issues})` |
+| `pluck(link.field, cond?)` | list | One field projected across linked records ([below](#projecting-a-field-across-a-link)) | `join(pluck({Issues.Estimate}), ", ")` |
 | `avg(…)` | number | Average of the arguments, or across a link | `avg({Issues.Estimate})` |
 | `day(d)` / `weekday(d)` | number | Day of month / of week (1 = Mon) | `weekday({Due})` |
 | `hour(d)` / `minute(d)` | number | Time parts, UTC | `hour({Started})` |
@@ -153,6 +154,28 @@ rather than doing a comparison that usually works but silently breaks the moment
 contains another's ("Acme" inside "Acme Corp").
 
 An empty link is `false`, not an error. One hop only, like the aggregates.
+
+### Projecting a field across a link
+
+`pluck` takes one field **through** a link — `{Issues.Estimate}`, never the bare `{Issues}` — and
+returns every linked record's value as a **list**, the same list shape `split` produces:
+
+```
+pluck({Issues.Estimate})                              every linked Issue's Estimate, as a list
+pluck({Issues.Estimate}, {Issues.State} = "Done")      only the Done ones
+join(pluck({Issues.Estimate}), ", ")                   a list is only usable via join()/at()/size()
+```
+
+- **Any field type**, not just numbers — `count`/`sum`/`avg`/`min`/`max` need a number to reduce,
+  but projecting doesn't reduce anything, so a linked select, date, or text field works the same as
+  a number.
+- **A linked record with no value for that field is dropped, not turned into a blank entry** — a
+  5-record link where 2 records left the field empty plucks a 3-item list, not 5.
+- **An empty link plucks an empty list**, same as `split`'s empty-input rule.
+- Same rules as the aggregates above: the optional condition is evaluated **against each linked
+  record**, and it's **one hop only** — `{Issues.Estimate}` works, `{Issues.Project.Name}` doesn't.
+- Like `split`, the result **can't be returned bare** — wrap it in `join()`, or read one item with
+  `at()` — for the same reason: nothing here needs to answer how a stored list sorts or filters.
 
 ### Formula or rollup?
 
