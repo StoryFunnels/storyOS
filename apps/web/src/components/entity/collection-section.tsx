@@ -262,7 +262,11 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
             )}
           >
             {rows.length === 0 && (
-              <p className="px-3 py-2.5 text-[13px] text-faint">
+              /* #669 — the other site ticket #637 named BY NAME. Both strings are
+                 the panel's only explanation of why it is empty, and "No
+                 matches." in particular is the sole signal that a FILTER is
+                 hiding rows rather than there being none. */
+              <p className="px-3 py-2.5 text-[13px] text-muted">
                 {filtersActive ? 'No matches.' : 'Nothing linked yet.'}
               </p>
             )}
@@ -291,6 +295,9 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
                     <DbColorMarker color={targetDb.data?.color} />
                     {color && <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />}
                     {row.number != null && (
+                      /* #669 — the record number STAYS faint. #326 names it as its
+                         first example of genuinely decorative text, so this is the
+                         rule working, not an exception to it. */
                       <span className="mr-1 shrink-0 tabular-nums text-faint">#{row.number}</span>
                     )}
                     <span className="min-w-0 flex-1 truncate">{row.title || 'Untitled'}</span>
