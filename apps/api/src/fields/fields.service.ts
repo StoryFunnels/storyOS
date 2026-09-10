@@ -870,7 +870,7 @@ export class FieldsService {
     }
   }
 
-  static readonly ROLLUP_OPS = new Set(['count', 'sum', 'avg', 'min', 'max', 'first', 'last']);
+  static readonly ROLLUP_OPS = new Set(['count', 'sum', 'avg', 'min', 'max', 'first', 'last', 'collect']);
 
   /**
    * #286: field types a first/last rollup may ORDER BY. Ordering by a
@@ -905,7 +905,7 @@ export class FieldsService {
     const op = config['op'] as string | undefined;
     if (!op || !FieldsService.ROLLUP_OPS.has(op)) {
       throw new UnprocessableEntityException(
-        'rollup op must be one of count, sum, avg, min, max, first, last',
+        'rollup op must be one of count, sum, avg, min, max, first, last, collect',
       );
     }
     const targetApiName = config['target_field_api_name'] as string | undefined | null;
@@ -982,7 +982,17 @@ export class FieldsService {
           'target_field_api_name does not exist on the related database',
         );
       }
-      if (op !== 'count' && targetField.type !== 'number') {
+      // #234 — collect gathers an ATTACHMENT field's files across every
+      // matching related record; it has nothing to do with the number-only
+      // aggregates below, so it gets its own type check rather than falling
+      // into "not a number" with a confusing error.
+      if (op === 'collect') {
+        if (targetField.type !== 'attachment') {
+          throw new UnprocessableEntityException(
+            `rollup "collect" aggregates attachment fields, not ${targetField.type}`,
+          );
+        }
+      } else if (op !== 'count' && targetField.type !== 'number') {
         throw new UnprocessableEntityException(
           `rollup "${op}" aggregates number fields, not ${targetField.type}`,
         );

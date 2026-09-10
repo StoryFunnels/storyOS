@@ -21,7 +21,7 @@ import type { FieldDef, FilterNode } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import { chunk } from '../common/chunk';
 import { buildRenderContext, renderTypedValue } from '../activity/render-values';
-import { assertOwnedAttachments, loadAttachmentChips } from '../attachments/attachment-values';
+import { assertOwnedAttachments, loadAttachmentChips, type AttachmentChip } from '../attachments/attachment-values';
 import { AttachmentsService } from '../attachments/attachments.service';
 import type { Db } from '../db/client';
 import {
@@ -400,6 +400,13 @@ export class RecordsService {
         await this.attachPickOneRollup(def, defs, projected, rawOp);
         continue;
       }
+      // #234 — collect gathers an attachment field across EVERY matching
+      // related record (not the one winner pick-one resolves to), so it
+      // shares nothing with either path above beyond the relation + filter.
+      if (rawOp === 'collect') {
+        await this.attachCollectRollup(def, defs, projected);
+        continue;
+      }
       const op = rawOp as 'count' | 'sum' | 'avg' | 'min' | 'max';
       const targetApiName = def.config['target_field_api_name'] as string | undefined | null;
       const filterNode = activeFilter(def.config['filter'] as FilterNode | undefined);
@@ -578,6 +585,85 @@ export class RecordsService {
           // relation block, so the chip has to carry what the link needs or "Last
           // Ticket" renders as unclickable text — the opposite of the ask.
           { id: winner.id, title: winner.title, number: winner.number, database_id: targetDbId };
+    }
+  }
+
+  /**
+   * #234 — every attachment on the target field across EVERY related record
+   * that matches the (optional) filter, flattened onto the parent as one
+   * list. Unlike `attachPickOneRollup` there is no ordering field and no
+   * single winner: "collect" is the fan-out counterpart to `first`/`last`'s
+   * argmax/argmin, same as `count` is to `sum`/`avg`/`min`/`max`.
+   *
+   * Hydrated with the SAME `loadAttachmentChips` helper `attachFiles` uses
+   * for a native attachment field — one batched query for the whole page's
+   * matching child records, never per parent — so a collected file is a real
+   * clickable/downloadable chip, not a bare stored id.
+   */
+  private async attachCollectRollup(
+    def: FieldDef,
+    defs: FieldDef[],
+    projected: ProjectedRecord[],
+  ): Promise<void> {
+    for (const record of projected) record.values[def.api_name] = [];
+
+    const relationDef = defs.find((d) => d.id === def.config['relation_field_id']);
+    if (!relationDef || relationDef.type !== 'relation') return; // dangling — resolves to empty
+    const targetApiName = def.config['target_field_api_name'] as string | undefined | null;
+    if (!targetApiName) return; // config invariant (enforced at field-create time): collect always names a field
+    const filterNode = activeFilter(def.config['filter'] as FilterNode | undefined);
+
+    const side = relationDef.config['side'] as 'a' | 'b';
+    const relation = await this.db.query.relations.findFirst({
+      where: eq(relations.id, relationDef.config['relation_id'] as string),
+    });
+    if (!relation) return;
+    const targetDbId = side === 'a' ? relation.databaseBId : relation.databaseAId;
+    const targetDefs = await this.fieldDefs(targetDbId);
+    const targetDef = targetDefs.find((d) => d.api_name === targetApiName);
+    // Target field deleted or retyped since the rollup was configured —
+    // degrade to empty, same rule a dangling relation follows above, rather
+    // than throwing for every read of an otherwise-fine page.
+    if (!targetDef || targetDef.type !== 'attachment') return;
+
+    const linkedIds = new Set<string>();
+    for (const record of projected) {
+      const chips = record.values[relationDef.api_name] as Array<{ id: string }> | undefined;
+      chips?.forEach((chip) => linkedIds.add(chip.id));
+    }
+    if (linkedIds.size === 0) return;
+
+    const conditions = [inArray(records.id, [...linkedIds]), isNull(records.deletedAt)];
+    if (filterNode) {
+      const ctx: CompilerContext = {
+        defs: new Map(targetDefs.map((d) => [d.api_name, d])),
+        currentUserId: '', // rollup filters may not reference "me" (validated at field-create time)
+      };
+      conditions.push(compileFilter(filterNode, ctx));
+    }
+    const targetRows = await this.db.query.records.findMany({ where: and(...conditions) });
+    const rowById = new Map(targetRows.map((row) => [row.id, row]));
+    const attachmentChips = await loadAttachmentChips(
+      this.db,
+      targetRows.map((row) => row.id),
+      [targetDef.id],
+    );
+
+    for (const record of projected) {
+      const relChips =
+        (record.values[relationDef.api_name] as Array<{ id: string }> | undefined) ?? [];
+      const collected: AttachmentChip[] = [];
+      for (const relChip of relChips) {
+        const row = rowById.get(relChip.id);
+        if (!row) continue; // filtered out or deleted — not a candidate
+        const ids = (row.values as Record<string, unknown> | null)?.[targetDef.id];
+        if (!Array.isArray(ids)) continue;
+        for (const id of ids) {
+          const chip = attachmentChips.get(String(id));
+          if (chip) collected.push(chip);
+        }
+      }
+      record.values[def.api_name] = collected;
     }
   }
 
@@ -1267,7 +1353,7 @@ export class RecordsService {
           const patch = patchByRecord.get(recordId) ?? {};
           patch[def.id] = values.has(recordId)
             ? values.get(recordId)
-            : def.config['op'] === 'count'
+            : def.config['op'] === 'count' || def.config['op'] === 'collect'
               ? 0
               : null;
           patchByRecord.set(recordId, patch);
@@ -1318,7 +1404,7 @@ export class RecordsService {
     defs: FieldDef[],
     recordIds: string[],
   ): Promise<Map<string, number | null>> {
-    const op = def.config['op'] as 'count' | 'sum' | 'avg' | 'min' | 'max';
+    const op = def.config['op'] as 'count' | 'sum' | 'avg' | 'min' | 'max' | 'collect';
     const relationDef = defs.find((d) => d.id === def.config['relation_field_id']);
     const result = new Map<string, number | null>();
     if (!relationDef || relationDef.type !== 'relation') return result; // dangling — resolves to nothing, same as attachRollups
@@ -1354,6 +1440,51 @@ export class RecordsService {
         .select({ mine: myCol, n: sql<number>`count(*)` })
         .from(recordLinks)
         .innerJoin(records, and(eq(records.id, otherCol), isNull(records.deletedAt), filterSql))
+        .where(and(eq(recordLinks.relationId, relationId), inArray(myCol, recordIds)))
+        .groupBy(myCol);
+      for (const r of rows) result.set(r.mine, Number(r.n));
+      return result;
+    }
+
+    if (op === 'collect') {
+      // #234 — the materialized value is the TOTAL attachment count across
+      // every matching related record, not the rich list `attachCollectRollup`
+      // resolves at read time (mirrors first/last: a scalar SORT KEY here, the
+      // rich value only at read time). Unlike pick-one's sort key this is a
+      // real, meaningful number — "which project has the most files" is a
+      // sensible sort — so it needs no separate value_type discriminator: it
+      // flows through the SAME generic numeric cast every other rollup already
+      // gets in query-compiler.fieldExpr, and 0 (not null) for no matches is
+      // what makes is_empty/not_empty read correctly.
+      //
+      // KNOWN GAP, shared with pick-one's sort key against an attachment
+      // target: recompute here only runs off a LINK/field-change domain event
+      // (RollupInvalidationSubscriber). Uploading/removing a file on an
+      // ALREADY-linked related record writes straight to the DB
+      // (attachments.service.ts) with no domain event at all, so this count
+      // goes stale until something else re-links or re-materializes it. The
+      // READ-time rich list (attachCollectRollup) is unaffected — it always
+      // re-queries live. Fixing attachment writes to emit the domain event is
+      // a broader, separate concern (it would also fix the identical gap for
+      // pick-one), not scoped into this ticket.
+      if (!targetApiName || !targetDefs) return result;
+      const targetFieldId = targetDefs.find((d) => d.api_name === targetApiName)?.id;
+      if (!targetFieldId) return result;
+      const rows = await this.db
+        .select({
+          mine: myCol,
+          n: sql<number>`coalesce(sum(jsonb_array_length(${records.values}->${targetFieldId})), 0)`,
+        })
+        .from(recordLinks)
+        .innerJoin(
+          records,
+          and(
+            eq(records.id, otherCol),
+            isNull(records.deletedAt),
+            sql`jsonb_typeof(${records.values}->${targetFieldId}) = 'array'`,
+            filterSql,
+          ),
+        )
         .where(and(eq(recordLinks.relationId, relationId), inArray(myCol, recordIds)))
         .groupBy(myCol);
       for (const r of rows) result.set(r.mine, Number(r.n));

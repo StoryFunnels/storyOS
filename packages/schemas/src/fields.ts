@@ -499,11 +499,14 @@ export const formulaConfigSchema = z.object({
  */
 export const rollupConfigSchema = z.object({
   relation_field_id: z.uuid(),
-  op: z.enum(['count', 'sum', 'avg', 'min', 'max', 'first', 'last']),
+  op: z.enum(['count', 'sum', 'avg', 'min', 'max', 'first', 'last', 'collect']),
   /**
    * For count/sum/avg/min/max: the number field to AGGREGATE.
    * For first/last (#286): the field to RETURN from the winning record — any
    * type, or omitted entirely to return a link (chip) to the record itself.
+   * For collect (#234): the ATTACHMENT field to gather across every matching
+   * related record (required, unlike count) — a list has no "winner" to omit
+   * one in favor of, so unlike first/last there is no bare-relation-chip mode.
    */
   target_field_api_name: z.string().trim().min(1).nullish(),
   /**
