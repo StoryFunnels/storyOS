@@ -806,7 +806,16 @@ export function fieldDefaultValue(
 ): unknown {
   const cfg = config ?? {};
   if (type === 'checkbox') {
-    return cfg['default'] === true ? true : undefined;
+    // #697 — `cfg['default']` is only ever present when a caller explicitly
+    // configured it: `createFieldSchema`'s superRefine (below) validates
+    // through `checkboxConfigSchema`'s zod `.default(false)` but never
+    // rewrites the persisted config with that normalized result, so an
+    // UNCONFIGURED checkbox field genuinely has no `default` key at all
+    // (`undefined`, correctly left un-filled per AC #5) — distinct from a
+    // field explicitly configured to default to `false`, which used to be
+    // indistinguishable from "not configured" here (`=== true` was the only
+    // truthy branch), silently dropping every `default: false` setting.
+    return cfg['default'] === true || cfg['default'] === false ? cfg['default'] : undefined;
   }
   if (type === 'date') {
     if (cfg['default_today'] !== true) return undefined;
