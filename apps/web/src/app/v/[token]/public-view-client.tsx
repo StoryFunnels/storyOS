@@ -28,6 +28,11 @@ export interface PublicViewDef {
   /** #609 — paid-plan white-label (#556), same computed field the public
    * form page already reads via `FormDef.hide_branding`. */
   hide_branding: boolean;
+  /** #539 — the operator's own brand. Not plan-gated (see hide_branding
+   *  above, which is the separate, paid-plan-gated "our" branding). Both
+   *  null is the default, unbranded look — nothing here changes for a
+   *  workspace that never set either. */
+  branding: { logo_url: string | null; accent_color: string | null };
   records: { data: PublicRecord[]; next_cursor: string | null; has_more: boolean };
 }
 
@@ -79,13 +84,26 @@ export function PublicViewClient({
   }
 
   const wrap = embed ? 'p-4' : 'min-h-screen bg-[#FAF7F1] px-4 py-12';
+  const accent = def.branding.accent_color;
 
   return (
     <div className={wrap}>
-      <div className="mx-auto flex max-w-4xl flex-col gap-4 rounded-xl border border-neutral-200 bg-white p-6">
-        <div>
-          <h1 className="text-lg font-semibold text-neutral-900">{def.view.name}</h1>
-          <p className="text-[12px] text-neutral-400">{def.database.name}</p>
+      <div
+        className="mx-auto flex max-w-4xl flex-col gap-4 rounded-xl border border-neutral-200 bg-white p-6"
+        // #539 — an operator's own accent colour, applied only via inline
+        // `style` (never string-built CSS, never dangerouslySetInnerHTML) —
+        // the API already bounds this to a strict 6-digit hex, so the value
+        // can only ever become a CSS colour, never markup.
+        style={accent ? { borderTopColor: accent, borderTopWidth: 3 } : undefined}
+      >
+        <div className="flex items-center gap-3">
+          {def.branding.logo_url && (
+            <img src={def.branding.logo_url} alt="" className="h-7 w-auto shrink-0 object-contain" />
+          )}
+          <div>
+            <h1 className="text-lg font-semibold text-neutral-900">{def.view.name}</h1>
+            <p className="text-[12px] text-neutral-400">{def.database.name}</p>
+          </div>
         </div>
         <div className="overflow-x-auto rounded-lg border border-neutral-200">
           <table className="w-full min-w-max border-collapse text-[13px]">
@@ -125,6 +143,7 @@ export function PublicViewClient({
             type="button"
             onClick={loadMore}
             disabled={loadingMore}
+            style={accent ? { borderColor: accent, color: accent } : undefined}
             className="self-center rounded-lg border border-neutral-300 px-4 py-1.5 text-[13px] text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
           >
             {loadingMore ? 'Loading…' : 'Load more'}

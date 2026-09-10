@@ -15,6 +15,7 @@ function makeDef(hideBranding: boolean): PublicViewDef {
     fields: [],
     indexable: false,
     hide_branding: hideBranding,
+    branding: { logo_url: null, accent_color: null },
     records: { data: [], next_cursor: null, has_more: false },
   };
 }
@@ -36,6 +37,62 @@ describe('PublicViewClient — #609 hide_branding footer', () => {
 });
 
 /**
+ * #539 — the operator's own brand (logo + accent colour), deliberately
+ * unrelated to #609's hide_branding (that's OUR "Powered by StoryOS" footer,
+ * paid-plan-gated; this is the operator's own mark, shown on every plan).
+ */
+describe('PublicViewClient — #539 operator branding', () => {
+  function makeDef(branding: { logo_url: string | null; accent_color: string | null }): PublicViewDef {
+    return {
+      view: { id: 'v1', name: 'My View', type: 'table' },
+      database: { name: 'My Database' },
+      fields: [],
+      indexable: false,
+      hide_branding: false,
+      branding,
+      records: { data: [], next_cursor: null, has_more: false },
+    };
+  }
+
+  it('renders nothing extra when branding is unset — the default, unbranded look', () => {
+    const html = renderToStaticMarkup(
+      createElement(PublicViewClient, {
+        token: 't1',
+        initialDef: makeDef({ logo_url: null, accent_color: null }),
+        embed: false,
+      }),
+    );
+    expect(html).not.toContain('<img');
+  });
+
+  it('renders the operator logo as an <img>, from data — never dangerouslySetInnerHTML', () => {
+    const html = renderToStaticMarkup(
+      createElement(PublicViewClient, {
+        token: 't1',
+        initialDef: makeDef({ logo_url: 'https://example.com/logo.png', accent_color: null }),
+        embed: false,
+      }),
+    );
+    expect(html).toContain('<img');
+    expect(html).toContain('https://example.com/logo.png');
+  });
+
+  it('applies the accent colour only via inline style, never as raw injected markup', () => {
+    const html = renderToStaticMarkup(
+      createElement(PublicViewClient, {
+        token: 't1',
+        initialDef: makeDef({ logo_url: null, accent_color: '#3366ff' }),
+        embed: false,
+      }),
+    );
+    expect(html).toContain('#3366ff');
+    // The color reaches the page as a style declaration, not as a <script> or
+    // an attribute an operator-supplied string could have escaped out of.
+    expect(html).not.toContain('<script');
+  });
+});
+
+/**
  * #610 — real field labels + the shared OptionChip for select cells, instead
  * of a humanized api_name and a bare option id/value.
  */
@@ -46,6 +103,7 @@ describe('PublicViewClient — #610 real labels + shared OptionChip', () => {
       database: { name: 'My Database' },
       indexable: false,
       hide_branding: false,
+      branding: { logo_url: null, accent_color: null },
       fields: [
         { api_name: 'stage', type: 'select', label: 'Deal Stage', options: [{ id: 'o1', label: 'In Review', color: 'teal' }] },
         {

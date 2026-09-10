@@ -49,12 +49,20 @@ export interface DuplicateDatabaseResult {
   skipped_relations: string[];
   skipped_derived_fields: Array<{ name: string; reason: string }>;
 }
+export interface WorkspaceBranding {
+  logo_url?: string | null;
+  accent_color?: string | null;
+}
 export interface WorkspaceInfo {
   id: string;
   name: string;
   role: 'admin' | 'member' | 'guest';
   /** #400's purpose line, writable from the app since #457. */
   description?: string | null;
+  /** #539 — the shared jsonb `settings` bag was always on the wire (same
+   *  under-typed-response pattern #293 found for `Space`); this type just
+   *  didn't declare the one key the settings page needs to read/round-trip. */
+  settings?: { branding?: WorkspaceBranding };
 }
 
 function unwrap<T>({ data, error }: { data?: unknown; error?: unknown }): T {
@@ -135,7 +143,7 @@ export function useSidebarMutations(ws: string) {
      * be described by an agent but not by a person.
      */
     updateWorkspace: useMutation({
-      mutationFn: async (body: { name?: string; description?: string | null }) =>
+      mutationFn: async (body: { name?: string; description?: string | null; branding?: WorkspaceBranding }) =>
         unwrap<WorkspaceInfo>(
           await api.PATCH('/api/v1/workspaces/{ws}', { params: { path: { ws } }, body }),
         ),

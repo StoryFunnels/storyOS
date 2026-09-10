@@ -9605,6 +9605,21 @@
             "type": "string",
             "maxLength": 200,
             "nullable": true
+          },
+          "branding": {
+            "type": "object",
+            "properties": {
+              "logo_url": {
+                "type": "string",
+                "maxLength": 2048,
+                "nullable": true
+              },
+              "accent_color": {
+                "type": "string",
+                "pattern": "^#[0-9a-fA-F]{6}$",
+                "nullable": true
+              }
+            }
           }
         }
       },
