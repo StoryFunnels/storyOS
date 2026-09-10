@@ -73,7 +73,7 @@ function FavoritesSection({ ws }: { ws: string }) {
   if (items.length === 0) return null;
   return (
     <div className="mb-2">
-      <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-faint">Favorites</div>
+      <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted">Favorites</div>
       <div className="flex flex-col gap-0.5">
         {items.map((f) => (
           <Link
@@ -181,7 +181,7 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
               #396 — and rendered for THIS reader's platform: `shortcutKeys` now
               returns the raw "mod+K" token, so displaying it directly would show
               a Windows user a shortcut that does not exist. */}
-          <span className="ml-auto text-[10px] text-faint">{paletteKeys}</span>
+          <span className="ml-auto text-[10px] text-muted">{paletteKeys}</span>
         </button>
         <button
           className="flex w-full items-center gap-2 rounded px-2 py-[3px] text-[13px] text-ink-secondary hover:bg-hover"
@@ -228,7 +228,7 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
           className="flex w-full items-center gap-2 rounded px-2 py-[3px] text-left text-[13px] text-ink-secondary hover:bg-hover"
         >
           <Sparkles className="h-3.5 w-3.5" /> Ask Tyron
-          <span className="ml-auto text-[11px] text-faint">⌘J</span>
+          <span className="ml-auto text-[11px] text-muted">⌘J</span>
         </button>
       </div>
       {inboxOpen && <InboxPanel ws={ws} onClose={() => setInboxOpen(false)} />}
@@ -242,7 +242,7 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
             own mb-2 stacked with this mt-1; trimmed to mt-0 since Personal's
             bottom margin already separates the two sections. */}
         <div className="mb-0.5 mt-0 flex items-center justify-between px-2">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-faint">Spaces</span>
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted">Spaces</span>
           {(spaces.data ?? []).length > 0 && (
             <button
               onClick={() => window.dispatchEvent(new CustomEvent('storyos:collapse-all'))}
@@ -383,7 +383,7 @@ function AccountMenu({
         )}
         <DropdownMenuItem onSelect={openShortcuts}>
           <Keyboard className="h-3.5 w-3.5" /> Keyboard shortcuts
-          <span className="ml-auto text-[10px] text-faint">?</span>
+          <span className="ml-auto text-[10px] text-muted">?</span>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => void onSignOut()}>Sign out</DropdownMenuItem>
@@ -450,10 +450,18 @@ function HiddenSection({
     <div className="mt-2 border-t border-border-default pt-2">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-1 px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-faint hover:text-muted"
+        className="flex w-full items-center gap-1 px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted hover:text-ink-secondary"
       >
         <ChevronRight className={cn('h-3 w-3 transition-transform', open && 'rotate-90')} />
-        Hidden <span className="ml-0.5 font-normal normal-case text-faint">{count}</span>
+        Hidden{' '}
+        {/* #665 — the COUNT stays faint on purpose, and so do the two other
+            counts in this file (a space's database count, a folder's content
+            count). #326's rule is that faint is for genuinely decorative text;
+            a number beside a label you can already read is the textbook case.
+            The label moved to muted because it is a button; the count did not,
+            because raising it would flatten the pair into one weight and lose
+            the label-then-count reading. Not an oversight — do not "finish" it. */}
+        <span className="ml-0.5 font-normal normal-case text-faint">{count}</span>
       </button>
       {open && (
         <div className="flex flex-col gap-0.5">
@@ -1169,7 +1177,7 @@ function SpaceSection({
             </button>
             <Link
               href={`/w/${ws}/s/${space.id}`}
-              className="flex min-w-0 flex-1 items-center gap-1 text-left text-[11px] font-medium uppercase tracking-wider text-faint hover:text-muted"
+              className="flex min-w-0 flex-1 items-center gap-1 text-left text-[11px] font-medium uppercase tracking-wider text-muted hover:text-ink-secondary"
               onPointerDown={(e) => e.stopPropagation()}
             >
               {space.icon && <EntityIcon icon={space.icon} color={space.color} fallback={null} className="text-[13px]" />}
@@ -1860,7 +1868,7 @@ function FolderSection({
                that with no way forward, and dragging is not a way forward if you
                have nothing to drag yet. */
             <div className="flex flex-col items-center gap-1.5 px-2 py-3 text-center">
-              <p className="text-[12px] text-faint">Empty — drop something here</p>
+              <p className="text-[12px] text-muted">Empty — drop something here</p>
               {canEdit && (
                 <div className="flex flex-wrap items-center justify-center gap-1">
                   <button
