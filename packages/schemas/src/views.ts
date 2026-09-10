@@ -177,6 +177,46 @@ export const dashboardWidgetSchema = z.object({
 export type DashboardWidget = z.infer<typeof dashboardWidgetSchema>;
 
 /**
+ * #228 — an inline summary widget strip above an ORDINARY view's records
+ * (table/board/gallery/list), not the separate `dashboard` view type. Reuses
+ * the exact same op vocabulary as dashboardTileSchema/dashboardWidgetSchema/
+ * rollupConfigSchema (count/sum/avg/min/max) — Otto's ruling on #228/#234 is
+ * that "sum" must not mean two different things in two different parts of
+ * the product, so this is the same enum, never a lookalike.
+ *
+ * Deliberately NARROWER than a dashboard tile/widget: no `filter` and no
+ * `database_id`. #228's AC1 is explicit that a summary widget's number must
+ * always match what's visible in the view beneath it — the view's own
+ * (and personal) filter, nothing else. A dashboard tile/widget's independent
+ * filter/database is exactly the degree of freedom this ticket's own AC
+ * rules out for this surface; adding it back would let a widget quietly
+ * stop matching the grid underneath it, which is the one thing #228 promises
+ * it won't do.
+ *
+ * No `layout` either — the AC asks for widgets to be "added, arranged, and
+ * removed", not placed on a free grid (that's #386's dashboard-only concern).
+ * Array position IS the display order.
+ */
+export const summaryWidgetSchema = z.object({
+  id: z.uuid(),
+  type: z.enum(['stat', 'bar', 'line', 'pie']),
+  title: z.string().trim().max(100).default(''),
+  op: z.enum(['count', 'sum', 'avg', 'min', 'max']),
+  /** Required for sum/avg/min/max; ignored for count. */
+  field_api_name: z.string().trim().min(1).max(100).optional(),
+  /**
+   * Required for bar/line/pie, ignored for stat. Restricted to select/
+   * workflow fields in the UI (see summary-widget-strip.tsx) — a v1 scope
+   * narrowing, not a schema one: grouping by an arbitrary date/text field is
+   * a real feature and a bigger one (bucketing rules, an unbounded value
+   * set), and nobody has asked for it. The schema itself places no such
+   * restriction, so widening this later is additive.
+   */
+  group_by_field_api_name: z.string().trim().min(1).max(100).optional(),
+});
+export type SummaryWidget = z.infer<typeof summaryWidgetSchema>;
+
+/**
  * A view is a SAVED PRESET: the client reads the config and sends the full
  * query to /records/query itself — the server stays dumb (MN-020 decision).
  * Filters/sorts reference fields by api_name (same AST as the query API);
@@ -279,6 +319,14 @@ export const viewConfigSchema = z.object({
    * way they scope tiles.
    */
   dashboard_widgets: z.array(dashboardWidgetSchema).default([]),
+  /**
+   * #228 — an ordinary view's OWN inline summary strip (distinct from the
+   * `dashboard` view type's tiles/widgets above): a small row of stat/chart
+   * cards above the records, scoped by this SAME view's filters/personal
+   * filter, nothing else. See summaryWidgetSchema's own comment for why this
+   * is a narrower shape than a dashboard tile/widget rather than reusing one.
+   */
+  summary_widgets: z.array(summaryWidgetSchema).default([]),
   /** Form (MN-094) — ordered inputs + presentation + optional public token. */
   form: z
     .object({
@@ -386,7 +434,7 @@ const folderIdSchema = z.string().uuid().nullable().optional();
 export const createViewSchema = z.object({
   name: z.string().trim().min(1).max(100),
   type: viewTypeSchema,
-  config: viewConfigSchema.default({ sorts: [], hidden_field_ids: [], card_field_ids: [], dashboard_tiles: [], dashboard_widgets: [], column_widths: {} }),
+  config: viewConfigSchema.default({ sorts: [], hidden_field_ids: [], card_field_ids: [], dashboard_tiles: [], dashboard_widgets: [], summary_widgets: [], column_widths: {} }),
   folder_id: folderIdSchema,
 });
 

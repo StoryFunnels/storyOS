@@ -18,6 +18,7 @@ const BASE: Omit<ViewConfig, 'filters'> = {
   card_field_ids: [],
   dashboard_tiles: [],
   dashboard_widgets: [],
+  summary_widgets: [],
   column_widths: {},
 };
 
@@ -324,6 +325,58 @@ describe('cleanViewConfig — dashboard chart widgets (MN-225 / #168, Phase 2)',
 
   it('defaults to an empty array when widgets are absent', () => {
     expect(widgets(undefined as unknown as ViewConfig['dashboard_widgets'])).toEqual([]);
+  });
+});
+
+describe('cleanViewConfig — inline summary widgets (#228)', () => {
+  const summaries = (summary_widgets: ViewConfig['summary_widgets']) =>
+    cleanViewConfig({ ...BASE, summary_widgets }, new Set(), new Set(['stage', 'amount']))
+      .summary_widgets;
+
+  const sw = (over: Partial<NonNullable<ViewConfig['summary_widgets']>[number]>) => ({
+    id: '66666666-6666-4666-8666-666666666666',
+    type: 'stat' as const,
+    title: '',
+    op: 'count' as const,
+    ...over,
+  });
+
+  it('keeps a plain count widget (no field, no group-by)', () => {
+    expect(summaries([sw({})])).toHaveLength(1);
+  });
+
+  it('keeps a numeric stat widget whose field is live', () => {
+    expect(summaries([sw({ op: 'sum', field_api_name: 'amount' })])).toHaveLength(1);
+  });
+
+  it('drops a stat widget whose field was deleted', () => {
+    expect(summaries([sw({ op: 'sum', field_api_name: 'ghost' })])).toHaveLength(0);
+  });
+
+  it('keeps a chart widget whose group-by field is live', () => {
+    expect(summaries([sw({ type: 'bar', group_by_field_api_name: 'stage' })])).toHaveLength(1);
+  });
+
+  it('drops a chart widget whose group-by field was deleted', () => {
+    expect(summaries([sw({ type: 'bar', group_by_field_api_name: 'ghost' })])).toHaveLength(0);
+  });
+
+  // #305 — "Add widget" creates one with no group-by/field yet; requiring one
+  // here would strip it on the very next read, the same defect tiles/widgets
+  // already had to fix.
+  it('keeps a freshly added chart widget with no group-by field yet (#305)', () => {
+    expect(summaries([sw({ type: 'bar' })])).toHaveLength(1);
+  });
+
+  it('has no database_id/filter exemption — unlike a dashboard tile/widget, always the view\'s own', () => {
+    // #228's own AC forbids a summary widget from diverging from the view's
+    // scope, so — unlike #304/#367's cross-database carve-out — a dangling
+    // reference here is ALWAYS dropped, with nothing to check it against.
+    expect(summaries([sw({ op: 'sum', field_api_name: 'ghost' })])).toHaveLength(0);
+  });
+
+  it('defaults to an empty array when widgets are absent', () => {
+    expect(summaries(undefined as unknown as ViewConfig['summary_widgets'])).toEqual([]);
   });
 });
 
