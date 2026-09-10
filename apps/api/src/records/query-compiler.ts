@@ -34,7 +34,7 @@ function opErr(def: FieldDef, op: FilterOp, allowed: readonly FilterOp[]): never
 }
 
 const CHECKBOX_OPS: readonly FilterOp[] = ['eq', 'neq', 'is_empty', 'not_empty'];
-const TEXTISH_OPS: readonly FilterOp[] = ['eq', 'neq', 'contains', 'is_empty', 'not_empty'];
+const TEXTISH_OPS: readonly FilterOp[] = ['eq', 'neq', 'contains', 'not_contains', 'is_empty', 'not_empty'];
 const NUMBER_OPS: readonly FilterOp[] = ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'is_empty', 'not_empty'];
 const DATE_FIELD_OPS: readonly FilterOp[] = ['eq', 'neq', 'before', 'after', 'within', 'is_empty', 'not_empty'];
 const ID_SET_SCALAR_OPS: readonly FilterOp[] = ['eq', 'neq', 'has', 'has_none', 'is_empty', 'not_empty'];
@@ -323,6 +323,13 @@ function compileTextish(def: FieldDef, op: FilterOp, value: unknown): SQL {
       return sql`(${expr} IS DISTINCT FROM ${value})`;
     case 'contains':
       return sql`(${expr} ILIKE ${'%' + escapeLike(value) + '%'})`;
+    // #429 — the negation people reach for first ("everything that isn't a
+    // Tyron ticket"). COALESCE'd to '' rather than a bare `NOT (expr ILIKE …)`:
+    // ILIKE against a NULL expr evaluates to NULL, and `NOT NULL` is NULL too
+    // (excluded by WHERE), which would silently drop every record with the
+    // field unset — exactly the rows "does not contain X" should include.
+    case 'not_contains':
+      return sql`(COALESCE(${expr}, '') NOT ILIKE ${'%' + escapeLike(value) + '%'})`;
     default:
       opErr(def, op, TEXTISH_OPS);
   }

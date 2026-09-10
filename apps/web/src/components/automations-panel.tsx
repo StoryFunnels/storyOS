@@ -12,7 +12,7 @@ import type { ButtonAction } from '@/components/table-view/button-actions-editor
 import { useDatabase, useMembers } from '@/components/table-view/use-table-data';
 import { availableRecipes } from '@/components/automation-recipes';
 import type { Field } from '@/components/table-view/use-table-data';
-import { OPS_BY_TYPE, SortButton } from '@/components/views/view-toolbar';
+import { opsForField, SortButton } from '@/components/views/view-toolbar';
 import type { SortSpec } from '@/components/views/sort-config';
 import { FlowDiagram } from '@/components/automations/flow-diagram';
 import { triggerLabel } from '@/components/automations/flow-diagram-model';
@@ -479,11 +479,9 @@ function RuleEditor({
     toast.success('Webhook token regenerated');
   }
 
-  const conditionable = fields.filter((f) => OPS_BY_TYPE[f.type]);
+  const conditionable = fields.filter((f) => opsForField(f).length > 0);
   const selectedConditionField = fields.find((f) => f.apiName === conditionField);
-  const conditionOps = selectedConditionField
-    ? (OPS_BY_TYPE[selectedConditionField.type] ?? [])
-    : [];
+  const conditionOps = selectedConditionField ? opsForField(selectedConditionField) : [];
   const currentOp = conditionOps.find((o) => o.op === conditionOp);
   const scopableFields = fields.filter((f) => !f.isSystem && f.type !== 'title');
 
@@ -825,7 +823,7 @@ function RuleEditor({
                 setConditionField(next);
                 const field = fields.find((f) => f.apiName === next);
                 // Auto-pick the first operator so the dropdown never sits on a bare "op…".
-                setConditionOp(field ? (OPS_BY_TYPE[field.type]?.[0]?.op ?? '') : '');
+                setConditionOp(field ? (opsForField(field)[0]?.op ?? '') : '');
                 setConditionValue('');
               }}
             >

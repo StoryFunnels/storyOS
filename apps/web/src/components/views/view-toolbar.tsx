@@ -77,27 +77,66 @@ import { SYSTEM_FIELD_OPS, SYSTEM_SORTABLE_TYPES, SYSTEM_USER_TYPES, withSystemF
 import { OPTION_COLORS, OptionIcon } from '../table-view/cells';
 import { countHiddenFields, isFieldVisible, toggleFieldVisibility } from '../table-view/number-column';
 
-/** Op menu per field type — mirrors the API op×type matrix. */
-export const OPS_BY_TYPE: Record<string, Array<{ op: string; label: string; input: 'text' | 'number' | 'date' | 'options' | 'relative' | 'boolean' | 'records' | 'none' }>> = {
+/**
+ * Op menu per field type — mirrors the API op×type matrix.
+ *
+ * #429 — audited against `apps/api/src/records/query-compiler.ts`'s actual
+ * allowed-op sets (TEXTISH_OPS/NUMBER_OPS/DATE_FIELD_OPS/ID_SET_SCALAR_OPS/
+ * ID_SET_ARRAY_OPS/RELATION_OPS), not against this file's own prior list —
+ * the compiler turned out to already accept `is_empty`/`not_empty` uniformly
+ * and `eq`/`neq` on select/workflow, so most of what's added here is exposing
+ * ops the API always accepted, proven by the round-trip tests alongside this
+ * change rather than by inspection alone. Two things are DELIBERATELY still
+ * missing, each with the compiler-side reason:
+ *  - `between` (number/date): expressible today as two conditions (`gte` +
+ *    `lte`, or `after` + `before`), and Otto's ruling is explicit that a
+ *    second op for the same query is not worth a second control until
+ *    someone actually asks for it.
+ *  - is_empty/not_empty on `checkbox`: the compiler accepts them (a missing
+ *    key vs. a stored boolean), but a checkbox defaults to a real `false`
+ *    the moment it's ever touched, so "empty" only ever means "never
+ *    touched" — a distinction almost nobody is asking "is this checked"
+ *    actually means. `neq` ("is not") is added since it's the ordinary
+ *    negation of the one op already offered.
+ */
+export type OpsEntry = {
+  op: string;
+  label: string;
+  input: 'text' | 'number' | 'date' | 'options' | 'option' | 'relative' | 'boolean' | 'records' | 'none';
+};
+
+export const OPS_BY_TYPE: Record<string, OpsEntry[]> = {
   title: [
     { op: 'contains', label: 'contains', input: 'text' },
+    { op: 'not_contains', label: 'does not contain', input: 'text' },
     { op: 'eq', label: 'is', input: 'text' },
+    { op: 'neq', label: 'is not', input: 'text' },
     { op: 'is_empty', label: 'is empty', input: 'none' },
     { op: 'not_empty', label: 'is not empty', input: 'none' },
   ],
   text: [
     { op: 'contains', label: 'contains', input: 'text' },
+    { op: 'not_contains', label: 'does not contain', input: 'text' },
     { op: 'eq', label: 'is', input: 'text' },
+    { op: 'neq', label: 'is not', input: 'text' },
     { op: 'is_empty', label: 'is empty', input: 'none' },
     { op: 'not_empty', label: 'is not empty', input: 'none' },
   ],
   url: [
     { op: 'contains', label: 'contains', input: 'text' },
+    { op: 'not_contains', label: 'does not contain', input: 'text' },
+    { op: 'eq', label: 'is', input: 'text' },
+    { op: 'neq', label: 'is not', input: 'text' },
     { op: 'is_empty', label: 'is empty', input: 'none' },
+    { op: 'not_empty', label: 'is not empty', input: 'none' },
   ],
   email: [
     { op: 'contains', label: 'contains', input: 'text' },
+    { op: 'not_contains', label: 'does not contain', input: 'text' },
+    { op: 'eq', label: 'is', input: 'text' },
+    { op: 'neq', label: 'is not', input: 'text' },
     { op: 'is_empty', label: 'is empty', input: 'none' },
+    { op: 'not_empty', label: 'is not empty', input: 'none' },
   ],
   // #391 — "posts with no cover image". Presence only: a filter box asking for
   // a file uuid is a control with nothing sensible to type into it.
@@ -113,35 +152,48 @@ export const OPS_BY_TYPE: Record<string, Array<{ op: string; label: string; inpu
     { op: 'lt', label: '<', input: 'number' },
     { op: 'lte', label: '≤', input: 'number' },
     { op: 'is_empty', label: 'is empty', input: 'none' },
+    { op: 'not_empty', label: 'is not empty', input: 'none' },
   ],
   date: [
     { op: 'within', label: 'within', input: 'relative' },
+    { op: 'eq', label: 'on', input: 'date' },
+    { op: 'neq', label: 'is not', input: 'date' },
     { op: 'before', label: 'before', input: 'date' },
     { op: 'after', label: 'after', input: 'date' },
     { op: 'is_empty', label: 'is empty', input: 'none' },
+    { op: 'not_empty', label: 'is not empty', input: 'none' },
   ],
-  checkbox: [{ op: 'eq', label: 'is', input: 'boolean' }],
+  checkbox: [
+    { op: 'eq', label: 'is', input: 'boolean' },
+    { op: 'neq', label: 'is not', input: 'boolean' },
+  ],
   select: [
+    { op: 'eq', label: 'is', input: 'option' },
+    { op: 'neq', label: 'is not', input: 'option' },
     { op: 'has', label: 'is any of', input: 'options' },
     { op: 'has_none', label: 'is none of', input: 'options' },
     { op: 'is_empty', label: 'is empty', input: 'none' },
+    { op: 'not_empty', label: 'is not empty', input: 'none' },
   ],
   // #172: a workflow (canonical Status) field is single-select-shaped — one
   // coloured option id — so it filters exactly like `select`. Omitting it here
   // dropped Status out of the Filter/Sort/Color field pickers entirely.
+  // #429/#558: kept byte-for-byte identical to `select` — this is also the
+  // MCP's OPS_BY_FIELD_TYPE.workflow list (packages/mcp/src/tools.ts), and
+  // Otto's ruling is that the two must never diverge.
   workflow: [
+    { op: 'eq', label: 'is', input: 'option' },
+    { op: 'neq', label: 'is not', input: 'option' },
     { op: 'has', label: 'is any of', input: 'options' },
     { op: 'has_none', label: 'is none of', input: 'options' },
     { op: 'is_empty', label: 'is empty', input: 'none' },
+    { op: 'not_empty', label: 'is not empty', input: 'none' },
   ],
   multi_select: [
     { op: 'has', label: 'includes any of', input: 'options' },
     { op: 'has_none', label: 'includes none of', input: 'options' },
     { op: 'is_empty', label: 'is empty', input: 'none' },
-  ],
-  user: [
-    { op: 'has', label: 'is any of', input: 'options' },
-    { op: 'is_empty', label: 'is empty', input: 'none' },
+    { op: 'not_empty', label: 'is not empty', input: 'none' },
   ],
   relation: [
     { op: 'not_empty', label: 'is linked', input: 'none' },
@@ -155,6 +207,41 @@ export const OPS_BY_TYPE: Record<string, Array<{ op: string; label: string; inpu
   // the API filter compiler accepts.
   ...SYSTEM_FIELD_OPS,
 };
+
+/**
+ * #429 — `user` is the one type whose op set genuinely depends on the FIELD,
+ * not just the type: a single-assignee field is stored as a scalar id (the
+ * compiler's `compileIdSet(..., 'scalar')`, same shape as select/workflow,
+ * so `eq`/`neq` are meaningful), while a multi-assignee field
+ * (`config.multi === true`) is stored as an array (`'array'` shape) and the
+ * compiler explicitly REFUSES eq/neq there ("use has/has_none for user
+ * fields") — offering them would be an operator the compiler rejects, which
+ * criterion 5 calls worse than not offering it. `opsForField` is the one
+ * place that decides which list a given `user` field gets; every other type
+ * still reads straight off `OPS_BY_TYPE`.
+ */
+const USER_SCALAR_OPS: OpsEntry[] = [
+  { op: 'eq', label: 'is', input: 'option' },
+  { op: 'neq', label: 'is not', input: 'option' },
+  { op: 'has', label: 'is any of', input: 'options' },
+  { op: 'has_none', label: 'is none of', input: 'options' },
+  { op: 'is_empty', label: 'is empty', input: 'none' },
+  { op: 'not_empty', label: 'is not empty', input: 'none' },
+];
+const USER_ARRAY_OPS: OpsEntry[] = [
+  { op: 'has', label: 'is any of', input: 'options' },
+  { op: 'has_none', label: 'is none of', input: 'options' },
+  { op: 'is_empty', label: 'is empty', input: 'none' },
+  { op: 'not_empty', label: 'is not empty', input: 'none' },
+];
+
+/** The op list for THIS field — the one call every site should use instead of
+ * indexing `OPS_BY_TYPE` directly, since `user` needs its field's own config
+ * to answer (see USER_SCALAR_OPS/USER_ARRAY_OPS above). */
+export function opsForField(field: Field): OpsEntry[] {
+  if (field.type === 'user') return field.config['multi'] === true ? USER_ARRAY_OPS : USER_SCALAR_OPS;
+  return OPS_BY_TYPE[field.type] ?? [];
+}
 
 const RELATIVE_RANGES = [
   'today',
@@ -221,7 +308,7 @@ export function ViewToolbar({
   // surfaces: the Cards / Hide-fields / color / group sections keep the raw
   // `fields` (system columns aren't card/hideable toggles).
   const augmented = useMemo(() => withSystemFields(fields), [fields]);
-  const filterable = augmented.filter((f) => OPS_BY_TYPE[f.type]);
+  const filterable = augmented.filter((f) => opsForField(f).length > 0);
 
   /**
    * #289 — what the Hide-fields / Cards pickers may offer. Every column a view
@@ -542,7 +629,7 @@ export function remapConditionToField(
   condition: FilterCondition,
   nextField: Field,
 ): FilterCondition | null {
-  const first = (OPS_BY_TYPE[nextField.type] ?? [])[0];
+  const first = opsForField(nextField)[0];
   if (!first) return null;
   return {
     ...condition,
@@ -729,6 +816,27 @@ export function FilterValueEditor({
       />
     );
   }
+  // #429 — `eq`/`neq` on select/workflow/user: a SCALAR id, not the array
+  // `options` stores. A plain native `<select>` rather than reusing
+  // OptionMultiPick's chip-and-dropdown UI — that UI is built around
+  // "several chips at once", and dressing it up to hold exactly one would be
+  // more control for a simpler question than it's answering.
+  if (activeOp.input === 'option') {
+    return (
+      <select
+        className={boxed}
+        value={typeof condition.value === 'string' ? condition.value : ''}
+        onChange={(e) => onChange({ ...condition, value: e.target.value || null })}
+      >
+        <option value="">pick…</option>
+        {optionSource.map((o) => (
+          <option key={o.id} value={o.id}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    );
+  }
   if (activeOp.input === 'records') {
     return ws && field.relation ? (
       <RecordPicker
@@ -808,7 +916,7 @@ function describeCondition(
   condition: FilterCondition,
   members: Array<{ id: string; name: string }>,
 ): string {
-  const ops = OPS_BY_TYPE[field.type] ?? [];
+  const ops = opsForField(field);
   const activeOp = ops.find((o) => o.op === condition.op) ?? ops[0];
   if (!activeOp) return field.displayName;
   if (activeOp.input === 'none') return `${field.displayName} ${activeOp.label}`;
@@ -818,6 +926,15 @@ function describeCondition(
     const source = optionSourceFor(field, members);
     const labels = ids.map((id) => source.find((s) => s.id === id)?.label ?? id);
     return `${field.displayName} ${activeOp.label} ${labels.join(', ')}`;
+  }
+  // #429 — the single-value counterpart to 'options' (select/workflow/user
+  // `eq`/`neq`, a scalar id rather than an array).
+  if (activeOp.input === 'option') {
+    const id = typeof condition.value === 'string' ? condition.value : '';
+    if (!id) return `${field.displayName} ${activeOp.label}`;
+    const source = optionSourceFor(field, members);
+    const label = source.find((s) => s.id === id)?.label ?? id;
+    return `${field.displayName} ${activeOp.label} ${label}`;
   }
   if (activeOp.input === 'records') {
     const ids = Array.isArray(condition.value) ? (condition.value as string[]) : [];
@@ -854,7 +971,7 @@ export function FilterChip({
 }) {
   const field = fields.find((f) => f.apiName === condition.field);
   if (!field) return null;
-  const ops = OPS_BY_TYPE[field.type] ?? [];
+  const ops = opsForField(field);
   const activeOp = ops.find((o) => o.op === condition.op) ?? ops[0]!;
 
   return (
@@ -929,10 +1046,6 @@ export function FiltersSection({
   };
 }) {
   const [open, setOpen] = useState(false);
-  // #259: which tree the panel is editing — defaults to Global, same as every
-  // view before this ticket. Resets to Global on every open so a stale Personal
-  // selection from a previous view/session never surprises the next edit.
-  const [scope, setScope] = useState<FilterScope>('global');
   const canUsePersonalScope = Boolean(ws && db && viewId);
 
   /**
@@ -958,7 +1071,17 @@ export function FiltersSection({
     () => flattenFilterTree(nodes).filter((f): f is typeof f & { node: FilterCondition } => !isFilterGroup(f.node)),
     [nodes],
   );
-  const pinned = leaves.filter((f) => f.node.pinned);
+  /*
+   * #429 — Q5, "should a pinned condition be the DEFAULT presentation for a
+   * simple filter, so the common case never needs the panel?" Otto's ruling:
+   * yes. A one-or-two-condition filter is exactly the size someone reads at a
+   * glance and tweaks without ceremony, so it renders as toolbar chips
+   * without anyone having to find `Pin to toolbar` first. Past that size,
+   * only conditions someone deliberately pinned show here — the ones densest
+   * enough to matter, on a view with too many to show them all as chips
+   * anyway; the panel is where the rest live.
+   */
+  const pinned = leaves.length <= 2 ? leaves : leaves.filter((f) => f.node.pinned);
   /**
    * #426 — the chip counts what is CONFIGURED, and says so when that differs
    * from what is applied.
@@ -1100,16 +1223,15 @@ export function FiltersSection({
           />
         );
       })}
-      {/* #259: a standing indicator so a narrower list is never a mystery — the
-          view's shared filter chip above says what everyone sees; this one says
-          "and I've ALSO narrowed it further, just for me". */}
+      {/* #259/#429: a standing indicator so a narrower list is never a mystery —
+          the view's shared filter chip above says what everyone sees; this one
+          says "and I've ALSO narrowed it further, just for me". Both sections
+          are visible the moment the panel opens now, so this just opens it —
+          there's no separate Personal scope to switch into any more. */}
       {hasPersonalFilter && (
         <button
           type="button"
-          onClick={() => {
-            setScope('personal');
-            openBuilder();
-          }}
+          onClick={openBuilder}
           title="A personal filter narrows this view for you only — teammates don't see it"
           className="flex items-center gap-1 rounded-[var(--radius-control)] border border-[var(--accent)] bg-accent-soft px-1.5 py-0.5 text-[12px] text-ink"
         >
@@ -1120,15 +1242,7 @@ export function FiltersSection({
       <span className="relative">
         <button
           type="button"
-          onClick={() => {
-            // Opening via THIS button always lands on Global — only the
-            // "Personal filter" badge above opens straight into Personal.
-            if (open) closeBuilder();
-            else {
-              setScope('global');
-              openBuilder();
-            }
-          }}
+          onClick={() => (open ? closeBuilder() : openBuilder())}
           className={cn(
             'flex items-center gap-1 rounded px-1.5 py-1 text-[12px] hover:bg-hover',
             activeCount ? 'text-ink' : 'text-muted',
@@ -1151,37 +1265,45 @@ export function FiltersSection({
                 detection would misfire and close the builder mid-interaction. */}
             {/* #278 — clicking away closes AND commits the draft. */}
             <div className="fixed inset-0 z-[var(--z-overlay-backdrop)]" onClick={closeBuilder} />
-            <div className="absolute left-0 top-full z-[var(--z-overlay)] mt-1 w-[26rem] max-w-[calc(100vw-2rem)] rounded-[var(--radius-card)] border border-border-default bg-card shadow-[var(--shadow-popover)]">
+            {/*
+              #429 — GLOBAL AND PERSONAL, VISIBLE AT ONCE. Otto's ruling,
+              verbatim: "the effective filter is the thing a user needs to
+              READ, and tabs hide half of it". This used to be a single
+              FilterBuilderPanel whose tree depended on a `scope` toggle;
+              it is now always both, stacked, each labelled — reading the
+              popover top to bottom IS reading the effective filter.
+            */}
+            <div className="absolute left-0 top-full z-[var(--z-overlay)] mt-1 max-h-[70vh] w-[26rem] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-[var(--radius-card)] border border-border-default bg-card shadow-[var(--shadow-popover)]">
+              <FilterBuilderPanel
+                sectionLabel="Global"
+                grouping={grouping}
+                fields={fields}
+                members={members}
+                ws={ws}
+                connector={shownConnector}
+                nodes={shownNodes}
+                onNodesChange={(next) => setDraftGlobal({ connector: shownConnector, nodes: next })}
+                onConnectorChange={(next) => setDraftGlobal({ connector: next, nodes: shownNodes })}
+                onClearAll={() => setDraftGlobal({ connector: shownConnector, nodes: [] })}
+              />
               {canUsePersonalScope && (
-                <FilterScopeToggle value={scope} onChange={setScope} personalActive={hasPersonalFilter} />
-              )}
-              {scope === 'global' || !canUsePersonalScope ? (
-                <FilterBuilderPanel
-                  grouping={grouping}
-                  fields={fields}
-                  members={members}
-                  ws={ws}
-                  connector={shownConnector}
-                  nodes={shownNodes}
-                  onNodesChange={(next) => setDraftGlobal({ connector: shownConnector, nodes: next })}
-                  onConnectorChange={(next) => setDraftGlobal({ connector: next, nodes: shownNodes })}
-                />
-              ) : (
-                <FilterBuilderPanel
-                  grouping={grouping}
-                  fields={fields}
-                  members={members}
-                  ws={ws}
-                  connector={draftPersonal?.connector ?? personalConnector}
-                  nodes={draftPersonal?.nodes ?? personalNodes}
-                  onNodesChange={(next) =>
-                    setDraftPersonal({ connector: draftPersonal?.connector ?? personalConnector, nodes: next })
-                  }
-                  onConnectorChange={(next) =>
-                    setDraftPersonal({ connector: next, nodes: draftPersonal?.nodes ?? personalNodes })
-                  }
-                  personalScopeHint
-                />
+                <div className="border-t border-border-default">
+                  <FilterBuilderPanel
+                    sectionLabel="Personal"
+                    fields={fields}
+                    members={members}
+                    ws={ws}
+                    connector={draftPersonal?.connector ?? personalConnector}
+                    nodes={draftPersonal?.nodes ?? personalNodes}
+                    onNodesChange={(next) =>
+                      setDraftPersonal({ connector: draftPersonal?.connector ?? personalConnector, nodes: next })
+                    }
+                    onConnectorChange={(next) =>
+                      setDraftPersonal({ connector: next, nodes: draftPersonal?.nodes ?? personalNodes })
+                    }
+                    personalScopeHint
+                  />
+                </div>
               )}
             </div>
           </>
@@ -1208,47 +1330,6 @@ function useDebouncedValue<T>(value: T, ms: number): T {
   return debounced;
 }
 
-type FilterScope = 'global' | 'personal';
-
-/** Global/Personal mode switch for the filter builder (#259) — a natural
- * extension of the existing pinned-chip / builder-popover surface, not a
- * bolted-on control: it lives in the SAME popover, right above the SAME
- * builder body, and just repoints which tree that body edits. */
-function FilterScopeToggle({
-  value,
-  onChange,
-  personalActive,
-}: {
-  value: FilterScope;
-  onChange: (v: FilterScope) => void;
-  personalActive: boolean;
-}) {
-  return (
-    <div className="flex items-center gap-1 border-b border-border-default px-2 py-1.5">
-      {(
-        [
-          { key: 'global' as const, label: 'Global', hint: 'Everyone sees this' },
-          { key: 'personal' as const, label: 'Personal', hint: 'Only you see this' },
-        ]
-      ).map(({ key, label, hint }) => (
-        <button
-          key={key}
-          type="button"
-          onClick={() => onChange(key)}
-          title={hint}
-          className={cn(
-            'flex items-center gap-1 rounded-[var(--radius-control)] px-2 py-1 text-[11px] font-medium',
-            value === key ? 'bg-accent-soft text-ink' : 'text-faint hover:text-ink',
-          )}
-        >
-          {key === 'personal' && <UserRound className="h-3 w-3" />}
-          {label}
-          {key === 'personal' && personalActive && <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 function PinnedFilterChip({
   field,
@@ -1313,6 +1394,8 @@ export function FilterBuilderPanel({
   onNodesChange,
   onConnectorChange,
   personalScopeHint,
+  sectionLabel,
+  onClearAll,
 }: {
   fields: Field[];
   members: Array<{ id: string; name: string }>;
@@ -1335,12 +1418,23 @@ export function FilterBuilderPanel({
    * shared view's. Swaps the copy so "no filters yet" doesn't read as if it's
    * describing the (possibly non-empty) shared view. */
   personalScopeHint?: boolean;
+  /**
+   * #429 — Global and Personal render as two labelled sections of ONE panel
+   * now, not two tabs of the same panel (the effective filter has to be
+   * readable without toggling). This names which section's header to show
+   * instead of the old generic "Filters" — omit it to keep standalone callers
+   * (the rollup field-config reuse, MN-295) exactly as they were.
+   */
+  sectionLabel?: string;
+  /** #429 — Global's header gets a "Clear all", matching Fibery's panel. Only
+   * meaningful (and only rendered) when there's something to clear. */
+  onClearAll?: () => void;
 }) {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const flat = useMemo(() => flattenFilterTree(nodes), [nodes]);
 
   function addCondition(field: Field) {
-    const first = OPS_BY_TYPE[field.type]![0]!;
+    const first = opsForField(field)[0]!;
     onNodesChange([...nodes, { field: field.apiName, op: first.op, value: defaultValueFor(first.input) }]);
   }
 
@@ -1376,18 +1470,27 @@ export function FilterBuilderPanel({
   const filterDrag = useDragPresentation(filterLabel, { onDragEnd }, flat.map((f) => f.id));
 
   return (
-    <div className="flex max-h-[70vh] flex-col">
+    <div className="flex flex-col">
       <div className="flex items-center justify-between border-b border-border-default px-3 py-2">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-faint">Filters</span>
-        <a
-          href="https://docs.storyos.dev/concepts/views/#filters--sorts"
-          target="_blank"
-          rel="noreferrer"
-          className="flex items-center gap-1 text-faint hover:text-ink"
-          title="How filters work on views"
-        >
-          <CircleHelp className="h-3.5 w-3.5" />
-        </a>
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-faint">
+          {sectionLabel ?? 'Filters'}
+        </span>
+        <span className="flex items-center gap-2">
+          {onClearAll && nodes.length > 0 && (
+            <button type="button" onClick={onClearAll} className="text-[11px] text-faint hover:text-ink">
+              Clear all
+            </button>
+          )}
+          <a
+            href="https://docs.storyos.dev/concepts/views/#filters--sorts"
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-1 text-faint hover:text-ink"
+            title="How filters work on views"
+          >
+            <CircleHelp className="h-3.5 w-3.5" />
+          </a>
+        </span>
       </div>
 
       {personalScopeHint && (
@@ -1738,7 +1841,7 @@ function ConditionRow({
   });
   const field = fields.find((f) => f.apiName === condition.field);
   if (!field) return null;
-  const ops = OPS_BY_TYPE[field.type] ?? [];
+  const ops = opsForField(field);
   const activeOp = ops.find((o) => o.op === condition.op) ?? ops[0]!;
   const Icon = fieldTypeIcon(field.type);
   const defaultLabel = describeCondition(field, condition, members);
@@ -1763,6 +1866,24 @@ function ConditionRow({
           title="Drag to reorder"
         >
           <GripVertical className="h-3.5 w-3.5" />
+        </button>
+
+        {/*
+          #429 — Otto's ruling on Q2/Q6, verbatim: "a disabled condition that
+          looks identical to an enabled one is SILENT WRONGNESS - the user
+          reads a filter that is not the filter being applied - so its state
+          has to be visible, not merely reachable." This used to be reachable
+          only through the "..." menu's Disable/Enable item (a state nobody
+          would notice without opening it); it's a persistent toggle on the
+          row now, and the menu item is gone rather than duplicated.
+        */}
+        <button
+          type="button"
+          onClick={() => onChange({ ...condition, disabled: !condition.disabled })}
+          className={cn('mt-1.5 shrink-0 rounded p-0.5 hover:bg-hover', condition.disabled ? 'text-faint' : 'text-ink')}
+          title={condition.disabled ? 'Disabled — click to enable' : 'Enabled — click to disable'}
+        >
+          {condition.disabled ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
         </button>
 
         <div className="min-w-0 flex-1">
@@ -1872,7 +1993,6 @@ function ConditionRow({
           onDuplicate={onDuplicate}
           onPin={onPin}
           onEditNameIcon={() => setEditingLabel((v) => !v)}
-          onToggleDisabled={() => onChange({ ...condition, disabled: !condition.disabled })}
           onRemove={onRemove}
           canTurnIntoGroup={canTurnIntoGroup}
           onTurnIntoGroup={onTurnIntoGroup}
@@ -1891,7 +2011,6 @@ function ConditionMenu({
   onDuplicate,
   onPin,
   onEditNameIcon,
-  onToggleDisabled,
   onRemove,
   canTurnIntoGroup,
   onTurnIntoGroup,
@@ -1900,7 +2019,6 @@ function ConditionMenu({
   onDuplicate: () => void;
   onPin: () => void;
   onEditNameIcon: () => void;
-  onToggleDisabled: () => void;
   onRemove: () => void;
   canTurnIntoGroup: boolean;
   onTurnIntoGroup: () => void;
@@ -1922,10 +2040,6 @@ function ConditionMenu({
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={onEditNameIcon}>
           <PenLine className="h-3.5 w-3.5" /> Edit name and icon
-        </DropdownMenuItem>
-        <DropdownMenuItem onSelect={onToggleDisabled}>
-          {condition.disabled ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-          {condition.disabled ? 'Enable' : 'Disable'}
         </DropdownMenuItem>
         <DropdownMenuItem
           disabled={!canTurnIntoGroup}

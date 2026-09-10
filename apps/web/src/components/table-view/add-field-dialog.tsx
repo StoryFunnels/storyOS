@@ -27,7 +27,7 @@ import { ButtonActionsEditor } from './button-actions-editor';
 import type { ButtonAction } from './button-actions-editor';
 // MN-295: reuse the SAME filter-condition builder saved views use, rather
 // than a second filter UI for the Rollup's optional filter.
-import { OPS_BY_TYPE, FilterBuilderPanel } from '../views/view-toolbar';
+import { opsForField, FilterBuilderPanel } from '../views/view-toolbar';
 import { buildFilterGroup, filterConditions, filterConnector } from '../views/filter-config';
 import type { FilterGroup } from '../views/filter-config';
 
@@ -117,7 +117,7 @@ export function AddFieldDialog({
   // MN-295: the rollup filter builder operates over the RELATED database's
   // fields (same "filterable" gate FiltersSection uses — OPS_BY_TYPE), and
   // needs member names for its "me"/user-field pickers.
-  const rollupFilterableFields = (lookupTargetDb.data?.fields ?? []).filter((f) => OPS_BY_TYPE[f.type]);
+  const rollupFilterableFields = (lookupTargetDb.data?.fields ?? []).filter((f) => opsForField(f).length > 0);
   const rollupMembers = useMembers(ws, type === 'rollup');
   const rollupMemberList = useMemo(
     () => (rollupMembers.data ?? []).map((m) => ({ id: m.user.id, name: m.user.name })),

@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useDatabase, useMailConnections, useMembers } from './use-table-data';
-import { OPS_BY_TYPE } from '@/components/views/view-toolbar';
+import { opsForField } from '@/components/views/view-toolbar';
 import type { Field } from './use-table-data';
 
 /**
@@ -1169,9 +1169,9 @@ function ActionConditionRow({
   condition?: ActionCondition;
   onChange: (condition: ActionCondition | undefined) => void;
 }) {
-  const conditionable = fields.filter((f) => OPS_BY_TYPE[f.type]);
+  const conditionable = fields.filter((f) => opsForField(f).length > 0);
   const field = fields.find((f) => f.apiName === condition?.field);
-  const ops = field ? (OPS_BY_TYPE[field.type] ?? []) : [];
+  const ops = field ? opsForField(field) : [];
   const op = ops.find((o) => o.op === condition?.op);
   const needsValue = Boolean(condition?.op) && !NO_VALUE_ACTION_OPS.has(condition!.op);
 
@@ -1202,7 +1202,7 @@ function ActionConditionRow({
           const apiName = e.target.value;
           if (!apiName) return onChange(undefined); // "always run" clears it
           const next = fields.find((f) => f.apiName === apiName);
-          const firstOp = next ? OPS_BY_TYPE[next.type]?.[0] : undefined;
+          const firstOp = next ? opsForField(next)[0] : undefined;
           if (!firstOp) return onChange(undefined);
           onChange({
             field: apiName,
