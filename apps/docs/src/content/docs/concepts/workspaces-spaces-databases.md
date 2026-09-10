@@ -64,6 +64,15 @@ Click a space's name in the sidebar (the caret still just collapses it) and it o
   **Only databases related to the centre appear here.** An unrelated database in the same space
   isn't hidden from you — it's simply not part of this diagram; the **Contents** list below still
   names every database in the space regardless of whether it has a relation to draw.
+
+  **One `+` on the centre chip** — "Add a relation from *this database*" — opens the same relation
+  dialog the [relations](/concepts/relations/) page does, never a second mechanism. There isn't one
+  `+` per axis: axis placement is balance-only and carries no direction, so four buttons that all
+  do the identical thing would imply a choice the diagram doesn't actually offer.
+
+  **Known limitation:** on a space with many related databases, the diagram can overflow its own
+  card below roughly 870px of viewport width, rather than reflowing — a narrow browser window, not
+  only a phone. Give it a wide window (or a small space) if you're capturing it.
 - **Contents** — a plain list, for when the sidebar is collapsed and you need the same information
   without it.
 
