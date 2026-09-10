@@ -7,6 +7,7 @@ import { buildRenderContext, renderValue } from './render-values';
 import { extractText } from '../documents/documents.service';
 import { AccessService } from '../access/access.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
+import type { BlockChange } from '@storyos/schemas/block-diff';
 
 /** #674 — a caller-supplied chain of `N` relation fields is itself the depth
  *  bound: each level is one indexed `record_links` lookup, so cost scales
@@ -59,15 +60,19 @@ export class ActivityService {
     return {
       data: page.map((event) => {
         const payload = event.payload as Record<string, unknown>;
-        let changes: Array<{ field: string; from: unknown; to: unknown }> | undefined;
+        let changes: Array<{ field: string; from: unknown; to: unknown; blocks?: BlockChange[] }> | undefined;
         if (event.type === 'record.updated' && payload.diff) {
-          changes = Object.entries(payload.diff as Record<string, { from: unknown; to: unknown }>).map(
-            ([fieldId, change]) => ({
-              field: fieldId === 'title' ? 'Name' : (fieldName.get(fieldId) ?? '(deleted field)'),
-              from: resolveValue(change.from),
-              to: resolveValue(change.to),
-            }),
-          );
+          changes = Object.entries(
+            payload.diff as Record<string, { from: unknown; to: unknown; blocks?: BlockChange[] }>,
+          ).map(([fieldId, change]) => ({
+            field: fieldId === 'title' ? 'Name' : (fieldName.get(fieldId) ?? '(deleted field)'),
+            from: resolveValue(change.from),
+            to: resolveValue(change.to),
+            // #595 — block-level detail for a rich_text field's diff, carried
+            // through as-is: these are raw BlockNote blocks, not a scalar
+            // value renderValue knows how to resolve (option ids, etc).
+            ...(change.blocks ? { blocks: change.blocks } : {}),
+          }));
         }
         return {
           id: event.id,

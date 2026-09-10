@@ -3479,9 +3479,13 @@ export class RecordsService {
       const labelByOption = await this.loadSelectLabels(defs);
       target.title = this.computeTitle(titleDef, defs, target.values, row.number, labelByOption);
     }
+    // #595 — block-level diff for rich_text fields; every other field type's
+    // diff is untouched (diffSnapshots only enriches ids in this set).
+    const richTextFieldIds = new Set(defs.filter((d) => d.type === 'rich_text').map((d) => d.id));
     const diff = diffSnapshots(
       { values: row.values as Record<string, unknown>, title: row.title },
       target,
+      richTextFieldIds,
     );
 
     if (Object.keys(diff).length === 0) return this.project(row, defs);
