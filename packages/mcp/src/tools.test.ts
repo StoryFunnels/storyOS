@@ -4273,3 +4273,75 @@ describe('get_started\'s filter cheat-sheet documents workflow (#558)', () => {
     expect(intro).toMatch(/workflow\s+:/);
   });
 });
+
+/**
+ * #240 phase 1 — the cross-record comment feed. Different query shape from
+ * list_comments (one record's thread): this aggregates across a whole
+ * database, which is what actually needed a new tool.
+ */
+describe('list_database_comments: the cross-record feed (#240)', () => {
+  const WORKSPACE = { id: 'ws-1', name: 'JCM Agency' };
+  const DATABASE = { id: 'db-1', name: 'Tasks', apiSlug: 'tasks', fields: [] };
+  const FEED_ROW = {
+    id: 'evt-1',
+    record: { id: 'rec-1', title: 'Ship the release', number: 42 },
+    comment: { id: 'com-1', body: [{ type: 'text', text: 'Almost done' }] },
+    actor: { id: 'user-1', name: 'Alex' },
+    created_at: '2026-09-10T00:00:00.000Z',
+    source: 'human',
+  };
+
+  function harness(opts: { rows?: unknown[] } = {}) {
+    const handlers = new Map<string, (a: unknown) => Promise<unknown>>();
+    const server = { registerTool: (n: string, _c: unknown, h: (a: unknown) => Promise<unknown>) => handlers.set(n, h) };
+    const client = {
+      GET: async (path: string) => {
+        if (path === '/api/v1/workspaces') return { data: [WORKSPACE] };
+        if (path === '/api/v1/workspaces/{ws}/databases') return { data: [DATABASE] };
+        if (path === '/api/v1/workspaces/{ws}/databases/{db}/activity/comments') {
+          return { data: { data: opts.rows ?? [FEED_ROW], next_cursor: null, has_more: false } };
+        }
+        throw new Error(`unmocked GET ${path}`);
+      },
+    } as never;
+    registerTools(server as never, { client, baseUrl: 'x', token: 't' } as Ctx, { scope: 'admin', allowRunButton: true });
+    return handlers;
+  }
+
+  const call = async (h: (a: unknown) => Promise<unknown>, a: unknown) =>
+    (await h(a)) as { isError?: boolean; content: Array<{ text: string }> };
+
+  it('renders comment text via the same commentToText helper list_comments uses, and names the record', async () => {
+    const handlers = harness();
+    const res = await call(handlers.get('list_database_comments')!, { workspace: 'JCM Agency', database: 'tasks' });
+    const out = JSON.parse(res.content[0]!.text) as { comments: Array<Record<string, unknown>> };
+    expect(out.comments[0]).toMatchObject({
+      text: 'Almost done',
+      author: 'Alex',
+      source: 'human',
+      record: { id: 'rec-1', title: 'Ship the release' },
+    });
+  });
+
+  it('never claims a null source is human — passes it through as null, not defaulted', async () => {
+    const handlers = harness({ rows: [{ ...FEED_ROW, actor: null, source: null }] });
+    const res = await call(handlers.get('list_database_comments')!, { workspace: 'JCM Agency', database: 'tasks' });
+    const out = JSON.parse(res.content[0]!.text) as { comments: Array<Record<string, unknown>> };
+    expect(out.comments[0]!.source).toBeNull();
+    expect(out.comments[0]!.author).toBeNull();
+  });
+
+  it('is reachable at read scope, matching list_comments', () => {
+    const handlers = new Map<string, unknown>();
+    const server = { registerTool: (n: string, _c: unknown, h: unknown) => handlers.set(n, h) };
+    registerTools(server as never, { client: {} as never, baseUrl: 'x', token: 't' } as Ctx, { scope: 'read', allowRunButton: true });
+    expect(handlers.has('list_database_comments')).toBe(true);
+  });
+
+  it('says plainly that references are not included yet', () => {
+    const descriptions = new Map<string, string>();
+    const server = { registerTool: (n: string, c: { description?: string }) => descriptions.set(n, c.description ?? '') };
+    registerTools(server as never, { client: {} as never, baseUrl: 'x', token: 't' } as Ctx, { scope: 'admin', allowRunButton: true });
+    expect(descriptions.get('list_database_comments')).toContain('NOT include');
+  });
+});

@@ -10,13 +10,14 @@ import { ActivityService } from '../activity/activity.service';
 import { AuditLogController } from '../activity/audit-log.controller';
 import { AuditLogService } from '../activity/audit-log.service';
 import { RecordVersionsController } from '../activity/record-versions.controller';
+import { DatabaseActivityController } from '../activity/database-activity.controller';
 import { SlackService } from '../integrations/slack.service';
 import { CommentsController } from './comments.controller';
 import { CommentsService } from './comments.service';
 
 @Module({
   imports: [WorkspacesModule, DatabasesModule, RecordsModule, MentionsModule, UsersModule, MembersDbModule],
-  controllers: [CommentsController, ActivityController, RecordVersionsController, AuditLogController],
+  controllers: [CommentsController, ActivityController, DatabaseActivityController, RecordVersionsController, AuditLogController],
   // #268 — SlackService is provided directly (it only needs the global DB) rather
   // than importing the whole IntegrationsModule: adding that module edge shifts
   // Nest's init order and needlessly reorders the generated OpenAPI. A second
