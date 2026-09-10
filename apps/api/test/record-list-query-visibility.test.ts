@@ -131,3 +131,41 @@ describe('#474: MUST KEEP WORKING — unrestricted access is unaffected', () => 
     expect(idsOf(res.json())).toEqual([recA, recB, recC].sort());
   });
 });
+
+describe('#474: aggregate() over a record-scoped guest — a count/sum must not include ungranted records', () => {
+  it('count is narrowed to the granted records, not the whole database', async () => {
+    // At this point the guest holds record-scoped grants on recA and recB
+    // (from the describe block above) — 2 of 3 records in dbId.
+    const res = await as(guest.token, 'POST', `/workspaces/${wsId}/databases/${dbId}/records/aggregate`, { op: 'count' });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().value).toBe(2);
+  });
+
+  it('admin sees the TRUE count over the same database, unaffected by the guest fixture above', async () => {
+    const res = await as(admin.token, 'POST', `/workspaces/${wsId}/databases/${dbId}/records/aggregate`, { op: 'count' });
+    expect(res.json().value).toBe(3);
+  });
+});
+
+describe('#474: by-number lookup cannot be used to enumerate ungranted records', () => {
+  let numberOfA: number;
+  let numberOfC: number;
+
+  it('setup: read the public numbers of recA (granted) and recC (NOT granted) as admin', async () => {
+    numberOfA = (await as(admin.token, 'GET', `/workspaces/${wsId}/databases/${dbId}/records/${recA}`)).json().number;
+    numberOfC = (await as(admin.token, 'GET', `/workspaces/${wsId}/databases/${dbId}/records/${recC}`)).json().number;
+    expect(numberOfA).toEqual(expect.any(Number));
+    expect(numberOfC).toEqual(expect.any(Number));
+  });
+
+  it('the guest CAN resolve their own granted record by number', async () => {
+    const res = await as(guest.token, 'GET', `/workspaces/${wsId}/databases/${dbId}/records/by-number/${numberOfA}`);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().id).toBe(recA);
+  });
+
+  it('ADVERSARIAL: the guest CANNOT resolve recC by number, even though assertDb now lets them into the database at all', async () => {
+    const res = await as(guest.token, 'GET', `/workspaces/${wsId}/databases/${dbId}/records/by-number/${numberOfC}`);
+    expect(res.statusCode).toBe(404);
+  });
+});
