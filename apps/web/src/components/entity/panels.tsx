@@ -83,7 +83,7 @@ function CommentRecordChip({ ws, segment }: { ws: string; segment: { record_id: 
   const deleted = record.data && 'deleted' in record.data;
   const title = record.data && 'title' in record.data ? record.data.title : '…';
   if (deleted) {
-    return <span className="rounded bg-accent-soft px-1 font-medium text-faint line-through">#deleted</span>;
+    return <span className="rounded bg-accent-soft px-1 font-medium text-muted line-through">#deleted</span>;
   }
   return (
     <Link
@@ -315,7 +315,7 @@ export function CommentsPanel({
               <Avatar userId={comment.author.id} name={comment.author.name} image={comment.author.image} size={20} />
               {comment.author.name}
             </span>
-            <span className="flex items-center gap-2 text-[11px] text-faint">
+            <span className="flex items-center gap-2 text-[11px] text-muted">
               {fmt.dateTime(comment.created_at)}
               {(comment.author.id === currentUserId || isAdmin) && (
                 <button
@@ -443,7 +443,7 @@ export function ActivityPanel({ ws, db, rec }: { ws: string; db: string; rec: st
     <div className="flex flex-col gap-2">
       {(activity.data ?? []).map((event) => (
         <div key={event.id} className="flex items-baseline gap-2 text-[12px]">
-          <span className="whitespace-nowrap text-faint">
+          <span className="whitespace-nowrap text-muted">
             {dates.dateTime(event.created_at)}
           </span>
           <span className="text-ink-secondary">
@@ -553,12 +553,17 @@ export function MentionedIn({ ws, db, rec }: { ws: string; db: string; rec: stri
         Mentioned in{' '}
         {/* #513 — the TRUE total from the server, not items.length (which is
             only how many pages have been loaded so far). */}
+        {/* #669 — counts STAY faint, here and on the group headers below. A number
+            beside a label you can already read is #326's textbook decorative
+            case, and it is the same call #665 made for the sidebar's three
+            counts. The header next to it moved; the count did not, so the pair
+            keeps its label-then-count reading. Not an oversight. */}
         <span className="normal-case tracking-normal text-faint">({total})</span>
       </h2>
       <div className="flex flex-col gap-3">
         {groups.map((group) => (
           <div key={group.databaseId}>
-            <p className="mb-1 text-[11px] font-medium text-faint">
+            <p className="mb-1 text-[11px] font-medium text-muted">
               {group.databaseName} <span className="text-faint">({group.items.length})</span>
             </p>
             <ul className="flex flex-col gap-1">
@@ -569,7 +574,7 @@ export function MentionedIn({ ws, db, rec }: { ws: string; db: string; rec: stri
                     className="flex items-baseline gap-2 rounded px-2 py-1 text-[13px] hover:bg-hover"
                   >
                     <span className="truncate text-ink">{b.title || 'Untitled'}</span>
-                    <span className="shrink-0 text-[11px] text-faint">{b.database_name}</span>
+                    <span className="shrink-0 text-[11px] text-muted">{b.database_name}</span>
                   </Link>
                 </li>
               ))}
@@ -703,11 +708,15 @@ export function AttachmentsStrip({
                   className="mb-1 h-20 w-full rounded object-cover"
                 />
               ) : (
-                <div className="mb-1 flex h-20 items-center justify-center rounded bg-hover text-[11px] uppercase text-faint">
+                <div className="mb-1 flex h-20 items-center justify-center rounded bg-hover text-[11px] uppercase text-muted">
                   {att.filename.split('.').pop()}
                 </div>
               )}
               <span className="truncate text-[12px] text-ink">{att.filename}</span>
+              {/* #669 — file SIZE stays faint: metadata beside a filename you can already
+                read. The extension placeholder above it moved, because when no
+                thumbnail renders that is the only thing telling you what the
+                file IS. */}
               <span className="text-[11px] text-faint">{(att.size / 1024).toFixed(0)} KB</span>
             </a>
             {!readOnly && (
@@ -727,7 +736,11 @@ export function AttachmentsStrip({
           </div>
         ))}
         {(attachments.data ?? []).length === 0 && (
-          <p className="text-[12px] text-faint">Drop files here or use Upload.</p>
+          /* #669 — one of the four sites ticket #637 named BY NAME as faint-but-
+             not-decorative, and the last of them to still be faint. It is the
+             only instruction telling you how to attach a file; if you cannot
+             read it the panel offers no other clue. */
+          <p className="text-[12px] text-muted">Drop files here or use Upload.</p>
         )}
       </div>
     </div>
