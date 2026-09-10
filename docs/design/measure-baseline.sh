@@ -62,14 +62,20 @@ for p in $(ls $SRC/components/ui/*.tsx | grep -v '\.test\.' | xargs -n1 basename
 done
 
 hdr "PRIMITIVES: raw element vs primitive"
-for pair in 'button:Button' 'input:Input' 'select:—' 'textarea:—'; do
-  raw=${pair%%:*}; prim=${pair##*:}
+# #692 — the primitive is DERIVED from the element name and checked on disk,
+# never hardcoded. A sentinel list claimed "NO primitive exists" for <select> for
+# two days after ui/select.tsx shipped in PR #662, which hid the real finding:
+# the primitive existed and nothing had adopted it. Now the line follows reality.
+for raw in button input select textarea; do
+  prim=$(printf '%s' "$raw" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')
   rc=$(grep -rhoE "<$raw\\b" $SRC "${TSX[@]}" | wc -l | tr -d ' ')
-  if [ "$prim" = "—" ]; then
-    printf '  <%s>: %s raw   (NO primitive exists)\n' "$raw" "$rc"
-  else
+  if [ -f "$SRC/components/ui/$raw.tsx" ]; then
     pc=$(grep -rhoE "<$prim\\b" $SRC "${TSX[@]}" | wc -l | tr -d ' ')
-    printf '  <%s>: %s raw   <%s>: %s\n' "$raw" "$rc" "$prim" "$pc"
+    tot=$(( rc + pc ))
+    pct=0; [ "$tot" -gt 0 ] && pct=$(( 100 * pc / tot ))
+    printf '  <%s>: %s raw   <%s>: %s   (%s%% adopted)\n' "$raw" "$rc" "$prim" "$pc" "$pct"
+  else
+    printf '  <%s>: %s raw   (no ui/%s.tsx on disk)\n' "$raw" "$rc" "$raw"
   fi
 done
 

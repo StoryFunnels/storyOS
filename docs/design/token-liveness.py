@@ -3,7 +3,7 @@
 
 A naive `grep -- "--token"` sweep is MISLEADING here and it is worth saying why,
 because the first version of this check reported 32 dead tokens when the real
-number is 2.
+number is 3.
 
 globals.css has two layers. `:root` declares semantic tokens (`--bg-card`), and
 `@theme inline` maps them to Tailwind theme keys (`--color-card: var(--bg-card)`)
@@ -21,6 +21,13 @@ So: a token is live if it is reachable by any of
 
 A token whose ONLY reference is its own `@theme inline` forwarding line is NOT
 live: the alias exists but the utility it generates has no call sites.
+
+Liveness is resolved TRANSITIVELY (#692). A token consumed only by another
+token's DEFINITION is live iff that chain TERMINATES somewhere live. Checking one
+hop deep called `--shadow-ink` and both `--focus-ring-*` dead, while their chains
+ended in 11 component references and an `outline:` rule respectively. A chain
+that terminates in an UNUSED utility (`--accent-hover`) still reports dead --
+that is the rule above, kept rather than weakened.
 """
 import os, re, sys
 
@@ -76,25 +83,52 @@ for l in lines:
     if m:
         forwarded.setdefault(m.group(2), []).append(m.group(1))
 
-rows, dead = [], []
-for tok in semantic:
-    direct = var_refs(tok)
-    via = 0
-    for key in forwarded.get(tok, []):
-        u = utility_refs(key)
-        if u:
-            via += u
-    # A reference from a real property (`background: var(--bg-code)`) keeps a
-    # token alive; a `--other-token: var(--tok)` forwarding line does not, since
-    # `via` above already accounts for whether that alias is used.
-    in_css = any(
+# Who consumes a token from INSIDE another token's definition.
+# `--shadow-popover: 0 4px 12px rgb(var(--shadow-ink) / 0.08)` makes
+# --shadow-popover a CONSUMER of --shadow-ink.
+consumers = {}
+for l in lines:
+    m = re.match(r'\s*(--[a-z0-9-]+)\s*:\s*(.+)$', l)
+    if not m:
+        continue
+    owner, value = m.group(1), m.group(2)
+    for ref in re.findall(r'var\((--[a-z0-9-]+)', value):
+        if ref != owner:
+            consumers.setdefault(ref, []).append(owner)
+
+
+def terminal_life(tok):
+    """Live for a reason that does NOT route through another token."""
+    if var_refs(tok):
+        return True
+    if any(utility_refs(key) for key in forwarded.get(tok, [])):
+        return True
+    # A real CSS property inside globals.css, e.g. `outline: var(--focus-ring)`.
+    return any(
         f'var({tok})' in l and not re.match(r'\s*--[a-z0-9-]+\s*:', l)
         for l in lines
     )
-    if direct == 0 and via == 0 and not in_css:
-        dead.append(tok)
-    else:
+
+
+def live(tok, seen=None):
+    """Terminally live, or consumed by a token that is itself live. Cycle-safe."""
+    seen = set() if seen is None else seen
+    if tok in seen:
+        return False
+    seen.add(tok)
+    if terminal_life(tok):
+        return True
+    return any(live(c, seen) for c in consumers.get(tok, []))
+
+
+rows, dead = [], []
+for tok in semantic:
+    direct = var_refs(tok)
+    via = sum(u for u in (utility_refs(k) for k in forwarded.get(tok, [])) if u)
+    if live(tok):
         rows.append((tok, direct, via))
+    else:
+        dead.append(tok)
 
 print(f'semantic tokens in :root      : {len(semantic)}')
 print(f'@theme inline aliases         : {len(theme)}')
@@ -106,6 +140,6 @@ print('-' * 48)
 for tok, d, v in sorted(rows, key=lambda r: -(r[1] + r[2])):
     print(f'{tok:22s} {d:10d} {v:12d}')
 print()
-print(f'DEAD — no var(), no utility, no internal reference ({len(dead)}):')
+print(f'DEAD — chain terminates nowhere live ({len(dead)}):')
 for t in dead:
     print(f'  {t}')
