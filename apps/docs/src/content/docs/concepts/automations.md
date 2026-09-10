@@ -72,6 +72,25 @@ fail validation.
   the record just before that action runs — so a rule can validate first and only then fire an
   email or an API call. A failed per-action condition skips that one action and the rest still run.
 
+## Seeing a rule as a diagram
+
+Every rule row has a **Diagram** toggle, next to Runs and Delete — it expands the exact anatomy
+above (trigger → condition → actions) as a read-only flow diagram, in order, so you can see what a
+rule does without reading a form top to bottom.
+
+- **Read-only, by design.** Nothing in the diagram drags, connects, or deletes — it's a projection
+  of the rule's existing configuration, not a second place to edit it. **Edit in form** underneath
+  jumps to the same rule editor every rule already has.
+- **A per-action condition renders as a branch** on that action — a dashed "Only if …" callout
+  under the step it gates — the same way the rule-level condition renders above the first action.
+- **A "Create records" action shows a fan-out icon**, since it can produce more than one record per
+  run, unlike every other action.
+- **A trigger or action type the diagram doesn't recognize still renders honestly** — its raw type
+  name, with a small *"(diagram can't draw this one yet)"* note — rather than failing to open. A
+  rule the diagram can't fully draw is still a rule you can read and still one you can edit.
+- A `record_linked` trigger names its relation field and, when set, whether it fired on **link**,
+  **unlink**, or either.
+
 ## Creating or upserting a record
 
 A **Create a record** action can be configured to **match an existing record on a [unique
