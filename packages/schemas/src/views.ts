@@ -246,6 +246,13 @@ export const viewConfigSchema = z.object({
   cover_field_id: z.uuid().optional(),
   /** Calendar only — the date field that places records on the grid (MN-051). */
   date_field_id: z.uuid().optional(),
+  /** #470 — day/week/month mode. Undefined = month, the only mode that
+   *  existed before this ticket. */
+  calendar_mode: z.enum(['month', 'week', 'day']).optional(),
+  /** #470 — optional END date field for a day/week event's height, mirroring
+   *  timeline's start/end pair below. Unset = a fixed client-computed default
+   *  duration, never stored. */
+  calendar_end_date_field_id: z.uuid().optional(),
   /** Timeline (MN-092) — start (required) + optional end date field. */
   start_date_field_id: z.uuid().optional(),
   end_date_field_id: z.uuid().optional(),

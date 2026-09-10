@@ -43,6 +43,15 @@ export interface ViewConfig {
    */
   cover_field_id?: string;
   date_field_id?: string;
+  /** #470 — day/week/month mode. Undefined = month, the only mode that
+   *  existed before this ticket, so every calendar view saved before it
+   *  renders exactly as it did with no migration. */
+  calendar_mode?: 'month' | 'week' | 'day';
+  /** #470 — optional END date field for a day/week event's height, the same
+   *  "a second date FIELD" pattern timeline's start/end pair below already
+   *  uses. Unset = a fixed default duration, computed client-side, never
+   *  stored (see calendar-time-grid-layout.ts's DEFAULT_DURATION_MINUTES). */
+  calendar_end_date_field_id?: string;
   /** Timeline (MN-092). */
   start_date_field_id?: string;
   end_date_field_id?: string;

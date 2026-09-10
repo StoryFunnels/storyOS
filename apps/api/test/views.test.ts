@@ -544,3 +544,87 @@ describe('#427/#428 — board column preferences round-trip', () => {
     expect(saved.hide_empty_no_value_group).toBe(true);
   });
 });
+
+/**
+ * #470 — calendar_mode / calendar_end_date_field_id round-trip. Own database
+ * so this block can delete a field to test the dangling-reference cleanup
+ * without disturbing the shared fixtures other describe blocks in this file
+ * still rely on.
+ */
+describe('#470 — calendar day/week mode config round-trips', () => {
+  let cdb: string;
+  let startFieldId: string;
+  let endFieldId: string;
+  let viewId: string;
+
+  beforeAll(async () => {
+    const spaceId = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
+    cdb = (await inject('POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name: 'Calendar470' })).json().id;
+    startFieldId = (
+      await inject('POST', `/workspaces/${wsId}/databases/${cdb}/fields`, { display_name: 'Start', type: 'date' })
+    ).json().id;
+    endFieldId = (
+      await inject('POST', `/workspaces/${wsId}/databases/${cdb}/fields`, { display_name: 'End', type: 'date' })
+    ).json().id;
+    const created = await inject('POST', `/workspaces/${wsId}/databases/${cdb}/views`, {
+      name: 'Week view',
+      type: 'calendar',
+      config: {
+        sorts: [], hidden_field_ids: [], card_field_ids: [], column_widths: {},
+        date_field_id: startFieldId,
+      },
+    });
+    viewId = created.json().id;
+  });
+
+  it('calendar_mode is a plain preference that passes through unconditionally, same as column_sort', async () => {
+    const patch = await inject('PATCH', `/workspaces/${wsId}/databases/${cdb}/views/${viewId}`, {
+      config: {
+        sorts: [], hidden_field_ids: [], card_field_ids: [], column_widths: {},
+        date_field_id: startFieldId,
+        calendar_mode: 'week',
+      },
+    });
+    expect(patch.statusCode, patch.body).toBe(200);
+
+    const detail = await inject('GET', `/workspaces/${wsId}/databases/${cdb}`);
+    const saved = detail.json().views.find((v: { id: string }) => v.id === viewId).config;
+    expect(saved.calendar_mode).toBe('week');
+  });
+
+  it('calendar_end_date_field_id round-trips when it names a real field', async () => {
+    const patch = await inject('PATCH', `/workspaces/${wsId}/databases/${cdb}/views/${viewId}`, {
+      config: {
+        sorts: [], hidden_field_ids: [], card_field_ids: [], column_widths: {},
+        date_field_id: startFieldId,
+        calendar_mode: 'week',
+        calendar_end_date_field_id: endFieldId,
+      },
+    });
+    expect(patch.statusCode, patch.body).toBe(200);
+
+    const detail = await inject('GET', `/workspaces/${wsId}/databases/${cdb}`);
+    const saved = detail.json().views.find((v: { id: string }) => v.id === viewId).config;
+    expect(saved.calendar_end_date_field_id).toBe(endFieldId);
+  });
+
+  it('rejects an unknown calendar_end_date_field_id at write time (validateConfig)', async () => {
+    const res = await inject('PATCH', `/workspaces/${wsId}/databases/${cdb}/views/${viewId}`, {
+      config: {
+        sorts: [], hidden_field_ids: [], card_field_ids: [], column_widths: {},
+        date_field_id: startFieldId,
+        calendar_end_date_field_id: '11111111-1111-1111-1111-111111111111',
+      },
+    });
+    expect(res.statusCode).toBe(422);
+  });
+
+  it('drops calendar_end_date_field_id defensively at read time once its field is deleted (#227/#391\'s own bug class, applied to this new key)', async () => {
+    await inject('DELETE', `/workspaces/${wsId}/databases/${cdb}/fields/${endFieldId}`);
+    const detail = await inject('GET', `/workspaces/${wsId}/databases/${cdb}`);
+    const saved = detail.json().views.find((v: { id: string }) => v.id === viewId).config;
+    expect(saved.calendar_end_date_field_id).toBeUndefined();
+    // calendar_mode is untouched by the deletion — it names no field at all.
+    expect(saved.calendar_mode).toBe('week');
+  });
+});

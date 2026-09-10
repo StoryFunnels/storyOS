@@ -16,12 +16,14 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { CellDisplay, fieldValue, isSystemDate, optionColor } from '../table-view/cells';
 import { useDatabase, useMembers, useRecordMutations, useRecordsInfinite } from '../table-view/use-table-data';
 import type { Field, RecordRow } from '../table-view/use-table-data';
-import { fmtDate, MONTH_NAMES, monthMatrix } from '@/lib/dates';
+import { addDays, fmtDate, MONTH_NAMES, monthMatrix, weekDays } from '@/lib/dates';
 import { cn } from '@/lib/utils';
 import type { FilterNode, ViewConfig } from './use-view-state';
 import { sortsBodyFromConfig } from './use-view-state';
 import { activeFilterNode, andFilterNodes } from './filter-config';
 import { ViewQueryError } from './query-error';
+import { CalendarTimeGrid, dayRangeFilter } from './calendar-time-grid';
+import { shiftDateValue } from './calendar-time-grid-layout';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -31,31 +33,53 @@ export function CalendarView({
   db,
   config,
   readOnly,
+  onPatch,
   personalFilter,
 }: {
   ws: string;
   db: string;
   config: ViewConfig;
   readOnly: boolean;
+  /** #470 — persists the day/week/month mode choice per view (AC2). Optional
+   *  only because a couple of call sites predate this ticket; every real
+   *  caller (the database page) passes it. */
+  onPatch?: (updates: Partial<ViewConfig>) => void;
   /** #259 — narrows this view's results for the current viewer only. */
   personalFilter?: FilterNode;
 }) {
   const database = useDatabase(ws, db);
   const router = useRouter();
   const dateField = database.data?.fields.find((f) => f.id === config.date_field_id);
+  // #470 — an optional SECOND date field giving a day/week event real height.
+  // Unset (the default, and every calendar saved before this ticket) falls
+  // back to a fixed display duration — see calendar-time-grid-layout.ts.
+  const endDateField = database.data?.fields.find((f) => f.id === config.calendar_end_date_field_id);
   const today = new Date();
-  const [view, setView] = useState({ year: today.getFullYear(), month: today.getMonth() });
+  // #470 — mode + a single anchor date drive navigation uniformly across all
+  // three modes; {year, month} for the month grid is DERIVED from it below,
+  // never a second, independently-clicked piece of state.
+  const mode = config.calendar_mode ?? 'month';
+  const [anchorDate, setAnchorDate] = useState(today);
+  const view = { year: anchorDate.getFullYear(), month: anchorDate.getMonth() };
 
-  const grid = useMemo(() => monthMatrix(view.year, view.month), [view]);
+  const grid = useMemo(() => monthMatrix(view.year, view.month), [view.year, view.month]);
+  const week = useMemo(() => weekDays(anchorDate), [anchorDate]);
+  const days = mode === 'day' ? [anchorDate] : mode === 'week' ? week : grid;
+
   const windowFilter = useMemo(() => {
     if (!dateField) return undefined;
     // The compiler exposes exclusive before/after for dates — widen by a day on each side.
-    const dayBefore = new Date(grid[0]!.getFullYear(), grid[0]!.getMonth(), grid[0]!.getDate() - 1);
-    const dayAfter = new Date(grid[41]!.getFullYear(), grid[41]!.getMonth(), grid[41]!.getDate() + 1);
-    const range = [
-      { field: dateField.apiName, op: 'after', value: fmtDate(dayBefore) + 'T23:59:59' },
-      { field: dateField.apiName, op: 'before', value: fmtDate(dayAfter) },
-    ];
+    let range: unknown[];
+    if (mode === 'month') {
+      const dayBefore = new Date(grid[0]!.getFullYear(), grid[0]!.getMonth(), grid[0]!.getDate() - 1);
+      const dayAfter = new Date(grid[41]!.getFullYear(), grid[41]!.getMonth(), grid[41]!.getDate() + 1);
+      range = [
+        { field: dateField.apiName, op: 'after', value: fmtDate(dayBefore) + 'T23:59:59' },
+        { field: dateField.apiName, op: 'before', value: fmtDate(dayAfter) },
+      ];
+    } else {
+      range = dayRangeFilter(mode === 'day' ? [anchorDate] : week, dateField.apiName).and;
+    }
     // Skip disabled clauses (MN-253 UI) here too — this builds its own query filter
     // rather than going through queryBodyFromConfig, so it has to prune the same way.
     // The active filter (possibly an {and:[...]}/{or:[...]} group) AND the personal
@@ -64,7 +88,7 @@ export function CalendarView({
     const active = andFilterNodes(activeFilterNode(config.filters), personalFilter);
     const existing: unknown[] = active ? [active] : [];
     return { and: [...existing, ...range] };
-  }, [dateField, grid, config.filters, personalFilter]);
+  }, [dateField, grid, week, anchorDate, mode, config.filters, personalFilter]);
 
   // MN-252: apply the same persisted sort spec here too (e.g. chips within a day
   // ordered by priority) — this view builds its own filter, so it borrows just the
@@ -129,9 +153,24 @@ export function CalendarView({
     const row = rows.find((r) => r.id === rec);
     if (!row) return;
     const raw = fieldValue(row, dateField);
+    if (typeof raw !== 'string') return;
     // Preserve the time component for datetime fields.
-    const time = typeof raw === 'string' && raw.length > 10 ? raw.slice(10) : '';
-    updateRecord.mutate({ rec, values: { [dateField.apiName]: `${day}${time}` } });
+    const time = raw.length > 10 ? raw.slice(10) : '';
+    const values: Record<string, string> = { [dateField.apiName]: `${day}${time}` };
+    // #470 — an end field can now exist regardless of mode (AC8: month drag must
+    // keep working). Shift it by the same whole-day delta so start/end stay in
+    // sync, mirroring CalendarTimeGrid's own onReschedule.
+    if (endDateField) {
+      const deltaDays = Math.round(
+        (new Date(`${day}T00:00:00`).getTime() - new Date(`${raw.slice(0, 10)}T00:00:00`).getTime()) /
+          (24 * 60 * 60 * 1000),
+      );
+      const endRaw = fieldValue(row, endDateField);
+      if (typeof endRaw === 'string' && deltaDays !== 0) {
+        values[endDateField.apiName] = shiftDateValue(endRaw, deltaDays, 0);
+      }
+    }
+    updateRecord.mutate({ rec, values });
   }
 
   // Shared by both the month grid (desktop) and the agenda list (mobile, MN-230d)
@@ -157,30 +196,58 @@ export function CalendarView({
   // #346 — a rejected query must never render as an empty view. Placed after every
   // hook so the early return cannot change hook order.
   if (records.isError) return <ViewQueryError error={records.error} onRetry={() => void records.refetch()} />;
+
+  // #470 — one anchor date, shifted by whatever "one step" means for the
+  // current mode. Replaces the old month-only prev/next; a month step keeps
+  // the existing "always land on the 1st" behaviour (AC6), unaffected by
+  // anchorDate's day-of-month component the rest of the time.
+  const shiftAnchor = (delta: number) => {
+    setAnchorDate((d) => {
+      if (mode === 'month') return new Date(d.getFullYear(), d.getMonth() + delta, 1);
+      if (mode === 'week') return addDays(d, delta * 7);
+      return addDays(d, delta);
+    });
+  };
+  const headerLabel =
+    mode === 'month'
+      ? `${MONTH_NAMES[view.month]} ${view.year}`
+      : mode === 'week'
+        ? `${week[0]!.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${week[6]!.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`
+        : anchorDate.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-2 border-b border-border-default px-4 py-2">
-        <span className="text-sm font-semibold text-ink">
-          {MONTH_NAMES[view.month]} {view.year}
-        </span>
-        <button
-          className="rounded p-1 text-muted hover:bg-hover hover:text-ink"
-          onClick={() => setView(shift(view, -1))}
-        >
+        <span className="text-sm font-semibold text-ink">{headerLabel}</span>
+        <button className="rounded p-1 text-muted hover:bg-hover hover:text-ink" onClick={() => shiftAnchor(-1)}>
           <ChevronLeft className="h-4 w-4" />
         </button>
-        <button
-          className="rounded p-1 text-muted hover:bg-hover hover:text-ink"
-          onClick={() => setView(shift(view, 1))}
-        >
+        <button className="rounded p-1 text-muted hover:bg-hover hover:text-ink" onClick={() => shiftAnchor(1)}>
           <ChevronRight className="h-4 w-4" />
         </button>
         <button
           className="rounded px-2 py-0.5 text-[12px] text-muted hover:bg-hover hover:text-ink"
-          onClick={() => setView({ year: today.getFullYear(), month: today.getMonth() })}
+          onClick={() => setAnchorDate(today)}
         >
           Today
         </button>
+        {/* #470 AC2 — persists with the VIEW (onPatch → config.calendar_mode),
+            not per session, so reopening this view later shows the same mode. */}
+        <div className="flex items-center gap-0.5 rounded-[var(--radius-control)] border border-border-default p-0.5">
+          {(['month', 'week', 'day'] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => onPatch?.({ calendar_mode: m })}
+              className={cn(
+                'rounded px-2 py-0.5 text-[12px] capitalize',
+                mode === m ? 'bg-active text-ink' : 'text-muted hover:bg-hover hover:text-ink',
+              )}
+            >
+              {m}
+            </button>
+          ))}
+        </div>
         <Link
           href={`/w/${ws}/d/${db}`}
           className="ml-auto text-[12px] text-faint underline-offset-2 hover:text-ink hover:underline"
@@ -190,55 +257,73 @@ export function CalendarView({
         {undatedCount > 0 && <span />}
       </div>
 
-      <DndContext sensors={sensors} onDragEnd={onDragEnd}>
-        {/* MN-230d: a 7-column grid is unreadable under ~375px (≈49px cells) —
-            switch to a scrollable one-column agenda below `md`, keep the
-            familiar month grid at `md` and up. */}
-        <div className="hidden flex-1 auto-rows-fr grid-cols-7 overflow-y-auto md:grid">
-          {WEEKDAYS.map((d) => (
-            <div key={d} className="border-b border-r border-border-default bg-app px-2 py-1 text-[11px] font-medium text-faint">
-              {d}
+      {mode === 'month' ? (
+        <>
+          <DndContext sensors={sensors} onDragEnd={onDragEnd}>
+            {/* MN-230d: a 7-column grid is unreadable under ~375px (≈49px cells) —
+                switch to a scrollable one-column agenda below `md`, keep the
+                familiar month grid at `md` and up. */}
+            <div className="hidden flex-1 auto-rows-fr grid-cols-7 overflow-y-auto md:grid">
+              {WEEKDAYS.map((d) => (
+                <div key={d} className="border-b border-r border-border-default bg-app px-2 py-1 text-[11px] font-medium text-faint">
+                  {d}
+                </div>
+              ))}
+              {grid.map((day) => {
+                const iso = fmtDate(day);
+                const inMonth = day.getMonth() === view.month;
+                const chips = byDay.get(iso) ?? [];
+                return (
+                  <DayCell
+                    key={iso}
+                    iso={iso}
+                    dayNumber={day.getDate()}
+                    inMonth={inMonth}
+                    isToday={iso === todayStr}
+                    chips={chips}
+                    chipFields={chipFields}
+                    colorField={colorField}
+                    memberNames={memberNames}
+                    readOnly={readOnly}
+                    onOpen={(id) => {
+                      if (Date.now() - lastDragEnd.current < 200) return;
+                      router.push(`/w/${ws}/d/${db}/r/${id}`);
+                    }}
+                    onCreate={() => handleCreate(iso)}
+                  />
+                );
+              })}
             </div>
-          ))}
-          {grid.map((day) => {
-            const iso = fmtDate(day);
-            const inMonth = day.getMonth() === view.month;
-            const chips = byDay.get(iso) ?? [];
-            return (
-              <DayCell
-                key={iso}
-                iso={iso}
-                dayNumber={day.getDate()}
-                inMonth={inMonth}
-                isToday={iso === todayStr}
-                chips={chips}
-                chipFields={chipFields}
-                colorField={colorField}
-                memberNames={memberNames}
-                readOnly={readOnly}
-                onOpen={(id) => {
-                  if (Date.now() - lastDragEnd.current < 200) return;
-                  router.push(`/w/${ws}/d/${db}/r/${id}`);
-                }}
-                onCreate={() => handleCreate(iso)}
-              />
-            );
-          })}
-        </div>
-      </DndContext>
+          </DndContext>
 
-      <AgendaList
-        grid={grid}
-        month={view.month}
-        byDay={byDay}
-        chipFields={chipFields}
-        colorField={colorField}
-        memberNames={memberNames}
-        readOnly={readOnly}
-        todayStr={todayStr}
-        onOpen={(id) => router.push(`/w/${ws}/d/${db}/r/${id}`)}
-        onCreate={handleCreate}
-      />
+          <AgendaList
+            grid={grid}
+            month={view.month}
+            byDay={byDay}
+            chipFields={chipFields}
+            colorField={colorField}
+            memberNames={memberNames}
+            readOnly={readOnly}
+            todayStr={todayStr}
+            onOpen={(id) => router.push(`/w/${ws}/d/${db}/r/${id}`)}
+            onCreate={handleCreate}
+          />
+        </>
+      ) : (
+        <CalendarTimeGrid
+          days={days}
+          rows={rows}
+          dateField={dateField}
+          endDateField={endDateField}
+          chipFields={chipFields}
+          colorField={colorField}
+          memberNames={memberNames}
+          readOnly={readOnly}
+          onOpen={(id) => router.push(`/w/${ws}/d/${db}/r/${id}`)}
+          onCreate={handleCreate}
+          onReschedule={(rec, values) => updateRecord.mutate({ rec, values })}
+        />
+      )}
     </div>
   );
 }
@@ -329,11 +414,6 @@ function AgendaList({
       })}
     </div>
   );
-}
-
-function shift(view: { year: number; month: number }, delta: number) {
-  const d = new Date(view.year, view.month + delta, 1);
-  return { year: d.getFullYear(), month: d.getMonth() };
 }
 
 function DayCell({

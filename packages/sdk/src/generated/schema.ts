@@ -5173,6 +5173,10 @@ export interface components {
                 cover_field_id?: string;
                 /** Format: uuid */
                 date_field_id?: string;
+                /** @enum {string} */
+                calendar_mode?: "month" | "week" | "day";
+                /** Format: uuid */
+                calendar_end_date_field_id?: string;
                 /** Format: uuid */
                 start_date_field_id?: string;
                 /** Format: uuid */
@@ -5339,6 +5343,10 @@ export interface components {
                 cover_field_id?: string;
                 /** Format: uuid */
                 date_field_id?: string;
+                /** @enum {string} */
+                calendar_mode?: "month" | "week" | "day";
+                /** Format: uuid */
+                calendar_end_date_field_id?: string;
                 /** Format: uuid */
                 start_date_field_id?: string;
                 /** Format: uuid */
@@ -5501,6 +5509,10 @@ export interface components {
                 cover_field_id?: string;
                 /** Format: uuid */
                 date_field_id?: string;
+                /** @enum {string} */
+                calendar_mode?: "month" | "week" | "day";
+                /** Format: uuid */
+                calendar_end_date_field_id?: string;
                 /** Format: uuid */
                 start_date_field_id?: string;
                 /** Format: uuid */
