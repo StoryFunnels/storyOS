@@ -118,14 +118,19 @@ export class CommentsService {
   }
 
   /** #140: comments feed record backlinks — resync after any comment write. Best-effort. */
-  private resyncMentions(workspaceId: string, recordId: string, actorId: string): void {
+  private resyncMentions(workspaceId: string, recordId: string, actorId: string, source: ChangeSource): void {
     void this.db.query.records
       .findFirst({ where: eq(records.id, recordId), columns: { databaseId: true } })
       .then((r) =>
         r
-          ? this.mentionsService.syncRecordMentions(workspaceId, r.databaseId, recordId, actorId, {
-              notify: false, // comments notify their own @mentions
-            })
+          ? this.mentionsService.syncRecordMentions(
+              workspaceId,
+              r.databaseId,
+              recordId,
+              actorId,
+              { notify: false }, // comments notify their own @mentions
+              source,
+            )
           : undefined,
       )
       .catch(() => undefined);
@@ -221,7 +226,7 @@ export class CommentsService {
       recipients: participants,
       snippet,
     });
-    this.resyncMentions(workspaceId, recordId, authorId);
+    this.resyncMentions(workspaceId, recordId, authorId, source);
     return { id: created.id, body: created.body, created_at: created.createdAt };
   }
 
@@ -271,7 +276,14 @@ export class CommentsService {
     await this.slackService.sendMessage(workspaceId, { text: slackText }).catch(() => undefined);
   }
 
-  async update(recordId: string, commentId: string, body: CommentBody, actorId: string, workspaceId: string) {
+  async update(
+    recordId: string,
+    commentId: string,
+    body: CommentBody,
+    actorId: string,
+    workspaceId: string,
+    source: ChangeSource = 'human',
+  ) {
     const comment = await this.getLive(recordId, commentId);
     if (comment.authorId !== actorId) throw new ForbiddenException('Only the author can edit a comment');
     const { mentions } = await this.validateBody(workspaceId, body);
@@ -280,18 +292,25 @@ export class CommentsService {
       .set({ body, mentions, editedAt: new Date() })
       .where(eq(comments.id, commentId))
       .returning();
-    this.resyncMentions(workspaceId, recordId, actorId);
+    this.resyncMentions(workspaceId, recordId, actorId, source);
     return { id: updated!.id, body: updated!.body, edited_at: updated!.editedAt };
   }
 
-  async remove(recordId: string, commentId: string, actorId: string, isAdmin: boolean, workspaceId?: string) {
+  async remove(
+    recordId: string,
+    commentId: string,
+    actorId: string,
+    isAdmin: boolean,
+    workspaceId?: string,
+    source: ChangeSource = 'human',
+  ) {
     const comment = await this.getLive(recordId, commentId);
     if (comment.authorId !== actorId && !isAdmin) {
       throw new ForbiddenException('Only the author or an admin can delete a comment');
     }
     await this.db.update(comments).set({ deletedAt: new Date() }).where(eq(comments.id, commentId));
     // A deleted comment's #mentions must drop their backlinks (#140).
-    if (workspaceId) this.resyncMentions(workspaceId, recordId, actorId);
+    if (workspaceId) this.resyncMentions(workspaceId, recordId, actorId, source);
     return { deleted: true };
   }
 

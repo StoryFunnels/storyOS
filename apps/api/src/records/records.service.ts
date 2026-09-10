@@ -3117,7 +3117,7 @@ export class RecordsService {
     // edit): there is no human to attribute a mention notification to.
     if (actorId && defs.some((d) => d.type === 'rich_text' && d.id in diff)) {
       void this.mentions
-        .syncRecordMentions(workspaceId, databaseId, recordId, actorId)
+        .syncRecordMentions(workspaceId, databaseId, recordId, actorId, {}, source)
         .catch(() => undefined);
     }
 

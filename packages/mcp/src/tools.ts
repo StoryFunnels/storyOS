@@ -2079,18 +2079,19 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
    * "what was said on THIS record"; nothing answered "what's been said lately
    * ACROSS this database" — the exact gap the ticket names ("a feed of
    * comments on the Task database as a quick overview of recent work").
-   * References (@mentions) are NOT included yet — see the API route's own
-   * comment for why (no source/actor data exists to attribute them with),
-   * and the follow-up ticket that adds it.
+   *
+   * #670 — @mentions/references are now included too (`reference.created`
+   * entries alongside `comment.created`), each with the same real source
+   * attribution. Discriminated by `type` in the response, since a reference
+   * entry has no comment body — a `#record` mention, not a written comment.
    */
   reg(
     'list_database_comments',
     {
       title: 'List database comments',
       description:
-        'Every comment across every record in a database, newest first — a quick "what happened recently" overview, without visiting each record. Different from list_comments, which reads ONE record\'s thread; this is the cross-record feed. ' +
-        'Each entry names which record it is on, so you can jump to it. Every entry\'s `source` says who/what wrote it (human/agent/automation/mcp/null-if-not-recorded) — never assume a comment is human-written. ' +
-        'Does NOT include @mentions/references yet — comments only, for now.',
+        'Every comment AND #record reference across every record in a database, newest first — a quick "what happened recently" overview, without visiting each record. Different from list_comments, which reads ONE record\'s thread; this is the cross-record feed. ' +
+        'Each entry names which record it is on, so you can jump to it, and (for a reference entry) which record it now links to. Every entry\'s `source` says who/what wrote it (human/agent/automation/mcp/null-if-not-recorded) — never assume an entry is human-written.',
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
         database: z.string().describe('Database name, api slug, or id.'),
@@ -2105,8 +2106,10 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         const res = await unwrap<{
           data: Array<{
             id: string;
+            type: 'comment.created' | 'reference.created';
             record: { id: string; title: string; number: number | null } | null;
-            comment: { id: string; body: unknown };
+            comment?: { id: string; body: unknown };
+            reference?: { target_record: { id: string; title: string; number: number | null } | null };
             actor: { id: string; name: string } | null;
             created_at: string;
             source: string | null;
@@ -2119,15 +2122,28 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           } as never),
         );
         return text({
-          comments: res.data.map((e) => ({
-            id: e.comment.id,
-            text: commentToText(e.comment.body),
-            record: e.record,
-            author: e.actor?.name ?? null,
-            author_id: e.actor?.id ?? null,
-            source: e.source,
-            created_at: e.created_at,
-          })),
+          entries: res.data.map((e) =>
+            e.type === 'reference.created'
+              ? {
+                  type: 'reference' as const,
+                  record: e.record,
+                  references: e.reference!.target_record,
+                  author: e.actor?.name ?? null,
+                  author_id: e.actor?.id ?? null,
+                  source: e.source,
+                  created_at: e.created_at,
+                }
+              : {
+                  type: 'comment' as const,
+                  id: e.comment!.id,
+                  text: commentToText(e.comment!.body),
+                  record: e.record,
+                  author: e.actor?.name ?? null,
+                  author_id: e.actor?.id ?? null,
+                  source: e.source,
+                  created_at: e.created_at,
+                },
+          ),
           next_cursor: res.next_cursor,
           has_more: res.has_more,
         });

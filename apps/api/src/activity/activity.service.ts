@@ -89,20 +89,20 @@ export class ActivityService {
    * mechanism", and this is a different-shaped query (a time range across
    * many records) over the identical source rows.
    *
-   * References (@mentions) are NOT in this feed yet — `record_mentions`
-   * carries no actor/source at all, so a reference entry here could not
-   * honestly answer "who/what did this" (the same NEW criterion this ticket
-   * added for exactly this reason). Filed as its own ticket rather than
-   * either skipping the requirement or shipping an unattributed entry.
+   * #670 phase 2, piece 1 — `reference.created` now included alongside
+   * comments (see `MentionsService.syncRecordMentions`, which emits one row
+   * per genuinely-new mention). `record_mentions` itself still carries no
+   * actor/source — it stays the current-state table `backlinks()` reads —
+   * these events are the append-only log of when/who/what created each one.
    *
-   * Full Epic→Story→Task hierarchy aggregation (the ticket's other named
-   * shape) is ALSO out of this phase — this covers one database, which is
-   * the smaller, already-decided acceptance criterion ("a feed of comments
-   * on a database"), not the hierarchy traversal. Also its own ticket.
+   * Full Epic→Story→Task hierarchy aggregation (the ticket's OTHER named
+   * shape) is still its own ticket — this covers one database, which is the
+   * smaller, already-decided acceptance criterion ("a feed of comments/
+   * references on a database"), not the hierarchy traversal.
    */
   async listCommentsForDatabase(databaseId: string, limit: number, cursor?: string) {
     const conditions = [
-      eq(activityEvents.type, 'comment.created'),
+      inArray(activityEvents.type, ['comment.created', 'reference.created']),
       inArray(
         activityEvents.recordId,
         this.db.select({ id: records.id }).from(records).where(eq(records.databaseId, databaseId)),
@@ -121,6 +121,7 @@ export class ActivityService {
     const hasMore = rows.length > limit;
 
     const commentIds = page
+      .filter((e) => e.type === 'comment.created')
       .map((e) => (e.payload as Record<string, unknown>).comment_id)
       .filter((id): id is string => typeof id === 'string');
     // isNull(deletedAt): a deleted comment is soft-deleted, not removed — the
@@ -132,37 +133,65 @@ export class ActivityService {
       : [];
     const commentById = new Map(commentRows.map((c) => [c.id, c]));
 
-    const recordIds = [...new Set(page.map((e) => e.recordId).filter((id): id is string => Boolean(id)))];
+    // #670 — a reference's payload names the TARGET record too; resolved
+    // alongside every event's own `recordId` in one batched fetch.
+    const targetIds = page
+      .filter((e) => e.type === 'reference.created')
+      .map((e) => (e.payload as Record<string, unknown>).target_record_id)
+      .filter((id): id is string => typeof id === 'string');
+    const recordIds = [
+      ...new Set([...page.map((e) => e.recordId).filter((id): id is string => Boolean(id)), ...targetIds]),
+    ];
     const recordRows = recordIds.length
       ? await this.db.query.records.findMany({ where: inArray(records.id, recordIds), columns: { id: true, title: true, number: true } })
       : [];
     const recordById = new Map(recordRows.map((r) => [r.id, r]));
+    const chipOf = (id: string | null | undefined) => {
+      const r = id ? recordById.get(id) : undefined;
+      return r ? { id: r.id, title: r.title, number: r.number } : null;
+    };
 
     const actorIds = [...new Set(page.map((e) => e.actorId).filter((id): id is string => Boolean(id)))];
     const actors = actorIds.length ? await this.db.query.user.findMany({ where: inArray(user.id, actorIds) }) : [];
     const actorName = new Map(actors.map((a) => [a.id, a.name]));
+    const actorOf = (id: string | null) => (id ? { id, name: actorName.get(id) ?? '(deactivated)' } : null);
 
     return {
       data: page
         // A comment can be hard-deleted after its activity_events row was
         // written (activity_events has no FK to comments, by design — it is
         // an append-only outbox). Skip rather than show a feed entry for text
-        // that no longer exists.
-        .filter((e) => commentById.has((e.payload as Record<string, unknown>).comment_id as string))
+        // that no longer exists. A reference's target record can be deleted
+        // too — same treatment, skip rather than show a dangling chip.
+        .filter((e) => {
+          const payload = e.payload as Record<string, unknown>;
+          if (e.type === 'comment.created') return commentById.has(payload.comment_id as string);
+          if (e.type === 'reference.created') return recordById.has(payload.target_record_id as string);
+          return false;
+        })
         .map((event) => {
-          const comment = commentById.get((event.payload as Record<string, unknown>).comment_id as string)!;
-          const record = event.recordId ? recordById.get(event.recordId) : undefined;
+          const payload = event.payload as Record<string, unknown>;
+          if (event.type === 'reference.created') {
+            return {
+              id: event.id,
+              type: 'reference.created' as const,
+              record: chipOf(event.recordId),
+              reference: { target_record: chipOf(payload.target_record_id as string) },
+              actor: actorOf(event.actorId),
+              created_at: event.createdAt,
+              // Never defaulted to 'human' — see activity_events.source's own
+              // comment. A caller must not treat a null source as a person.
+              source: event.source,
+            };
+          }
+          const comment = commentById.get(payload.comment_id as string)!;
           return {
             id: event.id,
             type: 'comment.created' as const,
-            record: record ? { id: record.id, title: record.title, number: record.number } : null,
+            record: chipOf(event.recordId),
             comment: { id: comment.id, body: comment.body, snippet: extractText(comment.body).slice(0, 280) },
-            actor: event.actorId
-              ? { id: event.actorId, name: actorName.get(event.actorId) ?? '(deactivated)' }
-              : null,
+            actor: actorOf(event.actorId),
             created_at: event.createdAt,
-            // Never defaulted to 'human' — see activity_events.source's own
-            // comment. A caller must not treat a null source as a person.
             source: event.source,
           };
         }),

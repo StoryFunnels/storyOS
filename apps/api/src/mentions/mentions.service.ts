@@ -2,7 +2,8 @@ import { Inject, Injectable, UnprocessableEntityException } from '@nestjs/common
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { comments, databases, documents, fields, records, recordMentions } from '../db/schema';
+import { activityEvents, comments, databases, documents, fields, records, recordMentions } from '../db/schema';
+import type { ChangeSource } from '../db/schema';
 import { AccessService } from '../access/access.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
@@ -62,6 +63,9 @@ export class MentionsService {
     sourceRecordId: string,
     actorId: string,
     opts: { snippet?: string; notify?: boolean } = {},
+    /** #670 — same contract as comment.created's `source`: who/what made
+     *  this edit, for the `reference.created` events this method emits. */
+    source: ChangeSource = 'human',
   ): Promise<void> {
     const [doc, record, richTextFields, commentRows] = await Promise.all([
       this.db.query.documents.findFirst({ where: eq(documents.recordId, sourceRecordId) }),
@@ -121,6 +125,22 @@ export class MentionsService {
           .filter((id) => id !== sourceRecordId)
       : [];
 
+    // #670 — this method DELETEs the whole mention set and RE-INSERTs it on
+    // every content save, even when nothing mention-related changed. Emitting
+    // a `reference.created` event on every insert would flood the activity
+    // feed with false "reference created" entries on every unrelated edit —
+    // diff against what existed BEFORE the replace and emit only for targets
+    // that are genuinely new.
+    const previousTargets = new Set(
+      (
+        await this.db
+          .select({ targetRecordId: recordMentions.targetRecordId })
+          .from(recordMentions)
+          .where(eq(recordMentions.sourceRecordId, sourceRecordId))
+      ).map((r) => r.targetRecordId),
+    );
+    const newTargets = validTargets.filter((id) => !previousTargets.has(id));
+
     await this.db.transaction(async (tx) => {
       await tx.delete(recordMentions).where(eq(recordMentions.sourceRecordId, sourceRecordId));
       if (validTargets.length) {
@@ -128,6 +148,22 @@ export class MentionsService {
           .insert(recordMentions)
           .values(validTargets.map((targetRecordId) => ({ workspaceId, sourceRecordId, targetRecordId })))
           .onConflictDoNothing();
+      }
+      // #670 — mirrors comment.created's insert exactly (same table, same
+      // shape), one row per genuinely-new reference so the activity feed can
+      // answer "who/what created this reference" — record_mentions itself
+      // carries no actor/source, by design (it's current-state, not a log).
+      if (newTargets.length) {
+        await tx.insert(activityEvents).values(
+          newTargets.map((targetRecordId) => ({
+            workspaceId,
+            recordId: sourceRecordId,
+            actorId,
+            type: 'reference.created' as const,
+            payload: { target_record_id: targetRecordId },
+            source,
+          })),
+        );
       }
     });
 

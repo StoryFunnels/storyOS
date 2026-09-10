@@ -111,6 +111,7 @@ export class CommentsController {
       body.body as CommentBody,
       req.user.id,
       req.membership.workspaceId,
+      req.auth?.source ?? 'human',
     );
   }
 
@@ -129,6 +130,7 @@ export class CommentsController {
       req.user.id,
       req.membership.role === 'admin',
       req.membership.workspaceId,
+      req.auth?.source ?? 'human',
     );
   }
 }
