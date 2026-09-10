@@ -164,7 +164,7 @@ export default function PublicFormPage({ params }: { params: Promise<{ token: st
                 value={values[f.api_name]}
                 onChange={(v) => setValues((p) => ({ ...p, [f.api_name]: v }))}
               />
-              {f.help && <span className="text-[12px] text-faint">{f.help}</span>}
+              {f.help && <span className="text-[12px] text-muted">{f.help}</span>}
             </label>
           );
         })}
@@ -186,6 +186,11 @@ export default function PublicFormPage({ params }: { params: Promise<{ token: st
         >
           {submitting ? 'Submitting…' : def!.submit_text}
         </button>
+        {/* #669 — STAYS faint. Our own attribution, not an affordance the person
+            filling the form needs: nothing they must read to complete it, and
+            it is already suppressible via hide_branding. Measures 3.44:1 on
+            card in light, which clears the 3:1 incidental floor #326 cites for
+            genuinely decorative text. */}
         {!def!.hide_branding && <p className="text-center text-[11px] text-faint">Powered by StoryOS</p>}
       </form>
     </div>
@@ -288,7 +293,7 @@ function Input({
     const ids = (Array.isArray(value) ? (value as string[]) : value ? [String(value)] : []).filter(Boolean);
     return (
       <div className="flex flex-col gap-1.5 rounded-[var(--radius-control)] border border-border-strong bg-card p-2.5">
-        {members.length === 0 && <span className="text-[12px] text-faint">No one to pick from</span>}
+        {members.length === 0 && <span className="text-[12px] text-muted">No one to pick from</span>}
         {members.map((m) => (
           <label key={m.id} className="flex items-center gap-1.5 text-[13px] text-ink">
             <input
@@ -368,7 +373,7 @@ function RelationInput({
     return () => clearTimeout(timer);
   }, [open, search, token, field.field_id]);
 
-  if (!relation) return <span className="text-[12px] text-faint">This field isn&rsquo;t available</span>;
+  if (!relation) return <span className="text-[12px] text-muted">This field isn&rsquo;t available</span>;
 
   function pick(id: string, title: string) {
     setTitles((m) => ({ ...m, [id]: title }));
@@ -411,6 +416,10 @@ function RelationInput({
             {titles[id] ?? id}
             <button
               type="button"
+              /* #669 — STAYS faint: an icon-only control, judged as a non-text
+                 graphic at 3:1 rather than 4.5, and it measures 3.44 on card.
+                 Same carve-out as #665's nine sidebar icons; whether that whole
+                 class should move is its own decision, not this PR's. */
               className="text-faint hover:text-error"
               onClick={() => onChange(selectedIds.filter((i) => i !== id))}
               aria-label="Remove"
@@ -420,7 +429,7 @@ function RelationInput({
           </span>
         ))}
         <input
-          className="h-6 min-w-24 flex-1 border-0 bg-transparent text-sm text-ink outline-none placeholder:text-faint"
+          className="h-6 min-w-24 flex-1 border-0 bg-transparent text-sm text-ink outline-none placeholder:text-muted"
           placeholder={`Search ${relation.target_database_name ?? 'records'}…`}
           value={search}
           onFocus={() => setOpen(true)}
@@ -429,9 +438,11 @@ function RelationInput({
       </div>
       {open && (
         <div
-          // #632 — no shadow token exists yet anywhere in this codebase (checked:
-          // even the shared Dialog component still hand-rolls its own shadow), so
-          // this stays a literal value rather than inventing a one-off token here.
+          // #632 said "no shadow token exists yet anywhere in this codebase … so
+          // this stays a literal value". That stopped being true: #630 built the
+          // elevation scale and #661 moved this very line onto --shadow-popover.
+          // Corrected rather than left, because a comment that contradicts the
+          // line beneath it is worse than no comment (#639's lesson).
           className="absolute left-0 top-full z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-[var(--radius-card)] border border-border-default bg-card p-1 shadow-[var(--shadow-popover)]"
           onMouseLeave={() => setOpen(false)}
         >
@@ -443,7 +454,7 @@ function RelationInput({
               onClick={() => pick(r.id, r.title)}
             >
               <span className="truncate">{r.title || 'Untitled'}</span>
-              {selectedIds.includes(r.id) && <span className="text-[11px] text-faint">selected</span>}
+              {selectedIds.includes(r.id) && <span className="text-[11px] text-muted">selected</span>}
             </button>
           ))}
           {search.trim() && !exactMatch && (
@@ -457,7 +468,7 @@ function RelationInput({
             </button>
           )}
           {!search.trim() && results.length === 0 && (
-            <p className="px-2 py-1.5 text-[12px] text-faint">Type to search…</p>
+            <p className="px-2 py-1.5 text-[12px] text-muted">Type to search…</p>
           )}
         </div>
       )}
