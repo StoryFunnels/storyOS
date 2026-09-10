@@ -18,6 +18,19 @@ its own filters, sorts, and visible fields. Every database keeps at least one vi
 - **Timeline** — a Gantt-style bar per record along a date axis, with drag-to-reschedule and an
   optional planned-vs-actual overlay — see [below](#timeline-planned-vs-actual-dates).
 
+## Creating a view
+
+Picking a **type** is the whole action — there's no name to type or confirm first. The view is
+created immediately with an auto-generated name (**Table**, **Table 2**, … — collision-avoided
+against the database's existing view names) and sensible starting config for whatever that type
+needs: a board groups by the database's `workflow` field when it has one, calendar and timeline
+default to the first date field. Rename it, or change its group-by or date field, afterward through
+the view's own existing controls — the same ones you'd use on a view that's been around for months.
+
+A type that can't work yet — **Board** with no select/user/relation field to group by, **Calendar**
+or **Timeline** with no date field — shows disabled with the specific reason, rather than being
+hidden or silently creating a broken view.
+
 ## Filters & sorts
 
 Each view stores a **filter tree** and a list of **sorts**. The filter model is shared verbatim
