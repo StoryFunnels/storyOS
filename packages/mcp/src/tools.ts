@@ -529,6 +529,9 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   list_trash: 'read',
   list_records: 'read',
   list_comments: 'read',
+  // #240 — DatabaseActivityController has no @RequiresScope, so GET defaults
+  // to 'read' (token-scope.guard.ts), matching list_comments.
+  list_database_comments: 'read',
   get_history: 'read',
   list_backlinks: 'read',
   list_watchers: 'read',
@@ -2066,6 +2069,67 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         })),
       });
     }),
+  );
+
+  /*
+   * #240 phase 1 — the cross-record half of comments. list_comments answers
+   * "what was said on THIS record"; nothing answered "what's been said lately
+   * ACROSS this database" — the exact gap the ticket names ("a feed of
+   * comments on the Task database as a quick overview of recent work").
+   * References (@mentions) are NOT included yet — see the API route's own
+   * comment for why (no source/actor data exists to attribute them with),
+   * and the follow-up ticket that adds it.
+   */
+  reg(
+    'list_database_comments',
+    {
+      title: 'List database comments',
+      description:
+        'Every comment across every record in a database, newest first — a quick "what happened recently" overview, without visiting each record. Different from list_comments, which reads ONE record\'s thread; this is the cross-record feed. ' +
+        'Each entry names which record it is on, so you can jump to it. Every entry\'s `source` says who/what wrote it (human/agent/automation/mcp/null-if-not-recorded) — never assume a comment is human-written. ' +
+        'Does NOT include @mentions/references yet — comments only, for now.',
+      inputSchema: {
+        workspace: z.string().describe('Workspace name or id.'),
+        database: z.string().describe('Database name, api slug, or id.'),
+        limit: z.number().int().min(1).max(100).optional().describe('Max entries (default 50).'),
+        cursor: z.string().optional().describe('next_cursor from a prior call.'),
+      },
+    },
+    handle<{ workspace: string; database: string; limit?: number; cursor?: string }>(
+      async ({ workspace, database, limit, cursor }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const res = await unwrap<{
+          data: Array<{
+            id: string;
+            record: { id: string; title: string; number: number | null } | null;
+            comment: { id: string; body: unknown };
+            actor: { id: string; name: string } | null;
+            created_at: string;
+            source: string | null;
+          }>;
+          next_cursor: string | null;
+          has_more: boolean;
+        }>(
+          client.GET('/api/v1/workspaces/{ws}/databases/{db}/activity/comments', {
+            params: { path: { ws: ws.id, db: db.id }, query: { limit, cursor } },
+          } as never),
+        );
+        return text({
+          comments: res.data.map((e) => ({
+            id: e.comment.id,
+            text: commentToText(e.comment.body),
+            record: e.record,
+            author: e.actor?.name ?? null,
+            author_id: e.actor?.id ?? null,
+            source: e.source,
+            created_at: e.created_at,
+          })),
+          next_cursor: res.next_cursor,
+          has_more: res.has_more,
+        });
+      },
+    ),
   );
 
   reg(
