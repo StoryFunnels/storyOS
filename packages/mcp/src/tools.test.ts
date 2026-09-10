@@ -4374,3 +4374,78 @@ describe('list_database_comments: the cross-record feed (#240, #670)', () => {
     expect(description.toLowerCase()).toContain('reference');
   });
 });
+
+describe('list_hierarchy_activity: walking a relation tree (#674)', () => {
+  const WORKSPACE = { id: 'ws-1', name: 'JCM Agency' };
+  const EPICS_DB = { id: 'db-epics', name: 'Epics', apiSlug: 'epics', fields: [] };
+  const STORIES_DB = { id: 'db-stories', name: 'Stories', apiSlug: 'stories', fields: [] };
+  const EPICS_DETAIL = { ...EPICS_DB, fields: [{ id: 'field-stories', apiName: 'stories', displayName: 'Stories', type: 'relation' }] };
+  const STORIES_DETAIL = { ...STORIES_DB, fields: [{ id: 'field-tasks', apiName: 'tasks', displayName: 'Tasks', type: 'relation' }] };
+  const FEED_ROW = {
+    id: 'evt-1',
+    type: 'comment.created',
+    record: { id: 'rec-1', title: 'Epic 1', number: 1 },
+    comment: { id: 'com-1', body: [{ type: 'text', text: 'hi' }] },
+    actor: { id: 'user-1', name: 'Alex' },
+    created_at: '2026-09-10T00:00:00.000Z',
+    source: 'human',
+  };
+
+  function harness() {
+    const handlers = new Map<string, (a: unknown) => Promise<unknown>>();
+    const server = { registerTool: (n: string, _c: unknown, h: (a: unknown) => Promise<unknown>) => handlers.set(n, h) };
+    const client = {
+      GET: async (path: string, opts?: { params?: { path?: Record<string, string> } }) => {
+        if (path === '/api/v1/workspaces') return { data: [WORKSPACE] };
+        if (path === '/api/v1/workspaces/{ws}/databases') return { data: [EPICS_DB, STORIES_DB] };
+        if (path === '/api/v1/workspaces/{ws}/databases/{db}') {
+          const dbId = opts?.params?.path?.db;
+          return { data: dbId === 'db-epics' ? EPICS_DETAIL : STORIES_DETAIL };
+        }
+        if (path === '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/activity/hierarchy') {
+          return { data: { data: [FEED_ROW], next_cursor: null, has_more: false } };
+        }
+        throw new Error(`unmocked GET ${path}`);
+      },
+    } as never;
+    registerTools(server as never, { client, baseUrl: 'x', token: 't' } as Ctx, { scope: 'admin', allowRunButton: true });
+    return handlers;
+  }
+
+  const call = async (h: (a: unknown) => Promise<unknown>, a: unknown) =>
+    (await h(a)) as { isError?: boolean; content: Array<{ text: string }> };
+
+  it('resolves each level\'s relation field by name against THAT level\'s own database, and returns entries', async () => {
+    const handlers = harness();
+    const res = await call(handlers.get('list_hierarchy_activity')!, {
+      workspace: 'JCM Agency',
+      database: 'Epics',
+      record: 'rec-root',
+      relation_fields: [
+        { database: 'Epics', field: 'Stories' },
+        { database: 'Stories', field: 'Tasks' },
+      ],
+    });
+    const out = JSON.parse(res.content[0]!.text) as { entries: Array<Record<string, unknown>> };
+    expect(out.entries[0]).toMatchObject({ type: 'comment', text: 'hi', author: 'Alex', source: 'human' });
+  });
+
+  it('a field name that does not exist on the named level throws a helpful error, not a silent empty result', async () => {
+    const handlers = harness();
+    const res = await call(handlers.get('list_hierarchy_activity')!, {
+      workspace: 'JCM Agency',
+      database: 'Epics',
+      record: 'rec-root',
+      relation_fields: [{ database: 'Epics', field: 'NoSuchField' }],
+    });
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toContain('No relation field matches');
+  });
+
+  it('is reachable at read scope, matching list_database_comments', () => {
+    const handlers = new Map<string, unknown>();
+    const server = { registerTool: (n: string, _c: unknown, h: unknown) => handlers.set(n, h) };
+    registerTools(server as never, { client: {} as never, baseUrl: 'x', token: 't' } as Ctx, { scope: 'read', allowRunButton: true });
+    expect(handlers.has('list_hierarchy_activity')).toBe(true);
+  });
+});
