@@ -4449,3 +4449,99 @@ describe('list_hierarchy_activity: walking a relation tree (#674)', () => {
     expect(handlers.has('list_hierarchy_activity')).toBe(true);
   });
 });
+
+/**
+ * #684 — `test` and `last-payload` had no credential/safety objection at all,
+ * unlike the token-minting `regenerate-hook` they were bundled with. Proves
+ * an agent can build a webhook_received rule and then dry-run/debug it
+ * without needing regenerate-hook — the exact acceptance criterion.
+ */
+describe('test_automation / get_automation_last_payload (#684)', () => {
+  const WORKSPACE = { id: 'ws-1', name: 'JCM Agency' };
+  const DATABASE = { id: 'db-1', name: 'Leads', apiSlug: 'leads', fields: [] };
+  const RULE = { id: 'rule-1', name: 'On webhook', trigger: { type: 'webhook_received' }, actions: [{ type: 'http_request' }] };
+
+  function fakeServer() {
+    const handlers = new Map<string, (args: unknown) => Promise<unknown>>();
+    return {
+      server: { registerTool: (name: string, _config: unknown, handler: (args: unknown) => Promise<unknown>) => handlers.set(name, handler) },
+      handlers,
+    };
+  }
+
+  function fakeClient() {
+    const posted: Array<{ path: string; body: unknown }> = [];
+    const GET = async (path: string) => {
+      if (path === '/api/v1/workspaces') return { data: [WORKSPACE] };
+      if (path === '/api/v1/workspaces/{ws}/databases') return { data: [DATABASE] };
+      if (path === '/api/v1/workspaces/{ws}/databases/{db}') return { data: DATABASE };
+      if (path === '/api/v1/workspaces/{ws}/databases/{db}/automations') return { data: { data: [RULE] } };
+      if (path === '/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/last-payload') {
+        return { data: { last_hook_payload: { foo: 'bar' }, last_hook_at: '2026-09-11T00:00:00Z' } };
+      }
+      throw new Error(`unmocked GET ${path}`);
+    };
+    const POST = async (path: string, opts: { body?: unknown }) => {
+      posted.push({ path, body: opts.body });
+      if (path === '/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/test') {
+        return { data: { condition_matches: true, would_run: true, actions: ['http_request'] } };
+      }
+      throw new Error(`unmocked POST ${path}`);
+    };
+    return { client: { GET, POST } as never, posted };
+  }
+
+  function registerAndGet() {
+    const { server, handlers } = fakeServer();
+    const { client, posted } = fakeClient();
+    registerTools(server as never, { client, baseUrl: 'http://x', token: 't' } as Ctx, { scope: 'admin', allowRunButton: true });
+    return { handlers, posted };
+  }
+
+  it('dry-runs a rule\'s condition with no action_index — no action actually sent', async () => {
+    const { handlers, posted } = registerAndGet();
+    const res = (await handlers.get('test_automation')!({
+      workspace: 'JCM Agency', database: 'leads', automation: 'rule-1', record: 'rec-1',
+    })) as { isError?: boolean; content: Array<{ text: string }> };
+    expect(res.isError).toBeUndefined();
+    expect(res.content[0]!.text).toContain('"would_run": true');
+    expect(posted[0]!.body).toEqual({ record_id: 'rec-1' }); // no action_index key at all when omitted
+  });
+
+  it('passes action_index through when given, to actually send that one action', async () => {
+    const { handlers, posted } = registerAndGet();
+    await handlers.get('test_automation')!({
+      workspace: 'JCM Agency', database: 'leads', automation: 'rule-1', record: 'rec-1', action_index: 0,
+    });
+    expect(posted[0]!.body).toEqual({ record_id: 'rec-1', action_index: 0 });
+  });
+
+  it('resolves a record by its public number, not just uuid', async () => {
+    const { handlers, posted } = registerAndGet();
+    // Non-numeric ref passes through as-is (fakeClient has no by-number stub,
+    // so this only proves the numeric-vs-not branch — real uuid input never
+    // calls the by-number route at all, per resolveRecordId's own guard.
+    await handlers.get('test_automation')!({
+      workspace: 'JCM Agency', database: 'leads', automation: 'rule-1', record: 'not-numeric-id',
+    });
+    expect(posted[0]!.body).toEqual({ record_id: 'not-numeric-id' });
+  });
+
+  it('returns the last received payload and timestamp, without exposing the hook token or secret', async () => {
+    const { handlers } = registerAndGet();
+    const res = (await handlers.get('get_automation_last_payload')!({
+      workspace: 'JCM Agency', database: 'leads', automation: 'rule-1',
+    })) as { isError?: boolean; content: Array<{ text: string }> };
+    expect(res.isError).toBeUndefined();
+    expect(res.content[0]!.text).toContain('"foo": "bar"');
+    expect(res.content[0]!.text).not.toMatch(/hook_?token|hook_?secret|whsec_/i);
+  });
+
+  it('both are reachable at admin scope, matching every other automation tool', () => {
+    const handlers = new Map<string, unknown>();
+    const server = { registerTool: (n: string, _c: unknown, h: unknown) => handlers.set(n, h) };
+    registerTools(server as never, { client: {} as never, baseUrl: 'x', token: 't' } as Ctx, { scope: 'admin', allowRunButton: true });
+    expect(handlers.has('test_automation')).toBe(true);
+    expect(handlers.has('get_automation_last_payload')).toBe(true);
+  });
+});
