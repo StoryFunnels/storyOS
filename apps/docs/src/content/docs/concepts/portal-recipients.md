@@ -70,6 +70,33 @@ token, and that recipient's rows are the only ones the query can ever return.
   agent wiring up a recipient-scoped portal needs the raw `POST .../views/{view}/share` call for
   that one property.
 
+## Writing back: a form scoped to its recipient
+
+A [form](/concepts/views/) is a view too, so the same `recipient_scope_field_api_name` share
+setting works on one — and once it's set, the form stops being an anonymous public form and starts
+knowing which recipient is filling it in.
+
+- **Submitting** is `POST /api/v1/public/forms/:token` with `{ values, recipient, record_id? }` —
+  `recipient` is the recipient's own bearer token (same one used for reads), required the moment the
+  form's view carries a scope field. Missing or garbage tokens both get **403**, with no anonymous
+  fallthrough to a plain, unscoped submission.
+- **The scope field is never client-controlled.** Whatever a submission sends for it — nothing, the
+  right value, or a forged one — is discarded and replaced with the resolving recipient's own value
+  (their linked record, for a relation scope field; their email, for a text/email one) before the
+  record is created. A crafted payload naming a different client's id doesn't attach the new record
+  to them.
+- **`record_id` turns a submission into an edit** of an existing record — portal-scoped forms only;
+  an ordinary public form 422s if it's sent one at all, so this can't leak onto forms that were never
+  meant to support it. Editing only succeeds if the record's *current* scope value already matches
+  the resolving recipient; a recipient pointing `record_id` at another client's record gets **404**,
+  never a 403 that would confirm the record exists.
+- A successful create or edit both return `{ ok: true, id }`.
+- Every submission — served or rejected, and why — lands on the same [portal activity
+  log](#seeing-what-a-client-actually-saw) below, as `"portal form create"` / `"portal form edit"`.
+- **No web UI for turning a form into a recipient-scoped one yet** — same as the read side, this is
+  a direct `POST .../views/{view}/share` call with `recipient_scope_field_api_name` set; `share_view`
+  over MCP doesn't accept that field either.
+
 ## Seeing what a client actually saw
 
 `GET /api/v1/workspaces/:ws/portal-activity` (`list_portal_activity`) — admin-only, filterable by
