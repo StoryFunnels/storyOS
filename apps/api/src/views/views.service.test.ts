@@ -522,6 +522,36 @@ describe('#227 — the timeline baseline pair survives a read', () => {
   });
 });
 
+describe('cleanViewConfig — #233 table hierarchy field survives a read', () => {
+  const FIELD_A = '11111111-1111-4111-8111-111111111111';
+
+  const withHierarchy = (over: Partial<ViewConfig> = {}): ViewConfig => ({
+    ...BASE,
+    filters: undefined,
+    hierarchy_field_id: FIELD_A,
+    ...over,
+  });
+
+  it('keeps a hierarchy_field_id whose field is live', () => {
+    const out = cleanViewConfig(withHierarchy(), new Set([FIELD_A]), new Set());
+    expect(out.hierarchy_field_id).toBe(FIELD_A);
+  });
+
+  it('drops a hierarchy_field_id whose field was deleted — dangling, #305\'s rule', () => {
+    const out = cleanViewConfig(withHierarchy(), new Set(), new Set());
+    expect(out.hierarchy_field_id).toBeUndefined();
+  });
+
+  it('leaves an un-nested (flat) view alone — unconfigured is not invalid', () => {
+    const out = cleanViewConfig(
+      withHierarchy({ hierarchy_field_id: undefined }),
+      new Set([FIELD_A]),
+      new Set(),
+    );
+    expect(out.hierarchy_field_id).toBeUndefined();
+  });
+});
+
 /**
  * The generic guard. Rather than trusting whoever adds the NEXT config key to
  * remember this function, assert that every scalar id-ish key the schema accepts
@@ -541,6 +571,7 @@ describe('cleanViewConfig — no schema key is silently dropped on read', () => 
       'end_date_field_id',
       'baseline_start_date_field_id',
       'baseline_end_date_field_id',
+      'hierarchy_field_id',
     ] as const;
 
     const config = { ...BASE, filters: undefined } as unknown as Record<string, unknown>;

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import Link from 'next/link';
-import { Maximize2, Plus, Trash2 } from 'lucide-react';
+import { ChevronRight, Maximize2, Plus, Trash2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
@@ -29,7 +29,15 @@ import {
   useRecordsInfinite,
 } from './use-table-data';
 import type { Field, RecordRow } from './use-table-data';
+import {
+  flattenHierarchy,
+  useHierarchyChildCounts,
+  useHierarchyChildren,
+  useHierarchyExpansion,
+  type HierarchyRow,
+} from './use-hierarchy';
 import type { ViewConfig } from '../views/use-view-state';
+import { andFilterNodes } from '../views/filter-config';
 import { databaseNoun, pluralNoun, recordHref, recordSegment } from '@/lib/records';
 import { useOpenRecord } from '@/components/entity/split-panel-context';
 import { isNumberColumnHidden } from './number-column';
@@ -89,6 +97,7 @@ function cellFromPoint(x: number, y: number): Cursor | null {
 export function TableView({
   ws,
   db,
+  viewId,
   readOnly,
   schemaEditable = !readOnly,
   queryBody,
@@ -102,6 +111,10 @@ export function TableView({
 }: {
   ws: string;
   db: string;
+  /** #233 — hierarchy expansion state is persisted per-VIEW (sessionStorage),
+   * not per-database; optional so every other call site (there is only one
+   * today) needn't change. */
+  viewId?: string;
   readOnly: boolean;
   schemaEditable?: boolean;
   queryBody?: Record<string, unknown>;
@@ -124,12 +137,33 @@ export function TableView({
   const database = useDatabase(ws, db);
   // #149 — the operator's word for a row ("task"), not "record".
   const noun = databaseNoun(database.data?.name);
-  const records = useRecordsInfinite(ws, db, queryBody);
+
+  // #233 — hierarchy mode. `hierarchyField` is the "Parent" side field this
+  // view nests by, resolved from config; undefined is the overwhelming
+  // default (flat table), and every branch below collapses to today's exact
+  // behaviour in that case.
+  const hierarchyField = useMemo(() => {
+    if (!config?.hierarchy_field_id) return undefined;
+    return (database.data?.fields ?? []).find((f) => f.id === config.hierarchy_field_id);
+  }, [config?.hierarchy_field_id, database.data]);
+
+  // The TOP-LEVEL query becomes "rows with no parent" when nesting is on —
+  // composed on top of the shared queryBody the same way calendar-view.tsx
+  // already composes its own date-window filter, never by touching
+  // queryBodyFromConfig (shared by every other view type/widget).
+  const rootQueryBody = useMemo(() => {
+    if (!hierarchyField) return queryBody;
+    const filter = andFilterNodes(queryBody?.['filter'], { field: hierarchyField.apiName, op: 'is_empty' });
+    return { ...(queryBody ?? {}), ...(filter ? { filter } : {}) };
+  }, [queryBody, hierarchyField]);
+
+  const records = useRecordsInfinite(ws, db, rootQueryBody);
   const { updateRecord, createRecord, deleteRecord } = useRecordMutations(ws, db);
   // #659 — the persistent "how many rows does this view hold" answer the row
   // index alone can't give without scrolling to the end. Same filter as the
-  // grid's own query, so it always matches what's on screen.
-  const recordCount = useRecordCount(ws, db, queryBody?.['filter']);
+  // grid's own query (root-only when nested), so it always matches what's on
+  // screen at the top level.
+  const recordCount = useRecordCount(ws, db, rootQueryBody?.['filter']);
 
   const fields = useMemo(
     () =>
@@ -169,10 +203,70 @@ export function TableView({
   // CellDisplay already shows on screen, via the same memberNames map.
   const resolveMemberName = useCallback((id: string) => memberNames.get(id) ?? id, [memberNames]);
 
-  const rows = useMemo(
+  const rootRows = useMemo(
     () => (records.data?.pages ?? []).flatMap((page) => page.data),
     [records.data],
   );
+
+  // #233 — expand/collapse state (session-persisted per view), the currently
+  // loaded children of every expanded row (any depth), and the flattened
+  // parent-then-children list this drives everything below from. Every hook
+  // here is called unconditionally (rules of hooks); each one is a documented
+  // no-op when `hierarchyField` is undefined — `expandedIds`/`countIds` are
+  // empty arrays, so `useHierarchyChildren`/`useHierarchyChildCounts` fire no
+  // queries, and `flattenHierarchy` isn't even called.
+  const { expanded, toggle: toggleExpanded, expandAll, collapseAll } = useHierarchyExpansion(
+    hierarchyField ? viewId : undefined,
+  );
+  const expandedIds = useMemo(() => (hierarchyField ? [...expanded] : []), [hierarchyField, expanded]);
+  // #233 — the view's OWN filter, not `rootQueryBody`'s: that one has the
+  // root-scoping `is_empty` condition ANDed in, which would AND against the
+  // `has [parentId]` condition below and always evaluate to zero (a row
+  // can't simultaneously have no parent and have this exact parent). Every
+  // row at every depth still respects the view's real filter/sort — only the
+  // is_empty clause is root-specific and must not leak into child queries.
+  const childrenByParent = useHierarchyChildren(
+    ws,
+    db,
+    hierarchyField,
+    expandedIds,
+    queryBody?.['filter'],
+    (queryBody?.['sorts'] as unknown[]) ?? [],
+  );
+
+  const hierarchyRows: HierarchyRow[] = useMemo(
+    () =>
+      hierarchyField
+        ? flattenHierarchy(rootRows, childrenByParent, expanded)
+        : rootRows.map((row) => ({
+            row,
+            depth: 0,
+            isExpanded: false,
+            childrenLoading: false,
+            hasMoreChildren: false,
+          })),
+    [hierarchyField, rootRows, childrenByParent, expanded],
+  );
+
+  // The rest of this component (virtualizer, selection, cursor, copy/paste,
+  // keyboard nav) is written entirely against a flat `RecordRow[]` and row
+  // INDEX — that contract predates #233 and stays exactly as it was. Nesting
+  // lives entirely upstream of this line: `rows[i]` is simply "the i-th
+  // visible row, parents and currently-expanded children interleaved",
+  // structurally indistinguishable from the pre-#233 flat list to every line
+  // below. `hierarchyRows[i]` (same length, same order) carries the depth/
+  // expansion info those lines don't need.
+  const rows = useMemo(() => hierarchyRows.map((h) => h.row), [hierarchyRows]);
+
+  // Child-count checks (for the expand caret) run against every row CURRENTLY
+  // in `rows` — bounded by however many top-level pages have been fetched
+  // plus whatever's been expanded so far, never the whole database. Skipped
+  // entirely outside hierarchy mode.
+  const hierarchyCountIds = useMemo(() => (hierarchyField ? rows.map((r) => r.id) : []), [hierarchyField, rows]);
+  // #233 — same reasoning as childrenByParent above: the view's own filter,
+  // never rootQueryBody's (its is_empty root-scoping would AND against
+  // `has [id]` and always read zero children for every row).
+  const childCounts = useHierarchyChildCounts(ws, db, hierarchyField, hierarchyCountIds, queryBody?.['filter']);
 
   const [widths, setWidths] = useState<Record<string, number>>({});
   const [cursor, setCursor] = useState<Cursor | null>(null);
@@ -238,15 +332,18 @@ export function TableView({
     (rowIndex: number, shift: boolean) => {
       setSelected((prev) => {
         const next = new Set(prev);
-        const allRows = (records.data?.pages ?? []).flatMap((p) => p.data);
+        // #233 — `rows` is already "every visible row, parents and expanded
+        // children interleaved" (see its own definition above), so a
+        // shift-range here naturally spans into/across a nested group the
+        // same way it always spanned a flat list — no special-casing needed.
         if (shift && anchorRef.current !== null) {
           const [lo, hi] = [Math.min(anchorRef.current, rowIndex), Math.max(anchorRef.current, rowIndex)];
           for (let i = lo; i <= hi; i++) {
-            const id = allRows[i]?.id;
+            const id = rows[i]?.id;
             if (id) next.add(id);
           }
         } else {
-          const id = allRows[rowIndex]?.id;
+          const id = rows[rowIndex]?.id;
           if (!id) return next;
           if (next.has(id)) next.delete(id);
           else next.add(id);
@@ -255,7 +352,7 @@ export function TableView({
         return next;
       });
     },
-    [records.data],
+    [rows],
   );
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -695,7 +792,13 @@ export function TableView({
 
   // #251 — cell renderer extracted so frozen and non-frozen columns share
   // one render path (field-surfaces.md: never duplicate render logic).
-  function renderBodyCell(field: Field, colIndex: number, rowIdx: number, row: RecordRow) {
+  function renderBodyCell(
+    field: Field,
+    colIndex: number,
+    rowIdx: number,
+    row: RecordRow,
+    hierarchyInfo?: HierarchyRow,
+  ) {
     const isCursor = cursor?.row === rowIdx && cursor?.col === colIndex;
     const isCellEditing = isCursor && editing;
     const inRange =
@@ -825,6 +928,62 @@ export function TableView({
           field.type !== 'title' &&
           !NO_EDITOR.has(field.type) ? (
           <EmptyFieldAffordance field={field} editable />
+        ) : field.type === 'title' && hierarchyInfo ? (
+          // #233 — the expand caret + indent live ONLY on the title cell, the
+          // one column every row renders regardless of view config, matching
+          // where Notion/Airtable/Wrike put the same affordance. A row with
+          // no children (hasChildren false) still reserves the caret's width
+          // via the empty span, so titles stay vertically aligned across a
+          // mix of leaf and parent rows at the same depth.
+          <div className="flex min-w-0 items-center gap-1" style={{ paddingLeft: hierarchyInfo.depth * 16 }}>
+            {hierarchyInfo.isExpanded || (childCounts.get(row.id) ?? 0) > 0 ? (
+              <button
+                type="button"
+                className="shrink-0 rounded p-0.5 text-faint hover:bg-hover hover:text-ink"
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleExpanded(row.id);
+                }}
+                aria-label={hierarchyInfo.isExpanded ? `Collapse ${row.title}` : `Expand ${row.title}`}
+                aria-expanded={hierarchyInfo.isExpanded}
+              >
+                <ChevronRight
+                  className={cn('h-3 w-3 transition-transform', hierarchyInfo.isExpanded && 'rotate-90')}
+                />
+              </button>
+            ) : (
+              <span className="h-3 w-3 shrink-0" />
+            )}
+            <div className="min-w-0 flex-1 truncate">
+              <CellDisplay
+                field={field}
+                value={valueOf(row, field)}
+                memberNames={memberNames}
+                memberImages={memberImages}
+                ws={ws}
+              />
+            </div>
+            {/* #233 — the child page-size ceiling (200) is a real limit, not a
+                display choice; naming it here rather than silently truncating
+                matches how the rest of this codebase declares a gap instead
+                of hiding one (dashboard exports, the audit-pack ticket). */}
+            {hierarchyInfo.isExpanded && hierarchyInfo.hasMoreChildren && (
+              <span className="shrink-0 text-[11px] text-faint" title="Only the first 200 children load inline">
+                200+
+              </span>
+            )}
+            <Link
+              href={recordHref(ws, db, row)}
+              onClick={(e) => {
+                e.stopPropagation();
+                openRecord({ db, rec: recordSegment(row), title: row.title, number: row.number }, e);
+              }}
+              className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-1 rounded border border-border-default bg-card px-1.5 py-0.5 text-[11px] font-medium text-muted opacity-0 shadow-sm hover:text-ink group-hover:opacity-100"
+            >
+              <Maximize2 className="h-3 w-3" /> Open
+            </Link>
+          </div>
         ) : (
           <>
             <CellDisplay
@@ -860,6 +1019,27 @@ export function TableView({
   if (records.isError) return <ViewQueryError error={records.error} onRetry={() => void records.refetch()} />;
   return (
     <div className="relative flex h-full flex-col">
+      {/* #233 — expand/collapse-all, outside the scroll container so it stays
+          reachable regardless of scroll position. "Expand all" opens every
+          row CURRENTLY KNOWN to have children (see useHierarchyExpansion's
+          own comment on why this isn't a full-depth eager expand) — a second
+          click after the newly-revealed rows' own counts land opens the next
+          level down. */}
+      {hierarchyField && (
+        <div className="flex items-center gap-2 border-b border-border-default bg-app px-3 py-1 text-[12px] text-muted">
+          <button
+            type="button"
+            className="hover:text-ink"
+            onClick={() => expandAll(rows.filter((r) => (childCounts.get(r.id) ?? 0) > 0).map((r) => r.id))}
+          >
+            Expand all
+          </button>
+          <span aria-hidden>·</span>
+          <button type="button" className="hover:text-ink" onClick={() => collapseAll()}>
+            Collapse all
+          </button>
+        </div>
+      )}
       <div
         ref={scrollRef}
         className="min-h-0 flex-1 overflow-auto"
@@ -991,6 +1171,13 @@ export function TableView({
           <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
             {virtualItems.map((item) => {
               const row = rows[item.index]!;
+              // #233 — only truthy in hierarchy mode. `hierarchyRows` always
+              // has an entry per row (flat mode just fills in depth-0
+              // defaults, see its own definition above), so this can't be
+              // inferred from truthiness alone — passing it unconditionally
+              // would make every flat table's title cell take the nested
+              // rendering branch below, caret placeholder and all.
+              const hierarchyInfo = hierarchyField ? hierarchyRows[item.index] : undefined;
               return (
                 <div
                   key={row.id}
@@ -1059,7 +1246,7 @@ export function TableView({
                   {/* #251 Column virtualization: frozen always, non-frozen windowed.
                        #410 — during drag, preview order so values stay under their headers. */}
                   {fields.slice(0, frozenCount).map((field, i) =>
-                    renderBodyCell(field, i, item.index, row),
+                    renderBodyCell(field, i, item.index, row, hierarchyInfo),
                   )}
                   {colLeftSpacer > 0 && (
                     <div key="__cl" style={{ width: colLeftSpacer, flexShrink: 0 }} />
@@ -1073,7 +1260,7 @@ export function TableView({
                         colIndex: frozenCount + vc.index,
                       }))
                   ).map(({ field, colIndex }) =>
-                    renderBodyCell(field, colIndex, item.index, row),
+                    renderBodyCell(field, colIndex, item.index, row, hierarchyInfo),
                   )}
                   {colRightSpacer > 0 && (
                     <div key="__cr" style={{ width: colRightSpacer, flexShrink: 0 }} />

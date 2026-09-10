@@ -327,6 +327,16 @@ export const viewConfigSchema = z.object({
    * is a narrower shape than a dashboard tile/widget rather than reusing one.
    */
   summary_widgets: z.array(summaryWidgetSchema).default([]),
+  /**
+   * #233 — table view's inline hierarchy mode: nest rows under their parent
+   * via a self-referential relation on THIS database. Structural, not a name
+   * match on "Parent" — any one-to-many self-relation's single ("Parent")
+   * side qualifies, the same "single side of a one-to-many relation" test
+   * `boardGroupError` already uses for board grouping (#344 allows more than
+   * one self-relation per database, so this can't assume a single default).
+   * Unset = flat, today's behaviour, no migration for existing views.
+   */
+  hierarchy_field_id: z.uuid().optional(),
   /** Form (MN-094) — ordered inputs + presentation + optional public token. */
   form: z
     .object({

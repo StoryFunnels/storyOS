@@ -46,6 +46,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { API_URL, api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import type { Field } from '../table-view/use-table-data';
+import { isHierarchyField } from '../table-view/use-hierarchy';
 import { fieldTypeIcon } from './field-type-icon';
 import { boardGroupDisabledReason, listGroupDisabledReason } from './groupable-fields';
 import { FieldsMenu } from './fields-menu';
@@ -283,6 +284,7 @@ export function ViewToolbar({
   onPatch,
   ws,
   db,
+  databaseId,
   viewId,
   personalFilter,
   onReorderFields,
@@ -295,6 +297,11 @@ export function ViewToolbar({
   /** MN-075: identifies what to export. */
   ws?: string;
   db?: string;
+  /** #233 — the current database's real id, for hierarchy-field eligibility
+   * (a field's `relation.target_database_id` is a real id, never the route's
+   * slug — `db` above may be either). Optional so every existing call site
+   * that has no use for hierarchy mode (non-table views) needn't change. */
+  databaseId?: string;
   viewId?: string;
   /** #259 — current viewer's personal override for THIS view, if any. */
   personalFilter?: FilterNode;
@@ -393,6 +400,30 @@ export function ViewToolbar({
           onChange={(hidden_field_ids) => onPatch({ hidden_field_ids })}
           onReorder={onReorderFields}
         />
+      )}
+
+      {/* #233 — table view's inline hierarchy mode. Shown only for tables, and
+          only once the database actually has an eligible self-relation —
+          an empty picker offering nothing is a worse answer than no picker,
+          the same reasoning #391's cover-image control below already uses. */}
+      {viewType === 'table' && fields.some((f) => databaseId && isHierarchyField(f, databaseId)) && (
+        <label className="flex items-center gap-1 text-[12px] text-muted">
+          Nest by
+          <select
+            value={config.hierarchy_field_id ?? ''}
+            onChange={(e) => onPatch({ hierarchy_field_id: e.target.value || undefined })}
+            className="rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 py-1 text-[12px]"
+          >
+            <option value="">Flat</option>
+            {fields
+              .filter((f) => databaseId && isHierarchyField(f, databaseId))
+              .map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.displayName}
+                </option>
+              ))}
+          </select>
+        </label>
       )}
 
       {/* #391 — a gallery's card image. Shown only for galleries, and only once

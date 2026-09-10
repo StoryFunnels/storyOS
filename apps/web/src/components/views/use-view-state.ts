@@ -128,6 +128,9 @@ export interface ViewConfig {
     field_api_name?: string;
     group_by_field_api_name?: string;
   }>;
+  /** #233 — table view's inline hierarchy mode. See the schema comment in
+   *  packages/schemas/src/views.ts for the eligibility rule. */
+  hierarchy_field_id?: string;
   column_widths: Record<string, number>;
 }
 
