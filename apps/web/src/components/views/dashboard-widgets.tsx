@@ -325,7 +325,7 @@ export function DashboardWidgetCard({
             placeholder={heading}
             value={widget.title}
             onChange={(e) => onPatch({ title: e.target.value })}
-            className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink placeholder:text-faint"
+            className="h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-[13px] text-ink placeholder:text-muted"
           />
           {/* #367 — what this widget measures. Scoped to the dashboard's own SPACE,
               for the same reason #304 scoped the tile picker: a picker wider than

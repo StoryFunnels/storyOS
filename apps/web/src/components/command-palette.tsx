@@ -302,7 +302,7 @@ export function CommandPalette() {
           <input
             autoFocus
             placeholder="Search records, databases, actions…"
-            className="h-12 w-full bg-transparent text-sm text-ink outline-none placeholder:text-faint"
+            className="h-12 w-full bg-transparent text-sm text-ink outline-none placeholder:text-muted"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {

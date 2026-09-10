@@ -99,6 +99,18 @@ function DocEditor({
         {title || 'Untitled'}
       </h1>
       <div className="mb-4 flex items-start gap-2" data-print="hide">
+        {/* #675 — this placeholder STAYS faint, and it is measured rather than
+            a taste call. At text-3xl (30px) it is WCAG LARGE TEXT (>=24px), so the bar is
+            3:1, not 4.5 — and this input is bg-transparent over --bg-app,
+            where --text-faint measures 3.22:1 in light and 4.24:1 in dark
+            (measured live, both themes). It already passes.
+
+            Which leaves the design question, and it points the same way: the
+            "Untitled" ghost is not an instruction, it is the ABSENCE of a
+            title. Darkening it would make an untitled document look like one
+            actually titled "Untitled" — trading a passing ratio for a worse
+            product. The placeholder->muted rule (#637) is about instructions
+            at body size; it is not about every string in a placeholder. */}
         <input
           className="w-full bg-transparent text-3xl font-bold text-ink outline-none placeholder:text-faint"
           placeholder="Untitled"

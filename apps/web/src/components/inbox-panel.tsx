@@ -459,7 +459,7 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
                               onChange={(e) => setRejecting({ notificationId: n.id, reason: e.target.value })}
                               placeholder="Reason (optional)"
                               rows={2}
-                              className="w-full rounded-[var(--radius-control)] border border-border-default bg-app px-2 py-1.5 text-[12px] text-ink placeholder:text-faint"
+                              className="w-full rounded-[var(--radius-control)] border border-border-default bg-app px-2 py-1.5 text-[12px] text-ink placeholder:text-muted"
                             />
                             <span className="flex gap-2">
                               <button

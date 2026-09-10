@@ -468,6 +468,18 @@ export function RecordDetail({
         {/* MAIN BODY: title, pinned strip, collections + rich sections, description, discussion */}
         <div className="flex-1" style={{ minWidth: SIDEBAR_MIN_BODY_W }}>
           <div className="mb-4 flex items-center gap-2">
+            {/* #675 — this placeholder STAYS faint, and it is measured rather than
+                a taste call. At text-2xl (24px) it is WCAG LARGE TEXT (>=24px), so the bar is
+                3:1, not 4.5 — and this input is bg-transparent over --bg-app,
+                where --text-faint measures 3.22:1 in light and 4.24:1 in dark
+                (measured live, both themes). It already passes.
+
+                Which leaves the design question, and it points the same way: the
+                "Untitled" ghost is not an instruction, it is the ABSENCE of a
+                title. Darkening it would make an untitled record look like one
+                actually titled "Untitled" — trading a passing ratio for a worse
+                product. The placeholder->muted rule (#637) is about instructions
+                at body size; it is not about every string in a placeholder. */}
             <input
               className="w-full truncate bg-transparent text-2xl font-semibold text-ink outline-none placeholder:text-faint read-only:cursor-default"
               placeholder="Untitled"

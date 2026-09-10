@@ -2154,7 +2154,7 @@ function OptionMultiPick({
             <input
               autoFocus
               placeholder="Search…"
-              className="w-full bg-transparent text-[13px] text-ink outline-none placeholder:text-faint"
+              className="w-full bg-transparent text-[13px] text-ink outline-none placeholder:text-muted"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               // Radix menus run a typeahead off keydown; let the input own its keys.
@@ -2295,7 +2295,7 @@ function RecordPicker({
         <input
           autoFocus
           placeholder={`Search ${field.relation?.target_database_name ?? 'records'}…`}
-          className="w-full border-b border-border-default bg-card px-3 py-2 text-[13px] text-ink outline-none placeholder:text-faint"
+          className="w-full border-b border-border-default bg-card px-3 py-2 text-[13px] text-ink outline-none placeholder:text-muted"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           // Keep keystrokes in the box — the popover mustn't treat them as typeahead.

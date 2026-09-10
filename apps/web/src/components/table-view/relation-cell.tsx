@@ -444,7 +444,7 @@ export function RelationEditor({
         <input
           autoFocus
           placeholder={`Search or create ${relation.target_database_name ?? 'records'}…`}
-          className="w-full border-b border-border-default bg-card px-3 py-2 text-[13px] text-ink outline-none placeholder:text-faint"
+          className="w-full border-b border-border-default bg-card px-3 py-2 text-[13px] text-ink outline-none placeholder:text-muted"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           onKeyDown={(e) => {

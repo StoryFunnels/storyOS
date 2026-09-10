@@ -121,7 +121,7 @@ export function FieldsMenu({
           onChange={(e) => setQ(e.target.value)}
           // Radix menus grab keystrokes for typeahead — keep them in the box.
           onKeyDown={(e) => e.stopPropagation()}
-          className="mb-1 w-full rounded border border-border-default bg-card px-2 py-1 text-[13px] text-ink outline-none placeholder:text-faint"
+          className="mb-1 w-full rounded border border-border-default bg-card px-2 py-1 text-[13px] text-ink outline-none placeholder:text-muted"
         />
         <div className="max-h-72 overflow-y-auto">
           {onReorder ? (
