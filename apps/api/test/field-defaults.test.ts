@@ -93,6 +93,19 @@ describe('checkbox default (#203)', () => {
     const record = await createRecord({ name: 'No default' });
     expect(record.values[field.apiName]).toBeFalsy();
   });
+
+  /**
+   * #697 — Ievgen's own exact reproduction: a checkbox explicitly configured
+   * `default: false` landed `null` on create (indistinguishable from a field
+   * with NO default at all), because `fieldDefaultValue`'s checkbox branch
+   * only recognized `default === true`. `null` renders as a blank cell;
+   * `false` renders as an unchecked box — a real, visible difference.
+   */
+  it('#697: an explicit `default: false` fills new records with false, not null', async () => {
+    const field = await addField('Human (697)', 'checkbox', { default: false });
+    const record = await createRecord({ name: 'Filed with the key omitted' });
+    expect(record.values[field.apiName]).toBe(false);
+  });
 });
 
 describe('date default (#203)', () => {
