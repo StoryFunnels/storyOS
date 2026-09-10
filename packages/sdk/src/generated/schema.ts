@@ -830,8 +830,25 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** Apply one values patch to up to 200 records (partial failures reported) */
+        /** Apply one values patch to up to 5000 records (partial failures reported) */
         patch: operations["RecordsController_batchUpdate"];
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/records/batch-update-undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** #653 — undo a batch update using the `restorable` list its response reported */
+        post: operations["RecordsController_batchUpdateUndo"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/workspaces/{ws}/databases/{db}/records/batch-delete": {
@@ -843,7 +860,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Soft-delete up to 200 records */
+        /** Soft-delete up to 5000 records */
         post: operations["RecordsController_batchDelete"];
         delete?: never;
         options?: never;
@@ -860,7 +877,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Restore up to 200 records from trash */
+        /** Restore up to 5000 records from trash */
         post: operations["RecordsController_batchRestore"];
         delete?: never;
         options?: never;
@@ -4436,6 +4453,14 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        BatchUpdateUndoDto: {
+            restorable: {
+                /** Format: uuid */
+                record_id: string;
+                /** Format: uuid */
+                version_id: string;
+            }[];
+        };
         BatchRecordIdsDto: {
             record_ids: string[];
         };
@@ -7222,6 +7247,29 @@ export interface operations {
         };
         responses: {
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RecordsController_batchUpdateUndo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatchUpdateUndoDto"];
+            };
+        };
+        responses: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };

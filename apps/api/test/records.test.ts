@@ -306,13 +306,18 @@ describe('batch operations (MN-050)', () => {
    * A per-record failure is already caught and reported (see the test above),
    * but that same lack of a transaction means every record that succeeded
    * BEFORE a later one fails is already permanently committed, with no
-   * all-or-nothing guarantee and no undo path (#351's undo covers delete
-   * only). This test proves the commit is real and unconditional, not the
-   * network-timeout half of Otto's fear (which needs a live socket abort to
-   * demonstrate and is not test-reachable) — but it is the same failure
-   * shape: a batch that is part-applied, and the only account of "which part"
-   * is the response body of a single request that a real client can still
-   * fail to receive (timeout, network drop) after the writes are done.
+   * all-or-nothing guarantee. This test proves the commit is real and
+   * unconditional, not the network-timeout half of Otto's fear (which needs a
+   * live socket abort to demonstrate and is not test-reachable) — but it is
+   * the same failure shape: a batch that is part-applied, and the only
+   * account of "which part" is the response body of a single request that a
+   * real client can still fail to receive (timeout, network drop) after the
+   * writes are done.
+   *
+   * #653 closed the "no undo path" half of this (see the batch-update-undo
+   * tests below) by reusing the `record_versions` snapshot `update()` already
+   * writes on every real change — this test still documents that the WRITE
+   * itself remains unconditional and non-atomic across the batch.
    */
   it('#519 AC1: a batch update with a later failure leaves EARLIER records already committed — no transaction, no undo', async () => {
     const make = async (name: string) =>
@@ -338,11 +343,13 @@ describe('batch operations (MN-050)', () => {
     expect(res.json().updated).toBe(2);
     expect(res.json().failed).toHaveLength(1);
 
-    // The two that succeeded are ALREADY PERSISTED — no rollback, no undo
-    // affordance exists for this (#351's undo covers delete only). If the
+    // The two that succeeded are ALREADY PERSISTED — no rollback. If the
     // client never saw this 200 (dropped connection, proxy timeout), it would
     // have no way to learn even this much: the writes happen regardless of
-    // whether anyone is listening for the response.
+    // whether anyone is listening for the response. (An undo path now exists
+    // for the case where the response WAS seen — see the batch-update-undo
+    // tests below — but that only helps a caller who has the `restorable`
+    // list; it does nothing for a response nobody received.)
     const check = async (id: string) =>
       (await app.inject({ method: 'GET', url: `${base()}/${id}`, headers: authed(admin.token) })).json();
     expect((await check(first)).title).toBe('Renamed 519');
@@ -388,6 +395,47 @@ describe('batch operations (MN-050)', () => {
     expect(retry.json().deleted).toBe(0);
   });
 
+  /**
+   * #653 — batchRestore had NOT been given batchDelete's own chunking
+   * treatment (found while reading it for the undo work below): a >200-row
+   * restore was one single unbounded transaction. Fixed alongside the undo
+   * work since it's the same function family under the same ticket.
+   */
+  it('#653: batch-restore above 200 records succeeds in internal chunks, and retrying with the same ids is a safe no-op', async () => {
+    const recordsService = app.get(RecordsService);
+    const seeded = await recordsService.createBatch(
+      wsId,
+      dbId,
+      Array.from({ length: 250 }, (_, i) => ({ name: `Restore653 ${i}` })),
+      adminUserId,
+    );
+    const ids = seeded.map((r) => r.id);
+    await app.inject({
+      method: 'POST',
+      url: `${base()}/batch-delete`,
+      headers: authed(admin.token),
+      payload: { record_ids: ids },
+    });
+
+    const first = await app.inject({
+      method: 'POST',
+      url: `${base()}/batch-restore`,
+      headers: authed(admin.token),
+      payload: { record_ids: ids },
+    });
+    expect(first.statusCode, first.body).toBe(201);
+    expect(first.json().restored).toBe(250);
+
+    const retry = await app.inject({
+      method: 'POST',
+      url: `${base()}/batch-restore`,
+      headers: authed(admin.token),
+      payload: { record_ids: ids },
+    });
+    expect(retry.statusCode, retry.body).toBe(201);
+    expect(retry.json().restored).toBe(0);
+  });
+
   it('#653: batch-update above 200 records applies the patch to all of them, and retrying with the same ids is a safe no-op difference', async () => {
     const recordsService = app.get(RecordsService);
     const seeded = await recordsService.createBatch(
@@ -426,6 +474,92 @@ describe('batch operations (MN-050)', () => {
       headers: authed(admin.token),
     });
     expect(check.json().title).toBe('Renamed 653');
+  });
+
+  /**
+   * #653 — the undo half. batchUpdate already ran `update()` per record,
+   * which already snapshots the pre-write state into `record_versions`
+   * (MN-231) whenever a value actually changes. No new table: `restorable`
+   * is just the version id that write produced, per record.
+   */
+  it('#653: batch-update reports a restorable version per CHANGED record, and undo restores exactly those', async () => {
+    const make = async (name: string) =>
+      (await app.inject({ method: 'POST', url: base(), headers: authed(admin.token), payload: { values: { name } } })).json().id;
+    const a = await make('Undo A');
+    const b = await make('Undo B');
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `${base()}/batch`,
+      headers: authed(admin.token),
+      payload: { record_ids: [a, b], values: { name: 'Renamed for undo' } },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().updated).toBe(2);
+    expect(res.json().restorable).toHaveLength(2);
+    expect(res.json().restorable.map((r: { record_id: string }) => r.record_id).sort()).toEqual([a, b].sort());
+
+    const undo = await app.inject({
+      method: 'POST',
+      url: `${base()}/batch-update-undo`,
+      headers: authed(admin.token),
+      payload: { restorable: res.json().restorable },
+    });
+    expect(undo.statusCode, undo.body).toBe(201);
+    expect(undo.json().restored).toBe(2);
+    expect(undo.json().failed).toHaveLength(0);
+
+    const check = async (id: string) =>
+      (await app.inject({ method: 'GET', url: `${base()}/${id}`, headers: authed(admin.token) })).json();
+    expect((await check(a)).title).toBe('Undo A');
+    expect((await check(b)).title).toBe('Undo B');
+  });
+
+  it('#653: a no-op patch (value already equal) reports nothing restorable — there is no version to undo', async () => {
+    const make = async (name: string) =>
+      (await app.inject({ method: 'POST', url: base(), headers: authed(admin.token), payload: { values: { name } } })).json().id;
+    const a = await make('Same Name');
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `${base()}/batch`,
+      headers: authed(admin.token),
+      payload: { record_ids: [a], values: { name: 'Same Name' } },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().updated).toBe(1);
+    expect(res.json().restorable).toHaveLength(0);
+  });
+
+  it('#653: undo refuses a version id that does not belong to the named record — no cross-record restore', async () => {
+    const make = async (name: string) =>
+      (await app.inject({ method: 'POST', url: base(), headers: authed(admin.token), payload: { values: { name } } })).json().id;
+    const a = await make('Owner A');
+    const b = await make('Owner B');
+
+    const patchA = await app.inject({
+      method: 'PATCH',
+      url: `${base()}/batch`,
+      headers: authed(admin.token),
+      payload: { record_ids: [a], values: { name: 'A renamed' } },
+    });
+    const versionIdForA = patchA.json().restorable[0].version_id;
+
+    // Mismatched pair: b's id paired with a's version — must 404 that entry,
+    // not silently apply a's pre-edit snapshot onto b.
+    const undo = await app.inject({
+      method: 'POST',
+      url: `${base()}/batch-update-undo`,
+      headers: authed(admin.token),
+      payload: { restorable: [{ record_id: b, version_id: versionIdForA }] },
+    });
+    expect(undo.statusCode, undo.body).toBe(201);
+    expect(undo.json().restored).toBe(0);
+    expect(undo.json().failed).toHaveLength(1);
+    expect(undo.json().failed[0].record_id).toBe(b);
+
+    const checkB = await app.inject({ method: 'GET', url: `${base()}/${b}`, headers: authed(admin.token) });
+    expect(checkB.json().title).toBe('Owner B');
   });
 });
 

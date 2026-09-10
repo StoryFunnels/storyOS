@@ -18,6 +18,7 @@ import { z } from 'zod';
 import {
   batchRecordIdsSchema,
   batchUpdateRecordsSchema,
+  batchUpdateUndoSchema,
   createRecordSchema,
   createRecordsBatchSchema,
   moveRecordSchema,
@@ -39,6 +40,7 @@ class UpdateRecordDto extends createZodDto(updateRecordSchema) {}
 class UpsertRecordDto extends createZodDto(upsertRecordSchema) {}
 class BatchUpdateRecordsDto extends createZodDto(batchUpdateRecordsSchema) {}
 class BatchRecordIdsDto extends createZodDto(batchRecordIdsSchema) {}
+class BatchUpdateUndoDto extends createZodDto(batchUpdateUndoSchema) {}
 class QueryRecordsDto extends createZodDto(queryRecordsSchema) {}
 class AggregateRecordsDto extends createZodDto(aggregateRecordsSchema) {}
 class MoveRecordDto extends createZodDto(moveRecordSchema) {}
@@ -180,7 +182,7 @@ export class RecordsController {
   }
 
   @Patch('batch')
-  @ApiOperation({ summary: 'Apply one values patch to up to 200 records (partial failures reported)' })
+  @ApiOperation({ summary: 'Apply one values patch to up to 5000 records (partial failures reported)' })
   async batchUpdate(
     @Req() req: WorkspaceRequest,
     @Param('db') databaseId: string,
@@ -197,8 +199,27 @@ export class RecordsController {
     );
   }
 
+  @Post('batch-update-undo')
+  @ApiOperation({
+    summary: "#653 — undo a batch update using the `restorable` list its response reported",
+  })
+  async batchUpdateUndo(
+    @Req() req: WorkspaceRequest,
+    @Param('db') databaseId: string,
+    @Body() body: BatchUpdateUndoDto,
+  ) {
+    await this.assertDb(req, databaseId, 'contributor');
+    return this.recordsService.undoBatchUpdate(
+      req.membership.workspaceId,
+      databaseId,
+      body.restorable,
+      req.user.id,
+      req.auth?.source ?? 'human',
+    );
+  }
+
   @Post('batch-delete')
-  @ApiOperation({ summary: 'Soft-delete up to 200 records' })
+  @ApiOperation({ summary: 'Soft-delete up to 5000 records' })
   async batchDelete(
     @Req() req: WorkspaceRequest,
     @Param('db') databaseId: string,
@@ -215,7 +236,7 @@ export class RecordsController {
   }
 
   @Post('batch-restore')
-  @ApiOperation({ summary: 'Restore up to 200 records from trash' })
+  @ApiOperation({ summary: 'Restore up to 5000 records from trash' })
   async batchRestore(
     @Req() req: WorkspaceRequest,
     @Param('db') databaseId: string,

@@ -832,6 +832,7 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   // count is not what decides the privilege.
   create_records: 'write',
   update_records: 'write',
+  undo_batch_update: 'write',
 };
 
 /** Tools gated by run_button on top of write scope (MN-134). */
@@ -2832,7 +2833,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Update records (batch)',
       description:
-        'Apply ONE set of values to up to 200 records at once — the "set status to Done for everything in this view" shape. Partial failures are reported per record rather than failing the whole call.',
+        'Apply ONE set of values to up to 200 records at once — the "set status to Done for everything in this view" shape. Partial failures are reported per record rather than failing the whole call. The response\'s `restorable` list (one {record_id, version_id} pair per record actually changed) can be passed straight to undo_batch_update to revert the whole call.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -2854,6 +2855,39 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         return text(res);
       },
     ),
+  );
+
+  reg(
+    'undo_batch_update',
+    {
+      title: 'Undo a batch update (#653)',
+      description:
+        "Revert a prior update_records call using the `restorable` list from ITS response — pass that array back verbatim. Restores each record to its exact pre-edit snapshot; a record edited again since the batch runs restores to the WRONG point in time only if you reuse a stale restorable list, so use the one from the call you actually want to undo.",
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        restorable: z
+          .array(z.object({ record_id: z.string(), version_id: z.string() }))
+          .min(1)
+          .max(5000)
+          .describe('The `restorable` array from a prior update_records response.'),
+      },
+    },
+    handle<{
+      workspace: string;
+      database: string;
+      restorable: Array<{ record_id: string; version_id: string }>;
+    }>(async ({ workspace, database, restorable }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const res = await unwrap<unknown>(
+        client.POST('/api/v1/workspaces/{ws}/databases/{db}/records/batch-update-undo', {
+          params: { path: { ws: ws.id, db: db.id } } as never,
+          body: { restorable } as never,
+        }),
+      );
+      return text(res);
+    }),
   );
 
   reg(
