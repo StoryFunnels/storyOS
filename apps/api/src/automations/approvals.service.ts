@@ -3,7 +3,7 @@ import { and, desc, eq, lt } from 'drizzle-orm';
 import type { AutomationAction } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { approvals, automations, sourceRuns } from '../db/schema';
+import { approvals, automations, databases, sourceRuns } from '../db/schema';
 import { CommentsService } from '../comments/comments.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AccessService } from '../access/access.service';
@@ -188,6 +188,37 @@ export class ApprovalsService {
     });
     if (!row) throw new NotFoundException('Approval not found');
     return row;
+  }
+
+  /**
+   * #691 — `list()` was already scoped by #654; `get()` above is the one
+   * caller #654 didn't reach, because it isn't a route by itself — only
+   * `ApprovalsController.assertHuman` (approve/reject) calls it, and only
+   * to decide 403-vs-allow. That still mattered on its own: a non-admin,
+   * non-approver member hitting approve/reject on an approval in a
+   * database they can't see got a 403 ("you can't decide this") rather
+   * than a 404 ("nothing here") — an existence oracle over `ctx.databaseId`
+   * distinguishable from the ordinary wrong-id 404, same class of leak
+   * #654 closed for `list()`.
+   *
+   * Deliberately NOT folded into `get()` itself as a blanket gate: the
+   * named `approverId` is its own, more specific authorization, and can
+   * legitimately be a guest with a record-scoped (not database-level)
+   * grant, or no general grant on `ctx.databaseId` at all. Gating `get()`
+   * on database visibility would 404 that guest out of approving their
+   * OWN assigned approval. The controller checks `isApprover` FIRST and
+   * only asks this when that's already failed — this decides what the
+   * REJECTION should look like, never whether an authorized approver may
+   * proceed.
+   */
+  async visibleToMembership(membership: Membership, row: ApprovalRow): Promise<boolean> {
+    const databaseId = (row.actionSnapshot as ApprovalActionSnapshot).ctx.databaseId;
+    const database = await this.db.query.databases.findFirst({
+      where: eq(databases.id, databaseId),
+      columns: { id: true, spaceId: true },
+    });
+    const effective = database ? await this.access.effectiveForDatabase(membership, database) : null;
+    return Boolean(effective);
   }
 
   async approve(workspaceId: string, id: string, actorId: string) {
