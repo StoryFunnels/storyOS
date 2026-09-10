@@ -20,6 +20,7 @@ import { TableView } from '@/components/table-view/table-view';
 import { ListSurface } from '@/components/entity/split-screen-host';
 import { EntityIconChip, IconColorPicker } from '@/components/ui/icon-picker';
 import { ViewToolbar } from '@/components/views/view-toolbar';
+import { SummaryWidgetStrip } from '@/components/views/summary-widget-strip';
 import { ViewTab } from '@/components/views/view-tab';
 import { ShareViewDialog } from '@/components/views/share-view-dialog';
 import {
@@ -234,6 +235,36 @@ function DatabasePageInner() {
         onReorderFields={schemaEditable ? onReorderFields : undefined}
       />
       </ErrorBoundary>
+
+      {/*
+        #228 — the strip's own boundary, same reasoning as the toolbar's just
+        above: it renders user-authored config (a widget naming a field that's
+        since been deleted, though cleanViewConfig already prunes that on
+        read) and sits in the parent that owns layout, so a broken widget
+        costs the strip, never the grid underneath it.
+
+        Only for the record-grid view types — table/board/gallery/list are
+        "a view with rows a widget could summarise"; calendar/timeline/feed
+        have their own window/date framing a stray count would misrepresent,
+        form has no rows to summarise, and dashboard already has this exact
+        capability as its own tiles/widgets.
+      */}
+      {(activeView?.type === 'table' ||
+        activeView?.type === 'board' ||
+        activeView?.type === 'gallery' ||
+        activeView?.type === 'list') && (
+        <ErrorBoundary label="The summary widgets" onReset={() => patch({ summary_widgets: [] })}>
+          <SummaryWidgetStrip
+            ws={ws}
+            db={db}
+            fields={database.data?.fields ?? []}
+            config={config}
+            activeFilter={queryBody.filter}
+            readOnly={readOnly}
+            onPatch={patch}
+          />
+        </ErrorBoundary>
+      )}
 
       <div className="min-h-0 flex-1">
         {activeView?.type === 'board' ? (

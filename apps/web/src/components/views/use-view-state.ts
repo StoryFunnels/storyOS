@@ -114,6 +114,20 @@ export interface ViewConfig {
     filter?: FilterNode;
     database_id?: string;
   }>;
+  /**
+   * #228 — an ordinary view's OWN inline summary strip. Deliberately narrower
+   * than a dashboard tile/widget (no filter/database_id) — see
+   * `summaryWidgetSchema`'s comment in packages/schemas: this widget must
+   * always match what's visible in the view beneath it.
+   */
+  summary_widgets?: Array<{
+    id: string;
+    type: 'stat' | 'bar' | 'line' | 'pie';
+    title: string;
+    op: 'count' | 'sum' | 'avg' | 'min' | 'max';
+    field_api_name?: string;
+    group_by_field_api_name?: string;
+  }>;
   column_widths: Record<string, number>;
 }
 

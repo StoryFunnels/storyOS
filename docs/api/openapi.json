@@ -13760,6 +13760,59 @@
                   ]
                 }
               },
+              "summary_widgets": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "stat",
+                        "bar",
+                        "line",
+                        "pie"
+                      ]
+                    },
+                    "title": {
+                      "default": "",
+                      "type": "string",
+                      "maxLength": 100
+                    },
+                    "op": {
+                      "type": "string",
+                      "enum": [
+                        "count",
+                        "sum",
+                        "avg",
+                        "min",
+                        "max"
+                      ]
+                    },
+                    "field_api_name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 100
+                    },
+                    "group_by_field_api_name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 100
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "type",
+                    "op"
+                  ]
+                }
+              },
               "form": {
                 "type": "object",
                 "properties": {
@@ -14366,6 +14419,59 @@
                   ]
                 }
               },
+              "summary_widgets": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "stat",
+                        "bar",
+                        "line",
+                        "pie"
+                      ]
+                    },
+                    "title": {
+                      "default": "",
+                      "type": "string",
+                      "maxLength": 100
+                    },
+                    "op": {
+                      "type": "string",
+                      "enum": [
+                        "count",
+                        "sum",
+                        "avg",
+                        "min",
+                        "max"
+                      ]
+                    },
+                    "field_api_name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 100
+                    },
+                    "group_by_field_api_name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 100
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "type",
+                    "op"
+                  ]
+                }
+              },
               "form": {
                 "type": "object",
                 "properties": {
@@ -14949,6 +15055,59 @@
                   "required": [
                     "id",
                     "type"
+                  ]
+                }
+              },
+              "summary_widgets": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "stat",
+                        "bar",
+                        "line",
+                        "pie"
+                      ]
+                    },
+                    "title": {
+                      "default": "",
+                      "type": "string",
+                      "maxLength": 100
+                    },
+                    "op": {
+                      "type": "string",
+                      "enum": [
+                        "count",
+                        "sum",
+                        "avg",
+                        "min",
+                        "max"
+                      ]
+                    },
+                    "field_api_name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 100
+                    },
+                    "group_by_field_api_name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 100
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "type",
+                    "op"
                   ]
                 }
               },

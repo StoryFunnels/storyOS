@@ -272,6 +272,15 @@ export function cleanViewConfig(
           ? { ...w, filter: cleanFilterNode(w.filter, liveApiNames) as typeof w.filter }
           : w,
       ),
+    // #228 — an ordinary view's own summary strip. Same "drop only a DANGLING
+    // reference, never an unconfigured one" rule as tiles/widgets above — no
+    // database_id/filter exemption needed, since a summary widget (unlike a
+    // dashboard tile/widget) is always the view's own database by design.
+    summary_widgets: (config.summary_widgets ?? []).filter(
+      (w) =>
+        (w.field_api_name == null || liveApiNames.has(w.field_api_name)) &&
+        (w.group_by_field_api_name == null || liveApiNames.has(w.group_by_field_api_name)),
+    ),
     column_widths: Object.fromEntries(
       Object.entries(config.column_widths ?? {}).filter(([id]) => liveFieldIds.has(id)),
     ),
@@ -854,6 +863,12 @@ export class ViewsService {
     };
     (currentConfig.dashboard_tiles ?? []).forEach((tile, i) => validateTileOrWidget('Dashboard tile', i, tile));
     (currentConfig.dashboard_widgets ?? []).forEach((widget, i) => validateTileOrWidget('Dashboard widget', i, widget));
+    // #228 — a summary widget's aggregate is the same kind of oracle over a
+    // hidden field #469 already worried about for tile/widget filters: even
+    // with no `filter` of its own, a widget summing a field that isn't
+    // exposed would leak that field's values to a public visitor through the
+    // number itself. Same validator, same reason.
+    (currentConfig.summary_widgets ?? []).forEach((widget, i) => validateTileOrWidget('Summary widget', i, widget));
 
     const token = currentConfig.share?.public_token ?? randomBytes(24).toString('base64url');
     const share = {

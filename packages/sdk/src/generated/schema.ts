@@ -5239,6 +5239,19 @@ export interface components {
                         h: number;
                     };
                 }[];
+                /** @default [] */
+                summary_widgets: {
+                    /** Format: uuid */
+                    id: string;
+                    /** @enum {string} */
+                    type: "stat" | "bar" | "line" | "pie";
+                    /** @default  */
+                    title: string;
+                    /** @enum {string} */
+                    op: "count" | "sum" | "avg" | "min" | "max";
+                    field_api_name?: string;
+                    group_by_field_api_name?: string;
+                }[];
                 form?: {
                     title?: string;
                     description?: string;
@@ -5409,6 +5422,19 @@ export interface components {
                         h: number;
                     };
                 }[];
+                /** @default [] */
+                summary_widgets: {
+                    /** Format: uuid */
+                    id: string;
+                    /** @enum {string} */
+                    type: "stat" | "bar" | "line" | "pie";
+                    /** @default  */
+                    title: string;
+                    /** @enum {string} */
+                    op: "count" | "sum" | "avg" | "min" | "max";
+                    field_api_name?: string;
+                    group_by_field_api_name?: string;
+                }[];
                 form?: {
                     title?: string;
                     description?: string;
@@ -5574,6 +5600,19 @@ export interface components {
                         w: number;
                         h: number;
                     };
+                }[];
+                /** @default [] */
+                summary_widgets: {
+                    /** Format: uuid */
+                    id: string;
+                    /** @enum {string} */
+                    type: "stat" | "bar" | "line" | "pie";
+                    /** @default  */
+                    title: string;
+                    /** @enum {string} */
+                    op: "count" | "sum" | "avg" | "min" | "max";
+                    field_api_name?: string;
+                    group_by_field_api_name?: string;
                 }[];
                 form?: {
                     title?: string;
