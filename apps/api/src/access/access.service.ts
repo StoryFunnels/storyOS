@@ -171,6 +171,44 @@ export class AccessService {
   }
 
   /**
+   * #674 — `effectiveForRecord`, batched across many records (possibly
+   * spanning many DIFFERENT databases) in ONE grants fetch, the same
+   * relationship `effectiveForDatabases` already has to `effectiveForDatabase`.
+   * Needed for hierarchy activity aggregation, which walks a relation tree
+   * that can cross database boundaries (Epic → Story → Task) and must not
+   * issue one grants query per record reached.
+   *
+   * Replicates `effectiveForRecord`'s exact three-way max (space grant,
+   * database grant, record grant) — admin/member short-circuit exactly as
+   * every other `effectiveFor*` does; only the guest path fetches grants,
+   * once, then resolves every record against that one list in memory.
+   */
+  async effectiveForRecords(
+    membership: Membership,
+    recordRows: ReadonlyArray<{ id: string; databaseId: string; spaceId: string }>,
+  ): Promise<Map<string, EffectiveRole | null>> {
+    if (membership.role === 'admin') return new Map(recordRows.map((r) => [r.id, 'admin' as const]));
+    if (membership.role === 'member') return new Map(recordRows.map((r) => [r.id, 'creator' as const]));
+    const grants = await this.guestGrants(membership);
+    return new Map(
+      recordRows.map((r) => {
+        let best: EffectiveRole | null = null;
+        for (const grant of grants) {
+          if (grant.databaseId === r.databaseId || grant.spaceId === r.spaceId) {
+            if (!best || ACCESS_RANK[grant.role] > ACCESS_RANK[best]) best = grant.role;
+          }
+        }
+        for (const grant of grants) {
+          if (grant.recordId === r.id && (!best || ACCESS_RANK[grant.role] > ACCESS_RANK[best])) {
+            best = grant.role;
+          }
+        }
+        return [r.id, best];
+      }),
+    );
+  }
+
+  /**
    * Effective role for a SPACE (MN-124). null = no access (render as 404).
    *
    * Space delete had no per-scope check at all — only `@MinRole('member')` — so

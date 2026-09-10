@@ -535,6 +535,9 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   // #240 — DatabaseActivityController has no @RequiresScope, so GET defaults
   // to 'read' (token-scope.guard.ts), matching list_comments.
   list_database_comments: 'read',
+  // #674 — ActivityController's hierarchy route has no @RequiresScope either
+  // (same GET-defaults-to-read rule), matching list_database_comments.
+  list_hierarchy_activity: 'read',
   get_history: 'read',
   list_backlinks: 'read',
   list_watchers: 'read',
@@ -2085,6 +2088,40 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
    * attribution. Discriminated by `type` in the response, since a reference
    * entry has no comment body — a `#record` mention, not a written comment.
    */
+  /** Shared response shape for both #240/#670's per-database feed and #674's
+   *  per-hierarchy feed — same underlying activity_events rows either way. */
+  interface ActivityFeedRow {
+    id: string;
+    type: 'comment.created' | 'reference.created';
+    record: { id: string; title: string; number: number | null } | null;
+    comment?: { id: string; body: unknown };
+    reference?: { target_record: { id: string; title: string; number: number | null } | null };
+    actor: { id: string; name: string } | null;
+    created_at: string;
+    source: string | null;
+  }
+  const mapActivityEntry = (e: ActivityFeedRow) =>
+    e.type === 'reference.created'
+      ? {
+          type: 'reference' as const,
+          record: e.record,
+          references: e.reference!.target_record,
+          author: e.actor?.name ?? null,
+          author_id: e.actor?.id ?? null,
+          source: e.source,
+          created_at: e.created_at,
+        }
+      : {
+          type: 'comment' as const,
+          id: e.comment!.id,
+          text: commentToText(e.comment!.body),
+          record: e.record,
+          author: e.actor?.name ?? null,
+          author_id: e.actor?.id ?? null,
+          source: e.source,
+          created_at: e.created_at,
+        };
+
   reg(
     'list_database_comments',
     {
@@ -2103,52 +2140,90 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       async ({ workspace, database, limit, cursor }) => {
         const ws = await resolveWorkspace(client, workspace);
         const db = await resolveDatabase(client, ws.id, database);
-        const res = await unwrap<{
-          data: Array<{
-            id: string;
-            type: 'comment.created' | 'reference.created';
-            record: { id: string; title: string; number: number | null } | null;
-            comment?: { id: string; body: unknown };
-            reference?: { target_record: { id: string; title: string; number: number | null } | null };
-            actor: { id: string; name: string } | null;
-            created_at: string;
-            source: string | null;
-          }>;
-          next_cursor: string | null;
-          has_more: boolean;
-        }>(
+        const res = await unwrap<{ data: ActivityFeedRow[]; next_cursor: string | null; has_more: boolean }>(
           client.GET('/api/v1/workspaces/{ws}/databases/{db}/activity/comments', {
             params: { path: { ws: ws.id, db: db.id }, query: { limit, cursor } },
           } as never),
         );
         return text({
-          entries: res.data.map((e) =>
-            e.type === 'reference.created'
-              ? {
-                  type: 'reference' as const,
-                  record: e.record,
-                  references: e.reference!.target_record,
-                  author: e.actor?.name ?? null,
-                  author_id: e.actor?.id ?? null,
-                  source: e.source,
-                  created_at: e.created_at,
-                }
-              : {
-                  type: 'comment' as const,
-                  id: e.comment!.id,
-                  text: commentToText(e.comment!.body),
-                  record: e.record,
-                  author: e.actor?.name ?? null,
-                  author_id: e.actor?.id ?? null,
-                  source: e.source,
-                  created_at: e.created_at,
-                },
-          ),
+          entries: res.data.map(mapActivityEntry),
           next_cursor: res.next_cursor,
           has_more: res.has_more,
         });
       },
     ),
+  );
+
+  /*
+   * #674 — the hierarchy half #670 split off. list_database_comments answers
+   * "what's happened in this ONE database"; this walks DOWN a caller-named
+   * chain of relation fields (Epic's own "Stories" field, then Story's own
+   * "Tasks" field, ...) and unions the same comment+reference feed across
+   * every record reached — the tree can span several databases, which is
+   * exactly what a single database-scoped feed cannot answer.
+   */
+  reg(
+    'list_hierarchy_activity',
+    {
+      title: 'List hierarchy activity',
+      description:
+        'Comments AND #record references across a whole relation TREE rooted at one record — e.g. every comment/reference on an Epic AND its Stories AND their Tasks, not just the Epic itself. Walks DOWN a chain of relation fields, one per level, since each level is a DIFFERENT field on a DIFFERENT database (Epic\'s "Stories" field, then Story\'s "Tasks" field). ' +
+        'Permission-checked: a record you cannot see is excluded from the walk entirely, and the whole call 404s if the ROOT record itself is not visible to you.',
+      inputSchema: {
+        workspace: z.string().describe('Workspace name or id.'),
+        database: z.string().describe('The ROOT record\'s database — name, api slug, or id.'),
+        record: z.string().describe('The ROOT record — number or id.'),
+        relation_fields: z
+          .array(
+            z.object({
+              database: z
+                .string()
+                .describe('The database THIS level\'s relation field lives on (the previous level\'s target database; for level 1, the root\'s own database).'),
+              field: z.string().describe('Relation field name, api_name, or id on that database.'),
+            }),
+          )
+          .min(1)
+          .max(5)
+          .describe(
+            'One entry per level, e.g. [{database: "Epics", field: "Stories"}, {database: "Stories", field: "Tasks"}] to walk Epic → Story → Task.',
+          ),
+        limit: z.number().int().min(1).max(100).optional().describe('Max entries (default 50).'),
+        cursor: z.string().optional().describe('next_cursor from a prior call.'),
+      },
+    },
+    handle<{
+      workspace: string;
+      database: string;
+      record: string;
+      relation_fields: Array<{ database: string; field: string }>;
+      limit?: number;
+      cursor?: string;
+    }>(async ({ workspace, database, record, relation_fields, limit, cursor }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const recordId = await resolveRecordId(ws.id, db.id, record);
+
+      const fieldIds: string[] = [];
+      for (const level of relation_fields) {
+        const levelDb = await resolveDatabase(client, ws.id, level.database);
+        const detail = await getDetail(ws.id, levelDb.id);
+        fieldIds.push(resolveFieldId(detail, level.field, ['relation'], 'relation'));
+      }
+
+      const res = await unwrap<{ data: ActivityFeedRow[]; next_cursor: string | null; has_more: boolean }>(
+        client.GET('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/activity/hierarchy', {
+          params: {
+            path: { ws: ws.id, db: db.id, rec: recordId },
+            query: { relation_field_ids: fieldIds.join(','), limit, cursor },
+          },
+        } as never),
+      );
+      return text({
+        entries: res.data.map(mapActivityEntry),
+        next_cursor: res.next_cursor,
+        has_more: res.has_more,
+      });
+    }),
   );
 
   reg(

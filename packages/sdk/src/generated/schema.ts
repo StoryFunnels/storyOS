@@ -1651,6 +1651,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/activity/hierarchy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** #674 — comments + references across a relation tree rooted at this record (e.g. Epic→Story→Task) */
+        get: operations["ActivityController_listHierarchy"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/databases/{db}/activity/comments": {
         parameters: {
             query?: never;
@@ -8563,6 +8580,29 @@ export interface operations {
             header?: never;
             path: {
                 db: string;
+                rec: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ActivityController_listHierarchy: {
+        parameters: {
+            query: {
+                limit?: number;
+                cursor?: string;
+                relation_field_ids: string;
+            };
+            header?: never;
+            path: {
                 rec: string;
             };
             cookie?: never;
