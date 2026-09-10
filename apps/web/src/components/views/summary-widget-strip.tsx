@@ -5,6 +5,7 @@ import { useQueries } from '@tanstack/react-query';
 import {
   BarChart3,
   ChevronDown,
+  Copy,
   GripVertical,
   Hash,
   LineChart as LineChartIcon,
@@ -164,6 +165,8 @@ function WidgetCard({
   readOnly,
   onPatch,
   onRemove,
+  onDuplicate,
+  autoOpen,
 }: {
   widget: SummaryWidget;
   ws: string;
@@ -173,8 +176,12 @@ function WidgetCard({
   readOnly: boolean;
   onPatch: (patch: Partial<SummaryWidget>) => void;
   onRemove: () => void;
+  onDuplicate: () => void;
+  /** A freshly duplicated card opens its config immediately — changing the
+   *  grouping is the whole point of the gesture (#696). */
+  autoOpen?: boolean;
 }) {
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(!!autoOpen);
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: widget.id });
   const { loading, stat, series } = useWidgetValue(ws, db, widget, viewFilter, fields);
   const numberFields = fields.filter((f) => f.type === 'number');
@@ -193,7 +200,16 @@ function WidgetCard({
     <div
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
-      className="flex min-w-40 flex-1 flex-col gap-1 rounded-[var(--radius-card)] border border-border-default bg-card p-3"
+      /* #696 — `max-w-72` is load-bearing. Without a cap, `flex-1` makes a card's
+         width a function of how many SIBLINGS it has: measured at a 1440px
+         viewport, one widget stretched to 1068px, two to 530, three to 351, and
+         only at four (261px) did it look deliberate. The content cannot use that
+         space — a stat is a 24px number and a chart is a donut pinned at
+         outerRadius 34 — so one widget showed a 68px circle in a 1068px card.
+         Capping makes width follow content instead of neighbour count, and the
+         n=1 case falls out correctly rather than being special-cased. Cards still
+         shrink past the cap and wrap when crowded, keeping the min-w-40 floor. */
+      className="flex min-w-40 max-w-72 flex-1 flex-col gap-1 rounded-[var(--radius-card)] border border-border-default bg-card p-3"
     >
       <div className="flex items-center justify-between gap-1">
         <span className="flex min-w-0 items-center gap-1">
@@ -218,6 +234,14 @@ function WidgetCard({
               title="Configure"
             >
               <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', editing && 'rotate-180')} />
+            </button>
+            <button
+              type="button"
+              onClick={onDuplicate}
+              className="rounded p-0.5 text-faint hover:bg-hover hover:text-ink"
+              title="Duplicate widget"
+            >
+              <Copy className="h-3.5 w-3.5" />
             </button>
             <button
               type="button"
@@ -351,6 +375,8 @@ export function SummaryWidgetStrip({
 }) {
   const widgets = config.summary_widgets ?? [];
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  /* Declared above the early return below — hooks cannot sit behind a branch. */
+  const [justDuplicated, setJustDuplicated] = useState<string | null>(null);
 
   if (widgets.length === 0 && readOnly) return null;
 
@@ -363,6 +389,16 @@ export function SummaryWidgetStrip({
       ...widgets,
       { id: crypto.randomUUID(), type: 'stat', title: '', op: 'count' },
     ]);
+  }
+
+  /** #696 — insert the copy directly AFTER its original, not at the end, so the
+   *  two groupings sit side by side to be compared. A fresh id is required:
+   *  SortableContext keys on widget.id, so a duplicate id breaks drag-reorder. */
+  function duplicateWidget(widget: SummaryWidget) {
+    const id = crypto.randomUUID();
+    const i = widgets.findIndex((w) => w.id === widget.id);
+    setWidgets([...widgets.slice(0, i + 1), { ...widget, id }, ...widgets.slice(i + 1)]);
+    setJustDuplicated(id);
   }
 
   function onDragEnd(e: DragEndEvent) {
@@ -389,6 +425,8 @@ export function SummaryWidgetStrip({
               readOnly={readOnly}
               onPatch={(patch) => setWidgets(widgets.map((w) => (w.id === widget.id ? { ...w, ...patch } : w)))}
               onRemove={() => setWidgets(widgets.filter((w) => w.id !== widget.id))}
+              onDuplicate={() => duplicateWidget(widget)}
+              autoOpen={widget.id === justDuplicated}
             />
           ))}
         </SortableContext>
