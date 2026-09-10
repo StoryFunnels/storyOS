@@ -275,6 +275,32 @@ behind it, so a planned-vs-actual gap is visible without a second view.
 - The date axis widens to fit baseline spans too, so a planned range that runs outside every actual
   date still has room on screen rather than rendering off the edge with no hint it exists.
 
+## Inline summary widgets
+
+A **table, board, gallery, or list** view can carry its own strip of stat/bar/line/pie widgets
+above the records — a quick count or sum, or a small chart, without leaving the view or building a
+[dashboard](/concepts/dashboards/).
+
+- **A widget always matches the rows below it.** Unlike a dashboard tile or widget, a summary
+  widget has no filter and no database of its own — it's an aggregate over exactly this view's own
+  (and personal) filter, computed server-side. Change the view's filter and every widget updates
+  with it; there is no way for one to drift out of sync with the grid underneath it.
+- **Stat** shows one number: **Count**, or **Sum / Average / Min / Max** of a number field. **Bar**,
+  **line**, and **pie** additionally group by a field, one bucket per aggregate call.
+- **Grouping is restricted to select, workflow, and checkbox fields** — their bucket set is small
+  and known up front (options, or Checked/Unchecked), so each bucket is one aggregate call rather
+  than fetching every row to group client-side. Grouping by a multi-select or a date isn't available
+  yet — a multi-select record can land in more than one bucket, and a date needs a bucketing rule
+  (day? month? quarter?); both are real, bigger features, not oversights.
+- **Add, reorder, and remove** widgets from the strip itself; drag to reorder, and the order you
+  leave them in is what everyone who opens the view sees, since it's saved on the view like its
+  filters and sorts — not a per-viewer preference.
+- Not offered on calendar, timeline, feed, or form views — there's no row grid there for a widget to
+  summarise (a dashboard's own tiles/widgets already cover that shape).
+- **No dedicated MCP tool yet.** `create_view`/`update_view` don't expose a `summary_widgets`
+  parameter — set it through a raw `PATCH .../views/{view}` with `config.summary_widgets`, the same
+  general config field the web app itself writes to.
+
 ## An empty view versus a broken one
 
 If a view cannot load its records it says so, with an error and a retry. It does **not** render as
