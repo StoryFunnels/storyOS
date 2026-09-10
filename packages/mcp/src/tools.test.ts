@@ -4279,15 +4279,25 @@ describe('get_started\'s filter cheat-sheet documents workflow (#558)', () => {
  * list_comments (one record's thread): this aggregates across a whole
  * database, which is what actually needed a new tool.
  */
-describe('list_database_comments: the cross-record feed (#240)', () => {
+describe('list_database_comments: the cross-record feed (#240, #670)', () => {
   const WORKSPACE = { id: 'ws-1', name: 'JCM Agency' };
   const DATABASE = { id: 'db-1', name: 'Tasks', apiSlug: 'tasks', fields: [] };
-  const FEED_ROW = {
+  const COMMENT_ROW = {
     id: 'evt-1',
+    type: 'comment.created',
     record: { id: 'rec-1', title: 'Ship the release', number: 42 },
     comment: { id: 'com-1', body: [{ type: 'text', text: 'Almost done' }] },
     actor: { id: 'user-1', name: 'Alex' },
     created_at: '2026-09-10T00:00:00.000Z',
+    source: 'human',
+  };
+  const REFERENCE_ROW = {
+    id: 'evt-2',
+    type: 'reference.created',
+    record: { id: 'rec-1', title: 'Ship the release', number: 42 },
+    reference: { target_record: { id: 'rec-2', title: 'Related project', number: 7 } },
+    actor: { id: 'user-1', name: 'Alex' },
+    created_at: '2026-09-10T00:01:00.000Z',
     source: 'human',
   };
 
@@ -4299,7 +4309,7 @@ describe('list_database_comments: the cross-record feed (#240)', () => {
         if (path === '/api/v1/workspaces') return { data: [WORKSPACE] };
         if (path === '/api/v1/workspaces/{ws}/databases') return { data: [DATABASE] };
         if (path === '/api/v1/workspaces/{ws}/databases/{db}/activity/comments') {
-          return { data: { data: opts.rows ?? [FEED_ROW], next_cursor: null, has_more: false } };
+          return { data: { data: opts.rows ?? [COMMENT_ROW], next_cursor: null, has_more: false } };
         }
         throw new Error(`unmocked GET ${path}`);
       },
@@ -4314,8 +4324,9 @@ describe('list_database_comments: the cross-record feed (#240)', () => {
   it('renders comment text via the same commentToText helper list_comments uses, and names the record', async () => {
     const handlers = harness();
     const res = await call(handlers.get('list_database_comments')!, { workspace: 'JCM Agency', database: 'tasks' });
-    const out = JSON.parse(res.content[0]!.text) as { comments: Array<Record<string, unknown>> };
-    expect(out.comments[0]).toMatchObject({
+    const out = JSON.parse(res.content[0]!.text) as { entries: Array<Record<string, unknown>> };
+    expect(out.entries[0]).toMatchObject({
+      type: 'comment',
       text: 'Almost done',
       author: 'Alex',
       source: 'human',
@@ -4323,12 +4334,28 @@ describe('list_database_comments: the cross-record feed (#240)', () => {
     });
   });
 
-  it('never claims a null source is human — passes it through as null, not defaulted', async () => {
-    const handlers = harness({ rows: [{ ...FEED_ROW, actor: null, source: null }] });
+  // #670 — a reference entry has no comment body; the handler must not
+  // crash reading `.comment.id` off a row that only carries `.reference`.
+  it('includes a reference entry, naming which record it now links to', async () => {
+    const handlers = harness({ rows: [REFERENCE_ROW, COMMENT_ROW] });
     const res = await call(handlers.get('list_database_comments')!, { workspace: 'JCM Agency', database: 'tasks' });
-    const out = JSON.parse(res.content[0]!.text) as { comments: Array<Record<string, unknown>> };
-    expect(out.comments[0]!.source).toBeNull();
-    expect(out.comments[0]!.author).toBeNull();
+    const out = JSON.parse(res.content[0]!.text) as { entries: Array<Record<string, unknown>> };
+    expect(out.entries[0]).toMatchObject({
+      type: 'reference',
+      references: { id: 'rec-2', title: 'Related project' },
+      author: 'Alex',
+      source: 'human',
+      record: { id: 'rec-1', title: 'Ship the release' },
+    });
+    expect(out.entries[1]).toMatchObject({ type: 'comment' });
+  });
+
+  it('never claims a null source is human — passes it through as null, not defaulted', async () => {
+    const handlers = harness({ rows: [{ ...COMMENT_ROW, actor: null, source: null }] });
+    const res = await call(handlers.get('list_database_comments')!, { workspace: 'JCM Agency', database: 'tasks' });
+    const out = JSON.parse(res.content[0]!.text) as { entries: Array<Record<string, unknown>> };
+    expect(out.entries[0]!.source).toBeNull();
+    expect(out.entries[0]!.author).toBeNull();
   });
 
   it('is reachable at read scope, matching list_comments', () => {
@@ -4338,10 +4365,12 @@ describe('list_database_comments: the cross-record feed (#240)', () => {
     expect(handlers.has('list_database_comments')).toBe(true);
   });
 
-  it('says plainly that references are not included yet', () => {
+  it('#670 — the description now says references ARE included, not that they are missing', () => {
     const descriptions = new Map<string, string>();
     const server = { registerTool: (n: string, c: { description?: string }) => descriptions.set(n, c.description ?? '') };
     registerTools(server as never, { client: {} as never, baseUrl: 'x', token: 't' } as Ctx, { scope: 'admin', allowRunButton: true });
-    expect(descriptions.get('list_database_comments')).toContain('NOT include');
+    const description = descriptions.get('list_database_comments')!;
+    expect(description).not.toContain('NOT include');
+    expect(description.toLowerCase()).toContain('reference');
   });
 });
