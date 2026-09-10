@@ -758,6 +758,8 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   create_automation: 'admin',
   update_automation: 'admin',
   delete_automation: 'admin',
+  test_automation: 'admin',
+  get_automation_last_payload: 'admin',
   // write (record + content mutations)
   create_record: 'write',
   upsert_record: 'write',
@@ -7521,6 +7523,69 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           } as never),
         );
         return text({ deleted: true, affected });
+      },
+    ),
+  );
+
+  reg(
+    'test_automation',
+    {
+      title: 'Test automation',
+      description:
+        "#684 — dry-run a rule against one record before trusting it live. Omit `action_index` to just check whether the rule's condition matches this record and see which actions WOULD run (no side effects). Pass `action_index` to actually send that one http_request action for real — everything else is not currently testable this way.",
+      inputSchema: {
+        workspace: z.string().describe('Workspace name or id.'),
+        database: z.string().describe('Database name, api slug, or id.'),
+        automation: z.string().describe('Automation rule id (from list_automations).'),
+        record: z.string().describe('Record uuid or public number to test against.'),
+        action_index: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe('Index into the rule\'s actions array — actually SENDS that http_request action. Omit for a side-effect-free condition check.'),
+      },
+    },
+    handle<{ workspace: string; database: string; automation: string; record: string; action_index?: number }>(
+      async ({ workspace, database, automation, record, action_index }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        await fetchAutomation(ws.id, db.id, automation); // 404s early on a bad rule id
+        const recordId = await resolveRecordId(ws.id, db.id, record);
+        const res = await unwrap<unknown>(
+          client.POST('/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/test', {
+            params: { path: { ws: ws.id, db: db.id, id: automation } } as never,
+            body: { record_id: recordId, ...(action_index !== undefined ? { action_index } : {}) } as never,
+          }),
+        );
+        return text(res);
+      },
+    ),
+  );
+
+  reg(
+    'get_automation_last_payload',
+    {
+      title: 'Get automation last payload',
+      description:
+        "#684 — the most recent inbound payload a webhook_received rule received, and when. For mapping the sender's field names to this rule's actions before trusting it live. Never includes the rule's own hook token or secret.",
+      inputSchema: {
+        workspace: z.string().describe('Workspace name or id.'),
+        database: z.string().describe('Database name, api slug, or id.'),
+        automation: z.string().describe('Automation rule id (from list_automations).'),
+      },
+    },
+    handle<{ workspace: string; database: string; automation: string }>(
+      async ({ workspace, database, automation }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        await fetchAutomation(ws.id, db.id, automation); // 404s early on a bad rule id
+        const res = await unwrap<unknown>(
+          client.GET('/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/last-payload', {
+            params: { path: { ws: ws.id, db: db.id, id: automation } } as never,
+          }),
+        );
+        return text(res);
       },
     ),
   );

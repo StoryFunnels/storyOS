@@ -254,25 +254,18 @@ export const DEFERRED: CoverageRule[] = [
       "#443 — creating a subscription returns its live signing secret in the response body (shown once, never listed again), and a tool result is transcript. Redacting it is not an option: no read path can return it afterwards. Make the subscription in-app; list_webhooks / update_webhook / delete_webhook / list_webhook_deliveries manage and debug it. Outbound calls in general are reachable via create_automation's send_webhook action.",
   },
   {
-    match: /\/automations\/\{id\}\/(test|last-payload|regenerate-hook)/,
+    // #684 — narrowed from `(test|last-payload|regenerate-hook)`. Otto's
+    // review (2026-09-10) caught that the bundled rule gave only ONE of the
+    // three a real reason: `regenerate-hook` mints a token (the same
+    // secret-in-a-transcript objection as POST /webhooks above), but `test`
+    // and `last-payload` have no credential or safety objection at all —
+    // bundling them meant an agent could BUILD a webhook_received rule via
+    // MCP and never dry-run or debug it, a capability gap wearing a decision
+    // as its disguise. Those two are now reached (test_automation,
+    // get_automation_last_payload); only the token-minting one stays here.
+    match: /\/automations\/\{id\}\/regenerate-hook/,
     reason:
-      /*
-       * #443 asked whether this should MERGE with the webhook-subscription rule
-       * above. Decided: NO, keep them separate, because they point in opposite
-       * directions and one reason cannot be true of both.
-       *
-       * Above is OUTBOUND — StoryOS calling someone else's endpoint. This is
-       * INBOUND — a `webhook_received` trigger, i.e. someone else calling us:
-       * dry-running a rule, reading the last payload we RECEIVED, and rotating
-       * the token that authenticates the caller. A merged rule would have to
-       * describe both and would accurately describe neither, which is the
-       * "rule pointing at the wrong thing" failure #390 documents.
-       *
-       * They do share one property, noted here so the pair stays consistent if
-       * either moves: `regenerate-hook` mints a token, so it is deferred for the
-       * same secret-in-a-transcript reason as POST /webhooks above.
-       */
-      '#406 — automation dry-run, last received payload, and hook-token rotation. INBOUND (a webhook_received trigger), deliberately kept separate from the outbound-subscription rule above: one reason cannot describe both directions (#443 decided this rather than leaving two rules to drift). Rule CRUD is already covered; `regenerate-hook` additionally mints a token, so it carries the same secret-in-a-transcript objection.',
+      '#406 — rotates a webhook_received rule\'s token + secret, returned in the response body, shown once, never listed again (the same secret-in-a-transcript objection as POST /webhooks above). Do this in-app.',
   },
   {
     match: /\/fields\/\{field\}\/usage$/,
