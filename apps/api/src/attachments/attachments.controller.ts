@@ -139,6 +139,6 @@ export class AttachmentsController {
     @Param('att') attachmentId: string,
   ) {
     await this.assertRecord(req, databaseId, recordId, 'editor');
-    return this.attachmentsService.remove(recordId, attachmentId);
+    return this.attachmentsService.remove(req.membership.workspaceId, recordId, attachmentId, req.user.id);
   }
 }
