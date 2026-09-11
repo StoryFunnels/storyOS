@@ -1922,6 +1922,82 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/databases/{db}/records/batch-jobs": {
+      "post": {
+        "operationId": "RecordsController_enqueueBulkJob",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkRecordJobDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "#694 — enqueue a durable bulk update/delete job (poll via GET .../batch-jobs/:id)",
+        "tags": [
+          "records"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/records/batch-jobs/{id}": {
+      "get": {
+        "operationId": "RecordsController_getBulkJob",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "#694 — poll a bulk record job's status and progress",
+        "tags": [
+          "records"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/databases/{db}/records/batch-delete": {
       "post": {
         "operationId": "RecordsController_batchDelete",
@@ -10797,6 +10873,36 @@
         },
         "required": [
           "restorable"
+        ]
+      },
+      "BulkRecordJobDto": {
+        "type": "object",
+        "properties": {
+          "op": {
+            "type": "string",
+            "enum": [
+              "update",
+              "delete"
+            ]
+          },
+          "record_ids": {
+            "minItems": 1,
+            "maxItems": 50000,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          "values": {
+            "type": "object",
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "op",
+          "record_ids"
         ]
       },
       "BatchRecordIdsDto": {

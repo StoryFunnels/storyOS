@@ -302,10 +302,10 @@ export const updateRecordSchema = z.object({
  * whose request was interrupted mid-flight can safely retry with the SAME
  * record_ids — already-applied records are simply re-touched harmlessly.
  * That is this PR's resumability guarantee; a durable, pollable job with
- * live progress is real, separate work split to a follow-up ticket (needs
- * new job-tracking tables, and this codebase allows only one drizzle
- * migration in flight across all open PRs). Undo-for-edit does NOT need a
- * new table — see `batchUpdateUndoSchema` below.
+ * live progress was real, separate work split to a follow-up ticket (#694,
+ * now shipped — see `bulkRecordJobSchema` below) since it needed a new
+ * job-tracking table. Undo-for-edit did NOT need a new table — see
+ * `batchUpdateUndoSchema` below.
  */
 export const batchUpdateRecordsSchema = z.object({
   record_ids: z.array(z.uuid()).min(1).max(5000),
@@ -328,6 +328,28 @@ export const batchUpdateUndoSchema = z.object({
     .min(1)
     .max(5000),
 });
+
+/**
+ * #694 — a bulk update/delete above batchUpdate/batchDelete's own 5000-row
+ * synchronous cap runs as a durable, pollable job instead: chunked, resumable
+ * if the process restarts mid-run, never silently partial. The synchronous
+ * endpoints (this schema's own siblings above) stay exactly as they are for
+ * a selection under the cap — this is an additive path for a larger one, not
+ * a replacement.
+ */
+export const bulkRecordJobSchema = z
+  .object({
+    op: z.enum(['update', 'delete']),
+    record_ids: z.array(z.uuid()).min(1).max(50_000),
+    /** Required when op is "update"; ignored (and should be omitted) for "delete". */
+    values: z.record(z.string(), z.unknown()).optional(),
+  })
+  .superRefine((val, ctx) => {
+    if (val.op === 'update' && !val.values) {
+      ctx.addIssue({ code: 'custom', message: '"values" is required when op is "update"', path: ['values'] });
+    }
+  });
+export type BulkRecordJobInput = z.infer<typeof bulkRecordJobSchema>;
 
 export const moveRecordSchema = z
   .object({
