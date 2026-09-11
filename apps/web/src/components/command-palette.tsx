@@ -298,6 +298,11 @@ export function CommandPalette() {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="relative flex items-center gap-2.5 border-b border-border-default px-3.5">
+          {/* #669 — STAYS faint, and both palette icons do. A glyph is a
+              non-text graphic, judged at 3:1, and faint measures 3.44:1 on card
+              — it passes. Each also sits beside real text that carries the
+              meaning (the placeholder here, the heading in the empty state), so
+              darkening them would compete with the words rather than help. */}
           <Search className="h-4 w-4 shrink-0 text-faint" />
           <input
             autoFocus
@@ -329,7 +334,7 @@ export function CommandPalette() {
         <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto p-1.5">
           {showSkeleton && (
             <div className="px-1">
-              <p className="px-2.5 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wider text-faint">Records</p>
+              <p className="px-2.5 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wider text-muted">Records</p>
               {[0, 1, 2, 3].map((n) => (
                 <div key={n} className="flex items-center gap-2.5 px-2.5 py-2">
                   <span className="h-6 w-6 shrink-0 animate-pulse rounded-[var(--radius-control)] bg-hover" />
@@ -353,7 +358,11 @@ export function CommandPalette() {
 
           {!showSkeleton && grouped.map(({ group, items }, gi) => (
             <div key={group} className={cn(gi > 0 && 'mt-1 border-t border-border-default/70 pt-1')}>
-              <p className="px-2.5 pb-0.5 pt-2 text-[11px] font-medium uppercase tracking-wider text-faint">
+              {/* #669 — a group heading is how you parse the result list into
+                  sections; it is not decoration. Kept in step with the skeleton
+                  heading above so the label does not change colour when results
+                  land. */}
+              <p className="px-2.5 pb-0.5 pt-2 text-[11px] font-medium uppercase tracking-wider text-muted">
                 {!searching && group === 'Records' ? 'Recent' : group}
               </p>
               {items.map(({ row, i }) => {
@@ -388,19 +397,23 @@ export function CommandPalette() {
           ))}
         </div>
 
+        {/* #669 — the verbs are the instruction. The row already sits at
+            --text-muted and only these three spans opted down to faint, so the
+            KEY glyphs were legible while the words saying what they do were not,
+            which is the wrong way round. */}
         <div className="flex items-center justify-between border-t border-border-default px-3.5 py-2 text-[11px] text-muted">
           <span className="flex items-center gap-1.5">
             <Kbd>↑</Kbd>
             <Kbd>↓</Kbd>
-            <span className="text-faint">navigate</span>
+            <span>navigate</span>
           </span>
           <span className="flex items-center gap-1.5">
             <Kbd>↵</Kbd>
-            <span className="text-faint">open</span>
+            <span>open</span>
           </span>
           <span className="flex items-center gap-1.5">
             <Kbd>esc</Kbd>
-            <span className="text-faint">close</span>
+            <span>close</span>
           </span>
         </div>
       </div>
