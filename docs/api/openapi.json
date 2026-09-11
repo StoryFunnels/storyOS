@@ -1389,7 +1389,7 @@
             "bearer": []
           }
         ],
-        "summary": "How many live records carry a value for this field",
+        "summary": "What depends on this field — records carrying a value, plus views/automations/formulas referencing it (#681)",
         "tags": [
           "fields"
         ]

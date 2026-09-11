@@ -685,7 +685,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** How many live records carry a value for this field */
+        /** What depends on this field — records carrying a value, plus views/automations/formulas referencing it (#681) */
         get: operations["FieldsController_usage"];
         put?: never;
         post?: never;

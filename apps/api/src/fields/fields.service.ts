@@ -11,8 +11,10 @@ import type {
   CreatableFieldType,
   FilterNode,
   FormulaFieldInfo,
+  FormulaNode,
   FormulaType,
   SystemFieldType,
+  ViewConfig,
 } from '@storyos/schemas';
 import {
   activeFilter,
@@ -31,7 +33,7 @@ import {
 } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { fields, records, relations, selectOptions } from '../db/schema';
+import { automations, fields, records, relations, selectOptions, views } from '../db/schema';
 import { slugify } from '../databases/databases.service';
 import { presentFieldConfig, restoreFieldConfig } from '../common/webhook-headers';
 import { RecordsService } from '../records/records.service';
@@ -99,6 +101,108 @@ function findMeReference(node: FilterNode, ctx: CompilerContext): string | undef
   return usesMe ? node.field : undefined;
 }
 
+/**
+ * #681 — true if a filter tree (view filters, automation conditions: the same
+ * FilterNode AST, leaves keyed by api_name) names this field anywhere. A
+ * detector, not a pruner — the read-time-cleaning sibling of this walk is
+ * `cleanFilterNode` (views.service.ts), which drops rather than reports.
+ */
+function filterReferencesField(node: unknown, apiName: string): boolean {
+  if (!node || typeof node !== 'object') return false;
+  if ('and' in node) return (node as { and: unknown[] }).and.some((c) => filterReferencesField(c, apiName));
+  if ('or' in node) return (node as { or: unknown[] }).or.some((c) => filterReferencesField(c, apiName));
+  return (node as { field?: string }).field === apiName;
+}
+
+/**
+ * #681 — true if a view's config names this field anywhere. Mirrors
+ * `cleanViewConfig`'s (views.service.ts) key-by-key enumeration of every spot
+ * a field can be named, as a detector instead of a pruner — the two should
+ * be kept in sync if a future ticket adds a new field-naming key to either.
+ */
+function viewConfigReferencesField(config: ViewConfig, fieldId: string, apiName: string): boolean {
+  const byId = [
+    config.hidden_field_ids,
+    config.card_field_ids,
+    [config.group_by_field_id, config.color_by_field_id, config.cover_field_id],
+    [config.date_field_id, config.calendar_end_date_field_id, config.start_date_field_id, config.end_date_field_id],
+    [config.baseline_start_date_field_id, config.baseline_end_date_field_id],
+  ]
+    .flat()
+    .filter((id): id is string => Boolean(id));
+  if (byId.includes(fieldId)) return true;
+
+  if (config.filters && filterReferencesField(config.filters, apiName)) return true;
+  if ((config.sorts ?? []).some((s) => s.field === apiName)) return true;
+
+  for (const tile of config.dashboard_tiles ?? []) {
+    if (tile.field_api_name === apiName) return true;
+    if (tile.filter && filterReferencesField(tile.filter, apiName)) return true;
+  }
+  for (const widget of config.dashboard_widgets ?? []) {
+    if (widget.group_by_field_api_name === apiName || widget.measure.field_api_name === apiName) return true;
+    if (widget.filter && filterReferencesField(widget.filter, apiName)) return true;
+  }
+  for (const summary of config.summary_widgets ?? []) {
+    if (summary.field_api_name === apiName || summary.group_by_field_api_name === apiName) return true;
+  }
+  return false;
+}
+
+/**
+ * #681 — true if an automation's trigger, condition, or the id-keyed halves of
+ * its actions name this field. See usageDetail's own doc comment for what is
+ * deliberately NOT covered here (action `values`/interpolation).
+ */
+function automationReferencesField(
+  automation: { trigger: unknown; condition: unknown; actions: unknown },
+  fieldId: string,
+  apiName: string,
+): boolean {
+  const trigger = automation.trigger as { field_id?: string; relation_field_id?: string };
+  if (trigger.field_id === fieldId || trigger.relation_field_id === fieldId) return true;
+
+  if (automation.condition && filterReferencesField(automation.condition, apiName)) return true;
+
+  const actions = (automation.actions as Array<Record<string, unknown>>) ?? [];
+  for (const action of actions) {
+    const idKeys = [
+      action.link_via_relation_field_id,
+      action.relation_field_id,
+      action.target_field_id,
+      (action.upsert as { key_field_id?: string } | undefined)?.key_field_id,
+    ];
+    if (idKeys.includes(fieldId)) return true;
+    const capture = action.capture as Array<{ target_field_id?: string }> | undefined;
+    if (capture?.some((c) => c.target_field_id === fieldId)) return true;
+  }
+  return false;
+}
+
+/**
+ * #681 — true if a formula's ast has a cross-relation `rel` node reading
+ * `{relationApiName.targetApiName}` — the one dependency `formulaRefs` alone
+ * can't surface, since it collects only the relation field's OWN api_name,
+ * not what it points at on the far side (packages/schemas/formula.ts).
+ */
+function formulaNodeHasRelRef(node: FormulaNode, relationApiName: string, targetApiName: string): boolean {
+  switch (node.kind) {
+    case 'rel':
+      return node.relation === relationApiName && node.field === targetApiName;
+    case 'unary':
+      return formulaNodeHasRelRef(node.operand, relationApiName, targetApiName);
+    case 'binary':
+      return (
+        formulaNodeHasRelRef(node.left, relationApiName, targetApiName) ||
+        formulaNodeHasRelRef(node.right, relationApiName, targetApiName)
+      );
+    case 'call':
+      return node.args.some((a) => formulaNodeHasRelRef(a, relationApiName, targetApiName));
+    default:
+      return false;
+  }
+}
+
 @Injectable()
 export class FieldsService {
   constructor(
@@ -147,6 +251,117 @@ export class FieldsService {
         ),
       );
     return row?.count ?? 0;
+  }
+
+  /**
+   * #681 — everything that structurally DEPENDS on a field, the question an
+   * agent needs answered before deleting one: `usageCount` above only says
+   * how many records carry a VALUE, which is silent about a view that
+   * groups by the field, an automation that fires on it, or a formula that
+   * reads it — none of which store a value in `records`, all of which break
+   * (silently, for views; loudly at run time, for automations/formulas) the
+   * moment the field is gone.
+   *
+   * Read-only, no schema change: this correlates data that already exists
+   * (views.config, automations.trigger/condition, formula fields' compiled
+   * ast) rather than introducing a new dependency-tracking store. Two
+   * existing pieces do almost all the work: `cleanViewConfig`
+   * (views.service.ts) already enumerates every config key that can name a
+   * field, since it has to defensively prune dangling ones on every read —
+   * `viewConfigReferencesField` below mirrors that same key list as a
+   * detector instead of a pruner. `formulaRefs` (packages/schemas/formula.ts)
+   * already walks a formula's ast for dependency ordering — reused directly
+   * for same-database refs.
+   *
+   * Automations have no equivalent existing "find dangling refs" pass (a
+   * dangling one just throws at run time today), so the automation walk
+   * here is new, scoped deliberately: trigger.field_id / relation_field_id
+   * (direct), condition (the same FilterNode AST views use, api_name-keyed),
+   * and the id-keyed action fields that name a field structurally. NOT
+   * covered: `set_values`/`values` object keys and `{Field Name}` free-text
+   * interpolation tokens in action strings — those aren't reliably
+   * resolvable to a field id without re-implementing the interpolation
+   * engine, and a false negative here (reporting "safe" when it isn't) is
+   * the actual danger this ticket exists to prevent, not a false positive —
+   * so this is named explicitly rather than silently under-covered.
+   *
+   * Formula coverage includes cross-relation refs: a formula on a DIFFERENT
+   * database can read this field through `{RelationField.ThisField}`
+   * (packages/schemas/formula.ts's `rel` node), which `formulaRefs` alone
+   * can't surface (it returns the relation field's own api_name, not what it
+   * points at). Resolved via the same `relations` row shape
+   * compileFormulaConfig already reads elsewhere in this file.
+   */
+  async usageDetail(databaseId: string, fieldId: string) {
+    const field = await this.getField(databaseId, fieldId);
+    const apiName = field.apiName;
+
+    const [viewRows, automationRows, sameDbFields] = await Promise.all([
+      this.db.query.views.findMany({
+        where: and(eq(views.databaseId, databaseId), isNull(views.deletedAt)),
+      }),
+      this.db.query.automations.findMany({ where: eq(automations.databaseId, databaseId) }),
+      this.db.query.fields.findMany({ where: and(eq(fields.databaseId, databaseId), isNull(fields.deletedAt)) }),
+    ]);
+
+    const referencingViews = viewRows
+      .filter((v) => viewConfigReferencesField(v.config as ViewConfig, fieldId, apiName))
+      .map((v) => ({ id: v.id, name: v.name }));
+
+    const referencingAutomations = automationRows
+      .filter((a) => automationReferencesField(a, fieldId, apiName))
+      .map((a) => ({ id: a.id, name: a.name }));
+
+    const referencingFormulas: Array<{ id: string; display_name: string; database_id: string }> = [];
+    for (const f of sameDbFields) {
+      // Not formulaTypeOf: that resolves what a formula may REFERENCE, and
+      // deliberately returns null for 'formula' itself (its result type is
+      // per-field, from config.result_type) — the opposite of what's needed
+      // here, "is this field itself a formula".
+      if (f.type !== 'formula') continue;
+      const ast = (f.config as { ast?: FormulaNode }).ast;
+      if (ast && formulaRefs(ast).includes(apiName)) {
+        referencingFormulas.push({ id: f.id, display_name: f.displayName, database_id: databaseId });
+      }
+    }
+    // Cross-relation: a formula on a database reached via a relation FROM this
+    // one can name this field as `{RelationField.thisField}` without this
+    // field's api_name ever appearing in formulaRefs' own output (see the
+    // method doc above). `relations` rows are symmetric (A/B), so either side
+    // may be "this database" — the OTHER side is the one whose formulas might
+    // reference back into it.
+    const incomingRelations = await this.db.query.relations.findMany({
+      where: sql`${relations.databaseAId} = ${databaseId} OR ${relations.databaseBId} = ${databaseId}`,
+    });
+    for (const rel of incomingRelations) {
+      const otherDbId = rel.databaseAId === databaseId ? rel.databaseBId : rel.databaseAId;
+      const otherRelationFieldId = rel.databaseAId === databaseId ? rel.fieldBId : rel.fieldAId;
+      const otherRelationField = await this.db.query.fields.findFirst({
+        where: eq(fields.id, otherRelationFieldId),
+      });
+      if (!otherRelationField) continue; // dangling relation-field ref — nothing to walk
+      const otherDbFormulas = await this.db.query.fields.findMany({
+        where: and(eq(fields.databaseId, otherDbId), isNull(fields.deletedAt)),
+      });
+      for (const f of otherDbFormulas) {
+        // Not formulaTypeOf: that resolves what a formula may REFERENCE, and
+      // deliberately returns null for 'formula' itself (its result type is
+      // per-field, from config.result_type) — the opposite of what's needed
+      // here, "is this field itself a formula".
+      if (f.type !== 'formula') continue;
+        const ast = (f.config as { ast?: FormulaNode }).ast;
+        if (ast && formulaNodeHasRelRef(ast, otherRelationField.apiName, apiName)) {
+          referencingFormulas.push({ id: f.id, display_name: f.displayName, database_id: otherDbId });
+        }
+      }
+    }
+
+    return {
+      records_with_value: await this.usageCount(databaseId, fieldId),
+      views: referencingViews,
+      automations: referencingAutomations,
+      formulas: referencingFormulas,
+    };
   }
 
   /**

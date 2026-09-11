@@ -268,10 +268,6 @@ export const DEFERRED: CoverageRule[] = [
       '#406 — rotates a webhook_received rule\'s token + secret, returned in the response body, shown once, never listed again (the same secret-in-a-transcript objection as POST /webhooks above). Do this in-app.',
   },
   {
-    match: /\/fields\/\{field\}\/usage$/,
-    reason: '#406 — how many records carry a value for a field; the number you want before deleting one.',
-  },
-  {
     // #682 — narrowed from `(GET|POST) .../workspaces(/{ws})?`, which also
     // matched the bare `GET /workspaces` (the LIST op) — already reached by
     // `list_workspaces` since before this rule was written. The old, broader
