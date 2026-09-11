@@ -254,6 +254,57 @@ describe('records CRUD (MN-011)', () => {
   });
 });
 
+/**
+ * #613 — :rec only ever accepts a uuid (by-number/:number is the separate
+ * public-number path). A non-uuid string used to reach the database as a
+ * raw `eq(records.id, …)` comparand and come back as a bare 500
+ * (`invalid input syntax for type uuid`), the same class of bug #458 fixed
+ * for the links/buttons routes' :field param.
+ */
+describe('#613: a non-uuid :rec is a 404, never a 500', () => {
+  it('GET/PATCH/DELETE all treat a non-uuid record id as not found', async () => {
+    const make = async (name: string) =>
+      (await app.inject({ method: 'POST', url: base(), headers: authed(admin.token), payload: { values: { name } } })).json();
+    const real = await make('Real record 613');
+
+    for (const [method, payload] of [
+      ['GET', undefined],
+      ['PATCH', { values: { name: 'x' } }],
+      ['DELETE', undefined],
+    ] as const) {
+      // The record's own public NUMBER — a realistic mistake (used the
+      // wrong path segment), not a uuid, and previously the exact
+      // reproduction that 500'd.
+      const res = await app.inject({
+        method,
+        url: `${base()}/${real.number}`,
+        headers: authed(admin.token),
+        payload: payload as never,
+      });
+      expect(res.statusCode, `${method} with a public number instead of a uuid: ${res.body}`).toBe(404);
+    }
+
+    const garbage = await app.inject({ method: 'GET', url: `${base()}/nosuchrecord`, headers: authed(admin.token) });
+    expect(garbage.statusCode, garbage.body).toBe(404);
+  });
+
+  it('MUST KEEP WORKING: a well-formed but unknown uuid is still a 404, and the real uuid still works', async () => {
+    const make = async (name: string) =>
+      (await app.inject({ method: 'POST', url: base(), headers: authed(admin.token), payload: { values: { name } } })).json();
+    const real = await make('Real record 613b');
+
+    const unknown = await app.inject({
+      method: 'GET',
+      url: `${base()}/00000000-0000-4000-8000-000000000000`,
+      headers: authed(admin.token),
+    });
+    expect(unknown.statusCode).toBe(404);
+
+    const found = await app.inject({ method: 'GET', url: `${base()}/${real.id}`, headers: authed(admin.token) });
+    expect(found.statusCode, found.body).toBe(200);
+  });
+});
+
 describe('batch operations (MN-050)', () => {
   it('applies one patch to many records with partial-failure reporting', async () => {
     const make = async (name: string) =>
