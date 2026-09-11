@@ -20,6 +20,7 @@ import type { FormulaNode } from '@storyos/schemas';
 import type { FieldDef, FilterNode } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import { chunk } from '../common/chunk';
+import { looksLikeUuid } from '../common/uuid';
 import { buildRenderContext, renderTypedValue } from '../activity/render-values';
 import { assertOwnedAttachments, loadAttachmentChips, type AttachmentChip } from '../attachments/attachment-values';
 import { AttachmentsService } from '../attachments/attachments.service';
@@ -2766,6 +2767,14 @@ export class RecordsService {
     recordId: string,
     min: EffectiveRole,
   ): Promise<void> {
+    // #613 — :rec only ever accepts a uuid (by-number/:number is the
+    // separate public-number path). Without this, a non-uuid string reached
+    // `eq(records.id, recordId)` below and the driver's own
+    // "invalid input syntax for type uuid" escaped as a bare 500, the same
+    // shape #458 already fixed for the links/buttons routes' :field param —
+    // reusing that fix's helper (common/uuid.ts) rather than a third inline
+    // regex here.
+    if (!looksLikeUuid(recordId)) throw new NotFoundException('Record not found');
     const database = await this.db.query.databases.findFirst({
       where: and(
         eq(databases.id, databaseId),
