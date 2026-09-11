@@ -126,26 +126,52 @@ export function SpaceOntology({
     router.push(`/w/${ws}/d/${databaseId}?field=${fieldId}`);
 
   return (
-    <div className="rounded-[var(--radius-card)] border border-border-default bg-card p-6">
-      <div className="grid grid-cols-[1fr_auto_1fr] grid-rows-[auto_auto_auto] items-center justify-items-center gap-x-6 gap-y-4">
-        <div className="col-start-2 row-start-1 flex flex-col items-center gap-2">
+    /* #687 — `@container`, not a viewport breakpoint. The bug is about the width
+       the diagram ACTUALLY HAS, and the viewport does not know it: collapsing the
+       sidebar changes this card's inline size by 240px, so a media query gets the
+       answer wrong in both directions. A container query asks the only question
+       that matters. */
+    <div className="@container rounded-[var(--radius-card)] border border-border-default bg-card p-6">
+      {/* #687 — THE BREAKPOINT IS DERIVED, NOT CHOSEN. The cross layout's widest
+          possible demand is the centre chip (max-w-56 = 224px) + two gap-x-6
+          (48px) + a chip on each side (max-w-44 = 176px each) = 624px. Below that
+          it CAN overflow, which is the bug: 8 of 31 chips painted outside this
+          card's border at an 820px viewport because `grid-cols-[1fr_auto_1fr]`
+          always reserves three columns whether or not they fit.
+
+          So: single column until 640px of container width, the cross above it.
+          A single column cannot overflow horizontally, and going taller is this
+          design's native behaviour rather than a compromise — #636 chose the
+          chip-list layout over the radial one precisely because "chip lists grow
+          downward and geometry does not".
+
+          Collapsing the four axes costs no meaning. Ievgen ruled on #636 that
+          placement is BALANCE ONLY: the axes carry no information and a reader is
+          not meant to infer anything from position. That is what makes this a
+          legitimate degrade rather than a loss of signal. */}
+      {/* Each axis wrapper is w-full/items-stretch when stacked so all eight group
+          labels share ONE left edge. Without it they are centred grid items and
+          blocks of different widths centre differently — measured 3 distinct left
+          edges (25 / 31 / 57px) before this, which reads as ragged indentation. */}
+      <div className="grid grid-cols-1 justify-items-center gap-y-4 @min-[640px]:grid-cols-[1fr_auto_1fr] @min-[640px]:grid-rows-[auto_auto_auto] @min-[640px]:items-center @min-[640px]:gap-x-6">
+        <div className="order-2 flex w-full flex-col items-stretch gap-2 @min-[640px]:order-none @min-[640px]:col-start-2 @min-[640px]:row-start-1 @min-[640px]:w-auto @min-[640px]:items-center">
           <AxisGroups groups={view.axes.up} onOpen={openRelation} />
           <AxisLine vertical hasContent={view.axes.up.length > 0} />
         </div>
 
-        <div className="col-start-1 row-start-2 flex items-center gap-2 justify-self-end">
+        <div className="order-3 flex w-full items-stretch gap-2 @min-[640px]:order-none @min-[640px]:col-start-1 @min-[640px]:row-start-2 @min-[640px]:w-auto @min-[640px]:items-center @min-[640px]:justify-self-end">
           <AxisGroups groups={view.axes.left} onOpen={openRelation} />
           <AxisLine hasContent={view.axes.left.length > 0} />
         </div>
 
         <CentreChip database={centre} onAdd={() => setAddOpen(true)} />
 
-        <div className="col-start-3 row-start-2 flex items-center gap-2 justify-self-start">
+        <div className="order-4 flex w-full items-stretch gap-2 @min-[640px]:order-none @min-[640px]:col-start-3 @min-[640px]:row-start-2 @min-[640px]:w-auto @min-[640px]:items-center @min-[640px]:justify-self-start">
           <AxisLine hasContent={view.axes.right.length > 0} />
           <AxisGroups groups={view.axes.right} onOpen={openRelation} />
         </div>
 
-        <div className="col-start-2 row-start-3 flex flex-col items-center gap-2">
+        <div className="order-5 flex w-full flex-col items-stretch gap-2 @min-[640px]:order-none @min-[640px]:col-start-2 @min-[640px]:row-start-3 @min-[640px]:w-auto @min-[640px]:items-center">
           <AxisLine vertical hasContent={view.axes.down.length > 0} />
           <AxisGroups groups={view.axes.down} onOpen={openRelation} />
         </div>
@@ -188,7 +214,10 @@ function AxisLine({ vertical, hasContent }: { vertical?: boolean; hasContent: bo
     <span
       aria-hidden
       className={cn(
-        'shrink-0 bg-border-default',
+        /* #687 — hidden in the stacked form. The lines exist to say "there are
+           four directions"; in a single column that is simply not true, and four
+           stray rules would describe a structure the layout no longer has. */
+        'hidden shrink-0 bg-border-default @min-[640px]:block',
         vertical ? 'h-6 w-px' : 'h-px w-6',
         hasContent ? 'opacity-100' : 'opacity-40',
       )}
@@ -204,7 +233,7 @@ function CentreChip({
   onAdd: () => void;
 }) {
   return (
-    <span className="col-start-2 row-start-2 inline-flex max-w-56 items-center gap-2 rounded-[var(--radius-chip)] border border-border-strong bg-app py-1.5 pl-2.5 pr-1.5">
+    <span className="order-1 inline-flex max-w-56 items-center gap-2 rounded-[var(--radius-chip)] border border-border-strong bg-app py-1.5 pl-2.5 pr-1.5 @min-[640px]:order-none @min-[640px]:col-start-2 @min-[640px]:row-start-2">
       <EntityIcon
         icon={database.icon}
         color={database.color}
