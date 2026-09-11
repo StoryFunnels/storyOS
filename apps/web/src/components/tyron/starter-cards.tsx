@@ -102,6 +102,7 @@ export function StarterCards({
   onAsk,
   onBuilt,
   busy,
+  autoOpenBuild,
 }: {
   ws: string;
   ensureThread: (firstMessage: string) => Promise<string>;
@@ -109,12 +110,19 @@ export function StarterCards({
   onAsk: (message: string) => void;
   onBuilt: () => void;
   busy: boolean;
+  /**
+   * #217 — a description already given on `/new-workspace`'s describe-your-work
+   * step. Opens straight to the build card with this text, run without waiting
+   * for a click, instead of showing the four cards to someone who already said
+   * what they wanted one screen ago.
+   */
+  autoOpenBuild?: string;
 }) {
   const [open, setOpen] = useState<string | null>(null);
   const [pasted, setPasted] = useState('');
 
-  if (open === 'build') {
-    return <WorkspaceBuild ws={ws} ensureThread={ensureThread} onBuilt={onBuilt} />;
+  if (open === 'build' || autoOpenBuild) {
+    return <WorkspaceBuild ws={ws} ensureThread={ensureThread} onBuilt={onBuilt} autoStart={autoOpenBuild} />;
   }
 
   if (open === 'paste') {

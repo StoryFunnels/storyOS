@@ -15,6 +15,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { guestInviteHref } from '@/lib/guest-invite';
+import { setPendingBuild } from '@/lib/pending-build';
+import { setPendingShare } from '@/lib/pending-share';
 import { cn } from '@/lib/utils';
 import { PackVisual } from '@/components/pack-visual';
 
@@ -120,6 +122,14 @@ export default function NewWorkspacePage() {
   const router = useRouter();
   const [name, setName] = useState('');
   /**
+   * #217 — Otto's ruling: the AI-build step (#363) is the DEFAULT path, not the
+   * pack picker. "template" is what "template" used to be as the only screen;
+   * it is still reachable, one link away, never removed.
+   */
+  const [mode, setMode] = useState<'describe' | 'template'>('describe');
+  const [description, setDescription] = useState('');
+  const [descriptionError, setDescriptionError] = useState<string | null>(null);
+  /**
    * #351 — NOTHING is pre-selected. `agency-os` used to arrive already marked
    * "✓ Selected", so anyone who scrolled to the button without reading silently
    * accepted a whole workspace template — databases, automations and an agent.
@@ -131,6 +141,7 @@ export default function NewWorkspacePage() {
   const [nameError, setNameError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
+  const descriptionRef = useRef<HTMLTextAreaElement>(null);
 
   const registry = useQuery({
     queryKey: ['packs-registry'],
@@ -166,6 +177,49 @@ export default function NewWorkspacePage() {
     );
     if (installError) throw installError;
     return installData as unknown as PackInstallResult;
+  }
+
+  /**
+   * #217 — the default path. Creates a bare workspace (Tyron's build (#363)
+   * only runs INSIDE a workspace-scoped thread, so there is no way to build
+   * before one exists), hands the description across the redirect via
+   * `setPendingBuild`, and lands in it — the workspace layout and Tyron's
+   * conversation pick the description back up and run the build there, in
+   * Tyron's full-screen state, the same surface `WorkspaceBuild` already uses
+   * for a reshape from inside an existing workspace.
+   */
+  async function onSubmitDescribe(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim()) {
+      setNameError('Give your workspace a name.');
+      nameRef.current?.focus();
+      return;
+    }
+    if (!description.trim()) {
+      setDescriptionError('Tell me what you do — one sentence is enough.');
+      descriptionRef.current?.focus();
+      return;
+    }
+    setNameError(null);
+    setDescriptionError(null);
+    setBusy(true);
+    setError(null);
+    const { data, error: apiError } = await api.POST('/api/v1/workspaces', {
+      body: { name },
+    });
+    if (apiError) {
+      setBusy(false);
+      setError(isErrorEnvelope(apiError) ? apiError.error.message : 'Could not create workspace');
+      return;
+    }
+    const wsId = (data as { id: string }).id;
+    posthog.capture('workspace_created', {
+      has_pack: false,
+      onboarding_path: 'ai_build',
+    });
+    setPendingBuild(wsId, description.trim());
+    setPendingShare(wsId);
+    router.replace(`/w/${wsId}`);
   }
 
   async function onSubmit(e: React.FormEvent) {
@@ -239,9 +293,103 @@ export default function NewWorkspacePage() {
     }
   }
 
+  if (mode === 'describe') {
+    return (
+      <AuthCard title="Create your workspace" wide>
+        <form onSubmit={onSubmitDescribe} noValidate className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="name">Workspace name</Label>
+            <Input
+              id="name"
+              ref={nameRef}
+              autoFocus
+              aria-invalid={nameError ? true : undefined}
+              aria-describedby={nameError ? 'name-error' : undefined}
+              placeholder="e.g. JCM Agency"
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                if (nameError) setNameError(null);
+              }}
+            />
+            {nameError && (
+              <p id="name-error" className="text-[12px] text-error">
+                {nameError}
+              </p>
+            )}
+          </div>
+
+          {/*
+           * #217 — the front door. Otto's ruling: the AI build REPLACES the
+           * pack picker as the default, not "seeds from a pack behind the
+           * scenes" and not "runs after it" — a picker asks someone to choose
+           * among our catalogue before they've said anything about their own
+           * work, and #363 already ships the thing that asks the one
+           * question they CAN answer. Same copy as `WorkspaceBuild`'s own
+           * card, since this is the same feature reached one step earlier.
+           */}
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="description">What do you do?</Label>
+            <p className="text-[12px] text-muted">
+              One sentence is enough. I&rsquo;ll set up databases that fit, connect them, and add
+              the views worth having — you can reshape anything afterwards.
+            </p>
+            <textarea
+              id="description"
+              ref={descriptionRef}
+              rows={3}
+              aria-invalid={descriptionError ? true : undefined}
+              aria-describedby={descriptionError ? 'description-error' : undefined}
+              placeholder="We run a small design studio — client projects, invoices, and a content calendar."
+              value={description}
+              onChange={(e) => {
+                setDescription(e.target.value);
+                if (descriptionError) setDescriptionError(null);
+              }}
+              className="w-full resize-none rounded-[var(--radius-control)] border border-border-default bg-card px-2.5 py-1.5 text-[13px] text-ink placeholder:text-faint focus:border-[var(--accent)] focus:outline-none"
+            />
+            {descriptionError && (
+              <p id="description-error" className="text-[12px] text-error">
+                {descriptionError}
+              </p>
+            )}
+          </div>
+
+          {error && <p className="text-[13px] text-error">{error}</p>}
+
+          <div className="sticky bottom-0 -mx-1 bg-card px-1 pb-1 pt-2">
+            <Button type="submit" className="w-full" disabled={busy}>
+              {busy ? 'Setting things up…' : 'Build my workspace'}
+            </Button>
+          </div>
+
+          {/*
+           * #217/#351 — demoted, not removed. The picker still exists for
+           * anyone who would rather start from a known shape than describe
+           * one; it is one link away instead of the only door.
+           */}
+          <button
+            type="button"
+            onClick={() => setMode('template')}
+            className="text-center text-[12px] text-muted underline-offset-2 hover:text-ink hover:underline"
+          >
+            Start from a template instead
+          </button>
+        </form>
+      </AuthCard>
+    );
+  }
+
   return (
     <AuthCard title="Create your workspace" wide>
       <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
+        <button
+          type="button"
+          onClick={() => setMode('describe')}
+          className="self-start text-[12px] text-muted underline-offset-2 hover:text-ink hover:underline"
+        >
+          ← Back
+        </button>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="name">Workspace name</Label>
           <Input
