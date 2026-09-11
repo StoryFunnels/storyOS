@@ -65,6 +65,32 @@ comments and mentions from those platforms into a database on the same schedule 
 source. **This is ingest only** — it brings activity in; it does not post, reply, or otherwise
 write back to the platform.
 
+### Social engagement: what each platform actually allows
+
+All three run on the generic **HTTP bearer connection** — none has a dedicated OAuth connect flow
+yet, so setting one up means pasting a token you minted yourself in that platform's own developer
+tools, not clicking a "Connect" button. What each one can actually see differs a lot:
+
+- **Meta (Facebook Page + Instagram)** is the most complete of the three. One source tracks one
+  Page's token; add the paired Instagram Business Account id to also pull IG comments. Facebook
+  page comments nest as real replies (`parent_external_id` set); **Instagram's comments don't** —
+  its API returns a flat list with no reply structure, so an IG reply lands as an ordinary comment.
+  Facebook also has no stable author handle (Meta's API returns a numeric id and a name, never a
+  handle); Instagram's does.
+- **X (Twitter)** only sees **mentions**, not comments/replies on your own posts — there's no
+  comment concept in this feed, just "who mentioned this account." **Volume and lookback are
+  whatever the connected account's own X API plan allows** — this source does not, and cannot,
+  work around a restrictive tier. A free or basic X plan will see a lot less than a paid one, and
+  that's the platform's limit, not a StoryOS one.
+- **LinkedIn is the weakest of the three, deliberately shipped last**, and stays **off by default**
+  on self-hosted and hosted alike until an operator's LinkedIn app clears Partner Program review
+  for the `r_organization_social` scope — it doesn't even appear in the "Sync from…" picker until
+  then. Once enabled: **post URNs aren't discovered automatically** — you paste in which
+  `urn:li:share:...`/`urn:li:ugcPost:...` posts to watch, one per line. LinkedIn's API returns
+  **no author name or handle at all** (only an actor URN — resolving that to a real name is a
+  separate lookup this source doesn't make) and **no per-comment permalink**, so a LinkedIn entry
+  is the least identifiable of the three by design of LinkedIn's own API, not an oversight here.
+
 ## Two-way sync: writing back to the provider
 
 A source can also push your edits **out** to the provider, not just pull its data in — a field
