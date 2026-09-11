@@ -19,6 +19,7 @@ import {
   batchRecordIdsSchema,
   batchUpdateRecordsSchema,
   batchUpdateUndoSchema,
+  bulkRecordJobSchema,
   createRecordSchema,
   createRecordsBatchSchema,
   moveRecordSchema,
@@ -33,6 +34,7 @@ import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { DatabasesService } from '../databases/databases.service';
 import { RecordsService } from './records.service';
+import { BulkRecordJobsService } from './bulk-record-jobs.service';
 
 class CreateRecordDto extends createZodDto(createRecordSchema) {}
 class CreateRecordsBatchDto extends createZodDto(createRecordsBatchSchema) {}
@@ -41,6 +43,7 @@ class UpsertRecordDto extends createZodDto(upsertRecordSchema) {}
 class BatchUpdateRecordsDto extends createZodDto(batchUpdateRecordsSchema) {}
 class BatchRecordIdsDto extends createZodDto(batchRecordIdsSchema) {}
 class BatchUpdateUndoDto extends createZodDto(batchUpdateUndoSchema) {}
+class BulkRecordJobDto extends createZodDto(bulkRecordJobSchema) {}
 class QueryRecordsDto extends createZodDto(queryRecordsSchema) {}
 class AggregateRecordsDto extends createZodDto(aggregateRecordsSchema) {}
 class MoveRecordDto extends createZodDto(moveRecordSchema) {}
@@ -60,6 +63,7 @@ export class RecordsController {
   constructor(
     private readonly recordsService: RecordsService,
     private readonly databases: DatabasesService,
+    private readonly bulkJobs: BulkRecordJobsService,
   ) {}
 
   /** Access-checked (ADR-0007): 404 without a grant, 403 below min. */
@@ -216,6 +220,42 @@ export class RecordsController {
       req.user.id,
       req.auth?.source ?? 'human',
     );
+  }
+
+  /**
+   * #694 — for a selection above batch/batch-delete's synchronous 5000-row
+   * cap. Runs as a durable, chunked, resumable job instead of one request;
+   * poll GET .../batch-jobs/:id for progress. The synchronous endpoints
+   * above are unaffected and remain the right choice under the cap.
+   */
+  @Post('batch-jobs')
+  @ApiOperation({ summary: '#694 — enqueue a durable bulk update/delete job (poll via GET .../batch-jobs/:id)' })
+  async enqueueBulkJob(
+    @Req() req: WorkspaceRequest,
+    @Param('db') databaseId: string,
+    @Body() body: BulkRecordJobDto,
+  ) {
+    await this.assertDb(req, databaseId, body.op === 'delete' ? 'editor' : 'contributor');
+    return this.bulkJobs.enqueue(
+      req.membership.workspaceId,
+      databaseId,
+      body.op,
+      body.record_ids,
+      body.values,
+      req.user.id,
+      req.auth?.source ?? 'human',
+    );
+  }
+
+  @Get('batch-jobs/:id')
+  @ApiOperation({ summary: "#694 — poll a bulk record job's status and progress" })
+  async getBulkJob(
+    @Req() req: WorkspaceRequest,
+    @Param('db') databaseId: string,
+    @Param('id') id: string,
+  ) {
+    await this.assertDb(req, databaseId);
+    return this.bulkJobs.get(req.membership.workspaceId, id);
   }
 
   @Post('batch-delete')

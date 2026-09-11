@@ -1712,6 +1712,68 @@ export const automationJobs = pgTable(
 );
 
 /**
+ * #694 — durable bulk record operations (update/delete), the remaining half
+ * of #653's chunking AC that #653 itself explicitly did not build.
+ * Deliberately NOT routed through `automationJobs`/`JobRunnerService`: that
+ * table models "call one registered executor for one automation action" (a
+ * `kind` string dispatching to a function), whereas a bulk op is "apply the
+ * SAME operation to N record ids, in chunks, tracking exactly which have
+ * been attempted" — a different shape that would have forced payload/
+ * status semantics onto a table that already means something specific.
+ * Confirmed via #694's own research this needed a genuine new mechanism,
+ * not a reuse.
+ *
+ * `cursor` is the resumability guarantee AC #3 asks for: it's the count of
+ * `recordIds` already attempted (success or failure, both recorded before
+ * the cursor advances), persisted after EVERY chunk — not just at the end —
+ * so a process that dies mid-run leaves an accurate stopping point for the
+ * next tick to resume from, rather than relying on retries being idempotent
+ * (the weaker guarantee #653's own synchronous endpoints settled for).
+ */
+export const bulkRecordJobs = pgTable(
+  'bulk_record_jobs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    databaseId: uuid('database_id')
+      .notNull()
+      .references(() => databases.id, { onDelete: 'cascade' }),
+    actorId: text('actor_id').notNull(),
+    source: text('source').notNull().default('human'),
+    op: text('op').notNull(), // 'update' | 'delete'
+    /** Frozen at enqueue — the exact set this job will process, in order. */
+    recordIds: jsonb('record_ids').notNull(),
+    /** Only for op = 'update'. */
+    values: jsonb('values'),
+    /** How many of recordIds have been ATTEMPTED so far (success or failure) —
+     *  the resumability cursor, not just a progress display number. */
+    cursor: integer('cursor').notNull().default(0),
+    succeeded: integer('succeeded').notNull().default(0),
+    /** Array<{record_id, message}> — never lost when the job keeps going after
+     *  a chunk partially fails (#653/#686's own "never silent partial
+     *  completion" bar, extended to a durable job). */
+    failed: jsonb('failed').notNull().default([]),
+    /** Array<{record_id, version_id}> — only for op = 'update'; the same
+     *  shape #653's synchronous batchUpdate already returns, so undo works
+     *  identically whether the edit ran synchronously or as a job. */
+    restorable: jsonb('restorable').notNull().default([]),
+    /** queued | running | succeeded | partially_failed | failed */
+    status: text('status').notNull().default('queued'),
+    /** Set when claimed; the reaper reverts a job stuck 'running' past its
+     *  budget back to 'queued' so an API restart never strands it mid-run —
+     *  same convention as automationJobs.startedAt. */
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    index('bulk_record_jobs_claim_idx').on(t.status),
+    index('bulk_record_jobs_database_idx').on(t.databaseId),
+  ],
+);
+
+/**
  * MN-255 — the approval gate. A `require_approval` action stops here instead
  * of running: `actionSnapshot` is the FULLY RENDERED action (every {Field}/
  * {payload} token already interpolated, at request time — see

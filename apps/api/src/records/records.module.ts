@@ -11,6 +11,7 @@ import { RecordsService } from './records.service';
 import { RollupInvalidationSubscriber } from './rollup-invalidation.subscriber';
 import { PositionRepairSubscriber } from './position-repair.subscriber';
 import { WatcherEmailService } from './watcher-email.service';
+import { BulkRecordJobsService } from './bulk-record-jobs.service';
 
 @Module({
   // #31: BillingModule provides EntitlementsService, which RecordsService needs
@@ -29,7 +30,7 @@ import { WatcherEmailService } from './watcher-email.service';
     forwardRef(() => AttachmentsModule),
   ],
   controllers: [RecordsController],
-  providers: [RecordsService, RollupInvalidationSubscriber, PositionRepairSubscriber, WatcherEmailService],
-  exports: [RecordsService],
+  providers: [RecordsService, RollupInvalidationSubscriber, PositionRepairSubscriber, WatcherEmailService, BulkRecordJobsService],
+  exports: [RecordsService, BulkRecordJobsService],
 })
 export class RecordsModule {}

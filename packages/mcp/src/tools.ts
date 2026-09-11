@@ -836,6 +836,7 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   create_records: 'write',
   update_records: 'write',
   undo_batch_update: 'write',
+  enqueue_bulk_record_job: 'write',
 };
 
 /** Tools gated by run_button on top of write scope (MN-134). */
@@ -2887,6 +2888,64 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         client.POST('/api/v1/workspaces/{ws}/databases/{db}/records/batch-update-undo', {
           params: { path: { ws: ws.id, db: db.id } } as never,
           body: { restorable } as never,
+        }),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'enqueue_bulk_record_job',
+    {
+      title: 'Enqueue a durable bulk record job (#694)',
+      description:
+        'For a selection bigger than update_records/delete_records can take in one call (over 5000 ids): runs as a durable, chunked, resumable background job instead of one request. Returns immediately with a job id — poll get_bulk_record_job with it to see progress. Prefer update_records/delete_records for anything under 5000 ids; they answer in one call.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        op: z.enum(['update', 'delete']),
+        record_ids: z.array(z.string()).min(1).max(50_000),
+        values: z.record(z.string(), z.any()).optional().describe('Required when op is "update"; omit for "delete".'),
+      },
+    },
+    handle<{
+      workspace: string;
+      database: string;
+      op: 'update' | 'delete';
+      record_ids: string[];
+      values?: Record<string, unknown>;
+    }>(async ({ workspace, database, op, record_ids, values }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const detail = await getDetail(ws.id, db.id);
+      const res = await unwrap<unknown>(
+        client.POST('/api/v1/workspaces/{ws}/databases/{db}/records/batch-jobs', {
+          params: { path: { ws: ws.id, db: db.id } } as never,
+          body: { op, record_ids, values: values ? mapWriteValues(detail, values) : undefined } as never,
+        }),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'get_bulk_record_job',
+    {
+      title: 'Poll a bulk record job (#694)',
+      description:
+        'Status and progress for a job from enqueue_bulk_record_job — total/processed/succeeded, any per-record failures, and (for an update job) the restorable list for undo_batch_update once it settles.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        job_id: z.string(),
+      },
+    },
+    handle<{ workspace: string; database: string; job_id: string }>(async ({ workspace, database, job_id }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/databases/{db}/records/batch-jobs/{id}', {
+          params: { path: { ws: ws.id, db: db.id, id: job_id } } as never,
         }),
       );
       return text(res);

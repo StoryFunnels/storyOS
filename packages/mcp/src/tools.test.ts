@@ -2095,6 +2095,49 @@ describe('view-scoped queries and bulk building (#332, #394)', () => {
       expect(JSON.stringify(patch.body)).toContain('opt-todo');
     });
   });
+
+  /** #694 — the enqueue/poll pair for a bulk record job. */
+  describe('enqueue_bulk_record_job / get_bulk_record_job', () => {
+    it('enqueue_bulk_record_job posts op/record_ids/values to the batch-jobs route', async () => {
+      const { call, sent } = harness();
+      await call('enqueue_bulk_record_job', {
+        workspace: 'Eng',
+        database: 'Voices',
+        op: 'update',
+        record_ids: ['r1', 'r2'],
+        values: { state: 'To Do' },
+      });
+      const posted = sent.find((s) => s.method === 'POST' && s.path.endsWith('/records/batch-jobs'))!;
+      expect(posted.body).toMatchObject({ op: 'update', record_ids: ['r1', 'r2'] });
+      expect(JSON.stringify(posted.body)).toContain('opt-todo');
+    });
+
+    it('get_bulk_record_job fetches the job by id from the poll route', async () => {
+      const sent: Sent[] = [];
+      const client = {
+        GET: async (path: string) => {
+          if (path === '/api/v1/workspaces') return { data: [{ id: 'ws-1', name: 'Eng' }] };
+          if (path === '/api/v1/workspaces/{ws}/databases') return { data: [dbDetail] };
+          if (path === '/api/v1/workspaces/{ws}/databases/{db}') return { data: dbDetail };
+          if (path === '/api/v1/workspaces/{ws}/databases/{db}/records/batch-jobs/{id}') {
+            sent.push({ method: 'GET', path });
+            return { data: { id: 'job-1', status: 'succeeded', total: 2, processed: 2, succeeded: 2, failed: [], restorable: [] } };
+          }
+          throw new Error(`unexpected GET ${path}`);
+        },
+        POST: async () => ({ data: { ok: true } }),
+        PATCH: async () => ({ data: { ok: true } }),
+      };
+      const handlers = new Map<string, (a: unknown) => Promise<{ content: Array<{ type: string; text: string }> }>>();
+      registerTools(
+        { registerTool: (n: string, _c: unknown, h: never) => void handlers.set(n, h as never) } as never,
+        { client: client as never, baseUrl: 'http://test', token: 'tok' } as Ctx,
+      );
+      const result = await handlers.get('get_bulk_record_job')!({ workspace: 'Eng', database: 'Voices', job_id: 'job-1' });
+      expect(sent).toHaveLength(1);
+      expect(JSON.parse(result.content[0]!.text)).toMatchObject({ id: 'job-1', status: 'succeeded' });
+    });
+  });
 });
 
 /**

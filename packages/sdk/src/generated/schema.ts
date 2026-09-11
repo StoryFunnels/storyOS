@@ -851,6 +851,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/databases/{db}/records/batch-jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** #694 — enqueue a durable bulk update/delete job (poll via GET .../batch-jobs/:id) */
+        post: operations["RecordsController_enqueueBulkJob"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/records/batch-jobs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** #694 — poll a bulk record job's status and progress */
+        get: operations["RecordsController_getBulkJob"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/databases/{db}/records/batch-delete": {
         parameters: {
             query?: never;
@@ -4461,6 +4495,14 @@ export interface components {
                 version_id: string;
             }[];
         };
+        BulkRecordJobDto: {
+            /** @enum {string} */
+            op: "update" | "delete";
+            record_ids: string[];
+            values?: {
+                [key: string]: unknown;
+            };
+        };
         BatchRecordIdsDto: {
             record_ids: string[];
         };
@@ -7270,6 +7312,49 @@ export interface operations {
         };
         responses: {
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RecordsController_enqueueBulkJob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkRecordJobDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RecordsController_getBulkJob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
