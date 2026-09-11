@@ -281,6 +281,12 @@ export function cleanViewConfig(
         (w.field_api_name == null || liveApiNames.has(w.field_api_name)) &&
         (w.group_by_field_api_name == null || liveApiNames.has(w.group_by_field_api_name)),
     ),
+    // #233 — table hierarchy: dropped only when the named field is gone
+    // (#305's rule), same as group_by_field_id/color_by_field_id above.
+    hierarchy_field_id:
+      config.hierarchy_field_id && liveFieldIds.has(config.hierarchy_field_id)
+        ? config.hierarchy_field_id
+        : undefined,
     column_widths: Object.fromEntries(
       Object.entries(config.column_widths ?? {}).filter(([id]) => liveFieldIds.has(id)),
     ),
